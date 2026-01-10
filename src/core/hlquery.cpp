@@ -24,3 +24,9 @@ hlquery::hlquery(int argc, char** argv)
         Config = std::make_unique<ServerConfig>(argc, argv);
         ParseArgs();
 }
+
+
+HLManager::AdvancedRocksDBEngine* hlquery::GetDatabase() const {
+    return Database.get();
+}
+
