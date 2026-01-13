@@ -9,10 +9,6 @@
 #include "utils/consolewriter.h"
 
 
-
-
-
-
 /* ANSI color codes*/
 const std::string ConsoleWriter::COLOR_GREEN = "\033[32m";
 const std::string ConsoleWriter::COLOR_RED = "\033[31m";
