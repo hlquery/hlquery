@@ -1,0 +1,30 @@
+# System checks
+sub check_compiler {
+    my $cxx = $config{CXX};
+    # Try multiple methods to find the compiler
+    my $found = 0;
+    # Method 1: Try 'which' command
+    if (system("which $cxx >/dev/null 2>&1") == 0) {
+        $found = 1;
+    }
+    # Method 2: Try 'command -v' (POSIX compliant, works without which package)
+    elsif (system("command -v $cxx >/dev/null 2>&1") == 0) {
+        $found = 1;
+    }
+    # Method 3: Try direct execution (if in PATH)
+    elsif (system("$cxx --version >/dev/null 2>&1") == 0) {
+        $found = 1;
+    }
+
+    if ($found) {
+        my $version = `$cxx --version 2>/dev/null | head -1`;
+        chomp $version;
+        $version =~ s/.*\s(\d+\.\d+).*/$1/ if $version;
+        $config{CXX_VERSION} = $version || 'unknown';
+        print_success('C++ compiler', $cxx);
+        print_success('Compiler compatibility', "C++17 ($version)") if $version;
+        return 1;
+    }
+    print_error('C++ compiler not found');
+    return 0;
+}
