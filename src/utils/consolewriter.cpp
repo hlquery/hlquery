@@ -1,3 +1,14 @@
+/*
+ * hlquery - Search beyond keywords.
+ * http://www.hlquery.com
+ *
+ * Copyright (C) 2021-2026, Carlos F. Ferry <carlos.ferry@gmail.com>
+ *
+ * This file is part of hlquery, released under the BSD License version 3.
+ * You are free to redistribute and/or modify this software
+ * under the terms of the BSD License.
+ * For more details, please visit: https://docs.hlquery.com
+ */
 
 #include <iomanip>
 #include <iostream>
@@ -8,492 +19,851 @@
 #include "core/hlquery.h"
 #include "utils/consolewriter.h"
 
+/* ANSI color codes */
 
-/* ANSI color codes*/
-const std::string ConsoleWriter::COLOR_GREEN = "\033[32m";
-const std::string ConsoleWriter::COLOR_RED = "\033[31m";
-const std::string ConsoleWriter::COLOR_YELLOW = "\033[33m";
-const std::string ConsoleWriter::COLOR_BLUE = "\033[34m";
-const std::string ConsoleWriter::COLOR_CYAN = "\033[36m";
-const std::string ConsoleWriter::COLOR_BLACK = "\033[30m";
-const std::string ConsoleWriter::COLOR_WHITE = "\033[37m";
-const std::string ConsoleWriter::COLOR_BOLD = "\033[1m";
-const std::string ConsoleWriter::COLOR_RESET = "\033[0m";
+const std::string ConsoleWriter::ColorGreen = "\033[32m";
+const std::string ConsoleWriter::ColorRed = "\033[31m";
+const std::string ConsoleWriter::ColorYellow = "\033[33m";
+const std::string ConsoleWriter::ColorBlue = "\033[34m";
+const std::string ConsoleWriter::ColorCyan = "\033[36m";
+const std::string ConsoleWriter::ColorBlack = "\033[30m";
+const std::string ConsoleWriter::ColorWhite = "\033[37m";
+const std::string ConsoleWriter::ColorBold = "\033[1m";
+const std::string ConsoleWriter::ColorReset = "\033[0m";
 
-/* Bright variants for enhanced visibility*/
-const std::string ConsoleWriter::COLOR_BRIGHT_GREEN = "\033[92m";
-const std::string ConsoleWriter::COLOR_BRIGHT_RED = "\033[91m";
-const std::string ConsoleWriter::COLOR_BRIGHT_YELLOW = "\033[93m";
-const std::string ConsoleWriter::COLOR_BRIGHT_BLUE = "\033[94m";
-const std::string ConsoleWriter::COLOR_BRIGHT_CYAN = "\033[96m";
-const std::string ConsoleWriter::COLOR_BRIGHT_MAGENTA = "\033[95m";
+/* Bright variants for enhanced visibility */
+
+const std::string ConsoleWriter::ColorBrightGreen = "\033[92m";
+const std::string ConsoleWriter::ColorBrightRed = "\033[91m";
+const std::string ConsoleWriter::ColorBrightYellow = "\033[93m";
+const std::string ConsoleWriter::ColorBrightBlue = "\033[94m";
+const std::string ConsoleWriter::ColorBrightCyan = "\033[96m";
+const std::string ConsoleWriter::ColorBrightMagenta = "\033[95m";
+
+/* Comment goes here */
 
 bool ConsoleWriter::SupportsColor()
 {
-        /* Always support colors for consistent output*/
-        return true;
+    /* Always support colors for consistent output */
+
+    return true;
 }
 
-std::string ConsoleWriter::FormatMessage(const std::string& message, const std::string& status)
-{
-        std::ostringstream oss;
+/* Comment goes here */
 
-        if (SupportsColor())
+std::string ConsoleWriter::FormatMessage(const std::string& Message, const std::string& Status)
+{
+    std::ostringstream Oss;
+
+    std::string Final = EnsurePeriod(Message);
+
+    if (SupportsColor())
+    {
+        /* Create colored status with black brackets and colored text */
+
+        if (Status == "OK") 
         {
-                /* Create colored status with black brackets and colored text*/
-                if (status == "OK") {
-                        oss << COLOR_BLACK << "[" << COLOR_RESET << " " << COLOR_BRIGHT_GREEN << "OK" << COLOR_RESET << " " << COLOR_BLACK << "]" << COLOR_RESET << " " << message;
-                } else if (status == "INFO") {
-                        oss << COLOR_BLACK << "[" << COLOR_RESET << " " << COLOR_BRIGHT_BLUE << "INFO" << COLOR_RESET << " " << COLOR_BLACK << "]" << COLOR_RESET << " " << message;
-                } else if (status == "WARN") {
-                        oss << COLOR_BLACK << "[" << COLOR_RESET << " " << COLOR_BRIGHT_RED << "WARNING" << COLOR_RESET << " " << COLOR_BLACK << "]" << COLOR_RESET << " " << message;
-                } else {
-                        oss << COLOR_BLACK << "[" << COLOR_RESET << " " << COLOR_BRIGHT_RED << "ERROR" << COLOR_RESET << " " << COLOR_BLACK << "]" << COLOR_RESET << " " << message;
-                }
+            Oss << ColorBlack << "[" << ColorReset << " " << ColorBrightGreen << "OK" << ColorReset << " " << ColorBlack << "]" << ColorReset << " " << Final;
+        } 
+        else if (Status == "INFO") 
+        {
+            Oss << ColorBlack << "[" << ColorReset << " " << ColorBrightBlue << "INFO" << ColorReset << " " << ColorBlack << "]" << ColorReset << " " << Final;
+        } 
+        else if (Status == "WARN") 
+        {
+            Oss << ColorBlack << "[" << ColorReset << " " << ColorBrightRed << "WARNING" << ColorReset << " " << ColorBlack << "]" << ColorReset << " " << Final;
+        } 
+        else 
+        {
+            Oss << ColorBlack << "[" << ColorReset << " " << ColorBrightRed << "ERROR" << ColorReset << " " << ColorBlack << "]" << ColorReset << " " << Final;
+        }
+    }
+    else
+    {
+        Oss << "[" << Status << "] " << Final;
+    }
+
+    return Oss.str();
+}
+
+/* Comment goes here */
+
+void ConsoleWriter::WriteStartup(const std::string& Message, bool Success)
+{
+    std::string Final = EnsurePeriod(Message);
+
+    if (SupportsColor())
+    {
+        if (Success)
+        {
+            std::cout << ColorBlack << "[" << ColorReset << " " << ColorBrightGreen << "OK" << ColorReset << " " << ColorBlack << "]" << ColorReset << " " << Final
+                      << std::endl;
         }
         else
         {
-                oss << "[" << status << "] " << message;
+            std::cout << ColorBlack << "[" << ColorReset << " " << ColorBrightRed << "FAIL" << ColorReset << " " << ColorBlack << "]" << ColorReset << " " << Final
+                      << std::endl;
         }
-
-        return oss.str();
+    }
+    else
+    {
+        std::cout << "[ OK ] " << Final << std::endl;
+    }
 }
 
-void ConsoleWriter::WriteStartup(const std::string& message, bool success)
+/* Comment goes here */
+
+void ConsoleWriter::WriteConfig(const std::string& Message, bool Success)
 {
-        // Print [ OK ] messages in BOTH nofork and background modes
-        // These messages should appear identically in both modes
-        if (SupportsColor())
+    /* Print CONFIG messages in BOTH nofork and background modes */
+
+    std::string Final = EnsurePeriod(Message);
+
+    if (SupportsColor())
+    {
+        if (Success)
         {
-                if (success)
-                {
-                        std::cout << COLOR_BLACK << "[" << COLOR_RESET << " " << COLOR_BRIGHT_GREEN << "OK" << COLOR_RESET << " " << COLOR_BLACK << "]" << COLOR_RESET << " " << message
-                                  << std::endl;
-                }
-                else
-                {
-                        std::cout << COLOR_BLACK << "[" << COLOR_RESET << " " << COLOR_BRIGHT_RED << "FAIL" << COLOR_RESET << " " << COLOR_BLACK << "]" << COLOR_RESET << " " << message
-                                  << std::endl;
-                }
+            std::cout << ColorBrightBlue << "[LOAD]" << ColorReset << " " << Final
+                      << std::endl;
         }
         else
         {
-                std::cout << "[ OK ] " << message << std::endl;
+            std::cout << ColorBrightRed << "[FAIL]" << ColorReset << " " << Final
+                      << std::endl;
         }
+    }
+    else
+    {
+        std::cout << "[" << (Success ? "LOAD" : "FAIL") << "] " << Final << std::endl;
+    }
 }
 
-void ConsoleWriter::WriteConfig(const std::string& message, bool success)
+/* Comment goes here */
+
+void ConsoleWriter::WriteInfo(const std::string& Message)
 {
-        // Print CONFIG messages in BOTH nofork and background modes
-        if (SupportsColor())
-        {
-                if (success)
-                {
-                        std::cout << COLOR_BRIGHT_BLUE << "[LOAD]" << COLOR_RESET << " " << message
-                                  << std::endl;
-                }
-                else
-                {
-                        std::cout << COLOR_BRIGHT_RED << "[FAIL]" << COLOR_RESET << " " << message
-                                  << std::endl;
-                }
-        }
-        else
-        {
-                std::cout << "[" << (success ? "LOAD" : "FAIL") << "] " << message << std::endl;
-        }
+    /* Print INFO messages in BOTH nofork and background modes */
+
+    std::string Final = EnsurePeriod(Message);
+
+    if (SupportsColor())
+    {
+        std::cout << ColorBrightBlue << "[INFO]" << ColorReset << " " << Final << std::endl;
+    }
+    else
+    {
+        std::cout << "[INFO] " << Final << std::endl;
+    }
 }
 
-void ConsoleWriter::WriteInfo(const std::string& message)
+/* Comment goes here */
+
+void ConsoleWriter::WriteError(const std::string& Message)
 {
-        // Print INFO messages in BOTH nofork and background modes
-        if (SupportsColor())
-        {
-                std::cout << COLOR_BRIGHT_BLUE << "[INFO]" << COLOR_RESET << " " << message << std::endl;
-        }
-        else
-        {
-                std::cout << "[INFO] " << message << std::endl;
-        }
+    /* Print ERROR messages in BOTH nofork and background modes */
+
+    std::string Final = EnsurePeriod(Message);
+
+    if (SupportsColor())
+    {
+        std::cerr << ColorBrightRed << "[ERROR]" << ColorReset << " " << ColorRed << Final << ColorReset
+                  << std::endl;
+    }
+    else
+    {
+        std::cerr << "[ERROR] " << Final << std::endl;
+    }
 }
 
-void ConsoleWriter::WriteError(const std::string& message)
+/* Comment goes here */
+
+void ConsoleWriter::WriteWarning(const std::string& Message)
 {
-        // Print ERROR messages in BOTH nofork and background modes
-        if (SupportsColor())
-        {
-                std::cerr << COLOR_BRIGHT_RED << "[ERROR]" << COLOR_RESET << " " << COLOR_RED << message << COLOR_RESET
-                          << std::endl;
-        }
-        else
-        {
-                std::cerr << "[ERROR] " << message << std::endl;
-        }
+    /* Print WARNING messages in BOTH nofork and background modes */
+
+    std::string Final = EnsurePeriod(Message);
+
+    if (SupportsColor())
+    {
+        std::cout << ColorBlack << "[" << ColorReset << " " << ColorBrightRed << "WARNING" << ColorReset << " " << ColorBlack << "]" << ColorReset << " " << ColorYellow << Final << ColorReset
+                  << std::endl;
+    }
+    else
+    {
+        std::cout << "[ WARNING ] " << Final << std::endl;
+    }
 }
 
-void ConsoleWriter::WriteWarning(const std::string& message)
-{
-        // Print WARNING messages in BOTH nofork and background modes
-        if (SupportsColor())
-        {
-                std::cout << COLOR_BLACK << "[" << COLOR_RESET << " " << COLOR_BRIGHT_RED << "WARNING" << COLOR_RESET << " " << COLOR_BLACK << "]" << COLOR_RESET << " " << COLOR_YELLOW << message << COLOR_RESET
-                          << std::endl;
-        }
-        else
-        {
-                std::cout << "[ WARNING ] " << message << std::endl;
-        }
-}
+/* Comment goes here */
 
-void ConsoleWriter::WriteDebug(const std::string& message)
+void ConsoleWriter::WriteDebug(const std::string& Message)
 {
-        // Daemon mode removed - always write to stderr in nofork mode
-        // Debug messages can also go through LogManager if available
-        try {
-            if (false) {  // Never true - daemon mode removed
-                // Daemon mode removed - this code path is never executed
-                if (Instance && Instance->Logs) {
-                    Instance->Logs->Debug("console", message);
-                }
-                return;
+    /* Daemon mode removed - always write to stderr in nofork mode */
+    /* Debug messages can also go through LogManager if available */
+
+    std::string Final = EnsurePeriod(Message);
+
+    try 
+    {
+        if (false) 
+        {  
+            /* Never true - daemon mode removed */
+            /* Daemon mode removed - this code path is never executed */
+
+            if (Instance && Instance->Logs) 
+            {
+                Instance->Logs->Debug("console", Final);
             }
-        } catch (...) {
-            // If check fails, continue with normal output (foreground mode)
+
+            return;
         }
-        
-        if (SupportsColor())
-        {
-                std::cerr << COLOR_BLACK << "[" << COLOR_RESET << " " << COLOR_BRIGHT_MAGENTA << "DEBUG" << COLOR_RESET << " " << COLOR_BLACK << "]" << COLOR_RESET << " " << message << std::endl;
-        }
-        else
-        {
-                std::cerr << "[ DEBUG ] " << message << std::endl;
-        }
+    } 
+    catch (...) 
+    {
+        /* If check fails, continue with normal output (foreground mode) */
+    }
+    
+    if (SupportsColor())
+    {
+        std::cerr << ColorBlack << "[" << ColorReset << " " << ColorBrightMagenta << "DEBUG" << ColorReset << " " << ColorBlack << "]" << ColorReset << " " << Final << std::endl;
+    }
+    else
+    {
+        std::cerr << "[ DEBUG ] " << Final << std::endl;
+    }
 }
 
-void ConsoleWriter::WriteExit(const std::string& message)
+/* Comment goes here */
+
+void ConsoleWriter::WriteExit(const std::string& Message)
 {
-        // Print EXIT messages in BOTH nofork and background modes
-        if (SupportsColor())
-        {
-                std::cout << COLOR_BRIGHT_CYAN << "[EXIT]" << COLOR_RESET << " " << message << std::endl;
-        }
-        else
-        {
-                std::cout << "[EXIT] " << message << std::endl;
-        }
+    /* Print EXIT messages in BOTH nofork and background modes */
+
+    std::string Final = EnsurePeriod(Message);
+
+    if (SupportsColor())
+    {
+        std::cout << ColorBrightCyan << "[EXIT]" << ColorReset << " " << Final << std::endl;
+    }
+    else
+    {
+        std::cout << "[EXIT] " << Final << std::endl;
+    }
 }
 
-void ConsoleWriter::WriteHeader(const std::string& title)
+/* Comment goes here */
+
+void ConsoleWriter::WriteHeader(const std::string& Title)
 {
-        // Print HEADER messages in BOTH nofork and background modes
-        if (SupportsColor())
-        {
-                std::cout << std::endl
-                          << COLOR_BOLD << COLOR_BRIGHT_CYAN << title
-                          << COLOR_RESET << std::endl;
-        }
-        else
-        {
-                std::cout << std::endl << title << std::endl;
-        }
+    /* Print HEADER messages in BOTH nofork and background modes */
+
+    if (SupportsColor())
+    {
+        std::cout << std::endl
+                  << ColorBold << ColorBrightCyan << Title
+                  << ColorReset << std::endl;
+    }
+    else
+    {
+        std::cout << std::endl << Title << std::endl;
+    }
 }
 
-void ConsoleWriter::WriteServerInfo(const std::string& key, const std::string& value,
-                                    const std::string& status)
+/* Comment goes here */
+
+void ConsoleWriter::WriteServerInfo(const std::string& Key, const std::string& Value,
+                                    const std::string& Status)
 {
-        // Print SERVER INFO messages in BOTH nofork and background modes
-        if (SupportsColor())
-        {
-                std::string status_color = COLOR_BRIGHT_BLUE;
-                if (status == "OK")
-                        status_color = COLOR_BRIGHT_GREEN;
-                else if (status == "WARNING")
-                        status_color = COLOR_BRIGHT_YELLOW;
+    /* Print SERVER INFO messages in BOTH nofork and background modes */
 
-                std::cout << status_color << "[" << status << "]" << COLOR_RESET << " " << COLOR_BOLD
-                          << key << COLOR_RESET << ": " << value << std::endl;
-        }
-        else
+    if (SupportsColor())
+    {
+        std::string StatusColor = ColorBrightBlue;
+
+        if (Status == "OK")
         {
-                std::cout << "[" << status << "] " << key << ": " << value << std::endl;
+            StatusColor = ColorBrightGreen;
         }
+        else if (Status == "WARNING")
+        {
+            StatusColor = ColorBrightYellow;
+        }
+
+        std::cout << StatusColor << "[" << Status << "]" << ColorReset << " " << ColorBold
+                  << Key << ColorReset << ": " << Value << std::endl;
+    }
+    else
+    {
+        std::cout << "[" << Status << "] " << Key << ": " << Value << std::endl;
+    }
 }
+
+/* Comment goes here */
 
 void ConsoleWriter::WriteBlankLine()
 {
-        // Print blank lines in BOTH nofork and background modes
-        std::cout << std::endl;
+    /* Print blank lines in BOTH nofork and background modes */
+
+    std::cout << std::endl;
 }
 
-void ConsoleWriter::WriteInit(const std::string& message)
+/* Comment goes here */
+
+void ConsoleWriter::WriteInit(const std::string& Message)
 {
-        // Print INIT messages in BOTH nofork and background modes
-        if (SupportsColor())
+    /* Print INIT messages in BOTH nofork and background modes */
+
+    std::string Final = EnsurePeriod(Message);
+
+    if (SupportsColor())
+    {
+        std::cout << ColorBlack << "[" << ColorReset << " " << ColorBrightBlue << "INIT" << ColorReset << " " << ColorBlack << "]" << ColorReset << " " << Final << std::endl;
+    }
+    else
+    {
+        std::cout << "[ INIT ] " << Final << std::endl;
+    }
+}
+
+/* Comment goes here */
+
+void ConsoleWriter::WriteInitCritical(const std::string& Message)
+{
+    /* Print CRITICAL messages in BOTH nofork and background modes */
+
+    std::string Final = EnsurePeriod(Message);
+
+    if (SupportsColor())
+    {
+        std::cerr << ColorBlack << "[" << ColorReset << " " << ColorBrightBlue << "INIT" << ColorReset << " " << ColorBlack << "]" << ColorReset << " " 
+                  << ColorBold << ColorRed << "" << ColorReset 
+                  << ColorRed << Final << ColorReset << std::endl;
+    }
+    else
+    {
+        std::cerr << "[ INIT ] " << Final << std::endl;
+    }
+}
+
+/* Comment goes here */
+
+void ConsoleWriter::WriteInitSafe(int Fd, const char* Message)
+{
+    /* Async-signal-safe version using write() syscall */
+
+    const char* BracketOpen = "[";
+    const char* Space = " ";
+    const char* InitText = "INIT";
+    const char* BracketClose = "]";
+    const char* ColorBlack = "\033[30m";
+    const char* ColorBlue = "\033[94m";
+    const char* ColorReset = "\033[0m";
+    const char* Newline = "\n";
+    const char* Period = ".";
+    
+    /* Write [ INIT ] with black brackets and blue text */
+
+    size_t Len = 0;
+
+    while (ColorBlack[Len]) 
+    {
+        Len++;
+    }
+
+    ssize_t WriteResult __attribute__((unused)) = write(Fd, ColorBlack, Len);
+    
+    Len = 0;
+
+    while (BracketOpen[Len]) 
+    {
+        Len++;
+    }
+
+    WriteResult = write(Fd, BracketOpen, Len);
+    
+    Len = 0;
+
+    while (ColorReset[Len]) 
+    {
+        Len++;
+    }
+
+    WriteResult = write(Fd, ColorReset, Len);
+    
+    Len = 0;
+
+    while (Space[Len]) 
+    {
+        Len++;
+    }
+
+    WriteResult = write(Fd, Space, Len);
+    
+    Len = 0;
+
+    while (ColorBlue[Len]) 
+    {
+        Len++;
+    }
+
+    WriteResult = write(Fd, ColorBlue, Len);
+    
+    Len = 0;
+
+    while (InitText[Len]) 
+    {
+        Len++;
+    }
+
+    WriteResult = write(Fd, InitText, Len);
+    
+    Len = 0;
+
+    while (ColorReset[Len]) 
+    {
+        Len++;
+    }
+
+    WriteResult = write(Fd, ColorReset, Len);
+    
+    Len = 0;
+
+    while (Space[Len]) 
+    {
+        Len++;
+    }
+
+    WriteResult = write(Fd, Space, Len);
+    
+    Len = 0;
+
+    while (ColorBlack[Len]) 
+    {
+        Len++;
+    }
+
+    WriteResult = write(Fd, ColorBlack, Len);
+    
+    Len = 0;
+
+    while (BracketClose[Len]) 
+    {
+        Len++;
+    }
+
+    WriteResult = write(Fd, BracketClose, Len);
+    
+    Len = 0;
+
+    while (ColorReset[Len]) 
+    {
+        Len++;
+    }
+
+    WriteResult = write(Fd, ColorReset, Len);
+    
+    Len = 0;
+
+    while (Space[Len]) 
+    {
+        Len++;
+    }
+
+    WriteResult = write(Fd, Space, Len);
+    
+    /* Write Message (calculate length manually for async-signal-safety) */
+
+    Len = 0;
+
+    if (Message) 
+    {
+        while (Message[Len]) 
         {
-                std::cout << COLOR_BLACK << "[" << COLOR_RESET << " " << COLOR_BRIGHT_BLUE << "INIT" << COLOR_RESET << " " << COLOR_BLACK << "]" << COLOR_RESET << " " << message << std::endl;
+            Len++;
         }
-        else
+
+        WriteResult = write(Fd, Message, Len);
+
+        if (Len > 0 && Message[Len - 1] != '.')
         {
-                std::cout << "[ INIT ] " << message << std::endl;
+            WriteResult = write(Fd, Period, 1);
         }
+    }
+    
+    /* Write Newline */
+
+    WriteResult = write(Fd, Newline, 1);
 }
 
-void ConsoleWriter::WriteInitCritical(const std::string& message)
+/* Comment goes here */
+
+void ConsoleWriter::WriteStartupSafe(int Fd, const char* Message)
 {
-        // Print CRITICAL messages in BOTH nofork and background modes
-        if (SupportsColor())
+    /* Async-signal-safe version using write() syscall */
+
+    const char* BracketOpen = "[";
+    const char* Space = " ";
+    const char* OkText = "OK";
+    const char* BracketClose = "]";
+    const char* ColorBlack = "\033[30m";
+    const char* ColorGreen = "\033[92m";
+    const char* ColorReset = "\033[0m";
+    const char* Newline = "\n";
+    const char* Period = ".";
+    
+    /* Write [ OK ] with black brackets and green text */
+
+    size_t Len = 0;
+
+    while (ColorBlack[Len]) 
+    {
+        Len++;
+    }
+
+    ssize_t WriteResult __attribute__((unused)) = write(Fd, ColorBlack, Len);
+    
+    Len = 0;
+
+    while (BracketOpen[Len]) 
+    {
+        Len++;
+    }
+
+    WriteResult = write(Fd, BracketOpen, Len);
+    
+    Len = 0;
+
+    while (ColorReset[Len]) 
+    {
+        Len++;
+    }
+
+    WriteResult = write(Fd, ColorReset, Len);
+    
+    Len = 0;
+
+    while (Space[Len]) 
+    {
+        Len++;
+    }
+
+    WriteResult = write(Fd, Space, Len);
+    
+    Len = 0;
+
+    while (ColorGreen[Len]) 
+    {
+        Len++;
+    }
+
+    WriteResult = write(Fd, ColorGreen, Len);
+    
+    Len = 0;
+
+    while (OkText[Len]) 
+    {
+        Len++;
+    }
+
+    WriteResult = write(Fd, OkText, Len);
+    
+    Len = 0;
+
+    while (ColorReset[Len]) 
+    {
+        Len++;
+    }
+
+    WriteResult = write(Fd, ColorReset, Len);
+    
+    Len = 0;
+
+    while (Space[Len]) 
+    {
+        Len++;
+    }
+
+    WriteResult = write(Fd, Space, Len);
+    
+    Len = 0;
+
+    while (ColorBlack[Len]) 
+    {
+        Len++;
+    }
+
+    WriteResult = write(Fd, ColorBlack, Len);
+    
+    Len = 0;
+
+    while (BracketClose[Len]) 
+    {
+        Len++;
+    }
+
+    WriteResult = write(Fd, BracketClose, Len);
+    
+    Len = 0;
+
+    while (ColorReset[Len]) 
+    {
+        Len++;
+    }
+
+    WriteResult = write(Fd, ColorReset, Len);
+    
+    Len = 0;
+
+    while (Space[Len]) 
+    {
+        Len++;
+    }
+
+    WriteResult = write(Fd, Space, Len);
+    
+    /* Write Message (calculate length manually for async-signal-safety) */
+
+    Len = 0;
+
+    if (Message) 
+    {
+        while (Message[Len]) 
         {
-                std::cerr << COLOR_BLACK << "[" << COLOR_RESET << " " << COLOR_BRIGHT_BLUE << "INIT" << COLOR_RESET << " " << COLOR_BLACK << "]" << COLOR_RESET << " " 
-                          << COLOR_BOLD << COLOR_RED << "CRITICAL: " << COLOR_RESET 
-                          << COLOR_RED << message << COLOR_RESET << std::endl;
+            Len++;
         }
-        else
+
+        WriteResult = write(Fd, Message, Len);
+
+        if (Len > 0 && Message[Len - 1] != '.')
         {
-                std::cerr << "[ INIT ] CRITICAL: " << message << std::endl;
+            WriteResult = write(Fd, Period, 1);
         }
+    }
+    
+    /* Write Newline */
+
+    WriteResult = write(Fd, Newline, 1);
 }
 
-void ConsoleWriter::WriteInitSafe(int fd, const char* message)
+/* Comment goes here */
+
+void ConsoleWriter::WriteInitCriticalSafe(int Fd, const char* Message)
 {
-        /* Async-signal-safe version using write() syscall*/
-        const char* bracket_open = "[";
-        const char* space = " ";
-        const char* init_text = "INIT";
-        const char* bracket_close = "]";
-        const char* color_black = "\033[30m";
-        const char* color_blue = "\033[94m";
-        const char* color_reset = "\033[0m";
-        const char* newline = "\n";
-        
-        /* Write [ INIT ] with black brackets and blue text*/
-        size_t len = 0;
-        while (color_black[len]) len++;
-        ssize_t _ __attribute__((unused)) = write(fd, color_black, len);
-        
-        len = 0;
-        while (bracket_open[len]) len++;
-        _ = write(fd, bracket_open, len);
-        
-        len = 0;
-        while (color_reset[len]) len++;
-        _ = write(fd, color_reset, len);
-        
-        len = 0;
-        while (space[len]) len++;
-        _ = write(fd, space, len);
-        
-        len = 0;
-        while (color_blue[len]) len++;
-        _ = write(fd, color_blue, len);
-        
-        len = 0;
-        while (init_text[len]) len++;
-        _ = write(fd, init_text, len);
-        
-        len = 0;
-        while (color_reset[len]) len++;
-        _ = write(fd, color_reset, len);
-        
-        len = 0;
-        while (space[len]) len++;
-        _ = write(fd, space, len);
-        
-        len = 0;
-        while (color_black[len]) len++;
-        _ = write(fd, color_black, len);
-        
-        len = 0;
-        while (bracket_close[len]) len++;
-        _ = write(fd, bracket_close, len);
-        
-        len = 0;
-        while (color_reset[len]) len++;
-        _ = write(fd, color_reset, len);
-        
-        len = 0;
-        while (space[len]) len++;
-        _ = write(fd, space, len);
-        
-        /* Write message (calculate length manually for async-signal-safety)*/
-        len = 0;
-        if (message) {
-                while (message[len]) len++;
-                _ = write(fd, message, len);
+    /* Async-signal-safe version using write() syscall */
+
+    const char* BracketOpen = "[";
+    const char* Space = " ";
+    const char* InitText = "INIT";
+    const char* BracketClose = "]";
+    const char* CriticalTag = "";
+    const char* ColorBlack = "\033[30m";
+    const char* ColorBlue = "\033[94m";
+    const char* ColorRed = "\033[31m";
+    const char* ColorReset = "\033[0m";
+    const char* ColorBold = "\033[1m";
+    const char* Newline = "\n";
+    const char* Period = ".";
+    
+    /* Write [ INIT ] with black brackets and blue text */
+
+    size_t Len = 0;
+
+    while (ColorBlack[Len]) 
+    {
+        Len++;
+    }
+
+    ssize_t WriteResult __attribute__((unused)) = write(Fd, ColorBlack, Len);
+    
+    Len = 0;
+
+    while (BracketOpen[Len]) 
+    {
+        Len++;
+    }
+
+    WriteResult = write(Fd, BracketOpen, Len);
+    
+    Len = 0;
+
+    while (ColorReset[Len]) 
+    {
+        Len++;
+    }
+
+    WriteResult = write(Fd, ColorReset, Len);
+    
+    Len = 0;
+
+    while (Space[Len]) 
+    {
+        Len++;
+    }
+
+    WriteResult = write(Fd, Space, Len);
+    
+    Len = 0;
+
+    while (ColorBlue[Len]) 
+    {
+        Len++;
+    }
+
+    WriteResult = write(Fd, ColorBlue, Len);
+    
+    Len = 0;
+
+    while (InitText[Len]) 
+    {
+        Len++;
+    }
+
+    WriteResult = write(Fd, InitText, Len);
+    
+    Len = 0;
+
+    while (ColorReset[Len]) 
+    {
+        Len++;
+    }
+
+    WriteResult = write(Fd, ColorReset, Len);
+    
+    Len = 0;
+
+    while (Space[Len]) 
+    {
+        Len++;
+    }
+
+    WriteResult = write(Fd, Space, Len);
+    
+    Len = 0;
+
+    while (ColorBlack[Len]) 
+    {
+        Len++;
+    }
+
+    WriteResult = write(Fd, ColorBlack, Len);
+    
+    Len = 0;
+
+    while (BracketClose[Len]) 
+    {
+        Len++;
+    }
+
+    WriteResult = write(Fd, BracketClose, Len);
+    
+    Len = 0;
+
+    while (ColorReset[Len]) 
+    {
+        Len++;
+    }
+
+    WriteResult = write(Fd, ColorReset, Len);
+    
+    Len = 0;
+
+    while (Space[Len]) 
+    {
+        Len++;
+    }
+
+    WriteResult = write(Fd, Space, Len);
+    
+    /* Write CRITICAL tag in bold red */
+
+    Len = 0;
+
+    while (ColorBold[Len]) 
+    {
+        Len++;
+    }
+
+    WriteResult = write(Fd, ColorBold, Len);
+    
+    Len = 0;
+
+    while (ColorRed[Len]) 
+    {
+        Len++;
+    }
+
+    WriteResult = write(Fd, ColorRed, Len);
+    
+    Len = 0;
+
+    while (CriticalTag[Len]) 
+    {
+        Len++;
+    }
+
+    WriteResult = write(Fd, CriticalTag, Len);
+    
+    Len = 0;
+
+    while (ColorReset[Len]) 
+    {
+        Len++;
+    }
+
+    WriteResult = write(Fd, ColorReset, Len);
+    
+    /* Write Message in red */
+
+    Len = 0;
+
+    while (ColorRed[Len]) 
+    {
+        Len++;
+    }
+
+    WriteResult = write(Fd, ColorRed, Len);
+    
+    Len = 0;
+
+    if (Message) 
+    {
+        while (Message[Len]) 
+        {
+            Len++;
         }
-        
-        /* Write newline*/
-        _ = write(fd, newline, 1);
+
+        WriteResult = write(Fd, Message, Len);
+
+        if (Len > 0 && Message[Len - 1] != '.')
+        {
+            WriteResult = write(Fd, Period, 1);
+        }
+    }
+    
+    Len = 0;
+
+    while (ColorReset[Len]) 
+    {
+        Len++;
+    }
+
+    WriteResult = write(Fd, ColorReset, Len);
+    
+    /* Write Newline */
+
+    WriteResult = write(Fd, Newline, 1);
 }
 
-void ConsoleWriter::WriteStartupSafe(int fd, const char* message)
-{
-        /* Async-signal-safe version using write() syscall*/
-        const char* bracket_open = "[";
-        const char* space = " ";
-        const char* ok_text = "OK";
-        const char* bracket_close = "]";
-        const char* color_black = "\033[30m";
-        const char* color_green = "\033[92m";
-        const char* color_reset = "\033[0m";
-        const char* newline = "\n";
-        
-        /* Write [ OK ] with black brackets and green text*/
-        size_t len = 0;
-        while (color_black[len]) len++;
-        ssize_t _ __attribute__((unused)) = write(fd, color_black, len);
-        
-        len = 0;
-        while (bracket_open[len]) len++;
-        _ = write(fd, bracket_open, len);
-        
-        len = 0;
-        while (color_reset[len]) len++;
-        _ = write(fd, color_reset, len);
-        
-        len = 0;
-        while (space[len]) len++;
-        _ = write(fd, space, len);
-        
-        len = 0;
-        while (color_green[len]) len++;
-        _ = write(fd, color_green, len);
-        
-        len = 0;
-        while (ok_text[len]) len++;
-        _ = write(fd, ok_text, len);
-        
-        len = 0;
-        while (color_reset[len]) len++;
-        _ = write(fd, color_reset, len);
-        
-        len = 0;
-        while (space[len]) len++;
-        _ = write(fd, space, len);
-        
-        len = 0;
-        while (color_black[len]) len++;
-        _ = write(fd, color_black, len);
-        
-        len = 0;
-        while (bracket_close[len]) len++;
-        _ = write(fd, bracket_close, len);
-        
-        len = 0;
-        while (color_reset[len]) len++;
-        _ = write(fd, color_reset, len);
-        
-        len = 0;
-        while (space[len]) len++;
-        _ = write(fd, space, len);
-        
-        /* Write message (calculate length manually for async-signal-safety)*/
-        len = 0;
-        if (message) {
-                while (message[len]) len++;
-                _ = write(fd, message, len);
-        }
-        
-        /* Write newline*/
-        _ = write(fd, newline, 1);
-}
+/* Helper to ensure periods in messages */
 
-void ConsoleWriter::WriteInitCriticalSafe(int fd, const char* message)
+std::string ConsoleWriter::EnsurePeriod(const std::string& Message)
 {
-        /* Async-signal-safe version using write() syscall*/
-        const char* bracket_open = "[";
-        const char* space = " ";
-        const char* init_text = "INIT";
-        const char* bracket_close = "]";
-        const char* critical_tag = "CRITICAL: ";
-        const char* color_black = "\033[30m";
-        const char* color_blue = "\033[94m";
-        const char* color_red = "\033[31m";
-        const char* color_reset = "\033[0m";
-        const char* color_bold = "\033[1m";
-        const char* newline = "\n";
-        
-        /* Write [ INIT ] with black brackets and blue text*/
-        size_t len = 0;
-        while (color_black[len]) len++;
-        ssize_t _ __attribute__((unused)) = write(fd, color_black, len);
-        
-        len = 0;
-        while (bracket_open[len]) len++;
-        _ = write(fd, bracket_open, len);
-        
-        len = 0;
-        while (color_reset[len]) len++;
-        _ = write(fd, color_reset, len);
-        
-        len = 0;
-        while (space[len]) len++;
-        _ = write(fd, space, len);
-        
-        len = 0;
-        while (color_blue[len]) len++;
-        _ = write(fd, color_blue, len);
-        
-        len = 0;
-        while (init_text[len]) len++;
-        _ = write(fd, init_text, len);
-        
-        len = 0;
-        while (color_reset[len]) len++;
-        _ = write(fd, color_reset, len);
-        
-        len = 0;
-        while (space[len]) len++;
-        _ = write(fd, space, len);
-        
-        len = 0;
-        while (color_black[len]) len++;
-        _ = write(fd, color_black, len);
-        
-        len = 0;
-        while (bracket_close[len]) len++;
-        _ = write(fd, bracket_close, len);
-        
-        len = 0;
-        while (color_reset[len]) len++;
-        _ = write(fd, color_reset, len);
-        
-        len = 0;
-        while (space[len]) len++;
-        _ = write(fd, space, len);
-        
-        /* Write CRITICAL tag in bold red*/
-        len = 0;
-        while (color_bold[len]) len++;
-        _ = write(fd, color_bold, len);
-        
-        len = 0;
-        while (color_red[len]) len++;
-        _ = write(fd, color_red, len);
-        
-        len = 0;
-        while (critical_tag[len]) len++;
-        _ = write(fd, critical_tag, len);
-        
-        len = 0;
-        while (color_reset[len]) len++;
-        _ = write(fd, color_reset, len);
-        
-        /* Write message in red*/
-        len = 0;
-        while (color_red[len]) len++;
-        _ = write(fd, color_red, len);
-        
-        len = 0;
-        if (message) {
-                while (message[len]) len++;
-                _ = write(fd, message, len);
-        }
-        
-        len = 0;
-        while (color_reset[len]) len++;
-        _ = write(fd, color_reset, len);
-        
-        /* Write newline*/
-        _ = write(fd, newline, 1);
+    std::string Final = Message;
+
+    if (!Final.empty() && Final.back() != '.')
+    {
+        Final += ".";
+    }
+
+    return Final;
 }
