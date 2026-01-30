@@ -1,3 +1,4 @@
+
 /*
  * hlquery - Search beyond keywords.
  * http://www.hlquery.com
@@ -80,9 +81,9 @@ hlquery::hlquery(int ArgcCount, char** ArgvList)
 
 /* Entry point for the application */
 
-int main(int ArgcCount, char** ArgvList)
+int main(int argc, char** argv)
 {
-     Instance = std::make_unique<hlquery>(ArgcCount, ArgvList);
+     Instance = std::make_unique<hlquery>(argc, argv);
 
      Instance->Run();
 
@@ -494,11 +495,72 @@ static void ProcessPeriodicTasks()
      }
 }
 
+static bool PreflightSSLConfig(ServerConfig* ConfigPtr)
+{
+     if (!ConfigPtr)
+     {
+          return true;
+     }
+
+     const std::string& ConfigFileLoc = ConfigPtr->GetConfigFile();
+
+     if (ConfigFileLoc.empty())
+     {
+          return true;
+     }
+
+     if (!ConfigPtr->IsValid())
+     {
+          if (!ConfigPtr->LoadConfig(ConfigFileLoc))
+          {
+               const std::string& ErrorMsg = ConfigPtr->GetError();
+
+               if (!ErrorMsg.empty())
+               {
+                    std::cerr << "[FATAL] " << ErrorMsg << std::endl;
+               }
+               else
+               {
+                    std::cerr << "[FATAL] Failed to load configuration file: " << ConfigFileLoc << "." << std::endl;
+               }
+
+               return false;
+          }
+     }
+
+     const auto& BindConfigs = ConfigPtr->GetBindConfigs();
+
+     for (const auto& BindConfigVal : BindConfigs)
+     {
+          if (!BindConfigVal.ssl)
+          {
+               continue;
+          }
+
+          std::string ErrorMsg;
+
+          if (!hlquery_server::ValidateSSLConfig(BindConfigVal, &ErrorMsg))
+          {
+               std::cerr << "[FATAL] SSL preflight failed for " << BindConfigVal.address << ":" << BindConfigVal.port
+                         << " (" << BindConfigVal.type << "): " << ErrorMsg << std::endl;
+
+               return false;
+          }
+     }
+
+     return true;
+}
+
 /* Core execution method that manages the main application life cycle */
 
 void hlquery::Run()
 {
      /* Handle daemonization process if configured for background operation */
+
+     if (!PreflightSSLConfig(Config.get()))
+     {
+          ExitManager::Exit(1);
+     }
 
      if (Config && !Config->GetNoForkMode() && !Config->GetTestMode())
      {
@@ -668,77 +730,4 @@ void hlquery::Run()
      /* Force termination to ensure the process actually exits */
 
      ExitManager::EmergencyExit(0);
-}
-
-/* Save a summary of collection loading status for diagnostics */
-
-void hlquery::SaveCollectionsLoadSummary()
-{
-     try
-     {
-          std::lock_guard<std::mutex> Lock(StartupStateMutex);
-        
-          /* Compile the summary data into JSON format */
-
-          nlohmann::json SummaryData;
-
-          SummaryData["timestamp"] = GetStartupTime();
-
-          SummaryData["collections_loaded"] = StartupStateInfo.CollectionsLoaded;
-
-          SummaryData["collections_loaded_count"] = StartupStateInfo.CollectionsLoadedCount;
-
-          SummaryData["collections_expected_count"] = StartupStateInfo.CollectionsExpectedCount;
-
-          SummaryData["collections_load_failed"] = StartupStateInfo.CollectionsLoadFailed;
-
-          SummaryData["lazy_loading_fallback"] = StartupStateInfo.LazyLoadingFallback;
-        
-          if (!StartupStateInfo.FailedCollections.empty())
-          {
-               SummaryData["failed_collections"] = StartupStateInfo.FailedCollections;
-          }
-        
-          /* Calculate and record initialization duration metrics */
-        
-          if (StartupStateInfo.ReadyTime.time_since_epoch().count() > 0)
-          {
-               int64_t TimeToReadyVal = std::chrono::duration_cast<std::chrono::milliseconds>(
-                   StartupStateInfo.ReadyTime - StartupStateInfo.StartTime).count();
-
-               SummaryData["time_to_ready_ms"] = TimeToReadyVal;
-          }
-        
-          /* Commit the summary data to a persistent file */
-        
-          std::string SummaryFilePath = std::string(HLQUERY_DATA_DIR) + "/startup_summary.json";
-
-          std::ofstream SummaryFileStream(SummaryFilePath);
-
-          if (SummaryFileStream.is_open())
-          {
-               SummaryFileStream << SummaryData.dump(2);
-
-               SummaryFileStream.close();
-
-               if (Logs)
-               {
-                    Logs->Normal("hlquery", "Collections load summary saved to " + SummaryFilePath + ".");
-               }
-          }
-     }
-     catch (const std::exception& e)
-     {
-          if (Logs)
-          {
-               Logs->Normal("hlquery", "Failed to save collections load summary: " + std::string(e.what()) + ".");
-          }
-     }
-     catch (...)
-     {
-          if (Logs)
-          {
-               Logs->Normal("hlquery", "Failed to save collections load summary: unknown error.");
-          }
-     }
 }
