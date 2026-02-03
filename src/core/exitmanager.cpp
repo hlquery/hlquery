@@ -10,7 +10,6 @@
  * For more details, please visit: https://docs.hlquery.com
  */
 
-
 #include <atomic>
 #include <cstdlib>
 #include <iostream>
@@ -22,49 +21,68 @@
 
 namespace 
 {
-    std::vector<void (*)()> cleanup_funcs;
-    std::mutex cleanup_mutex;
-    std::atomic<bool> shutting_down{false};
+     std::vector<void (*)()> CleanupFuncs;
+
+     std::mutex CleanupMutex;
+
+     std::atomic<bool> ShuttingDownValue{false};
 }
 
-void ExitManager::RegisterCleanup(void (*func)()) 
+/* Register a cleanup function to be called on process termination */
+
+void ExitManager::RegisterCleanup(void (*FuncPointer)()) 
 {
-    std::lock_guard<std::mutex> lock(cleanup_mutex);
-    cleanup_funcs.push_back(func);
+     std::lock_guard<std::mutex> Lock(CleanupMutex);
+
+     CleanupFuncs.push_back(FuncPointer);
 }
+
+/* Execute all registered cleanup functions in the order they were registered */
 
 void ExitManager::RunCleanups() 
 {
-    std::lock_guard<std::mutex> lock(cleanup_mutex);
+     std::lock_guard<std::mutex> Lock(CleanupMutex);
 
-    for (auto &func : cleanup_funcs) 
-    {
-        func();
-    }
+     for (auto &FuncPointer : CleanupFuncs) 
+     {
+          FuncPointer();
+     }
     
-    cleanup_funcs.clear();
+     CleanupFuncs.clear();
 }
+
+/* Returns true if a shutdown sequence is currently in progress */
 
 bool ExitManager::IsShuttingDown() 
 {
-    return shutting_down.load();
+     return ShuttingDownValue.load();
 }
 
-void ExitManager::Exit(int status) 
+/* Initiates a graceful shutdown sequence with the specified exit status */
+
+void ExitManager::Exit(int ExitStatus) 
 {
-    shutting_down.store(true);
-    RunCleanups();
-    std::exit(status);
+     ShuttingDownValue.store(true);
+
+     RunCleanups();
+
+     std::exit(ExitStatus);
 }
 
-void ExitManager::QuickExit(int status) 
+/* Forces an immediate process termination with the specified status */
+
+void ExitManager::QuickExit(int ExitStatus) 
 {
-    shutting_down.store(true);
-    RunCleanups();
-    std::quick_exit(status);
+     ShuttingDownValue.store(true);
+
+     RunCleanups();
+
+     std::quick_exit(ExitStatus);
 }
 
-void ExitManager::EmergencyExit(int status) 
+/* Immediate process termination without executing any cleanup logic */
+
+void ExitManager::EmergencyExit(int ExitStatus) 
 {
-    std::_Exit(status);
+     std::_Exit(ExitStatus);
 }
