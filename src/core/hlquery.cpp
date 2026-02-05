@@ -1,4 +1,3 @@
-
 /*
  * hlquery - Search beyond keywords.
  * http://www.hlquery.com
@@ -56,11 +55,11 @@ std::unique_ptr<hlquery> Instance = nullptr;
 
 /* Constructor for the main hlquery class */
 
-hlquery::hlquery(int ArgcCount, char** ArgvList)
+hlquery::hlquery(int argc, char** argv)
 {
      ThreadLimit::SetThreadName("hlquery");
 
-     Config = std::make_unique<ServerConfig>(ArgcCount, ArgvList);
+     Config = std::make_unique<ServerConfig>(argc, argv);
 
      Affinity = std::make_unique<hlquery_threadpool::CPUAffinityManager>();
 
@@ -84,9 +83,7 @@ hlquery::hlquery(int ArgcCount, char** ArgvList)
 int main(int argc, char** argv)
 {
      Instance = std::make_unique<hlquery>(argc, argv);
-
      Instance->Run();
-
      Instance.reset();
 
      return 0;
@@ -116,14 +113,14 @@ hlquery::~hlquery()
                     }
                     else
                     {
-                         std::cerr << "Shutting down: Flushing and syncing database." << std::endl;
+                         print_info("Shutting down: Flushing and syncing database.");
                     }
                 
                     bool SyncSuccess = Database->FlushAndSync();
         
                     if (!SyncSuccess)
                     {
-                         std::cerr << "[CRITICAL] WAL sync failed during shutdown - DATA MAY BE LOST!" << std::endl;
+                         print_error("WAL sync failed during shutdown - DATA MAY BE LOST!");
 
                          if (Logs)
                          {
@@ -138,7 +135,7 @@ hlquery::~hlquery()
                          }
                          else
                          {
-                              std::cerr << "Shutting down: Database sync completed successfully." << std::endl;
+                              print_info("Shutting down: Database sync completed successfully.");
                          }
                     }
                 
@@ -166,8 +163,7 @@ hlquery::~hlquery()
                {
                     /* Database flush may fail during shutdown - log as CRITICAL error */
 
-                    std::cerr << "[CRITICAL] Database flush/sync failed during shutdown: " << e.what() 
-                              << " - DATA MAY BE LOST!" << std::endl;
+                    print_error("Database flush/sync failed during shutdown: {} - DATA MAY BE LOST!", e.what());
                           
                     if (Logs)
                     {
@@ -177,12 +173,12 @@ hlquery::~hlquery()
                          }
                          catch (...)
                          {
-                              std::cerr << "Shutting down: Database flush failed: " << e.what() << "." << std::endl;
+                              print_error("Shutting down: Database flush failed: {}.", e.what());
                          }
                     }
                     else
                     { 
-                         std::cerr << "Shutting down: Database flush failed: " << e.what() << "." << std::endl;
+                         print_error("Shutting down: Database flush failed: {}.", e.what());
                     }
                 
                     /* Continue with destructor cleanup even if flush fails */
@@ -194,7 +190,7 @@ hlquery::~hlquery()
                      * Still log as CRITICAL to ensure the failure is visible to operators.
                      */
  
-                    std::cerr << "[CRITICAL] Database flush/sync failed during shutdown (unknown error) - DATA MAY BE LOST!" << std::endl;
+                    print_error("Database flush/sync failed during shutdown (unknown error) - DATA MAY BE LOST!");
  
                     if (Logs)
                     {
@@ -205,12 +201,12 @@ hlquery::~hlquery()
                          }
                          catch (...)
                          {
-                              std::cerr << "Shutting down: Database flush failed with unknown exception - DATA MAY BE LOST!" << std::endl;
+                              print_error("Shutting down: Database flush failed with unknown exception - DATA MAY BE LOST!");
                          }
                     }
                     else
                     {
-                         std::cerr << "Shutting down: Database flush failed with unknown exception - DATA MAY BE LOST!" << std::endl;
+                         print_error("Shutting down: Database flush failed with unknown exception - DATA MAY BE LOST!");
                     }
                }
           }
@@ -238,7 +234,7 @@ hlquery::~hlquery()
      {
           /* Destructors must swallow exceptions to avoid unexpected process termination */
 
-          std::cerr << "Exception in hlquery destructor - ignoring." << std::endl;
+          print_error("Exception in hlquery destructor - ignoring.");
      }
 }
 
@@ -254,7 +250,7 @@ bool hlquery::Initialize()
      }
      
      std::cout << std::endl;
-     ConsoleWriter::WriteStartup(FormatStartupMessage(), true);
+     ConsoleWriter::WriteStartup(FormatStartupMessage(), true, false);
     
      /* Initialize the core server logic */
 
@@ -269,15 +265,13 @@ bool hlquery::Initialize()
 
     if (HTTPServers.empty())
     {
-          std::cerr << "[FATAL] No HTTP/HTTPS servers initialized!" << std::endl;
-
+          print_error("No HTTP/HTTPS servers initialized!");
           return false;
     }
 
      if (!Logs)
      {
-          std::cerr << "[FATAL] Logs is null after initialization!" << std::endl;
-
+          print_error("Logs is null after initialization!");
           return false;
      }
 
@@ -343,17 +337,17 @@ std::string hlquery::FormatStartupMessage() const
 
      if (localtime_r(&startup_time_raw, &startup_time_local) == nullptr)
      {
-          return "Starting hlquery";
+          return "Starting hlquery:";
      }
 
      std::array<char, 64> startup_time_str{};
 
      if (std::strftime(startup_time_str.data(), startup_time_str.size(), "%b/%d - %H:%M:%S", &startup_time_local) == 0)
      {
-          return "Starting hlquery";
+          return "Starting hlquery:";
      }
 
-     return "Starting hlquery [" + std::string(startup_time_str.data()) + "]";
+     return "Starting hlquery: [" + std::string(startup_time_str.data()) + "]";
 }
 
 /* Start all network listeners to begin accepting client connections */
@@ -517,11 +511,11 @@ static bool PreflightSSLConfig(ServerConfig* ConfigPtr)
 
                if (!ErrorMsg.empty())
                {
-                    std::cerr << "[FATAL] " << ErrorMsg << std::endl;
+                    print_error("{}", ErrorMsg);
                }
                else
                {
-                    std::cerr << "[FATAL] Failed to load configuration file: " << ConfigFileLoc << "." << std::endl;
+                    print_error("Failed to load configuration file: {}.", ConfigFileLoc);
                }
 
                return false;
@@ -541,8 +535,7 @@ static bool PreflightSSLConfig(ServerConfig* ConfigPtr)
 
           if (!hlquery_server::ValidateSSLConfig(BindConfigVal, &ErrorMsg))
           {
-               std::cerr << "[FATAL] SSL preflight failed for " << BindConfigVal.address << ":" << BindConfigVal.port
-                         << " (" << BindConfigVal.type << "): " << ErrorMsg << std::endl;
+               print_error("SSL preflight failed for {}:{} ({}): {}", BindConfigVal.address, BindConfigVal.port, BindConfigVal.type, ErrorMsg);
 
                return false;
           }
@@ -566,7 +559,7 @@ void hlquery::Run()
      {
           if (!Daemonize())
           {
-               std::cerr << "[FATAL] Daemonization failed." << std::endl;
+               print_error("Daemonization failed.");
 
                ExitManager::Exit(1);
           }
@@ -578,18 +571,18 @@ void hlquery::Run()
      {
           if (!Initialize())
           {
-               std::cerr << "[FATAL] Initialization failed during Run()." << std::endl;
+               print_error("Initialization failed during Run().");
 
                ExitManager::Exit(1);
           }
 
           if (!Logs || HTTPServers.empty())
           {
-               std::cerr << "[FATAL] Initialization failed - Logs or HTTPServers is null/empty after Initialize()." << std::endl;
+               print_error("Initialization failed - Logs or HTTPServers is null/empty after Initialize().");
 
-               std::cerr << "[FATAL] Logs=" << (Logs ? "valid" : "null") << ", HTTPServers count=" << HTTPServers.size() << std::endl;
+               print_error("Logs={}, HTTPServers count={}", (Logs ? "valid" : "null"), HTTPServers.size());
 
-               std::cerr << "[FATAL] Exiting - cannot continue without critical systems." << std::endl;
+               print_error("Exiting - cannot continue without critical systems.");
 
                ExitManager::Exit(1);
           }
@@ -608,9 +601,9 @@ void hlquery::Run()
 
      if (!Logs)
      {
-          std::cerr << "[FATAL] Logs unique_ptr is null in Run() - LogManager failed to initialize." << std::endl;
+          print_error("Logs unique_ptr is null in Run() - LogManager failed to initialize.");
 
-          std::cerr << "[FATAL] Exiting - cannot continue without logging system." << std::endl;
+          print_error("Exiting - cannot continue without logging system.");
 
           ExitManager::Exit(1);
      }
