@@ -1,0 +1,905 @@
+/*
+ * hlquery - Search beyond keywords.
+ * http://www.hlquery.com
+ *
+ * Copyright (C) 2021-2026, Carlos F. Ferry <carlos.ferry@gmail.com>
+ *
+ * This file is part of hlquery, released under the BSD License version 3.
+ * You are free to redistribute and/or modify this software
+ * under the terms of the BSD License.
+ * For more details, please visit: https://docs.hlquery.com
+ */
+
+#include <algorithm>
+#include <arpa/inet.h>
+#include <cctype>
+#include <cmath>
+#include <cstring>
+#include <fstream>
+#include <iomanip>
+#include <netinet/in.h>
+#include <random>
+#include <sstream>
+#include <sys/socket.h>
+#include <sys/stat.h>
+#include <unordered_map>
+
+#include "core/hlquery.h"
+#include "utils/tools.h"
+
+/*
+ * Return the shared rate limit map.
+ */
+
+std::unordered_map<std::string, Tools::RateLimitEntry>& Tools::GetRateLimits()
+{
+     static std::unordered_map<std::string, RateLimitEntry> RateLimits;
+
+     return RateLimits;
+}
+
+/*
+ * Compute an exponential backoff delay with jitter.
+ */
+
+std::chrono::seconds Tools::GetBackoffDelay(int RetryCount, int BaseDelaySeconds, int MaxDelaySeconds, int JitterPercent)
+{
+     /* Exponential backoff with jitter. */
+
+     int Delay = std::min(BaseDelaySeconds * (1 << std::min(RetryCount, 10)), MaxDelaySeconds);
+
+     /* Add jitter (±JitterPercent%). */
+
+     int JitterAmount = (Delay * JitterPercent) / 100;
+
+     std::uniform_int_distribution<> JitterDist(-JitterAmount, JitterAmount);
+
+     Delay += JitterDist(GetRNG());
+
+     return std::chrono::seconds(std::max(Delay, 30));
+}
+
+/*
+ * Generate a random integer within bounds.
+ */
+
+int Tools::RandomInt(int Min, int Max)
+{
+     std::uniform_int_distribution<> Dist(Min, Max);
+
+     return Dist(GetRNG());
+}
+
+/*
+ * Generate a random double within bounds.
+ */
+
+double Tools::RandomDouble(double Min, double Max)
+{
+     std::uniform_real_distribution<> Dist(Min, Max);
+
+     return Dist(GetRNG());
+}
+
+/*
+ * Generate a random string with optional symbols.
+ */
+
+std::string Tools::RandomString(size_t Length, bool IncludeSymbols)
+{
+     const std::string Chars = IncludeSymbols ? "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()_+-=[]{}|;:,.<>?" : "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+
+     std::string Result;
+
+     Result.reserve(Length);
+
+     std::uniform_int_distribution<> Dist(0, Chars.length() - 1);
+
+     for (size_t i = 0; i < Length; ++i)
+     {
+          Result += Chars[Dist(GetRNG())];
+     }
+
+     return Result;
+}
+
+/*
+ * Generate a random hexadecimal string.
+ */
+
+std::string Tools::RandomHex(size_t Length)
+{
+     const std::string HexChars = "0123456789ABCDEF";
+
+     std::string Result;
+
+     Result.reserve(Length);
+
+     std::uniform_int_distribution<> Dist(0, 15);
+
+     for (size_t i = 0; i < Length; ++i)
+     {
+          Result += HexChars[Dist(GetRNG())];
+     }
+
+     return Result;
+}
+
+/*
+ * Generate a random byte vector.
+ */
+
+std::vector<uint8_t> Tools::RandomBytes(size_t Count)
+{
+     std::vector<uint8_t> Result(Count);
+
+     std::uniform_int_distribution<uint8_t> Dist(0, 255);
+
+     for (size_t i = 0; i < Count; ++i)
+     {
+          Result[i] = Dist(GetRNG());
+     }
+
+     return Result;
+}
+
+/*
+ * Convert a string to lowercase.
+ */
+
+std::string Tools::ToLower(const std::string& Str)
+{
+     std::string Result = Str;
+
+     std::transform(Result.begin(), Result.end(), Result.begin(), ::tolower);
+
+     return Result;
+}
+
+/*
+ * Convert a string to uppercase.
+ */
+
+std::string Tools::ToUpper(const std::string& Str)
+{
+     std::string Result = Str;
+
+     std::transform(Result.begin(), Result.end(), Result.begin(), ::toupper);
+
+     return Result;
+}
+
+/*
+ * Trim leading and trailing whitespace.
+ */
+
+std::string Tools::Trim(const std::string& Str)
+{
+     size_t Start = Str.find_first_not_of(" \t\n\r\f\v");
+
+     if (Start == std::string::npos)
+     {
+          return "";
+     }
+
+     size_t End = Str.find_last_not_of(" \t\n\r\f\v");
+
+     return Str.substr(Start, End - Start + 1);
+}
+
+/*
+ * Split a string by a delimiter substring.
+ */
+
+std::vector<std::string> Tools::Split(const std::string& Str, const std::string& Delimiter)
+{
+     std::vector<std::string> Result;
+
+     size_t Start = 0;
+
+     size_t End = Str.find(Delimiter);
+
+     while (End != std::string::npos)
+     {
+          Result.push_back(Str.substr(Start, End - Start));
+
+          Start = End + Delimiter.length();
+          End = Str.find(Delimiter, Start);
+     }
+
+     Result.push_back(Str.substr(Start));
+
+     return Result;
+}
+
+/*
+ * Join strings using a delimiter.
+ */
+
+std::string Tools::Join(const std::vector<std::string>& Strings, const std::string& Delimiter)
+{
+     if (Strings.empty())
+     {
+          return "";
+     }
+
+     std::string Result = Strings[0];
+
+     for (size_t i = 1; i < Strings.size(); ++i)
+     {
+          Result += Delimiter + Strings[i];
+     }
+
+     return Result;
+}
+
+/*
+ * Check whether a string starts with a prefix.
+ */
+
+bool Tools::StartsWith(const std::string& Str, const std::string& Prefix)
+{
+     return Str.size() >= Prefix.size() && Str.substr(0, Prefix.size()) == Prefix;
+}
+
+/*
+ * Check whether a string ends with a suffix.
+ */
+
+bool Tools::EndsWith(const std::string& Str, const std::string& Suffix)
+{
+     return Str.size() >= Suffix.size() && Str.substr(Str.size() - Suffix.size()) == Suffix;
+}
+
+/*
+ * Replace all occurrences of a substring.
+ */
+
+std::string Tools::ReplaceAll(const std::string& Str, const std::string& From, const std::string& To)
+{
+     std::string Result = Str;
+
+     size_t Pos = 0;
+
+     while ((Pos = Result.find(From, Pos)) != std::string::npos)
+     {
+          Result.replace(Pos, From.length(), To);
+
+          Pos += To.length();
+     }
+
+     return Result;
+}
+
+/*
+ * Validate identifier characters based on allowed options.
+ */
+
+bool Tools::IsValidIdentifier(const std::string& Str, bool AllowNumbers, bool AllowUnderscores)
+{
+     if (Str.empty())
+     {
+          return false;
+     }
+
+     for (char c : Str)
+     {
+          if (std::isalpha(c))
+          {
+               continue;
+          }
+
+          if (AllowNumbers && std::isdigit(c))
+          {
+               continue;
+          }
+
+          if (AllowUnderscores && c == '_')
+          {
+               continue;
+          }
+
+          return false;
+     }
+
+     return true;
+}
+
+/*
+ * Produce a formatted timestamp string.
+ */
+
+std::string Tools::GetTimestamp(const std::string& Format)
+{
+     auto Now = std::chrono::system_clock::now();
+
+     auto TimeVal = std::chrono::system_clock::to_time_t(Now);
+
+     /* Use thread-safe localtime_r instead of localtime. */
+
+     struct tm TmBuf;
+
+     struct tm* Tm = localtime_r(&TimeVal, &TmBuf);
+
+     if (!Tm)
+     {
+          /* Fall back to a simple timestamp if localtime_r fails. */
+
+          return std::to_string(TimeVal);
+     }
+
+     std::stringstream Ss;
+
+     Ss << std::put_time(Tm, Format.c_str());
+
+     return Ss.str();
+}
+
+/*
+ * Return the current Unix timestamp.
+ */
+
+int64_t Tools::GetUnixTimestamp()
+{
+     if (Instance)
+     {
+          return Instance->Time();
+     }
+
+     return time(nullptr);
+}
+
+/*
+ * Format a duration into a human-readable string.
+ */
+
+std::string Tools::FormatDuration(std::chrono::seconds Duration)
+{
+     auto TotalSeconds = Duration.count();
+
+     int Days = TotalSeconds / 86400;
+
+     TotalSeconds %= 86400;
+
+     int Hours = TotalSeconds / 3600;
+
+     TotalSeconds %= 3600;
+
+     int Minutes = TotalSeconds / 60;
+
+     int Seconds = TotalSeconds % 60;
+
+     std::stringstream Ss;
+
+     if (Days > 0)
+     {
+          Ss << Days << "d ";
+     }
+
+     if (Hours > 0)
+     {
+          Ss << Hours << "h ";
+     }
+
+     if (Minutes > 0)
+     {
+          Ss << Minutes << "m ";
+     }
+
+     if (Seconds > 0 || Duration.count() == 0)
+     {
+          Ss << Seconds << "s";
+     }
+
+     return Trim(Ss.str());
+}
+
+/*
+ * Parse a duration like "1h30m" into seconds.
+ */
+
+std::chrono::seconds Tools::ParseDuration(const std::string& DurationStr)
+{
+     int TotalSeconds = 0;
+
+     int CurrentValue = 0;
+
+     for (size_t i = 0; i < DurationStr.length(); ++i)
+     {
+          char c = DurationStr[i];
+
+          if (std::isdigit(static_cast<unsigned char>(c)))
+          {
+               CurrentValue = CurrentValue * 10 + (c - '0');
+          }
+          else
+          {
+               /* Process accumulated value with unit. */
+
+               switch (c)
+               {
+                    case 'd':
+                    TotalSeconds += CurrentValue * 86400;
+                    CurrentValue = 0;
+                    break;
+                    case 'h':
+                    TotalSeconds += CurrentValue * 3600;
+                    CurrentValue = 0;
+                    break;
+                    case 'm':
+                    TotalSeconds += CurrentValue * 60;
+                    CurrentValue = 0;
+                    break;
+                    case 's':
+                    TotalSeconds += CurrentValue;
+                    CurrentValue = 0;
+                    break;
+                    default:
+                    /* Invalid character, ignore or reset. */
+                    CurrentValue = 0;
+                    break;
+               }
+          }
+     }
+
+     /* Handle trailing number without unit (defaults to seconds). */
+
+     if (CurrentValue > 0)
+     {
+          TotalSeconds += CurrentValue;
+     }
+
+     return std::chrono::seconds(TotalSeconds);
+}
+
+/*
+ * Validate IPv4 or IPv6 address strings.
+ */
+
+bool Tools::IsValidIP(const std::string& IP)
+{
+     sockaddr_in Sa4{};
+
+     sockaddr_in6 Sa6{};
+
+     if (inet_pton(AF_INET, IP.c_str(), &Sa4) == 1)
+     {
+          return true;
+     }
+
+     if (inet_pton(AF_INET6, IP.c_str(), &Sa6) == 1)
+     {
+          return true;
+     }
+
+     return false;
+}
+
+/*
+ * Validate port ranges (1-65535).
+ */
+
+bool Tools::IsValidPort(int Port)
+{
+     return Port > 0 && Port <= 65535;
+}
+
+/*
+ * Parse host:port pairs with a default port fallback.
+ */
+
+std::pair<std::string, int> Tools::ParseHostPort(const std::string& HostPort, int DefaultPort)
+{
+     size_t ColonPos = HostPort.find_last_of(':');
+
+     if (ColonPos == std::string::npos)
+     {
+          return {HostPort, DefaultPort};
+     }
+
+     std::string Host = HostPort.substr(0, ColonPos);
+
+     std::string PortStr = HostPort.substr(ColonPos + 1);
+
+     try
+     {
+          int Port = std::stoi(PortStr);
+
+          return {Host, Port};
+     }
+     catch (...)
+     {
+          return {HostPort, DefaultPort};
+     }
+}
+
+/*
+ * Normalize a hostname by trimming and lowercasing it.
+ */
+
+std::string Tools::NormalizeHostname(const std::string& Hostname)
+{
+     return ToLower(Trim(Hostname));
+}
+
+/*
+ * Check whether a file path exists.
+ */
+
+bool Tools::FileExists(const std::string& Path)
+{
+     struct stat Buffer;
+
+     return (stat(Path.c_str(), &Buffer) == 0);
+}
+
+/*
+ * Return file size in bytes.
+ */
+
+size_t Tools::GetFileSize(const std::string& Path)
+{
+     struct stat Buffer;
+
+     if (stat(Path.c_str(), &Buffer) != 0)
+     {
+          return 0;
+     }
+
+     return Buffer.st_size;
+}
+
+/*
+ * Ensure a directory exists or create it if missing.
+ */
+
+bool Tools::EnsureDirectory(const std::string& Path)
+{
+     struct stat St;
+
+     if (stat(Path.c_str(), &St) == 0)
+     {
+          return S_ISDIR(St.st_mode);
+     }
+
+     /* Create directory (simplified, does not handle nested paths). */
+
+     return mkdir(Path.c_str(), 0755) == 0;
+}
+
+/*
+ * Extract the file extension from a path.
+ */
+
+std::string Tools::GetFileExtension(const std::string& Path)
+{
+     size_t DotPos = Path.find_last_of('.');
+
+     if (DotPos == std::string::npos)
+     {
+          return "";
+     }
+
+     return Path.substr(DotPos);
+}
+
+/*
+ * Return a simplified SHA256 label.
+ */
+
+std::string Tools::SHA256(const std::string& Input)
+{
+     /* Simplified; in production use a proper crypto library. */
+
+     return "sha256_" + std::to_string(SimpleHash(Input));
+}
+
+/*
+ * Return a simplified MD5 label.
+ */
+
+std::string Tools::MD5(const std::string& Input)
+{
+     /* Simplified; in production use a proper crypto library. */
+
+     return "md5_" + std::to_string(SimpleHash(Input));
+}
+
+/*
+ * Compute a simple DJB2-style hash for quick use.
+ */
+
+uint32_t Tools::SimpleHash(const std::string& Input)
+{
+     uint32_t Hash = 5381;
+
+     for (char c : Input)
+     {
+          Hash = ((Hash << 5) + Hash) + c;
+     }
+
+     return Hash;
+}
+
+/*
+ * Format byte counts into human-readable units.
+ */
+
+std::string Tools::FormatBytes(size_t Bytes)
+{
+     const char* Units[] = {"B", "KB", "MB", "GB", "TB"};
+
+     int UnitIndex = 0;
+
+     double Size = static_cast<double>(Bytes);
+
+     while (Size >= 1024 && UnitIndex < 4)
+     {
+          Size /= 1024;
+          UnitIndex++;
+     }
+
+     std::stringstream Ss;
+
+     Ss << std::fixed << std::setprecision(2) << Size << " " << Units[UnitIndex];
+
+     return Ss.str();
+}
+
+/*
+ * Parse a memory size string such as "512MB".
+ */
+
+size_t Tools::ParseMemorySize(const std::string& SizeStr)
+{
+     if (SizeStr.empty())
+     {
+          return 0;
+     }
+
+     size_t i = 0;
+
+     /* Skip leading whitespace. */
+
+     while (i < SizeStr.length() && std::isspace(static_cast<unsigned char>(SizeStr[i])))
+     {
+          ++i;
+     }
+
+     if (i >= SizeStr.length())
+     {
+          return 0;
+     }
+
+     /* Parse number (integer or decimal). */
+
+     size_t NumStart = i;
+
+     bool HasDot = false;
+
+     while (i < SizeStr.length() && (std::isdigit(static_cast<unsigned char>(SizeStr[i])) || (SizeStr[i] == '.' && !HasDot)))
+     {
+          if (SizeStr[i] == '.')
+          {
+               HasDot = true;
+          }
+
+          ++i;
+     }
+
+     if (i == NumStart)
+     {
+          return 0;
+     }
+
+     double Value = 0.0;
+
+     try
+     {
+          Value = std::stod(SizeStr.substr(NumStart, i - NumStart));
+     }
+     catch (...)
+     {
+          return 0;
+     }
+
+     /* Skip whitespace. */
+
+     while (i < SizeStr.length() && std::isspace(static_cast<unsigned char>(SizeStr[i])))
+     {
+          ++i;
+     }
+
+     /* Parse unit. */
+
+     if (i < SizeStr.length())
+     {
+          size_t UnitStart = i;
+
+          while (i < SizeStr.length() && std::isalpha(static_cast<unsigned char>(SizeStr[i])))
+          {
+               ++i;
+          }
+
+          if (UnitStart < i)
+          {
+               std::string Unit = ToUpper(SizeStr.substr(UnitStart, i - UnitStart));
+
+               if (Unit == "KB")
+               {
+                    Value *= 1024;
+               }
+               else if (Unit == "MB")
+               {
+                    Value *= 1024 * 1024;
+               }
+               else if (Unit == "GB")
+               {
+                    Value *= 1024 * 1024 * 1024;
+               }
+               else if (Unit == "TB")
+               {
+                    Value *= 1024LL * 1024 * 1024 * 1024;
+               }
+          }
+     }
+
+     return static_cast<size_t>(Value);
+}
+
+/*
+ * Validate basic email formatting rules.
+ */
+
+bool Tools::IsValidEmail(const std::string& Email)
+{
+     if (Email.empty())
+     {
+          return false;
+     }
+
+     size_t AtPos = Email.find('@');
+
+     if (AtPos == std::string::npos || AtPos == 0)
+     {
+          return false;
+     }
+
+     /* Validate local part (before @). */
+
+     for (size_t i = 0; i < AtPos; ++i)
+     {
+          char c = Email[i];
+
+          if (!std::isalnum(static_cast<unsigned char>(c)) && c != '.' && c != '_' && c != '%' && c != '+' && c != '-')
+          {
+               return false;
+          }
+     }
+
+     /* Validate domain part (after @). */
+
+     size_t DotPos = Email.find_last_of('.');
+
+     if (DotPos == std::string::npos || DotPos <= AtPos || DotPos == Email.length() - 1)
+     {
+          return false;
+     }
+
+     /* Check TLD has at least 2 characters. */
+
+     if (Email.length() - DotPos - 1 < 2)
+     {
+          return false;
+     }
+
+     /* Validate domain characters and TLD. */
+
+     for (size_t i = AtPos + 1; i < Email.length(); ++i)
+     {
+          char c = Email[i];
+
+          if (i == DotPos)
+          {
+               continue;
+          }
+
+          if (!std::isalnum(static_cast<unsigned char>(c)) && c != '.' && c != '-')
+          {
+               return false;
+          }
+     }
+
+     /* Validate TLD contains only letters. */
+
+     for (size_t i = DotPos + 1; i < Email.length(); ++i)
+     {
+          if (!std::isalpha(static_cast<unsigned char>(Email[i])))
+          {
+               return false;
+          }
+     }
+
+     return true;
+}
+
+/*
+ * Validate a username with length limits.
+ */
+
+bool Tools::IsValidUsername(const std::string& Username, size_t MinLength, size_t MaxLength)
+{
+     if (Username.length() < MinLength || Username.length() > MaxLength)
+     {
+          return false;
+     }
+
+     for (char c : Username)
+     {
+          if (!std::isalnum(static_cast<unsigned char>(c)) && c != '_' && c != '-')
+          {
+               return false;
+          }
+     }
+
+     return true;
+}
+
+/*
+ * Validate password length requirements.
+ */
+
+bool Tools::IsValidPassword(const std::string& Password, size_t MinLength)
+{
+     return Password.length() >= MinLength;
+}
+
+/*
+ * Check whether a key is within its rate limit window.
+ */
+
+bool Tools::CheckRateLimit(const std::string& Key, int MaxRequests, std::chrono::seconds Window)
+{
+     auto* InstancePtr = Instance.get();
+
+     if (!InstancePtr)
+     {
+          return false;
+     }
+
+     auto Now = InstancePtr->Now();
+
+     auto& RateLimits = GetRateLimits();
+
+     auto& Entry = RateLimits[Key];
+
+     /* Reset window if expired. */
+
+     if (Now - Entry.WindowStart > Window)
+     {
+          Entry.WindowStart = Now;
+          Entry.RequestCount = 0;
+     }
+
+     /* Check if limit exceeded. */
+
+     if (Entry.RequestCount >= MaxRequests)
+     {
+          return false;
+     }
+
+     /* Allow request. */
+
+     Entry.RequestCount++;
+
+     return true;
+}
+
+/*
+ * Reset the rate limit tracking for a key.
+ */
+
+void Tools::ResetRateLimit(const std::string& Key)
+{
+     GetRateLimits().erase(Key);
+}

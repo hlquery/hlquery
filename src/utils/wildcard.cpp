@@ -16,591 +16,303 @@
 
 #include "utils/wildcard.h"
 
-namespace 
+/*
+ * Internal helper routines for wildcard matching.
+ */
+
+namespace
 {
-    /*
-     * Normalize pattern by collapsing consecutive '*' wildcards into a single '*'
-     * This improves performance by reducing backtracking
-     * Returns normalized pattern and whether it was modified
-     */
+     /*
+      * Normalize patterns by collapsing consecutive '*'.
+      */
 
-    std::string NormalizePattern(const std::string& Pattern) 
-    {
-        if (Pattern.empty()) 
-        {
-            return Pattern;
-        }
-        
-        /* Quick check: if no consecutive stars, return original */
+     std::string NormalizePattern(const std::string& Pattern)
+     {
+          if (Pattern.empty())
+          {
+               return Pattern;
+          }
 
-        bool NeedsNormalization = false;
+          /* Quick check: if no consecutive stars, return original. */
 
-        for (size_t i = 0; i < Pattern.size() - 1; ++i) 
-        {
-            if (Pattern[i] == '*' && Pattern[i + 1] == '*') 
-            {
-                NeedsNormalization = true;
-                break;
-            }
-        }
-        
-        if (!NeedsNormalization) 
-        {
-            return Pattern; /* Return original to avoid allocation */
-        }
-        
-        std::string Normalized;
+          bool NeedsNormalization = false;
 
-        Normalized.reserve(Pattern.size());
-
-        bool LastWasStar = false;
-        
-        for (char c : Pattern) 
-        {
-            if (c == '*') 
-            {
-                if (!LastWasStar) 
-                {
-                    Normalized.push_back(c);
-                    LastWasStar = true;
-                }
-            } 
-            else 
-            {
-                Normalized.push_back(c);
-                LastWasStar = false;
-            }
-        }
-        
-        return Normalized;
-    }
-    
-    /*
-     * Fast case-insensitive character comparison
-     */
-
-    inline bool CharEqualCaseInsensitive(char a, char b) 
-    {
-        /* Fast path for ASCII: most common case */
-
-        if ((a | b) & 0x80) 
-        {
-            /* Non-ASCII, use tolower */
-
-            return std::tolower(static_cast<unsigned char>(a)) == 
-                   std::tolower(static_cast<unsigned char>(b));
-        }
-
-        /* ASCII fast path */
-
-        if (a == b) 
-        {
-            return true;
-        }
-
-        /* Case-insensitive ASCII comparison */
-
-        return (a ^ b) == 0x20 && ((a >= 'a' && a <= 'z') || (a >= 'A' && a <= 'Z'));
-    }
-    
-    /*
-     * Fast-path: Check if pattern is exact match (no wildcards)
-     * Optimized for common case where strings are already lowercase
-     */
-
-    bool MatchExact(const char* Str, const char* Pattern) 
-    {
-        /* Try fast memcmp first (case-sensitive) */
-
-        if (std::strcmp(Str, Pattern) == 0) 
-        {
-            return true;
-        }
-
-        /* Fall back to case-insensitive */
-
-        while (*Str && *Pattern) 
-        {
-            if (!CharEqualCaseInsensitive(*Str, *Pattern)) 
-            {
-                return false;
-            }
-
-            Str++;
-            Pattern++;
-        }
-
-        return *Str == *Pattern; /* Both must be null */
-    }
-    
-    /*
-     * Fast-path: Check if string starts with prefix (pattern ends with *)
-     * Uses memcmp for case-sensitive fast path
-     */
-
-    bool MatchPrefix(const char* Str, const char* Pattern, size_t PrefixLen) 
-    {
-        /* Fast path: try case-sensitive first (common when both are lowercase) */
-
-        if (std::memcmp(Str, Pattern, PrefixLen) == 0) 
-        {
-            return true;
-        }
-
-        /* Fall back to case-insensitive */
-
-        for (size_t i = 0; i < PrefixLen; ++i) 
-        {
-            if (!CharEqualCaseInsensitive(Str[i], Pattern[i])) 
-            {
-                return false;
-            }
-        }
-
-        return true;
-    }
-    
-    /*
-     * Fast-path: Check if string ends with suffix (pattern starts with *)
-     * Uses memcmp for case-sensitive fast path
-     */
-
-    bool MatchSuffix(const char* Str, const char* Pattern, size_t StrLen, size_t SuffixLen) 
-    {
-        if (StrLen < SuffixLen) 
-        {
-            return false;
-        }
-
-        const char* StrSuffix = Str + (StrLen - SuffixLen);
-
-        const char* PatternSuffix = Pattern + 1; /* Skip leading * */
-        
-        /* Fast path: try case-sensitive first */
-
-        if (std::memcmp(StrSuffix, PatternSuffix, SuffixLen) == 0) 
-        {
-            return true;
-        }
-
-        /* Fall back to case-insensitive */
-
-        for (size_t i = 0; i < SuffixLen; ++i) 
-        {
-            if (!CharEqualCaseInsensitive(StrSuffix[i], PatternSuffix[i])) 
-            {
-                return false;
-            }
-        }
-
-        return true;
-    }
-    
-    /*
-     * Fast-path: Check if string contains substring (pattern is *substring*)
-     * Uses Boyer-Moore-like optimization for better performance
-     */
-
-    bool MatchContains(const char* Str, const char* Pattern, size_t StrLen, size_t SubstrLen) 
-    {
-        if (StrLen < SubstrLen) 
-        {
-            return false;
-        }
-        
-        /* Skip leading * */
-
-        Pattern++;
-        
-        /* For very short substrings, use simple search */
-
-        if (SubstrLen <= 4) 
-        {
-            for (size_t i = 0; i <= StrLen - SubstrLen; ++i) 
-            {
-                bool Found = true;
-
-                for (size_t j = 0; j < SubstrLen; ++j) 
-                {
-                    if (!CharEqualCaseInsensitive(Str[i + j], Pattern[j])) 
-                    {
-                        Found = false;
-                        break;
-                    }
-                }
-
-                if (Found) 
-                {
-                    return true;
-                }
-            }
-
-            return false;
-        }
-        
-        /* For longer substrings, try case-sensitive first (common case) */
-        /* Then fall back to case-insensitive */
-
-        for (size_t i = 0; i <= StrLen - SubstrLen; ++i) 
-        {
-            /* Fast path: try case-sensitive match first */
-
-            if (std::memcmp(Str + i, Pattern, SubstrLen) == 0) 
-            {
-                return true;
-            }
-
-            /* Case-insensitive check */
-
-            bool Found = true;
-
-            for (size_t j = 0; j < SubstrLen; ++j) 
-            {
-                if (!CharEqualCaseInsensitive(Str[i + j], Pattern[j])) 
-                {
-                    Found = false;
+          for (size_t i = 0; i < Pattern.size() - 1; ++i)
+          {
+               if (Pattern[i] == '*' && Pattern[i + 1] == '*')
+               {
+                    NeedsNormalization = true;
                     break;
-                }
-            }
+               }
+          }
 
-            if (Found) 
-            {
-                return true;
-            }
-        }
+          if (!NeedsNormalization)
+          {
+               return Pattern;
+          }
 
-        return false;
-    }
-    
-    /*
-     * Analyze pattern to determine its type and extract metadata
-     * Returns: HasWildcard, IsPrefix, IsSuffix, IsContains, PrefixLen, SuffixLen
-     */
+          std::string Normalized;
 
-    struct PatternInfo 
-    {
-        bool HasWildcard;
+          Normalized.reserve(Pattern.size());
 
-        bool IsExact;
+          bool LastWasStar = false;
 
-        bool IsPrefix;      /* pattern ends with * */
+          for (char c : Pattern)
+          {
+               if (c == '*')
+               {
+                    if (!LastWasStar)
+                    {
+                         Normalized.push_back(c);
+                         LastWasStar = true;
+                    }
+               }
+               else
+               {
+                    Normalized.push_back(c);
+                    LastWasStar = false;
+               }
+          }
 
-        bool IsSuffix;      /* pattern starts with * */
+          return Normalized;
+     }
 
-        bool IsContains;    /* pattern is *substring* */
+     /*
+      * Compare ASCII characters case-insensitively.
+      */
 
-        size_t PrefixLen;
+     inline bool CharEqualCaseInsensitive(char a, char b)
+     {
+          /* Fast path for ASCII: most common case. */
 
-        size_t SuffixLen;
+          if ((a | b) & 0x80)
+          {
+               /* Non-ASCII, fall back to tolower. */
 
-        size_t ContainsLen;
-    };
-    
-    /* Comment goes here */
+               return std::tolower(static_cast<unsigned char>(a)) == std::tolower(static_cast<unsigned char>(b));
+          }
 
-    PatternInfo AnalyzePattern(const char* Pattern) 
-    {
-        PatternInfo Info = {};
+          if (a == b)
+          {
+               return true;
+          }
 
-        if (!Pattern || *Pattern == '\0') 
-        {
-            Info.IsExact = true;
-            return Info;
-        }
-        
-        const char* P = Pattern;
+          return (a ^ b) == 0x20 && ((a >= 'a' && a <= 'z') || (a >= 'A' && a <= 'Z'));
+     }
 
-        size_t Len = 0;
+     /*
+      * Check for exact matches without wildcards.
+      */
 
-        bool FoundStar = false;
+     bool MatchExact(const char* Str, const char* Pattern)
+     {
+          /* Try fast memcmp first (case-sensitive). */
 
-        bool FoundQuestion = false;
+          if (std::strcmp(Str, Pattern) == 0)
+          {
+               return true;
+          }
 
-        size_t FirstStarPos = static_cast<size_t>(-1); /* Use max value as sentinel */
+          /* Fall back to case-insensitive comparison. */
 
-        size_t LastStarPos = static_cast<size_t>(-1);
-        
-        /* First pass: analyze pattern */
+          while (*Str && *Pattern)
+          {
+               if (!CharEqualCaseInsensitive(*Str, *Pattern))
+               {
+                    return false;
+               }
 
-        while (*P) 
-        {
-            if (*P == '*') 
-            {
-                FoundStar = true;
+               Str++;
+               Pattern++;
+          }
 
-                if (FirstStarPos == static_cast<size_t>(-1)) 
-                {
-                    FirstStarPos = Len;
-                }
+          return *Str == *Pattern;
+     }
 
-                LastStarPos = Len;
-            } 
-            else if (*P == '?') 
-            {
-                FoundQuestion = true;
-            }
+     /*
+      * Check prefix matches where the pattern ends with '*'.
+      */
 
-            Len++;
-            P++;
-        }
-        
-        Info.HasWildcard = FoundStar || FoundQuestion;
-        Info.IsExact = !Info.HasWildcard;
-        
-        if (!FoundStar || FoundQuestion) 
-        {
-            return Info; /* Complex pattern, use general algorithm */
-        }
-        
-        /* Check for simple patterns */
+     bool MatchPrefix(const char* Str, const char* Pattern, size_t PrefixLen)
+     {
+          /* Fast path: try case-sensitive first. */
 
-        if (FirstStarPos == 0 && LastStarPos == Len - 1 && Len > 1) 
-        {
-            /* Pattern is *substring* */
+          if (std::memcmp(Str, Pattern, PrefixLen) == 0)
+          {
+               return true;
+          }
 
-            Info.IsContains = true;
-            Info.ContainsLen = Len - 2;
-        } 
-        else if (FirstStarPos == 0 && LastStarPos == 0 && Len > 1) 
-        {
-            /* Pattern starts with * only */
+          /* Fall back to case-insensitive comparison. */
 
-            Info.IsSuffix = true;
-            Info.SuffixLen = Len - 1;
-        } 
-        else if (FirstStarPos == Len - 1 && LastStarPos == Len - 1 && Len > 1) 
-        {
-            /* Pattern ends with * only */
+          for (size_t i = 0; i < PrefixLen; ++i)
+          {
+               if (!CharEqualCaseInsensitive(Str[i], Pattern[i]))
+               {
+                    return false;
+               }
+          }
 
-            Info.IsPrefix = true;
-            Info.PrefixLen = Len - 1;
-        }
-        
-        return Info;
-    }
+          return true;
+     }
+
+     /*
+      * Check suffix matches where the pattern starts with '*'.
+      */
+
+     bool MatchSuffix(const char* Str, const char* Pattern, size_t StrLen, size_t SuffixLen)
+     {
+          if (StrLen < SuffixLen)
+          {
+               return false;
+          }
+
+          const char* StrSuffix = Str + (StrLen - SuffixLen);
+
+          const char* PatternSuffix = Pattern + 1;
+
+          /* Fast path: try case-sensitive first. */
+
+          if (std::memcmp(StrSuffix, PatternSuffix, SuffixLen) == 0)
+          {
+               return true;
+          }
+
+          /* Fall back to case-insensitive comparison. */
+
+          for (size_t i = 0; i < SuffixLen; ++i)
+          {
+               if (!CharEqualCaseInsensitive(StrSuffix[i], PatternSuffix[i]))
+               {
+                    return false;
+               }
+          }
+
+          return true;
+     }
+
+     /*
+      * Check substring matches for patterns like "*substring*".
+      */
+
+     bool MatchContains(const char* Str, const char* Pattern, size_t StrLen, size_t SubstrLen)
+     {
+          if (StrLen < SubstrLen)
+          {
+               return false;
+          }
+
+          const char* SubPattern = Pattern + 1;
+
+          for (size_t i = 0; i <= StrLen - SubstrLen; ++i)
+          {
+               /* Fast path: try case-sensitive first. */
+
+               if (std::memcmp(Str + i, SubPattern, SubstrLen) == 0)
+               {
+                    return true;
+               }
+
+               /* Fall back to case-insensitive comparison. */
+
+               bool Matches = true;
+
+               for (size_t j = 0; j < SubstrLen; ++j)
+               {
+                    if (!CharEqualCaseInsensitive(Str[i + j], SubPattern[j]))
+                    {
+                         Matches = false;
+                         break;
+                    }
+               }
+
+               if (Matches)
+               {
+                    return true;
+               }
+          }
+
+          return false;
+     }
+
+     /*
+      * General wildcard match for patterns with '*' and '?'.
+      */
+
+     bool MatchWildcard(const char* Str, const char* Pattern)
+     {
+          const char* Star = nullptr;
+
+          const char* StrCheckpoint = nullptr;
+
+          while (*Str)
+          {
+               if (*Pattern == '*')
+               {
+                    Star = Pattern++;
+                    StrCheckpoint = Str;
+                    continue;
+               }
+
+               if (*Pattern == '?' || CharEqualCaseInsensitive(*Str, *Pattern))
+               {
+                    Str++;
+                    Pattern++;
+                    continue;
+               }
+
+               if (Star)
+               {
+                    Pattern = Star + 1;
+                    Str = ++StrCheckpoint;
+                    continue;
+               }
+
+               return false;
+          }
+
+          while (*Pattern == '*')
+          {
+               Pattern++;
+          }
+
+          return *Pattern == '\0';
+     }
 }
 
-/* Comment goes here */
+/*
+ * Check whether a string matches a wildcard pattern.
+ */
 
-bool Wildcard::Match(const std::string& Str, const std::string& Pattern) 
+bool Wildcard::Match(const std::string& Str, const std::string& Pattern)
 {
-    if (Pattern.empty()) 
-    {
-        return Str.empty();
-    }
-    
-    /* Normalize pattern (collapse consecutive *) */
+     if (Pattern == "*")
+     {
+          return true;
+     }
 
-    std::string Normalized = NormalizePattern(Pattern);
+     std::string Normalized = NormalizePattern(Pattern);
 
-    return Match(Str.c_str(), Normalized.c_str());
-}
+     if (Normalized.find('*') == std::string::npos && Normalized.find('?') == std::string::npos)
+     {
+          return MatchExact(Str.c_str(), Normalized.c_str());
+     }
 
-/* Comment goes here */
+     size_t StrLen = Str.size();
 
-bool Wildcard::Match(const char* Str, const char* Pattern) 
-{
-    /* Input validation */
+     if (Normalized.front() == '*' && Normalized.back() == '*' && Normalized.size() > 2)
+     {
+          return MatchContains(Str.c_str(), Normalized.c_str(), StrLen, Normalized.size() - 2);
+     }
 
-    if (!Str || !Pattern) 
-    {
-        return false;
-    }
-    
-    /* Empty pattern matches only empty string */
+     if (Normalized.front() == '*' && Normalized.find_first_of("*?", 1) == std::string::npos)
+     {
+          return MatchSuffix(Str.c_str(), Normalized.c_str(), StrLen, Normalized.size() - 1);
+     }
 
-    if (*Pattern == '\0') 
-    {
-        return *Str == '\0';
-    }
-    
-    /* Empty string only matches if pattern is all stars */
+     if (Normalized.back() == '*' && Normalized.find_first_of("*?", 0) == Normalized.size() - 1)
+     {
+          return MatchPrefix(Str.c_str(), Normalized.c_str(), Normalized.size() - 1);
+     }
 
-    if (*Str == '\0') 
-    {
-        while (*Pattern == '*') 
-        {
-            Pattern++;
-        }
-
-        return *Pattern == '\0';
-    }
-    
-    return MatchInternal(Str, Pattern);
-}
-
-/* Comment goes here */
-
-bool Wildcard::MatchInternal(const char* Str, const char* Pattern) 
-{
-    /* Analyze pattern once to determine fast-path */
-
-    PatternInfo Info = AnalyzePattern(Pattern);
-    
-    if (Info.IsExact) 
-    {
-        return MatchExact(Str, Pattern);
-    }
-    
-    /* Get string length once (avoid multiple strlen calls) */
-
-    size_t StrLen = std::strlen(Str);
-    
-    /* Fast-path: Prefix match (pattern ends with *) */
-
-    if (Info.IsPrefix) 
-    {
-        if (StrLen < Info.PrefixLen) 
-        {
-            return false;
-        }
-
-        return MatchPrefix(Str, Pattern, Info.PrefixLen);
-    }
-    
-    /* Fast-path: Suffix match (pattern starts with *) */
-
-    if (Info.IsSuffix) 
-    {
-        if (StrLen < Info.SuffixLen) 
-        {
-            return false;
-        }
-
-        return MatchSuffix(Str, Pattern, StrLen, Info.SuffixLen);
-    }
-    
-    /* Fast-path: Contains match (pattern is *substring*) */
-
-    if (Info.IsContains) 
-    {
-        return MatchContains(Str, Pattern, StrLen, Info.ContainsLen);
-    }
-    
-    /* General case: Use optimized backtracking algorithm for complex patterns */
-
-    const char* Cp = nullptr;
-
-    const char* Mp = nullptr;
-
-    const char* StrStart = Str;
-
-    /* Match characters until first * */
-
-    while (*Str && *Pattern != '*') 
-    {
-        if (!CharEqualCaseInsensitive(*Pattern, *Str) && *Pattern != '?') 
-        {
-            return false;
-        }
-
-        Pattern++;
-        Str++;
-    }
-
-    /* Handle remaining pattern with backtracking */
-
-    while (*Str) 
-    {
-        if (*Pattern == '*') 
-        {
-            /* Skip consecutive stars (shouldn't happen after normalization, but be safe) */
-
-            while (*Pattern == '*') 
-            {
-                Pattern++;
-            }
-
-            if (*Pattern == '\0') 
-            {
-                return true; /* Pattern ends with *, matches rest of string */
-            }
-
-            Mp = Pattern;
-            Cp = Str + 1;
-        } 
-        else if (CharEqualCaseInsensitive(*Pattern, *Str) || *Pattern == '?') 
-        {
-            Pattern++;
-            Str++;
-        } 
-        else 
-        {
-            /* Backtrack */
-
-            if (Mp == nullptr) 
-            {
-                return false; /* No backtrack point */
-            }
-
-            Pattern = Mp;
-
-            Str = Cp++;
-            
-            /* Safety: prevent infinite loop */
-
-            if (Cp > StrStart + StrLen) 
-            {
-                return false;
-            }
-        }
-    }
-
-    /* Skip trailing stars */
-
-    while (*Pattern == '*') 
-    {
-        Pattern++;
-    }
-
-    return *Pattern == '\0';
-}
-
-/* Comment goes here */
-
-std::vector<std::string> Wildcard::Filter(const std::vector<std::string>& Strings, const std::string& Pattern) 
-{
-    if (Strings.empty()) 
-    {
-        return {};
-    }
-    
-    std::vector<std::string> Results;
-    
-    /* Reserve space for better performance (estimate 10-20% match rate) */
-    /* But cap at reasonable size to avoid over-allocation */
-
-    size_t ReserveSize = std::min(Strings.size() / 5, Strings.size());
-
-    if (ReserveSize < 8) 
-    {
-        ReserveSize = 8; /* Minimum reasonable reserve */
-    }
-
-    Results.reserve(ReserveSize);
-    
-    /* Normalize pattern once (reuse across all matches) */
-
-    std::string Normalized = NormalizePattern(Pattern);
-
-    const char* NormalizedCStr = Normalized.c_str();
-    
-    /* Optimize: use direct C-string matching to avoid string copies */
-    
-    for (const auto& Str : Strings) 
-    {
-        if (Match(Str.c_str(), NormalizedCStr)) 
-        {
-            Results.push_back(Str);
-        }
-    }
-    
-    /* Shrink to fit if we over-allocated significantly */
-
-    if (Results.size() < Results.capacity() / 2) 
-    {
-        Results.shrink_to_fit();
-    }
-    
-    return Results;
+     return MatchWildcard(Str.c_str(), Normalized.c_str());
 }
