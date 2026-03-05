@@ -22,826 +22,1325 @@
 
 #include "api/ip_filter.h"
 #include "core/hlquery.h"
-#include "core/hlquery.h"
 #include "core/logmanager.h"
 
-
-IPFilter::IPFilter() : allow_all(true), has_hostnames(false), has_wildcard_hostnames(false),
-    last_cache_flush(Instance->Now())
+IPFilter::IPFilter() : AllowAll(true),
+                       DenyAll(false), HasHostnames(false), HasWildcardHostnames(false), HasDenyEntries(false), HasDenyHostnames(false), HasDenyWildcardHostnames(false), DNSCacheMaxSize(DNS_CACHE_MAX_SIZE), LastCacheFlush(Instance->Now())
 {
-
 }
 
-IPFilter::~IPFilter() 
-{
+/* IPFilter destructor. */
 
+IPFilter::~IPFilter()
+{
 }
 
-bool IPFilter::Initialize(const std::string& allowed_ips_config)
+/* Initialize IP filter from allow configuration. */
+
+bool IPFilter::Initialize(const std::string& AllowedIPsConfig)
 {
-    std::lock_guard<std::mutex> lock(mutex);
-    
-    original_config = allowed_ips_config;
-    allow_all = false;
-    allowed_ips.clear();
-    direct_ips.clear();
-    cidr_ranges.clear();
-    wildcard_hostnames.clear();
-    regular_hostnames.clear();
-    original_entries.clear();
-    has_hostnames = false;
-    has_wildcard_hostnames = false;
-    
-    /* Clear DNS cache (need to access mutable members) */
-    
-    {
-        std::lock_guard<std::mutex> cache_lock(cache_mutex);
-        dns_cache.clear();
-        reverse_dns_cache.clear();
-        dns_cache_order.clear();
-        reverse_dns_cache_order.clear();
-    }
-    
-    /* Check for wildcard */
-    
-    std::string trimmed = allowed_ips_config;
+     return Initialize(AllowedIPsConfig, "");
+}
 
-    trimmed.erase(0, trimmed.find_first_not_of(" \t\n\r"));
-    trimmed.erase(trimmed.find_last_not_of(" \t\n\r") + 1);
-    
-    /* Empty config means deny all (no entries = deny all) */
-    
-    if (trimmed.empty())
-    {
-        allow_all = false;
-        has_hostnames = false;
-        has_wildcard_hostnames = false;
+/* Initialize IP filter from allow and deny configuration. */
 
-        if (Instance && Instance->Logs)
-        {
-            Instance->Logs->Normal("ip_allow", "IP allow filter: deny all (no entries configured)");
-        }
-        return true;
-    }
-    
-    /* Explicit wildcard "*" means allow all */
+bool IPFilter::Initialize(const std::string& AllowedIPsConfig, const std::string& DeniedIPsConfig)
+{
+     std::lock_guard<std::mutex> Lock(MutexValue);
 
-    if (trimmed == "*")
-    {
-        allow_all = true;
-        has_hostnames = false;
-        has_wildcard_hostnames = false;
+     /* Configure DNS cache size from config when present. */
 
-        if (Instance && Instance->Logs)
-        {
-            Instance->Logs->Normal("ip_allow", "IP allow filtering disabled (wildcard * - allowing all IPs, no DNS resolution needed)");
-        }
-        return true;
-    }
-    
-    /* Parse IP list */
+     if (Instance && Instance->Config)
+     {
+          size_t ConfigCacheSize = Instance->Config->GetDNSCacheMaxSize();
+          DNSCacheMaxSize = (ConfigCacheSize > 0) ? ConfigCacheSize : DNS_CACHE_MAX_SIZE;
+     }
 
-    std::vector<std::string> ip_list = ParseIPList(allowed_ips_config);
-    
-    for (const auto& entry : ip_list)
-    {
-        original_entries.push_back(entry);
-        
-        /* Check for CIDR notation */
+     /* Preserve original configuration. */
 
-        if (IsCIDR(entry))
-        {
-            cidr_ranges.push_back(entry);
+     OriginalConfig = AllowedIPsConfig;
 
-            if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
-            {
-                Instance->Logs->Debug("ip_allow", "Added CIDR range: " + entry);
-            }
-            continue;
-        }
-        
-        /* Check for wildcard hostname */
+     /* Reset state to a clean slate. */
 
-        if (IsWildcardHostname(entry))
-        {
-            wildcard_hostnames.push_back(entry);
-            has_wildcard_hostnames = true;
-            has_hostnames = true;
+     AllowAll = false;
 
-            if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
-            {
-                Instance->Logs->Debug("ip_allow", "Added wildcard hostname pattern: " + entry);
-            }
-            continue;
-        }
-        
-        /* Check if it's a hostname (not an IP) */
+     DenyAll = false;
 
-        if (IsHostname(entry))
-        {
-            regular_hostnames.push_back(entry);
-            has_hostnames = true;
+     HasHostnames = false;
 
-            /* Resolve hostname at startup (only if we have hostnames configured) */
+     HasWildcardHostnames = false;
 
-            std::vector<std::string> resolved_ips;
+     HasDenyEntries = false;
 
-            if (ResolveHostname(entry, resolved_ips, true))
-            {
-                /* Already holding mutex from Initialize() - no need to lock again */
+     HasDenyHostnames = false;
 
-                for (const auto& ip : resolved_ips)
-                {
-                    allowed_ips.insert(ip);
-                }
+     HasDenyWildcardHostnames = false;
 
-                if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
-                {
-                    std::string resolved_str;
+     AllowedIPs.clear();
 
-                    for (size_t i = 0; i < resolved_ips.size(); ++i)
+     DirectIPs.clear();
+
+     CIDRRanges.clear();
+
+     WildcardHostnames.clear();
+
+     RegularHostnames.clear();
+
+     OriginalEntries.clear();
+
+     DeniedIPs.clear();
+
+     DeniedDirectIPs.clear();
+
+     DeniedCIDRRanges.clear();
+
+     DeniedWildcardHostnames.clear();
+
+     DeniedRegularHostnames.clear();
+
+     DeniedOriginalEntries.clear();
+
+     /* Reset DNS caches. */
+
+     {
+
+          std::lock_guard<std::mutex> CacheLock(CacheMutex);
+
+          DNSCache.clear();
+
+          ReverseDNSCache.clear();
+
+          DNSCacheOrder.clear();
+
+          ReverseDNSCacheOrder.clear();
+     }
+
+     /* Normalize allow list input. */
+
+     std::string AllowTrimmed = AllowedIPsConfig;
+
+     AllowTrimmed.erase(0, AllowTrimmed.find_first_not_of(" \t\n\r"));
+
+     AllowTrimmed.erase(AllowTrimmed.find_last_not_of(" \t\n\r") + 1);
+
+     if (AllowTrimmed.empty())
+     {
+
+          AllowAll = false;
+
+          if (Instance && Instance->Logs)
+          {
+
+               Instance->Logs->Normal("ip_allow", "IP allow filter: deny all (no entries configured).");
+          }
+     }
+     else if (AllowTrimmed == "*")
+     {
+
+          AllowAll = true;
+
+          if (Instance && Instance->Logs)
+          {
+               Instance->Logs->Normal("ip_allow", "IP allow filter set to allow all (wildcard * - no DNS resolution needed).");
+          }
+     }
+     else
+     {
+          std::vector<std::string> IPList = ParseIPList(AllowedIPsConfig);
+
+          for (const auto& Entry : IPList)
+          {
+
+               OriginalEntries.push_back(Entry);
+
+               if (IsCIDR(Entry))
+               {
+                    CIDRRanges.push_back(Entry);
+
+                    if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
                     {
-                        if (i > 0)
-                        {
-                            resolved_str += ", ";
-                        }
-                        resolved_str += resolved_ips[i];
+                         Instance->Logs->Debug("ip_allow", "Added CIDR range: " + Entry + ".");
                     }
-                    Instance->Logs->Debug("ip_allow", "Resolved hostname " + entry + " -> " + resolved_str);
-                }
-            }
-            else
-            {
-                if (Instance && Instance->Logs)
-                {
-                    Instance->Logs->Normal("ip_allow", "Failed to resolve hostname: " + entry);
-                }
-            }
-            continue;
-        }
-        
-        /* It's an IP address */
 
-        if (IsValidIP(entry))
-        {
-            /* Already holding mutex from Initialize() - no need to lock again */
+                    continue;
+               }
 
-            allowed_ips.insert(entry);
+               if (IsWildcardHostname(Entry))
+               {
+                    WildcardHostnames.push_back(Entry);
 
-            /* Track as direct IP (not from hostname) */
+                    HasWildcardHostnames = true;
 
-            direct_ips.insert(entry);
+                    HasHostnames = true;
 
-            if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
-            {
-                Instance->Logs->Debug("ip_allow", "Added IP address: " + entry);
-            }
-        }
-        else
-        {
-            if (Instance && Instance->Logs)
-            {
-                Instance->Logs->Normal("ip_allow", "Invalid IP address or hostname: " + entry);
-            }
-        }
-    }
-    
-    if (Instance && Instance->Logs)
-    {
-        std::string dns_info = "";
+                    if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
+                    {
+                         Instance->Logs->Debug("ip_allow", "Added wildcard hostname pattern: " + Entry + ".");
+                    }
 
-        if (has_hostnames)
-        {
-            dns_info = " (DNS resolution enabled)";
-        }
-        else
-        {
-            dns_info = " (no DNS resolution needed)";
-        }
-        Instance->Logs->Normal("ip_allow", "IP allow filter initialized with " + 
-            std::to_string(allowed_ips.size()) + " IP(s), " +
-            std::to_string(cidr_ranges.size()) + " CIDR range(s), " +
-            std::to_string(regular_hostnames.size()) + " hostname(s), " +
-            std::to_string(wildcard_hostnames.size()) + " wildcard hostname(s)" + dns_info);
-    }
-    
-    return true;
+                    continue;
+               }
+
+               if (IsHostname(Entry))
+               {
+                    RegularHostnames.push_back(Entry);
+
+                    HasHostnames = true;
+
+                    std::vector<std::string> ResolvedIPs;
+
+                    if (ResolveHostname(Entry, ResolvedIPs, true))
+                    {
+                         for (const auto& IP : ResolvedIPs)
+                         {
+                              AllowedIPs.insert(IP);
+                         }
+
+                         if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
+                         {
+                              std::string ResolvedStr;
+
+                              for (size_t Index = 0; Index < ResolvedIPs.size(); ++Index)
+                              {
+
+                                   if (Index > 0)
+                                   {
+                                        ResolvedStr += ", ";
+                                   }
+
+                                   ResolvedStr += ResolvedIPs[Index];
+                              }
+
+                              Instance->Logs->Debug("ip_allow", "Resolved hostname " + Entry + " -> " + ResolvedStr + ".");
+                         }
+                    }
+                    else
+                    {
+
+                         if (Instance && Instance->Logs)
+                         {
+
+                              Instance->Logs->Normal("ip_allow", "Failed to resolve hostname: " + Entry + ".");
+                         }
+                    }
+
+                    continue;
+               }
+
+               if (IsValidIP(Entry))
+               {
+
+                    AllowedIPs.insert(Entry);
+
+                    DirectIPs.insert(Entry);
+
+                    if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
+                    {
+
+                         Instance->Logs->Debug("ip_allow", "Added IP address: " + Entry + ".");
+                    }
+               }
+               else
+               {
+
+                    if (Instance && Instance->Logs)
+                    {
+
+                         Instance->Logs->Normal("ip_allow", "Invalid IP address or hostname: " + Entry + ".");
+                    }
+               }
+          }
+     }
+
+     /* Normalize deny list input. */
+
+     std::string DenyTrimmed = DeniedIPsConfig;
+
+     DenyTrimmed.erase(0, DenyTrimmed.find_first_not_of(" \t\n\r"));
+
+     DenyTrimmed.erase(DenyTrimmed.find_last_not_of(" \t\n\r") + 1);
+
+     if (!DenyTrimmed.empty())
+     {
+
+          if (DenyTrimmed == "*")
+          {
+
+               DenyAll = true;
+
+               HasDenyEntries = true;
+
+               DeniedOriginalEntries.push_back("*");
+
+               if (Instance && Instance->Logs)
+               {
+
+                    Instance->Logs->Normal("ip_deny", "IP deny filter: deny all (wildcard *).");
+               }
+          }
+          else
+          {
+
+               std::vector<std::string> DenyList = ParseIPList(DeniedIPsConfig);
+
+               for (const auto& Entry : DenyList)
+               {
+
+                    DeniedOriginalEntries.push_back(Entry);
+
+                    if (IsCIDR(Entry))
+                    {
+
+                         DeniedCIDRRanges.push_back(Entry);
+
+                         HasDenyEntries = true;
+
+                         if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
+                         {
+
+                              Instance->Logs->Debug("ip_deny", "Added CIDR range: " + Entry + ".");
+                         }
+
+                         continue;
+                    }
+
+                    if (IsWildcardHostname(Entry))
+                    {
+
+                         DeniedWildcardHostnames.push_back(Entry);
+
+                         HasDenyEntries = true;
+
+                         HasDenyWildcardHostnames = true;
+
+                         HasDenyHostnames = true;
+
+                         if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
+                         {
+
+                              Instance->Logs->Debug("ip_deny", "Added wildcard hostname pattern: " + Entry + ".");
+                         }
+
+                         continue;
+                    }
+
+                    if (IsHostname(Entry))
+                    {
+
+                         DeniedRegularHostnames.push_back(Entry);
+
+                         HasDenyEntries = true;
+
+                         HasDenyHostnames = true;
+
+                         std::vector<std::string> ResolvedIPs;
+
+                         if (ResolveHostname(Entry, ResolvedIPs, true))
+                         {
+
+                              for (const auto& IP : ResolvedIPs)
+                              {
+
+                                   DeniedIPs.insert(IP);
+                              }
+
+                              if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
+                              {
+
+                                   std::string ResolvedStr;
+
+                                   for (size_t Index = 0; Index < ResolvedIPs.size(); ++Index)
+                                   {
+
+                                        if (Index > 0)
+                                        {
+
+                                             ResolvedStr += ", ";
+                                        }
+
+                                        ResolvedStr += ResolvedIPs[Index];
+                                   }
+
+                                   Instance->Logs->Debug("ip_deny", "Resolved hostname " + Entry + " -> " + ResolvedStr + ".");
+                              }
+                         }
+                         else
+                         {
+
+                              if (Instance && Instance->Logs)
+                              {
+
+                                   Instance->Logs->Normal("ip_deny", "Failed to resolve hostname: " + Entry + ".");
+                              }
+                         }
+
+                         continue;
+                    }
+
+                    if (IsValidIP(Entry))
+                    {
+
+                         DeniedIPs.insert(Entry);
+
+                         DeniedDirectIPs.insert(Entry);
+
+                         HasDenyEntries = true;
+
+                         if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
+                         {
+
+                              Instance->Logs->Debug("ip_deny", "Added IP address: " + Entry + ".");
+                         }
+                    }
+                    else
+                    {
+
+                         if (Instance && Instance->Logs)
+                         {
+
+                              Instance->Logs->Normal("ip_deny", "Invalid IP address or hostname: " + Entry + ".");
+                         }
+                    }
+               }
+          }
+     }
+
+     /* Ensure deny hostnames also enable DNS support. */
+
+     HasHostnames = HasHostnames || HasDenyHostnames;
+
+     HasWildcardHostnames = HasWildcardHostnames || HasDenyWildcardHostnames;
+
+     if (!AllowAll && !OriginalEntries.empty())
+     {
+
+          if (Instance && Instance->Logs)
+          {
+
+               std::string DNSInfo = HasHostnames ? " (DNS resolution enabled)" : " (no DNS resolution needed)";
+
+               Instance->Logs->Normal("ip_allow", "IP allow filter initialized with " + std::to_string(AllowedIPs.size()) + " IP(s), " + std::to_string(CIDRRanges.size()) + " CIDR range(s), " + std::to_string(RegularHostnames.size()) + " hostname(s), " + std::to_string(WildcardHostnames.size()) + " wildcard hostname(s)" + DNSInfo + ".");
+          }
+     }
+
+     if (HasDenyEntries && !DenyAll)
+     {
+
+          if (Instance && Instance->Logs)
+          {
+
+               std::string DNSInfo = HasDenyHostnames ? " (DNS resolution enabled)" : " (no DNS resolution needed)";
+
+               Instance->Logs->Normal("ip_deny", "IP deny filter initialized with " + std::to_string(DeniedIPs.size()) + " IP(s), " + std::to_string(DeniedCIDRRanges.size()) + " CIDR range(s), " + std::to_string(DeniedRegularHostnames.size()) + " hostname(s), " + std::to_string(DeniedWildcardHostnames.size()) + " wildcard hostname(s)" + DNSInfo + ".");
+          }
+     }
+
+     return true;
 }
 
-bool IPFilter::IsAllowed(const std::string& ip_or_hostname) const
+/* Check if an IP address or hostname is allowed. */
+
+bool IPFilter::IsAllowed(const std::string& IPOrHostname) const
 {
-    std::lock_guard<std::mutex> lock(mutex);
-    
-    /* If wildcard mode, allow all (no DNS needed) */
 
-    if (allow_all)
-    {
-        return true;
-    }
-    
-    /* If input is a hostname, resolve it first (using cache) */
+     std::lock_guard<std::mutex> Lock(MutexValue);
 
-    std::string check_ip = ip_or_hostname;
+     if (DenyAll)
+     {
 
-    if (IsHostname(ip_or_hostname) && has_hostnames)
-    {
-        std::vector<std::string> resolved_ips;
+          return false;
+     }
 
-        if (ResolveHostname(ip_or_hostname, resolved_ips, true))
-        {
-            /* Check all resolved IPs - if any match, allow */
+     if (HasDenyEntries)
+     {
 
-            for (const auto& resolved_ip : resolved_ips)
-            {
-                if (IsAllowedInternal(resolved_ip))
-                {
-                    return true;
-                }
-            }
+          if (IsHostname(IPOrHostname))
+          {
 
-            /* None of the resolved IPs matched */
+               std::vector<std::string> ResolvedIPs;
 
-            return false;
-        }
-        else
-        {
-            /* DNS resolution failed - deny */
+               if (ResolveHostname(IPOrHostname, ResolvedIPs, true))
+               {
 
-            return false;
-        }
-    }
-    
-    /* Input is an IP address, check directly */
+                    for (const auto& ResolvedIP : ResolvedIPs)
+                    {
 
-    return IsAllowedInternal(check_ip);
+                         if (IsDeniedInternal(ResolvedIP))
+                         {
+
+                              return false;
+                         }
+                    }
+               }
+          }
+          else
+          {
+               if (IsDeniedInternal(IPOrHostname))
+               {
+
+                    return false;
+               }
+          }
+     }
+
+     if (AllowAll)
+     {
+
+          return true;
+     }
+
+     std::string CheckIP = IPOrHostname;
+
+     if (IsHostname(IPOrHostname) && HasHostnames)
+     {
+
+          std::vector<std::string> ResolvedIPs;
+
+          if (ResolveHostname(IPOrHostname, ResolvedIPs, true))
+          {
+
+               for (const auto& ResolvedIP : ResolvedIPs)
+               {
+
+                    if (IsAllowedInternal(ResolvedIP))
+                    {
+
+                         return true;
+                    }
+               }
+
+               return false;
+          }
+          else
+          {
+
+               return false;
+          }
+     }
+
+     return IsAllowedInternal(CheckIP);
 }
 
-bool IPFilter::IsAllowedInternal(const std::string& ip_address) const
+/* Internal method to check IP address. */
+
+bool IPFilter::IsAllowedInternal(const std::string& IPAddress) const
 {
-    /* Check if IP is in allowed set */
 
-    if (allowed_ips.find(ip_address) != allowed_ips.end())
-    {
-        return true;
-    }
-    
-    /* Check CIDR ranges */
+     if (AllowedIPs.find(IPAddress) != AllowedIPs.end())
+     {
 
-    for (const auto& cidr : cidr_ranges)
-    {
-        if (IsIPInCIDR(ip_address, cidr))
-        {
-            return true;
-        }
-    }
-    
-    /* Check wildcard hostnames (only if we have wildcard patterns configured) */
+          return true;
+     }
 
-    if (has_wildcard_hostnames && !wildcard_hostnames.empty())
-    {
-        std::string hostname = ReverseDNS(ip_address);
+     for (const auto& CIDR : CIDRRanges)
+     {
 
-        if (!hostname.empty())
-        {
-            for (const auto& pattern : wildcard_hostnames)
-            {
-                if (MatchWildcardHostname(hostname, pattern))
-                {
-                    return true;
-                }
-            }
-        }
-    }
-    
-    return false;
+          if (IsIPInCIDR(IPAddress, CIDR))
+          {
+
+               return true;
+          }
+     }
+
+     if (HasWildcardHostnames && !WildcardHostnames.empty())
+     {
+
+          std::string Hostname = ReverseDNS(IPAddress);
+
+          if (!Hostname.empty())
+          {
+
+               for (const auto& Pattern : WildcardHostnames)
+               {
+
+                    if (MatchWildcardHostname(Hostname, Pattern))
+                    {
+
+                         return true;
+                    }
+               }
+          }
+     }
+
+     return false;
 }
+
+/* Internal method to check IP address against deny list. */
+
+bool IPFilter::IsDeniedInternal(const std::string& IPAddress) const
+{
+
+     if (DeniedIPs.find(IPAddress) != DeniedIPs.end())
+     {
+
+          return true;
+     }
+
+     for (const auto& CIDR : DeniedCIDRRanges)
+     {
+
+          if (IsIPInCIDR(IPAddress, CIDR))
+          {
+
+               return true;
+          }
+     }
+
+     if (HasDenyWildcardHostnames && !DeniedWildcardHostnames.empty())
+     {
+
+          std::string Hostname = ReverseDNS(IPAddress);
+
+          if (!Hostname.empty())
+          {
+
+               for (const auto& Pattern : DeniedWildcardHostnames)
+               {
+
+                    if (MatchWildcardHostname(Hostname, Pattern))
+                    {
+
+                         return true;
+                    }
+               }
+          }
+     }
+
+     return false;
+}
+
+/* Get list of allowed IP addresses. */
 
 std::vector<std::string> IPFilter::GetAllowedIPs() const
 {
-    std::lock_guard<std::mutex> lock(mutex);
-    
-    std::vector<std::string> result;
 
-    result.reserve(allowed_ips.size() + cidr_ranges.size() + wildcard_hostnames.size());
-    
-    /* Add resolved IPs */
+     std::lock_guard<std::mutex> Lock(MutexValue);
 
-    for (const auto& ip : allowed_ips)
-    {
-        result.push_back(ip);
-    }
-    
-    /* Add CIDR ranges */
+     std::vector<std::string> Result;
 
-    for (const auto& cidr : cidr_ranges)
-    {
-        result.push_back(cidr);
-    }
-    
-    /* Add wildcard hostnames */
+     Result.reserve(AllowedIPs.size() + CIDRRanges.size() + WildcardHostnames.size());
 
-    for (const auto& pattern : wildcard_hostnames)
-    {
-        result.push_back(pattern);
-    }
-    
-    return result;
+     for (const auto& IP : AllowedIPs)
+     {
+
+          Result.push_back(IP);
+     }
+
+     for (const auto& CIDR : CIDRRanges)
+     {
+
+          Result.push_back(CIDR);
+     }
+
+     for (const auto& Pattern : WildcardHostnames)
+     {
+
+          Result.push_back(Pattern);
+     }
+
+     return Result;
 }
+
+/* Get list of original allowed entries. */
 
 std::vector<std::string> IPFilter::GetOriginalEntries() const
 {
-    std::lock_guard<std::mutex> lock(mutex);
-    return original_entries;
+
+     std::lock_guard<std::mutex> Lock(MutexValue);
+
+     return OriginalEntries;
 }
 
-bool IPFilter::AddAllowed(const std::string& ip_or_hostname)
+/* Get list of denied IP addresses. */
+
+std::vector<std::string> IPFilter::GetDeniedIPs() const
 {
-    /* This method is now only used internally - hostname resolution is done in Initialize() */
 
-    if (IsValidIP(ip_or_hostname))
-    {
-        std::lock_guard<std::mutex> lock(mutex);
-        allowed_ips.insert(ip_or_hostname);
+     std::lock_guard<std::mutex> Lock(MutexValue);
 
-        /* Track as direct IP */
+     std::vector<std::string> Result;
 
-        direct_ips.insert(ip_or_hostname);
-        return true;
-    }
-    return false;
+     Result.reserve(DeniedIPs.size() + DeniedCIDRRanges.size() + DeniedWildcardHostnames.size());
+
+     for (const auto& IP : DeniedIPs)
+     {
+
+          Result.push_back(IP);
+     }
+
+     for (const auto& CIDR : DeniedCIDRRanges)
+     {
+
+          Result.push_back(CIDR);
+     }
+
+     for (const auto& Pattern : DeniedWildcardHostnames)
+     {
+
+          Result.push_back(Pattern);
+     }
+
+     return Result;
 }
+
+/* Get list of original denied entries. */
+
+std::vector<std::string> IPFilter::GetDeniedEntries() const
+{
+
+     std::lock_guard<std::mutex> Lock(MutexValue);
+
+     return DeniedOriginalEntries;
+}
+
+/* Add an IP address or hostname to the allowed list. */
+
+bool IPFilter::AddAllowed(const std::string& IPOrHostname)
+{
+
+     if (IsValidIP(IPOrHostname))
+     {
+
+          std::lock_guard<std::mutex> Lock(MutexValue);
+
+          AllowedIPs.insert(IPOrHostname);
+
+          DirectIPs.insert(IPOrHostname);
+
+          return true;
+     }
+
+     return false;
+}
+
+/* Clear all allowed IPs. */
 
 void IPFilter::Clear()
 {
-    std::lock_guard<std::mutex> lock(mutex);
-    allowed_ips.clear();
-    direct_ips.clear();
-    allow_all = true;
-    original_config.clear();
+
+     std::lock_guard<std::mutex> Lock(MutexValue);
+
+     AllowedIPs.clear();
+
+     DirectIPs.clear();
+
+     CIDRRanges.clear();
+
+     WildcardHostnames.clear();
+
+     RegularHostnames.clear();
+
+     OriginalEntries.clear();
+
+     DeniedIPs.clear();
+
+     DeniedDirectIPs.clear();
+
+     DeniedCIDRRanges.clear();
+
+     DeniedWildcardHostnames.clear();
+
+     DeniedRegularHostnames.clear();
+
+     DeniedOriginalEntries.clear();
+
+     AllowAll = true;
+
+     DenyAll = false;
+
+     HasDenyEntries = false;
+
+     HasDenyHostnames = false;
+
+     HasDenyWildcardHostnames = false;
+
+     HasHostnames = false;
+
+     HasWildcardHostnames = false;
+
+     OriginalConfig.clear();
 }
 
-bool IPFilter::Reload(const std::string& allowed_ips_config)
+/* Reload allow configuration. */
+
+bool IPFilter::Reload(const std::string& AllowedIPsConfig)
 {
-    return Initialize(allowed_ips_config);
+
+     return Initialize(AllowedIPsConfig, "");
 }
+
+/* Reload allow and deny configuration. */
+
+bool IPFilter::Reload(const std::string& AllowedIPsConfig, const std::string& DeniedIPsConfig)
+{
+
+     return Initialize(AllowedIPsConfig, DeniedIPsConfig);
+}
+
+/* Flush DNS cache. */
 
 void IPFilter::FlushDNSCache()
 {
-    size_t dns_count = 0;
-    size_t reverse_count = 0;
-    
-    /* Clear caches */
 
-    {
-        std::lock_guard<std::mutex> cache_lock(cache_mutex);
-        dns_count = dns_cache.size();
-        reverse_count = reverse_dns_cache.size();
-        
-        dns_cache.clear();
-        reverse_dns_cache.clear();
-        dns_cache_order.clear();
-        reverse_dns_cache_order.clear();
-    }
-    
-    /* 
-     * Re-resolve configured hostnames and update allowed_ips
-     * Preserve direct IPs (not from hostname resolution)
-     */
-     
-    if (has_hostnames && !regular_hostnames.empty()) 
-    {
-        std::lock_guard<std::mutex> lock(mutex);
-        
-        /*
-         * Remove only hostname-resolved IPs (keep direct IPs)
-         * Rebuild allowed_ips from direct_ips first
-         */
+     size_t DNSCount = 0;
 
-        allowed_ips = direct_ips;
-        
-        /* Re-resolve all regular hostnames and add their IPs */
+     size_t ReverseCount = 0;
 
-        for (const auto& hostname : regular_hostnames)
-        {
-            std::vector<std::string> resolved_ips;
+     {
 
-            /* Force fresh lookup (use_cache=false) to get latest IPs */
+          std::lock_guard<std::mutex> CacheLock(CacheMutex);
 
-            if (ResolveHostname(hostname, resolved_ips, false))
-            {
-                for (const auto& ip : resolved_ips)
-                {
-                    allowed_ips.insert(ip);
-                }
+          DNSCount = DNSCache.size();
 
-                if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
-                {
-                    std::string resolved_str;
+          ReverseCount = ReverseDNSCache.size();
 
-                    for (size_t i = 0; i < resolved_ips.size(); ++i)
+          DNSCache.clear();
+
+          ReverseDNSCache.clear();
+
+          DNSCacheOrder.clear();
+
+          ReverseDNSCacheOrder.clear();
+     }
+
+     if (HasHostnames && !RegularHostnames.empty())
+     {
+
+          std::lock_guard<std::mutex> Lock(MutexValue);
+
+          AllowedIPs = DirectIPs;
+
+          for (const auto& Hostname : RegularHostnames)
+          {
+
+               std::vector<std::string> ResolvedIPs;
+
+               if (!ResolveHostname(Hostname, ResolvedIPs, false))
+               {
+
+                    if (Instance && Instance->Logs)
                     {
-                        if (i > 0)
-                        {
-                            resolved_str += ", ";
-                        }
-                        resolved_str += resolved_ips[i];
+
+                         Instance->Logs->Normal("ip_allow", "Failed to re-resolve hostname after cache flush: " + Hostname + ".");
                     }
-                    Instance->Logs->Debug("ip_allow", "Re-resolved hostname " + hostname + " -> " + resolved_str + " (after cache flush)");
-                }
-            }
-            else
-            {
-                if (Instance && Instance->Logs)
-                {
-                    Instance->Logs->Normal("ip_allow", "Failed to re-resolve hostname after cache flush: " + hostname);
-                }
-            }
-        }
-    }
-    
-    last_cache_flush = Instance->Now();
-    
-    if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
-    {
-        Instance->Logs->Debug("ip_allow", "DNS cache flushed: " + 
-            std::to_string(dns_count) + " forward, " + 
-            std::to_string(reverse_count) + " reverse entries cleared" +
-            (has_hostnames && !regular_hostnames.empty() ? " (hostnames re-resolved)" : ""));
-    }
+
+                    continue;
+               }
+
+               for (const auto& IP : ResolvedIPs)
+               {
+
+                    AllowedIPs.insert(IP);
+               }
+
+               if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
+               {
+
+                    std::string ResolvedStr;
+
+                    for (size_t Index = 0; Index < ResolvedIPs.size(); ++Index)
+                    {
+
+                         if (Index > 0)
+                         {
+
+                              ResolvedStr += ", ";
+                         }
+
+                         ResolvedStr += ResolvedIPs[Index];
+                    }
+
+                    Instance->Logs->Debug("ip_allow", "Re-resolved hostname " + Hostname + " -> " + ResolvedStr + " (after cache flush).");
+               }
+          }
+     }
+
+     if (HasDenyHostnames && !DeniedRegularHostnames.empty())
+     {
+
+          std::lock_guard<std::mutex> Lock(MutexValue);
+
+          DeniedIPs = DeniedDirectIPs;
+
+          for (const auto& Hostname : DeniedRegularHostnames)
+          {
+
+               std::vector<std::string> ResolvedIPs;
+
+               if (!ResolveHostname(Hostname, ResolvedIPs, false))
+               {
+
+                    if (Instance && Instance->Logs)
+                    {
+
+                         Instance->Logs->Normal("ip_deny", "Failed to re-resolve hostname after cache flush: " + Hostname + ".");
+                    }
+
+                    continue;
+               }
+
+               for (const auto& IP : ResolvedIPs)
+               {
+
+                    DeniedIPs.insert(IP);
+               }
+
+               if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
+               {
+
+                    std::string ResolvedStr;
+
+                    for (size_t Index = 0; Index < ResolvedIPs.size(); ++Index)
+                    {
+
+                         if (Index > 0)
+                         {
+
+                              ResolvedStr += ", ";
+                         }
+
+                         ResolvedStr += ResolvedIPs[Index];
+                    }
+
+                    Instance->Logs->Debug("ip_deny", "Re-resolved hostname " + Hostname + " -> " + ResolvedStr + " (after cache flush).");
+               }
+          }
+     }
+
+     LastCacheFlush = Instance->Now();
+
+     if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
+     {
+
+          bool ReResolved = (HasHostnames && !RegularHostnames.empty()) || (HasDenyHostnames && !DeniedRegularHostnames.empty());
+
+          Instance->Logs->Debug("ip_allow", "DNS cache flushed: " + std::to_string(DNSCount) + " forward, " + std::to_string(ReverseCount) + " reverse entries cleared" + (ReResolved ? " (hostnames re-resolved)" : "") + ".");
+     }
 }
 
-bool IPFilter::ResolveHostname(const std::string& hostname, std::vector<std::string>& resolved_ips, bool use_cache) const
+/* Configure maximum DNS cache entries. */
+
+void IPFilter::SetDNSCacheMaxSize(size_t MaxSize)
 {
-    /* Check cache first (with lock held) */
 
-    if (use_cache)
-    {
-        std::lock_guard<std::mutex> cache_lock(cache_mutex);
-        auto it = dns_cache.find(hostname);
+     if (MaxSize == 0)
+     {
 
-        if (it != dns_cache.end())
-        {
-            resolved_ips = it->second;
-            return !resolved_ips.empty();
-        }
-    }
-    
-    /* Perform DNS lookup (without lock to avoid blocking other threads) */
+          MaxSize = DNS_CACHE_MAX_SIZE;
+     }
 
-    struct addrinfo hints;
-    struct addrinfo* result = nullptr;
-    
-    std::memset(&hints, 0, sizeof(hints));
+     std::lock_guard<std::mutex> CacheLock(CacheMutex);
 
-    /* Only IPv4 */
+     DNSCacheMaxSize = MaxSize;
 
-    hints.ai_family = AF_INET;
-    hints.ai_socktype = SOCK_STREAM;
-    
-    int status = getaddrinfo(hostname.c_str(), nullptr, &hints, &result);
+     if (DNSCache.size() > DNSCacheMaxSize)
+     {
 
-    if (status != 0)
-    {
-        if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
-        {
-            Instance->Logs->Debug("ip_allow", "DNS resolution failed for " + hostname + ": " + gai_strerror(status));
-        }
-        return false;
-    }
-    
-    /* Extract IP addresses */
+          DNSCache.clear();
 
-    for (struct addrinfo* rp = result; rp != nullptr; rp = rp->ai_next)
-    {
-        if (rp->ai_family == AF_INET)
-        {
-            struct sockaddr_in* ipv4 = reinterpret_cast<struct sockaddr_in*>(rp->ai_addr);
-            char ip_str[INET_ADDRSTRLEN];
+          DNSCacheOrder.clear();
+     }
 
-            if (inet_ntop(AF_INET, &(ipv4->sin_addr), ip_str, INET_ADDRSTRLEN) != nullptr)
-            {
-                resolved_ips.push_back(std::string(ip_str));
-            }
-        }
-    }
-    
-    freeaddrinfo(result);
-    
-    /*
-     * Cache the result (limit cache size to MAX_CACHE_SIZE)
-     * Fix Bug 2: Check cache again after acquiring lock (another thread might have added it)
-     */
+     if (ReverseDNSCache.size() > DNSCacheMaxSize)
+     {
 
-    if (use_cache && !resolved_ips.empty())
-    {
-        std::lock_guard<std::mutex> cache_lock(cache_mutex);
+          ReverseDNSCache.clear();
 
-        /* Double-check: another thread might have resolved this while we were doing DNS lookup */
-
-        auto it = dns_cache.find(hostname);
-
-        if (it != dns_cache.end())
-        {
-            /* Another thread beat us to it, use their result */
-
-            resolved_ips = it->second;
-            return !resolved_ips.empty();
-        }
-        
-        /*
-         * Flush entire cache when it reaches MAX_CACHE_SIZE
-         */
-
-        if (dns_cache.size() >= MAX_CACHE_SIZE)
-        {
-            /* Flush entire cache when limit reached */
-            dns_cache.clear();
-            dns_cache_order.clear();
-
-            if (Instance && Instance->Logs)
-            {
-                Instance->Logs->Debug("ip_allow", "DNS cache reached " + std::to_string(MAX_CACHE_SIZE) + " items, flushing everything.");
-            }
-        }
-        
-        /* Add new entry */
-
-        dns_cache[hostname] = resolved_ips;
-        dns_cache_order.push_back(hostname);
-    }
-    
-    return !resolved_ips.empty();
+          ReverseDNSCacheOrder.clear();
+     }
 }
 
-bool IPFilter::IsHostname(const std::string& str) const 
-{
-    /* If it's a valid IP, it's not a hostname */
-    
-    if (IsValidIP(str)) 
-    {
-        return false;
-    }
-    
-    /* If it's CIDR, it's not a hostname */
-    
-    if (IsCIDR(str)) 
-    {
-        return false;
-    }
-    
-    /*
-     * If it contains letters or dots (and not just numbers/dots), likely a hostname
-     * Simple heuristic: contains at least one letter
-     */
+/* Resolve hostname to IP addresses. */
 
-    for (char c : str)
-    {
-        if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z'))
-        {
-            return true;
-        }
-    }
-    
-    return false;
+bool IPFilter::ResolveHostname(const std::string& Hostname, std::vector<std::string>& ResolvedIPs, bool UseCache) const
+{
+
+     if (UseCache)
+     {
+
+          std::lock_guard<std::mutex> CacheLock(CacheMutex);
+
+          auto It = DNSCache.find(Hostname);
+
+          if (It != DNSCache.end())
+          {
+
+               ResolvedIPs = It->second;
+
+               return !ResolvedIPs.empty();
+          }
+     }
+
+     struct addrinfo Hints;
+
+     struct addrinfo* Result = nullptr;
+
+     std::memset(&Hints, 0, sizeof(Hints));
+
+     Hints.ai_family = AF_INET;
+
+     Hints.ai_socktype = SOCK_STREAM;
+
+     int StatusVal = getaddrinfo(Hostname.c_str(), nullptr, &Hints, &Result);
+
+     if (StatusVal != 0)
+     {
+
+          if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
+          {
+
+               Instance->Logs->Debug("ip_allow", "DNS resolution failed for " + Hostname + ": " + gai_strerror(StatusVal) + ".");
+          }
+
+          return false;
+     }
+
+     for (struct addrinfo* RP = Result; RP != nullptr; RP = RP->ai_next)
+     {
+
+          if (RP->ai_family == AF_INET)
+          {
+
+               struct sockaddr_in* IPv4 = reinterpret_cast<struct sockaddr_in*>(RP->ai_addr);
+
+               char IPStr[INET_ADDRSTRLEN];
+
+               if (inet_ntop(AF_INET, &(IPv4->sin_addr), IPStr, INET_ADDRSTRLEN) != nullptr)
+               {
+
+                    ResolvedIPs.push_back(std::string(IPStr));
+               }
+          }
+     }
+
+     freeaddrinfo(Result);
+
+     if (UseCache && !ResolvedIPs.empty())
+     {
+
+          std::lock_guard<std::mutex> CacheLock(CacheMutex);
+
+          auto It = DNSCache.find(Hostname);
+
+          if (It != DNSCache.end())
+          {
+
+               ResolvedIPs = It->second;
+
+               return !ResolvedIPs.empty();
+          }
+
+          if (DNSCache.size() >= DNSCacheMaxSize)
+          {
+
+               DNSCache.clear();
+
+               DNSCacheOrder.clear();
+
+               if (Instance && Instance->Logs)
+               {
+
+                    Instance->Logs->Debug("ip_allow", "DNS cache reached " + std::to_string(DNSCacheMaxSize) + " items, flushing everything.");
+               }
+          }
+
+          DNSCache[Hostname] = ResolvedIPs;
+
+          DNSCacheOrder.push_back(Hostname);
+     }
+
+     return !ResolvedIPs.empty();
 }
 
-bool IPFilter::IsValidIP(const std::string& ip) const
+/* Check if string is a hostname. */
+
+bool IPFilter::IsHostname(const std::string& StrVal) const
 {
-    struct sockaddr_in sa;
-    return inet_pton(AF_INET, ip.c_str(), &(sa.sin_addr)) == 1;
+
+     if (IsValidIP(StrVal))
+     {
+
+          return false;
+     }
+
+     if (IsCIDR(StrVal))
+     {
+
+          return false;
+     }
+
+     for (char CharValue : StrVal)
+     {
+
+          if ((CharValue >= 'a' && CharValue <= 'z') || (CharValue >= 'A' && CharValue <= 'Z'))
+          {
+
+               return true;
+          }
+     }
+
+     return false;
 }
 
-bool IPFilter::IsCIDR(const std::string& cidr) const
+/* Validate IP address format. */
+
+bool IPFilter::IsValidIP(const std::string& IP) const
 {
-    size_t slash_pos = cidr.find('/');
 
-    if (slash_pos == std::string::npos || slash_pos == 0 || slash_pos == cidr.length() - 1)
-    {
-        return false;
-    }
-    
-    std::string ip_part = cidr.substr(0, slash_pos);
-    std::string mask_part = cidr.substr(slash_pos + 1);
-    
-    /* Validate IP part */
+     struct sockaddr_in SA;
 
-    if (!IsValidIP(ip_part))
-    {
-        return false;
-    }
-    
-    /* Validate mask (0-32) */
-
-    try
-    {
-        int mask = std::stoi(mask_part);
-        return mask >= 0 && mask <= 32;
-    }
-    catch (...)
-    {
-        return false;
-    }
+     return inet_pton(AF_INET, IP.c_str(), &(SA.sin_addr)) == 1;
 }
 
-bool IPFilter::IsWildcardHostname(const std::string& hostname) const
+/* Check if string is CIDR notation. */
+
+bool IPFilter::IsCIDR(const std::string& CIDR) const
 {
-    return hostname.find('*') != std::string::npos;
+
+     size_t SlashPos = CIDR.find('/');
+
+     if (SlashPos == std::string::npos || SlashPos == 0 || SlashPos == CIDR.length() - 1)
+     {
+
+          return false;
+     }
+
+     std::string IPPart = CIDR.substr(0, SlashPos);
+
+     std::string MaskPart = CIDR.substr(SlashPos + 1);
+
+     if (!IsValidIP(IPPart))
+     {
+
+          return false;
+     }
+
+     try
+     {
+
+          int MaskVal = std::stoi(MaskPart);
+
+          return MaskVal >= 0 && MaskVal <= 32;
+     }
+     catch (...)
+     {
+
+          return false;
+     }
 }
 
-bool IPFilter::IsIPInCIDR(const std::string& ip, const std::string& cidr) const
+/* Check if string is wildcard hostname. */
+
+bool IPFilter::IsWildcardHostname(const std::string& Hostname) const
 {
-    size_t slash_pos = cidr.find('/');
 
-    if (slash_pos == std::string::npos)
-    {
-        return false;
-    }
-    
-    std::string network_str = cidr.substr(0, slash_pos);
-    int mask_bits = std::stoi(cidr.substr(slash_pos + 1));
-    
-    struct sockaddr_in network_addr, ip_addr;
-
-    if (inet_pton(AF_INET, network_str.c_str(), &(network_addr.sin_addr)) != 1)
-    {
-        return false;
-    }
-
-    if (inet_pton(AF_INET, ip.c_str(), &(ip_addr.sin_addr)) != 1)
-    {
-        return false;
-    }
-    
-    uint32_t network = ntohl(network_addr.sin_addr.s_addr);
-    uint32_t address = ntohl(ip_addr.sin_addr.s_addr);
-    uint32_t mask = (0xFFFFFFFF << (32 - mask_bits)) & 0xFFFFFFFF;
-    
-    return (address & mask) == (network & mask);
+     return Hostname.find('*') != std::string::npos;
 }
 
-bool IPFilter::MatchWildcardHostname(const std::string& hostname, const std::string& pattern) const
+/* Check if IP is in CIDR range. */
+
+bool IPFilter::IsIPInCIDR(const std::string& IP, const std::string& CIDR) const
 {
-    /* Simple wildcard matching: *.example.com matches api.example.com, www.example.com, etc. */
 
-    if (pattern == "*")
-    {
-        return true;
-    }
-    
-    if (pattern.front() == '*')
-    {
-        /* Pattern starts with * (e.g., *.example.com) */
+     size_t SlashPos = CIDR.find('/');
 
-        std::string suffix = pattern.substr(1);
+     if (SlashPos == std::string::npos)
+     {
 
-        if (suffix.front() == '.')
-        {
-            /* Remove leading dot */
+          return false;
+     }
 
-            suffix = suffix.substr(1);
-        }
-        
-        /* Check if hostname ends with suffix */
+     std::string NetworkStr = CIDR.substr(0, SlashPos);
 
-        if (hostname.length() >= suffix.length())
-        {
-            std::string hostname_suffix = hostname.substr(hostname.length() - suffix.length());
-            return hostname_suffix == suffix;
-        }
-    }
-    
-    /* Exact match */
+     int MaskBits = std::stoi(CIDR.substr(SlashPos + 1));
 
-    return hostname == pattern;
+     struct sockaddr_in NetworkAddr;
+
+     struct sockaddr_in IPAddr;
+
+     if (inet_pton(AF_INET, NetworkStr.c_str(), &(NetworkAddr.sin_addr)) != 1)
+     {
+
+          return false;
+     }
+
+     if (inet_pton(AF_INET, IP.c_str(), &(IPAddr.sin_addr)) != 1)
+     {
+
+          return false;
+     }
+
+     uint32_t Network = ntohl(NetworkAddr.sin_addr.s_addr);
+
+     uint32_t Address = ntohl(IPAddr.sin_addr.s_addr);
+
+     uint32_t Mask = (0xFFFFFFFF << (32 - MaskBits)) & 0xFFFFFFFF;
+
+     return (Address & Mask) == (Network & Mask);
 }
 
-std::string IPFilter::ReverseDNS(const std::string& ip) const
+/* Match hostname against wildcard pattern. */
+
+bool IPFilter::MatchWildcardHostname(const std::string& Hostname, const std::string& Pattern) const
 {
-    /* Check cache first (with lock held) */
 
-    {
-        std::lock_guard<std::mutex> cache_lock(cache_mutex);
-        auto it = reverse_dns_cache.find(ip);
+     if (Pattern == "*")
+     {
 
-        if (it != reverse_dns_cache.end())
-        {
-            return it->second;
-        }
-    }
-    
-    /* Perform reverse DNS lookup (without lock to avoid blocking other threads) */
+          return true;
+     }
 
-    struct sockaddr_in sa;
+     if (Pattern.front() == '*')
+     {
 
-    if (inet_pton(AF_INET, ip.c_str(), &(sa.sin_addr)) != 1)
-    {
-        return "";
-    }
-    
-    char hostname[NI_MAXHOST];
-    int result = getnameinfo(reinterpret_cast<struct sockaddr*>(&sa), sizeof(sa),
-                            hostname, NI_MAXHOST, nullptr, 0, 0);
-    
-    if (result != 0)
-    {
-        return "";
-    }
-    
-    std::string hostname_str(hostname);
-    
-    /*
-     * Cache the result (limit cache size to MAX_CACHE_SIZE)
-     * Fix Bug 2: Check cache again after acquiring lock (another thread might have added it)
-     */
+          std::string Suffix = Pattern.substr(1);
 
-    {
-        std::lock_guard<std::mutex> cache_lock(cache_mutex);
+          if (Suffix.front() == '.')
+          {
 
-        /* Double-check: another thread might have resolved this while we were doing DNS lookup */
+               Suffix = Suffix.substr(1);
+          }
 
-        auto it = reverse_dns_cache.find(ip);
+          if (Hostname.length() >= Suffix.length())
+          {
 
-        if (it != reverse_dns_cache.end())
-        {
-            /* Another thread beat us to it, use their result */
+               std::string HostnameSuffix = Hostname.substr(Hostname.length() - Suffix.length());
 
-            return it->second;
-        }
-        
-        /*
-         * Flush entire cache when it reaches MAX_CACHE_SIZE
-         */
+               return HostnameSuffix == Suffix;
+          }
+     }
 
-        if (reverse_dns_cache.size() >= MAX_CACHE_SIZE)
-        {
-            /* Flush entire cache when limit reached */
-            reverse_dns_cache.clear();
-            reverse_dns_cache_order.clear();
-
-            if (Instance && Instance->Logs)
-            {
-                Instance->Logs->Debug("ip_allow", "Reverse DNS cache reached " + std::to_string(MAX_CACHE_SIZE) + " items, flushing everything.");
-            }
-        }
-        
-        /* Add new entry */
-
-        reverse_dns_cache[ip] = hostname_str;
-        reverse_dns_cache_order.push_back(ip);
-    }
-    
-    return hostname_str;
+     return Hostname == Pattern;
 }
 
-std::string IPFilter::GetHostnameForIP(const std::string& ip) const
-{
-    /* Only perform reverse DNS if DNS is enabled */
+/* Perform reverse DNS lookup. */
 
-    if (!IsDNSEnabled())
-    {
-        return "";
-    }
-    return ReverseDNS(ip);
+std::string IPFilter::ReverseDNS(const std::string& IP) const
+{
+
+     {
+
+          std::lock_guard<std::mutex> CacheLock(CacheMutex);
+
+          auto It = ReverseDNSCache.find(IP);
+
+          if (It != ReverseDNSCache.end())
+          {
+
+               return It->second;
+          }
+     }
+
+     struct sockaddr_in SA;
+
+     if (inet_pton(AF_INET, IP.c_str(), &(SA.sin_addr)) != 1)
+     {
+
+          return "";
+     }
+
+     char Hostname[NI_MAXHOST];
+
+     int ResultVal = getnameinfo(reinterpret_cast<struct sockaddr*>(&SA), sizeof(SA), Hostname, NI_MAXHOST, nullptr, 0, 0);
+
+     if (ResultVal != 0)
+     {
+
+          return "";
+     }
+
+     std::string HostnameStr(Hostname);
+
+     {
+
+          std::lock_guard<std::mutex> CacheLock(CacheMutex);
+
+          auto It = ReverseDNSCache.find(IP);
+
+          if (It != ReverseDNSCache.end())
+          {
+
+               return It->second;
+          }
+
+          if (ReverseDNSCache.size() >= DNSCacheMaxSize)
+          {
+
+               ReverseDNSCache.clear();
+
+               ReverseDNSCacheOrder.clear();
+
+               if (Instance && Instance->Logs)
+               {
+
+                    Instance->Logs->Debug("ip_allow", "Reverse DNS cache reached " + std::to_string(DNSCacheMaxSize) + " items, flushing everything.");
+               }
+          }
+
+          ReverseDNSCache[IP] = HostnameStr;
+
+          ReverseDNSCacheOrder.push_back(IP);
+     }
+
+     return HostnameStr;
 }
 
-bool IPFilter::ResolveHostnameToIP(const std::string& hostname, std::string& resolved_ip, bool use_cache) const
+/* Get hostname for an IP address. */
+
+std::string IPFilter::GetHostnameForIP(const std::string& IP) const
 {
-    std::vector<std::string> resolved_ips;
 
-    if (!ResolveHostname(hostname, resolved_ips, use_cache))
-    {
-        return false;
-    }
-    
-    if (resolved_ips.empty())
-    {
-        return false;
-    }
-    
-    /* Return the first resolved IP address */
-
-    resolved_ip = resolved_ips[0];
-    return true;
+     return ReverseDNS(IP);
 }
 
-std::vector<std::string> IPFilter::ParseIPList(const std::string& allowed_ips_config)
-{
-    std::vector<std::string> result;
-    std::stringstream ss(allowed_ips_config);
-    std::string item;
-    
-    while (std::getline(ss, item, ','))
-    {
-        /* Trim whitespace */
+/* Resolve hostname to a single IP address. */
 
-        item.erase(0, item.find_first_not_of(" \t\n\r"));
-        item.erase(item.find_last_not_of(" \t\n\r") + 1);
-        
-        if (!item.empty())
-        {
-            result.push_back(item);
-        }
-    }
-    
-    return result;
+bool IPFilter::ResolveHostnameToIP(const std::string& Hostname, std::string& ResolvedIP, bool UseCache) const
+{
+
+     std::vector<std::string> ResolvedIPs;
+
+     if (!ResolveHostname(Hostname, ResolvedIPs, UseCache))
+     {
+
+          return false;
+     }
+
+     if (ResolvedIPs.empty())
+     {
+
+          return false;
+     }
+
+     ResolvedIP = ResolvedIPs[0];
+
+     return true;
+}
+
+/* Parse comma-separated list of IPs/hostnames. */
+
+std::vector<std::string> IPFilter::ParseIPList(const std::string& AllowedIPsConfig)
+{
+
+     std::vector<std::string> Result;
+
+     std::stringstream SS(AllowedIPsConfig);
+
+     std::string Item;
+
+     while (std::getline(SS, Item, ','))
+     {
+
+          Item.erase(0, Item.find_first_not_of(" \t\n\r"));
+
+          Item.erase(Item.find_last_not_of(" \t\n\r") + 1);
+
+          if (!Item.empty())
+          {
+
+               Result.push_back(Item);
+          }
+     }
+
+     return Result;
 }
