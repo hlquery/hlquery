@@ -31,7 +31,7 @@
  * Return the shared rate limit map.
  */
 
-std::unordered_map<std::string, Tools::RateLimitEntry>& Tools::GetRateLimits()
+std::unordered_map<std::string, Tools::RateLimitEntry> &Tools::GetRateLimits()
 {
      static std::unordered_map<std::string, RateLimitEntry> RateLimits;
 
@@ -147,7 +147,7 @@ std::vector<uint8_t> Tools::RandomBytes(size_t Count)
  * Convert a string to lowercase.
  */
 
-std::string Tools::ToLower(const std::string& Str)
+std::string Tools::ToLower(const std::string &Str)
 {
      std::string Result = Str;
 
@@ -160,7 +160,7 @@ std::string Tools::ToLower(const std::string& Str)
  * Convert a string to uppercase.
  */
 
-std::string Tools::ToUpper(const std::string& Str)
+std::string Tools::ToUpper(const std::string &Str)
 {
      std::string Result = Str;
 
@@ -173,7 +173,7 @@ std::string Tools::ToUpper(const std::string& Str)
  * Trim leading and trailing whitespace.
  */
 
-std::string Tools::Trim(const std::string& Str)
+std::string Tools::Trim(const std::string &Str)
 {
      size_t Start = Str.find_first_not_of(" \t\n\r\f\v");
 
@@ -191,7 +191,7 @@ std::string Tools::Trim(const std::string& Str)
  * Split a string by a delimiter substring.
  */
 
-std::vector<std::string> Tools::Split(const std::string& Str, const std::string& Delimiter)
+std::vector<std::string> Tools::Split(const std::string &Str, const std::string &Delimiter)
 {
      std::vector<std::string> Result;
 
@@ -216,7 +216,7 @@ std::vector<std::string> Tools::Split(const std::string& Str, const std::string&
  * Join strings using a delimiter.
  */
 
-std::string Tools::Join(const std::vector<std::string>& Strings, const std::string& Delimiter)
+std::string Tools::Join(const std::vector<std::string> &Strings, const std::string &Delimiter)
 {
      if (Strings.empty())
      {
@@ -237,7 +237,7 @@ std::string Tools::Join(const std::vector<std::string>& Strings, const std::stri
  * Check whether a string starts with a prefix.
  */
 
-bool Tools::StartsWith(const std::string& Str, const std::string& Prefix)
+bool Tools::StartsWith(const std::string &Str, const std::string &Prefix)
 {
      return Str.size() >= Prefix.size() && Str.substr(0, Prefix.size()) == Prefix;
 }
@@ -246,7 +246,7 @@ bool Tools::StartsWith(const std::string& Str, const std::string& Prefix)
  * Check whether a string ends with a suffix.
  */
 
-bool Tools::EndsWith(const std::string& Str, const std::string& Suffix)
+bool Tools::EndsWith(const std::string &Str, const std::string &Suffix)
 {
      return Str.size() >= Suffix.size() && Str.substr(Str.size() - Suffix.size()) == Suffix;
 }
@@ -255,7 +255,7 @@ bool Tools::EndsWith(const std::string& Str, const std::string& Suffix)
  * Replace all occurrences of a substring.
  */
 
-std::string Tools::ReplaceAll(const std::string& Str, const std::string& From, const std::string& To)
+std::string Tools::ReplaceAll(const std::string &Str, const std::string &From, const std::string &To)
 {
      std::string Result = Str;
 
@@ -275,7 +275,7 @@ std::string Tools::ReplaceAll(const std::string& Str, const std::string& From, c
  * Validate identifier characters based on allowed options.
  */
 
-bool Tools::IsValidIdentifier(const std::string& Str, bool AllowNumbers, bool AllowUnderscores)
+bool Tools::IsValidIdentifier(const std::string &Str, bool AllowNumbers, bool AllowUnderscores)
 {
      if (Str.empty())
      {
@@ -309,7 +309,7 @@ bool Tools::IsValidIdentifier(const std::string& Str, bool AllowNumbers, bool Al
  * Produce a formatted timestamp string.
  */
 
-std::string Tools::GetTimestamp(const std::string& Format)
+std::string Tools::GetTimestamp(const std::string &Format)
 {
      auto Now = std::chrono::system_clock::now();
 
@@ -319,7 +319,7 @@ std::string Tools::GetTimestamp(const std::string& Format)
 
      struct tm TmBuf;
 
-     struct tm* Tm = localtime_r(&TimeVal, &TmBuf);
+     struct tm *Tm = localtime_r(&TimeVal, &TmBuf);
 
      if (!Tm)
      {
@@ -398,7 +398,7 @@ std::string Tools::FormatDuration(std::chrono::seconds Duration)
  * Parse a duration like "1h30m" into seconds.
  */
 
-std::chrono::seconds Tools::ParseDuration(const std::string& DurationStr)
+std::chrono::seconds Tools::ParseDuration(const std::string &DurationStr)
 {
      int TotalSeconds = 0;
 
@@ -419,25 +419,26 @@ std::chrono::seconds Tools::ParseDuration(const std::string& DurationStr)
                switch (c)
                {
                     case 'd':
-                    TotalSeconds += CurrentValue * 86400;
-                    CurrentValue = 0;
-                    break;
+                         TotalSeconds += CurrentValue * 86400;
+                         CurrentValue = 0;
+                         break;
                     case 'h':
-                    TotalSeconds += CurrentValue * 3600;
-                    CurrentValue = 0;
-                    break;
+                         TotalSeconds += CurrentValue * 3600;
+                         CurrentValue = 0;
+                         break;
                     case 'm':
-                    TotalSeconds += CurrentValue * 60;
-                    CurrentValue = 0;
-                    break;
+                         TotalSeconds += CurrentValue * 60;
+                         CurrentValue = 0;
+                         break;
                     case 's':
-                    TotalSeconds += CurrentValue;
-                    CurrentValue = 0;
-                    break;
+                         TotalSeconds += CurrentValue;
+                         CurrentValue = 0;
+                         break;
                     default:
-                    /* Invalid character, ignore or reset. */
-                    CurrentValue = 0;
-                    break;
+                         /* Invalid character, ignore or reset. */
+
+                         CurrentValue = 0;
+                         break;
                }
           }
      }
@@ -456,7 +457,7 @@ std::chrono::seconds Tools::ParseDuration(const std::string& DurationStr)
  * Validate IPv4 or IPv6 address strings.
  */
 
-bool Tools::IsValidIP(const std::string& IP)
+bool Tools::IsValidIP(const std::string &IP)
 {
      sockaddr_in Sa4{};
 
@@ -488,7 +489,7 @@ bool Tools::IsValidPort(int Port)
  * Parse host:port pairs with a default port fallback.
  */
 
-std::pair<std::string, int> Tools::ParseHostPort(const std::string& HostPort, int DefaultPort)
+std::pair<std::string, int> Tools::ParseHostPort(const std::string &HostPort, int DefaultPort)
 {
      size_t ColonPos = HostPort.find_last_of(':');
 
@@ -517,7 +518,7 @@ std::pair<std::string, int> Tools::ParseHostPort(const std::string& HostPort, in
  * Normalize a hostname by trimming and lowercasing it.
  */
 
-std::string Tools::NormalizeHostname(const std::string& Hostname)
+std::string Tools::NormalizeHostname(const std::string &Hostname)
 {
      return ToLower(Trim(Hostname));
 }
@@ -526,7 +527,7 @@ std::string Tools::NormalizeHostname(const std::string& Hostname)
  * Check whether a file path exists.
  */
 
-bool Tools::FileExists(const std::string& Path)
+bool Tools::FileExists(const std::string &Path)
 {
      struct stat Buffer;
 
@@ -537,7 +538,7 @@ bool Tools::FileExists(const std::string& Path)
  * Return file size in bytes.
  */
 
-size_t Tools::GetFileSize(const std::string& Path)
+size_t Tools::GetFileSize(const std::string &Path)
 {
      struct stat Buffer;
 
@@ -553,7 +554,7 @@ size_t Tools::GetFileSize(const std::string& Path)
  * Ensure a directory exists or create it if missing.
  */
 
-bool Tools::EnsureDirectory(const std::string& Path)
+bool Tools::EnsureDirectory(const std::string &Path)
 {
      struct stat St;
 
@@ -571,7 +572,7 @@ bool Tools::EnsureDirectory(const std::string& Path)
  * Extract the file extension from a path.
  */
 
-std::string Tools::GetFileExtension(const std::string& Path)
+std::string Tools::GetFileExtension(const std::string &Path)
 {
      size_t DotPos = Path.find_last_of('.');
 
@@ -587,7 +588,7 @@ std::string Tools::GetFileExtension(const std::string& Path)
  * Return a simplified SHA256 label.
  */
 
-std::string Tools::SHA256(const std::string& Input)
+std::string Tools::SHA256(const std::string &Input)
 {
      /* Simplified; in production use a proper crypto library. */
 
@@ -598,7 +599,7 @@ std::string Tools::SHA256(const std::string& Input)
  * Return a simplified MD5 label.
  */
 
-std::string Tools::MD5(const std::string& Input)
+std::string Tools::MD5(const std::string &Input)
 {
      /* Simplified; in production use a proper crypto library. */
 
@@ -609,7 +610,7 @@ std::string Tools::MD5(const std::string& Input)
  * Compute a simple DJB2-style hash for quick use.
  */
 
-uint32_t Tools::SimpleHash(const std::string& Input)
+uint32_t Tools::SimpleHash(const std::string &Input)
 {
      uint32_t Hash = 5381;
 
@@ -627,7 +628,7 @@ uint32_t Tools::SimpleHash(const std::string& Input)
 
 std::string Tools::FormatBytes(size_t Bytes)
 {
-     const char* Units[] = {"B", "KB", "MB", "GB", "TB"};
+     const char *Units[] = {"B", "KB", "MB", "GB", "TB"};
 
      int UnitIndex = 0;
 
@@ -650,7 +651,7 @@ std::string Tools::FormatBytes(size_t Bytes)
  * Parse a memory size string such as "512MB".
  */
 
-size_t Tools::ParseMemorySize(const std::string& SizeStr)
+size_t Tools::ParseMemorySize(const std::string &SizeStr)
 {
      if (SizeStr.empty())
      {
@@ -751,7 +752,7 @@ size_t Tools::ParseMemorySize(const std::string& SizeStr)
  * Validate basic email formatting rules.
  */
 
-bool Tools::IsValidEmail(const std::string& Email)
+bool Tools::IsValidEmail(const std::string &Email)
 {
      if (Email.empty())
      {
@@ -827,7 +828,7 @@ bool Tools::IsValidEmail(const std::string& Email)
  * Validate a username with length limits.
  */
 
-bool Tools::IsValidUsername(const std::string& Username, size_t MinLength, size_t MaxLength)
+bool Tools::IsValidUsername(const std::string &Username, size_t MinLength, size_t MaxLength)
 {
      if (Username.length() < MinLength || Username.length() > MaxLength)
      {
@@ -849,7 +850,7 @@ bool Tools::IsValidUsername(const std::string& Username, size_t MinLength, size_
  * Validate password length requirements.
  */
 
-bool Tools::IsValidPassword(const std::string& Password, size_t MinLength)
+bool Tools::IsValidPassword(const std::string &Password, size_t MinLength)
 {
      return Password.length() >= MinLength;
 }
@@ -858,9 +859,9 @@ bool Tools::IsValidPassword(const std::string& Password, size_t MinLength)
  * Check whether a key is within its rate limit window.
  */
 
-bool Tools::CheckRateLimit(const std::string& Key, int MaxRequests, std::chrono::seconds Window)
+bool Tools::CheckRateLimit(const std::string &Key, int MaxRequests, std::chrono::seconds Window)
 {
-     auto* InstancePtr = Instance.get();
+     auto *InstancePtr = Instance;
 
      if (!InstancePtr)
      {
@@ -869,9 +870,9 @@ bool Tools::CheckRateLimit(const std::string& Key, int MaxRequests, std::chrono:
 
      auto Now = InstancePtr->Now();
 
-     auto& RateLimits = GetRateLimits();
+     auto &RateLimits = GetRateLimits();
 
-     auto& Entry = RateLimits[Key];
+     auto &Entry = RateLimits[Key];
 
      /* Reset window if expired. */
 
@@ -899,7 +900,7 @@ bool Tools::CheckRateLimit(const std::string& Key, int MaxRequests, std::chrono:
  * Reset the rate limit tracking for a key.
  */
 
-void Tools::ResetRateLimit(const std::string& Key)
+void Tools::ResetRateLimit(const std::string &Key)
 {
      GetRateLimits().erase(Key);
 }

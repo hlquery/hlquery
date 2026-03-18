@@ -19,11 +19,11 @@
 #include <sstream>
 
 #include "core/hlquery.h"
-#include "rocksdb/consistency_checker.h"
-#include "rocksdb/database_utility.h"
-#include "rocksdb/database_wrapper.h"
-#include "rocksdb/defragmentation.h"
-#include "rocksdb/performance_monitor.h"
+#include "search/consistency-checker.h"
+#include "search/storage-utility.h"
+#include "search/storageengine.h"
+#include "search/storagemaint.h"
+#include "search/performance-monitor.h"
 
 /*
  * Build a consistency checker instance.
@@ -55,18 +55,13 @@ bool ConsistencyChecker::CheckConsistency(int DbID)
 
      if (Instance && Instance->Database)
      {
-          auto* Db = Instance->Database.get();
+          Consistent &= CheckMemoryConsistency(DbID);
 
-          if (Db)
+          auto Keys = Instance->Database->Keys("*");
+
+          for (const auto &Key : Keys)
           {
-               Consistent &= CheckMemoryConsistency(DbID);
-
-               auto Keys = Db->Keys("*");
-
-               for (const auto& Key : Keys)
-               {
-                    Consistent &= CheckKeyConsistency(DbID, Key);
-               }
+               Consistent &= CheckKeyConsistency(DbID, Key);
           }
      }
 
@@ -85,17 +80,12 @@ int ConsistencyChecker::RepairInconsistencies(int /* DbID */)
 
      if (Instance && Instance->Database)
      {
-          auto* Db = Instance->Database.get();
+          /*
+           * Placeholder for repair logic.
+           * A real implementation would fix inconsistencies.
+           */
 
-          if (Db)
-          {
-               /*
-                * Placeholder for repair logic.
-                * A real implementation would fix inconsistencies.
-                */
-
-               Repaired = 0;
-          }
+          Repaired = 0;
      }
 
      return Repaired;
@@ -113,15 +103,10 @@ std::unordered_map<std::string, std::vector<std::string>> ConsistencyChecker::Ge
 
      if (Instance && Instance->Database)
      {
-          auto* Db = Instance->Database.get();
+          /* Placeholder for consistency report. */
 
-          if (Db)
-          {
-               /* Placeholder for consistency report. */
-
-               Report["memory"] = {"No issues found"};
-               Report["keys"] = {"No issues found"};
-          }
+          Report["memory"] = {"No issues found"};
+          Report["keys"] = {"No issues found"};
      }
 
      return Report;
@@ -131,7 +116,7 @@ std::unordered_map<std::string, std::vector<std::string>> ConsistencyChecker::Ge
  * Validate a single key for consistency.
  */
 
-bool ConsistencyChecker::CheckKeyConsistency(int /* DbID */, const std::string& Key)
+bool ConsistencyChecker::CheckKeyConsistency(int /* DbID */, const std::string &Key)
 {
      /* Placeholder implementation. */
 
@@ -173,7 +158,7 @@ PerformanceMonitor::~PerformanceMonitor()
  * Start tracking a named operation.
  */
 
-void PerformanceMonitor::StartOperation(const std::string& Operation)
+void PerformanceMonitor::StartOperation(const std::string &Operation)
 {
      std::lock_guard<std::mutex> Lock(Mutex);
 
@@ -184,7 +169,7 @@ void PerformanceMonitor::StartOperation(const std::string& Operation)
  * Finish tracking a named operation and update statistics.
  */
 
-void PerformanceMonitor::EndOperation(const std::string& Operation, bool Success)
+void PerformanceMonitor::EndOperation(const std::string &Operation, bool Success)
 {
      std::lock_guard<std::mutex> Lock(Mutex);
 
@@ -196,7 +181,7 @@ void PerformanceMonitor::EndOperation(const std::string& Operation, bool Success
 
           auto Duration = std::chrono::duration<double, std::milli>(EndTime - It->second).count();
 
-          auto& Stats = OperationStatsMap[Operation];
+          auto &Stats = OperationStatsMap[Operation];
 
           Stats.Count++;
 
@@ -222,7 +207,7 @@ void PerformanceMonitor::EndOperation(const std::string& Operation, bool Success
  * Return statistics for a specific operation.
  */
 
-std::unordered_map<std::string, std::string> PerformanceMonitor::GetOperationStats(const std::string& Operation) const
+std::unordered_map<std::string, std::string> PerformanceMonitor::GetOperationStats(const std::string &Operation) const
 {
      std::lock_guard<std::mutex> Lock(Mutex);
 
@@ -232,7 +217,7 @@ std::unordered_map<std::string, std::string> PerformanceMonitor::GetOperationSta
 
      if (It != OperationStatsMap.end())
      {
-          const auto& OpStats = It->second;
+          const auto &OpStats = It->second;
 
           Stats["count"] = std::to_string(OpStats.Count);
           Stats["successful"] = std::to_string(OpStats.Successful);
@@ -263,7 +248,7 @@ std::unordered_map<std::string, std::unordered_map<std::string, std::string>> Pe
 
      std::unordered_map<std::string, std::unordered_map<std::string, std::string>> AllStats;
 
-     for (const auto& Pair : OperationStatsMap)
+     for (const auto &Pair : OperationStatsMap)
      {
           AllStats[Pair.first] = GetOperationStats(Pair.first);
      }
@@ -293,19 +278,14 @@ std::unordered_map<std::string, std::string> DatabaseUtility::GenerateReport(int
 
      if (Instance && Instance->Database)
      {
-          auto* Db = Instance->Database.get();
+          auto Info = Instance->Database->Info();
 
-          if (Db)
+          Report.insert(Info.begin(), Info.end());
+          Report["db_id"] = std::to_string(DbID);
+
+          if (Instance)
           {
-               auto Info = Db->Info();
-
-               Report.insert(Info.begin(), Info.end());
-               Report["db_id"] = std::to_string(DbID);
-
-               if (Instance)
-               {
-                    Report["timestamp"] = std::to_string(Instance->Time());
-               }
+               Report["timestamp"] = std::to_string(Instance->Time());
           }
      }
 
@@ -322,14 +302,9 @@ int DatabaseUtility::OptimizeDatabase(int /* DbID */)
 
      if (Instance && Instance->Database)
      {
-          auto* Db = Instance->Database.get();
+          /* Placeholder for optimization logic. */
 
-          if (Db)
-          {
-               /* Placeholder for optimization logic. */
-
-               Optimizations = 0;
-          }
+          Optimizations = 0;
      }
 
      return Optimizations;
@@ -345,14 +320,9 @@ int DatabaseUtility::CleanupDatabase(int /* DbID */)
 
      if (Instance && Instance->Database)
      {
-          auto* Db = Instance->Database.get();
+          /* Expiration functionality removed. */
 
-          if (Db)
-          {
-               /* Expiration functionality removed. */
-
-               Cleaned++;
-          }
+          Cleaned++;
      }
 
      return Cleaned;
@@ -366,14 +336,9 @@ bool DatabaseUtility::ValidateIntegrity(int /* DbID */)
 {
      if (Instance && Instance->Database)
      {
-          auto* Db = Instance->Database.get();
+          /* Placeholder for integrity validation. */
 
-          if (Db)
-          {
-               /* Placeholder for integrity validation. */
-
-               return true;
-          }
+          return true;
      }
 
      return false;
@@ -389,28 +354,23 @@ size_t DatabaseUtility::EstimateSize(int /* DbID */)
 
      if (Instance && Instance->Database)
      {
-          auto* Db = Instance->Database.get();
+          auto Info = Instance->Database->Info();
 
-          if (Db)
+          auto It = Info.find("memory");
+
+          if (It != Info.end() && !It->second.empty())
           {
-               auto Info = Db->Info();
-
-               auto It = Info.find("memory");
-
-               if (It != Info.end() && !It->second.empty())
+               try
                {
-                    try
-                    {
-                         Size = std::stoull(It->second);
-                    }
-                    catch (const std::invalid_argument&)
-                    {
-                         /* Invalid string, keep default size. */
-                    }
-                    catch (const std::out_of_range&)
-                    {
-                         /* Value too large, keep default size. */
-                    }
+                    Size = std::stoull(It->second);
+               }
+               catch (const std::invalid_argument &)
+               {
+                    /* Invalid string, keep default size. */
+               }
+               catch (const std::out_of_range &)
+               {
+                    /* Value too large, keep default size. */
                }
           }
      }
@@ -428,14 +388,9 @@ size_t DatabaseUtility::CompactDatabase(int /* DbID */)
 
      if (Instance && Instance->Database)
      {
-          auto* Db = Instance->Database.get();
+          /* Placeholder for compaction logic. */
 
-          if (Db)
-          {
-               /* Placeholder for compaction logic. */
-
-               Saved = 0;
-          }
+          Saved = 0;
      }
 
      return Saved;

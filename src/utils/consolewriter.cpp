@@ -16,7 +16,6 @@
 #include <sys/ioctl.h>
 #include <unistd.h>
 
-#include "core/hlquery.h"
 #include "utils/consolewriter.h"
 
 /* ANSI color codes. */
@@ -68,7 +67,7 @@ bool ConsoleWriter::SupportsColor()
  * Format a status message with optional color decoration.
  */
 
-std::string ConsoleWriter::FormatMessage(const std::string& Message, const std::string& Status, bool Dot)
+std::string ConsoleWriter::FormatMessage(const std::string &Message, const std::string &Status, bool Dot)
 {
      std::ostringstream Oss;
 
@@ -107,7 +106,7 @@ std::string ConsoleWriter::FormatMessage(const std::string& Message, const std::
  * Write startup status with OK or FAIL markers.
  */
 
-void ConsoleWriter::WriteStartup(const std::string& Message, bool Success, bool Dot)
+void ConsoleWriter::WriteStartup(const std::string &Message, bool Success, bool Dot)
 {
      std::string Final = EnsurePeriod(Message, Dot);
 
@@ -132,7 +131,7 @@ void ConsoleWriter::WriteStartup(const std::string& Message, bool Success, bool 
  * Write a plain startup message with no status tag.
  */
 
-void ConsoleWriter::WriteStartupPlain(const std::string& Message, bool Dot)
+void ConsoleWriter::WriteStartupPlain(const std::string &Message, bool Dot)
 {
      std::string Final = EnsurePeriod(Message, Dot);
 
@@ -143,7 +142,7 @@ void ConsoleWriter::WriteStartupPlain(const std::string& Message, bool Dot)
  * Write configuration load status.
  */
 
-void ConsoleWriter::WriteConfig(const std::string& Message, bool Success, bool Dot)
+void ConsoleWriter::WriteConfig(const std::string &Message, bool Success, bool Dot)
 {
      /* Print CONFIG messages in both nofork and background modes. */
 
@@ -170,7 +169,7 @@ void ConsoleWriter::WriteConfig(const std::string& Message, bool Success, bool D
  * Write informational output.
  */
 
-void ConsoleWriter::WriteInfo(const std::string& Message, bool Dot)
+void ConsoleWriter::WriteInfo(const std::string &Message, bool Dot)
 {
      /* Print INFO messages in both nofork and background modes. */
 
@@ -190,7 +189,7 @@ void ConsoleWriter::WriteInfo(const std::string& Message, bool Dot)
  * Write error output to stderr.
  */
 
-void ConsoleWriter::WriteError(const std::string& Message, bool Dot)
+void ConsoleWriter::WriteError(const std::string &Message, bool Dot)
 {
      /* Print ERROR messages in both nofork and background modes. */
 
@@ -210,7 +209,7 @@ void ConsoleWriter::WriteError(const std::string& Message, bool Dot)
  * Write warning output.
  */
 
-void ConsoleWriter::WriteWarning(const std::string& Message, bool Dot)
+void ConsoleWriter::WriteWarning(const std::string &Message, bool Dot)
 {
      /* Print WARNING messages in both nofork and background modes. */
 
@@ -230,16 +229,9 @@ void ConsoleWriter::WriteWarning(const std::string& Message, bool Dot)
  * Write debug output when debug or verbose mode is enabled.
  */
 
-void ConsoleWriter::WriteDebug(const std::string& Message, bool Dot)
+void ConsoleWriter::WriteDebug(const std::string &Message, bool Dot)
 {
-     /* Debug messages can also go through LogManager if available. */
-
      std::string Final = EnsurePeriod(Message, Dot);
-
-     if (::Instance && ::Instance->Config && !::Instance->Config->GetDebugMode() && !::Instance->Config->GetVerboseMode())
-     {
-          return;
-     }
 
      if (SupportsColor())
      {
@@ -255,7 +247,7 @@ void ConsoleWriter::WriteDebug(const std::string& Message, bool Dot)
  * Write exit status output.
  */
 
-void ConsoleWriter::WriteExit(const std::string& Message, bool Dot)
+void ConsoleWriter::WriteExit(const std::string &Message, bool Dot)
 {
      /* Print EXIT messages in both nofork and background modes. */
 
@@ -275,17 +267,19 @@ void ConsoleWriter::WriteExit(const std::string& Message, bool Dot)
  * Write a visual header to separate console sections.
  */
 
-void ConsoleWriter::WriteHeader(const std::string& Title)
+void ConsoleWriter::WriteHeader(const std::string &Title)
 {
      /* Print HEADER messages in both nofork and background modes. */
 
      if (SupportsColor())
      {
-          std::cout << std::endl << ColorBold << ColorBrightCyan << Title << ColorReset << std::endl;
+          std::cout << std::endl
+                    << ColorBold << ColorBrightCyan << Title << ColorReset << std::endl;
      }
      else
      {
-          std::cout << std::endl << Title << std::endl;
+          std::cout << std::endl
+                    << Title << std::endl;
      }
 }
 
@@ -293,7 +287,7 @@ void ConsoleWriter::WriteHeader(const std::string& Title)
  * Write a status line for server information.
  */
 
-void ConsoleWriter::WriteServerInfo(const std::string& Key, const std::string& Value, const std::string& Status)
+void ConsoleWriter::WriteServerInfo(const std::string &Key, const std::string &Value, const std::string &Status)
 {
      /* Print SERVER INFO messages in both nofork and background modes. */
 
@@ -333,7 +327,7 @@ void ConsoleWriter::WriteBlankLine()
  * Write an initialization status line.
  */
 
-void ConsoleWriter::WriteInit(const std::string& Message, bool Dot)
+void ConsoleWriter::WriteInit(const std::string &Message, bool Dot)
 {
      /* Print INIT messages in both nofork and background modes. */
 
@@ -353,7 +347,7 @@ void ConsoleWriter::WriteInit(const std::string& Message, bool Dot)
  * Write a critical initialization status to stderr.
  */
 
-void ConsoleWriter::WriteInitCritical(const std::string& Message, bool Dot)
+void ConsoleWriter::WriteInitCritical(const std::string &Message, bool Dot)
 {
      /* Print CRITICAL messages in both nofork and background modes. */
 
@@ -373,38 +367,38 @@ void ConsoleWriter::WriteInitCritical(const std::string& Message, bool Dot)
  * Write an async-signal-safe INIT message using write().
  */
 
-void ConsoleWriter::WriteInitSafe(int Fd, const char* Message, bool Dot)
+void ConsoleWriter::WriteInitSafe(int Fd, const char *Message, bool Dot)
 {
      /* Async-signal-safe version using write() syscall. */
 
-     const char* BracketOpen = "[";
+     const char *BracketOpen = "[";
 
-     const char* Space = " ";
+     const char *Space = " ";
 
-     const char* InitText = "INIT";
+     const char *InitText = "INIT";
 
-     const char* BracketClose = "]";
+     const char *BracketClose = "]";
 
-     const char* ColorBlack = "\033[30m";
+     const char *AnsiBlack = "\033[30m";
 
-     const char* ColorBlue = "\033[94m";
+     const char *AnsiBrightBlue = "\033[94m";
 
-     const char* ColorReset = "\033[0m";
+     const char *AnsiReset = "\033[0m";
 
-     const char* Newline = "\n";
+     const char *Newline = "\n";
 
-     const char* Period = ".";
+     const char *Period = ".";
 
      /* Write [ INIT ] with black brackets and blue text. */
 
      size_t Len = 0;
 
-     while (ColorBlack[Len])
+     while (AnsiBlack[Len])
      {
           Len++;
      }
 
-     ssize_t WriteResult __attribute__((unused)) = write(Fd, ColorBlack, Len);
+     ssize_t WriteResult __attribute__((unused)) = write(Fd, AnsiBlack, Len);
 
      Len = 0;
 
@@ -417,12 +411,12 @@ void ConsoleWriter::WriteInitSafe(int Fd, const char* Message, bool Dot)
 
      Len = 0;
 
-     while (ColorReset[Len])
+     while (AnsiReset[Len])
      {
           Len++;
      }
 
-     WriteResult = write(Fd, ColorReset, Len);
+     WriteResult = write(Fd, AnsiReset, Len);
 
      Len = 0;
 
@@ -435,12 +429,12 @@ void ConsoleWriter::WriteInitSafe(int Fd, const char* Message, bool Dot)
 
      Len = 0;
 
-     while (ColorBlue[Len])
+     while (AnsiBrightBlue[Len])
      {
           Len++;
      }
 
-     WriteResult = write(Fd, ColorBlue, Len);
+     WriteResult = write(Fd, AnsiBrightBlue, Len);
 
      Len = 0;
 
@@ -453,12 +447,12 @@ void ConsoleWriter::WriteInitSafe(int Fd, const char* Message, bool Dot)
 
      Len = 0;
 
-     while (ColorReset[Len])
+     while (AnsiReset[Len])
      {
           Len++;
      }
 
-     WriteResult = write(Fd, ColorReset, Len);
+     WriteResult = write(Fd, AnsiReset, Len);
 
      Len = 0;
 
@@ -471,12 +465,12 @@ void ConsoleWriter::WriteInitSafe(int Fd, const char* Message, bool Dot)
 
      Len = 0;
 
-     while (ColorBlack[Len])
+     while (AnsiBlack[Len])
      {
           Len++;
      }
 
-     WriteResult = write(Fd, ColorBlack, Len);
+     WriteResult = write(Fd, AnsiBlack, Len);
 
      Len = 0;
 
@@ -489,12 +483,12 @@ void ConsoleWriter::WriteInitSafe(int Fd, const char* Message, bool Dot)
 
      Len = 0;
 
-     while (ColorReset[Len])
+     while (AnsiReset[Len])
      {
           Len++;
      }
 
-     WriteResult = write(Fd, ColorReset, Len);
+     WriteResult = write(Fd, AnsiReset, Len);
 
      Len = 0;
 
@@ -533,38 +527,38 @@ void ConsoleWriter::WriteInitSafe(int Fd, const char* Message, bool Dot)
  * Write an async-signal-safe startup OK message.
  */
 
-void ConsoleWriter::WriteStartupSafe(int Fd, const char* Message, bool Dot)
+void ConsoleWriter::WriteStartupSafe(int Fd, const char *Message, bool Dot)
 {
      /* Async-signal-safe version using write() syscall. */
 
-     const char* BracketOpen = "[";
+     const char *BracketOpen = "[";
 
-     const char* Space = " ";
+     const char *Space = " ";
 
-     const char* OkText = "OK";
+     const char *OkText = "OK";
 
-     const char* BracketClose = "]";
+     const char *BracketClose = "]";
 
-     const char* ColorBlack = "\033[30m";
+     const char *AnsiBlack = "\033[30m";
 
-     const char* ColorGreen = "\033[92m";
+     const char *AnsiBrightGreen = "\033[92m";
 
-     const char* ColorReset = "\033[0m";
+     const char *AnsiReset = "\033[0m";
 
-     const char* Newline = "\n";
+     const char *Newline = "\n";
 
-     const char* Period = ".";
+     const char *Period = ".";
 
      /* Write [ OK ] with black brackets and green text. */
 
      size_t Len = 0;
 
-     while (ColorBlack[Len])
+     while (AnsiBlack[Len])
      {
           Len++;
      }
 
-     ssize_t WriteResult __attribute__((unused)) = write(Fd, ColorBlack, Len);
+     ssize_t WriteResult __attribute__((unused)) = write(Fd, AnsiBlack, Len);
 
      Len = 0;
 
@@ -577,12 +571,12 @@ void ConsoleWriter::WriteStartupSafe(int Fd, const char* Message, bool Dot)
 
      Len = 0;
 
-     while (ColorReset[Len])
+     while (AnsiReset[Len])
      {
           Len++;
      }
 
-     WriteResult = write(Fd, ColorReset, Len);
+     WriteResult = write(Fd, AnsiReset, Len);
 
      Len = 0;
 
@@ -595,12 +589,12 @@ void ConsoleWriter::WriteStartupSafe(int Fd, const char* Message, bool Dot)
 
      Len = 0;
 
-     while (ColorGreen[Len])
+     while (AnsiBrightGreen[Len])
      {
           Len++;
      }
 
-     WriteResult = write(Fd, ColorGreen, Len);
+     WriteResult = write(Fd, AnsiBrightGreen, Len);
 
      Len = 0;
 
@@ -613,12 +607,12 @@ void ConsoleWriter::WriteStartupSafe(int Fd, const char* Message, bool Dot)
 
      Len = 0;
 
-     while (ColorReset[Len])
+     while (AnsiReset[Len])
      {
           Len++;
      }
 
-     WriteResult = write(Fd, ColorReset, Len);
+     WriteResult = write(Fd, AnsiReset, Len);
 
      Len = 0;
 
@@ -631,12 +625,12 @@ void ConsoleWriter::WriteStartupSafe(int Fd, const char* Message, bool Dot)
 
      Len = 0;
 
-     while (ColorBlack[Len])
+     while (AnsiBlack[Len])
      {
           Len++;
      }
 
-     WriteResult = write(Fd, ColorBlack, Len);
+     WriteResult = write(Fd, AnsiBlack, Len);
 
      Len = 0;
 
@@ -649,12 +643,12 @@ void ConsoleWriter::WriteStartupSafe(int Fd, const char* Message, bool Dot)
 
      Len = 0;
 
-     while (ColorReset[Len])
+     while (AnsiReset[Len])
      {
           Len++;
      }
 
-     WriteResult = write(Fd, ColorReset, Len);
+     WriteResult = write(Fd, AnsiReset, Len);
 
      Len = 0;
 
@@ -693,13 +687,13 @@ void ConsoleWriter::WriteStartupSafe(int Fd, const char* Message, bool Dot)
  * Write an async-signal-safe startup message without status.
  */
 
-void ConsoleWriter::WriteStartupPlainSafe(int Fd, const char* Message, bool Dot)
+void ConsoleWriter::WriteStartupPlainSafe(int Fd, const char *Message, bool Dot)
 {
      /* Async-signal-safe plain output without status prefix. */
 
-     const char* Newline = "\n";
+     const char *Newline = "\n";
 
-     const char* Period = ".";
+     const char *Period = ".";
 
      size_t Len = 0;
 
@@ -727,44 +721,44 @@ void ConsoleWriter::WriteStartupPlainSafe(int Fd, const char* Message, bool Dot)
  * Write an async-signal-safe critical INIT message.
  */
 
-void ConsoleWriter::WriteInitCriticalSafe(int Fd, const char* Message, bool Dot)
+void ConsoleWriter::WriteInitCriticalSafe(int Fd, const char *Message, bool Dot)
 {
      /* Async-signal-safe version using write() syscall. */
 
-     const char* BracketOpen = "[";
+     const char *BracketOpen = "[";
 
-     const char* Space = " ";
+     const char *Space = " ";
 
-     const char* InitText = "INIT";
+     const char *InitText = "INIT";
 
-     const char* BracketClose = "]";
+     const char *BracketClose = "]";
 
-     const char* CriticalTag = "";
+     const char *CriticalTag = "";
 
-     const char* ColorBlack = "\033[30m";
+     const char *AnsiBlack = "\033[30m";
 
-     const char* ColorBlue = "\033[94m";
+     const char *AnsiBrightBlue = "\033[94m";
 
-     const char* ColorRed = "\033[31m";
+     const char *AnsiRed = "\033[31m";
 
-     const char* ColorReset = "\033[0m";
+     const char *AnsiReset = "\033[0m";
 
-     const char* ColorBold = "\033[1m";
+     const char *AnsiBold = "\033[1m";
 
-     const char* Newline = "\n";
+     const char *Newline = "\n";
 
-     const char* Period = ".";
+     const char *Period = ".";
 
      /* Write [ INIT ] with black brackets and blue text. */
 
      size_t Len = 0;
 
-     while (ColorBlack[Len])
+     while (AnsiBlack[Len])
      {
           Len++;
      }
 
-     ssize_t WriteResult __attribute__((unused)) = write(Fd, ColorBlack, Len);
+     ssize_t WriteResult __attribute__((unused)) = write(Fd, AnsiBlack, Len);
 
      Len = 0;
 
@@ -777,12 +771,12 @@ void ConsoleWriter::WriteInitCriticalSafe(int Fd, const char* Message, bool Dot)
 
      Len = 0;
 
-     while (ColorReset[Len])
+     while (AnsiReset[Len])
      {
           Len++;
      }
 
-     WriteResult = write(Fd, ColorReset, Len);
+     WriteResult = write(Fd, AnsiReset, Len);
 
      Len = 0;
 
@@ -795,12 +789,12 @@ void ConsoleWriter::WriteInitCriticalSafe(int Fd, const char* Message, bool Dot)
 
      Len = 0;
 
-     while (ColorBlue[Len])
+     while (AnsiBrightBlue[Len])
      {
           Len++;
      }
 
-     WriteResult = write(Fd, ColorBlue, Len);
+     WriteResult = write(Fd, AnsiBrightBlue, Len);
 
      Len = 0;
 
@@ -813,12 +807,12 @@ void ConsoleWriter::WriteInitCriticalSafe(int Fd, const char* Message, bool Dot)
 
      Len = 0;
 
-     while (ColorReset[Len])
+     while (AnsiReset[Len])
      {
           Len++;
      }
 
-     WriteResult = write(Fd, ColorReset, Len);
+     WriteResult = write(Fd, AnsiReset, Len);
 
      Len = 0;
 
@@ -831,12 +825,12 @@ void ConsoleWriter::WriteInitCriticalSafe(int Fd, const char* Message, bool Dot)
 
      Len = 0;
 
-     while (ColorBlack[Len])
+     while (AnsiBlack[Len])
      {
           Len++;
      }
 
-     WriteResult = write(Fd, ColorBlack, Len);
+     WriteResult = write(Fd, AnsiBlack, Len);
 
      Len = 0;
 
@@ -849,12 +843,12 @@ void ConsoleWriter::WriteInitCriticalSafe(int Fd, const char* Message, bool Dot)
 
      Len = 0;
 
-     while (ColorReset[Len])
+     while (AnsiReset[Len])
      {
           Len++;
      }
 
-     WriteResult = write(Fd, ColorReset, Len);
+     WriteResult = write(Fd, AnsiReset, Len);
 
      Len = 0;
 
@@ -869,21 +863,21 @@ void ConsoleWriter::WriteInitCriticalSafe(int Fd, const char* Message, bool Dot)
 
      Len = 0;
 
-     while (ColorBold[Len])
+     while (AnsiBold[Len])
      {
           Len++;
      }
 
-     WriteResult = write(Fd, ColorBold, Len);
+     WriteResult = write(Fd, AnsiBold, Len);
 
      Len = 0;
 
-     while (ColorRed[Len])
+     while (AnsiRed[Len])
      {
           Len++;
      }
 
-     WriteResult = write(Fd, ColorRed, Len);
+     WriteResult = write(Fd, AnsiRed, Len);
 
      Len = 0;
 
@@ -896,23 +890,23 @@ void ConsoleWriter::WriteInitCriticalSafe(int Fd, const char* Message, bool Dot)
 
      Len = 0;
 
-     while (ColorReset[Len])
+     while (AnsiReset[Len])
      {
           Len++;
      }
 
-     WriteResult = write(Fd, ColorReset, Len);
+     WriteResult = write(Fd, AnsiReset, Len);
 
      /* Write message text in red. */
 
      Len = 0;
 
-     while (ColorRed[Len])
+     while (AnsiRed[Len])
      {
           Len++;
      }
 
-     WriteResult = write(Fd, ColorRed, Len);
+     WriteResult = write(Fd, AnsiRed, Len);
 
      Len = 0;
 
@@ -933,12 +927,12 @@ void ConsoleWriter::WriteInitCriticalSafe(int Fd, const char* Message, bool Dot)
 
      Len = 0;
 
-     while (ColorReset[Len])
+     while (AnsiReset[Len])
      {
           Len++;
      }
 
-     WriteResult = write(Fd, ColorReset, Len);
+     WriteResult = write(Fd, AnsiReset, Len);
 
      /* Write trailing newline. */
 
@@ -949,7 +943,7 @@ void ConsoleWriter::WriteInitCriticalSafe(int Fd, const char* Message, bool Dot)
  * Ensure messages end with a period when requested.
  */
 
-std::string ConsoleWriter::EnsurePeriod(const std::string& Message, bool Dot)
+std::string ConsoleWriter::EnsurePeriod(const std::string &Message, bool Dot)
 {
      std::string Final = Message;
 
