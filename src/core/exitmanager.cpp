@@ -19,7 +19,7 @@
 
 #include "core/exitmanager.h"
 
-namespace 
+namespace
 {
      std::vector<void (*)()> CleanupFuncs;
 
@@ -27,10 +27,9 @@ namespace
 
      std::atomic<bool> ShuttingDownValue{false};
 }
-
 /* Register a cleanup function to be called on process termination */
 
-void ExitManager::RegisterCleanup(void (*FuncPointer)()) 
+void ExitManager::RegisterCleanup(void (*FuncPointer)())
 {
      std::lock_guard<std::mutex> Lock(CleanupMutex);
 
@@ -39,28 +38,31 @@ void ExitManager::RegisterCleanup(void (*FuncPointer)())
 
 /* Execute all registered cleanup functions in the order they were registered */
 
-void ExitManager::RunCleanups() 
+void ExitManager::RunCleanups()
 {
-     std::lock_guard<std::mutex> Lock(CleanupMutex);
+     std::vector<void (*)()> CleanupFuncsToRun;
 
-     for (auto &FuncPointer : CleanupFuncs) 
+     {
+          std::lock_guard<std::mutex> Lock(CleanupMutex);
+          CleanupFuncsToRun.swap(CleanupFuncs);
+     }
+
+     for (auto &FuncPointer : CleanupFuncsToRun)
      {
           FuncPointer();
      }
-    
-     CleanupFuncs.clear();
 }
 
 /* Returns true if a shutdown sequence is currently in progress */
 
-bool ExitManager::IsShuttingDown() 
+bool ExitManager::IsShuttingDown()
 {
      return ShuttingDownValue.load();
 }
 
 /* Initiates a graceful shutdown sequence with the specified exit status */
 
-void ExitManager::Exit(int ExitStatus) 
+void ExitManager::Exit(int ExitStatus)
 {
      ShuttingDownValue.store(true);
 
@@ -71,7 +73,7 @@ void ExitManager::Exit(int ExitStatus)
 
 /* Forces an immediate process termination with the specified status */
 
-void ExitManager::QuickExit(int ExitStatus) 
+void ExitManager::QuickExit(int ExitStatus)
 {
      ShuttingDownValue.store(true);
 
@@ -82,7 +84,7 @@ void ExitManager::QuickExit(int ExitStatus)
 
 /* Immediate process termination without executing any cleanup logic */
 
-void ExitManager::EmergencyExit(int ExitStatus) 
+void ExitManager::EmergencyExit(int ExitStatus)
 {
      std::_Exit(ExitStatus);
 }

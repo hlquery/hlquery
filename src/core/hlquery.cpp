@@ -13,9 +13,11 @@
 #include <array>
 #include <atomic>
 #include <chrono>
-#include <ctime>
 #include <csignal>
+#include <cstdlib>
+#include <ctime>
 #include <exception>
+#include <fcntl.h>
 #include <filesystem>
 #include <fstream>
 #include <future>
@@ -24,57 +26,55 @@
 #include <sys/resource.h>
 #include <sys/time.h>
 #include <sys/wait.h>
-#include <fcntl.h>
 #include <thread>
 #include <unistd.h>
 #include <vector>
 
-#include "vendor/json/json.hpp"
-#include "api/http_server.h"
-#include "api/ip_filter.h"
-#include "api/search_api.h"
-#include "api/user_auth.h"
-#include "common/action_list.h"
-#include "common/hlquery_search_thread_pool.h"
-#include "common/io_optimization.h"
+#include "api/httpserver.h"
+#include "api/ipfilter.h"
+#include "api/searchapi.h"
+#include "api/userauth.h"
+#include "common/actionlist.h"
+#include "common/health.h"
+#include "common/searchpool.h"
 #include "common/listenmanager.h"
 #include "core/config.h"
-#include "core/daemon_handler.h"
+#include "core/daemonhandler.h"
 #include "core/exitmanager.h"
 #include "core/hlquery.h"
+#include "core/llmmanager.h"
 #include "core/socketengine.h"
-#include "core/thread_limit.h"
-#include "rocksdb/hybrid_storage.h"
-#include "rocksdb/inverted_index.h"
-#include "rocksdb/database_wrapper.h"
+#include "core/threadlimit.h"
+#include "search/storageengine.h"
+#include "search/cstore.h"
+#include "search/lindex.h"
 #include "utils/consolewriter.h"
 #include "utils/infos.h"
-#include "utils/simd_utils.h"
+#include "utils/simdutils.h"
+#include "utils/tools.h"
+#include "vendor/json/json.hpp"
 
-std::unique_ptr<hlquery> Instance = nullptr;
+hlquery *Instance = nullptr;
 
 /* Constructor for the main hlquery class */
 
 hlquery::hlquery(int argc, char** argv)
 {
      ThreadLimit::SetThreadName("hlquery");
-
+     Metrics = std::make_unique<HLQueryMetrics>();
      Config = std::make_unique<ServerConfig>(argc, argv);
-
-     Affinity = std::make_unique<hlquery_threadpool::CPUAffinityManager>();
-
      ParseArgs();
 
      StatsVal.Start();
 
      /* Register cleanup wrapper with ExitManager to ensure resources are released */
-    
-     ExitManager::RegisterCleanup([]() 
+
+     ExitManager::RegisterCleanup([]()
      {
-          if (Instance)
-          {
-               Instance->Cleanup();
-          }
+             if (Instance)
+             {
+                  Instance->Cleanup();
+             }
      });
 }
 
@@ -82,165 +82,24 @@ hlquery::hlquery(int argc, char** argv)
 
 int main(int argc, char** argv)
 {
-     Instance = std::make_unique<hlquery>(argc, argv);
+     Instance = new hlquery(argc, argv);
      Instance->Run();
-     Instance.reset();
+     delete Instance;
+     Instance = nullptr;
 
      return 0;
 }
 
 /* Destructor for the hlquery class */
-    
-hlquery::~hlquery() 
+
+hlquery::~hlquery()
 {
-     /* Enforce a strict teardown order to avoid memory corruption or data loss */
 
-     try 
-     {
-          /* Set shutdown in progress flag to block new operations */
-        
-          SetShutdownInProgress(true);
-
-          SetSyncInProgress(true);
-        
-          if (Database && Database->IsOpen())
-          {
-               try
-               {
-                    if (Logs)
-                    {
-                         Logs->Normal("hlquery", "Shutting down: Flushing and syncing database.");
-                    }
-                    else
-                    {
-                         print_info("Shutting down: Flushing and syncing database.");
-                    }
-                
-                    bool SyncSuccess = Database->FlushAndSync();
-        
-                    if (!SyncSuccess)
-                    {
-                         print_error("WAL sync failed during shutdown - DATA MAY BE LOST!");
-
-                         if (Logs)
-                         {
-                              Logs->Critical("hlquery", "WAL sync failed during shutdown - DATA MAY BE LOST.");
-                         }
-                    }
-                    else
-                    {
-                         if (Logs)
-                         {
-                              Logs->Normal("hlquery", "Shutting down: Database sync completed successfully.");
-                         }
-                         else
-                         {
-                              print_info("Shutting down: Database sync completed successfully.");
-                         }
-                    }
-                
-                    /* Write clean shutdown marker file for recovery tracking */
-
-                    try
-                    {
-                         std::string ShutdownMarker = std::string(HLQUERY_DATA_DIR) + "/.clean_shutdown";
-
-                         std::ofstream MarkerFileStream(ShutdownMarker);
-
-                         if (MarkerFileStream.is_open())
-                         {
-                              MarkerFileStream << time(nullptr) << std::endl;
-
-                              MarkerFileStream.close();
-                         }
-                    }
-                    catch (...)
-                    {
-                         /* Ignore errors when creating the marker file */
-                    }
-               }
-               catch (const std::exception& e)
-               {
-                    /* Database flush may fail during shutdown - log as CRITICAL error */
-
-                    print_error("Database flush/sync failed during shutdown: {} - DATA MAY BE LOST!", e.what());
-                          
-                    if (Logs)
-                    {
-                         try
-                         {
-                              Logs->Critical("hlquery", "Database flush/sync failed during shutdown: " + std::string(e.what()) + " - DATA MAY BE LOST.");
-                         }
-                         catch (...)
-                         {
-                              print_error("Shutting down: Database flush failed: {}.", e.what());
-                         }
-                    }
-                    else
-                    { 
-                         print_error("Shutting down: Database flush failed: {}.", e.what());
-                    }
-                
-                    /* Continue with destructor cleanup even if flush fails */
-               }
-               catch (...)
-               {
-                    /* 
-                     * Catch all exceptions to prevent process crash during destructor.
-                     * Still log as CRITICAL to ensure the failure is visible to operators.
-                     */
- 
-                    print_error("Database flush/sync failed during shutdown (unknown error) - DATA MAY BE LOST!");
- 
-                    if (Logs)
-                    {
-                         try
-                         {
-                              Logs->Critical("hlquery", 
-                                  "Database flush/sync failed during shutdown (unknown error) - DATA MAY BE LOST.");
-                         }
-                         catch (...)
-                         {
-                              print_error("Shutting down: Database flush failed with unknown exception - DATA MAY BE LOST!");
-                         }
-                    }
-                    else
-                    {
-                         print_error("Shutting down: Database flush failed with unknown exception - DATA MAY BE LOST!");
-                    }
-               }
-          }
-          else if (Database)
-          {
-               /* Database was initialized but never opened - no sync needed */
-          }
-        
-          /* Release all network listeners to stop accepting new client connections */
-
-          Listeners.clear();
-        
-          /* Destroy the timer subsystem to stop periodic tasks */
-
-          if (Timers)
-          {
-               Timers.reset();
-          }
-        
-          /* Clear sync lock after shutdown is fully completed */
-        
-          SetSyncInProgress(false);
-     } 
-     catch (...) 
-     {
-          /* Destructors must swallow exceptions to avoid unexpected process termination */
-
-          print_error("Exception in hlquery destructor - ignoring.");
-     }
 }
 
 /* Performs server initialization and sets up all core subsystems */
- 
-bool hlquery::Initialize() 
+
+bool hlquery::Initialize()
 {
      if (Logs && !HTTPServers.empty())
      {
@@ -248,10 +107,10 @@ bool hlquery::Initialize()
 
           return true;
      }
-     
+
      std::cout << std::endl;
      ConsoleWriter::WriteStartup(FormatStartupMessage(), true, false);
-    
+
      /* Initialize the core server logic */
 
      bool ServerInitResult = this->InitializeServer();
@@ -263,11 +122,11 @@ bool hlquery::Initialize()
 
      /* Verify that critical subsystems are initialized properly */
 
-    if (HTTPServers.empty())
-    {
+     if (HTTPServers.empty())
+     {
           print_error("No HTTP/HTTPS servers initialized!");
           return false;
-    }
+     }
 
      if (!Logs)
      {
@@ -282,14 +141,14 @@ bool hlquery::Initialize()
 
      /* Initialize Network Listeners for configured protocols */
 
-     const auto& BindConfigs = Config->GetBindConfigs();
-    
+     const auto &BindConfigs = Config->GetBindConfigs();
+
      if (Logs)
      {
           Logs->Debug("hlquery", "Checking " + std::to_string(BindConfigs.size()) + " bind configurations for custom protocols.");
      }
-    
-     for (const auto& BindConfigVal : BindConfigs)
+
+     for (const auto &BindConfigVal : BindConfigs)
      {
           /* Skip HTTP/HTTPS ports as the HttpServer subsystem manages those internally */
 
@@ -302,7 +161,7 @@ bool hlquery::Initialize()
 
                continue;
           }
-        
+
           /* Provision a ListenManager for each remaining custom protocol bind entry */
 
           if (Logs)
@@ -316,8 +175,8 @@ bool hlquery::Initialize()
      }
 
      RunListeners();
-    
-     for (auto* server : HTTPServers)
+
+     for (auto *server : HTTPServers)
      {
           server->SetReadyToAccept(true);
      }
@@ -326,7 +185,7 @@ bool hlquery::Initialize()
      {
           Logs->Normal("hlquery", "HTTP servers verified ready to accept connections after initialization.");
      }
-    
+
      return true;
 }
 
@@ -334,49 +193,84 @@ std::string hlquery::FormatStartupMessage() const
 {
      std::time_t startup_time_raw = std::time(nullptr);
      std::tm startup_time_local{};
+     std::string Message = "Starting hlquery:";
+
+     auto AppendLoadedModules = [this, &Message]()
+     {
+          if (!Modules)
+          {
+               return;
+          }
+
+          const auto LoadedModules = Modules->GetLoadedModuleNames();
+
+          if (LoadedModules.empty())
+          {
+               return;
+          }
+
+          Message += " modules=[";
+
+          for (size_t i = 0; i < LoadedModules.size(); ++i)
+          {
+               if (i != 0)
+               {
+                    Message += ", ";
+               }
+
+               Message += LoadedModules[i];
+          }
+
+          Message += "]";
+     };
 
      if (localtime_r(&startup_time_raw, &startup_time_local) == nullptr)
      {
-          return "Starting hlquery:";
+          AppendLoadedModules();
+          return Message;
      }
 
      std::array<char, 64> startup_time_str{};
 
      if (std::strftime(startup_time_str.data(), startup_time_str.size(), "%b/%d - %H:%M:%S", &startup_time_local) == 0)
      {
-          return "Starting hlquery:";
+          AppendLoadedModules();
+          return Message;
      }
 
-     return "Starting hlquery: [" + std::string(startup_time_str.data()) + "]";
+     Message += " [" + std::string(startup_time_str.data()) + "]";
+     AppendLoadedModules();
+
+     return Message;
 }
 
 /* Start all network listeners to begin accepting client connections */
 
-void hlquery::RunListeners() 
+void hlquery::RunListeners()
 {
      if (Logs)
      {
           Logs->Debug("hlquery", "Socket engine verified/initialized for listeners.");
      }
-    
+
      if (Logs)
      {
           Logs->Debug("hlquery", "Starting " + std::to_string(Listeners.size()) + " listeners.");
      }
-    
+
      bool AnyListenerStartedValue = false;
-    
-     for (auto& ListenerVal : Listeners)
+
+     for (auto &ListenerVal : Listeners)
      {
           if (Logs)
           {
                Logs->Debug("hlquery", "Attempting to bind listener.");
           }
-        
+
           if (ListenerVal->BindAndListen())
           {
                AnyListenerStartedValue = true;
-            
+
                if (Logs)
                {
                     Logs->Debug("hlquery", "Listener bound successfully.");
@@ -390,7 +284,7 @@ void hlquery::RunListeners()
                }
           }
      }
-    
+
      /* Treat failure to start listeners as fatal when protocols are explicitly configured */
 
      if (!AnyListenerStartedValue && !Listeners.empty())
@@ -403,7 +297,7 @@ void hlquery::RunListeners()
 
 /* Helper function to check if the main processing loop should terminate */
 
-static inline bool ShouldExitLoop() 
+static inline bool ShouldExitLoop()
 {
      return ForceExit != 0 || ShuttingDown != 0;
 }
@@ -416,14 +310,14 @@ static void SafePeriodicFlush()
      {
           return;
      }
-    
+
      /* Perform the periodic flush operation */
 
      try
      {
           Instance->Database->Flush();
      }
-     catch (const std::exception& e)
+     catch (const std::exception &e)
      {
           if (Instance->Logs)
           {
@@ -449,7 +343,7 @@ static void ProcessPeriodicTasks()
      {
           DaemonHandler::ProcessLazyOperations();
      }
-     catch (const std::exception& e)
+     catch (const std::exception &e)
      {
           if (Instance && Instance->Logs)
           {
@@ -463,7 +357,7 @@ static void ProcessPeriodicTasks()
                Instance->Logs->Debug("hlquery", "Lazy operations failed with unknown exception.");
           }
      }
-    
+
      /* Advance the timer management subsystem */
 
      if (Instance && Instance->Timers)
@@ -472,7 +366,7 @@ static void ProcessPeriodicTasks()
           {
                Instance->Timers->Tick();
           }
-          catch (const std::exception& e)
+          catch (const std::exception &e)
           {
                if (Instance->Logs)
                {
@@ -489,14 +383,14 @@ static void ProcessPeriodicTasks()
      }
 }
 
-static bool PreflightSSLConfig(ServerConfig* ConfigPtr)
+static bool PreflightSSLConfig(ServerConfig *ConfigPtr)
 {
      if (!ConfigPtr)
      {
           return true;
      }
 
-     const std::string& ConfigFileLoc = ConfigPtr->GetConfigFile();
+     const std::string &ConfigFileLoc = ConfigPtr->GetConfigFile();
 
      if (ConfigFileLoc.empty())
      {
@@ -507,7 +401,7 @@ static bool PreflightSSLConfig(ServerConfig* ConfigPtr)
      {
           if (!ConfigPtr->LoadConfig(ConfigFileLoc))
           {
-               const std::string& ErrorMsg = ConfigPtr->GetError();
+               const std::string &ErrorMsg = ConfigPtr->GetError();
 
                if (!ErrorMsg.empty())
                {
@@ -522,9 +416,9 @@ static bool PreflightSSLConfig(ServerConfig* ConfigPtr)
           }
      }
 
-     const auto& BindConfigs = ConfigPtr->GetBindConfigs();
+     const auto &BindConfigs = ConfigPtr->GetBindConfigs();
 
-     for (const auto& BindConfigVal : BindConfigs)
+     for (const auto &BindConfigVal : BindConfigs)
      {
           if (!BindConfigVal.ssl)
           {
@@ -533,7 +427,7 @@ static bool PreflightSSLConfig(ServerConfig* ConfigPtr)
 
           std::string ErrorMsg;
 
-          if (!hlquery_server::ValidateSSLConfig(BindConfigVal, &ErrorMsg))
+          if (!ValidateSSLConfig(BindConfigVal, &ErrorMsg))
           {
                print_error("SSL preflight failed for {}:{} ({}): {}", BindConfigVal.address, BindConfigVal.port, BindConfigVal.type, ErrorMsg);
 
@@ -564,7 +458,7 @@ void hlquery::Run()
                ExitManager::Exit(1);
           }
      }
-    
+
      /* Ensure all critical systems are initialized before entering main loop */
 
      if (!Logs || HTTPServers.empty())
@@ -587,7 +481,7 @@ void hlquery::Run()
                ExitManager::Exit(1);
           }
      }
-    
+
      /* Register signal handlers for graceful shutdown management */
 
      if (Config && !Config->GetTestMode())
@@ -596,18 +490,24 @@ void hlquery::Run()
      }
 
      time_t OldTimeVal = Time();
+     time_t LastMinuteRun = (OldTimeVal > 0) ? (OldTimeVal / 60) : -1;
 
-     hlquery::WritePID();
+     if (!hlquery::WritePID())
+     {
+          print_error("Failed to acquire PID file lock.");
+          print_error("Another daemon instance may already be starting, or the PID path is not writable.");
+
+          ExitManager::Exit(1);
+     }
 
      if (!Logs)
      {
           print_error("Logs unique_ptr is null in Run() - LogManager failed to initialize.");
-
           print_error("Exiting - cannot continue without logging system.");
 
           ExitManager::Exit(1);
      }
-    
+
      /* Enter the primary server processing loop */
 
      while (true)
@@ -616,12 +516,18 @@ void hlquery::Run()
           {
                break;
           }
-        
+
           time_t NowTimeVal = 0;
-        
+          time_t CurrentMinute = -1;
+
           try
           {
                NowTimeVal = Time();
+
+               if (NowTimeVal > 0)
+               {
+                    CurrentMinute = NowTimeVal / 60;
+               }
           }
           catch (...)
           {
@@ -633,8 +539,14 @@ void hlquery::Run()
           if (NowTimeVal != OldTimeVal)
           {
                SafePeriodicFlush();
-
                OldTimeVal = NowTimeVal;
+          }
+
+          if (Instance && Instance->Modules &&
+              CurrentMinute >= 0 && CurrentMinute != LastMinuteRun)
+          {
+               LastMinuteRun = CurrentMinute;
+               Instance->Modules->OnEveryOneMinute();
           }
 
           /* Handle signals received during loop execution */
@@ -646,9 +558,7 @@ void hlquery::Run()
           if (ShouldForceExit())
           {
                print_warning("Force exit requested, initiating graceful shutdown.");
-
                std::cout.flush();
-
                ShuttingDown = 1;
 
                break;
@@ -657,70 +567,58 @@ void hlquery::Run()
           /* Dispatch network events via the socket engine */
 
           SocketEngine::DispatchEvents();
-        
-          if (ShouldExitLoop()) 
-          {   
-               break;
-          }
-        
-          /* Perform trial writes for pending network data */
 
-          SocketEngine::DispatchTrialWrites();
-        
-          if (ShouldExitLoop()) 
-          {  
-               break;
-          }
-        
-          /* Execute queued background actions */
-
-          ActionList::ProcessActions();
-        
-          if (ShouldExitLoop()) 
+          if (ShouldExitLoop())
           {
                break;
           }
-        
+
+          /* Perform trial writes for pending network data */
+
+          SocketEngine::DispatchTrialWrites();
+
+          if (ShouldExitLoop())
+          {
+               break;
+          }
+
+          /* Execute queued background actions */
+
+          ActionList::ProcessActions();
+
+          if (ShouldExitLoop())
+          {
+               break;
+          }
+
           /* Check if a graceful shutdown has been requested */
- 
+
           if (ShouldShutdown())
           {
                if (Logs)
                {
                     Logs->Normal("main", "Shutdown requested - exiting main loop.");
                }
-        
+
                break;
           }
-        
+
           /* Process other recurring server tasks */
- 
+
           ProcessPeriodicTasks();
-        
-          if (ShouldExitLoop()) 
+
+          if (Instance && Instance->Modules)
+          {
+               Instance->Modules->OnIdleTick(NowTimeVal);
+          }
+
+          if (ShouldExitLoop())
           {
                break;
           }
      }
-    
-     /* Begin the server shutdown sequence */
 
-     print_info("\nShutting down...");
-    
-     for (auto* server : HTTPServers)
-     {
-          server->SetReadyToAccept(false);  
+     /* Exit via ExitManager so registered cleanup runs on normal shutdown. */
 
-          server->Stop();  
-
-          hlquery_server::ShutdownHttpServer(server);
-     }
-
-     HTTPServers.clear();
-    
-     CleanupHLManagerIOOptimizations();
-    
-     /* Force termination to ensure the process actually exits */
-
-     ExitManager::EmergencyExit(0);
+     ExitManager::Exit(0);
 }
