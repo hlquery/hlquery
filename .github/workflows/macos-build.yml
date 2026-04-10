@@ -16,11 +16,17 @@ jobs:
       - name: Install dependencies
         run: |
           brew update
-          brew install cmake make
+          brew install cmake make pkg-config openssl@3
+
+      - name: Configure Homebrew paths
+        run: |
+          OPENSSL_PREFIX="$(brew --prefix openssl@3)"
+          echo "PKG_CONFIG_PATH=${OPENSSL_PREFIX}/lib/pkgconfig:${PKG_CONFIG_PATH}" >> "$GITHUB_ENV"
+          echo "CPPFLAGS=-I${OPENSSL_PREFIX}/include ${CPPFLAGS}" >> "$GITHUB_ENV"
+          echo "EXTRA_LDFLAGS=-L${OPENSSL_PREFIX}/lib ${EXTRA_LDFLAGS}" >> "$GITHUB_ENV"
 
       - name: Configure
         run: ./configure --skip-tests
 
       - name: Build
         run: gmake
-

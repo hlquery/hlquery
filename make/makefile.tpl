@@ -47,6 +47,8 @@ BUILD_MODE ?= release
 # Compiler selection
 CC       ?= cc
 CXX      = ${CXX}
+CPPFLAGS ?=
+EXTRA_LDFLAGS ?=
 OS_NAME := $(shell uname -s 2>/dev/null || echo unknown)
 ARCH_NAME := $(shell uname -m 2>/dev/null || echo unknown)
 FS_LIB := -lstdc++fs
@@ -76,8 +78,8 @@ ROCKSDB_INCLUDE = $(if $(wildcard $(ROCKSDB_DIR)/include),-I$(ROCKSDB_DIR)/inclu
 SECURITY_FLAGS = -fstack-protector-strong
 # Define ROCKSDB_NAMESPACE to suppress warnings from RocksDB headers
 ROCKSDB_DEFINES = -DROCKSDB_NAMESPACE=rocksdb
-CONFIGURE_CXXFLAGS = -std=c++17 -O2 -fPIC
-CONFIGURE_CFLAGS = -std=c11 -O2 -fPIC
+CONFIGURE_CXXFLAGS = -std=c++17 -O2 -fPIC ${TLS_CFLAGS} $(CPPFLAGS)
+CONFIGURE_CFLAGS = -std=c11 -O2 -fPIC ${TLS_CFLAGS} $(CPPFLAGS)
 BASE_CXXFLAGS = $(CONFIGURE_CXXFLAGS) -Iinclude -Iinclude/common -I. -Isrc -Ivendor -Ibuild/include $(ROCKSDB_INCLUDE) $(ROCKSDB_DEFINES) -std=c++20 -fPIC -pipe $(SECURITY_FLAGS)
 BASE_CFLAGS = $(CONFIGURE_CFLAGS) -Iinclude -Iinclude/common -I. -Isrc -Ivendor -Ibuild/include $(ROCKSDB_INCLUDE) -fPIC -pipe $(SECURITY_FLAGS)
 
@@ -215,7 +217,7 @@ else
   BASE_LDFLAGS = -lz -ldl $(FS_LIB) -pthread
   ROCKSDB_LDFLAGS = $(ROCKSDB_LIB)
 endif
-CONFIGURE_LDFLAGS = -ldl $(FS_LIB) -pthread -lssl -lcrypto
+CONFIGURE_LDFLAGS = -ldl $(FS_LIB) -pthread ${TLS_LDFLAGS} $(EXTRA_LDFLAGS)
 EXTRA_LD_HARDEN_FLAGS = -Wl,--as-needed -Wl,-z,relro
 ifneq ($(filter FreeBSD OpenBSD NetBSD DragonFly Darwin,$(OS_NAME)),)
   EXTRA_LD_HARDEN_FLAGS =

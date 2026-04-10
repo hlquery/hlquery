@@ -212,7 +212,10 @@ sub get_version_from_script {
 my %config = (
     'CXX'           => default_cxx(),
     'CXXFLAGS'      => '-std=c++17 -O2 -fPIC',
+    'CFLAGS'        => '-std=c11 -O2 -fPIC',
     'LDFLAGS'       => '-ldl -lstdc++fs -pthread',
+    'TLS_CFLAGS'    => '',
+    'TLS_LDFLAGS'   => '',
     'PREFIX'        => '/usr/local',
     'CONFDIR'       => '',
     'DATADIR'       => '',
@@ -1024,24 +1027,40 @@ sub check_threading {
 sub check_openssl {
     if (system("pkg-config --exists openssl 2>/dev/null") == 0) {
         my $version = `pkg-config --modversion openssl 2>/dev/null`;
+        my $cflags = `pkg-config --cflags openssl 2>/dev/null`;
+        my $libs = `pkg-config --libs openssl 2>/dev/null`;
         chomp $version;
+        chomp $cflags;
+        chomp $libs;
         $config{OPENSSL_AVAILABLE} = 1;
         $config{OPENSSL_VERSION} = $version || 'unknown';
+        $config{OPENSSL_CFLAGS} = $cflags || '';
+        $config{OPENSSL_LIBS} = $libs || '-lssl -lcrypto';
         return 1;
     }
     $config{OPENSSL_AVAILABLE} = 0;
+    $config{OPENSSL_CFLAGS} = '';
+    $config{OPENSSL_LIBS} = '';
     return 0;
 }
 
 sub check_gnutls {
     if (system("pkg-config --exists gnutls 2>/dev/null") == 0) {
         my $version = `pkg-config --modversion gnutls 2>/dev/null`;
+        my $cflags = `pkg-config --cflags gnutls 2>/dev/null`;
+        my $libs = `pkg-config --libs gnutls 2>/dev/null`;
         chomp $version;
+        chomp $cflags;
+        chomp $libs;
         $config{GNUTLS_AVAILABLE} = 1;
         $config{GNUTLS_VERSION} = $version || 'unknown';
+        $config{GNUTLS_CFLAGS} = $cflags || '';
+        $config{GNUTLS_LIBS} = $libs || '-lgnutls';
         return 1;
     }
     $config{GNUTLS_AVAILABLE} = 0;
+    $config{GNUTLS_CFLAGS} = '';
+    $config{GNUTLS_LIBS} = '';
     return 0;
 }
 
@@ -1394,7 +1413,10 @@ sub generate_makefile {
     # Substitute template variables
     $template_content =~ s/\$\{CXX\}/$config{CXX}/g;
     $template_content =~ s/\$\{CXXFLAGS\}/$config{CXXFLAGS}/g;
+    $template_content =~ s/\$\{CFLAGS\}/$config{CFLAGS}/g;
     $template_content =~ s/\$\{LDFLAGS\}/$config{LDFLAGS}/g;
+    $template_content =~ s/\$\{TLS_CFLAGS\}/$config{TLS_CFLAGS}/g;
+    $template_content =~ s/\$\{TLS_LDFLAGS\}/$config{TLS_LDFLAGS}/g;
     my $socketengine_file = "$config{SOCKETENGINE}.cpp";
     $template_content =~ s/\$\{SOCKETENGINE_FILE\}/$socketengine_file/g;
     $template_content =~ s/\$\{PREFIX\}/$config{PREFIX}/g;
@@ -1964,11 +1986,13 @@ sub main {
     if ($openssl_ok || $gnutls_ok) {
         if ($openssl_ok) {
             $config{SSL_LIBRARY} = 'OpenSSL';
-            $config{LDFLAGS} .= ' -lssl -lcrypto';
+            $config{TLS_CFLAGS} = $config{OPENSSL_CFLAGS} || '';
+            $config{TLS_LDFLAGS} = $config{OPENSSL_LIBS} || '-lssl -lcrypto';
             $ssl_lib_ok = 1;
         } elsif ($gnutls_ok) {
             $config{SSL_LIBRARY} = 'GnuTLS';
-            $config{LDFLAGS} .= ' -lgnutls';
+            $config{TLS_CFLAGS} = $config{GNUTLS_CFLAGS} || '';
+            $config{TLS_LDFLAGS} = $config{GNUTLS_LIBS} || '-lgnutls';
             $ssl_lib_ok = 1;
         }
     }
