@@ -4,8 +4,6 @@
 
 <div align="center">
 
-# hlquery
-
 **A high-performance search engine built for modern applications**
 
 [![Twitter Follow](https://img.shields.io/twitter/url/https/x.com/hlquery.svg?style=social&label=Follow%20%40hlquery)](https://x.com/hlquery)
