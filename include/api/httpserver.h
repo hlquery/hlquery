@@ -24,8 +24,10 @@
 #include "core/config.h"
 
 #ifdef HLQUERY_HAS_OPENSSL
-#include <openssl/err.h>
-#include <openssl/ssl.h>
+    
+    #include <openssl/err.h>
+    #include <openssl/ssl.h>
+    
 #endif
 
 #include "common/searchpool.h"
@@ -83,6 +85,7 @@ struct HttpResponse
 enum class RouteAction
 {
      Status,
+     SearchConfig,
      Health,
      Ping,
      Stats,
@@ -168,49 +171,79 @@ enum class RouteAction
      NotFound
 };
 
-/* Route resolver and action name helpers. */
+/*
+ * Identifies the resolved action for one incoming HTTP request.
+ * Each value maps a parsed route to the handler logic used by the server.
+ */
+
+/* Resolve the route action for one parsed HTTP request. */
+
 RouteAction ResolveHttpRoute(const HttpRequest& Request);
+
+/* Return the human-readable name for one route action value. */
+
 const char* RouteActionName(RouteAction ActionVal);
 
-/* HTTP Connection handler. */
+/* 
+ * HTTP connection handler.
+ * This event handler owns request parsing, response buffering,
+ * socket lifecycle handling, and optional threaded execution.
+ */
 
 class HttpConnection : public EventHandler
 {
    public:
 
-     /* Constructor. */
+     /* Construct one HTTP connection handler for an accepted socket. */
 
-     HttpConnection(int FD, const std::string& ClientIP, int ClientPort, HLQuerySearchThreadPool* ThreadPool = nullptr);
+     HttpConnection(int FD, const std::string& ClientIP, int ClientPort, SearchThreadPool* ThreadPool = nullptr);
 
-     /* Destructor. */
+     /* Destroy the connection handler and release any remaining resources. */
 
      virtual ~HttpConnection();
 
-     /* EventHandler interface. */
+     /* Handle a readable event for this connection. */
 
      void OnEventHandlerRead() override;
 
+     /* Handle a writable event for this connection. */
+
      void OnEventHandlerWrite() override;
+
+     /* Handle a socket error reported by the event engine. */
 
      void OnEventHandlerError(int ErrorNum) override;
 
-     /* HTTP processing. */
+     /* Process one or more pending HTTP requests from the connection buffer. */
 
      void ProcessRequest();
 
+     /* Process all complete requests currently buffered on the connection. */
+
      void ProcessMultipleRequests();
+
+     /* Process one complete raw HTTP request string. */
 
      void ProcessSingleRequest(const std::string& RequestStr);
 
+     /* Queue or send one HTTP response for this connection. */
+
      void SendResponse(const HttpResponse& Response);
 
-     /* Socket optimization. */
+     /* Apply socket-level options used by the HTTP connection. */
 
      void SetAdvancedSocketOptions(int FD);
 
+     /* Clean up the connection state before final close. */
+
      void CleanupConnection();
 
+     /* Force the connection into closed state immediately. */
+
+     void ForceClose();
+
 #ifdef HLQUERY_HAS_OPENSSL
+
      void SetSSL(SSL* SSLVal)
      {
           SSLValue = SSLVal;
@@ -220,20 +253,31 @@ class HttpConnection : public EventHandler
      {
           return SSLValue;
      }
+
 #endif
 
    private:
 
+     /* Remote client IP address */
+
      std::string ClientIP;
+
+     /* Remote client port */
 
      int ClientPort;
 
 #ifdef HLQUERY_HAS_OPENSSL
+
      SSL* SSLValue = nullptr;
      bool SSLHandshaked = false;
+
 #endif
 
+     /* Buffered unread request data */
+
      std::string RequestBuffer;
+
+     /* Buffered response data waiting to be written */
 
      std::string ResponseBuffer;
 
@@ -241,36 +285,49 @@ class HttpConnection : public EventHandler
 
      size_t ResponseSentOffset = 0;
 
+     /* Indicates whether a response is currently pending for write */
+
      bool ResponsePending;
 
      /* Protect ResponseBuffer and ResponsePending. */
 
      std::mutex ResponseMutex;
 
-     /* Connection pooling and keep-alive. */
+     /* Connection pooling and keep-alive state */
 
      bool KeepAlive;
 
+     /* Number of requests already processed on this connection */
+
      int RequestsProcessed;
+
+     /* Last observed activity time for timeout handling */
 
      std::chrono::steady_clock::time_point LastActivity;
 
      /* Mark connection as closing to prevent use-after-free. */
 
      std::atomic<bool> ClosingValue;
+
+     /* Number of active asynchronous request tasks */
+
      std::atomic<int> ActiveRequestTasks{0};
 
-     /* HTTP parsing. */
+     /* Parse one raw HTTP request into the structured request object. */
 
      bool ParseHttpRequest(const std::string& RawRequest, HttpRequest& Request);
 
+     /* Parse query parameters from one request path. */
+
      std::map<std::string, std::string> ParseQueryParams(const std::string& Path);
+
+     /* Parse HTTP header lines into the request header map. */
 
      void ParseHeaders(const std::string& HeaderLines, std::map<std::string, std::string>& Headers);
 
      /* Optional HTTP execution pool assigned by server acceptor. */
 
-     HLQuerySearchThreadPool* ThreadPoolValue{nullptr};
+     SearchThreadPool* ThreadPoolValue{nullptr};
 
    public:
 
@@ -280,7 +337,11 @@ class HttpConnection : public EventHandler
      }
 };
 
-/* Raw HTTP Server using socketengine. */
+/* 
+ * Accepts and coordinates raw HTTP traffic through the socket engine.
+ * This server owns listener lifecycle, connection acceptance,
+ * and integration with the request handling pipeline.
+ */
 
 class HttpServer : public EventHandler
 {
@@ -307,7 +368,7 @@ class HttpServer : public EventHandler
 
      /* Thread pool integration. */
 
-     void SetThreadPool(HLQuerySearchThreadPool* Pool)
+     void SetThreadPool(SearchThreadPool* Pool)
      {
           ThreadPoolValue = Pool;
      }
@@ -376,7 +437,9 @@ class HttpServer : public EventHandler
      std::mutex ConnectionsMutex;
 
 #ifdef HLQUERY_HAS_OPENSSL
+
      SSL_CTX* SSLCtx = nullptr;
+
 #endif
 
      void AcceptConnection();
@@ -385,7 +448,7 @@ class HttpServer : public EventHandler
 
      /* Thread pool for request processing. */
 
-     HLQuerySearchThreadPool* ThreadPoolValue{nullptr};
+     SearchThreadPool* ThreadPoolValue{nullptr};
 };
 
 /* Validate SSL settings without binding sockets (preflight). */

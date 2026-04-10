@@ -10,11 +10,14 @@
 
 #include <string>
 
+#include "core/config.h"
+
 /* Comment goes here */
 
-class ConsoleWriter
+class CoreExport ConsoleWriter
 {
    public:
+
      /* ANSI color codes */
 
      static const std::string ColorGreen;

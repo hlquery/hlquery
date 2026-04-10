@@ -10,7 +10,6 @@
  * For more details, please visit: https://docs.hlquery.com
  */
 
-#include <array>
 #include <atomic>
 #include <chrono>
 #include <csignal>
@@ -39,10 +38,9 @@
 #include "common/searchpool.h"
 #include "common/listenmanager.h"
 #include "core/config.h"
-#include "core/daemonhandler.h"
+#include "core/daemon.h"
 #include "core/exitmanager.h"
 #include "core/hlquery.h"
-#include "core/llmmanager.h"
 #include "core/socketengine.h"
 #include "core/threadlimit.h"
 #include "search/storageengine.h"
@@ -61,10 +59,13 @@ hlquery *Instance = nullptr;
 hlquery::hlquery(int argc, char** argv)
 {
      ThreadLimit::SetThreadName("hlquery");
-     Metrics = std::make_unique<HLQueryMetrics>();
-     Config = std::make_unique<ServerConfig>(argc, argv);
-     ParseArgs();
 
+     Instance 		= 	this;
+     Metrics 		=	std::make_unique<HLQueryMetrics>();
+     SQL 		= 	std::make_unique<SQLService>();
+     Config 	        =       std::make_unique<ServerConfig>(argc, argv);
+     
+     ParseArgs();
      StatsVal.Start();
 
      /* Register cleanup wrapper with ExitManager to ensure resources are released */
@@ -78,11 +79,11 @@ hlquery::hlquery(int argc, char** argv)
      });
 }
 
-/* Entry point for the application */
+/* Entry point for the daemon. */
 
 int main(int argc, char** argv)
 {
-     Instance = new hlquery(argc, argv);
+     new hlquery(argc, argv);
      Instance->Run();
      delete Instance;
      Instance = nullptr;
@@ -94,7 +95,11 @@ int main(int argc, char** argv)
 
 hlquery::~hlquery()
 {
-
+     API 	   =  nullptr;
+     ThreadPools   =  nullptr;
+     Engine        =  nullptr;
+     
+     HTTPServers.clear();
 }
 
 /* Performs server initialization and sets up all core subsystems */
@@ -109,13 +114,12 @@ bool hlquery::Initialize()
      }
 
      std::cout << std::endl;
-     ConsoleWriter::WriteStartup(FormatStartupMessage(), true, false);
+     const std::vector<std::string> loaded_modules = Modules ? Modules->GetLoadedModuleNames() : std::vector<std::string>{};
+     ConsoleWriter::WriteStartup(Tools::FormatStartupMessage(loaded_modules), true, false);
 
      /* Initialize the core server logic */
 
-     bool ServerInitResult = this->InitializeServer();
-
-     if (!ServerInitResult)
+     if (!InitializeServer())
      {
           return false;
      }
@@ -170,7 +174,6 @@ bool hlquery::Initialize()
           }
 
           auto ListenerInstance = std::make_unique<ListenManager>(BindConfigVal.address, BindConfigVal.port);
-
           Listeners.push_back(std::move(ListenerInstance));
      }
 
@@ -187,61 +190,6 @@ bool hlquery::Initialize()
      }
 
      return true;
-}
-
-std::string hlquery::FormatStartupMessage() const
-{
-     std::time_t startup_time_raw = std::time(nullptr);
-     std::tm startup_time_local{};
-     std::string Message = "Starting hlquery:";
-
-     auto AppendLoadedModules = [this, &Message]()
-     {
-          if (!Modules)
-          {
-               return;
-          }
-
-          const auto LoadedModules = Modules->GetLoadedModuleNames();
-
-          if (LoadedModules.empty())
-          {
-               return;
-          }
-
-          Message += " modules=[";
-
-          for (size_t i = 0; i < LoadedModules.size(); ++i)
-          {
-               if (i != 0)
-               {
-                    Message += ", ";
-               }
-
-               Message += LoadedModules[i];
-          }
-
-          Message += "]";
-     };
-
-     if (localtime_r(&startup_time_raw, &startup_time_local) == nullptr)
-     {
-          AppendLoadedModules();
-          return Message;
-     }
-
-     std::array<char, 64> startup_time_str{};
-
-     if (std::strftime(startup_time_str.data(), startup_time_str.size(), "%b/%d - %H:%M:%S", &startup_time_local) == 0)
-     {
-          AppendLoadedModules();
-          return Message;
-     }
-
-     Message += " [" + std::string(startup_time_str.data()) + "]";
-     AppendLoadedModules();
-
-     return Message;
 }
 
 /* Start all network listeners to begin accepting client connections */
@@ -454,7 +402,6 @@ void hlquery::Run()
           if (!Daemonize())
           {
                print_error("Daemonization failed.");
-
                ExitManager::Exit(1);
           }
      }
@@ -466,16 +413,13 @@ void hlquery::Run()
           if (!Initialize())
           {
                print_error("Initialization failed during Run().");
-
                ExitManager::Exit(1);
           }
 
           if (!Logs || HTTPServers.empty())
           {
                print_error("Initialization failed - Logs or HTTPServers is null/empty after Initialize().");
-
                print_error("Logs={}, HTTPServers count={}", (Logs ? "valid" : "null"), HTTPServers.size());
-
                print_error("Exiting - cannot continue without critical systems.");
 
                ExitManager::Exit(1);
@@ -489,8 +433,8 @@ void hlquery::Run()
           SetupSignalHandlers();
      }
 
-     time_t OldTimeVal = Time();
-     time_t LastMinuteRun = (OldTimeVal > 0) ? (OldTimeVal / 60) : -1;
+     time_t OLDTimeVal = Time();
+     time_t LastMinuteRun = (OLDTimeVal > 0) ? (OLDTimeVal / 60) : -1;
 
      if (!hlquery::WritePID())
      {
@@ -536,17 +480,16 @@ void hlquery::Run()
 
           /* Execute periodic maintenance tasks based on clock movement */
 
-          if (NowTimeVal != OldTimeVal)
+          if (NowTimeVal != OLDTimeVal)
           {
                SafePeriodicFlush();
-               OldTimeVal = NowTimeVal;
+               OLDTimeVal = NowTimeVal;
           }
 
-          if (Instance && Instance->Modules &&
-              CurrentMinute >= 0 && CurrentMinute != LastMinuteRun)
+          if (Instance && Instance->Modules && CurrentMinute >= 0 && CurrentMinute != LastMinuteRun)
           {
                LastMinuteRun = CurrentMinute;
-               Instance->Modules->OnEveryOneMinute();
+               NOTIFY_MODULES(OnEveryOneMinute);
           }
 
           /* Handle signals received during loop execution */
@@ -588,6 +531,11 @@ void hlquery::Run()
 
           if (ShouldExitLoop())
           {
+               if (Logs)
+               {
+                    Logs->Normal("main", "Exit loop requested - exiting main loop.");
+               }
+
                break;
           }
 
@@ -609,7 +557,7 @@ void hlquery::Run()
 
           if (Instance && Instance->Modules)
           {
-               Instance->Modules->OnIdleTick(NowTimeVal);
+               NOTIFY_MODULES(OnIdleTick, NowTimeVal);
           }
 
           if (ShouldExitLoop())

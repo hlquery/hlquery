@@ -25,7 +25,7 @@
 
 /* Constructor */
 
-ListenManager::ListenManager(const std::string& address, int port_num) : BindAddr(address), Port(port_num)
+ListenManager::ListenManager(const std::string &address, int port_num) : BindAddr(address), Port(port_num)
 {
      Instance->Logs->Debug("listenmanager", "ListenManager created for " + address + ":" + std::to_string(port_num) + ".");
 }
@@ -47,7 +47,10 @@ ListenManager::~ListenManager()
                close(fd_val);
           }
 
-          Instance->Logs->Debug("listenmanager", "ListenManager destroyed.");
+          if (Instance && Instance->Logs)
+          {
+               Instance->Logs->Debug("listenmanager", "ListenManager destroyed.");
+          }
      }
 }
 
@@ -55,38 +58,12 @@ ListenManager::~ListenManager()
 
 bool ListenManager::BindAndListen()
 {
-     /* Check if port is available first */
-
-     int TestFD = socket(AF_INET, SOCK_STREAM, 0);
-
-     if (TestFD >= 0)
+     if (Instance && Instance->Logs)
      {
-          struct sockaddr_in TestAddr;
-
-          memset(&TestAddr, 0, sizeof(TestAddr));
-
-          TestAddr.sin_family = AF_INET;
-          TestAddr.sin_port = htons(Port);
-          TestAddr.sin_addr.s_addr = INADDR_ANY;
-
-          int Opt = 1;
-
-          setsockopt(TestFD, SOL_SOCKET, SO_REUSEADDR, &Opt, sizeof(Opt));
-
-          if (bind(TestFD, reinterpret_cast<struct sockaddr*>(&TestAddr), sizeof(TestAddr)) < 0)
-          {
-               close(TestFD);
-
-               if (Instance && Instance->Logs)
-               {
-                    Instance->Logs->Debug("listenmanager", "Port " + std::to_string(Port) + " is busy, skipping.");
-               }
-
-               return false;
-          }
-
-          close(TestFD);
+          Instance->Logs->Normal("listenmanager", "Custom protocol listeners are not implemented for " + BindAddr + ":" + std::to_string(Port));
      }
+
+     return false;
 
      /* Create socket */
 
@@ -107,15 +84,16 @@ bool ListenManager::BindAndListen()
           Instance->Logs->Debug("listenmanager", "Created listen socket with fd: " + std::to_string(fd_val) + ".");
      }
 
-     /* Set socket options */
-     /*
-     * IMPROVEMENT: Set SO_REUSEADDR and SO_REUSEPORT on the server socket before binding
-     * to allow immediate reuse of the port after a restart, preventing "address already in use" errors
-     */
+     /* 
+      * Set socket options.
+      *
+      * IMPROVEMENT: Set SO_REUSEADDR and SO_REUSEPORT on the server socket before binding
+      * to allow immediate reuse of the port after a restart, preventing "address already in use" errors
+      */
 
-     int Opt = 1;
+     int opt = 1;
 
-     if (setsockopt(fd_val, SOL_SOCKET, SO_REUSEADDR, &Opt, sizeof(Opt)) < 0)
+     if (setsockopt(fd_val, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0)
      {
           if (Instance && Instance->Logs)
           {
@@ -123,13 +101,12 @@ bool ListenManager::BindAndListen()
           }
 
           close(fd_val);
-
           return false;
      }
 
      /* Set SO_REUSEPORT for load balancing across multiple processes (if supported) */
 
-     if (setsockopt(fd_val, SOL_SOCKET, SO_REUSEPORT, &Opt, sizeof(Opt)) < 0)
+     if (setsockopt(fd_val, SOL_SOCKET, SO_REUSEPORT, &opt, sizeof(opt)) < 0)
      {
           /* SO_REUSEPORT may not be supported on all systems - log but don't fail */
 
@@ -149,7 +126,6 @@ bool ListenManager::BindAndListen()
           }
 
           close(fd_val);
-
           return false;
      }
 
@@ -171,7 +147,7 @@ bool ListenManager::BindAndListen()
           return false;
      }
 
-     if (bind(fd_val, reinterpret_cast<struct sockaddr*>(&ServerAddr), sizeof(ServerAddr)) < 0)
+     if (bind(fd_val, reinterpret_cast<struct sockaddr *>(&ServerAddr), sizeof(ServerAddr)) < 0)
      {
           if (Instance && Instance->Logs)
           {
@@ -215,6 +191,7 @@ bool ListenManager::BindAndListen()
                Instance->Logs->Normal("listenmanager", "Failed to add listen socket to socket engine.");
           }
 
+          SetFD(-1);
           close(fd_val);
           return false;
      }
@@ -254,7 +231,7 @@ void ListenManager::OnEventHandlerRead()
           {
                LimitReached = true;
 
-               int TestFD = accept(GetFD(), reinterpret_cast<struct sockaddr*>(&ClientAddr), &ClientLen);
+               int TestFD = accept(GetFD(), reinterpret_cast<struct sockaddr *>(&ClientAddr), &ClientLen);
 
                if (TestFD < 0)
                {
@@ -264,7 +241,6 @@ void ListenManager::OnEventHandlerRead()
 
                     if (SavedErrno == EAGAIN)
                     {
-
 #else
 
                     if (SavedErrno == EAGAIN || SavedErrno == EWOULDBLOCK)
@@ -302,7 +278,7 @@ void ListenManager::OnEventHandlerRead()
                break;
           }
 
-          int ClientFD = accept(GetFD(), reinterpret_cast<struct sockaddr*>(&ClientAddr), &ClientLen);
+          int ClientFD = accept(GetFD(), reinterpret_cast<struct sockaddr *>(&ClientAddr), &ClientLen);
 
           if (ClientFD < 0)
           {
@@ -315,7 +291,6 @@ void ListenManager::OnEventHandlerRead()
 
                if (SavedErrno == EAGAIN)
                {
-
 #else
 
                if (SavedErrno == EAGAIN || SavedErrno == EWOULDBLOCK)
@@ -468,7 +443,6 @@ void ListenManager::OnEventHandlerRead()
           }
 
           Instance->Logs->Debug("listenmanager", "Accepted connection from " + std::string(ClientIP) + ":" + std::to_string(ClientPortValue) + " (fd: " + std::to_string(ClientFD) + ").");
-
           close(ClientFD);
 
           ConnectionsProcessed++;

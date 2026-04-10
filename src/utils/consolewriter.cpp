@@ -70,7 +70,6 @@ bool ConsoleWriter::SupportsColor()
 std::string ConsoleWriter::FormatMessage(const std::string &Message, const std::string &Status, bool Dot)
 {
      std::ostringstream Oss;
-
      std::string Final = EnsurePeriod(Message, Dot);
 
      if (SupportsColor())
@@ -174,15 +173,7 @@ void ConsoleWriter::WriteInfo(const std::string &Message, bool Dot)
      /* Print INFO messages in both nofork and background modes. */
 
      std::string Final = EnsurePeriod(Message, Dot);
-
-     if (SupportsColor())
-     {
-          std::cout << ColorBrightBlue << "[INFO]" << ColorReset << " " << Final << std::endl;
-     }
-     else
-     {
-          std::cout << "[INFO] " << Final << std::endl;
-     }
+     std::cout << Final << std::endl;
 }
 
 /*

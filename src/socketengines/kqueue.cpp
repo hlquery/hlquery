@@ -17,7 +17,6 @@
 #include <iostream>
 #include <mutex>
 #include <string>
-#include <sys/event.h>
 #include <sys/time.h>
 #include <thread>
 #include <unistd.h>
@@ -25,9 +24,18 @@
 #include <unordered_set>
 #include <vector>
 
-#include "common/action_list.h"
+#include "common/actionlist.h"
 #include "core/hlquery.h"
 #include "core/socketengine.h"
+
+#if defined(__APPLE__) || defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__) || defined(__DragonFly__)
+#include <sys/event.h>
+#define HLQUERY_HAS_KQUEUE 1
+#else
+#define HLQUERY_HAS_KQUEUE 0
+#endif
+
+#if HLQUERY_HAS_KQUEUE
 
 /* High-performance kqueue backend for BSD/macOS */
 
@@ -40,6 +48,7 @@ struct KqueueState
 
 static std::vector<struct kevent> KqueueEvents;
 static std::unordered_map<int, EventHandler *> FDToHandler;
+static std::vector<EventHandler *> HandlerByFD;
 static std::unordered_map<EventHandler *, int> HandlerToFD;
 static std::unordered_map<int, KqueueState> FDStates;
 
@@ -69,6 +78,26 @@ static std::atomic<int> CurrentTimeoutMS{-1};
 static std::atomic<uint64_t> TotalBytesProcessed{0};
 static std::atomic<uint64_t> ActiveConnections{0};
 static std::atomic<bool> EngineInitialized{false};
+
+static int GetTimedWorkWakeupMs()
+{
+     if (Instance && Instance->Timers)
+     {
+          const int timer_ms = Instance->Timers->GetTimeUntilNextMs();
+
+          if (timer_ms == 0)
+          {
+               return 0;
+          }
+
+          if (timer_ms > 0)
+          {
+               return timer_ms;
+          }
+     }
+
+     return 1000;
+}
 
 static bool ApplyKevent(int kq, int fd, int16_t filter, uint16_t flags)
 {
@@ -114,6 +143,7 @@ void SocketEngine::Init()
      KqueueEvents.clear();
      KqueueEvents.resize(MAX_EVENTS);
      FDToHandler.clear();
+     HandlerByFD.clear();
      HandlerToFD.clear();
      FDStates.clear();
      SocketEngine::PendingWrites.clear();
@@ -147,6 +177,7 @@ void SocketEngine::Deinit()
 
      KqueueEvents.clear();
      FDToHandler.clear();
+     HandlerByFD.clear();
      HandlerToFD.clear();
      FDStates.clear();
 
@@ -229,6 +260,12 @@ bool SocketEngine::AddFD(EventHandler *EH, int EventsMask)
      }
 
      FDToHandler[fd] = EH;
+     if (fd >= static_cast<int>(HandlerByFD.size()))
+     {
+          HandlerByFD.resize(static_cast<size_t>(fd) + 1U, nullptr);
+     }
+
+     HandlerByFD[fd] = EH;
      HandlerToFD[EH] = fd;
      FDStates[fd] = state;
 
@@ -283,6 +320,10 @@ void SocketEngine::DelFD(EventHandler *EH)
      FDStates.erase(fd);
      HandlerToFD.erase(EH);
      FDToHandler.erase(handler_it);
+     if (fd >= 0 && fd < static_cast<int>(HandlerByFD.size()))
+     {
+          HandlerByFD[fd] = nullptr;
+     }
      UnregisterPendingWrite(EH);
 
      ActiveConnections.fetch_sub(1, std::memory_order_relaxed);
@@ -319,8 +360,8 @@ int SocketEngine::DispatchEvents()
      }
      else
      {
-          timeout_ms = -1;
-          CurrentTimeoutMS.store(-1, std::memory_order_relaxed);
+          timeout_ms = GetTimedWorkWakeupMs();
+          CurrentTimeoutMS.store(timeout_ms, std::memory_order_relaxed);
      }
 
      struct timespec ts;
@@ -355,13 +396,13 @@ int SocketEngine::DispatchEvents()
           struct kevent &ev = KqueueEvents[i];
           int fd = static_cast<int>(ev.ident);
 
-          auto handler_it = FDToHandler.find(fd);
-          if (handler_it == FDToHandler.end())
+          EventHandler *EH = nullptr;
+
+          if (fd >= 0 && fd < static_cast<int>(HandlerByFD.size()))
           {
-               continue;
+               EH = HandlerByFD[fd];
           }
 
-          EventHandler *EH = handler_it->second;
           if (!EH)
           {
                continue;
@@ -688,3 +729,141 @@ bool SocketEngine::HasPendingWork()
 
      return false;
 }
+
+#else
+
+/* Stub kqueue backend for platforms without sys/event.h */
+
+void SocketEngine::Init()
+{
+     if (Instance && Instance->Logs)
+     {
+          Instance->Logs->Critical("socketengine", "kqueue backend is not supported on this platform.");
+     }
+}
+
+void SocketEngine::Deinit()
+{
+}
+
+void SocketEngine::ResetAfterFork()
+{
+}
+
+bool SocketEngine::AddFD(EventHandler *, int)
+{
+     return false;
+}
+
+void SocketEngine::DelFD(EventHandler *)
+{
+}
+
+int SocketEngine::DispatchEvents()
+{
+     return 0;
+}
+
+void SocketEngine::DispatchTrialWrites()
+{
+}
+
+void SocketEngine::RegisterPendingWrite(EventHandler *)
+{
+}
+
+void SocketEngine::UnregisterPendingWrite(EventHandler *)
+{
+}
+
+void SocketEngine::InitializeAdaptiveTimeout()
+{
+}
+
+void SocketEngine::AdaptTimeout()
+{
+}
+
+void SocketEngine::EnableAdaptiveTimeout(bool)
+{
+}
+
+void SocketEngine::InitializeAdvancedIO()
+{
+}
+
+void SocketEngine::InitializeZeroCopyBuffers()
+{
+}
+
+void SocketEngine::CleanupZeroCopyBuffers()
+{
+}
+
+void SocketEngine::StartIOWorkerThreads()
+{
+}
+
+void SocketEngine::IOWorkerThread(unsigned int)
+{
+}
+
+void SocketEngine::SetOptimalSocketOptions()
+{
+}
+
+void *SocketEngine::GetZeroCopyBuffer()
+{
+     return nullptr;
+}
+
+void SocketEngine::ReturnZeroCopyBuffer(void *)
+{
+}
+
+void SocketEngine::ResetIOStats()
+{
+}
+
+SocketEngine::IOStats SocketEngine::GetIOStats()
+{
+     IOStats StatsVal{};
+     return StatsVal;
+}
+
+void SocketEngine::IncrementConnectionCount()
+{
+}
+
+void SocketEngine::DecrementConnectionCount()
+{
+}
+
+void SocketEngine::IncrementBytesProcessed(uint64_t)
+{
+}
+
+int SocketEngine::GetEventCount()
+{
+     return 0;
+}
+
+void SocketEngine::IncrementPendingMessages()
+{
+}
+
+void SocketEngine::DecrementPendingMessages()
+{
+}
+
+int SocketEngine::GetPendingMessageCount()
+{
+     return 0;
+}
+
+bool SocketEngine::HasPendingWork()
+{
+     return ActionList::GetActionCount() > 0;
+}
+
+#endif

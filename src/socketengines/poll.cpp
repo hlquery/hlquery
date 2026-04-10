@@ -26,15 +26,18 @@
 #include <unordered_set>
 #include <vector>
 
-#include "common/action_list.h"
+#include "common/actionlist.h"
 #include "core/hlquery.h"
 #include "core/socketengine.h"
+#include "search/storageengine.h"
 
 /* HLQuery ae.c inspired - clean and simple poll backend */
 
 static std::vector<struct pollfd> PollFDs;
 
 static std::unordered_map<int, EventHandler *> FDToHandler;
+
+static std::vector<EventHandler *> HandlerByFD;
 
 /* OPTIMIZATION: Reverse map from EventHandler* to pollfd index for O(1) DelFD */
 
@@ -78,8 +81,6 @@ static std::atomic<bool> EngineInitialized{false};
 
 static int GetTimedWorkWakeupMs()
 {
-     int wake_ms = 1000;
-
      if (Instance && Instance->Timers)
      {
           const int timer_ms = Instance->Timers->GetTimeUntilNextMs();
@@ -91,11 +92,11 @@ static int GetTimedWorkWakeupMs()
 
           if (timer_ms > 0)
           {
-               wake_ms = std::min(wake_ms, timer_ms);
+               return timer_ms;
           }
      }
 
-     return wake_ms;
+     return 1000;
 }
 
 /* Initializes the socket engine */
@@ -121,6 +122,7 @@ void SocketEngine::Init()
      PollFDs.clear();
      PollFDs.reserve(MAX_EVENTS);
      FDToHandler.clear();
+     HandlerByFD.clear();
      HandlerToIndex.clear();
      SocketEngine::PendingWrites.clear();
      MaxFD = -1;
@@ -156,6 +158,7 @@ void SocketEngine::Deinit()
 
      PollFDs.clear();
      FDToHandler.clear();
+     HandlerByFD.clear();
      HandlerToIndex.clear();
 
      /* Thread-safe cleanup of pending writes */
@@ -244,6 +247,12 @@ bool SocketEngine::AddFD(EventHandler *EH, int EventsMask)
 
      PollFDs.push_back(pfd);
      FDToHandler[fd] = EH;
+     if (fd >= static_cast<int>(HandlerByFD.size()))
+     {
+          HandlerByFD.resize(static_cast<size_t>(fd) + 1U, nullptr);
+     }
+
+     HandlerByFD[fd] = EH;
      HandlerToIndex[EH] = index; /* OPTIMIZATION: Store index for O(1) DelFD */
 
      if (fd > MaxFD)
@@ -334,13 +343,15 @@ void SocketEngine::DelFD(EventHandler *EH)
                     /* Update the handler that's moving to our position */
 
                     int swapped_fd = PollFDs.back().fd;
-                    auto swapped_handler_it = FDToHandler.find(swapped_fd);
+                    EventHandler *swapped_handler = nullptr;
 
-                    /* Only update index if swapped handler exists in map */
-
-                    if (swapped_handler_it != FDToHandler.end() && swapped_handler_it->second)
+                    if (swapped_fd >= 0 && swapped_fd < static_cast<int>(HandlerByFD.size()))
                     {
-                         EventHandler *swapped_handler = swapped_handler_it->second;
+                         swapped_handler = HandlerByFD[swapped_fd];
+                    }
+
+                    if (swapped_handler)
+                    {
                          HandlerToIndex[swapped_handler] = index;
                     }
 
@@ -353,6 +364,12 @@ void SocketEngine::DelFD(EventHandler *EH)
      }
 
      FDToHandler.erase(handler_it);
+
+     if (fd >= 0 && fd < static_cast<int>(HandlerByFD.size()))
+     {
+          HandlerByFD[fd] = nullptr;
+     }
+
      UnregisterPendingWrite(EH);
 
      /* Decrement active connections counter */
@@ -514,7 +531,7 @@ int SocketEngine::DispatchEvents()
 
      /* DEBUG: Log before calling poll() */
 
-     if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
+     if (Instance && Instance->Logs && Instance->Logs->GetDebugMode() && timeout_ms != -1)
      {
           Instance->Logs->Debug("socketengine", "DispatchEvents: About to call poll() with " + std::to_string(PollFDs.size()) + " fds, timeout=" + (timeout_ms == -1 ? std::string("infinite") : std::to_string(timeout_ms) + "ms") + ".");
      }
@@ -523,7 +540,7 @@ int SocketEngine::DispatchEvents()
 
      /* DEBUG: ALWAYS log poll() results - no troubleshooting */
 
-     if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
+     if (Instance && Instance->Logs && Instance->Logs->GetDebugMode() && (nfds > 0 || timeout_ms == 0))
      {
           Instance->Logs->Debug("socketengine", "poll() returned " + std::to_string(nfds) + " events (timeout=" + (timeout_ms == -1 ? std::string("infinite") : std::to_string(timeout_ms) + "ms") + ", PollFDs.size()=" + std::to_string(PollFDs.size()) + (nfds < 0 ? ", errno=" + std::string(strerror(errno)) : "") + ".");
      }
@@ -625,11 +642,6 @@ int SocketEngine::DispatchEvents()
          * If timeout was 0 (non-blocking), this is normal - no events ready
          */
 
-          if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
-          {
-               Instance->Logs->Debug("socketengine", "poll() timeout: nfds=0, timeout_ms=" + (timeout_ms == -1 ? std::string("infinite") : std::to_string(timeout_ms) + "ms") + ", HasPendingWork()=" + std::string(HasPendingWork() ? "true" : "false") + ".");
-          }
-
           /* If we got timeout but have pending work, switch to non-blocking mode */
 
           if (HasPendingWork())
@@ -703,53 +715,18 @@ int SocketEngine::DispatchEvents()
 
      if (nfds > 0)
      {
-          /* DEBUG: Log when we have events to process */
-
-          if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
-          {
-               Instance->Logs->Debug("socketengine", "Processing " + std::to_string(nfds) + " events from poll() - iterating through " + std::to_string(PollFDs.size()) + " file descriptors.");
-          }
-
-          /* Collect handlers to delete AFTER processing to avoid modifying vector during iteration */
+          /* Process ready descriptors in a single pass to avoid rescanning the array three times. */
 
           std::vector<EventHandler *> handlers_to_delete;
-
-          /* First pass: process error/hangup events immediately (they need cleanup) */
 
           for (size_t i = 0; i < PollFDs.size(); ++i)
           {
                struct pollfd &pfd = PollFDs[i];
 
-               /* Skip file descriptors with no events */
-
                if (pfd.revents == 0)
                {
                     continue;
                }
-
-               /* DEBUG: Log which fd has events - ALWAYS log */
-
-               if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
-               {
-                    std::string event_types;
-
-                    if (pfd.revents & POLLIN)
-                         event_types += "POLLIN ";
-                    if (pfd.revents & POLLOUT)
-                         event_types += "POLLOUT ";
-                    if (pfd.revents & POLLERR)
-                         event_types += "POLLERR ";
-                    if (pfd.revents & POLLHUP)
-                         event_types += "POLLHUP ";
-                    if (pfd.revents & POLLNVAL)
-                         event_types += "POLLNVAL ";
-                    if (pfd.revents & POLLPRI)
-                         event_types += "POLLPRI ";
-
-                    Instance->Logs->Debug("socketengine", "poll() detected event on fd=" + std::to_string(pfd.fd) + ", revents=0x" + std::to_string(pfd.revents) + " (" + (event_types.empty() ? "unknown" : event_types) + ").");
-               }
-
-               /* Validate fd is still valid */
 
                if (pfd.fd < 0)
                {
@@ -757,21 +734,18 @@ int SocketEngine::DispatchEvents()
                     continue;
                }
 
-               /* Find handler for this file descriptor */
+               EventHandler *eh = nullptr;
 
-               auto handler_it = FDToHandler.find(pfd.fd);
+               if (pfd.fd >= 0 && pfd.fd < static_cast<int>(HandlerByFD.size()))
+               {
+                    eh = HandlerByFD[pfd.fd];
+               }
 
-               if (handler_it == FDToHandler.end() || !handler_it->second)
+               if (!eh)
                {
                     pfd.revents = 0;
                     continue;
                }
-
-               EventHandler *eh = handler_it->second;
-
-               /* Handle errors/hangups first - these need immediate cleanup */
-               /* POLLERR, POLLHUP, POLLNVAL are always returned in revents when true */
-               /* Also handle POLLRDHUP if available (Linux 2.6.17+) */
 
                if (pfd.revents & (POLLERR | POLLHUP | POLLNVAL
 #ifdef POLLRDHUP
@@ -783,183 +757,70 @@ int SocketEngine::DispatchEvents()
 
                     try
                     {
-                         /* Validate handler is still valid before calling */
-
                          if (eh->HasFD() && eh->GetFD() == pfd.fd)
                          {
-                              eh->OnEventHandlerRead(); /* Let handler cleanup */
+                              eh->OnEventHandlerRead();
                          }
                     }
                     catch (...)
                     {
-                         /* Ignore exceptions during cleanup */
                     }
 
-                    pfd.revents = 0; /* Clear before deletion */
-               }
-          }
-
-          /* Second pass: process read events (most common) */
-
-          for (size_t i = 0; i < PollFDs.size(); ++i)
-          {
-               struct pollfd &pfd = PollFDs[i];
-
-               /* Skip if no events or already processed */
-
-               if (pfd.revents == 0)
-               {
-                    continue;
-               }
-
-               if (pfd.fd < 0)
-               {
                     pfd.revents = 0;
                     continue;
                }
 
-               auto handler_it = FDToHandler.find(pfd.fd);
-
-               if (handler_it == FDToHandler.end())
+               if ((pfd.revents & POLLIN) != 0)
                {
-                    /* Handler not found - clear revents and continue */
-
-                    pfd.revents = 0;
-                    continue;
-               }
-
-               EventHandler *eh = handler_it->second;
-
-               if (!eh)
-               {
-                    /* Handler is null - clear revents and continue */
-
-                    pfd.revents = 0;
-                    continue;
-               }
-
-               /* Process read events */
-
-               if (pfd.revents & POLLIN)
-               {
-                    /* Validate handler is still valid before calling */
-
                     if (!eh->HasFD() || eh->GetFD() != pfd.fd)
                     {
-                         /* Handler fd changed or invalid - skip */
-
                          pfd.revents = 0;
                          continue;
                     }
 
                     try
                     {
-                         if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
-                         {
-                              Instance->Logs->Debug("socketengine", "Calling OnEventHandlerRead() for fd=" + std::to_string(pfd.fd) + ".");
-                         }
-
                          eh->OnEventHandlerRead();
                          events_processed++;
-
-                         if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
-                         {
-                              Instance->Logs->Debug("socketengine", "OnEventHandlerRead() completed for fd=" + std::to_string(pfd.fd) + ", events_processed=" + std::to_string(events_processed) + ".");
-                         }
                     }
                     catch (...)
                     {
-                         /* On exception, mark handler for deletion */
-
                          if (Instance && Instance->Logs)
                          {
-                              Instance->Logs->Critical("socketengine",
-                                                       "Exception in OnEventHandlerRead() for fd=" + std::to_string(pfd.fd) + ".");
+                              Instance->Logs->Critical("socketengine", "Exception in OnEventHandlerRead() for fd=" + std::to_string(pfd.fd) + ".");
                          }
 
                          handlers_to_delete.push_back(eh);
-
-                         /* Ignore exceptions, continue processing */
                     }
-
-                    /* Clear POLLIN bit after processing, but keep other bits for third pass */
 
                     pfd.revents &= ~POLLIN;
                }
 
-               /* Process POLLPRI (out-of-band data) - treat as read event */
-
-               if (pfd.revents & POLLPRI)
+               if ((pfd.revents & POLLPRI) != 0)
                {
-                    /* Validate handler is still valid before calling */
-
                     if (!eh->HasFD() || eh->GetFD() != pfd.fd)
                     {
-                         /* Handler fd changed or invalid - skip */
-
                          pfd.revents = 0;
                          continue;
                     }
 
                     try
                     {
-                         /* POLLPRI indicates out-of-band data - treat as read */
-
                          eh->OnEventHandlerRead();
                          events_processed++;
                     }
                     catch (...)
                     {
-                         /* On exception, mark handler for deletion */
-
                          handlers_to_delete.push_back(eh);
                     }
 
-                    /* Clear POLLPRI bit after processing */
-
                     pfd.revents &= ~POLLPRI;
                }
-          }
 
-          /* Third pass: process write events */
-
-          for (size_t i = 0; i < PollFDs.size(); ++i)
-          {
-               struct pollfd &pfd = PollFDs[i];
-
-               /* Skip if no events */
-
-               if (pfd.revents == 0)
+               if ((pfd.revents & POLLOUT) != 0)
                {
-                    continue;
-               }
-
-               if (pfd.fd < 0)
-               {
-                    pfd.revents = 0;
-                    continue;
-               }
-
-               auto handler_it = FDToHandler.find(pfd.fd);
-
-               if (handler_it == FDToHandler.end() || !handler_it->second)
-               {
-                    pfd.revents = 0;
-                    continue;
-               }
-
-               EventHandler *eh = handler_it->second;
-
-               /* Process write events */
-
-               if (pfd.revents & POLLOUT)
-               {
-                    /* Validate handler is still valid before calling */
-
                     if (!eh->HasFD() || eh->GetFD() != pfd.fd)
                     {
-                         /* Handler fd changed or invalid - skip */
-
                          pfd.revents = 0;
                          continue;
                     }
@@ -967,27 +828,21 @@ int SocketEngine::DispatchEvents()
                     try
                     {
                          eh->OnEventHandlerWrite();
-                         UnregisterPendingWrite(eh); /* Auto-cleanup when writable */
-
+                         UnregisterPendingWrite(eh);
                          events_processed++;
                     }
                     catch (...)
                     {
-                         /* On exception, mark handler for deletion */
+                         if (Instance && Instance->Logs)
+                         {
+                              Instance->Logs->Critical("socketengine", "Exception in OnEventHandlerWrite() for fd=" + std::to_string(pfd.fd) + ".");
+                         }
 
                          handlers_to_delete.push_back(eh);
-
-                         /* Ignore exceptions, continue processing */
                     }
-
-                    /* Clear POLLOUT bit after processing */
 
                     pfd.revents &= ~POLLOUT;
                }
-
-               /* Clear any remaining revents for next poll() call - must clear after processing */
-               /* Only clear if we've processed all expected events */
-               /* Remaining bits should only be error flags that were already handled in first pass */
 
                pfd.revents = 0;
           }
@@ -1006,42 +861,7 @@ int SocketEngine::DispatchEvents()
                }
           }
 
-          /* HLQuery-style: If we processed many events, check for more immediately */
-          /* Use non-blocking mode (timeout=0) for recursive call to match epoll behavior */
-
-          if (events_processed >= MAX_EVENTS / 2)
-          {
-               /* Temporarily set timeout to 0 for immediate processing */
-
-               int saved_timeout = CurrentTimeoutMS.load();
-
-               CurrentTimeoutMS.store(0, std::memory_order_relaxed);
-
-               int more_events = DispatchEvents();
-
-               /* Restore timeout */
-
-               CurrentTimeoutMS.store(saved_timeout, std::memory_order_relaxed);
-
-               return events_processed + more_events;
-          }
-
-          /* DEBUG: Log if poll() returned events but we didn't process any */
-
-          if (nfds > 0 && events_processed == 0 && Instance && Instance->Logs && Instance->Logs->GetDebugMode())
-          {
-               int fds_with_events = 0;
-
-               for (size_t i = 0; i < PollFDs.size(); ++i)
-               {
-                    if (PollFDs[i].revents != 0)
-                    {
-                         fds_with_events++;
-                    }
-               }
-
-               Instance->Logs->Debug("socketengine", "poll() returned " + std::to_string(nfds) + " events but processed 0 (fds_with_events=" + std::to_string(fds_with_events) + ", PollFDs.size()=" + std::to_string(PollFDs.size()) + ").");
-          }
+          /* poll() already delivered the ready set for this cycle; do not recurse and rescan the array. */
      }
 
      /* DEBUG: Log final result */

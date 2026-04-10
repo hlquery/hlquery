@@ -19,11 +19,10 @@
 #include <sstream>
 
 #include "core/hlquery.h"
-#include "search/consistency-checker.h"
-#include "search/storage-utility.h"
+#include "search/consistencychecker.h"
 #include "search/storageengine.h"
 #include "search/storagemaint.h"
-#include "search/performance-monitor.h"
+#include "search/performancemonitor.h"
 
 /*
  * Build a consistency checker instance.
@@ -266,132 +265,4 @@ void PerformanceMonitor::ResetStats()
 
      OperationStatsMap.clear();
      ActiveOperations.clear();
-}
-
-/*
- * Generate a database status report.
- */
-
-std::unordered_map<std::string, std::string> DatabaseUtility::GenerateReport(int DbID)
-{
-     std::unordered_map<std::string, std::string> Report;
-
-     if (Instance && Instance->Database)
-     {
-          auto Info = Instance->Database->Info();
-
-          Report.insert(Info.begin(), Info.end());
-          Report["db_id"] = std::to_string(DbID);
-
-          if (Instance)
-          {
-               Report["timestamp"] = std::to_string(Instance->Time());
-          }
-     }
-
-     return Report;
-}
-
-/*
- * Optimize database structures and indexes.
- */
-
-int DatabaseUtility::OptimizeDatabase(int /* DbID */)
-{
-     int Optimizations = 0;
-
-     if (Instance && Instance->Database)
-     {
-          /* Placeholder for optimization logic. */
-
-          Optimizations = 0;
-     }
-
-     return Optimizations;
-}
-
-/*
- * Clean up database content that is safe to remove.
- */
-
-int DatabaseUtility::CleanupDatabase(int /* DbID */)
-{
-     int Cleaned = 0;
-
-     if (Instance && Instance->Database)
-     {
-          /* Expiration functionality removed. */
-
-          Cleaned++;
-     }
-
-     return Cleaned;
-}
-
-/*
- * Validate database integrity before use.
- */
-
-bool DatabaseUtility::ValidateIntegrity(int /* DbID */)
-{
-     if (Instance && Instance->Database)
-     {
-          /* Placeholder for integrity validation. */
-
-          return true;
-     }
-
-     return false;
-}
-
-/*
- * Estimate database size from metadata.
- */
-
-size_t DatabaseUtility::EstimateSize(int /* DbID */)
-{
-     size_t Size = 0;
-
-     if (Instance && Instance->Database)
-     {
-          auto Info = Instance->Database->Info();
-
-          auto It = Info.find("memory");
-
-          if (It != Info.end() && !It->second.empty())
-          {
-               try
-               {
-                    Size = std::stoull(It->second);
-               }
-               catch (const std::invalid_argument &)
-               {
-                    /* Invalid string, keep default size. */
-               }
-               catch (const std::out_of_range &)
-               {
-                    /* Value too large, keep default size. */
-               }
-          }
-     }
-
-     return Size;
-}
-
-/*
- * Compact the database to reclaim space.
- */
-
-size_t DatabaseUtility::CompactDatabase(int /* DbID */)
-{
-     size_t Saved = 0;
-
-     if (Instance && Instance->Database)
-     {
-          /* Placeholder for compaction logic. */
-
-          Saved = 0;
-     }
-
-     return Saved;
 }

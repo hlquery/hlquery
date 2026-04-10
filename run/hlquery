@@ -1,0 +1,812 @@
+#!/usr/bin/env perl
+#
+# hlquery - Search beyond keywords.
+# http://www.hlquery.com
+#
+# Copyright (C) 2021-2026, Carlos F. Ferry <carlos.ferry\@gmail.com>
+#
+# This file is part of hlquery, released under the BSD License version 3.
+# You are free to redistribute and/or modify this software
+# under the terms of the BSD License.
+# For more details, please visit: https://docs.hlquery.com
+#
+
+use strict;
+use warnings;
+use Getopt::Long qw(GetOptions Configure);
+use File::Spec;
+use File::Basename;
+use POSIX qw(strftime WNOHANG);
+
+# Configuration
+my $VERSION = "1.0.0";
+my $BINARY_NAME = "hlquery";
+my $DEFAULT_CONFIG = "/home/cferry/p/hlquery/hlquery/run/conf/hlquery.conf";
+my $DEFAULT_PIDFILE = "/home/cferry/p/hlquery/hlquery/run/pid/hlquery.pid";
+my $DEFAULT_PID_DIR  = "/home/cferry/p/hlquery/hlquery/run/pid";
+my $DEFAULT_LOGDIR = "/home/cferry/p/hlquery/hlquery/run/logs";
+
+# Colors for output
+my $RED = "\033[31m";
+my $GREEN = "\033[32m";
+my $YELLOW = "\033[33m";
+my $BLUE = "\033[34m";
+my $CYAN = "\033[36m";
+my $BLACK = "\033[30m";
+my $BOLD = "\033[1m";
+my $RESET = "\033[0m";
+
+# Global variables
+my $binary_path;
+my $config_path;
+my $pid_file_path;
+my $log_dir_path;
+my $working_dir;
+my $json_output = 0;
+
+sub print_banner {
+    print <<"EOF";
+${BOLD}${BLUE}hlquery $VERSION - Search beyond keywords.${RESET}
+${BOLD}Released under the BSD License version 3${RESET}
+
+EOF
+}
+
+sub print_usage {
+    print <<"EOF";
+Usage: $0 <command> [options]
+
+Commands:
+
+    start       Start the hlquery server
+    stop        Stop the hlquery server gracefully (SIGTERM)
+    kill        Force stop the hlquery server (SIGKILL)
+    restart     Restart the hlquery server
+    status      Show server status
+    reload      Reload configuration
+    test        Test configuration
+    sslgen      Generate SSL certificates
+    valdebug    Run server with valgrind for memory debugging
+    version     Show version information
+    help        Show this help message
+
+Options:
+
+    --nofork        Don't fork into background (foreground mode)
+    --debug         Enable debug mode
+    --skip-auth     Skip password authentication (dev/testing only)
+    --config FILE   Use specified configuration file (default: $DEFAULT_CONFIG)
+    --pidfile FILE  Use specified PID file (default: $DEFAULT_PIDFILE)
+    --logdir DIR    Use specified log directory (default: $DEFAULT_LOGDIR)
+    --json          Emit machine-readable JSON from the wrapper
+    --help          Show this help message
+
+Examples:
+
+    $0 start                    # Start server in background
+    $0 start --nofork           # Start server in foreground
+    $0 start --debug --nofork   # Start with debug in foreground
+    $0 stop                     # Stop server gracefully
+    $0 status                   # Check server status
+
+EOF
+}
+
+sub find_binary {
+    # Check fixed location from configure first
+    my $fixed_binary = "/home/cferry/p/hlquery/hlquery/run/bin/" . $BINARY_NAME;
+    if (-x $fixed_binary) {
+        return $fixed_binary;
+    }
+
+    my $script_dir = dirname(File::Spec->rel2abs($0));
+    my $possible_paths = [
+        File::Spec->catfile($script_dir, "bin", $BINARY_NAME),
+        File::Spec->catfile($script_dir, "..", "build", "bin", $BINARY_NAME),
+        File::Spec->catfile($script_dir, "..", "run", "bin", $BINARY_NAME),
+        $BINARY_NAME  # Try PATH
+    ];
+    
+    foreach my $path (@$possible_paths) {
+        if (-x $path) {
+            return File::Spec->rel2abs($path);
+        }
+    }
+    
+    return undef;
+}
+
+sub setup_paths {
+    $working_dir = File::Spec->rel2abs(dirname(File::Spec->rel2abs($0)));
+    
+    # Find binary
+    $binary_path = find_binary();
+    unless ($binary_path) {
+        print_error("Could not find hlquery binary. Please ensure it's installed correctly.");
+        exit 1;
+    }
+    
+    # Set up paths - use defaults from configure if not overridden by CLI
+    $config_path ||= $DEFAULT_CONFIG;
+    $pid_file_path ||= $DEFAULT_PIDFILE;
+    $log_dir_path ||= $DEFAULT_LOGDIR;
+}
+
+sub print_info {
+    my ($msg) = @_;
+    return if $json_output;
+    print "${BLACK}[${RESET} ${BLUE}INFO${RESET} ${BLACK}]${RESET} $msg\n";
+}
+
+sub print_success {
+    my ($msg) = @_;
+    return if $json_output;
+    print "${BLACK}[${RESET} ${GREEN}OK${RESET} ${BLACK}]${RESET} $msg\n";
+}
+
+sub print_warning {
+    my ($msg) = @_;
+    return if $json_output;
+    print "${BLACK}[${RESET} ${CYAN}WARN${RESET} ${BLACK}]${RESET} $msg\n";
+}
+
+sub print_error {
+    my ($msg) = @_;
+    return if $json_output;
+    print "${BLACK}[${RESET} ${RED}ERROR${RESET} ${BLACK}]${RESET} $msg\n";
+
+}
+
+sub json_escape {
+    my ($value) = @_;
+    return '' unless defined $value;
+    $value = "$value";
+    $value =~ s/\\/\\\\/g;
+    $value =~ s/"/\\"/g;
+    $value =~ s/\n/\\n/g;
+    $value =~ s/\r/\\r/g;
+    $value =~ s/\t/\\t/g;
+    return $value;
+}
+
+sub json_value {
+    my ($value) = @_;
+
+    return 'null' unless defined $value;
+    if (ref($value) eq 'ARRAY') {
+        return '[' . join(',', map { json_value($_) } @$value) . ']';
+    }
+    if (ref($value) eq 'HASH') {
+        return '{' . join(',', map { '"' . json_escape($_) . '":' . json_value($value->{$_}) } sort keys %$value) . '}';
+    }
+    return $value ? 'true' : 'false' if ref($value) eq 'JSON::PP::Boolean';
+    return 'true' if !ref($value) && $value eq '__JSON_TRUE__';
+    return 'false' if !ref($value) && $value eq '__JSON_FALSE__';
+    return $value if !ref($value) && $value =~ /^-?\d+(?:\.\d+)?$/;
+
+    return '"' . json_escape($value) . '"';
+}
+
+sub emit_json {
+    my (%data) = @_;
+    my @pairs;
+
+    foreach my $key (sort keys %data) {
+        push @pairs, '"' . json_escape($key) . '":' . json_value($data{$key});
+    }
+
+    print '{' . join(',', @pairs) . "}\n";
+}
+
+sub config_value {
+    my ($key) = @_;
+    return undef unless $config_path && -f $config_path;
+
+    open my $fh, '<', $config_path or return undef;
+    while (my $line = <$fh>) {
+        next if $line =~ /^\s*[#;]/;
+        if ($line =~ /^\s*\Q$key\E\s*=\s*(.*?)\s*$/) {
+            close $fh;
+            return $1;
+        }
+    }
+    close $fh;
+
+    return undef;
+}
+
+sub configured_port {
+    my $port = config_value('port');
+    return $port if defined $port && $port =~ /^\d+$/;
+    return undef;
+}
+
+sub process_uptime {
+    my ($pid) = @_;
+    return undef unless $pid && $pid =~ /^\d+$/;
+
+    open my $uptime_fh, '<', '/proc/uptime' or return undef;
+    my $uptime_line = <$uptime_fh>;
+    close $uptime_fh;
+
+    open my $stat_fh, '<', "/proc/$pid/stat" or return undef;
+    my $stat_line = <$stat_fh>;
+    close $stat_fh;
+
+    return undef unless defined $uptime_line && defined $stat_line;
+    my ($system_uptime) = split /\s+/, $uptime_line;
+    my @parts = split /\s+/, $stat_line;
+    return undef unless @parts > 21;
+
+    my $ticks = $parts[21];
+    my $hz = 100;
+    my $uptime = int($system_uptime - ($ticks / $hz));
+
+    return $uptime >= 0 ? $uptime : 0;
+}
+
+sub redirect_daemon_output {
+    return unless $json_output;
+
+    my $startup_log = File::Spec->catfile($log_dir_path, 'startup.log');
+
+    open(STDOUT, '>>', $startup_log) or open(STDOUT, '>', '/dev/null') or die "Cannot redirect STDOUT: $!";
+    open(STDERR, '>&', \*STDOUT) or die "Cannot redirect STDERR: $!";
+}
+
+sub startup_log_path {
+    return File::Spec->catfile($log_dir_path, 'startup.log');
+}
+
+sub startup_log_size {
+    my $path = startup_log_path();
+    return 0 unless -f $path;
+    my @stat = stat($path);
+    return $stat[7] || 0;
+}
+
+sub strip_ansi {
+    my ($text) = @_;
+    return '' unless defined $text;
+    $text =~ s/\e\[[0-9;]*[A-Za-z]//g;
+    return $text;
+}
+
+sub read_startup_delta {
+    my ($offset) = @_;
+    my $path = startup_log_path();
+    return '' unless -f $path;
+
+    open my $fh, '<', $path or return '';
+    seek($fh, $offset, 0);
+    local $/;
+    my $data = <$fh>;
+    close $fh;
+
+    $data = strip_ansi($data // '');
+    $data =~ s/\r//g;
+    $data =~ s/\n{3,}/\n\n/g;
+    $data =~ s/^\s+|\s+$//g;
+    return $data;
+}
+
+sub extract_port_from_text {
+    my ($text) = @_;
+    return undef unless defined $text;
+    return $1 if $text =~ /http:\/\/[^:\s]+:(\d+)/;
+    return $1 if $text =~ /\bport\s*[:=]\s*(\d+)/i;
+    return undef;
+}
+
+sub parse_startup_output {
+    my ($text) = @_;
+
+    my @lines = grep { length($_) } split /\n/, ($text // '');
+    my @allowed_connections;
+    my @bindings;
+    my @loaded_modules;
+    my @messages;
+    my $started_at;
+    my $search_algorithm;
+    my $logs_opened;
+    my $debug_enabled = '__JSON_FALSE__';
+    my $ready = '__JSON_FALSE__';
+    my $detaching = '__JSON_FALSE__';
+
+    for (my $i = 0; $i < scalar(@lines); $i++) {
+        my $line = $lines[$i];
+        $line =~ s/^\s+|\s+$//g;
+        next unless length($line);
+
+        if ($line =~ /^\[ OK \] Starting hlquery:(?: \[(.+)\])?(?: modules=\[(.*)\])?$/) {
+            $started_at = $1;
+            if (defined $2 && length($2)) {
+                @loaded_modules = grep { length($_) } map {
+                    my $value = $_;
+                    $value =~ s/^\s+|\s+$//g;
+                    $value;
+                } split /,/, $2;
+            }
+            next;
+        }
+
+        if ($line =~ /^\[ OK \] Loaded module: (.+)\.$/) {
+            my $value = $1;
+            $value =~ s/^\s+|\s+$//g;
+            push @loaded_modules, $value if length($value);
+            next;
+        }
+
+        if ($line =~ /^\[ OK \] Opened (\d+) logs\.$/) {
+            $logs_opened = int($1);
+            next;
+        }
+
+        if ($line =~ /^\[ OK \] Using search algorithm: (.+)\.$/) {
+            $search_algorithm = $1;
+            next;
+        }
+
+        if ($line =~ /^\[ OK \] Running with debug logging/) {
+            $debug_enabled = '__JSON_TRUE__';
+            next;
+        }
+
+        if ($line =~ /^\[ OK \] Allowing connections from:$/) {
+            my $j = $i + 1;
+            while ($j < scalar(@lines) && $lines[$j] =~ /^\s*-\s+(.+)$/) {
+                push @allowed_connections, $1;
+                $j++;
+            }
+            $i = $j - 1;
+            next;
+        }
+
+        if ($line =~ /^\[ OK \] Server binding to:$/) {
+            my $j = $i + 1;
+            while ($j < scalar(@lines) && $lines[$j] =~ /^\s*-\s+(.+)$/) {
+                push @bindings, $1;
+                $j++;
+            }
+            $i = $j - 1;
+            next;
+        }
+
+        if ($line =~ /^\[ OK \] Now up and running\.?$/) {
+            $ready = '__JSON_TRUE__';
+            next;
+        }
+
+        if ($line =~ /^\[ OK \] Now detaching\.?$/) {
+            $detaching = '__JSON_TRUE__';
+            next;
+        }
+
+        if ($line !~ /^\[\d{4}-\d{2}-\d{2} /) {
+            push @messages, $line;
+        }
+    }
+
+    return {
+        started_at => $started_at,
+        logs_opened => $logs_opened,
+        search_algorithm => $search_algorithm,
+        allowed_connections => \@allowed_connections,
+        bindings => \@bindings,
+        loaded_modules => \@loaded_modules,
+        debug_enabled => $debug_enabled,
+        ready => $ready,
+        detaching => $detaching,
+        messages => \@messages,
+    };
+}
+
+sub resolve_pid_file {
+    return $pid_file_path if defined $pid_file_path && -f $pid_file_path;
+
+    if (-f $DEFAULT_PIDFILE) {
+        $pid_file_path = $DEFAULT_PIDFILE;
+        return $pid_file_path;
+    }
+
+    my @candidates = glob("$DEFAULT_PID_DIR/hlquery*.pid");
+    @candidates = sort { (-M $a <=> -M $b) } grep { -f $_ } @candidates;
+
+    if (@candidates) {
+        $pid_file_path = $candidates[0];
+        return $pid_file_path;
+    }
+
+    $pid_file_path = $DEFAULT_PIDFILE;
+    return $pid_file_path;
+}
+
+sub is_running {
+    my $pid_file_to_check = resolve_pid_file();
+    return 0 unless -f $pid_file_to_check;
+    
+    open my $fh, '<', $pid_file_to_check or return 0;
+    my $pid = <$fh>;
+    close $fh;
+    chomp $pid;
+    
+    return 0 unless $pid =~ /^\d+$/;
+    
+    # Check if process exists
+    return 0 unless kill(0, $pid);
+
+    # Treat zombie/dead tasks as already stopped so stop doesn't wait for timeout.
+    if (open my $sfh, '<', "/proc/$pid/stat") {
+        my $stat = <$sfh>;
+        close $sfh;
+        if (defined $stat && $stat =~ /^\d+\s+\(.+\)\s+([A-Z])/ ) {
+            my $state = $1;
+            return 0 if $state eq 'Z' || $state eq 'X';
+        }
+    }
+
+    # Check if it's actually hlquery (Linux only)
+    if (-f "/proc/$pid/comm") {
+        open my $cfh, '<', "/proc/$pid/comm" or return $pid;
+        my $comm = <$cfh>;
+        close $cfh;
+        chomp $comm;
+        
+        if ($comm eq 'hlquery') {
+            return $pid;
+        }
+        
+        if (open my $cmd_fh, '<', "/proc/$pid/cmdline") {
+            my $cmdline = <$cmd_fh>;
+            close $cmd_fh;
+            if (defined $cmdline && $cmdline =~ /hlquery/) {
+                return $pid;
+            }
+        }
+        
+        return 0;
+    }
+    
+    return $pid;
+}
+
+sub start_server {
+    my ($nofork, $debug, $skip_auth, @extra_args) = @_;
+    my $startup_offset = startup_log_size();
+    
+    if (my $pid = is_running()) {
+        print_info("hlquery is already running (PID: $pid).");
+        return {
+            action => 'start',
+            success => '__JSON_TRUE__',
+            already_running => '__JSON_TRUE__',
+            pid => $pid,
+            port => configured_port(),
+            startup => {
+                ready => '__JSON_TRUE__',
+                already_running => '__JSON_TRUE__',
+                messages => [],
+            },
+            exit_code => 0,
+        };
+    }
+    
+    # Check if config file exists
+    unless (-f $config_path) {
+        print_error("Configuration file not found: $config_path");
+        return {
+            action => 'start',
+            success => '__JSON_FALSE__',
+            error => "Configuration file not found: $config_path",
+            startup => {
+                ready => '__JSON_FALSE__',
+                messages => [],
+            },
+            exit_code => 1,
+        };
+    }
+    
+    # Create log directory if it doesn't exist
+    unless (-d $log_dir_path) {
+        mkdir $log_dir_path, 0755 or do {
+            print_error("Could not create log directory: $log_dir_path");
+            return {
+                action => 'start',
+                success => '__JSON_FALSE__',
+                error => "Could not create log directory: $log_dir_path",
+                startup => {
+                    ready => '__JSON_FALSE__',
+                    messages => [],
+                },
+                exit_code => 1,
+            };
+        };
+    }
+    
+    # Build command
+    my @cmd = ($binary_path);
+    push @cmd, "--nofork" if $nofork;
+    push @cmd, "--debug" if $debug;
+    push @cmd, "--skip-auth" if $skip_auth;
+    push @cmd, "--config", $config_path;
+    push @cmd, @extra_args;
+    
+    if ($nofork) {
+        redirect_daemon_output();
+        exec @cmd;
+    } else {
+        my $fork_pid = fork();
+        if ($fork_pid == 0) {
+            open(STDIN, '<', '/dev/null') or die "Cannot open /dev/null: $!";
+            redirect_daemon_output();
+            exec @cmd;
+            exit 1;
+        } elsif ($fork_pid > 0) {
+            $SIG{CHLD} = 'IGNORE';
+            select(undef, undef, undef, 0.5);
+            my $pid = is_running();
+            my $startup_output = read_startup_delta($startup_offset);
+            my $startup = parse_startup_output($startup_output);
+            my $port = configured_port();
+            my $detected_port = extract_port_from_text($startup_output);
+            $port = $detected_port if defined $detected_port;
+            if (scalar(@{$startup->{bindings}}) > 0 && !defined $detected_port) {
+                $detected_port = extract_port_from_text(join("\n", @{$startup->{bindings}}));
+                $port = $detected_port if defined $detected_port;
+            }
+            return {
+                action => 'start',
+                success => $pid ? '__JSON_TRUE__' : '__JSON_FALSE__',
+                pid => $pid || $fork_pid,
+                port => $port,
+                startup => $startup,
+                exit_code => $pid ? 0 : 1,
+            };
+        } else {
+            return {
+                action => 'start',
+                success => '__JSON_FALSE__',
+                error => 'fork failed',
+                startup => {
+                    ready => '__JSON_FALSE__',
+                    messages => [],
+                },
+                exit_code => 1,
+            };
+        }
+    }
+}
+
+sub stop_server {
+    my $pid = is_running();
+    unless ($pid) {
+        print_info("hlquery is not running.");
+        unlink $pid_file_path if -f $pid_file_path;
+        return {
+            action => 'stop',
+            success => '__JSON_TRUE__',
+            already_stopped => '__JSON_TRUE__',
+            stopped_pid => undef,
+            exit_code => 0,
+        };
+    }
+    
+    print_info("Stopping hlquery (PID: $pid) ...");
+    kill('TERM', $pid);
+#    print_info("Graceful shutdown can take a few seconds while hlquery drains active work and closes storage cleanly.");
+    
+    my $timeout = 10;
+    my $count = 0;
+    while ($count < $timeout && is_running()) {
+        if ($count == 3) {
+            print_info("Still waiting for shutdown. Slow stops usually mean background writes, flushes, or open requests are finishing.");
+        }
+        sleep 1;
+        $count++;
+    }
+    
+    if (is_running()) {
+        print_warning("Graceful shutdown timed out, sending KILL signal...");
+        kill('KILL', $pid);
+        sleep 2;
+    }
+    
+    if (is_running()) {
+        print_error("Failed to stop hlquery.");
+        return {
+            action => 'stop',
+            success => '__JSON_FALSE__',
+            stopped_pid => $pid,
+            error => 'Failed to stop hlquery',
+            exit_code => 1,
+        };
+    } else {
+        unlink $pid_file_path if -f $pid_file_path;
+        print_success("hlquery stopped successfully.");
+        return {
+            action => 'stop',
+            success => '__JSON_TRUE__',
+            stopped_pid => $pid,
+            exit_code => 0,
+        };
+    }
+}
+
+sub kill_server {
+    my $pid = is_running();
+    unless ($pid) {
+        print_info("hlquery is not running.");
+        unlink $pid_file_path if -f $pid_file_path;
+        return {
+            action => 'kill',
+            success => '__JSON_TRUE__',
+            already_stopped => '__JSON_TRUE__',
+            stopped_pid => undef,
+            exit_code => 0,
+        };
+    }
+
+    print_warning("Force stopping hlquery (PID: $pid) with SIGKILL ...");
+    kill('KILL', $pid);
+
+    my $timeout = 3;
+    my $count = 0;
+    while ($count < $timeout && is_running()) {
+        sleep 1;
+        $count++;
+    }
+
+    if (is_running()) {
+        print_error("Failed to kill hlquery.");
+        return {
+            action => 'kill',
+            success => '__JSON_FALSE__',
+            stopped_pid => $pid,
+            error => 'Failed to kill hlquery',
+            exit_code => 1,
+        };
+    } else {
+        unlink $pid_file_path if -f $pid_file_path;
+        print_success("hlquery killed successfully.");
+        return {
+            action => 'kill',
+            success => '__JSON_TRUE__',
+            stopped_pid => $pid,
+            exit_code => 0,
+        };
+    }
+}
+
+sub restart_server {
+    my (@extra_args) = @_;
+    my $stop_result = stop_server();
+    return $stop_result if $stop_result->{exit_code} != 0;
+    my $old_pid = $stop_result->{stopped_pid};
+    sleep 2;
+    my $start_result = start_server(0, 0, 0, @extra_args);
+    return {
+        action => 'restart',
+        success => $start_result->{success},
+        old_pid => $old_pid,
+        new_pid => $start_result->{pid},
+        port => $start_result->{port},
+        exit_code => $start_result->{exit_code},
+        (defined $start_result->{error} ? (error => $start_result->{error}) : ()),
+    };
+}
+
+sub show_status {
+    my $pid = is_running();
+    if ($pid) {
+        print_success("hlquery is running (PID: $pid).");
+        return {
+            action => 'status',
+            status => 'running',
+            pid => $pid,
+            port => configured_port(),
+            version => $VERSION,
+            uptime => process_uptime($pid),
+            success => '__JSON_TRUE__',
+            exit_code => 0,
+        };
+    } else {
+        print_info("hlquery is not running.");
+        return {
+            action => 'status',
+            status => 'stopped',
+            pid => undef,
+            port => configured_port(),
+            version => $VERSION,
+            uptime => 0,
+            success => '__JSON_FALSE__',
+            exit_code => 1,
+        };
+    }
+}
+
+sub main {
+    my $nofork = 0;
+    my $debug = 0;
+    my $skip_auth = 0;
+    my $help = 0;
+    my $version_opt = 0;
+    Configure('pass_through');
+
+    GetOptions(
+        'json' => \$json_output,
+        'nofork' => \$nofork,
+        'debug' => \$debug,
+        'skip-auth' => \$skip_auth,
+        'config=s' => \$config_path,
+        'pidfile=s' => \$pid_file_path,
+        'logdir=s' => \$log_dir_path,
+        'help' => \$help,
+        'version' => \$version_opt
+    );
+    
+    my $command = shift @ARGV;
+    
+    if ($help || ($command && $command eq 'help')) {
+        print_banner() unless $json_output;
+        print_usage();
+        exit 0;
+    }
+    
+    setup_paths();
+    
+    if ($version_opt || ($command && $command eq 'version')) {
+        if ($json_output) {
+            emit_json(
+                action => 'version',
+                version => $VERSION,
+                binary => $binary_path,
+                config => $config_path,
+                success => '__JSON_TRUE__',
+            );
+        } else {
+            print_banner();
+            print_info("Binary: $binary_path");
+            print_info("Config: $config_path");
+        }
+        exit 0;
+    }
+    
+    unless ($command) {
+        print_usage();
+        exit 1;
+    }
+    
+    my $result;
+    if ($command eq 'start') {
+        $result = start_server($nofork, $debug, $skip_auth, @ARGV);
+    } elsif ($command eq 'stop') {
+        $result = stop_server();
+    } elsif ($command eq 'kill') {
+        $result = kill_server();
+    } elsif ($command eq 'restart') {
+        $result = restart_server(@ARGV);
+    } elsif ($command eq 'status') {
+        $result = show_status();
+    } else {
+        if ($json_output) {
+            emit_json(
+                action => $command,
+                success => '__JSON_FALSE__',
+                error => "Unknown command: $command.",
+            );
+        } else {
+            print_error("Unknown command: $command.");
+        }
+        exit 1;
+    }
+
+    if ($json_output) {
+        my %payload = %{$result};
+        delete $payload{exit_code};
+        emit_json(%payload);
+    }
+
+    exit $result->{exit_code};
+}
+
+main();

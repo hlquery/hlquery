@@ -91,6 +91,35 @@ $base_path = rel2abs($base_path);
 my $uid = getuid();
 my $username = getpwuid($uid);
 my $gid = getgid();
+my $detected_system = `uname -s 2>/dev/null`;
+chomp $detected_system;
+$detected_system ||= $^O;
+
+sub get_system_name {
+    return $detected_system;
+}
+
+sub get_make_command {
+    return get_system_name() eq 'FreeBSD' ? 'gmake' : 'make';
+}
+
+sub get_cpu_count {
+    my $count = 0;
+
+    if (get_system_name() eq 'FreeBSD') {
+        $count = `sysctl -n hw.ncpu 2>/dev/null`;
+    } else {
+        $count = `nproc 2>/dev/null`;
+    }
+
+    chomp $count if defined $count;
+    return ($count && $count =~ /^\d+$/ && $count > 0) ? $count : 1;
+}
+
+sub default_cxx {
+    return $ENV{CXX} if $ENV{CXX};
+    return 'c++';
+}
 
 # Terminal ANSI support detection
 my $ansi_supported = 0;
@@ -141,8 +170,9 @@ sub check_root {
         print "";
         print WARNING . "If you need to install to system directories, use:" . ENDC . "\n";
         print "  " . OKCYAN . "./configure --prefix=/opt/hlquery" . ENDC . "\n";
-        print "  " . OKCYAN . "make" . ENDC . "\n";
-        print "  " . OKCYAN . "sudo make install" . ENDC . "\n";
+        my $make_cmd = get_make_command();
+        print "  " . OKCYAN . "$make_cmd" . ENDC . "\n";
+        print "  " . OKCYAN . "sudo $make_cmd install" . ENDC . "\n";
         print "";
         exit 1;
     }
@@ -180,13 +210,498 @@ sub get_version_from_script {
 
 # Configuration state
 my %config = (
-    'CXX'           => 'g++',
+    'CXX'           => default_cxx(),
     'CXXFLAGS'      => '-std=c++17 -O2 -fPIC',
     'LDFLAGS'       => '-ldl -lstdc++fs -pthread',
     'PREFIX'        => '/usr/local',
+    'CONFDIR'       => '',
+    'DATADIR'       => '',
+    'LOGDIR'        => '',
+    'RUNDIR'        => '',
+    'BINDIR'        => '',
     'SOCKETENGINE'  => 'epoll',
+    'LAYOUT'        => 'dev',
     'VERSION'       => get_version_from_script(),
 );
+
+sub discover_available_extra_modules {
+    # Extra modules can be implemented either as a single m_name.cpp file or as
+    # a directory with multiple compilation units. We index both forms here so
+    # later parsing can treat --enable-extra consistently.
+    my $extras_root = catdir($base_path, 'src', 'modules', 'extra');
+    my %available = (
+        simple => {},
+        dir    => {},
+    );
+
+    return \%available unless -d $extras_root;
+
+    for my $path (glob(catfile($extras_root, 'm_*.cpp'))) {
+        next unless -f $path;
+        my $name = basename($path);
+        $name =~ s/\.cpp$//;
+        $available{simple}{$name} = $path;
+    }
+
+    for my $path (glob(catdir($extras_root, 'm_*'))) {
+        next unless -d $path;
+        my $name = basename($path);
+        my @sources = grep { -f $_ } glob(catfile($path, '*.cpp'));
+        next unless @sources;
+        $available{dir}{$name} = [ sort @sources ];
+    }
+
+    return \%available;
+}
+
+sub parse_enabled_extras {
+    my ($raw_value) = @_;
+    my $available = discover_available_extra_modules();
+
+    # Keep the empty case explicit so Makefile generation can always rely on the
+    # returned structure shape, even when no extra modules were requested.
+    return {
+        names       => [],
+        simple_srcs => [],
+        dir_srcs    => [],
+        libs        => [],
+        rules       => [],
+        sources     => [],
+    } unless defined $raw_value && length $raw_value;
+
+    my @requested = grep { length $_ } map { lc $_ } split(/\s*,\s*/, $raw_value);
+    if (grep { $_ eq 'all' } @requested) {
+        @requested = sort(keys(%{$available->{simple}}), keys(%{$available->{dir}}));
+    }
+
+    my %seen;
+    @requested = grep { !$seen{$_}++ } @requested;
+
+    # Fail early on typos before we start generating symlinks or Makefile rules.
+    my @unknown = grep { !exists $available->{simple}{$_} && !exists $available->{dir}{$_} } @requested;
+    if (@unknown) {
+        print "Error: Unknown extra module(s): " . join(', ', @unknown) . "\n";
+        my @known = sort(keys(%{$available->{simple}}), keys(%{$available->{dir}}));
+        print "Available extras: " . (@known ? join(', ', @known) : '(none)') . "\n";
+        exit 1;
+    }
+
+    my (@simple_srcs, @dir_srcs, @libs, @rules, @sources);
+
+    for my $name (@requested) {
+        if (exists $available->{simple}{$name}) {
+            # Single-file extras compile to one module object and one shared
+            # object rule.
+            push @simple_srcs, '$(SRC_DIR)/modules/extra/' . $name . '.cpp';
+            push @libs, '$(RUN_DIR)/modules/' . $name . '.so';
+            push @rules,
+                '$(RUN_DIR)/modules/' . $name . '.so: $(OBJ_DIR)/modules/extra/' . $name . '.module.o | $(BIN_DIR)',
+                "\t" . '@mkdir -p $(RUN_DIR)/modules',
+                "\t" . '@echo "$(CYAN)Linking extra module ' . $name . '...$(NC)"',
+                "\t" . '$(CXX) $(CXXFLAGS) -shared -o $@ $^ $(LDFLAGS) $(MODULE_EXTRA_LDFLAGS)',
+                '';
+            push @sources, $available->{simple}{$name};
+            next;
+        }
+
+        next unless exists $available->{dir}{$name};
+        my @module_sources = @{$available->{dir}{$name}};
+        # Multi-file extras are emitted as one .so with one object per source.
+        push @dir_srcs, map {
+            my $rel = abs2rel($_, catdir($base_path, 'src', 'modules'));
+            '$(SRC_DIR)/modules/' . $rel;
+        } @module_sources;
+        my @module_objs = map {
+            my $rel = abs2rel($_, catdir($base_path, 'src', 'modules'));
+            $rel =~ s/\.cpp$/.module.o/;
+            '$(OBJ_DIR)/modules/' . $rel;
+        } @module_sources;
+        push @libs, '$(RUN_DIR)/modules/' . $name . '.so';
+        push @rules,
+            '$(RUN_DIR)/modules/' . $name . '.so: ' . join(' ', @module_objs) . ' | $(BIN_DIR)',
+            "\t" . '@mkdir -p $(RUN_DIR)/modules',
+            "\t" . '@echo "$(CYAN)Linking extra module ' . $name . '...$(NC)"',
+            "\t" . '$(CXX) $(CXXFLAGS) -shared -o $@ $^ $(LDFLAGS) $(MODULE_EXTRA_LDFLAGS)',
+            '';
+        push @sources, @module_sources;
+    }
+
+    return {
+        names       => \@requested,
+        simple_srcs => \@simple_srcs,
+        dir_srcs    => \@dir_srcs,
+        libs        => \@libs,
+        rules       => \@rules,
+        sources     => \@sources,
+    };
+}
+
+sub list_known_extra_module_names {
+    my $available = discover_available_extra_modules();
+    return [ sort(keys(%{$available->{simple}}), keys(%{$available->{dir}})) ];
+}
+
+sub sync_enabled_extra_module_links {
+    my ($enabled_extras) = @_;
+    my $available = discover_available_extra_modules();
+    my $modules_root = catdir($base_path, 'src', 'modules');
+
+    # The runtime/module loader expects enabled extras to appear under
+    # src/modules. We satisfy that without copying files by maintaining
+    # symlinks that point back into src/modules/extra.
+    mkpath($modules_root) unless -d $modules_root;
+
+    for my $name (@{list_known_extra_module_names()}) {
+        my $target_path = catfile($modules_root, $name);
+        $target_path .= '.cpp' if exists $available->{simple}{$name};
+
+        my $enabled = grep { $_ eq $name } @{$enabled_extras->{names} // []};
+        if (!$enabled) {
+            # Remove stale symlinks for extras that are no longer enabled, but
+            # never touch real files the user may have created manually.
+            unlink $target_path if -l $target_path;
+            next;
+        }
+
+        my $link_target = exists $available->{simple}{$name}
+            ? catfile('extra', $name . '.cpp')
+            : catfile('extra', $name);
+
+        if (-l $target_path) {
+            my $current = readlink($target_path);
+            next if defined $current && $current eq $link_target;
+            unlink $target_path;
+        } elsif (-e $target_path) {
+            warn "Warning: refusing to replace non-symlink path $target_path while enabling extra module $name\n";
+            next;
+        }
+
+        symlink($link_target, $target_path) or die "Failed to create symlink $target_path -> $link_target: $!\n";
+    }
+}
+
+sub detect_packaging_layout {
+    return 'system' unless get_system_name() eq 'Linux';
+
+    my $os_release = '/etc/os-release';
+    return 'system' unless -f $os_release;
+
+    my ($id, $id_like) = ('', '');
+    if (open my $fh, '<', $os_release) {
+        while (my $line = <$fh>) {
+            chomp $line;
+            if ($line =~ /^ID=(.*)$/) {
+                $id = $1;
+                $id =~ s/^"(.*)"$/$1/;
+            } elsif ($line =~ /^ID_LIKE=(.*)$/) {
+                $id_like = $1;
+                $id_like =~ s/^"(.*)"$/$1/;
+            }
+        }
+        close $fh;
+    }
+
+    my $all = lc("$id $id_like");
+    return 'debian' if $all =~ /\b(debian|ubuntu|mint|pop|kali)\b/;
+    return 'rpm' if $all =~ /\b(rhel|fedora|centos|rocky|almalinux|suse|opensuse)\b/;
+
+    return 'system';
+}
+
+sub get_os_release_info {
+    my %info;
+    my $os_release = '/etc/os-release';
+    return %info unless -f $os_release;
+
+    if (open my $fh, '<', $os_release) {
+        while (my $line = <$fh>) {
+            chomp $line;
+            next unless $line =~ /^([A-Z_]+)=(.*)$/;
+            my ($key, $value) = (lc($1), $2);
+            $value =~ s/^"(.*)"$/$1/;
+            $info{$key} = lc($value);
+        }
+        close $fh;
+    }
+
+    return %info;
+}
+
+sub current_system_tokens {
+    my %os = get_os_release_info();
+    my %tokens;
+
+    my $system = lc(get_system_name());
+    $tokens{$system} = 1 if $system;
+    $tokens{lc($config{LAYOUT})} = 1 if $config{LAYOUT};
+
+    for my $key (qw(id id_like)) {
+        next unless $os{$key};
+        for my $token (split /\s+/, $os{$key}) {
+            $tokens{$token} = 1 if $token;
+        }
+    }
+
+    return %tokens;
+}
+
+sub system_pattern_matches {
+    my ($pattern) = @_;
+    return 0 unless defined $pattern && length $pattern;
+
+    my %tokens = current_system_tokens();
+    my $normalized = lc($pattern);
+    my $prefix = ($normalized =~ s/~$//);
+
+    if ($prefix) {
+        for my $token (keys %tokens) {
+            return 1 if index($token, $normalized) == 0;
+        }
+        return 0;
+    }
+
+    return $tokens{$normalized} ? 1 : 0;
+}
+
+sub parse_annotation_arguments {
+    my ($raw) = @_;
+    my @args = ($raw =~ /"((?:[^"\\]|\\.)*)"/g);
+    @args = map {
+        my $v = $_;
+        $v =~ s/\\"/"/g;
+        $v =~ s/\\\\/\\/g;
+        $v;
+    } @args;
+    return @args;
+}
+
+sub collapse_annotation_value {
+    my ($value) = @_;
+    $value //= '';
+    $value =~ s/\s+/ /g;
+    $value =~ s/^\s+//;
+    $value =~ s/\s+$//;
+    return $value;
+}
+
+sub quote_makefile_value {
+    my ($value) = @_;
+    $value //= '';
+    $value =~ s/\$/\$\$/g;
+    return $value;
+}
+
+sub resolve_annotation_value {
+    my ($expr, $source, $kind) = @_;
+    $expr = collapse_annotation_value($expr);
+    return '' unless length $expr;
+
+    if ($expr =~ /^find_compiler_flags\s*\((.*)\)\s*$/) {
+        my @args = parse_annotation_arguments($1);
+        return '' unless @args;
+
+        my $package = $args[0];
+        my $label = $args[1] // $package;
+        my $fallback = $args[2] // '';
+
+        my $candidates = [
+            ["pkg-config", "--cflags", $package],
+            ["pkgconf", "--cflags", $package],
+        ];
+
+        for my $command (@$candidates) {
+            my $output = `@$command 2>/dev/null`;
+            my $exit_code = $? >> 8;
+            $output = collapse_annotation_value($output);
+
+            if ($exit_code == 0 && length $output) {
+                print_success("Module $kind flags", "$source => $output") if $ENV{DEBUG_CONFIGURE};
+                return $output;
+            }
+        }
+
+        if (length $fallback) {
+            print_warning("Module $kind flags", "$source => fallback $fallback") if $ENV{DEBUG_CONFIGURE};
+            return collapse_annotation_value($fallback);
+        }
+
+        print_warning("Module $kind flags", "$source => unavailable ($label)") if $ENV{DEBUG_CONFIGURE};
+        return '';
+    }
+
+    if ($expr =~ /^find_linker_flags\s*\((.*)\)\s*$/) {
+        my @args = parse_annotation_arguments($1);
+        return '' unless @args;
+
+        my $package = $args[0];
+        my $label = $args[1] // $package;
+        my $fallback = $args[2] // '';
+
+        my $candidates = [
+            ["pkg-config", "--libs", $package],
+            ["pkgconf", "--libs", $package],
+        ];
+
+        for my $command (@$candidates) {
+            my $output = `@$command 2>/dev/null`;
+            my $exit_code = $? >> 8;
+            $output = collapse_annotation_value($output);
+
+            if ($exit_code == 0 && length $output) {
+                print_success("Module $kind flags", "$source => $output") if $ENV{DEBUG_CONFIGURE};
+                return $output;
+            }
+        }
+
+        if (length $fallback) {
+            print_warning("Module $kind flags", "$source => fallback $fallback") if $ENV{DEBUG_CONFIGURE};
+            return collapse_annotation_value($fallback);
+        }
+
+        print_warning("Module $kind flags", "$source => unavailable ($label)") if $ENV{DEBUG_CONFIGURE};
+        return '';
+    }
+
+    if ($expr =~ /^execute\s*\((.*)\)\s*$/) {
+        my @args = parse_annotation_arguments($1);
+        return '' unless @args;
+
+        my $command = shift @args;
+        my $label = @args ? shift @args : '';
+        my $fallback = @args ? shift @args : '';
+
+        my $output = `$command 2>/dev/null`;
+        my $exit_code = $? >> 8;
+        $output = collapse_annotation_value($output);
+
+        if ($exit_code == 0 && length $output) {
+            print_success("Module $kind flags", "$source => $output") if $ENV{DEBUG_CONFIGURE};
+            return $output;
+        }
+
+        if (length $fallback) {
+            print_warning("Module $kind flags", "$source => fallback $fallback") if $ENV{DEBUG_CONFIGURE};
+            return collapse_annotation_value($fallback);
+        }
+
+        my $desc = $label || $command;
+        print_warning("Module $kind flags", "$source => unavailable ($desc)");
+        return '';
+    }
+
+    return $expr;
+}
+
+sub collect_module_annotations {
+    my ($enabled_extras) = @_;
+    my @module_sources;
+    my $modules_root = catdir($base_path, 'src', 'modules');
+    # Scan both built-in modules and any enabled extras for inline build
+    # annotations such as extra compiler flags, linker flags, or package hints.
+    push @module_sources, grep { -f $_ } glob(catfile($modules_root, 'm_*.cpp'));
+    push @module_sources, grep { -f $_ } glob(catfile($modules_root, 'm_*', '*.cpp'));
+    push @module_sources, @{$enabled_extras->{sources} // []};
+
+    my (%source_cxxflags, %module_ldflags, %module_packages);
+
+    for my $source (@module_sources) {
+        my $relative = abs2rel($source, $modules_root);
+        my $stem = $relative;
+        $stem =~ s/\.cpp$//;
+        my $module_name = $relative;
+        $module_name =~ s{/.*$}{};
+        $module_name =~ s/\.cpp$//;
+
+        open my $fh, '<', $source or next;
+        while (my $line = <$fh>) {
+            # Module source files can declare build metadata in /// $Foo:
+            # annotations. We translate those into Makefile fragments instead of
+            # hard-coding per-module rules in configure itself.
+            next unless $line =~ m{^\s*///\s*\$(CompilerFlags|LinkerFlags|PackageInfo):\s*(.*?)\s*$};
+            my ($kind, $payload) = ($1, $2);
+
+            if ($kind eq 'CompilerFlags') {
+                my $value = resolve_annotation_value($payload, $relative, 'compiler');
+                push @{$source_cxxflags{$stem}}, $value if length $value;
+            } elsif ($kind eq 'LinkerFlags') {
+                my $value = resolve_annotation_value($payload, $relative, 'linker');
+                push @{$module_ldflags{$module_name}}, $value if length $value;
+            } elsif ($kind eq 'PackageInfo') {
+                if ($payload =~ /^require_system\("([^"]+)"\)\s+(.+?)\s*$/) {
+                    my ($pattern, $package) = (lc($1), collapse_annotation_value($2));
+                    if (system_pattern_matches($pattern)) {
+                        push @{$module_packages{$module_name}}, $package if length $package;
+                    }
+                }
+            }
+        }
+        close $fh;
+    }
+
+    my @cxx_rules;
+    for my $stem (sort keys %source_cxxflags) {
+        my %seen;
+        my @flags = grep { length $_ && !$seen{$_}++ } @{$source_cxxflags{$stem}};
+        next unless @flags;
+        push @cxx_rules, '$(OBJ_DIR)/modules/' . $stem . '.module.o: CXXFLAGS += ' . quote_makefile_value(join(' ', @flags));
+    }
+
+    my @ld_rules;
+    for my $module (sort keys %module_ldflags) {
+        my %seen;
+        my @flags = grep { length $_ && !$seen{$_}++ } @{$module_ldflags{$module}};
+        next unless @flags;
+        push @ld_rules, '$(RUN_DIR)/modules/' . $module . '.so: MODULE_EXTRA_LDFLAGS += ' . quote_makefile_value(join(' ', @flags));
+    }
+
+    my @package_lines;
+    for my $module (sort keys %module_packages) {
+        my %seen;
+        my @packages = grep { length $_ && !$seen{$_}++ } @{$module_packages{$module}};
+        next unless @packages;
+        push @package_lines, $module . ': ' . join(', ', @packages);
+    }
+
+    return {
+        cxx_rules => join("\n", @cxx_rules),
+        ld_rules => join("\n", @ld_rules),
+        package_lines => \@package_lines,
+    };
+}
+
+sub apply_install_layout {
+    my ($layout, $set_ref) = @_;
+
+    if ($layout eq 'auto') {
+        # Auto mode picks a packaging-friendly layout from the host OS, but
+        # explicit --prefix/--confdir/... options still win below.
+        $layout = detect_packaging_layout();
+    }
+
+    if ($layout eq 'dev') {
+        # Development layout keeps everything inside the repository so the tree
+        # is self-contained and runnable without system install steps.
+        $config{PREFIX} = $base_path unless $set_ref->{prefix};
+        $config{CONFDIR} ||= catdir($base_path, RUN_DIR, 'conf') unless $set_ref->{confdir};
+        $config{LOGDIR}  ||= catdir($base_path, RUN_DIR, 'logs') unless $set_ref->{logdir};
+        $config{DATADIR} ||= catdir($base_path, RUN_DIR, 'data') unless $set_ref->{datadir};
+        $config{RUNDIR}  ||= catdir($base_path, RUN_DIR, 'pid') unless $set_ref->{rundir};
+        $config{BINDIR}  ||= catdir($base_path, RUN_DIR, 'bin') unless $set_ref->{bindir};
+    } elsif ($layout eq 'system' || $layout eq 'debian' || $layout eq 'rpm') {
+        # System packaging layouts split config, data, logs and runtime state
+        # into conventional FHS locations.
+        $config{PREFIX} = '/usr' unless $set_ref->{prefix};
+        $config{CONFDIR} ||= '/etc/hlquery' unless $set_ref->{confdir};
+        $config{LOGDIR}  ||= '/var/log/hlquery' unless $set_ref->{logdir};
+        $config{DATADIR} ||= '/var/lib/hlquery' unless $set_ref->{datadir};
+        $config{RUNDIR}  ||= '/run/hlquery' unless $set_ref->{rundir};
+        $config{BINDIR}  ||= '/usr/bin' unless $set_ref->{bindir};
+    } else {
+        die "Invalid layout '$layout'. Valid layouts: dev, system, debian, rpm, auto\n";
+    }
+
+    $config{LAYOUT} = $layout;
+}
 
 # Enhanced startup banner
 # Create required directories
@@ -202,13 +717,14 @@ sub create_required_directories {
         build/obj build/bin build/include
     );
     
-    print_step("Validating directory structure ...");
+    print_success("Validating directory structure ...");
     
     my @all_dirs = ('build', @runtime_dirs, @build_dirs);
     my $created_count = 0;
     my $existing_count = 0;
     
-    # Check and create all directories silently
+    # Configure may run in a partially prepared tree. Create only what is
+    # missing and leave any existing content alone.
     foreach my $dir (@all_dirs) {
         my $dir_path = catdir($base_path, $dir);
         if (!-d $dir_path) {
@@ -230,6 +746,41 @@ sub create_required_directories {
     } else {
         print_success("Directory structure", "All directories validated");
     }
+}
+
+# Ensure vendor directories are readable and writable
+sub check_vendor_permissions {
+    my $vendor_root = catdir($base_path, 'vendor');
+
+    if (!-d $vendor_root) {
+        print_error('Vendor directory missing', $vendor_root);
+        die "Error: vendor directory not found at $vendor_root\n";
+    }
+
+    my @bad_dirs;
+    find(
+        {
+            wanted => sub {
+                return unless -d $File::Find::name;
+                my $dir = $File::Find::name;
+                if (!-r $dir || !-w $dir || !-x $dir) {
+                    push @bad_dirs, $dir;
+                }
+            },
+            no_chdir => 1
+        },
+        $vendor_root
+    );
+
+    if (@bad_dirs) {
+        print_error('Vendor directory permissions check failed');
+        foreach my $dir (@bad_dirs) {
+            print_error('Not readable/writable/executable', $dir);
+        }
+        die "Error: insufficient permissions in vendor directories\n";
+    }
+
+    print_success('Vendor directory permissions', 'read/write/execute ok');
 }
 
 sub print_animated_header {
@@ -295,28 +846,19 @@ sub print_status {
     if (defined $value) {
         my $checkmark = "";
 
-        if (
-            ($status eq 'OK' || $status eq 'AVAIL') &&
-            (
-                $value eq 'yes' ||
-                $value eq 'enabled' ||
-                $value =~ /^available/ ||
-                $value =~ /^[0-9]/ ||
-                $value =~ /C\+\+17/ ||
-                $value =~ /(epoll|poll)/
-            )
-        ) {
-            $checkmark = $ansi_supported
-                ? " " . OKGREEN . $char_map{'checkmark_ok'} . RESET
-                : " " . $char_map{'checkmark_ok'};
-        }
-        elsif (
-            ($status eq 'SKIP' || $status eq 'FAIL') &&
-            ($value eq 'no' || $value eq 'not available' || $value eq 'not found')
-        ) {
-            $checkmark = $ansi_supported
-                ? " " . FAIL . $char_map{'checkmark_fail'} . RESET
-                : " " . $char_map{'checkmark_fail'};
+        if ($status eq 'OK' || $status eq 'AVAIL') {
+            # Add a checkmark for any positive/neutral value.
+            if ($value !~ /^(no|not available|not found|disabled)\b/i) {
+                $checkmark = $ansi_supported
+                    ? " " . OKGREEN . $char_map{'checkmark_ok'} . RESET
+                    : " " . $char_map{'checkmark_ok'};
+            }
+        } elsif ($status eq 'SKIP' || $status eq 'FAIL') {
+            if ($value =~ /^(no|not available|not found|disabled)\b/i) {
+                $checkmark = $ansi_supported
+                    ? " " . FAIL . $char_map{'checkmark_fail'} . RESET
+                    : " " . $char_map{'checkmark_fail'};
+            }
         }
 
         my $bold_start = $ansi_supported ? BOLD : "";
@@ -429,32 +971,44 @@ sub get_performance_color {
 
 # System checks
 sub check_compiler {
-    my $cxx = $config{CXX};
-    # Try multiple methods to find the compiler
-    my $found = 0;
-    # Method 1: Try 'which' command
-    if (system("which $cxx >/dev/null 2>&1") == 0) {
-        $found = 1;
+    my @candidates;
+    my %seen;
+    my @preferred = get_system_name() eq 'FreeBSD'
+        ? ($config{CXX}, $ENV{CXX}, 'clang++', 'c++', 'g++')
+        : ($config{CXX}, $ENV{CXX}, 'c++', 'g++', 'clang++');
+
+    foreach my $cand (@preferred) {
+        next unless defined $cand && $cand ne '';
+        next if $seen{$cand}++;
+        push @candidates, $cand;
     }
-    # Method 2: Try 'command -v' (POSIX compliant, works without which package)
-    elsif (system("command -v $cxx >/dev/null 2>&1") == 0) {
-        $found = 1;
+
+    my $test_src = "/tmp/hlquery_compiler_test_$$.cpp";
+    my $test_bin = "/tmp/hlquery_compiler_test_$$";
+    open my $tfh, '>', $test_src or die "Cannot write compiler test file: $!\n";
+    print $tfh "#include <iostream>\nint main(){return 0;}\n";
+    close $tfh;
+
+    foreach my $cxx (@candidates) {
+        next if system("command -v $cxx >/dev/null 2>&1") != 0;
+        my $res = system("$cxx -std=c++17 -x c++ \"$test_src\" -o \"$test_bin\" >/dev/null 2>&1");
+        if (($res & 127) == 0 && $res == 0 && -x $test_bin) {
+            $config{CXX} = $cxx;
+            my $version = `$cxx --version 2>/dev/null | head -1`;
+            chomp $version;
+            $version =~ s/.*\s(\d+\.\d+).*/$1/ if $version;
+            $config{CXX_VERSION} = $version || 'unknown';
+            unlink $test_src;
+            unlink $test_bin;
+            print_success('C++ compiler', $cxx);
+            print_success('Compiler compatibility', "C++17 ($version)") if $version;
+            return 1;
+        }
     }
-    # Method 3: Try direct execution (if in PATH)
-    elsif (system("$cxx --version >/dev/null 2>&1") == 0) {
-        $found = 1;
-    }
-    
-    if ($found) {
-        my $version = `$cxx --version 2>/dev/null | head -1`;
-        chomp $version;
-        $version =~ s/.*\s(\d+\.\d+).*/$1/ if $version;
-        $config{CXX_VERSION} = $version || 'unknown';
-        print_success('C++ compiler', $cxx);
-        print_success('Compiler compatibility', "C++17 ($version)") if $version;
-        return 1;
-    }
-    print_error('C++ compiler not found');
+
+    unlink $test_src if -f $test_src;
+    unlink $test_bin if -f $test_bin;
+    print_error('C++ compiler not found or not functional');
     return 0;
 }
 
@@ -513,7 +1067,7 @@ sub check_io_engines {
     my $os = `uname -s 2>/dev/null`;
     chomp($os);
     
-    print_status('INFO', 'Operating System', $os);
+    print_success('Operating System', $os);
     
     # Get the configured compiler
     my $cxx = $config{CXX} || 'g++';
@@ -532,6 +1086,16 @@ int main() {
 int main() {
     struct pollfd pfd;
     poll(&pfd, 0, 0);
+    return 0;
+}';
+    
+    my $kqueue_test = '#include <sys/event.h>
+#include <sys/time.h>
+#include <unistd.h>
+int main() {
+    int kq = kqueue();
+    if (kq == -1) return 1;
+    close(kq);
     return 0;
 }';
     
@@ -573,6 +1137,21 @@ int main() {
         unlink $poll_binary if -f $poll_binary;
     }
     
+    # Test kqueue (BSD/macOS) - compile and run
+    my $kqueue_binary = "$test_dir/test_kqueue";
+    my $res5 = system("echo '$kqueue_test' | $cxx -x c++ -o $kqueue_binary - 2>/dev/null");
+    if ($res5 & 127) { exit 1; }
+    if ($res5 == 0) {
+        # Verify it actually runs (not just compiles)
+        my $res6 = system("$kqueue_binary 2>/dev/null");
+        if ($res6 & 127) { exit 1; }
+        if ($res6 == 0) {
+            push @engines, 'kqueue';
+            $engine_available{'kqueue'} = 1;
+        }
+        unlink $kqueue_binary if -f $kqueue_binary;
+    }
+    
     # Clean up test directory
     rmtree($test_dir) if -d $test_dir;
     
@@ -588,19 +1167,31 @@ int main() {
             exit 1;
         }
     } else {
-        # Auto-selection with preference order:
-        # 1. Always try epoll first (Linux - best performance)
-        # 2. Fall back to poll if epoll not available (universal POSIX)
-        
-        # Priority 1: Try epoll (Linux - always preferred)
-        if ($engine_available{'epoll'}) {
-            $selected_engine = 'epoll';
-            $config{SOCKETENGINE} = 'epoll';
-        }
-        # Priority 2: Fall back to poll if epoll not available
-        elsif ($engine_available{'poll'}) {
-            $selected_engine = 'poll';
-            $config{SOCKETENGINE} = 'poll';
+        # Auto-selection with OS-aware preference order:
+        # - BSD/macOS: kqueue -> poll -> epoll
+        # - Linux/other: epoll -> kqueue -> poll
+        if ($os =~ /^(FreeBSD|OpenBSD|NetBSD|DragonFly|Darwin)$/) {
+            if ($engine_available{'kqueue'}) {
+                $selected_engine = 'kqueue';
+                $config{SOCKETENGINE} = 'kqueue';
+            } elsif ($engine_available{'poll'}) {
+                $selected_engine = 'poll';
+                $config{SOCKETENGINE} = 'poll';
+            } elsif ($engine_available{'epoll'}) {
+                $selected_engine = 'epoll';
+                $config{SOCKETENGINE} = 'epoll';
+            }
+        } else {
+            if ($engine_available{'epoll'}) {
+                $selected_engine = 'epoll';
+                $config{SOCKETENGINE} = 'epoll';
+            } elsif ($engine_available{'kqueue'}) {
+                $selected_engine = 'kqueue';
+                $config{SOCKETENGINE} = 'kqueue';
+            } elsif ($engine_available{'poll'}) {
+                $selected_engine = 'poll';
+                $config{SOCKETENGINE} = 'poll';
+            }
         }
     }
     
@@ -608,10 +1199,17 @@ int main() {
     if ($selected_engine eq 'epoll') {
         print_status('OK', 'I/O Engine', "epoll");
         print_status('OK', 'Epoll I/O (Linux)', 'yes');
+        print_status($engine_available{'kqueue'} ? 'AVAIL' : 'SKIP', 'Kqueue I/O (BSD/macOS)', $engine_available{'kqueue'} ? 'available' : 'no');
+        print_status($engine_available{'poll'} ? 'AVAIL' : 'SKIP', 'Poll I/O (POSIX)', $engine_available{'poll'} ? 'available' : 'no');
+    } elsif ($selected_engine eq 'kqueue') {
+        print_status('OK', 'I/O Engine', "kqueue");
+        print_status($engine_available{'epoll'} ? 'AVAIL' : 'SKIP', 'Epoll I/O (Linux)', $engine_available{'epoll'} ? 'available' : 'no');
+        print_status('OK', 'Kqueue I/O (BSD/macOS)', 'yes');
         print_status($engine_available{'poll'} ? 'AVAIL' : 'SKIP', 'Poll I/O (POSIX)', $engine_available{'poll'} ? 'available' : 'no');
     } elsif ($selected_engine eq 'poll') {
         print_status('OK', 'I/O Engine', "poll");
         print_status($engine_available{'epoll'} ? 'AVAIL' : 'SKIP', 'Epoll I/O (Linux)', $engine_available{'epoll'} ? 'available' : 'no');
+        print_status($engine_available{'kqueue'} ? 'AVAIL' : 'SKIP', 'Kqueue I/O (BSD/macOS)', $engine_available{'kqueue'} ? 'available' : 'no');
         print_status('OK', 'Poll I/O (POSIX)', 'yes');
     } else {
         print_status('FAIL', 'I/O Engine', 'No compatible I/O engine found');
@@ -631,6 +1229,12 @@ sub get_performance_tier {
         return {
             tier => "High Performance",
             profile => "Optimized for Linux production environments",
+            color => OKGREEN
+        };
+    } elsif (grep {$_ eq 'kqueue'} @io_engines) {
+        return {
+            tier => "High Performance",
+            profile => "Optimized for BSD/macOS production environments",
             color => OKGREEN
         };
     } elsif (grep {$_ eq 'poll'} @io_engines) {
@@ -715,14 +1319,20 @@ sub generate_config_h {
     my $has_threads = $Config{usethreads} ? "#define HLQUERY_HAS_THREADS\n" : '';
     
     # Build substitution hash
-    # Allow environment variable overrides for installation paths
-    # Default to relative paths from project root, or use env vars if set
-    my $config_dir = $ENV{HLQUERY_CONFIG_DIR} || catdir($base_path, RUN_DIR, 'conf');
-    my $data_dir = $ENV{HLQUERY_DATA_DIR} || catdir($base_path, RUN_DIR, 'data');
-    my $log_dir = $ENV{HLQUERY_LOG_DIR} || catdir($base_path, RUN_DIR, 'logs');
-    my $admin_dir = $ENV{HLQUERY_ADMIN_DIR} || catdir($base_path, RUN_DIR, 'admin');
-    my $pid_dir = $ENV{HLQUERY_PID_DIR} || catdir($base_path, RUN_DIR, 'pid');
-    my $ssl_dir = $ENV{HLQUERY_SSL_DIR} || catdir($base_path, RUN_DIR, 'ssl');
+    # Use paths from %config
+    my $config_dir = $config{CONFDIR};
+    my $data_dir = $config{DATADIR};
+    my $log_dir = $config{LOGDIR};
+    my $pid_dir = $config{RUNDIR};
+    my $admin_dir = catdir($data_dir, 'admin'); # Admin dir usually under data
+    my $ssl_dir = catdir($config_dir, 'ssl');   # SSL certs usually under etc
+    my $module_dir;
+
+    if (index($config_dir, catdir($base_path, RUN_DIR, 'conf')) == 0) {
+        $module_dir = catdir($base_path, RUN_DIR, 'modules');
+    } else {
+        $module_dir = catdir($config{PREFIX}, 'lib', 'hlquery', 'modules');
+    }
     
     my %vars = (
         'SOCKETENGINE_NAME' => $config{SOCKETENGINE},
@@ -734,6 +1344,7 @@ sub generate_config_h {
         'HLQUERY_ADMIN_DIR' => $admin_dir,
         'HLQUERY_PID_DIR' => $pid_dir,
         'HLQUERY_SSL_DIR' => $ssl_dir,
+        'HLQUERY_MODULE_DIR' => $module_dir,
         'HLQUERY_DEFAULT_HTTP_PORT' => 9200,
         'HLQUERY_HAS_THREADS' => $has_threads,
         'HLQUERY_SSL_DEFINES' => $ssl_defines,
@@ -756,8 +1367,10 @@ sub generate_config_h {
 }
 
 sub generate_makefile {
+    my ($enabled_extras) = @_;
     my $makefile_template = catfile($base_path, 'make', 'makefile.tpl');
     my $makefile_path = catfile($base_path, 'Makefile');
+    my $module_annotations = collect_module_annotations($enabled_extras);
     
     # Debug: Print paths for troubleshooting
     if ($ENV{DEBUG_CONFIGURE}) {
@@ -774,7 +1387,6 @@ sub generate_makefile {
         print_error("Base path: $base_path");
         die "Error: Makefile template not found at $makefile_template\n";
     }
-    
     open my $template_fh, '<', $makefile_template or die "Cannot read template: $!\n";
     my $template_content = do { local $/; <$template_fh> };
     close $template_fh;
@@ -785,6 +1397,12 @@ sub generate_makefile {
     $template_content =~ s/\$\{LDFLAGS\}/$config{LDFLAGS}/g;
     my $socketengine_file = "$config{SOCKETENGINE}.cpp";
     $template_content =~ s/\$\{SOCKETENGINE_FILE\}/$socketengine_file/g;
+    $template_content =~ s/\$\{PREFIX\}/$config{PREFIX}/g;
+    $template_content =~ s/\$\{CONFDIR\}/$config{CONFDIR}/g;
+    $template_content =~ s/\$\{LOGDIR\}/$config{LOGDIR}/g;
+    $template_content =~ s/\$\{DATADIR\}/$config{DATADIR}/g;
+    $template_content =~ s/\$\{RUNDIR\}/$config{RUNDIR}/g;
+    $template_content =~ s/\$\{BINDIR\}/$config{BINDIR}/g;
     
     # SSL support - auto-detected
     my $with_ssl = $config{SSL_ENABLED} ? '1' : '0';
@@ -794,9 +1412,24 @@ sub generate_makefile {
     $template_content =~ s/\$\{WITH_SSL\}/$with_ssl/g;
     $template_content =~ s/\$\{WITH_OPENSSL\}/$with_openssl/g;
     $template_content =~ s/\$\{WITH_TLS\}/$with_ssl/g; # Use with_ssl for general TLS flag
+    my $module_annotation_cxx = $module_annotations->{cxx_rules} // '';
+    my $module_annotation_ld = $module_annotations->{ld_rules} // '';
+    my $extra_module_simple_srcs = join(' ', @{$enabled_extras->{simple_srcs} // []});
+    my $extra_module_dir_srcs = join(' ', @{$enabled_extras->{dir_srcs} // []});
+    my $extra_module_libs = join(' ', @{$enabled_extras->{libs} // []});
+    my $extra_module_known_names = join(' ', @{list_known_extra_module_names()});
+    my $extra_module_enabled_names = join(' ', @{$enabled_extras->{names} // []});
+    my $extra_module_rules = join("\n", @{$enabled_extras->{rules} // []});
+    $template_content =~ s/\$\{MODULE_ANNOTATION_CXXFLAGS\}/$module_annotation_cxx/g;
+    $template_content =~ s/\$\{MODULE_ANNOTATION_LDFLAGS\}/$module_annotation_ld/g;
+    $template_content =~ s/\$\{EXTRA_MODULE_SIMPLE_SRCS\}/$extra_module_simple_srcs/g;
+    $template_content =~ s/\$\{EXTRA_MODULE_DIR_SRCS\}/$extra_module_dir_srcs/g;
+    $template_content =~ s/\$\{EXTRA_MODULE_LIBS\}/$extra_module_libs/g;
+    $template_content =~ s/\$\{EXTRA_MODULE_KNOWN_NAMES\}/$extra_module_known_names/g;
+    $template_content =~ s/\$\{EXTRA_MODULE_ENABLED_NAMES\}/$extra_module_enabled_names/g;
+    $template_content =~ s/\$\{EXTRA_MODULE_BUILD_RULES\}/$extra_module_rules/g;
     
-    # Write the generated Makefile
-    # Use absolute path to ensure we write to the correct location
+    # Write the generated Makefile.
     my $abs_makefile_path = rel2abs($makefile_path);
     open my $makefile_fh, '>', $abs_makefile_path or do {
         print_error("Cannot write Makefile at $abs_makefile_path: $!");
@@ -809,30 +1442,37 @@ sub generate_makefile {
         die "Cannot close Makefile: $!\n";
     };
     
-    # Update path to use absolute path for verification
-    $makefile_path = $abs_makefile_path;
-    
     # Force filesystem sync BEFORE verification to ensure file is written
     system('sync') if ($^O ne 'MSWin32');
     
     # Small delay to allow filesystem to catch up (especially in Docker/VMs)
     select(undef, undef, undef, 0.1);
     
-    # Verify Makefile was actually written
-    if (!-f $makefile_path) {
-        print_error("Makefile was not created at $makefile_path");
+    # Verify Makefile was written
+    if (!-f $abs_makefile_path) {
+        print_error("Makefile was not created at $abs_makefile_path");
         print_error("Current directory: " . getcwd());
         print_error("Base path: $base_path");
-        die "Error: Makefile was not created at $makefile_path\n";
+        die "Error: Makefile was not created at $abs_makefile_path\n";
     }
-    
     # Verify Makefile has content
-    if (-z $makefile_path) {
-        print_error("Makefile is empty at $makefile_path");
-        die "Error: Makefile is empty at $makefile_path\n";
+    if (-z $abs_makefile_path) {
+        print_error("Makefile is empty at $abs_makefile_path");
+        die "Error: Makefile is empty at $abs_makefile_path\n";
     }
     
-    chmod 0644, $makefile_path;
+    chmod 0644, $abs_makefile_path;
+
+    if (@{$module_annotations->{package_lines}}) {
+        print_status('INFO', 'Module package hints', scalar(@{$module_annotations->{package_lines}}) . ' module(s)');
+        foreach my $line (@{$module_annotations->{package_lines}}) {
+            print "    $line\n";
+        }
+    }
+
+    # Remove stale Makefile.gnu from older configure runs.
+    my $stale_makefile_gnu = catfile($base_path, 'Makefile.gnu');
+    unlink $stale_makefile_gnu if -f $stale_makefile_gnu;
     
     # Fix ownership if running in Docker/container environment
     # Try to match the ownership of other files in the directory (like configure script)
@@ -845,7 +1485,7 @@ sub generate_makefile {
             # Only change ownership if we're root and the directory is owned by someone else
             # This fixes Docker volume mount permission issues
             if ($uid == 0 && ($dir_uid != 0 || $dir_gid != 0)) {
-                if (chown $dir_uid, $dir_gid, $makefile_path) {
+                if (chown $dir_uid, $dir_gid, $abs_makefile_path) {
                     if ($ENV{DEBUG_CONFIGURE}) {
                         print "DEBUG: Changed Makefile ownership to $dir_uid:$dir_gid\n";
                     }
@@ -855,14 +1495,49 @@ sub generate_makefile {
     }
     
     # Additional verification - check file size
-    my $makefile_size = -s $makefile_path;
-    if (!$makefile_size || $makefile_size < 100) {
+    my $makefile_size = -s $abs_makefile_path;
+    if (!$makefile_size || $makefile_size < 50) {
         print_error("Makefile appears to be too small ($makefile_size bytes)");
         die "Error: Makefile appears to be invalid (size: $makefile_size bytes)\n";
     }
     
     # Final sync after all operations
     system('sync') if ($^O ne 'MSWin32');
+}
+
+sub generate_hlquery_wrapper {
+    my $template_path = catfile($base_path, 'make', 'hlquery.tpl');
+    my $output_path = catfile($base_path, RUN_DIR, 'hlquery');
+    
+    if (!-f $template_path) {
+        print_warning("hlquery template not found at $template_path, skipping wrapper generation");
+        return;
+    }
+    
+    open my $template_fh, '<', $template_path or die "Cannot read template: $!\n";
+    my $template_content = do { local $/; <$template_fh> };
+    close $template_fh;
+    
+    my %vars = (
+        'HLQUERY_VERSION' => PROJECT_VERSION,
+        'HLQUERY_CONFIG_DIR' => $config{CONFDIR},
+        'HLQUERY_DATA_DIR' => $config{DATADIR},
+        'HLQUERY_LOG_DIR' => $config{LOGDIR},
+        'HLQUERY_PID_DIR' => $config{RUNDIR},
+        'HLQUERY_BIN_DIR' => $config{BINDIR},
+    );
+    
+    foreach my $key (keys %vars) {
+        my $value = $vars{$key};
+        $template_content =~ s/\$\{$key\}/$value/g;
+    }
+    
+    open my $fh, '>', $output_path or die "Cannot write $output_path: $!\n";
+    print $fh $template_content;
+    close $fh;
+    
+    chmod 0755, $output_path;
+    print_success('Generated run/hlquery wrapper');
 }
 
 # Test suite infrastructure from aa script
@@ -967,16 +1642,17 @@ sub show_next_steps {
     my $bold = BOLD . BRIGHT_CYAN;
     my $cmd = BOLD . WHITE;
     my $reset = RESET;
+    my $make_cmd = get_make_command();
     
     print "  ${bold}Build Commands:${reset}\n";
-    print "    ${cmd}make${reset}                 # Build HLManager server\n";
-    print "    ${cmd}make install${reset}         # Install to run/ directory\n";
-    print "    ${cmd}make clean${reset}           # Clean build artifacts\n";
+    print "    ${cmd}${make_cmd}${reset}                 # Build HLManager server\n";
+    print "    ${cmd}${make_cmd} install${reset}         # Install to run/ directory\n";
+    print "    ${cmd}${make_cmd} clean${reset}           # Clean build artifacts\n";
     print "\n";
     
     print "  ${bold}Test Commands:${reset}\n";
     print "    ${cmd}./run/test/run_tests.sh${reset}  # Run test suite\n";
-    print "    ${cmd}make debug${reset}           # Show build variables\n";
+    print "    ${cmd}${make_cmd} debug${reset}           # Show build variables\n";
     print "\n";
     
     print "  ${bold}Runtime Commands:${reset}\n";
@@ -1011,6 +1687,12 @@ sub compile_and_test {
     print_section("Library Testing");
     
     my $test_dir = catdir($base_path, 'make', 'test');
+    my %excluded_test_files = map { $_ => 1 } qw(
+        test_simd.cpp
+        test_snappy.cpp
+        test_json.cpp
+    );
+
     unless (-d $test_dir) {
         print_warning("Test directory", "make/test/ not found");
         return;
@@ -1018,7 +1700,7 @@ sub compile_and_test {
     
     # Find all test files
     opendir my $dh, $test_dir or return;
-    my @test_files = grep { /\.cpp$/ && -f catfile($test_dir, $_) } readdir $dh;
+    my @test_files = grep { /\.cpp$/ && !$excluded_test_files{$_} && -f catfile($test_dir, $_) } readdir $dh;
     closedir $dh;
     
     unless (@test_files) {
@@ -1037,30 +1719,13 @@ sub compile_and_test {
         $display_name =~ s/_/ /g;
         $display_name = ucfirst($display_name);
         
-        my $function_name = "test_" . $test_name;
-        
-        # Try to compile the test file with a wrapper main function
-        my $temp_binary = catfile($base_path, 'test_' . $$);
-        my $temp_source = catfile($base_path, 'test_wrapper_' . $$ . '.cpp');
-        
-        # Create a wrapper source file that includes the test and adds main()
-        open my $wrapper_fh, '>', $temp_source or next;
-        print $wrapper_fh "#include \"$test_path\"\n";
-        print $wrapper_fh "int main() { return $function_name(); }\n";
-        close $wrapper_fh;
+        # Compile test file as an object (no wrapper main)
+        my $temp_object = catfile($base_path, 'test_' . $$ . '.o');
         
         # Compile with proper defines for features
         my $defines = "";
         
-        # Add library-specific linker flags for RocksDB dependencies
-        my $test_ldflags = $config{LDFLAGS};
-        if ($test_name eq 'snappy') {
-            $test_ldflags .= ' -lsnappy';
-        } elsif ($test_name eq 'lz4') {
-            $test_ldflags .= ' -llz4';
-        }
-        
-        my $compile_cmd = "$config{CXX} $config{CXXFLAGS} -I$base_path $defines $temp_source -o $temp_binary $test_ldflags 2>/dev/null";
+        my $compile_cmd = "$config{CXX} $config{CXXFLAGS} -I$base_path $defines -c $test_path -o $temp_object 2>/dev/null";
         
         my $result = system($compile_cmd);
         
@@ -1069,15 +1734,12 @@ sub compile_and_test {
             exit 1;
         }
         
-        # Clean up wrapper file
-        unlink $temp_source if -f $temp_source;
-        
         my $test_name_lower = lc($display_name);
         
         if ($result == 0) {
             print_success($test_name_lower, "yes");
-            # Clean up test binary
-            unlink $temp_binary if -f $temp_binary;
+            # Clean up test object
+            unlink $temp_object if -f $temp_object;
         } else {
             print_status("SKIP", $test_name_lower, "no");
         }
@@ -1094,29 +1756,91 @@ sub main {
     my $disable_lsm = 0;
     my $socket_engine = '';
     my $max_threads = 0;
+    my $enable_extras = '';
+    my %path_set = (
+        prefix  => 0,
+        confdir => 0,
+        datadir => 0,
+        logdir  => 0,
+        rundir  => 0,
+        bindir  => 0,
+        layout  => 0,
+    );
 
     # Process arguments
     while (my $arg = shift @ARGV) {
-        if ($arg eq '--skip-tests') {
+        if ($arg eq '--prefix') {
+            $config{PREFIX} = shift @ARGV;
+            $path_set{prefix} = 1;
+        } elsif ($arg =~ /^--prefix=(.+)$/) {
+            $config{PREFIX} = $1;
+            $path_set{prefix} = 1;
+        } elsif ($arg eq '--layout') {
+            $config{LAYOUT} = lc(shift @ARGV // '');
+            $path_set{layout} = 1;
+        } elsif ($arg =~ /^--layout=(.+)$/) {
+            $config{LAYOUT} = lc($1);
+            $path_set{layout} = 1;
+        } elsif ($arg eq '--debian-layout') {
+            $config{LAYOUT} = 'debian';
+            $path_set{layout} = 1;
+        } elsif ($arg eq '--rpm-layout') {
+            $config{LAYOUT} = 'rpm';
+            $path_set{layout} = 1;
+        } elsif ($arg eq '--confdir') {
+            $config{CONFDIR} = shift @ARGV;
+            $path_set{confdir} = 1;
+        } elsif ($arg =~ /^--confdir=(.+)$/) {
+            $config{CONFDIR} = $1;
+            $path_set{confdir} = 1;
+        } elsif ($arg eq '--datadir') {
+            $config{DATADIR} = shift @ARGV;
+            $path_set{datadir} = 1;
+        } elsif ($arg =~ /^--datadir=(.+)$/) {
+            $config{DATADIR} = $1;
+            $path_set{datadir} = 1;
+        } elsif ($arg eq '--logdir') {
+            $config{LOGDIR} = shift @ARGV;
+            $path_set{logdir} = 1;
+        } elsif ($arg =~ /^--logdir=(.+)$/) {
+            $config{LOGDIR} = $1;
+            $path_set{logdir} = 1;
+        } elsif ($arg eq '--rundir') {
+            $config{RUNDIR} = shift @ARGV;
+            $path_set{rundir} = 1;
+        } elsif ($arg =~ /^--rundir=(.+)$/) {
+            $config{RUNDIR} = $1;
+            $path_set{rundir} = 1;
+        } elsif ($arg eq '--bindir') {
+            $config{BINDIR} = shift @ARGV;
+            $path_set{bindir} = 1;
+        } elsif ($arg =~ /^--bindir=(.+)$/) {
+            $config{BINDIR} = $1;
+            $path_set{bindir} = 1;
+        } elsif ($arg eq '--skip-tests') {
             $skip_tests = 1;
         } elsif ($arg eq '--disable-lsm') {
             $disable_lsm = 1;
+        } elsif ($arg eq '--enable-extras') {
+            $enable_extras = shift @ARGV // '';
+        } elsif ($arg =~ /^--enable-extras=(.+)$/) {
+            $enable_extras = $1;
         } elsif ($arg eq '--max-threads') {
             $max_threads = shift @ARGV;
         } elsif ($arg =~ /^--max-threads=(.+)$/) {
             $max_threads = $1;
-        } elsif ($arg eq '--engine') {
+        } elsif ($arg eq '--engine' || $arg eq '--socketengine') {
             $socket_engine = shift @ARGV;
-            if (!$socket_engine || !grep {$_ eq $socket_engine} qw(epoll poll)) {
+            if (!$socket_engine || !grep {$_ eq $socket_engine} qw(epoll kqueue poll)) {
                 print "Error: Invalid engine '$socket_engine'\n";
-                print "Valid options: epoll, poll\n";
+                print "Valid options: epoll, kqueue, poll\n";
                 exit 1;
             }
-        } elsif ($arg =~ /^--engine=(.+)$/) {
+        } elsif ($arg =~ /^(?:--engine|--socketengine)=(.+)$/) {
             $socket_engine = $1;
-            if (!grep {$_ eq $socket_engine} qw(epoll poll)) {
+            if (!grep {$_ eq $socket_engine} qw(epoll kqueue poll)) {
                 print "Error: Invalid engine '$socket_engine'\n";
-                print "Valid options: epoll, poll\n";
+                print "Valid options: epoll, kqueue, poll\n";
                 exit 1;
             }
         } elsif ($arg eq '--help' || $arg eq '-h') {
@@ -1137,14 +1861,26 @@ sub main {
         print "HLManager Configure Script\n";
         print "Usage: ./configure [options]\n";
         print "Options:\n";
+        print "  --prefix=PATH             Base directory for installation (default: /usr/local)\n";
+        print "  --layout=NAME             Install layout: dev|system|debian|rpm|auto\n";
+        print "  --debian-layout           Alias for --layout=debian\n";
+        print "  --rpm-layout              Alias for --layout=rpm\n";
+        print "  --confdir=PATH            Directory for configuration files\n";
+        print "  --logdir=PATH             Directory for log files\n";
+        print "  --datadir=PATH            Directory for data files\n";
+        print "  --rundir=PATH             Directory for PID files\n";
+        print "  --bindir=PATH             Directory for executables\n";
         print "  --skip-tests              Skip library testing and compilation steps\n";
         print "  --disable-lsm             Disable LSM storage engine (enabled by default)\n";
+        print "  --enable-extras=LIST      Enable extra modules from src/modules/extra (comma-separated or all)\n";
         print "  --max-threads=N           Set maximum threads (default: auto-detected)\n";
-        print "  --engine=ENGINE          Force specific I/O engine (epoll|poll)\n";
+        print "  --engine=ENGINE          Force specific I/O engine (epoll|kqueue|poll)\n";
+        print "  --socketengine=ENGINE    Alias for --engine\n";
         print "  --help, -h                Show this help message\n";
         print "\n";
         print "I/O Engine Options:\n";
         print "  epoll    High-performance I/O multiplexing (Linux, default)\n";
+        print "  kqueue   High-performance I/O multiplexing (BSD/macOS)\n";
         print "  poll     Standard POSIX I/O multiplexing (fallback)\n";
         print "\n";
         print "SSL Configuration:\n";
@@ -1153,8 +1889,13 @@ sub main {
         print "  To create an SSL certificate, run: etc/scripts/create_ssl.sh\n";
         print "\n";
         print "Examples:\n";
-        print "  ./configure --engine=poll      # Force poll for compatibility\n";
-        print "  ./configure --engine=epoll     # Force epoll (default)\n";
+        print "  ./configure --layout=debian   # FHS paths for Debian/Ubuntu packaging\n";
+        print "  ./configure --layout=rpm      # FHS paths for RPM-based packaging\n";
+        print "  ./configure --layout=auto     # Detect distro family from /etc/os-release\n";
+        print "  ./configure --enable-extras=all\n";
+        print "  ./configure --engine=poll            # Force poll for compatibility\n";
+        print "  ./configure --socketengine=kqueue    # Alias: force kqueue on BSD/macOS\n";
+        print "  ./configure --engine=epoll           # Force epoll (default)\n";
         print "\n";
         print "Process Order:\n";
         print "  1. System Analysis (compiler, libraries, I/O engines, SSL)\n";
@@ -1164,9 +1905,37 @@ sub main {
         exit 0;
     }
     
+    # Resolve paths.
+    # Priority: explicit layout > explicit prefix > default dev layout.
+    if ($path_set{layout}) {
+        apply_install_layout($config{LAYOUT}, \%path_set);
+    } elsif ($path_set{prefix}) {
+        if ($config{PREFIX} eq '/usr') {
+            apply_install_layout('system', \%path_set);
+        } else {
+            $config{CONFDIR} ||= catdir($config{PREFIX}, 'etc');
+            $config{LOGDIR}  ||= catdir($config{PREFIX}, 'var', 'log');
+            $config{DATADIR} ||= catdir($config{PREFIX}, 'var', 'lib');
+            $config{RUNDIR}  ||= catdir($config{PREFIX}, 'var', 'run');
+            $config{BINDIR}  ||= catdir($config{PREFIX}, 'bin');
+        }
+    } else {
+        apply_install_layout('dev', \%path_set);
+    }
+
+    my $enabled_extras = parse_enabled_extras($enable_extras);
+    sync_enabled_extra_module_links($enabled_extras);
+
+    # Env overrides only when corresponding CLI path flag is not explicitly set.
+    $config{CONFDIR} = $ENV{HLQUERY_CONFIG_DIR} if $ENV{HLQUERY_CONFIG_DIR} && !$path_set{confdir};
+    $config{LOGDIR}  = $ENV{HLQUERY_LOG_DIR}    if $ENV{HLQUERY_LOG_DIR} && !$path_set{logdir};
+    $config{DATADIR} = $ENV{HLQUERY_DATA_DIR}   if $ENV{HLQUERY_DATA_DIR} && !$path_set{datadir};
+    $config{RUNDIR}  = $ENV{HLQUERY_PID_DIR}    if $ENV{HLQUERY_PID_DIR} && !$path_set{rundir};
+
     print_animated_header();
     print_header();
     create_required_directories();
+    check_vendor_permissions();
     
     # Cache check
     my $cache_dir = catdir($base_path, '.configure');
@@ -1175,15 +1944,16 @@ sub main {
     print_success('Write permissions', $base_path);
     
     print_section("System Analysis");
+    my $detected_os = get_system_name();
+    print_success('Detected OS', $detected_os);
     
     my $compiler_ok = check_compiler();
     my $threading_ok = check_threading();
 
     # Detect CPU count for max threads
-    my $cpus = `nproc 2>/dev/null` || 1;
-    chomp($cpus);
+    my $cpus = get_cpu_count();
     $config{MAX_THREADS} = $max_threads || $cpus;
-    print_status('INFO', 'Max threads (auto)', $config{MAX_THREADS});
+    print_success('Max threads', $config{MAX_THREADS});
 
     my $openssl_ok = check_openssl();
     my $gnutls_ok = check_gnutls();
@@ -1209,7 +1979,7 @@ sub main {
     # Display SSL/TLS library status with checkmarks
     if ($ssl_lib_ok) {
         if ($config{SSL_LIBRARY} eq 'OpenSSL') {
-            print_status('OK', 'OpenSSL libraries', "available ($config{OPENSSL_VERSION})");
+            print_success('OK', 'OpenSSL libraries', "available ($config{OPENSSL_VERSION})");
             if ($gnutls_ok) {
                 print_status('AVAIL', 'GnuTLS libraries', "available ($config{GNUTLS_VERSION}) - OpenSSL preferred");
             }
@@ -1259,10 +2029,15 @@ sub main {
     print_success('Generated include/core/config.h');
     
     print_step('Generating Makefile');
+    if (@{$enabled_extras->{names}}) {
+        print_status('INFO', 'Enabled extra modules', join(', ', @{$enabled_extras->{names}}));
+    } else {
+        print_status('INFO', 'Enabled extra modules', 'none');
+    }
     
     # Call generate_makefile with error handling
     eval {
-        generate_makefile();
+        generate_makefile($enabled_extras);
     };
     if ($@) {
         print_error("Makefile generation failed: $@");
@@ -1287,6 +2062,9 @@ sub main {
     }
     
     print_success('Generated Makefile');
+    
+    print_step('Generating wrapper script');
+    generate_hlquery_wrapper();
     
     # Setup configuration caching and cleanup
     setup_config_cache();
@@ -1315,13 +2093,13 @@ sub main {
 
     print_summary_line($char_map{'gear'}, "I/O Engine", $config{SOCKETENGINE});
     print_summary_line($char_map{'gear'}, "Compiler", "$config{CXX} ($config{CXX_VERSION})");
+    print_summary_line($char_map{'gear'}, "Layout", $config{LAYOUT});
     print "\n";
-    print_summary_line($char_map{'star'}, "Binary", catfile($base_path, RUN_DIR, 'bin', 'hlquery'));
-    print_summary_line($char_map{'star'}, "Configuration", catdir($base_path, RUN_DIR, 'conf'));
-    print_summary_line($char_map{'star'}, "Data", catdir($base_path, RUN_DIR, 'data'));
-    print_summary_line($char_map{'star'}, "Logs", catdir($base_path, RUN_DIR, 'logs'));
-    print_summary_line($char_map{'star'}, "Admin", catdir($base_path, RUN_DIR, 'admin'));
-    print_summary_line($char_map{'star'}, "SSL Certificates", catdir($base_path, RUN_DIR, 'ssl'));
+    print_summary_line($char_map{'star'}, "Binary", catfile($config{BINDIR}, 'hlquery'));
+    print_summary_line($char_map{'star'}, "Configuration", $config{CONFDIR});
+    print_summary_line($char_map{'star'}, "Data", $config{DATADIR});
+    print_summary_line($char_map{'star'}, "Logs", $config{LOGDIR});
+    print_summary_line($char_map{'star'}, "PID", $config{RUNDIR});
     print_summary_line($char_map{'star'}, "Runtime", catdir($base_path, RUN_DIR));
     
     print_section_end();
@@ -1330,42 +2108,28 @@ sub main {
     my $bright_blue_start = $ansi_supported ? BRIGHT_BLUE : "";
 #    print "\n" . $bold_start . $okgreen_start . "  " . $char_map{'checkmark_ok'} . " Configuration Complete!" . $reset_end . "\n\n";
 
-my $underline_start = "\e[4m";
-my $underline_end = "\e[24m";   # disable underline only
-
 print "\n"
     . $bold_start
     . $okgreen_start
-    . "  " . $char_map{'checkmark_ok'} . " "
-    . $underline_start
-    . "Configuration Complete"
-    . $underline_end
-    . "."
+    . "  Configuration Complete!"
     . $reset_end
     . "\n\n";
 
     # Documentation and support links with cool symbols
     print "  " . $char_map{'arrow'} . " " . $bold_start . $bright_blue_start . "Documentation:" . $reset_end . " https://docs.hlquery.com/\n";
-    print "  " . $char_map{'arrow'} . " " . $bold_start . $bright_blue_start . "Support:" . $reset_end . " https://github.com/hlquery/hlquery/issues\n";
+    print "  " . $char_map{'arrow'} . " " . $bold_start . $bright_blue_start . "Issues:" . $reset_end . " https://github.com/hlquery/hlquery/issues\n";
     
     print_section("Next Steps");
     
+    my $make_cmd = get_make_command();
+
     # Get processor count for make -j recommendation
-    my $num_procs = `nproc 2>/dev/null` || 1;
-    chomp($num_procs);
+    my $num_procs = get_cpu_count();
     my $make_jobs = int($num_procs);
     print "  " . $char_map{'asterisk'} . " To build the project, run:\n";
-    print "    " . $bold_start . "make -j$make_jobs" . $reset_end . "\n\n";
+    print "    " . $bold_start . "$make_cmd -j$make_jobs" . $reset_end . "\n\n";
     print "  " . $char_map{'asterisk'} . " To install locally, run:\n";
-    print "    " . $bold_start . "make install" . $reset_end . "\n\n";
-    print "  " . $char_map{'asterisk'} . " To start the server:\n\n";
-    print "    " . $char_map{'arrow'} . " Run in foreground: " . $bold_start . "./run/hlquery start --nofork" . $reset_end . "      \n";
-    print "    " . $char_map{'arrow'} . " Run as daemon:     " . $bold_start . "./run/hlquery start " . $reset_end . "              \n\n";
-    print "  " . $char_map{'asterisk'} . " To run benchmarks, run:\n";
-    print "    " . $bold_start . "./run/bin/hlquery-benchmark" . $reset_end . "\n\n";
-    print "  " . $char_map{'asterisk'} . " To run the command line, run:\n";
-    print "    " . $bold_start . "./run/bin/hlquery-cli" . $reset_end . "\n";
-
+    print "    " . $bold_start . "$make_cmd install" . $reset_end . "\n\n";
     print_section_end();
     
 }

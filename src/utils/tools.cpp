@@ -11,10 +11,12 @@
  */
 
 #include <algorithm>
+#include <array>
 #include <arpa/inet.h>
 #include <cctype>
 #include <cmath>
 #include <cstring>
+#include <ctime>
 #include <fstream>
 #include <iomanip>
 #include <netinet/in.h>
@@ -24,7 +26,11 @@
 #include <sys/stat.h>
 #include <unordered_map>
 
+#if __has_include("core/hlcore.h")
+#include "core/hlcore.h"
+#else
 #include "core/hlquery.h"
+#endif
 #include "utils/tools.h"
 
 /*
@@ -395,6 +401,58 @@ std::string Tools::FormatDuration(std::chrono::seconds Duration)
 }
 
 /*
+ * Format the standard hlquery startup message with local time and loaded modules.
+ */
+
+std::string Tools::FormatStartupMessage(const std::vector<std::string> &LoadedModules)
+{
+     std::time_t startup_time_raw = std::time(nullptr);
+     std::tm startup_time_local{};
+     std::string message = "Starting hlquery:";
+
+     auto append_loaded_modules = [&message, &LoadedModules]()
+     {
+          if (LoadedModules.empty())
+          {
+               return;
+          }
+
+          message += " modules=[";
+
+          for (size_t i = 0; i < LoadedModules.size(); ++i)
+          {
+               if (i != 0)
+               {
+                    message += ", ";
+               }
+
+               message += LoadedModules[i];
+          }
+
+          message += "]";
+     };
+
+     if (localtime_r(&startup_time_raw, &startup_time_local) == nullptr)
+     {
+          append_loaded_modules();
+          return message;
+     }
+
+     std::array<char, 64> startup_time_str{};
+
+     if (std::strftime(startup_time_str.data(), startup_time_str.size(), "%b-%d - %H:%M:%S", &startup_time_local) == 0)
+     {
+          append_loaded_modules();
+          return message;
+     }
+
+     message += " [" + std::string(startup_time_str.data()) + "]";
+     append_loaded_modules();
+
+     return message;
+}
+
+/*
  * Parse a duration like "1h30m" into seconds.
  */
 
@@ -474,6 +532,107 @@ bool Tools::IsValidIP(const std::string &IP)
      }
 
      return false;
+}
+
+/*
+ * Validate hostnames while allowing local aliases such as "db" or "dev-box".
+ */
+
+bool Tools::IsValidHostname(const std::string &Hostname)
+{
+     const std::string Normalized = NormalizeHostname(Hostname);
+
+     if (Normalized.empty() || Normalized.size() > 253)
+     {
+          return false;
+     }
+
+     if (Normalized.front() == '.' || Normalized.back() == '.')
+     {
+          return false;
+     }
+
+     bool saw_letter = false;
+     bool saw_non_dot = false;
+     size_t label_length = 0;
+     char previous = '\0';
+
+     for (char character : Normalized)
+     {
+          const unsigned char uc = static_cast<unsigned char>(character);
+
+          if (character == '.')
+          {
+               if (label_length == 0 || previous == '-')
+               {
+                    return false;
+               }
+
+               label_length = 0;
+               previous = character;
+               continue;
+          }
+
+          if (std::isalnum(uc) == 0 && character != '-')
+          {
+               return false;
+          }
+
+          if (label_length == 0 && character == '-')
+          {
+               return false;
+          }
+
+          ++label_length;
+
+          if (label_length > 63)
+          {
+               return false;
+          }
+
+          if (std::isalpha(uc) != 0)
+          {
+               saw_letter = true;
+          }
+
+          saw_non_dot = true;
+          previous = character;
+     }
+
+     if (!saw_non_dot || label_length == 0 || previous == '-')
+     {
+          return false;
+     }
+
+     /* Reject malformed dotted-decimal strings like "3.443.4.3434". */
+
+     if (!saw_letter && Normalized.find('.') != std::string::npos)
+     {
+          return false;
+     }
+
+     return true;
+}
+
+/*
+ * Validate host values used by CLI clients.
+ */
+
+bool Tools::IsValidHost(const std::string &Host)
+{
+     const std::string Normalized = NormalizeHostname(Host);
+
+     if (Normalized.empty())
+     {
+          return false;
+     }
+
+     if (IsValidIP(Normalized))
+     {
+          return true;
+     }
+
+     return IsValidHostname(Normalized);
 }
 
 /*

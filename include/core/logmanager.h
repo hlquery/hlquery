@@ -22,20 +22,21 @@
 
 #include "core/config.h"
 
-/* Forward declaration for server configuration. */
-
-class ServerConfig;
-
-/* Log severity levels. */
+/*
+ * Defines the supported logging severity levels used throughout
+ * the logging system.
+ * Each level controls how much operational detail is emitted
+ * to the configured log targets.
+ */
 
 enum class LogLevel
 {
-     LOG_NONE = 0,
-     LOG_CRITICAL = 1,
-     LOG_SPARSE = 2,
-     LOG_NORMAL = 3,
-     LOG_VERBOSE = 4,
-     LOG_DEBUG = 5
+     LOG_NONE 	    =  0,
+     LOG_CRITICAL   =  1,
+     LOG_SPARSE     =  2,
+     LOG_NORMAL     =  3,
+     LOG_VERBOSE    =  4,
+     LOG_DEBUG      =  5
 };
 
 /* Log target types. */
@@ -54,35 +55,43 @@ struct LogConfig
 
      std::string method;
 
+     /* Log type */
+     
      std::string type;
 
      /* Output severity and target. */
 
-     LogLevel level;
+     LogLevel level = LogLevel::LOG_NORMAL;
 
+     /* File target */
+     
      std::string target;
 
      /* Log rotation configuration. */
 
-     size_t max_size;
+     size_t max_size = 0;
 
-     int rotation_interval;
+     int rotation_interval = 0;
 
      /* Retention policy for rotated files. */
 
-     size_t max_rotated_files;
+     size_t max_rotated_files = 10;
+
+     size_t max_age_days = 0;
 
      /* Initializes log configuration with defaults. */
 
-     LogConfig();
+     LogConfig() = default;
 };
 
-/* Log stream handler. */
+/*
+ * Manages a single logging destination, including formatting,
+ * file rotation, and synchronized writes.
+ */
 
-class LogStream
+class CoreExport LogStream
 {
-  
-  private:
+   private:
 
      /* Allow LogManager to access internal state. */
 
@@ -146,7 +155,7 @@ class LogStream
 
      size_t GetCurrentFileSize();
 
-  public:
+   public:
 
      /* Constructor. */
 
@@ -169,12 +178,14 @@ class LogStream
      void Flush();
 };
 
-/* Coordinator for multiple logging streams. */
+/*
+ * Coordinates all configured log streams and routes messages
+ * according to severity, type, and runtime mode flags.
+ */
 
-class LogManager
+class CoreExport LogManager
 {
-  
-  private:
+   private:
 
      /* Sentinel values for integrity checks. */
 
@@ -192,11 +203,15 @@ class LogManager
 
      bool Initialized;
 
+     /* Debug mode */
+
      bool DebugMode;
 
      /* Fork and verbosity state flags. */
 
      bool NoForkMode;
+
+     /* Verbose mode */
 
      bool VerboseMode;
 
@@ -208,7 +223,7 @@ class LogManager
 
      std::vector<LogStream*> GetStreamsForLogging(LogLevel level, const std::string& type);
 
-  public:
+   public:
 
      /* Constructor. */
 
@@ -270,27 +285,3 @@ class LogManager
 
      void ResetAfterFork();
 };
-
-/* Inline helpers. */
-
-/* Returns true if the stream is open. */
-
-inline bool LogStream::IsOpen() const
-{
-     return IsOpenValue;
-}
-
-/* Initializes log configuration with defaults. */
-
-inline LogConfig::LogConfig() : level(LogLevel::LOG_NORMAL), max_size(0), rotation_interval(0),
-max_rotated_files(10)
-{
-
-}
-
-/* Returns true if debug mode is enabled. */
-
-inline bool LogManager::GetDebugMode() const
-{
-     return DebugMode;
-}

@@ -275,7 +275,9 @@ bool MatchWildcard(const char *Str, const char *Pattern)
      return *Pattern == '\0';
 }
 
-}/*
+}
+
+/*
  * Check whether a string matches a wildcard pattern.
  */
 

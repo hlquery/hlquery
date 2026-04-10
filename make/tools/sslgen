@@ -1,0 +1,68 @@
+#!/usr/bin/perl
+#
+# hlquery - Search beyond keywords.
+# http://www.hlquery.com
+#
+# Copyright (C) 2021-2026, Carlos F. Ferry <carlos.ferry@gmail.com>
+#
+# This file is part of hlquery, released under the BSD License version 3.
+# You are free to redistribute and/or modify this software
+# under the terms of the BSD License.
+# For more details, please visit: https://docs.hlquery.com
+#
+
+use strict;
+use warnings;
+use File::Spec;
+use File::Path qw(make_path);
+use File::Basename;
+
+# Colors for output
+my $RED = "\033[31m";
+my $GREEN = "\033[32m";
+my $YELLOW = "\033[33m";
+my $BLUE = "\033[34m";
+my $CYAN = "\033[36m";
+my $RESET = "\033[0m";
+my $BOLD = "\033[1m";
+
+# Setup paths
+my $script_dir = dirname(File::Spec->rel2abs($0));
+my $parent_dir = File::Spec->rel2abs(File::Spec->catdir($script_dir, ".."));
+
+# Default to run/ssl if run/ exists in the parent directory,
+# otherwise use ssl/ in the parent directory (for cases where we are already in run/)
+my $ssl_dir;
+if (-d File::Spec->catdir($parent_dir, "run")) {
+    $ssl_dir = File::Spec->catdir($parent_dir, "run", "ssl");
+} else {
+    $ssl_dir = File::Spec->catdir($parent_dir, "ssl");
+}
+
+print "${BLUE}--------------------------------------------------${RESET}\n";
+print "  ${BOLD}HLQuery SSL Generator${RESET} (Perl Version)\n";
+print "${BLUE}--------------------------------------------------${RESET}\n";
+
+unless (-d $ssl_dir) {
+    print "${CYAN}[INFO]${RESET} Creating SSL directory: $ssl_dir\n";
+    make_path($ssl_dir) or die "Could not create SSL directory: $ssl_dir\n";
+}
+
+# Generate private key
+print "${GREEN}[STEP 1/2]${RESET} Generating RSA private key...\n";
+system("openssl genrsa -out \"$ssl_dir/server.key\" 2048 2>/dev/null");
+chmod 0600, "$ssl_dir/server.key";
+
+# Generate self-signed certificate
+print "${GREEN}[STEP 2/2]${RESET} Generating self-signed certificate...\n";
+my $subj = "/C=US/ST=California/L=San Francisco/O=HLQuery Test/OU=IT/CN=localhost";
+system("openssl req -new -x509 -sha256 -key \"$ssl_dir/server.key\" -out \"$ssl_dir/server.crt\" -days 365 -subj \"$subj\" 2>/dev/null");
+chmod 0644, "$ssl_dir/server.crt";
+
+print "\n${GREEN}SSL certificates generated in $ssl_dir${RESET}\n\n";
+print "Suggested HTTPS Configuration (inspired by hlquery.conf):\n";
+print "${BLUE}--------------------------------------------------${RESET}\n";
+print "<bind address=\"0.0.0.0\" port=\"9443\" type=\"https\"\n";
+print "      ssl_cert=\"$ssl_dir/server.crt\"\n";
+print "      ssl_key=\"$ssl_dir/server.key\">\n";
+print "${BLUE}--------------------------------------------------${RESET}\n";

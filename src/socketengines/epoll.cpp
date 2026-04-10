@@ -14,25 +14,22 @@
 #include <array>
 #include <atomic>
 #include <cerrno>
-#include <condition_variable>
 #include <cstring>
 #include <ctime>
 #include <fcntl.h>
 #include <iomanip>
 #include <iostream>
 #include <mutex>
-#include <queue>
 #include <sys/epoll.h>
 #include <sys/time.h>
-#include <thread>
 #include <unordered_map>
 #include <unordered_set>
 
-#include "common/action_list.h"
+#include "common/actionlist.h"
 #include "core/exitmanager.h"
 #include "core/hlquery.h"
 #include "core/socketengine.h"
-#include "core/thread_limit.h"
+#include "search/storageengine.h"
 #include "utils/consolewriter.h"
 
 int SocketEngine::EpollFD = -1;
@@ -67,16 +64,6 @@ static std::atomic<bool> EngineInitialized{false};
 
 /* NUMA-aware thread pools */
 
-static std::vector<std::thread> IOWorkerThreads;
-
-static std::atomic<bool> ShutdownWorkers{false};
-
-static std::queue<std::function<void()>> IOTaskQueue;
-
-static std::mutex IOTaskMutex;
-
-static std::condition_variable IOTaskCV;
-
 /* Zero-copy optimizations - lazy allocation to save memory if unused */
 
 static std::array<void *, 16> ZeroCopyBuffers{};
@@ -98,8 +85,6 @@ static constexpr int MAX_REASONABLE_FD = 1000000;
 
 static int GetTimedWorkWakeupMs()
 {
-     int wake_ms = 1000;
-
      if (Instance && Instance->Timers)
      {
           const int timer_ms = Instance->Timers->GetTimeUntilNextMs();
@@ -111,11 +96,11 @@ static int GetTimedWorkWakeupMs()
 
           if (timer_ms > 0)
           {
-               wake_ms = std::min(wake_ms, timer_ms);
+               return timer_ms;
           }
      }
 
-     return wake_ms;
+     return 1000;
 }
 
 /* Initializes the socket engine */
@@ -164,13 +149,6 @@ void SocketEngine::Init()
 
      InitializeZeroCopyBuffers();
 
-     /*
-     * DISABLED: IO worker threads not currently used and cause thread explosion
-     * The main event loop handles all I/O - worker threads just sit idle
-     */
-
-     /* StartIOWorkerThreads(); */
-
      /* Initialize adaptive timeout */
 
      InitializeAdaptiveTimeout();
@@ -185,19 +163,6 @@ void SocketEngine::Init()
 
 void SocketEngine::Deinit()
 {
-     /* Shutdown worker threads */
-
-     ShutdownWorkers.store(true);
-     IOTaskCV.notify_all();
-
-     for (auto &thread : IOWorkerThreads)
-     {
-          if (thread.joinable())
-          {
-               thread.join();
-          }
-     }
-
      /* Cleanup zero-copy buffers */
 
      CleanupZeroCopyBuffers();
@@ -229,14 +194,6 @@ void SocketEngine::Deinit()
 
 void SocketEngine::ResetAfterFork()
 {
-     ShutdownWorkers.store(false, std::memory_order_relaxed);
-
-     {
-          std::lock_guard<std::mutex> lock(IOTaskMutex);
-          std::queue<std::function<void()>> EmptyQueue;
-          IOTaskQueue.swap(EmptyQueue);
-     }
-
      {
           std::lock_guard<std::mutex> lock(PendingWritesMutex);
           PendingWrites.clear();
@@ -297,131 +254,6 @@ void SocketEngine::CleanupZeroCopyBuffers()
           {
                std::free(buffer);
                buffer = nullptr;
-          }
-     }
-}
-
-/* Starts I/O worker threads */
-
-void SocketEngine::StartIOWorkerThreads()
-{
-     /* Use global thread limit from config */
-
-     /* Get max threads from config, default to 8 */
-
-     size_t MaxThreads = 8;
-
-     if (Instance && Instance->Config)
-     {
-          MaxThreads = static_cast<size_t>(Instance->Config->GetMaxThreads());
-     }
-
-     /* Calculate how many I/O threads we can use (limit to available threads) */
-
-     size_t Requested = std::min(MaxThreads, static_cast<size_t>(std::thread::hardware_concurrency()));
-     size_t NumWorkers = ThreadLimit::CalculateThreadCount(Requested, 5);
-
-     IOWorkerThreads.reserve(NumWorkers);
-
-     for (unsigned int i = 0; i < NumWorkers; ++i)
-     {
-          /* Check thread limit before creating */
-
-          if (ThreadLimit::GetCurrentThreadCount() >= ThreadLimit::GetMaxThreads())
-          {
-               if (Instance && Instance->Logs)
-               {
-                    Instance->Logs->Normal("socketengine", "Thread limit reached, stopping I/O worker thread creation at " + std::to_string(i) + ".");
-               }
-
-               break; /* Stop creating threads if we hit the limit */
-          }
-
-          /* Register thread with ThreadLimit */
-
-          ThreadLimit::IncrementThreadCount();
-
-          IOWorkerThreads.emplace_back([i]()
-                                       {
-                                            /* Set thread name */
-
-                                            std::string ThreadName = "hlquery:io:" + std::to_string(i);
-                                            ThreadLimit::SetThreadName(ThreadName.c_str());
-                                            IOWorkerThread(i);
-                                       });
-     }
-}
-
-/* I/O worker thread loop */
-
-void SocketEngine::IOWorkerThread(unsigned int WorkerID)
-{
-     /* Set CPU affinity for NUMA optimization */
-
-     cpu_set_t cpuset;
-
-     CPU_ZERO(&cpuset);
-     CPU_SET(WorkerID, &cpuset);
-     pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
-
-     while (!ShutdownWorkers.load())
-     {
-          std::function<void()> Task;
-
-          {
-               std::unique_lock<std::mutex> lock(IOTaskMutex);
-               IOTaskCV.wait(lock, [&]
-                             {
-                                  return ShutdownWorkers.load() || !IOTaskQueue.empty();
-                             });
-
-               if (ShutdownWorkers.load())
-               {
-                    break;
-               }
-
-               if (!IOTaskQueue.empty())
-               {
-                    Task = std::move(IOTaskQueue.front());
-                    IOTaskQueue.pop();
-               }
-          }
-
-          if (Task)
-          {
-               try
-               {
-                    /*
-                 * IMPROVEMENT: Offload any long-running operations from the epoll event loop thread
-                 * to worker threads so that one slow client or heavy computation doesn't block
-                 * processing of other events
-                 */
-
-                    Task();
-               }
-               catch (const std::exception &e)
-               {
-                    /*
-                 * IMPROVEMENT: Add robust error handling and recovery for background worker threads
-                 * (compactions, flushes, etc.), ensuring that an exception in one thread doesn't
-                 * crash the whole process or leave data in limbo
-                 */
-
-                    if (Instance && Instance->Logs)
-                    {
-                         Instance->Logs->Critical("socketengine",
-                                                  "I/O worker thread exception: " + std::string(e.what()) +
-                                                       " - worker will continue processing.");
-                    }
-               }
-               catch (...)
-               {
-                    if (Instance && Instance->Logs)
-                    {
-                         Instance->Logs->Critical("socketengine",
-                                                  "I/O worker thread unknown exception - worker will continue processing.");
-                    }
-               }
           }
      }
 }
@@ -822,11 +654,6 @@ void SocketEngine::DelFD(EventHandler *EH)
 
 int SocketEngine::DispatchEvents()
 {
-     if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
-     {
-          Instance->Logs->Debug("socketengine", "DispatchEvents: ENTRY (EpollFD=" + std::to_string(EpollFD) + ", valid=" + std::string(EpollFDValid.load() ? "true" : "false") + ", ShuttingDown=" + std::string(ShuttingDown ? "true" : "false") + ", ForceExit=" + std::string(ForceExit ? "true" : "false") + ").");
-     }
-
      if (EpollFD == -1 || !EpollFDValid.load())
      {
           if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
@@ -898,10 +725,6 @@ int SocketEngine::DispatchEvents()
           CurrentTimeoutMS.store(timeout_ms, std::memory_order_relaxed);
      }
 
-     /* REMOVED: All flood protection and throttling mechanisms
-     * No delays, no sleeps, no yields - maximum throughput
-     */
-
      /* HLQuery-style high-throughput event processing */
 
      /*
@@ -909,11 +732,6 @@ int SocketEngine::DispatchEvents()
      * Don't log every infinite timeout call - that's too verbose.
      * This dramatically reduces log noise during operations like ping that call DispatchEvents frequently.
      */
-
-     if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
-     {
-          Instance->Logs->Debug("socketengine", "DispatchEvents: Calling epoll_wait(timeout=" + (timeout_ms == -1 ? std::string("infinite") : std::to_string(timeout_ms) + "ms") + ").");
-     }
 
      /*
      * CRITICAL FIX: Re-check EpollFD validity right before epoll_wait to prevent race condition.
@@ -973,11 +791,6 @@ int SocketEngine::DispatchEvents()
      * Even when events are present, logging every single event is too verbose.
      * Increased from 1000 to 100000 to handle high-frequency ping operations.
      */
-
-     if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
-     {
-          Instance->Logs->Debug("socketengine", "DispatchEvents: epoll_wait returned " + std::to_string(nfds) + " events (errno=" + (nfds < 0 ? std::string(strerror(errno)) : "0") + ").");
-     }
 
      /*
      * CRITICAL FIX: Reset timeout and flood protection when events are detected.
@@ -1057,11 +870,6 @@ int SocketEngine::DispatchEvents()
 
      if (nfds == 0)
      {
-          if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
-          {
-               Instance->Logs->Debug("socketengine", "DispatchEvents: epoll_wait timeout, no events, returning 0.");
-          }
-
           /*
          * CRITICAL FIX: If we got no events but HasPendingWork() was true, check if it's still true.
          * If pending work counters are stale (not being processed), we should block instead of spinning.
@@ -1402,11 +1210,6 @@ int SocketEngine::DispatchEvents()
      * CRITICAL FIX: Only log summary every 10000th call to reduce log spam
      * Most event processing is normal and doesn't need logging
      */
-
-     if (Instance && Instance->Logs && Instance->Logs->GetDebugMode() && (read_events > 0 || write_events > 0))
-     {
-          Instance->Logs->Debug("socketengine", "DispatchEvents: Processed " + std::to_string(read_events) + " read events, " + std::to_string(write_events) + " write events (total_events=" + std::to_string(nfds) + ").");
-     }
 
      /*
      * IMPROVEMENT: Handle epoll event buffer overflow by processing in a loop until all

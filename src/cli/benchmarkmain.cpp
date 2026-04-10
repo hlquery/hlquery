@@ -1,0 +1,2723 @@
+/*
+ * hlquery - Search beyond keywords.
+ * http://www.hlquery.com
+ *
+ * Copyright (C) 2021-2026, Carlos F. Ferry <carlos.ferry@gmail.com>
+ *
+ * This file is part of hlquery, released under the BSD License version 3.
+ * You are free to redistribute and/or modify this software
+ * under the terms of the BSD License.
+ * For more details, please visit: https://docs.hlquery.com
+ */
+
+#include <cctype>
+#include <chrono>
+#include <csignal>
+#include <fstream>
+#include <iostream>
+#include <random>
+#include <set>
+#include <string>
+#include <thread>
+#include <unordered_map>
+#include <unordered_set>
+#include <vector>
+#include <vendor/json/json.hpp>
+
+#include "benchmarkclient.h"
+
+/* Signal and stat helpers. */
+
+void BenchmarkSignalHandler(int signal);
+
+void ResetGlobalStats();
+
+void ResetProgressBar();
+void PrintSpinner(const std::string &label, int attempt, int total_attempts, bool done);
+
+/* Main mode functions. */
+
+void RunSearches(const std::string &base_url, const std::string &auth_token);
+
+void RunDetailedBenchmark(const std::string &base_url, const std::string &auth_token, int num_collections, int num_documents, int num_threads, int batch_size, bool reuse_collections);
+
+void RunFloodBenchmark(const std::string &base_url, const std::string &auth_token, int num_threads, bool verbose, bool reuse_collections);
+
+void DumpAllCollections(const std::string &base_url, const std::string &auth_token);
+
+bool CreateFakeCollections(const std::string &base_url, const std::string &auth_token, bool reuse_collections, bool verbose);
+
+void CreateCollectionsThread(const std::string &base_url, const std::string &auth_token, int start_idx, int end_idx, bool collect_metrics, int total_collections, bool reuse_collections);
+
+void InsertDocumentsThread(const std::string &base_url, const std::string &auth_token, int num_collections, int docs_per_collection, int remaining_docs, int thread_id, int thread_count, int batch_size, bool collect_metrics, int total_documents, const std::string &run_id, bool reuse_collections);
+
+void InsertAdditionalDocumentsThread(const std::string &base_url, const std::string &auth_token, int num_collections, int start_doc_idx, int additional_docs, int thread_id, int thread_count, int batch_size, bool collect_metrics, int total_documents, const std::string &run_id, bool reuse_collections);
+
+void GetFinalCounts(BenchmarkClient &client, AdvancedMetrics &metrics, bool verbose);
+
+void CheckConsistency(BenchmarkClient &client, bool verbose);
+
+std::vector<int64_t> CalculatePercentiles(const std::vector<int64_t> &timings);
+
+void WriteAdvancedJSON(const std::string &filename, const AdvancedMetrics &metrics);
+
+void CleanupBenchmarkCollections(BenchmarkClient &client, bool verbose);
+
+void LogOutput(const std::string &message);
+
+struct DurabilityConfig
+{
+     std::string WalSyncMode = "unknown";
+     std::string WalBytesPerSync = "unknown";
+     std::string ManualWalFlush = "unknown";
+};
+
+std::string TrimWhitespace(const std::string &input)
+{
+     size_t start = input.find_first_not_of(" \t\r\n");
+     if (start == std::string::npos)
+     {
+          return "";
+     }
+
+     size_t end = input.find_last_not_of(" \t\r\n");
+
+     return input.substr(start, end - start + 1);
+}
+
+struct FakeCollectionSpec
+{
+     std::string Name;
+     std::vector<std::string> Tags;
+};
+
+struct RealDocSeed
+{
+     std::string Title;
+     std::string Content;
+};
+
+static std::string Capitalize(const std::string &input)
+{
+     if (input.empty())
+     {
+          return input;
+     }
+
+     std::string result = input;
+     result[0] = static_cast<char>(std::toupper(result[0]));
+     return result;
+}
+
+static std::string RemoveCommas(const std::string &input)
+{
+     if (input.find(',') == std::string::npos)
+     {
+          return input;
+     }
+
+     std::string result = input;
+     for (char &ch : result)
+     {
+          if (ch == ',')
+          {
+               ch = ' ';
+          }
+     }
+
+     return result;
+}
+
+static std::string Slugify(const std::string &input)
+{
+     std::string slug;
+     slug.reserve(input.size());
+
+     bool last_was_dash = false;
+     for (unsigned char ch : input)
+     {
+          if (std::isalnum(ch))
+          {
+               slug.push_back(static_cast<char>(std::tolower(ch)));
+               last_was_dash = false;
+          }
+          else if (!last_was_dash && !slug.empty())
+          {
+               slug.push_back('-');
+               last_was_dash = true;
+          }
+     }
+
+     while (!slug.empty() && slug.back() == '-')
+     {
+          slug.pop_back();
+     }
+
+     return slug;
+}
+
+static std::string MakeMeaningfulDocId(const std::string &collection,
+                                       const std::string &title,
+                                       const std::string &content,
+                                       int index,
+                                       std::unordered_set<std::string> &used_ids)
+{
+     std::string base = Slugify(title);
+     if (base.empty())
+     {
+          base = Slugify(content);
+     }
+     if (base.empty())
+     {
+          base = "item";
+     }
+
+     if (base.size() > 42)
+     {
+          base = base.substr(0, 42);
+          while (!base.empty() && base.back() == '-')
+          {
+               base.pop_back();
+          }
+     }
+
+     std::string candidate = collection + "_" + base;
+     if (used_ids.find(candidate) == used_ids.end())
+     {
+          used_ids.insert(candidate);
+          return candidate;
+     }
+
+     candidate = collection + "_" + base + "-" + std::to_string(index + 1);
+     if (used_ids.find(candidate) == used_ids.end())
+     {
+          used_ids.insert(candidate);
+          return candidate;
+     }
+
+     int suffix = 2;
+     while (true)
+     {
+          std::string next = collection + "_" + base + "-" + std::to_string(index + 1) + "-" + std::to_string(suffix++);
+          if (used_ids.find(next) == used_ids.end())
+          {
+               used_ids.insert(next);
+               return next;
+          }
+     }
+}
+
+static std::string BuildBenchmarkDescription(const std::string &collection,
+                                             const std::string &tag,
+                                             const std::string &content)
+{
+     std::string trimmed = TrimWhitespace(content);
+
+     if (!trimmed.empty())
+     {
+          size_t sentence_end = trimmed.find('.');
+          std::string summary = (sentence_end != std::string::npos) ? trimmed.substr(0, sentence_end + 1) : trimmed;
+
+          summary = TrimWhitespace(summary);
+          if (!summary.empty())
+          {
+               if (summary.size() > 180)
+               {
+                    summary = TrimWhitespace(summary.substr(0, 177));
+                    while (!summary.empty() && std::isalnum(static_cast<unsigned char>(summary.back())))
+                    {
+                         summary.pop_back();
+                    }
+                    summary = TrimWhitespace(summary);
+                    if (summary.empty())
+                    {
+                         summary = TrimWhitespace(trimmed.substr(0, 177));
+                    }
+                    summary += "...";
+               }
+
+               return summary;
+          }
+     }
+
+     if (collection == "technology")
+     {
+          return "A working technology brief about " + tag + " with concrete architecture, delivery, and reliability detail.";
+     }
+     else if (collection == "travel")
+     {
+          return "A travel-oriented note about " + tag + " with planning tradeoffs, local context, and realistic pacing.";
+     }
+     else if (collection == "books")
+     {
+          return "A reader-facing overview of " + tag + " focused on structure, taste, and recommendation patterns.";
+     }
+
+     return "A realistic " + collection + " note about " + tag + " with concrete examples and less benchmark boilerplate.";
+}
+
+static std::vector<std::string> ExtractBenchmarkKeywords(const std::string &text)
+{
+     static const std::unordered_set<std::string> stopwords = {
+          "a",          "an",        "and",       "are",       "as",         "at",        "artist",     "artists",
+          "book",       "books",     "by",        "for",       "from",       "in",        "is",         "its",
+          "like",       "modern",    "note",      "of",        "on",         "profile",   "spotlight",  "such",
+          "that",       "the",       "their",     "through",   "to",         "topic",     "with",       "work",
+          "works",      "album",     "albums",    "science",   "travel",     "music",     "movie",      "movies",
+          "film",       "films",     "history",   "technology","food",       "sports",    "art",        "books"};
+
+     std::vector<std::string> keywords;
+     std::string current;
+
+     auto flush_current = [&]()
+     {
+          if (current.empty())
+          {
+               return;
+          }
+
+          while (!current.empty() && current.front() == '-')
+          {
+               current.erase(current.begin());
+          }
+
+          while (!current.empty() && current.back() == '-')
+          {
+               current.pop_back();
+          }
+
+          if (current.size() >= 3 && stopwords.find(current) == stopwords.end())
+          {
+               keywords.push_back(current);
+          }
+
+          current.clear();
+     };
+
+     for (unsigned char ch : text)
+     {
+          if (std::isalnum(ch))
+          {
+               current.push_back(static_cast<char>(std::tolower(ch)));
+          }
+          else if ((ch == '-' || ch == '\'') && !current.empty())
+          {
+               current.push_back(ch == '\'' ? '-' : static_cast<char>(ch));
+          }
+          else
+          {
+               flush_current();
+          }
+     }
+
+     flush_current();
+     return keywords;
+}
+
+static std::vector<std::string> BuildBenchmarkLabels(const std::string &collection,
+                                                     const std::string &tag,
+                                                     const std::string &title,
+                                                     const std::string &content)
+{
+     std::vector<std::string> labels;
+     std::unordered_set<std::string> seen;
+
+     auto add_label = [&](const std::string &label)
+     {
+          if (label.empty() || seen.find(label) != seen.end())
+          {
+               return;
+          }
+
+          seen.insert(label);
+          labels.push_back(label);
+     };
+
+     add_label(collection);
+
+     std::vector<std::string> title_keywords = ExtractBenchmarkKeywords(title);
+     std::vector<std::string> content_keywords = ExtractBenchmarkKeywords(content);
+
+     if (title.find("Kendrick Lamar") != std::string::npos)
+     {
+          add_label("kendrick-lamar");
+     }
+     if (title.find("The Beatles") != std::string::npos)
+     {
+          add_label("the-beatles");
+     }
+
+     for (const auto &keyword : title_keywords)
+     {
+          add_label(keyword);
+          if (labels.size() >= 4)
+          {
+               break;
+          }
+     }
+
+     for (const auto &keyword : content_keywords)
+     {
+          add_label(keyword);
+          if (labels.size() >= 6)
+          {
+               break;
+          }
+     }
+
+     if (labels.size() < 2)
+     {
+          add_label(tag);
+     }
+
+     add_label("benchmark");
+     add_label("fake");
+
+     return labels;
+}
+
+bool CreateFakeCollections(const std::string &base_url, const std::string &auth_token, bool reuse_collections, bool verbose)
+{
+     static const std::unordered_map<std::string, std::vector<RealDocSeed>> RealSeeds = {
+          {"books",
+           {
+                {"Book Spotlight: The Great Gatsby",
+                 "F. Scott Fitzgerald's 1925 novel follows Jay Gatsby and the American Dream in Jazz Age New York, with strong themes of class, illusion, and loss."},
+                {"Book Spotlight: To Kill a Mockingbird",
+                 "Harper Lee's 1960 novel explores justice and racism in the U.S. South through Scout Finch's perspective, centered on the trial of Tom Robinson."},
+                {"Book Spotlight: 1984",
+                 "George Orwell's dystopian classic presents surveillance, propaganda, and authoritarian control through Winston Smith's life in Oceania."},
+                {"Book Spotlight: Pride and Prejudice",
+                 "Jane Austen's novel examines marriage, social class, and personal growth through the evolving relationship between Elizabeth Bennet and Mr. Darcy."},
+                {"Book Spotlight: Moby-Dick",
+                 "Herman Melville's maritime epic combines adventure and philosophy as Captain Ahab obsessively hunts the white whale."},
+                {"Book Spotlight: One Hundred Years of Solitude",
+                 "Gabriel Garcia Marquez's landmark of magical realism traces the Buendia family across generations in the town of Macondo."},
+                {"Book Spotlight: The Lord of the Rings",
+                 "J.R.R. Tolkien's fantasy trilogy chronicles the quest to destroy the One Ring and explores friendship, sacrifice, and power."},
+                {"Book Spotlight: Beloved",
+                 "Toni Morrison's novel addresses slavery, memory, and trauma through Sethe's life after escaping bondage."},
+                {"Book Spotlight: The Brothers Karamazov",
+                 "Fyodor Dostoevsky's novel explores morality, faith, and free will through conflicts among three brothers and their father."},
+                {"Book Spotlight: The Catcher in the Rye",
+                 "J.D. Salinger's novel follows Holden Caulfield's disillusionment, voice, and search for authenticity in postwar America."},
+           }},
+          {"music",
+           {
+                {"Artist Profile: The Beatles",
+                 "The Beatles shaped modern pop and rock through influential songwriting, studio experimentation, and landmark albums such as Revolver and Abbey Road."},
+                {"Artist Profile: Queen",
+                 "Queen blended rock, opera, and theatrical performance, with Freddie Mercury's vocals and songs like Bohemian Rhapsody defining their legacy."},
+                {"Artist Profile: Michael Jackson",
+                 "Michael Jackson advanced global pop performance, production, and music video storytelling, especially across albums like Thriller and Bad."},
+                {"Artist Profile: Miles Davis",
+                 "Miles Davis drove multiple jazz eras, from cool jazz to modal and fusion, with key works including Kind of Blue and Bitches Brew."},
+                {"Artist Profile: Bob Dylan",
+                 "Bob Dylan transformed lyric-driven songwriting in folk and rock, with lasting influence from albums like Highway 61 Revisited."},
+                {"Artist Profile: Nirvana",
+                 "Nirvana brought grunge into mainstream rock in the early 1990s, led by Kurt Cobain and the album Nevermind."},
+                {"Artist Profile: Madonna",
+                 "Madonna combined pop reinvention, dance production, and visual identity across decades, shaping modern mainstream music culture."},
+                {"Artist Profile: Radiohead",
+                 "Radiohead moved from alternative rock into experimental electronic textures, especially through OK Computer and Kid A."},
+                {"Artist Profile: Beyonce",
+                 "Beyonce's catalog blends R&B, pop, and visual storytelling, with major cultural impact through performance and concept albums."},
+                {"Artist Profile: Kendrick Lamar",
+                 "Kendrick Lamar is recognized for narrative lyricism, social commentary, and modern hip-hop production on albums like To Pimp a Butterfly."},
+           }},
+          {"science",
+           {
+                {"Science Topic: Relativity",
+                 "Einstein's special and general relativity explain spacetime, gravity, and high-speed motion, replacing Newtonian limits in extreme conditions."},
+                {"Science Topic: Quantum Mechanics",
+                 "Quantum theory describes matter and energy at atomic scales, including wave-particle duality, uncertainty, and probabilistic states."},
+                {"Science Topic: DNA and Genetics",
+                 "DNA stores hereditary information, while genes and mutation drive inheritance, variation, and many modern biotechnology applications."},
+                {"Science Topic: Plate Tectonics",
+                 "Plate tectonics explains earthquakes, volcanism, and mountain building through movement of Earth's lithospheric plates."},
+                {"Science Topic: Evolution by Natural Selection",
+                 "Darwinian evolution describes how populations change over time through selection pressure, adaptation, and common ancestry."},
+                {"Science Topic: The Periodic Table",
+                 "The periodic table organizes chemical elements by atomic number and recurring properties, guiding predictions in chemistry."},
+                {"Science Topic: CRISPR Gene Editing",
+                 "CRISPR-Cas systems enable targeted DNA editing and are widely studied for medicine, agriculture, and functional genomics."},
+                {"Science Topic: Climate Science",
+                 "Climate research measures long-term atmospheric and ocean changes, greenhouse forcing, and regional impacts on ecosystems and society."},
+                {"Science Topic: Black Holes",
+                 "Black holes are regions of intense gravity predicted by relativity, observed indirectly through radiation, lensing, and mergers."},
+                {"Science Topic: Vaccines and Immunology",
+                 "Vaccines train immune memory against pathogens, reducing severe disease and enabling broad public health prevention."},
+           }},
+          {"universities",
+           {
+                {"University of California Berkeley",
+                 "California flagship public research university in Berkeley known for engineering, computer science, economics, public policy, and a startup-heavy Bay Area environment."},
+                {"University of Michigan Ann Arbor",
+                 "Michigan public university recognized for engineering, medicine, business, and large-scale research activity with strong alumni reach across industry and public leadership."},
+                {"The Ohio State University",
+                 "Ohio public research university in Columbus with major programs in medicine, business, engineering, agriculture, and a broad campus footprint tied to statewide impact."},
+                {"University of Texas at Austin",
+                 "Texas flagship public university with strength in engineering, business, computer science, energy research, and policy programs connected to a fast-growing state economy."},
+                {"University of Washington Seattle",
+                 "Washington public research university noted for medicine, computer science, public health, and close ties to regional technology and life-science employers."},
+                {"University of Florida",
+                 "Florida public flagship in Gainesville with nationally visible programs in engineering, business, agriculture, health, and a large in-state enrollment base."},
+                {"University of Illinois Urbana Champaign",
+                 "Illinois public research university with standout engineering, computing, physics, and data-intensive research culture tied to both academia and industry."},
+                {"Georgia Institute of Technology",
+                 "Georgia technology-focused public university in Atlanta known for engineering, computing, design, analytics, and cooperative ties with startups and major employers."},
+                {"Pennsylvania State University",
+                 "Pennsylvania public university system led by the University Park campus, with strengths in engineering, business, agriculture, materials, and statewide extension work."},
+                {"University of Massachusetts Amherst",
+                 "Massachusetts public flagship with strong computer science, public health, engineering, sustainability, and social-science research in the New England region."},
+           }},
+     };
+
+     std::vector<FakeCollectionSpec> specs = {
+          {"music", {"album", "artist", "live", "studio", "playlist", "symphony", "jazz", "rock", "pop", "indie"}},
+          {"movies", {"film", "cinema", "director", "cast", "thriller", "drama", "comedy", "action", "classic", "sequel"}},
+          {"art", {"painting", "sculpture", "gallery", "modern", "abstract", "portrait", "canvas", "exhibit", "mural", "installation"}},
+          {"books", {"novel", "fiction", "nonfiction", "author", "series", "paperback", "hardcover", "fantasy", "mystery", "classic"}},
+          {"travel", {"destination", "itinerary", "guide", "adventure", "beach", "mountain", "city", "budget", "luxury", "culture"}},
+          {"food", {"recipe", "cuisine", "flavor", "restaurant", "dessert", "spice", "vegan", "grill", "street", "seasonal"}},
+          {"sports", {"team", "match", "league", "championship", "player", "coach", "tournament", "season", "stadium", "score"}},
+          {"science", {"research", "experiment", "physics", "biology", "chemistry", "astronomy", "lab", "discovery", "theory", "data"}},
+          {"history", {"era", "archive", "ancient", "modern", "war", "empire", "documentary", "timeline", "heritage", "biography"}},
+          {"technology", {"software", "hardware", "ai", "network", "security", "startup", "gadget", "cloud", "robotics", "mobile"}},
+          {"math", {"algebra", "geometry", "calculus", "probability", "prime", "matrix", "vector", "theorem", "equation", "integral"}},
+          {"universities", {"california", "michigan", "ohio", "texas", "washington", "florida", "illinois", "georgia", "pennsylvania", "massachusetts"}}};
+
+     BenchmarkClient client(base_url, auth_token, reuse_collections);
+
+     std::string conn_error = client.TestConnection();
+     if (!conn_error.empty())
+     {
+          std::cerr << "✗ Cannot connect to server for fake collections: " << conn_error << ".\n";
+          return false;
+     }
+
+     for (const auto &spec : specs)
+     {
+          if (verbose)
+          {
+               LogOutput("Creating fake collection '" + spec.Name + "'...\n");
+          }
+
+          bool collection_created = false;
+          if (spec.Name == "food")
+          {
+               nlohmann::json food_fields = nlohmann::json::array();
+               food_fields.push_back({{"name", "title"}, {"type", "string"}});
+               food_fields.push_back({{"name", "content"}, {"type", "string"}});
+               food_fields.push_back({{"name", "description"}, {"type", "string"}});
+               food_fields.push_back({{"name", "labels"}, {"type", "string"}});
+               food_fields.push_back({{"name", "ingredients"}, {"type", "string"}});
+               food_fields.push_back({{"name", "cuisine"}, {"type", "string"}});
+               food_fields.push_back({{"name", "dish"}, {"type", "string"}});
+               collection_created = client.CreateCollectionWithSchemaLocal(spec.Name, food_fields, "");
+          }
+          else if (spec.Name == "universities")
+          {
+               nlohmann::json university_fields = nlohmann::json::array();
+               university_fields.push_back({{"name", "title"}, {"type", "string"}});
+               university_fields.push_back({{"name", "content"}, {"type", "string"}});
+               university_fields.push_back({{"name", "description"}, {"type", "string"}});
+               university_fields.push_back({{"name", "labels"}, {"type", "string"}});
+               university_fields.push_back({{"name", "state"}, {"type", "string"}});
+               university_fields.push_back({{"name", "city"}, {"type", "string"}});
+               university_fields.push_back({{"name", "institution_type"}, {"type", "string"}});
+               collection_created = client.CreateCollectionWithSchemaLocal(spec.Name, university_fields, "");
+          }
+          else if (spec.Name == "math")
+          {
+               nlohmann::json math_fields = nlohmann::json::array();
+               math_fields.push_back({{"name", "title"}, {"type", "string"}});
+               math_fields.push_back({{"name", "content"}, {"type", "string"}});
+               math_fields.push_back({{"name", "description"}, {"type", "string"}});
+               math_fields.push_back({{"name", "labels"}, {"type", "string"}});
+               math_fields.push_back({{"name", "topic"}, {"type", "string"}});
+               math_fields.push_back({{"name", "value"}, {"type", "float"}});
+               math_fields.push_back({{"name", "value_b"}, {"type", "float"}});
+               math_fields.push_back({{"name", "value_c"}, {"type", "float"}});
+               math_fields.push_back({{"name", "equation_index"}, {"type", "int32"}});
+               math_fields.push_back({{"name", "prime_candidate"}, {"type", "int32"}});
+               collection_created = client.CreateCollectionWithSchemaLocal(spec.Name, math_fields, "value");
+          }
+          else
+          {
+               collection_created = client.CreateCollectionLocal(spec.Name);
+          }
+
+          if (!collection_created)
+          {
+               std::cerr << "✗ Failed to create fake collection '" << spec.Name << "'.\n";
+               continue;
+          }
+
+          std::vector<std::tuple<std::string, std::string, std::string>> docs;
+          docs.reserve(10);
+          std::vector<nlohmann::json> enriched_docs;
+          enriched_docs.reserve(10);
+          std::unordered_set<std::string> used_ids;
+
+          auto BuildRealisticTitle = [&](const std::string &collection, const std::string &tag, int index) -> std::string
+          {
+               const auto Pick = [&](const std::vector<std::string> &values, size_t offset = 0U) -> const std::string &
+               {
+                    return values[(static_cast<size_t>(index) + offset) % values.size()];
+               };
+
+               const std::vector<std::string> generic_patterns = {
+                    Capitalize(tag) + " in " + Capitalize(collection),
+                    "Inside " + Capitalize(tag) + " for " + Capitalize(collection),
+                    Capitalize(collection) + ": " + Capitalize(tag) + " Playbook",
+                    "Why " + tag + " matters in " + collection,
+                    Capitalize(tag) + " patterns and practice",
+                    "Working notes on " + tag,
+                    Capitalize(collection) + " systems around " + tag,
+                    "Understanding " + tag + " in context"};
+
+               if (collection == "technology")
+               {
+                    const std::vector<std::string> patterns = {
+                         Capitalize(tag) + " systems in production",
+                         "Building with " + tag + " under real constraints",
+                         "Inside " + tag + " platforms",
+                         Capitalize(tag) + " operations and architecture",
+                         "Shipping products with " + tag,
+                         Capitalize(tag) + " reliability patterns",
+                         "Practical " + tag + " engineering",
+                         "How teams use " + tag};
+                    return Pick(patterns);
+               }
+
+               if (collection == "travel")
+               {
+                    const std::vector<std::string> patterns = {
+                         Capitalize(tag) + " routes worth planning",
+                         "A traveler guide to " + tag,
+                         Capitalize(tag) + " days on the road",
+                         "How to plan around " + tag,
+                         Capitalize(tag) + " stays and local rhythm",
+                         "Moving through " + tag + " with less friction",
+                         Capitalize(tag) + " decisions that change the trip",
+                         "Seeing " + tag + " beyond the checklist"};
+                    return Pick(patterns);
+               }
+
+               if (collection == "books")
+               {
+                    const std::vector<std::string> patterns = {
+                         Capitalize(tag) + " books that hold up",
+                         "Reading through " + tag,
+                         Capitalize(tag) + " stories and structure",
+                         "What readers notice in " + tag,
+                         Capitalize(tag) + " shelves and recommendations",
+                         "The pull of " + tag + " in books",
+                         Capitalize(tag) + " titles worth revisiting",
+                         "How " + tag + " shapes the reading experience"};
+                    return Pick(patterns);
+               }
+
+               return Pick(generic_patterns);
+          };
+
+          auto BuildRealisticContent = [&](const std::string &collection, const std::string &tag, int index) -> std::string
+          {
+               const auto Pick = [&](const std::vector<std::string> &values, size_t offset = 0U) -> const std::string &
+               {
+                    return values[(static_cast<size_t>(index) + offset) % values.size()];
+               };
+
+               const std::vector<std::string> generic_intros = {
+                    Capitalize(collection) + " coverage centered on " + tag + ", using concrete examples instead of filler text.",
+                    "A practical " + collection + " brief on " + tag + " that highlights decisions, tradeoffs, and field context.",
+                    "This " + collection + " entry examines " + tag + " through real scenarios, working notes, and observed patterns.",
+                    "An in-depth " + collection + " write-up about " + tag + " with examples drawn from day-to-day use and review."};
+
+               if (collection == "art")
+               {
+                    static const std::vector<std::string> intros = {
+                         "A studio journal on " + tag + " that follows how an artist moves from sketches to a finished piece.",
+                         "This art note studies " + tag + " inside workshops, galleries, and exhibition prep.",
+                         "An art feature focused on " + tag + " with examples from curators, painters, and installation teams.",
+                         "A practical review of " + tag + " in art, from first concept boards to final hanging decisions."};
+                    static const std::vector<std::string> details = {
+                         "It covers composition balance, surface preparation, framing choices, and how viewers read the work across a room.",
+                         "The piece follows palette experiments, material handling, and the curation choices that shape a gallery wall.",
+                         "It tracks critique sessions, lighting adjustments, and the difference between studio intent and exhibition presentation.",
+                         "Notes include restoration concerns, display logistics, and why " + tag + " changes meaning in public installations."};
+                    static const std::vector<std::string> closers = {
+                         "Examples reference museum labels, collector feedback, and seasonal show planning.",
+                         "The closing section compares abstract studies, figurative drafts, and contemporary exhibit pacing.",
+                         "Additional commentary looks at catalog writing, audience flow, and conservation tradeoffs.",
+                         "It finishes with observations on commission work, transport risks, and curatorial sequencing."};
+                    return Pick(intros) + " " + Pick(details, 1U) + " " + Pick(closers, 2U);
+               }
+               if (collection == "books")
+               {
+                    static const std::vector<std::string> intros = {
+                         "This books entry looks at " + tag + " through reader expectations, shelf positioning, and review culture.",
+                         "A reading note on " + tag + " that compares how editors, critics, and book clubs describe the same work.",
+                         "This literary brief centers on " + tag + " with attention to pacing, structure, and market fit.",
+                         "A books-focused analysis of " + tag + " built around annotations, chapter rhythm, and reader payoff."};
+                    static const std::vector<std::string> details = {
+                         "It compares author voice, scene construction, and the small structural decisions that keep chapters moving.",
+                         "The write-up discusses character arcs, point of view, and how covers and blurbs frame expectations before page one.",
+                         "It reviews plot turns, prose density, and the gap between literary praise and general reader enthusiasm.",
+                         "Notes include backlist performance, translation interest, and why " + tag + " attracts different recommendation patterns."};
+                    static const std::vector<std::string> closers = {
+                         "Examples mention debut releases, classroom adoption, and prize-season visibility.",
+                         "The final section compares paperback discovery, subscription picks, and critic roundups.",
+                         "It closes with observations on adaptation potential, reread value, and niche audience loyalty.",
+                         "Additional notes cover indie bookstore placement, library holds, and discussion-group appeal."};
+                    return Pick(intros) + " " + Pick(details, 1U) + " " + Pick(closers, 2U);
+               }
+               if (collection == "food")
+               {
+                    static const std::vector<std::string> intros = {
+                         "A kitchen brief on " + tag + " that follows prep, timing, and plating decisions.",
+                         "This food note focuses on " + tag + " from the perspective of cooks, diners, and menu writers.",
+                         "A service-and-recipe review of " + tag + " using restaurant and home-cooking examples.",
+                         "This food document looks at " + tag + " through ingredient handling, texture goals, and table response."};
+                    static const std::vector<std::string> details = {
+                         "It covers seasoning strategy, heat control, and the pairings that make the dish feel complete rather than busy.",
+                         "The piece compares pantry substitutions, station workflow, and why the same plate lands differently across cuisines.",
+                         "It tracks prep shortcuts, sauce consistency, and the service details that change perceived quality.",
+                         "Notes include portion balance, menu placement, and how " + tag + " shifts between weekday comfort and special-occasion cooking."};
+                    static const std::vector<std::string> closers = {
+                         "Examples mention tasting menus, street-food versions, and nutrition-conscious rewrites.",
+                         "It finishes with observations on seasonal produce, beverage pairings, and guest feedback.",
+                         "Additional commentary covers family-style service, takeout durability, and price sensitivity.",
+                         "The closing section compares restaurant polish, home practicality, and regional variation."};
+                    return Pick(intros) + " " + Pick(details, 1U) + " " + Pick(closers, 2U);
+               }
+               if (collection == "history")
+               {
+                    static const std::vector<std::string> intros = {
+                         "A historical note on " + tag + " that moves between archival evidence and later interpretation.",
+                         "This history brief examines " + tag + " through timelines, letters, and contested public memory.",
+                         "An overview of " + tag + " in history, built from primary sources and modern reassessment.",
+                         "This history entry focuses on " + tag + " with attention to institutions, turning points, and source reliability."};
+                    static const std::vector<std::string> details = {
+                         "It compares official records, private accounts, and the way historians handle missing or biased evidence.",
+                         "The article tracks political context, regional impact, and how a single event can mean different things across generations.",
+                         "It discusses archives, classroom narratives, and the tension between national myth and documented fact.",
+                         "Notes cover monuments, public debates, and why " + tag + " is often revisited during anniversaries and reforms."};
+                    static const std::vector<std::string> closers = {
+                         "Examples span ancient cases, industrial transitions, and modern cultural preservation efforts.",
+                         "The closing section highlights social movements, local memory projects, and museum framing.",
+                         "Additional notes compare textbook summaries, specialist research, and oral-history preservation.",
+                         "It finishes with observations on heritage policy, translation gaps, and historical revision."};
+                    return Pick(intros) + " " + Pick(details, 1U) + " " + Pick(closers, 2U);
+               }
+               if (collection == "movies")
+               {
+                    static const std::vector<std::string> intros = {
+                         "A film note on " + tag + " that connects script intent, on-screen execution, and audience reaction.",
+                         "This movie brief focuses on " + tag + " through editing rhythm, scene payoff, and performance choices.",
+                         "An industry-facing review of " + tag + " covering both craft decisions and release strategy.",
+                         "This cinema entry looks at " + tag + " from the angle of directors, critics, and opening-week viewers."};
+                    static const std::vector<std::string> details = {
+                         "It discusses blocking, cinematography, and the moments where screenplay structure either supports or undercuts emotion.",
+                         "The write-up compares casting chemistry, trailer expectations, and how tone shifts affect reception.",
+                         "It tracks franchise continuity, standout sequences, and the tradeoff between spectacle and character focus.",
+                         "Notes include release windows, streaming spillover, and why " + tag + " often drives post-release debate."};
+                    static const std::vector<std::string> closers = {
+                         "Examples mention festival buzz, box office staying power, and critic-audience splits.",
+                         "It closes with observations on sequel setup, soundtrack support, and memorable visual motifs.",
+                         "Additional commentary covers awards visibility, rewatch value, and long-tail fandom.",
+                         "The final section compares opening-night hype, word of mouth, and catalog longevity."};
+                    return Pick(intros) + " " + Pick(details, 1U) + " " + Pick(closers, 2U);
+               }
+               if (collection == "music")
+               {
+                    static const std::vector<std::string> intros = {
+                         "A music note on " + tag + " that moves between recording choices and live response.",
+                         "This music brief studies " + tag + " through arrangement, performance feel, and release context.",
+                         "An audio-focused review of " + tag + " built around hooks, dynamics, and audience replay behavior.",
+                         "This music entry centers on " + tag + " with examples from studio sessions, tours, and playlist circulation."};
+                    static const std::vector<std::string> details = {
+                         "It examines groove, harmony, and how production polish changes the emotional weight of the same melody.",
+                         "The write-up compares vocal texture, sequencing, and the difference between headphone detail and venue impact.",
+                         "It tracks collaboration choices, crossover appeal, and why some arrangements reward repeated listening.",
+                         "Notes include mixing decisions, crowd response, and how " + tag + " shapes identity across albums and singles."};
+                    static const std::vector<std::string> closers = {
+                         "Examples reference live sets, deluxe editions, and streaming-era discovery patterns.",
+                         "The closing section compares radio friendliness, deep-cut loyalty, and remix potential.",
+                         "Additional notes cover touring stamina, fan communities, and catalog cohesion.",
+                         "It finishes with observations on playlist placement, session musicians, and genre blending."};
+                    return Pick(intros) + " " + Pick(details, 1U) + " " + Pick(closers, 2U);
+               }
+               if (collection == "science")
+               {
+                    static const std::vector<std::string> intros = {
+                         "A science brief on " + tag + " that emphasizes method, evidence quality, and unresolved questions.",
+                         "This science entry looks at " + tag + " through experiment design, interpretation, and follow-up work.",
+                         "An applied science note on " + tag + " with examples from lab practice, fieldwork, and replication studies.",
+                         "This research summary focuses on " + tag + " and the assumptions behind the reported results."};
+                    static const std::vector<std::string> details = {
+                         "It discusses controls, measurement error, and how conclusions change when datasets are expanded or reanalyzed.",
+                         "The piece compares lab methods, peer review feedback, and the gap between promising findings and established consensus.",
+                         "It tracks instrument limits, reproducibility concerns, and where interpretation outruns the available evidence.",
+                         "Notes include preprints, cross-discipline relevance, and why " + tag + " remains active in current research discussions."};
+                    static const std::vector<std::string> closers = {
+                         "Examples mention statistical power, protocol revisions, and practical downstream applications.",
+                         "The final section compares exploratory work, validated results, and public communication risks.",
+                         "Additional commentary covers datasets, negative findings, and funding-driven priorities.",
+                         "It closes with observations on replication, peer critique, and next-step experiments."};
+                    return Pick(intros) + " " + Pick(details, 1U) + " " + Pick(closers, 2U);
+               }
+               if (collection == "sports")
+               {
+                    static const std::vector<std::string> intros = {
+                         "A sports note on " + tag + " that follows preparation, execution, and post-match review.",
+                         "This sports brief studies " + tag + " through tactics boards, player form, and schedule pressure.",
+                         "An analysis of " + tag + " in sports, focused on coaching choices and game-state decision making.",
+                         "This sports entry looks at " + tag + " with examples from training sessions, competition footage, and league context."};
+                    static const std::vector<std::string> details = {
+                         "It breaks down shape, tempo control, and the personnel choices that change a match before the scoreboard does.",
+                         "The article compares scouting notes, recovery windows, and why momentum often masks structural weaknesses.",
+                         "It tracks substitutions, practice loads, and the moments where disciplined execution beats raw talent.",
+                         "Notes include standings pressure, injury management, and how " + tag + " becomes more visible in tight fixtures."};
+                    static const std::vector<std::string> closers = {
+                         "Examples mention playoff pacing, rivalry games, and tournament adaptation.",
+                         "The final section compares fan expectations, analyst ratings, and coach postgame framing.",
+                         "Additional commentary covers travel fatigue, bench depth, and late-season adjustments.",
+                         "It finishes with observations on youth development, veteran leadership, and competitive margins."};
+                    return Pick(intros) + " " + Pick(details, 1U) + " " + Pick(closers, 2U);
+               }
+               if (collection == "technology")
+               {
+                    static const std::vector<std::string> intros = {
+                         "A technology note on " + tag + " that connects architecture decisions to operational outcomes.",
+                         "This technology brief focuses on " + tag + " using examples from shipping teams and production incidents.",
+                         "An engineering-facing review of " + tag + " centered on maintainability, scale, and developer workflow.",
+                         "This technology entry examines " + tag + " through system design, rollout strategy, and reliability concerns."};
+                    static const std::vector<std::string> details = {
+                         "It covers API boundaries, deployment habits, and the subtle tradeoffs between speed of delivery and long-term clarity.",
+                         "The write-up discusses observability, auth design, and why tooling choices shape developer behavior as much as runtime performance.",
+                         "It tracks migration risk, cloud cost pressure, and the places where automation helps or quietly adds fragility.",
+                         "Notes include incident response, schema evolution, and how " + tag + " affects both product velocity and system safety."};
+                    static const std::vector<std::string> closers = {
+                         "Examples mention AI-assisted coding, release gating, and cross-team ownership.",
+                         "The final section compares startup pragmatism, enterprise constraints, and platform maturity.",
+                         "Additional commentary covers reliability budgets, local tooling, and rollout sequencing.",
+                         "It closes with observations on security hardening, developer ergonomics, and support load."};
+                    return Pick(intros) + " " + Pick(details, 1U) + " " + Pick(closers, 2U);
+               }
+               if (collection == "travel")
+               {
+                    static const std::vector<std::string> intros = {
+                         "A travel note on " + tag + " that follows planning, arrival, and day-by-day pacing.",
+                         "This travel brief studies " + tag + " through route decisions, local habits, and budget tradeoffs.",
+                         "A destination-focused review of " + tag + " with examples from recent itineraries and traveler reports.",
+                         "This travel entry looks at " + tag + " from the perspective of transport, timing, and on-the-ground experience."};
+                    static const std::vector<std::string> details = {
+                         "It covers transit choices, neighborhood fit, and how a realistic schedule changes the quality of the trip.",
+                         "The piece compares hotel convenience, seasonal crowd levels, and the small logistics that save hours later.",
+                         "It tracks food stops, walking routes, and the difference between checklist travel and a pace that leaves room for discovery.",
+                         "Notes include local etiquette, packing strategy, and why " + tag + " can feel completely different across seasons."};
+                    static const std::vector<std::string> closers = {
+                         "Examples mention rail connections, weather windows, and budget-conscious alternatives.",
+                         "The closing section compares weekend plans, longer stays, and remote-work viability.",
+                         "Additional commentary covers family travel, solo safety, and reservation timing.",
+                         "It finishes with observations on cultural events, scenic detours, and fatigue management."};
+                    return Pick(intros) + " " + Pick(details, 1U) + " " + Pick(closers, 2U);
+               }
+
+               return Pick(generic_intros) + " Document index: " + std::to_string(index + 1) + ".";
+          };
+
+          for (int i = 0; i < 10; i++)
+          {
+               const std::string &tag = spec.Tags[i % spec.Tags.size()];
+               std::string title;
+               std::string content;
+               auto SeedIt = RealSeeds.find(spec.Name);
+               if (SeedIt != RealSeeds.end() && static_cast<size_t>(i) < SeedIt->second.size())
+               {
+                    title = SeedIt->second[static_cast<size_t>(i)].Title;
+                    content = SeedIt->second[static_cast<size_t>(i)].Content;
+               }
+               else
+               {
+                    title = BuildRealisticTitle(spec.Name, tag, i);
+                    content = BuildRealisticContent(spec.Name, tag, i);
+               }
+
+               std::string doc_id = MakeMeaningfulDocId(spec.Name, title, content, i, used_ids);
+               std::string safe_title = RemoveCommas(title);
+               std::string safe_content = RemoveCommas(content);
+               std::string description = BuildBenchmarkDescription(spec.Name, tag, content);
+               std::string safe_description = RemoveCommas(description);
+               nlohmann::json label_list = nlohmann::json::array();
+               for (const auto &label : BuildBenchmarkLabels(spec.Name, tag, title, content))
+               {
+                    label_list.push_back(label);
+               }
+
+               docs.emplace_back(doc_id, safe_title, safe_content);
+
+               nlohmann::json enriched_doc;
+               enriched_doc["id"] = doc_id;
+               enriched_doc["title"] = safe_title;
+               enriched_doc["content"] = safe_content;
+               enriched_doc["description"] = safe_description;
+               enriched_doc["labels"] = label_list.dump();
+               enriched_docs.push_back(std::move(enriched_doc));
+          }
+
+          int inserted = client.InsertDocumentsBulkLocal(spec.Name, docs);
+
+          size_t enriched_updated = 0;
+          for (const auto &doc : enriched_docs)
+          {
+               if (client.UpsertDocumentWithFieldsLocal(spec.Name, doc))
+               {
+                    enriched_updated++;
+               }
+          }
+
+          if (spec.Name == "food")
+          {
+               static const std::vector<std::vector<std::string>> ingredient_profiles = {
+                    {"extra virgin olive oil", "sea salt", "garlic", "fresh basil", "grated parmesan"},
+                    {"soy sauce", "sesame oil", "ginger", "scallions", "rice vinegar"},
+                    {"lime juice", "cilantro", "chili flakes", "red onion", "cumin"},
+                    {"butter", "heavy cream", "black pepper", "thyme", "shallots"},
+                    {"tomato paste", "smoked paprika", "oregano", "coriander", "bay leaf"},
+                    {"coconut milk", "turmeric", "curry powder", "garam masala", "fresh ginger"}};
+
+               size_t food_updated = 0;
+               for (size_t i = 0; i < docs.size(); ++i)
+               {
+                    const auto &doc_tuple = docs[i];
+                    const auto &profile = ingredient_profiles[i % ingredient_profiles.size()];
+
+                    std::string ingredients;
+                    for (size_t j = 0; j < profile.size(); ++j)
+                    {
+                         if (j > 0)
+                         {
+                              ingredients += " | ";
+                         }
+                         ingredients += profile[j];
+                    }
+
+                    nlohmann::json food_doc;
+                    food_doc = enriched_docs[i];
+                    food_doc["id"] = std::get<0>(doc_tuple);
+                    food_doc["title"] = std::get<1>(doc_tuple);
+                    food_doc["content"] = std::get<2>(doc_tuple) + " Ingredients: " + ingredients + ".";
+                    food_doc["dish"] = std::get<1>(doc_tuple);
+                    food_doc["cuisine"] = (i % 3 == 0) ? "Italian" : ((i % 3 == 1) ? "Japanese" : "Mexican");
+                    food_doc["ingredients"] = ingredients;
+
+                    if (client.UpsertDocumentWithFieldsLocal(spec.Name, food_doc))
+                    {
+                         food_updated++;
+                    }
+               }
+
+               if (verbose)
+               {
+                    LogOutput("  ↳ Added realistic ingredients to " + std::to_string(food_updated) + " food documents.\n");
+               }
+          }
+          else if (spec.Name == "universities")
+          {
+               struct UniversityProfile
+               {
+                    const char *State;
+                    const char *City;
+                    const char *Type;
+               };
+
+               static const std::vector<UniversityProfile> university_profiles = {
+                    {"California", "Berkeley", "public_research"},
+                    {"Michigan", "Ann Arbor", "public_research"},
+                    {"Ohio", "Columbus", "public_research"},
+                    {"Texas", "Austin", "public_research"},
+                    {"Washington", "Seattle", "public_research"},
+                    {"Florida", "Gainesville", "public_research"},
+                    {"Illinois", "Urbana Champaign", "public_research"},
+                    {"Georgia", "Atlanta", "public_research"},
+                    {"Pennsylvania", "University Park", "public_research"},
+                    {"Massachusetts", "Amherst", "public_research"}};
+
+               size_t universities_updated = 0;
+               for (size_t i = 0; i < docs.size() && i < university_profiles.size(); ++i)
+               {
+                    const auto &doc_tuple = docs[i];
+                    const auto &profile = university_profiles[i];
+
+                    nlohmann::json university_doc = enriched_docs[i];
+                    university_doc["id"] = std::get<0>(doc_tuple);
+                    university_doc["title"] = std::get<1>(doc_tuple);
+                    university_doc["content"] = std::get<2>(doc_tuple);
+                    university_doc["state"] = profile.State;
+                    university_doc["city"] = profile.City;
+                    university_doc["institution_type"] = profile.Type;
+
+                    if (client.UpsertDocumentWithFieldsLocal(spec.Name, university_doc))
+                    {
+                         universities_updated++;
+                    }
+               }
+
+               if (verbose)
+               {
+                    LogOutput("  ↳ Added state and campus metadata to " + std::to_string(universities_updated) + " university documents.\n");
+               }
+          }
+          else if (spec.Name == "math")
+          {
+               size_t math_updated = 0;
+
+               for (size_t i = 0; i < docs.size(); ++i)
+               {
+                    const auto &doc_tuple = docs[i];
+                    const std::string &tag = spec.Tags[i % spec.Tags.size()];
+                    const double value = static_cast<double>((i + 1) * 11);
+                    const double value_b = static_cast<double>((i + 2) * (i + 3));
+                    const double value_c = value + value_b + (static_cast<double>(i) / 2.0);
+                    const int equation_index = static_cast<int>((i + 1) * 7);
+                    const int prime_candidate = 101 + static_cast<int>(i) * 2;
+
+                    nlohmann::json math_doc = enriched_docs[i];
+                    math_doc["id"] = std::get<0>(doc_tuple);
+                    math_doc["title"] = std::get<1>(doc_tuple);
+                    math_doc["content"] = std::get<2>(doc_tuple) + " Values: " +
+                                          std::to_string(static_cast<int>(value)) + ", " +
+                                          std::to_string(static_cast<int>(value_b)) + ", " +
+                                          std::to_string(value_c) + ", " +
+                                          std::to_string(equation_index) + ", " +
+                                          std::to_string(prime_candidate) + ".";
+                    math_doc["topic"] = tag;
+                    math_doc["value"] = value;
+                    math_doc["value_b"] = value_b;
+                    math_doc["value_c"] = value_c;
+                    math_doc["equation_index"] = equation_index;
+                    math_doc["prime_candidate"] = prime_candidate;
+
+                    if (client.UpsertDocumentWithFieldsLocal(spec.Name, math_doc))
+                    {
+                         math_updated++;
+                    }
+               }
+
+               if (verbose)
+               {
+                    LogOutput("  ↳ Added numeric fields to " + std::to_string(math_updated) + " math documents.\n");
+               }
+          }
+
+          LogOutput("✓ Inserted " + std::to_string(inserted) + " fake documents into '" + spec.Name + "'.\n");
+          if (inserted != static_cast<int>(docs.size()))
+          {
+               std::cerr << "✗ Fake collection '" << spec.Name << "' imported " << inserted << " of " << docs.size() << " local documents. Distributed routing was bypassed for this seed path.\n";
+          }
+          if (verbose)
+          {
+               LogOutput("  ↳ Enriched " + std::to_string(enriched_updated) + " fake documents with description and labels.\n");
+          }
+     }
+
+     return true;
+}
+
+bool ExtractConfigValue(const std::string &line, const std::string &key, std::string &value)
+{
+     size_t pos = line.find(key);
+     if (pos == std::string::npos)
+     {
+          return false;
+     }
+
+     size_t eq = line.find('=', pos + key.size());
+     if (eq == std::string::npos)
+     {
+          return false;
+     }
+
+     size_t first_quote = line.find('"', eq);
+     if (first_quote == std::string::npos)
+     {
+          return false;
+     }
+
+     size_t second_quote = line.find('"', first_quote + 1);
+     if (second_quote == std::string::npos)
+     {
+          return false;
+     }
+
+     value = line.substr(first_quote + 1, second_quote - first_quote - 1);
+
+     return true;
+}
+
+bool LoadDurabilityConfig(const std::string &path, DurabilityConfig &config)
+{
+     std::ifstream file(path);
+     if (!file.is_open())
+     {
+          return false;
+     }
+
+     std::string line;
+
+     while (std::getline(file, line))
+     {
+          std::string trimmed = TrimWhitespace(line);
+
+          if (trimmed.empty() || trimmed[0] == '#')
+          {
+               continue;
+          }
+
+          std::string value;
+
+          if (ExtractConfigValue(trimmed, "wal_sync_mode", value))
+          {
+               config.WalSyncMode = value;
+               continue;
+          }
+
+          if (ExtractConfigValue(trimmed, "wal_bytes_per_sync", value))
+          {
+               config.WalBytesPerSync = value;
+               continue;
+          }
+
+          if (ExtractConfigValue(trimmed, "manual_wal_flush", value))
+          {
+               config.ManualWalFlush = value;
+               continue;
+          }
+     }
+
+     return true;
+}
+
+int CountBenchmarkDocuments(const AdvancedMetrics &metrics)
+{
+     int total = 0;
+
+     for (const auto &entry : metrics.FinalPerCollectionCounts)
+     {
+          if (entry.first.rfind(g_collection_prefix, 0) == 0)
+          {
+               total += entry.second;
+          }
+     }
+
+     return total;
+}
+
+bool RunSanitySearch(BenchmarkClient &client, const std::string &collection, const std::string &query, bool verbose)
+{
+     HTTPResponse resp = client.Search(collection, query);
+
+     if (resp.StatusCode != 200)
+     {
+          if (verbose)
+          {
+               std::cerr << "  [VERIFY] Search '" << query << "' failed with status " << resp.StatusCode << ".\n";
+          }
+
+          return false;
+     }
+
+     try
+     {
+          nlohmann::json result = nlohmann::json::parse(resp.Body);
+
+          int found = 0;
+
+          if (result.contains("found"))
+          {
+               found = result["found"].get<int>();
+          }
+          else if (result.contains("hits") && result["hits"].is_array())
+          {
+               found = static_cast<int>(result["hits"].size());
+          }
+
+          if (verbose)
+          {
+               std::cout << "  [VERIFY] Search '" << query << "': found " << found << " hit(s).\n";
+          }
+
+          return found > 0;
+     }
+     catch (...)
+     {
+          if (verbose)
+          {
+               std::cerr << "  [VERIFY] Search '" << query << "' returned invalid JSON.\n";
+          }
+     }
+
+     return false;
+}
+
+/* Main entry point for the benchmark tool. */
+
+int main(int argc, char *argv[])
+{
+     try
+     {
+          /* Install signal handlers to allow graceful shutdown. */
+
+          signal(SIGINT, BenchmarkSignalHandler);
+          signal(SIGTERM, BenchmarkSignalHandler);
+
+          g_benchmark_should_stop.store(false);
+
+          /* Reset global benchmark counters before parsing inputs. */
+
+          ResetGlobalStats();
+
+          /* Default benchmark configuration values. */
+
+          std::string base_url = "http://localhost:9200";
+          std::string host = "localhost";
+          int port = 9200;
+          bool host_set = false;
+          bool port_set = false;
+          std::string auth_token = "";
+
+          int num_collections = 2;
+          const int default_docs_per_collection = 50000;
+          int num_documents = num_collections * default_docs_per_collection;
+          int num_threads = 8;
+          int batch_size = 2000;
+          bool documents_explicitly_set = false;
+
+          bool default_limits_applied = false;
+          bool advanced_mode = false;
+
+          std::string advanced_output_file = "adv.json";
+
+          bool search_mode_val = false;
+          bool dump_mode = false;
+          bool detailed_mode = false;
+          bool fake_mode = false;
+          bool flood_mode = false;
+
+          verbose_mode = false;
+
+          std::string run_id_val = "";
+          std::string run_seed_val = "";
+
+          bool no_fake_collections = false;
+          bool verify_after_restart = false;
+          bool check_consistency_val = false;
+          bool dry_run_val = false;
+
+          (void)no_fake_collections;
+          (void)verify_after_restart;
+          (void)dry_run_val;
+
+          bool cleanup_benchmark_val = false;
+          bool reuse_collections = false;
+
+          std::string log_file_val = "";
+
+          bool skip_auth_check = false;
+          bool create_unorganized_val = false;
+          bool ssl_auth_mode = false;
+
+          std::string custom_prefix_val = "";
+
+          std::string durability_config_path = "";
+
+          /* Parse CLI flags and override defaults. */
+
+          for (int i = 1; i < argc; i++)
+          {
+               std::string arg = argv[i];
+
+               if (arg == "--url" && i + 1 < argc)
+               {
+                    base_url = argv[++i];
+               }
+               else if (arg == "--host" && i + 1 < argc)
+               {
+                    host = argv[++i];
+                    host_set = true;
+               }
+               else if (arg == "--port" && i + 1 < argc)
+               {
+                    port = std::stoi(argv[++i]);
+                    port_set = true;
+               }
+               else if (arg == "--auth" && i + 1 < argc)
+               {
+                    auth_token = argv[++i];
+               }
+               else if (arg == "--ssl-auth")
+               {
+                    ssl_auth_mode = true;
+               }
+               else if (arg == "--prefix" && i + 1 < argc)
+               {
+                    custom_prefix_val = argv[++i];
+                    g_collection_prefix = custom_prefix_val;
+               }
+               else if (arg == "--collections" && i + 1 < argc)
+               {
+                    num_collections = std::stoi(argv[++i]);
+               }
+               else if (arg == "--documents" && i + 1 < argc)
+               {
+                    num_documents = std::stoi(argv[++i]);
+                    documents_explicitly_set = true;
+               }
+               else if (arg == "--threads" && i + 1 < argc)
+               {
+                    num_threads = std::stoi(argv[++i]);
+               }
+               else if (arg == "--batch-size" && i + 1 < argc)
+               {
+                    batch_size = std::stoi(argv[++i]);
+               }
+               else if (arg == "--advanced")
+               {
+                    advanced_mode = true;
+
+                    if (i + 1 < argc && argv[i + 1][0] != '-')
+                    {
+                         advanced_output_file = argv[++i];
+                    }
+               }
+               else if (arg == "--Search")
+               {
+                    search_mode_val = true;
+               }
+               else if (arg == "--dump")
+               {
+                    dump_mode = true;
+               }
+               else if (arg == "--detailed")
+               {
+                    detailed_mode = true;
+                    advanced_mode = true;
+
+                    if (i + 1 < argc && argv[i + 1][0] != '-')
+                    {
+                         advanced_output_file = argv[++i];
+                    }
+                    else
+                    {
+                         advanced_output_file = "ad.json";
+                    }
+               }
+               else if (arg == "--verbose" || arg == "-v")
+               {
+                    verbose_mode = true;
+               }
+               else if (arg == "--fake")
+               {
+                    fake_mode = true;
+               }
+               else if (arg == "--flood")
+               {
+                    flood_mode = true;
+               }
+               else if (arg == "--id" && i + 1 < argc)
+               {
+                    run_id_val = argv[++i];
+               }
+               else if (arg == "--seed" && i + 1 < argc)
+               {
+                    run_seed_val = argv[++i];
+               }
+               else if (arg == "--no-fake-collections")
+               {
+                    no_fake_collections = true;
+               }
+               else if (arg == "--verify-after-restart")
+               {
+                    verify_after_restart = true;
+               }
+               else if (arg == "--check-consistency")
+               {
+                    check_consistency_val = true;
+               }
+               else if (arg == "--dry-run")
+               {
+                    dry_run_val = true;
+               }
+               else if (arg == "--cleanup")
+               {
+                    cleanup_benchmark_val = true;
+               }
+               else if (arg == "--reuse-collections")
+               {
+                    reuse_collections = true;
+               }
+               else if (arg == "--log-file" && i + 1 < argc)
+               {
+                    log_file_val = argv[++i];
+               }
+               else if (arg == "--durability-config" && i + 1 < argc)
+               {
+                    durability_config_path = argv[++i];
+               }
+               else if (arg == "--skip-auth-check")
+               {
+                    skip_auth_check = true;
+               }
+               else if (arg == "--unorganized")
+               {
+                    create_unorganized_val = true;
+               }
+               else if (arg == "--help" || arg == "-h")
+               {
+                    std::cout << "Usage: " << argv[0] << " [options]\n"
+                              << "Options:\n"
+                              << "  --url URL          Server URL (default: http://localhost:9200)\n"
+                              << "  --host HOST        Server host (default: localhost)\n"
+                              << "  --port PORT        Server port (default: 9200)\n"
+                              << "  --auth TOKEN      Authentication token\n"
+                              << "  --ssl-auth        Over HTTPS, send token as both Authorization and X-API-Key\n"
+                              << "  --collections N   Number of collections to create (default: 2)\n"
+                              << "  --documents N     Total number of documents to insert (default: 50000 per collection)\n"
+                              << "  --threads N        Number of threads (default: 8)\n"
+                              << "  --batch-size N     Documents per bulk insert batch (default: 2000)\n"
+                              << "  --advanced [FILE]  Output detailed JSON metrics (default: adv.json)\n"
+                              << "  --detailed [FILE] Run comprehensive benchmark testing ALL routes\n"
+                              << "                    and functionalities (includes --advanced)\n"
+                              << "  --Search           Run search benchmark on previously inserted data\n"
+                              << "  --dump             Dump all collections and their documents\n"
+                              << "  --fake             Insert realistic sample data (food, music, science, etc.) for testing\n"
+                              << "  --flood            Flood server with continuous random data generation for stress testing\n"
+                              << "                    (runs until stopped with Ctrl+C, randomly creates collections and documents)\n"
+                              << "  --id ID            Run UUID/ID for correlation (default: auto-generated)\n"
+                              << "  --seed SEED        Seed for deterministic runs\n"
+                              << "  --no-fake-collections  Disable fake helper collections (food, music, sports, etc.)\n"
+                              << "  --verify-after-restart   Verify counts after server restart\n"
+                              << "  --check-consistency      Check consistency of /status, /stats, /metrics, /doctotal\n"
+                              << "  --dry-run          Generate collections/docs in memory but don't send to server\n"
+                              << "  --cleanup          Delete all benchmark-tagged collections at end\n"
+                              << "  --prefix PREFIX    Custom prefix for benchmark collections (default: bench_collection_)\n"
+                              << "  --durability-config PATH  Load durability settings from config (e.g., run/conf/database.conf)\n"
+                              << "  --reuse-collections Reuse existing collections instead of deleting/recreating them\n"
+                              << "  --skip-auth-check  Skip authentication requirement check (useful when auth is disabled)\n"
+                              << "  --unorganized      Create an 'unorganized' collection with non-standard schema for testing\n"
+                              << "  --log-file FILE    Structured log file (JSON lines format)\n"
+                              << "  --verbose, -v      Show detailed progress information\n"
+                              << "  --help, -h         Show this help message\n";
+
+                    return 0;
+               }
+          }
+
+          if (host_set || port_set)
+          {
+               base_url = "http://" + host + ":" + std::to_string(port);
+          }
+
+          if (!documents_explicitly_set)
+          {
+               num_documents = num_collections * default_docs_per_collection;
+          }
+
+          BenchmarkClient::SetGlobalSSLAuthMode(ssl_auth_mode);
+
+          if (!log_file_val.empty())
+          {
+               log_file_stream = new std::ofstream(log_file_val, std::ios::app);
+
+               if (!log_file_stream->is_open())
+               {
+                    std::cerr << "Warning: Could not open log file '" << log_file_val << "' - logging to stderr only.\n";
+                    std::cerr << "  Error: " << strerror(errno) << ".\n";
+
+                    delete log_file_stream;
+
+                    log_file_stream = nullptr;
+               }
+               else
+               {
+                    *log_file_stream << "\n=== Benchmark started at " << std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count() << " ===\n";
+                    log_file_stream->flush();
+
+                    std::cout << "Logging to file: " << log_file_val << ".\n";
+
+                    if (!log_file_stream->good())
+                    {
+                         std::cerr << "Warning: Log file stream is not in good state after opening.\n";
+                    }
+               }
+          }
+
+          if (!skip_auth_check)
+          {
+               LogOutput("Checking server status and authentication requirements...\n");
+
+               BenchmarkClient status_client(base_url, auth_token);
+
+               HTTPResponse status_response = status_client.MakeRequest("GET", "/status", "", 1);
+
+               if (status_response.StatusCode == 401 || status_response.StatusCode == 403)
+               {
+                    std::cerr << "\nERROR: Authentication required!.\n";
+                    std::cerr << "   Server returned HTTP " << status_response.StatusCode;
+
+                    if (status_response.StatusCode == 401)
+                    {
+                         std::cerr << " (Unauthorized)";
+                    }
+                    else
+                    {
+                         std::cerr << " (Forbidden)";
+                    }
+
+                    std::cerr << "\n";
+
+                    if (auth_token.empty())
+                    {
+                         std::cerr << "\n   No authentication token provided.\n";
+                         std::cerr << "   Please provide a token using: --auth <token>.\n";
+                         std::cerr << "   Or use --skip-auth-check if authentication is disabled.\n";
+                    }
+                    else
+                    {
+                         std::cerr << "\n   The provided authentication token is invalid or expired.\n";
+                         std::cerr << "   Please check your token and try again.\n";
+                    }
+
+                    return 1;
+               }
+
+               if (status_response.StatusCode == 200 && !status_response.Body.empty())
+               {
+                    try
+                    {
+                         nlohmann::json status_json = nlohmann::json::parse(status_response.Body);
+
+                         if (status_json.contains("auth_required") && status_json["auth_required"].get<bool>())
+                         {
+                              if (auth_token.empty())
+                              {
+                                   std::cerr << "\nERROR: Authentication required!.\n";
+                                   std::cerr << "   Server is configured to require authentication.\n";
+                                   std::cerr << "\n   No authentication token provided.\n";
+                                   std::cerr << "   Please provide a token using: --auth <token>.\n";
+                                   std::cerr << "   Or use --skip-auth-check if authentication is disabled.\n";
+
+                                   return 1;
+                              }
+                         }
+                    }
+                    catch (const std::exception &)
+                    {
+                         /* Ignore. */
+                    }
+               }
+          }
+          else
+          {
+               LogOutput("Skipping authentication check (--skip-auth-check flag set)...\n");
+          }
+
+          LogOutput("Checking server health...\n");
+
+          BenchmarkClient health_client(base_url, auth_token);
+
+          HTTPResponse health_response = health_client.MakeRequest("GET", "/health", "", 1, true, 5000);
+
+          if (!skip_auth_check && (health_response.StatusCode == 401 || health_response.StatusCode == 403))
+          {
+               std::cerr << "\nERROR: Authentication required!.\n";
+               std::cerr << "   Server returned HTTP " << health_response.StatusCode;
+
+               if (health_response.StatusCode == 401)
+               {
+                    std::cerr << " (Unauthorized)";
+               }
+               else
+               {
+                    std::cerr << " (Forbidden)";
+               }
+
+               std::cerr << "\n";
+
+               if (auth_token.empty())
+               {
+                    std::cerr << "\n   No authentication token provided.\n";
+                    std::cerr << "   Please provide a token using: --auth <token>.\n";
+                    std::cerr << "   Or use --skip-auth-check if authentication is disabled.\n";
+               }
+               else
+               {
+                    std::cerr << "\n   The provided authentication token is invalid or expired.\n";
+                    std::cerr << "   Please check your token and try again.\n";
+               }
+
+               return 1;
+          }
+
+          if (health_response.StatusCode == -1)
+          {
+               std::cerr << "\nERROR: Server is not responding!.\n";
+               std::cerr << "   " << (health_response.ErrorMessage.empty() ? "Could not connect to " + base_url : health_response.ErrorMessage) << "\n";
+               std::cerr << "\n   Please ensure the hlquery server is running on " << base_url << ".\n";
+
+               return 1;
+          }
+          else if (health_response.StatusCode != 200 && health_response.StatusCode != 503)
+          {
+               std::cerr << "\nERROR: Server health check failed!.\n";
+               std::cerr << "   Health check returned status code: " << health_response.StatusCode << ".\n";
+               std::cerr << "\n   Please ensure the hlquery server is running properly on " << base_url << ".\n";
+
+               return 1;
+          }
+          else if (health_response.StatusCode == 503)
+          {
+               std::cout << "   Warning: Server is in DEGRADED state (collections may not be fully loaded).\n";
+               std::cout << "   Continuing anyway - benchmarks will create their own collections...\n";
+          }
+          else
+          {
+               std::cout << "✓ Server is healthy and ready.\n\n";
+          }
+
+          health_client.Reset();
+
+          HTTPResponse second_health = health_client.MakeRequest("GET", "/health");
+
+          if (!skip_auth_check && (second_health.StatusCode == 401 || second_health.StatusCode == 403))
+          {
+               std::cerr << "\nERROR: Authentication required!.\n";
+               std::cerr << "   Server returned HTTP " << second_health.StatusCode;
+
+               if (second_health.StatusCode == 401)
+               {
+                    std::cerr << " (Unauthorized)";
+               }
+               else
+               {
+                    std::cerr << " (Forbidden)";
+               }
+
+               std::cerr << "\n";
+
+               if (auth_token.empty())
+               {
+                    std::cerr << "\n   No authentication token provided.\n";
+                    std::cerr << "   Please provide a token using: --auth <token>.\n";
+                    std::cerr << "   Or use --skip-auth-check if authentication is disabled.\n";
+               }
+               else
+               {
+                    std::cerr << "\n   The provided authentication token is invalid or expired.\n";
+                    std::cerr << "   Please check your token and try again.\n";
+               }
+
+               return 1;
+          }
+
+          if (second_health.StatusCode == -1)
+          {
+               std::cerr << "\nERROR: Server became unresponsive after delay!.\n";
+               std::cerr << "   This may indicate resource exhaustion from previous benchmark run.\n";
+               std::cerr << "   Please restart the server before running another benchmark.\n";
+
+               return 1;
+          }
+          else if (second_health.StatusCode != 200 && second_health.StatusCode != 503)
+          {
+               std::cerr << "\nERROR: Server became unhealthy after delay (status: " << second_health.StatusCode << ")!.\n";
+               std::cerr << "   This may indicate resource exhaustion from previous benchmark run.\n";
+               std::cerr << "   Please restart the server before running another benchmark.\n";
+
+               return 1;
+          }
+
+          health_client.Reset();
+
+          if (create_unorganized_val)
+          {
+               LogOutput("\n");
+               LogOutput("CREATING UNORGANIZED COLLECTION\n");
+               LogOutput("----------------------------------------------------------------\n");
+
+               BenchmarkClient unorganized_client(base_url, auth_token, reuse_collections);
+
+               std::string conn_error_val = unorganized_client.TestConnection();
+
+               if (!conn_error_val.empty())
+               {
+                    std::cerr << "✗ Cannot connect to server for unorganized collection: " << conn_error_val << ".\n";
+                    create_unorganized_val = false;
+               }
+
+               if (create_unorganized_val)
+               {
+                    nlohmann::json unorganized_fields = nlohmann::json::array();
+
+                    unorganized_fields.push_back({{"name", "name"}, {"type", "string"}});
+                    unorganized_fields.push_back({{"name", "identifier"}, {"type", "string"}});
+                    unorganized_fields.push_back({{"name", "info"}, {"type", "string"}});
+                    unorganized_fields.push_back({{"name", "extra"}, {"type", "string"}});
+                    unorganized_fields.push_back({{"name", "score"}, {"type", "float"}});
+                    unorganized_fields.push_back({{"name", "group"}, {"type", "string"}});
+                    unorganized_fields.push_back({{"name", "tags"}, {"type", "string"}});
+
+                    bool created = unorganized_client.CreateCollectionWithSchema("unorganized", unorganized_fields, "");
+
+                    if (created)
+                    {
+                         LogOutput("✓ unorganized collection created.\n");
+
+                         LogOutput("Inserting 100 test documents into unorganized collection...\n");
+
+                         nlohmann::json payload_json;
+
+                         payload_json["documents"] = nlohmann::json::array();
+
+                         for (int i = 1; i <= 100; i++)
+                         {
+                              nlohmann::json doc;
+
+                              doc["id"] = std::to_string(10000 + i);
+                              doc["name"] = "Unorganized Item #" + std::to_string(i);
+                              doc["identifier"] = "item_" + std::to_string(i);
+                              doc["info"] = "Unorganized info entry " + std::to_string(i) + ". This document tests Hanalyzer ability to adapt to non-standard schemas where title and content are missing. It should still display meaningful information from other fields.";
+                              doc["extra"] = "Extra metadata for item " + std::to_string(i) + " providing additional context for Search testing.";
+                              doc["score"] = static_cast<float>(rand() % 1000) / 10.0f;
+                              doc["group"] = (i % 5 == 0) ? "Alpha" : ((i % 5 == 1) ? "Beta" : ((i % 5 == 2) ? "Gamma" : "Delta"));
+                              doc["tags"] = "tag" + std::to_string(i % 10) + " test unorganized";
+
+                              if (i % 10 == 0)
+                              {
+                                   doc["special_field_" + std::to_string(i)] = "Special value " + std::to_string(i * 7);
+                              }
+
+                              payload_json["documents"].push_back(doc);
+                         }
+
+                         std::string json_str_val = payload_json.dump();
+
+                         HTTPResponse response = unorganized_client.MakeRequest("POST", "/collections/unorganized/documents/import", json_str_val, 3);
+
+                         if (response.StatusCode == 200 || response.StatusCode == 201 || response.StatusCode == 207)
+                         {
+                              try
+                              {
+                                   nlohmann::json result = nlohmann::json::parse(response.Body);
+
+                                   int imported = result.contains("imported") ? result["imported"].get<int>() : 100;
+
+                                   LogOutput("✓ Inserted " + std::to_string(imported) + " test documents into unorganized collection.\n");
+
+                                   if (response.StatusCode == 207)
+                                   {
+                                        LogOutput("  (Some documents may have failed to insert, status 207 Multi-Status).\n");
+                                   }
+                              }
+                              catch (...)
+                              {
+                                   LogOutput("✓ Inserted 100 test documents into unorganized collection.\n");
+                              }
+                         }
+                         else
+                         {
+                              std::cerr << "✗ Failed to insert documents into unorganized collection (HTTP " << response.StatusCode << "): " << response.Body << ".\n";
+                         }
+                    }
+                    else
+                    {
+                         std::cerr << "✗ Failed to create unorganized collection.\n";
+                    }
+               }
+
+               LogOutput("\n");
+          }
+
+          if (fake_mode)
+          {
+               LogOutput("CREATING FAKE COLLECTIONS\n");
+               LogOutput("----------------------------------------------------------------\n");
+
+               bool fake_ok = CreateFakeCollections(base_url, auth_token, reuse_collections, verbose_mode);
+
+               LogOutput("\n");
+
+               bool fake_only = !detailed_mode && !search_mode_val && !dump_mode && !flood_mode && !advanced_mode;
+
+               if (fake_only)
+               {
+                    if (fake_ok)
+                    {
+                         std::cout << "✓ Fake sample data inserted. Skipping benchmark (use --detailed or omit --fake to run benchmarks).\n";
+                         return 0;
+                    }
+
+                    std::cerr << "✗ Failed to insert fake sample data. Skipping benchmark.\n";
+                    return 1;
+               }
+          }
+
+          if (dump_mode)
+          {
+               DumpAllCollections(base_url, auth_token);
+
+               return 0;
+          }
+
+          if (detailed_mode)
+          {
+               RunDetailedBenchmark(base_url, auth_token, num_collections, num_documents, num_threads, batch_size, reuse_collections);
+               WriteAdvancedJSON(advanced_output_file, advanced_metrics);
+
+               return 0;
+          }
+
+          if (search_mode_val)
+          {
+               RunSearches(base_url, auth_token);
+
+               return 0;
+          }
+
+          if (flood_mode)
+          {
+               int flood_threads_val = std::min(num_threads, 4);
+
+               if (num_threads > 4 && verbose_mode)
+               {
+                    std::cout << "Note: Limiting flood mode to " << flood_threads_val << " threads to prevent server overload.\n";
+               }
+
+               RunFloodBenchmark(base_url, auth_token, flood_threads_val, verbose_mode, reuse_collections);
+
+               return 0;
+          }
+
+          if (!default_limits_applied && num_collections > 1000)
+          {
+               if (verbose_mode)
+               {
+                    std::cout << "Note: Limiting collections to 1000 (use --flood for unlimited).\n";
+               }
+
+               num_collections = 1000;
+          }
+
+          if (!default_limits_applied && num_documents > 1000000)
+          {
+               if (verbose_mode)
+               {
+                    std::cout << "Note: Limiting documents to 1000000 (use --flood for unlimited).\n";
+               }
+
+               num_documents = 1000000;
+          }
+
+          setvbuf(stdout, nullptr, _IONBF, 0);
+
+          const int active_collection_threads = std::max(1, std::min(num_threads, num_collections));
+          const int active_document_threads = std::max(1, num_threads);
+
+          std::cout << "HLQuery Benchmark Tool.\n";
+          std::cout << "\n";
+          std::cout << "Server URL: " << base_url << ".\n";
+          std::cout << "Collections: " << num_collections << ".\n";
+          std::cout << "Documents: " << num_documents << ".\n";
+          std::cout << "Threads: " << num_threads << " requested, " << active_document_threads << " ingest worker(s), " << active_collection_threads << " collection worker(s).\n";
+          std::cout << "Batch size: " << batch_size << ".\n";
+
+          if (advanced_mode)
+          {
+               std::cout << "Advanced mode: ON (output: " << advanced_output_file << ").\n";
+          }
+
+          if (verbose_mode)
+          {
+               std::cout << "Verbose mode: ON.\n";
+          }
+
+          std::cout << "\n";
+
+          if (advanced_mode)
+          {
+               advanced_metrics.ConfigURL = base_url;
+               advanced_metrics.ConfigAuthToken = auth_token.empty() ? "" : "***";
+               advanced_metrics.ConfigCollections = num_collections;
+               advanced_metrics.ConfigDocuments = num_documents;
+               advanced_metrics.ConfigThreads = num_threads;
+               advanced_metrics.ConfigBatchSize = batch_size;
+          }
+
+          auto start_time_val = std::chrono::high_resolution_clock::now();
+
+          if (run_id_val.empty())
+          {
+               auto now = std::chrono::high_resolution_clock::now();
+
+               auto run_id_timestamp = std::chrono::duration_cast<std::chrono::nanoseconds>(now.time_since_epoch()).count();
+
+               static std::random_device rd;
+               static std::mt19937 gen(rd());
+
+               std::uniform_int_distribution<> dis(1000, 9999);
+
+               run_id_val = std::to_string(run_id_timestamp) + "_" + std::to_string(dis(gen));
+          }
+
+          if (advanced_mode)
+          {
+               advanced_metrics.RunID = run_id_val;
+               advanced_metrics.RunSeed = run_seed_val;
+          }
+
+          DurabilityConfig durability_config;
+          bool durability_config_loaded = false;
+          std::string durability_path_used;
+
+          if (!durability_config_path.empty())
+          {
+               durability_config_loaded = LoadDurabilityConfig(durability_config_path, durability_config);
+               durability_path_used = durability_config_path;
+          }
+          else
+          {
+               const std::vector<std::string> default_paths = {
+                    "run/conf/database.conf",
+                    "run/conf/hlquery.conf",
+                    "conf/database.conf",
+                    "conf/hlquery.conf",
+                    "/etc/hlquery/hlquery.conf",
+                    "/etc/hlquery/database.conf"};
+
+               for (const auto &candidate : default_paths)
+               {
+                    if (LoadDurabilityConfig(candidate, durability_config))
+                    {
+                         durability_config_loaded = true;
+                         durability_path_used = candidate;
+                         break;
+                    }
+               }
+          }
+
+          if (advanced_mode)
+          {
+               advanced_metrics.DurabilityConfigPath = durability_config_loaded ? durability_path_used : "";
+               advanced_metrics.WalSyncMode = durability_config.WalSyncMode;
+               advanced_metrics.WalBytesPerSync = durability_config.WalBytesPerSync;
+               advanced_metrics.ManualWalFlush = durability_config.ManualWalFlush;
+          }
+
+               int collections_per_thread_val = (num_collections + active_collection_threads - 1) / active_collection_threads;
+
+          if (!reuse_collections && verbose_mode)
+          {
+               std::cout << "Phase 0: Cleaning up existing benchmark collections...\n";
+          }
+
+          std::set<std::string> existing_set_val;
+
+          if (!reuse_collections)
+          {
+               try
+               {
+                    BenchmarkClient check_client(base_url, auth_token);
+
+                    std::vector<std::string> existing_collections_val = check_client.ListCollections();
+
+                    existing_set_val.insert(existing_collections_val.begin(), existing_collections_val.end());
+
+                    if (!existing_set_val.empty() && verbose_mode)
+                    {
+                         std::cout << "  Found " << existing_set_val.size() << " existing collections to clean up.\n";
+                    }
+               }
+               catch (const std::exception &e)
+               {
+                    if (verbose_mode)
+                    {
+                         std::cout << "  Note: Could not list collections (may not exist): " << e.what() << ".\n";
+                    }
+               }
+
+               if (!existing_set_val.empty())
+               {
+                    std::set<std::string> bench_collections_val;
+
+                    for (const auto &col : existing_set_val)
+                    {
+                         if (col.find(g_collection_prefix) == 0 || col.find("random_") == 0)
+                         {
+                              bench_collections_val.insert(col);
+                         }
+                    }
+
+                    if (!bench_collections_val.empty())
+                    {
+                         if (verbose_mode)
+                         {
+                              std::cout << "  Found " << bench_collections_val.size() << " existing benchmark collections.\n";
+                              std::cout << "  Note: Skipping bulk deletion (too slow - scans all LSM keys).\n";
+                              std::cout << "  Collections will be deleted individually during creation if needed.\n";
+                         }
+                    }
+                    else if (verbose_mode)
+                    {
+                         std::cout << "  No benchmark collections found in existing collections.\n";
+                    }
+               }
+               else if (verbose_mode)
+               {
+                    std::cout << "  No existing collections to clean up.\n";
+               }
+          }
+          else if (verbose_mode)
+          {
+               std::cout << "Phase 0: Reusing existing collections (--reuse-collections enabled).\n";
+          }
+
+          ResetProgressBar();
+
+          if (verbose_mode)
+          {
+               std::cout << "Phase 1: Creating " << num_collections << " collections...\n";
+          }
+          else
+          {
+               std::cout << "Creating collections...\n";
+          }
+
+          if (advanced_mode)
+          {
+               advanced_metrics.Phase1StartMS = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - start_time_val).count();
+          }
+
+          if (g_benchmark_should_stop.load())
+          {
+               std::cerr << "\n[INTERRUPT] Benchmark interrupted before Phase 1.\n";
+               return 1;
+          }
+
+          std::vector<std::thread> collection_threads_vec;
+
+          try
+          {
+               for (int i = 0; i < active_collection_threads; i++)
+               {
+                    if (g_benchmark_should_stop.load())
+                    {
+                         break;
+                    }
+
+                    int start_val = i * collections_per_thread_val;
+                    int end_val = std::min(start_val + collections_per_thread_val, num_collections);
+
+                    if (start_val < num_collections)
+                    {
+                         collection_threads_vec.emplace_back(CreateCollectionsThread, base_url, auth_token, start_val, end_val, advanced_mode, num_collections, reuse_collections);
+                    }
+               }
+
+               for (auto &t : collection_threads_vec)
+               {
+                    if (t.joinable())
+                    {
+                         if (g_benchmark_should_stop.load())
+                         {
+                              t.detach();
+                         }
+                         else
+                         {
+                              t.join();
+                         }
+                    }
+               }
+
+               if (g_benchmark_should_stop.load())
+               {
+                    std::cerr << "\n[INTERRUPT] Benchmark interrupted during Phase 1.\n";
+                    return 1;
+               }
+          }
+          catch (const std::exception &e)
+          {
+               std::cerr << "\n[CRITICAL] Exception in Phase 1 (collection creation): " << e.what() << ".\n";
+               std::cerr << "   Attempting to join remaining threads...\n";
+
+               for (auto &t : collection_threads_vec)
+               {
+                    if (t.joinable())
+                    {
+                         try
+                         {
+                              t.join();
+                         }
+                         catch (...)
+                         {
+                              /* Ignore. */
+                         }
+                    }
+               }
+
+               std::cerr << "   Phase 1 failed - benchmark may be incomplete.\n";
+          }
+          catch (...)
+          {
+               std::cerr << "\n[CRITICAL] Unknown exception in Phase 1 (collection creation).\n";
+               std::cerr << "   Attempting to join remaining threads...\n";
+
+               for (auto &t : collection_threads_vec)
+               {
+                    if (t.joinable())
+                    {
+                         try
+                         {
+                              t.join();
+                         }
+                         catch (...)
+                         {
+                              /* Ignore. */
+                         }
+                    }
+               }
+
+               std::cerr << "   Phase 1 failed - benchmark may be incomplete.\n";
+          }
+
+          if (!verbose_mode)
+          {
+               std::cout << "\n";
+          }
+
+          if (advanced_mode)
+          {
+               advanced_metrics.Phase1EndMS = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - start_time_val).count();
+               advanced_metrics.Phase1CollectionsCreated = collections_created.load();
+               advanced_metrics.Phase1CollectionsSkipped = collections_skipped.load();
+
+               int64_t phase1_duration_val = advanced_metrics.Phase1EndMS - advanced_metrics.Phase1StartMS;
+
+               if (phase1_duration_val > 0)
+               {
+                    advanced_metrics.Phase1ThroughputCollectionsPerSec = (collections_created.load() * 1000.0) / phase1_duration_val;
+               }
+          }
+
+          if (verbose_mode)
+          {
+               std::cout << "\n";
+               std::cout << "Collections created: " << collections_created.load() << ".\n";
+               std::cout << "Collections skipped: " << collections_skipped.load() << ".\n";
+          }
+
+          if (g_benchmark_should_stop.load())
+          {
+               std::cerr << "\n[INTERRUPT] Benchmark interrupted before Phase 2.\n";
+               return 1;
+          }
+
+          ResetProgressBar();
+
+          int docs_per_collection_val = num_documents / num_collections;
+          int remaining_docs_val = num_documents % num_collections;
+          auto ingest_start_time_val = std::chrono::high_resolution_clock::now();
+          auto ingest_end_time_val = ingest_start_time_val;
+          int64_t ingest_duration_ms = 0;
+
+          if (verbose_mode)
+          {
+               std::cout << "\nPhase 2: Inserting " << num_documents << " documents across " << num_collections << " collections...\n";
+               std::cout << "Documents per collection: " << docs_per_collection_val << ".\n";
+
+               if (remaining_docs_val > 0)
+               {
+                    std::cout << " (+ " << remaining_docs_val << " extra docs in first " << remaining_docs_val << " collections).\n";
+               }
+
+               std::cout << "\n";
+          }
+          else
+          {
+               std::cout << "Inserting documents...\n";
+          }
+
+          if (advanced_mode)
+          {
+               advanced_metrics.Phase2StartMS = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - start_time_val).count();
+               advanced_metrics.IngestStartMS = advanced_metrics.Phase2StartMS;
+          }
+
+          std::vector<std::thread> document_threads_vec;
+
+          try
+          {
+               for (int i = 0; i < active_document_threads; i++)
+               {
+                    if (g_benchmark_should_stop.load())
+                    {
+                         break;
+                    }
+
+                    document_threads_vec.emplace_back(InsertDocumentsThread, base_url, auth_token, num_collections, docs_per_collection_val, remaining_docs_val, i, active_document_threads, batch_size, advanced_mode, num_documents, run_id_val, reuse_collections);
+               }
+
+               for (auto &t : document_threads_vec)
+               {
+                    if (t.joinable())
+                    {
+                         if (g_benchmark_should_stop.load())
+                         {
+                              t.detach();
+                         }
+                         else
+                         {
+                              t.join();
+                         }
+                    }
+               }
+
+               if (g_benchmark_should_stop.load())
+               {
+                    std::cerr << "\n[INTERRUPT] Benchmark interrupted during Phase 2.\n";
+                    return 1;
+               }
+          }
+          catch (const std::exception &e)
+          {
+               std::cerr << "\n[CRITICAL] Exception in Phase 2 (document insertion): " << e.what() << ".\n";
+               std::cerr << "   Attempting to join remaining threads...\n";
+
+               for (auto &t : document_threads_vec)
+               {
+                    if (t.joinable())
+                    {
+                         try
+                         {
+                              t.join();
+                         }
+                         catch (...)
+                         {
+                              /* Ignore. */
+                         }
+                    }
+               }
+
+               std::cerr << "   Phase 2 failed - benchmark may be incomplete.\n";
+          }
+          catch (...)
+          {
+               std::cerr << "\n[CRITICAL] Unknown exception in Phase 2 (document insertion).\n";
+               std::cerr << "   Attempting to join remaining threads...\n";
+
+               for (auto &t : document_threads_vec)
+               {
+                    if (t.joinable())
+                    {
+                         try
+                         {
+                              t.join();
+                         }
+                         catch (...)
+                         {
+                              /* Ignore. */
+                         }
+                    }
+               }
+
+               std::cerr << "   Phase 2 failed - benchmark may be incomplete.\n";
+          }
+
+          if (!verbose_mode)
+          {
+               std::cout << "\n";
+          }
+
+          if (advanced_mode)
+          {
+               advanced_metrics.Phase2EndMS = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - start_time_val).count();
+               advanced_metrics.Phase2DocumentsInserted = documents_inserted.load();
+               advanced_metrics.Phase2DocumentsSkipped = documents_skipped.load();
+
+               int64_t phase2_duration_val = advanced_metrics.Phase2EndMS - advanced_metrics.Phase2StartMS;
+
+               if (phase2_duration_val > 0)
+               {
+                    advanced_metrics.Phase2ThroughputDocsPerSec = (documents_inserted.load() * 1000.0) / phase2_duration_val;
+               }
+          }
+
+          if (g_benchmark_should_stop.load())
+          {
+               std::cerr << "\n[INTERRUPT] Benchmark interrupted before Phase 2b.\n";
+               return 1;
+          }
+
+          int additional_docs_per_collection_val = 0;
+          int total_additional_docs_val = num_collections * additional_docs_per_collection_val;
+
+          if (verbose_mode)
+          {
+               std::cout << "\nPhase 2b: Inserting " << additional_docs_per_collection_val << " additional documents per collection (" << total_additional_docs_val << " total)...\n";
+          }
+          else
+          {
+               std::cout << "Inserting additional documents...\n";
+          }
+
+          std::vector<std::thread> additional_document_threads_vec;
+
+          try
+          {
+               for (int i = 0; i < active_document_threads; i++)
+               {
+                    if (g_benchmark_should_stop.load())
+                    {
+                         break;
+                    }
+
+                    additional_document_threads_vec.emplace_back(InsertAdditionalDocumentsThread, base_url, auth_token, num_collections, docs_per_collection_val, additional_docs_per_collection_val, i, active_document_threads, batch_size, advanced_mode, total_additional_docs_val, run_id_val, reuse_collections);
+               }
+
+               for (auto &t : additional_document_threads_vec)
+               {
+                    if (t.joinable())
+                    {
+                         if (g_benchmark_should_stop.load())
+                         {
+                              t.detach();
+                         }
+                         else
+                         {
+                              t.join();
+                         }
+                    }
+               }
+
+               if (g_benchmark_should_stop.load())
+               {
+                    std::cerr << "\n[INTERRUPT] Benchmark interrupted during Phase 2b.\n";
+                    return 1;
+               }
+          }
+          catch (const std::exception &e)
+          {
+               std::cerr << "\n[CRITICAL] Exception in Phase 2b (additional document insertion): " << e.what() << ".\n";
+               std::cerr << "   Attempting to join remaining threads...\n";
+
+               for (auto &t : additional_document_threads_vec)
+               {
+                    if (t.joinable())
+                    {
+                         try
+                         {
+                              t.join();
+                         }
+                         catch (...)
+                         {
+                              /* Ignore. */
+                         }
+                    }
+               }
+
+               std::cerr << "   Phase 2b failed - benchmark may be incomplete.\n";
+          }
+          catch (...)
+          {
+               std::cerr << "\n[CRITICAL] Unknown exception in Phase 2b (additional document insertion).\n";
+               std::cerr << "   Attempting to join remaining threads...\n";
+
+               for (auto &t : additional_document_threads_vec)
+               {
+                    if (t.joinable())
+                    {
+                         try
+                         {
+                              t.join();
+                         }
+                         catch (...)
+                         {
+                              /* Ignore. */
+                         }
+                    }
+               }
+
+               std::cerr << "   Phase 2b failed - benchmark may be incomplete.\n";
+          }
+
+          ingest_end_time_val = std::chrono::high_resolution_clock::now();
+          ingest_duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(ingest_end_time_val - ingest_start_time_val).count();
+
+          if (advanced_mode)
+          {
+               advanced_metrics.IngestEndMS = std::chrono::duration_cast<std::chrono::milliseconds>(ingest_end_time_val - start_time_val).count();
+               advanced_metrics.IngestDurationMS = ingest_duration_ms;
+          }
+
+          if (verbose_mode)
+          {
+               std::cout << "\nFlushing pending requests...\n";
+          }
+
+          int64_t flush_duration_ms = 0;
+          int flush_status_code = 0;
+          auto commit_end_time_val = ingest_end_time_val;
+
+          {
+               BenchmarkClient flush_client(base_url, auth_token);
+
+               auto flush_start = std::chrono::high_resolution_clock::now();
+               HTTPResponse flush_resp = flush_client.FlushSync();
+               auto flush_end = std::chrono::high_resolution_clock::now();
+
+               flush_duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(flush_end - flush_start).count();
+               flush_status_code = flush_resp.StatusCode;
+               commit_end_time_val = flush_end;
+
+               if (verbose_mode)
+               {
+                    std::cout << "  Flush/sync duration: " << flush_duration_ms << " ms.\n";
+               }
+
+               if (flush_resp.StatusCode != 200 && flush_resp.StatusCode != 201 && verbose_mode)
+               {
+                    std::cerr << "  Warning: Flush/sync returned status " << flush_resp.StatusCode << ".\n";
+               }
+          }
+
+          bool sanity_search_ok = true;
+          bool sanity_search_ok2 = true;
+          bool sanity_search_ran = false;
+          bool enable_sanity_search = false;
+
+          if (enable_sanity_search && num_collections > 0)
+          {
+               std::string sanity_collection = g_collection_prefix + "0";
+               BenchmarkClient sanity_client(base_url, auth_token);
+
+               if (verbose_mode)
+               {
+                    std::cout << "\nForcing index build via sanity search...\n";
+               }
+
+               const int max_attempts = 6;
+               for (int attempt = 1; attempt <= max_attempts; attempt++)
+               {
+                    PrintSpinner("Sanity search", attempt, max_attempts, false);
+                    sanity_search_ok = RunSanitySearch(sanity_client, sanity_collection, "Lorem", verbose_mode);
+                    sanity_search_ok2 = RunSanitySearch(sanity_client, sanity_collection, "Topic", verbose_mode);
+
+                    if (sanity_search_ok && sanity_search_ok2)
+                    {
+                         break;
+                    }
+
+                    std::this_thread::sleep_for(std::chrono::milliseconds(200 * attempt));
+               }
+               PrintSpinner("Sanity search", max_attempts, max_attempts, true);
+               sanity_search_ran = true;
+          }
+
+          auto end_time_val = std::chrono::high_resolution_clock::now();
+
+          auto ingest_commit_duration_val = std::chrono::duration_cast<std::chrono::milliseconds>(end_time_val - ingest_start_time_val);
+          auto duration_val = std::chrono::duration_cast<std::chrono::milliseconds>(end_time_val - start_time_val);
+          auto setup_duration_val = std::chrono::duration_cast<std::chrono::milliseconds>(ingest_start_time_val - start_time_val);
+
+          if (advanced_mode)
+          {
+               advanced_metrics.CommitStartMS = std::chrono::duration_cast<std::chrono::milliseconds>(ingest_end_time_val - start_time_val).count();
+               advanced_metrics.CommitEndMS = std::chrono::duration_cast<std::chrono::milliseconds>(end_time_val - start_time_val).count();
+               advanced_metrics.CommitDurationMS = flush_duration_ms;
+               advanced_metrics.CommitStatusCode = flush_status_code;
+               advanced_metrics.TotalEndMS = std::chrono::duration_cast<std::chrono::milliseconds>(end_time_val - start_time_val).count();
+
+               if (duration_val.count() > 0)
+               {
+                    advanced_metrics.TotalThroughputDocsPerSec = (documents_inserted.load() * 1000.0) / duration_val.count();
+               }
+          }
+
+          std::cout << "\n";
+          std::cout << "Benchmark Complete!.\n";
+          std::cout << "\n";
+          std::cout << "Collections created: " << collections_created.load() << ".\n";
+          std::cout << "Collections skipped: " << collections_skipped.load() << ".\n";
+          std::cout << "Target documents: " << num_documents << " base + " << total_additional_docs_val << " additional.\n";
+          int total_inserted = documents_inserted.load();
+          int additional_inserted = additional_documents_inserted.load();
+          int base_inserted = total_inserted - additional_inserted;
+          std::cout << "Documents inserted: " << total_inserted << " (base: " << base_inserted << ", additional: " << additional_inserted << ").\n";
+          std::cout << "Documents skipped: " << documents_skipped.load() << ".\n";
+          std::cout << "Ingest time: " << ingest_duration_ms << " ms.\n";
+          std::cout << "Commit time: " << flush_duration_ms << " ms.\n";
+          std::cout << "Ingest+commit time: " << ingest_commit_duration_val.count() << " ms.\n";
+          if (verbose_mode)
+          {
+               std::cout << "Setup time (cleanup + create): " << setup_duration_val.count() << " ms.\n";
+          }
+          if (ingest_commit_duration_val.count() > 0)
+          {
+               std::cout << "Ingest throughput: " << (documents_inserted.load() * 1000.0 / ingest_commit_duration_val.count()) << " docs/sec.\n";
+          }
+          else
+          {
+               std::cout << "Ingest throughput: 0 docs/sec.\n";
+          }
+          std::cout << "Total time (searchable): " << duration_val.count() << " ms.\n";
+          if (duration_val.count() > 0)
+          {
+               std::cout << "Searchable throughput: " << (documents_inserted.load() * 1000.0 / duration_val.count()) << " docs/sec.\n";
+          }
+          else
+          {
+               std::cout << "Searchable throughput: 0 docs/sec.\n";
+          }
+          std::string fsync_mode = (durability_config.WalSyncMode == "none") ? "off" : "on";
+          std::string durability_source = durability_config_loaded ? ("config: " + durability_path_used) : "config: not found";
+          std::cout << "Durability: wal_sync_mode=" << durability_config.WalSyncMode
+                    << ", wal_bytes_per_sync=" << durability_config.WalBytesPerSync
+                    << ", manual_wal_flush=" << durability_config.ManualWalFlush
+                    << ", fsync=" << fsync_mode << " (" << durability_source << ").\n";
+          std::cout << "Commit policy: sync/update-counters after ingest (status " << flush_status_code << ").\n";
+          std::cout << "Run ID: " << run_id_val << ".\n";
+
+          AdvancedMetrics before_metrics_val;
+
+          if (verify_after_restart)
+          {
+               if (verbose_mode)
+               {
+                    std::cout << "\nRecording initial counts before benchmark...\n";
+               }
+
+               BenchmarkClient before_client(base_url, auth_token);
+
+               GetFinalCounts(before_client, before_metrics_val, verbose_mode);
+
+               if (verbose_mode)
+               {
+                    std::cout << "  Initial collections: " << before_metrics_val.FinalCollectionsCount << ".\n";
+                    std::cout << "  Initial documents: " << before_metrics_val.FinalDocumentsCount << ".\n";
+               }
+          }
+
+          BenchmarkClient count_client_val(base_url, auth_token);
+
+          GetFinalCounts(count_client_val, advanced_metrics, verbose_mode);
+
+          if (advanced_metrics.FinalDocumentsCount > 0 && static_cast<int>(advanced_metrics.FinalDocumentsCount) < documents_inserted.load())
+          {
+               std::cerr << "\nERROR: Server reports " << advanced_metrics.FinalDocumentsCount << " documents but benchmark inserted " << documents_inserted.load() << ".\n";
+               std::cerr << "  This may indicate data loss or counting issues!.\n";
+
+               return 1;
+          }
+
+          int expected_docs_val = num_documents + total_additional_docs_val;
+          int benchmark_docs_val = CountBenchmarkDocuments(advanced_metrics);
+
+          if (benchmark_docs_val != expected_docs_val)
+          {
+               std::cerr << "\nERROR: Benchmark collections report " << benchmark_docs_val << " documents, expected " << expected_docs_val << ".\n";
+               std::cerr << "  This indicates missing or extra documents in benchmark collections.\n";
+
+               return 1;
+          }
+
+          if (enable_sanity_search && num_collections > 0)
+          {
+               if (!sanity_search_ran)
+               {
+                    std::string sanity_collection = g_collection_prefix + "0";
+                    sanity_search_ok = RunSanitySearch(count_client_val, sanity_collection, "Lorem", verbose_mode);
+                    sanity_search_ok2 = RunSanitySearch(count_client_val, sanity_collection, "Topic", verbose_mode);
+                    sanity_search_ran = true;
+               }
+
+               if (!sanity_search_ok || !sanity_search_ok2)
+               {
+                    std::string sanity_collection = g_collection_prefix + "0";
+                    std::cerr << "\nERROR: Sanity search verification failed (collection: " << sanity_collection << ").\n";
+                    std::cerr << "  This indicates documents are not searchable after commit.\n";
+
+                    return 1;
+               }
+          }
+
+          if (verbose_mode)
+          {
+               std::cout << "\nExpected final state:.\n";
+               std::cout << "  Collections: " << (collections_created.load() + collections_skipped.load()) << " total (" << collections_created.load() << " created, " << collections_skipped.load() << " reused).\n";
+               std::cout << "  Documents: " << documents_inserted.load() << " written (includes new + updated).\n";
+
+               if (!advanced_metrics.FinalCollectionNames.empty())
+               {
+                    std::cout << "  Collection names:.\n";
+
+                    for (size_t i = 0; i < std::min(static_cast<size_t>(10), advanced_metrics.FinalCollectionNames.size()); i++)
+                    {
+                         std::cout << "    - " << advanced_metrics.FinalCollectionNames[i] << ".\n";
+                    }
+
+                    if (advanced_metrics.FinalCollectionNames.size() > 10)
+                    {
+                         std::cout << "    ... and " << (advanced_metrics.FinalCollectionNames.size() - 10) << " more.\n";
+                    }
+               }
+          }
+
+          if (check_consistency_val)
+          {
+               CheckConsistency(count_client_val, verbose_mode);
+          }
+
+          if (verify_after_restart)
+          {
+               if (verbose_mode)
+               {
+                    std::cout << "\n=== VERIFY AFTER RESTART ===\n";
+                    std::cout << "Please restart the server now, then press Enter to continue verification...\n";
+               }
+               else
+               {
+                    std::cout << "\nPlease restart the server, then press Enter to continue...\n";
+               }
+
+               std::cin.get();
+
+               BenchmarkClient restart_client(base_url, auth_token);
+
+               AdvancedMetrics after_metrics_val;
+
+               if (verbose_mode)
+               {
+                    std::cout << "Verifying counts after restart...\n";
+               }
+
+               std::this_thread::sleep_for(std::chrono::milliseconds(500));
+
+               GetFinalCounts(restart_client, after_metrics_val, verbose_mode);
+
+               std::cout << "\n=== RESTART VERIFICATION RESULTS ===\n";
+               std::cout << "Before restart:.\n";
+               std::cout << "  Collections: " << before_metrics_val.FinalCollectionsCount << ".\n";
+               std::cout << "  Documents: " << before_metrics_val.FinalDocumentsCount << ".\n";
+               std::cout << "\nAfter restart:.\n";
+               std::cout << "  Collections: " << after_metrics_val.FinalCollectionsCount << ".\n";
+               std::cout << "  Documents: " << after_metrics_val.FinalDocumentsCount << ".\n";
+
+               bool mismatch_val = false;
+
+               if (before_metrics_val.FinalCollectionsCount != after_metrics_val.FinalCollectionsCount)
+               {
+                    std::cerr << "\nERROR: Collection count mismatch after restart!.\n";
+                    std::cerr << "  Before: " << before_metrics_val.FinalCollectionsCount << ".\n";
+                    std::cerr << "  After: " << after_metrics_val.FinalCollectionsCount << ".\n";
+
+                    mismatch_val = true;
+               }
+
+               if (before_metrics_val.FinalDocumentsCount != after_metrics_val.FinalDocumentsCount)
+               {
+                    std::cerr << "\nERROR: Document count mismatch after restart!.\n";
+                    std::cerr << "  Before: " << before_metrics_val.FinalDocumentsCount << ".\n";
+                    std::cerr << "  After: " << after_metrics_val.FinalDocumentsCount << ".\n";
+
+                    mismatch_val = true;
+               }
+
+               if (!mismatch_val)
+               {
+                    std::cout << "\n✓ Counts match after restart - verification passed!.\n";
+               }
+               else
+               {
+                    std::cerr << "\n✗ Counts do not match after restart - verification failed!.\n";
+                    std::cerr << "  This indicates a counter persistence or recovery issue.\n";
+               }
+
+               if (check_consistency_val)
+               {
+                    std::cout << "\nChecking consistency after restart...\n";
+
+                    CheckConsistency(restart_client, verbose_mode);
+               }
+          }
+
+          if (advanced_mode && !advanced_metrics.BatchTimings.empty())
+          {
+               advanced_metrics.LatencyPercentiles = CalculatePercentiles(advanced_metrics.BatchTimings);
+          }
+
+          if (advanced_mode)
+          {
+               WriteAdvancedJSON(advanced_output_file, advanced_metrics);
+          }
+
+          if (cleanup_benchmark_val)
+          {
+               CleanupBenchmarkCollections(count_client_val, verbose_mode);
+          }
+
+          return 0;
+     }
+     catch (const std::exception &e)
+     {
+          std::cerr << "\n[FATAL] Benchmark crashed with exception: " << e.what() << ".\n";
+
+          return 1;
+     }
+     catch (...)
+     {
+          std::cerr << "\n[FATAL] Benchmark crashed with unknown exception.\n";
+
+          return 1;
+     }
+}
+
+/* Signal handler for Ctrl+C. */
+
+void BenchmarkSignalHandler(int signal)
+{
+     (void)signal;
+
+     g_benchmark_should_stop.store(true);
+
+     if (log_file_stream && log_file_stream->is_open())
+     {
+          try
+          {
+               log_file_stream->close();
+
+               delete log_file_stream;
+
+               log_file_stream = nullptr;
+          }
+          catch (...)
+          {
+               /* Ignore. */
+          }
+     }
+
+     std::cerr << "\n[INTERRUPT] Ctrl+C received - stopping benchmark...\n";
+}
+
+/* Reset global statistics. */
+
+void ResetGlobalStats()
+{
+     collections_created = 0;
+     documents_inserted = 0;
+     additional_documents_inserted = 0;
+     collections_skipped = 0;
+     documents_skipped = 0;
+     additional_documents_skipped = 0;
+}

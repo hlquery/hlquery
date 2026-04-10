@@ -22,17 +22,15 @@
 namespace
 {
      std::vector<void (*)()> CleanupFuncs;
-
      std::mutex CleanupMutex;
-
      std::atomic<bool> ShuttingDownValue{false};
 }
+
 /* Register a cleanup function to be called on process termination */
 
 void ExitManager::RegisterCleanup(void (*FuncPointer)())
 {
      std::lock_guard<std::mutex> Lock(CleanupMutex);
-
      CleanupFuncs.push_back(FuncPointer);
 }
 
@@ -65,9 +63,7 @@ bool ExitManager::IsShuttingDown()
 void ExitManager::Exit(int ExitStatus)
 {
      ShuttingDownValue.store(true);
-
      RunCleanups();
-
      std::exit(ExitStatus);
 }
 
@@ -76,9 +72,7 @@ void ExitManager::Exit(int ExitStatus)
 void ExitManager::QuickExit(int ExitStatus)
 {
      ShuttingDownValue.store(true);
-
      RunCleanups();
-
      std::quick_exit(ExitStatus);
 }
 

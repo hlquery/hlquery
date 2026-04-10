@@ -16,7 +16,55 @@
 #include "core/hlquery.h"
 #include "core/timers.h"
 
-/* Default constructor */
+Timer::Timer() : NextRun(Clock::time_point::max()), Interval(0), Repeating(false)
+{
+
+}
+
+Timer::Timer(std::function<void()> callback, Clock::time_point next_run, std::chrono::milliseconds interval, bool repeating)
+     : NextRun(next_run), Interval(interval), Callback(std::move(callback)), Repeating(repeating)
+{
+
+}
+
+Timer::~Timer()
+{
+
+}
+
+bool Timer::IsDue(Clock::time_point now) const
+{
+     return now >= NextRun;
+}
+
+void Timer::Execute() const
+{
+     if (Callback)
+     {
+          std::function<void()> CallbackCopy = Callback;
+          CallbackCopy();
+     }
+}
+
+void Timer::UpdateAfterRun(Clock::time_point now)
+{
+     NextRun = Repeating ? now + Interval : Clock::time_point::max();
+}
+
+bool Timer::IsRepeating() const
+{
+     return Repeating;
+}
+
+bool Timer::IsRetired() const
+{
+     return !Repeating && NextRun == Clock::time_point::max();
+}
+
+Timer::Clock::time_point Timer::GetNextRun() const
+{
+     return NextRun;
+}
 
 TimerManager::TimerManager()
 {
@@ -32,7 +80,7 @@ TimerManager::~TimerManager()
 
 /* Add a new timer */
 
-void TimerManager::Add(Task task, std::chrono::milliseconds delay, bool repeating)
+void TimerManager::Add(std::function<void()> callback, std::chrono::milliseconds delay, bool repeating)
 {
      /* Protect the timer list */
 
@@ -42,7 +90,23 @@ void TimerManager::Add(Task task, std::chrono::milliseconds delay, bool repeatin
 
      auto now = Instance->Now();
 
-     Entries.push_back(Entry{now + delay, delay, std::move(task), repeating});
+     Entries.push_back(Timer(std::move(callback), now + delay, delay, repeating));
+
+     const size_t total_timers = Entries.size();
+
+     lock.unlock();
+
+     if (Instance && Instance->Modules)
+     {
+          try
+          {
+               NOTIFY_MODULES(OnNewTimer, static_cast<uint64_t>(std::max<int64_t>(0, delay.count())), repeating, total_timers);
+          }
+          catch (...)
+          {
+          
+          }
+     }
 }
 
 /* Execute due timers */
@@ -57,24 +121,17 @@ void TimerManager::Tick()
 
      auto now = Instance->Now();
 
-     for (auto& e : Entries)
+     for (auto &Entry : Entries)
      {
-          if (now >= e.next_run)
+          if (Entry.IsDue(now))
           {
-               if (e.task)
-               {
-                    /* Execute task without holding the lock to avoid deadlocks */
+               /* Execute task without holding the lock to avoid deadlocks */
 
-                    Task task_copy = e.task;
+               lock.unlock();
+               Entry.Execute();
+               lock.lock();
 
-                    lock.unlock();
-
-                    task_copy();
-
-                    lock.lock();
-               }
-
-               e.next_run = e.repeating ? now + e.interval : Clock::time_point::max();
+               Entry.UpdateAfterRun(now);
           }
      }
 
@@ -82,12 +139,11 @@ void TimerManager::Tick()
 
      Entries.erase(
           std::remove_if(Entries.begin(), Entries.end(),
-               [](const Entry& e)
-               {
-                    return !e.repeating && e.next_run == Clock::time_point::max();
-               }),
-          Entries.end()
-     );
+                         [](const Timer &Entry)
+                         {
+                              return Entry.IsRetired();
+                         }),
+          Entries.end());
 }
 
 /* Get milliseconds until next scheduled timer */
@@ -111,11 +167,11 @@ int TimerManager::GetTimeUntilNextMs()
 
      auto earliest = Clock::time_point::max();
 
-     for (const auto& e : Entries)
+     for (const auto &Entry : Entries)
      {
-          if (e.next_run < earliest)
+          if (Entry.GetNextRun() < earliest)
           {
-               earliest = e.next_run;
+               earliest = Entry.GetNextRun();
           }
      }
 
@@ -125,7 +181,6 @@ int TimerManager::GetTimeUntilNextMs()
      }
 
      auto diff = std::chrono::duration_cast<std::chrono::milliseconds>(earliest - now).count();
-
      return diff <= 0 ? 0 : static_cast<int>(diff);
 }
 
@@ -134,7 +189,6 @@ int TimerManager::GetTimeUntilNextMs()
 size_t TimerManager::GetTimerCount() const
 {
      std::shared_lock<std::shared_mutex> lock(MutexValue);
-
      return Entries.size();
 }
 
@@ -143,6 +197,5 @@ size_t TimerManager::GetTimerCount() const
 void TimerManager::Clear()
 {
      std::unique_lock<std::shared_mutex> lock(MutexValue);
-
      Entries.clear();
 }
