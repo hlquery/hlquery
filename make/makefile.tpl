@@ -48,6 +48,7 @@ BUILD_MODE ?= release
 CC       ?= cc
 CXX      = ${CXX}
 OS_NAME := $(shell uname -s 2>/dev/null || echo unknown)
+ARCH_NAME := $(shell uname -m 2>/dev/null || echo unknown)
 FS_LIB := -lstdc++fs
 ifneq ($(filter FreeBSD OpenBSD NetBSD DragonFly Darwin,$(OS_NAME)),)
   FS_LIB :=
@@ -153,13 +154,17 @@ else ifeq ($(BUILD_MODE),coverage)
 else
   # Release build (default): maximum optimization
   # -D_FORTIFY_SOURCE=2 requires -O2 or higher (we use -O3)
-  OPT_FLAGS = -O3 -march=native -mtune=native -DNDEBUG -D_FORTIFY_SOURCE=2
+  OPT_FLAGS = -O3 -DNDEBUG -D_FORTIFY_SOURCE=2
   LTO_FLAGS = -flto=auto
   STRIP_FLAGS = -Wl,--strip-all
 endif
 
 # Architecture-specific optimizations
-ARCH_FLAGS = -march=native -mtune=native
+ARCH_FLAGS =
+ifneq ($(OS_NAME),Darwin)
+  ARCH_FLAGS += -march=native -mtune=native
+endif
+OPT_FLAGS += $(ARCH_FLAGS)
 
 # Link-time optimization (LTO) - improves performance significantly
 LTO_CXXFLAGS = $(LTO_FLAGS)
@@ -178,8 +183,10 @@ ifeq ($(BUILD_MODE),release)
   # Additional performance optimizations
   OPT_FLAGS += -funroll-loops -ffast-math -finline-functions \
                -fomit-frame-pointer -fstrict-aliasing
-  # CPU-specific optimizations
-  OPT_FLAGS += -mfpmath=sse -msse4.2
+  # x86-only CPU tuning flags
+  ifneq ($(filter x86_64 amd64 i386 i686,$(ARCH_NAME)),)
+    OPT_FLAGS += -mfpmath=sse -msse4.2
+  endif
 endif
 
 # Combine all CXXFLAGS
@@ -210,10 +217,14 @@ else
 endif
 CONFIGURE_LDFLAGS = -ldl $(FS_LIB) -pthread -lssl -lcrypto
 EXTRA_LD_HARDEN_FLAGS = -Wl,--as-needed -Wl,-z,relro
-ifneq ($(filter FreeBSD OpenBSD NetBSD DragonFly,$(OS_NAME)),)
+ifneq ($(filter FreeBSD OpenBSD NetBSD DragonFly Darwin,$(OS_NAME)),)
   EXTRA_LD_HARDEN_FLAGS =
 endif
 LDFLAGS = $(CONFIGURE_LDFLAGS) $(BASE_LDFLAGS) $(ROCKSDB_LDFLAGS) $(LTO_LDFLAGS) $(STRIP_FLAGS) $(EXTRA_LD_HARDEN_FLAGS)
+
+ifeq ($(OS_NAME),Darwin)
+  STRIP_FLAGS =
+endif
 
 # Parallel compilation
 MAKEFLAGS += -j$(shell nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
