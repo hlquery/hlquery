@@ -34919,3 +34919,272 @@
 [2026-04-10 17:44:23] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
 [2026-04-10 17:44:23] [ OK ] [analytics] Analytics usage flush sent: buckets=7, total_requests=11.
 [2026-04-10 17:44:27] [ OK ] [daemon_health] ts=1775857465 pending_actions=0 pools_initialized=yes http_active=0 http_queue=0 search_active=0 search_queue=0 write_active=0 mgmt_active=1 modules_loaded=3 shutdown_in_progress=no signal_shutdown=0 force_exit=0 unhealthy_streak=0.
+[2026-04-10 17:44:33] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:44:33] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:44:33] [ OK ] [analytics] Analytics usage flush sent: buckets=7, total_requests=11.
+[2026-04-10 17:44:41] [ OK ] [daemon_health] ts=1775857480 pending_actions=0 pools_initialized=yes http_active=0 http_queue=0 search_active=0 search_queue=0 write_active=0 mgmt_active=1 modules_loaded=3 shutdown_in_progress=no signal_shutdown=0 force_exit=0 unhealthy_streak=0.
+[2026-04-10 17:44:43] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:44:43] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:44:43] [ OK ] [analytics] Analytics usage flush sent: buckets=7, total_requests=11.
+[2026-04-10 17:44:53] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:44:53] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:44:53] [ OK ] [analytics] Analytics usage flush sent: buckets=7, total_requests=11.
+[2026-04-10 17:44:56] [ OK ] [daemon_health] ts=1775857495 pending_actions=0 pools_initialized=yes http_active=0 http_queue=0 search_active=0 search_queue=0 write_active=0 mgmt_active=1 modules_loaded=3 shutdown_in_progress=no signal_shutdown=0 force_exit=0 unhealthy_streak=0.
+[2026-04-10 17:45:03] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:45:03] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:45:03] [ OK ] [analytics] Analytics usage flush sent: buckets=7, total_requests=11.
+[2026-04-10 17:45:11] [ OK ] [daemon_health] ts=1775857510 pending_actions=0 pools_initialized=yes http_active=0 http_queue=0 search_active=0 search_queue=0 write_active=0 mgmt_active=1 modules_loaded=3 shutdown_in_progress=no signal_shutdown=0 force_exit=0 unhealthy_streak=0.
+[2026-04-10 17:45:13] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:45:13] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:45:13] [ OK ] [analytics] Analytics usage flush sent: buckets=7, total_requests=11.
+[2026-04-10 17:45:23] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:45:23] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:45:23] [ OK ] [analytics] Analytics usage flush sent: buckets=7, total_requests=11.
+[2026-04-10 17:45:26] [ OK ] [daemon_health] ts=1775857525 pending_actions=0 pools_initialized=yes http_active=0 http_queue=0 search_active=0 search_queue=0 write_active=0 mgmt_active=1 modules_loaded=3 shutdown_in_progress=no signal_shutdown=0 force_exit=0 unhealthy_streak=0.
+[2026-04-10 17:45:33] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:45:33] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:45:33] [ OK ] [analytics] Analytics usage flush sent: buckets=7, total_requests=11.
+[2026-04-10 17:45:41] [ OK ] [daemon_health] ts=1775857540 pending_actions=0 pools_initialized=yes http_active=0 http_queue=0 search_active=0 search_queue=0 write_active=0 mgmt_active=1 modules_loaded=3 shutdown_in_progress=no signal_shutdown=0 force_exit=0 unhealthy_streak=0.
+[2026-04-10 17:45:43] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:45:43] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:45:43] [ OK ] [analytics] Analytics usage flush sent: buckets=7, total_requests=11.
+[2026-04-10 17:45:53] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:45:53] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:45:53] [ OK ] [analytics] Analytics usage flush sent: buckets=7, total_requests=11.
+[2026-04-10 17:45:56] [ OK ] [daemon_health] ts=1775857555 pending_actions=0 pools_initialized=yes http_active=0 http_queue=0 search_active=0 search_queue=0 write_active=0 mgmt_active=1 modules_loaded=3 shutdown_in_progress=no signal_shutdown=0 force_exit=0 unhealthy_streak=0.
+[2026-04-10 17:46:03] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:46:03] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:46:03] [ OK ] [analytics] Analytics usage flush sent: buckets=7, total_requests=11.
+[2026-04-10 17:46:11] [ OK ] [daemon_health] ts=1775857570 pending_actions=0 pools_initialized=yes http_active=0 http_queue=0 search_active=0 search_queue=0 write_active=0 mgmt_active=1 modules_loaded=3 shutdown_in_progress=no signal_shutdown=0 force_exit=0 unhealthy_streak=0.
+[2026-04-10 17:46:13] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:46:13] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:46:13] [ OK ] [analytics] Analytics usage flush sent: buckets=7, total_requests=11.
+[2026-04-10 17:46:23] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:46:23] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:46:23] [ OK ] [analytics] Analytics usage flush sent: buckets=7, total_requests=11.
+[2026-04-10 17:46:26] [ OK ] [daemon_health] ts=1775857585 pending_actions=0 pools_initialized=yes http_active=0 http_queue=0 search_active=0 search_queue=0 write_active=0 mgmt_active=1 modules_loaded=3 shutdown_in_progress=no signal_shutdown=0 force_exit=0 unhealthy_streak=0.
+[2026-04-10 17:46:33] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:46:33] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:46:33] [ OK ] [analytics] Analytics usage flush sent: buckets=7, total_requests=11.
+[2026-04-10 17:46:41] [ OK ] [daemon_health] ts=1775857600 pending_actions=0 pools_initialized=yes http_active=0 http_queue=0 search_active=0 search_queue=0 write_active=0 mgmt_active=1 modules_loaded=3 shutdown_in_progress=no signal_shutdown=0 force_exit=0 unhealthy_streak=0.
+[2026-04-10 17:46:43] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:46:43] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:46:43] [ OK ] [analytics] Analytics usage flush sent: buckets=7, total_requests=11.
+[2026-04-10 17:46:53] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:46:53] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:46:53] [ OK ] [analytics] Analytics usage flush sent: buckets=7, total_requests=11.
+[2026-04-10 17:46:56] [ OK ] [daemon_health] ts=1775857615 pending_actions=0 pools_initialized=yes http_active=0 http_queue=0 search_active=0 search_queue=0 write_active=0 mgmt_active=1 modules_loaded=3 shutdown_in_progress=no signal_shutdown=0 force_exit=0 unhealthy_streak=0.
+[2026-04-10 17:47:03] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:47:03] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:47:03] [ OK ] [analytics] Analytics usage flush sent: buckets=7, total_requests=11.
+[2026-04-10 17:47:11] [ OK ] [daemon_health] ts=1775857630 pending_actions=0 pools_initialized=yes http_active=0 http_queue=0 search_active=0 search_queue=0 write_active=0 mgmt_active=1 modules_loaded=3 shutdown_in_progress=no signal_shutdown=0 force_exit=0 unhealthy_streak=0.
+[2026-04-10 17:47:13] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:47:13] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:47:13] [ OK ] [analytics] Analytics usage flush sent: buckets=7, total_requests=11.
+[2026-04-10 17:47:23] [ OK ] [inverted_index] FlushToDisk: Flushing indexes to disk.
+[2026-04-10 17:47:23] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:47:23] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:47:23] [ OK ] [analytics] Analytics usage flush sent: buckets=7, total_requests=11.
+[2026-04-10 17:47:26] [ OK ] [daemon_health] ts=1775857645 pending_actions=0 pools_initialized=yes http_active=0 http_queue=0 search_active=0 search_queue=0 write_active=0 mgmt_active=1 modules_loaded=3 shutdown_in_progress=no signal_shutdown=0 force_exit=0 unhealthy_streak=0.
+[2026-04-10 17:47:33] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:47:33] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:47:33] [ OK ] [analytics] Analytics usage flush sent: buckets=7, total_requests=11.
+[2026-04-10 17:47:41] [ OK ] [daemon_health] ts=1775857660 pending_actions=0 pools_initialized=yes http_active=0 http_queue=0 search_active=0 search_queue=0 write_active=0 mgmt_active=1 modules_loaded=3 shutdown_in_progress=no signal_shutdown=0 force_exit=0 unhealthy_streak=0.
+[2026-04-10 17:47:43] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:47:43] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:47:43] [ OK ] [analytics] Analytics usage flush sent: buckets=7, total_requests=11.
+[2026-04-10 17:47:53] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:47:53] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:47:53] [ OK ] [analytics] Analytics usage flush sent: buckets=7, total_requests=11.
+[2026-04-10 17:47:56] [ OK ] [daemon_health] ts=1775857675 pending_actions=0 pools_initialized=yes http_active=0 http_queue=0 search_active=0 search_queue=0 write_active=0 mgmt_active=1 modules_loaded=3 shutdown_in_progress=no signal_shutdown=0 force_exit=0 unhealthy_streak=0.
+[2026-04-10 17:48:03] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:48:03] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:48:03] [ OK ] [analytics] Analytics usage flush sent: buckets=7, total_requests=11.
+[2026-04-10 17:48:11] [ OK ] [daemon_health] ts=1775857690 pending_actions=0 pools_initialized=yes http_active=0 http_queue=0 search_active=0 search_queue=0 write_active=0 mgmt_active=1 modules_loaded=3 shutdown_in_progress=no signal_shutdown=0 force_exit=0 unhealthy_streak=0.
+[2026-04-10 17:48:13] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:48:13] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:48:13] [ OK ] [analytics] Analytics usage flush sent: buckets=7, total_requests=11.
+[2026-04-10 17:48:23] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:48:23] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:48:23] [ OK ] [analytics] Analytics usage flush sent: buckets=7, total_requests=11.
+[2026-04-10 17:48:26] [ OK ] [daemon_health] ts=1775857705 pending_actions=0 pools_initialized=yes http_active=0 http_queue=0 search_active=0 search_queue=0 write_active=0 mgmt_active=1 modules_loaded=3 shutdown_in_progress=no signal_shutdown=0 force_exit=0 unhealthy_streak=0.
+[2026-04-10 17:48:33] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:48:33] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:48:33] [ OK ] [analytics] Analytics usage flush sent: buckets=7, total_requests=11.
+[2026-04-10 17:48:41] [ OK ] [daemon_health] ts=1775857720 pending_actions=0 pools_initialized=yes http_active=0 http_queue=0 search_active=0 search_queue=0 write_active=0 mgmt_active=1 modules_loaded=3 shutdown_in_progress=no signal_shutdown=0 force_exit=0 unhealthy_streak=0.
+[2026-04-10 17:48:43] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:48:43] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:48:43] [ OK ] [analytics] Analytics usage flush sent: buckets=7, total_requests=11.
+[2026-04-10 17:48:53] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:48:53] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:48:53] [ OK ] [analytics] Analytics usage flush sent: buckets=7, total_requests=11.
+[2026-04-10 17:48:56] [ OK ] [daemon_health] ts=1775857735 pending_actions=0 pools_initialized=yes http_active=0 http_queue=0 search_active=0 search_queue=0 write_active=0 mgmt_active=1 modules_loaded=3 shutdown_in_progress=no signal_shutdown=0 force_exit=0 unhealthy_streak=0.
+[2026-04-10 17:49:03] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:49:03] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:49:03] [ OK ] [analytics] Analytics usage flush sent: buckets=7, total_requests=11.
+[2026-04-10 17:49:11] [ OK ] [daemon_health] ts=1775857750 pending_actions=0 pools_initialized=yes http_active=0 http_queue=0 search_active=0 search_queue=0 write_active=0 mgmt_active=1 modules_loaded=3 shutdown_in_progress=no signal_shutdown=0 force_exit=0 unhealthy_streak=0.
+[2026-04-10 17:49:13] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:49:13] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:49:13] [ OK ] [analytics] Analytics usage flush sent: buckets=7, total_requests=11.
+[2026-04-10 17:49:23] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:49:23] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:49:23] [ OK ] [analytics] Analytics usage flush sent: buckets=7, total_requests=11.
+[2026-04-10 17:49:26] [ OK ] [daemon_health] ts=1775857765 pending_actions=0 pools_initialized=yes http_active=0 http_queue=0 search_active=0 search_queue=0 write_active=0 mgmt_active=1 modules_loaded=3 shutdown_in_progress=no signal_shutdown=0 force_exit=0 unhealthy_streak=0.
+[2026-04-10 17:49:33] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:49:33] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:49:33] [ OK ] [analytics] Analytics usage flush sent: buckets=7, total_requests=11.
+[2026-04-10 17:49:41] [ OK ] [daemon_health] ts=1775857780 pending_actions=0 pools_initialized=yes http_active=0 http_queue=0 search_active=0 search_queue=0 write_active=0 mgmt_active=1 modules_loaded=3 shutdown_in_progress=no signal_shutdown=0 force_exit=0 unhealthy_streak=0.
+[2026-04-10 17:49:43] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:49:43] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:49:43] [ OK ] [analytics] Analytics usage flush sent: buckets=7, total_requests=11.
+[2026-04-10 17:49:53] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:49:53] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:49:53] [ OK ] [analytics] Analytics usage flush sent: buckets=7, total_requests=11.
+[2026-04-10 17:49:56] [ OK ] [daemon_health] ts=1775857795 pending_actions=0 pools_initialized=yes http_active=0 http_queue=0 search_active=0 search_queue=0 write_active=0 mgmt_active=1 modules_loaded=3 shutdown_in_progress=no signal_shutdown=0 force_exit=0 unhealthy_streak=0.
+[2026-04-10 17:50:03] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:50:03] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:50:03] [ OK ] [analytics] Analytics usage flush sent: buckets=7, total_requests=11.
+[2026-04-10 17:50:11] [ OK ] [daemon_health] ts=1775857810 pending_actions=0 pools_initialized=yes http_active=0 http_queue=0 search_active=0 search_queue=0 write_active=0 mgmt_active=1 modules_loaded=3 shutdown_in_progress=no signal_shutdown=0 force_exit=0 unhealthy_streak=0.
+[2026-04-10 17:50:13] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:50:13] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:50:13] [ OK ] [analytics] Analytics usage flush sent: buckets=7, total_requests=11.
+[2026-04-10 17:50:23] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:50:23] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:50:23] [ OK ] [analytics] Analytics usage flush sent: buckets=7, total_requests=11.
+[2026-04-10 17:50:26] [ OK ] [daemon_health] ts=1775857825 pending_actions=0 pools_initialized=yes http_active=0 http_queue=0 search_active=0 search_queue=0 write_active=0 mgmt_active=1 modules_loaded=3 shutdown_in_progress=no signal_shutdown=0 force_exit=0 unhealthy_streak=0.
+[2026-04-10 17:50:33] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:50:33] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:50:33] [ OK ] [analytics] Analytics usage flush sent: buckets=7, total_requests=11.
+[2026-04-10 17:50:41] [ OK ] [daemon_health] ts=1775857840 pending_actions=0 pools_initialized=yes http_active=0 http_queue=0 search_active=0 search_queue=0 write_active=0 mgmt_active=1 modules_loaded=3 shutdown_in_progress=no signal_shutdown=0 force_exit=0 unhealthy_streak=0.
+[2026-04-10 17:50:43] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:50:43] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:50:43] [ OK ] [analytics] Analytics usage flush sent: buckets=7, total_requests=11.
+[2026-04-10 17:50:53] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:50:53] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:50:53] [ OK ] [analytics] Analytics usage flush sent: buckets=7, total_requests=11.
+[2026-04-10 17:50:56] [ OK ] [daemon_health] ts=1775857855 pending_actions=0 pools_initialized=yes http_active=0 http_queue=0 search_active=0 search_queue=0 write_active=0 mgmt_active=1 modules_loaded=3 shutdown_in_progress=no signal_shutdown=0 force_exit=0 unhealthy_streak=0.
+[2026-04-10 17:51:03] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:51:03] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:51:03] [ OK ] [analytics] Analytics usage flush sent: buckets=7, total_requests=11.
+[2026-04-10 17:51:11] [ OK ] [daemon_health] ts=1775857870 pending_actions=0 pools_initialized=yes http_active=0 http_queue=0 search_active=0 search_queue=0 write_active=0 mgmt_active=1 modules_loaded=3 shutdown_in_progress=no signal_shutdown=0 force_exit=0 unhealthy_streak=0.
+[2026-04-10 17:51:13] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:51:13] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:51:13] [ OK ] [analytics] Analytics usage flush sent: buckets=7, total_requests=11.
+[2026-04-10 17:51:23] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:51:23] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:51:23] [ OK ] [analytics] Analytics usage flush sent: buckets=7, total_requests=11.
+[2026-04-10 17:51:26] [ OK ] [daemon_health] ts=1775857885 pending_actions=0 pools_initialized=yes http_active=0 http_queue=0 search_active=0 search_queue=0 write_active=0 mgmt_active=1 modules_loaded=3 shutdown_in_progress=no signal_shutdown=0 force_exit=0 unhealthy_streak=0.
+[2026-04-10 17:51:33] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:51:33] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:51:33] [ OK ] [analytics] Analytics usage flush sent: buckets=7, total_requests=11.
+[2026-04-10 17:51:41] [ OK ] [daemon_health] ts=1775857900 pending_actions=0 pools_initialized=yes http_active=0 http_queue=0 search_active=0 search_queue=0 write_active=0 mgmt_active=1 modules_loaded=3 shutdown_in_progress=no signal_shutdown=0 force_exit=0 unhealthy_streak=0.
+[2026-04-10 17:51:43] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:51:43] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:51:43] [ OK ] [analytics] Analytics usage flush sent: buckets=7, total_requests=11.
+[2026-04-10 17:51:53] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:51:53] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:51:53] [ OK ] [analytics] Analytics usage flush sent: buckets=7, total_requests=11.
+[2026-04-10 17:51:56] [ OK ] [daemon_health] ts=1775857915 pending_actions=0 pools_initialized=yes http_active=0 http_queue=0 search_active=0 search_queue=0 write_active=0 mgmt_active=1 modules_loaded=3 shutdown_in_progress=no signal_shutdown=0 force_exit=0 unhealthy_streak=0.
+[2026-04-10 17:52:04] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:52:04] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:52:04] [ OK ] [analytics] Analytics usage flush sent: buckets=7, total_requests=11.
+[2026-04-10 17:52:11] [ OK ] [daemon_health] ts=1775857930 pending_actions=0 pools_initialized=yes http_active=0 http_queue=0 search_active=0 search_queue=0 write_active=0 mgmt_active=1 modules_loaded=3 shutdown_in_progress=no signal_shutdown=0 force_exit=0 unhealthy_streak=0.
+[2026-04-10 17:52:14] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:52:14] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:52:14] [ OK ] [analytics] Analytics usage flush sent: buckets=7, total_requests=11.
+[2026-04-10 17:52:23] [ OK ] [inverted_index] FlushToDisk: Flushing indexes to disk.
+[2026-04-10 17:52:24] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:52:24] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:52:24] [ OK ] [analytics] Analytics usage flush sent: buckets=7, total_requests=11.
+[2026-04-10 17:52:26] [ OK ] [daemon_health] ts=1775857945 pending_actions=0 pools_initialized=yes http_active=0 http_queue=0 search_active=0 search_queue=0 write_active=0 mgmt_active=1 modules_loaded=3 shutdown_in_progress=no signal_shutdown=0 force_exit=0 unhealthy_streak=0.
+[2026-04-10 17:52:34] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:52:34] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:52:34] [ OK ] [analytics] Analytics usage flush sent: buckets=7, total_requests=11.
+[2026-04-10 17:52:41] [ OK ] [daemon_health] ts=1775857960 pending_actions=0 pools_initialized=yes http_active=0 http_queue=0 search_active=0 search_queue=0 write_active=0 mgmt_active=1 modules_loaded=3 shutdown_in_progress=no signal_shutdown=0 force_exit=0 unhealthy_streak=0.
+[2026-04-10 17:52:44] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:52:44] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:52:44] [ OK ] [analytics] Analytics usage flush sent: buckets=7, total_requests=11.
+[2026-04-10 17:52:54] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:52:54] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:52:54] [ OK ] [analytics] Analytics usage flush sent: buckets=7, total_requests=11.
+[2026-04-10 17:52:56] [ OK ] [daemon_health] ts=1775857975 pending_actions=0 pools_initialized=yes http_active=0 http_queue=0 search_active=0 search_queue=0 write_active=0 mgmt_active=1 modules_loaded=3 shutdown_in_progress=no signal_shutdown=0 force_exit=0 unhealthy_streak=0.
+[2026-04-10 17:53:04] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:53:04] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:53:04] [ OK ] [analytics] Analytics usage flush sent: buckets=7, total_requests=11.
+[2026-04-10 17:53:11] [ OK ] [daemon_health] ts=1775857990 pending_actions=0 pools_initialized=yes http_active=0 http_queue=0 search_active=0 search_queue=0 write_active=0 mgmt_active=1 modules_loaded=3 shutdown_in_progress=no signal_shutdown=0 force_exit=0 unhealthy_streak=0.
+[2026-04-10 17:53:14] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:53:14] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:53:14] [ OK ] [analytics] Analytics usage flush sent: buckets=7, total_requests=11.
+[2026-04-10 17:53:24] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:53:24] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:53:24] [ OK ] [analytics] Analytics usage flush sent: buckets=7, total_requests=11.
+[2026-04-10 17:53:26] [ OK ] [daemon_health] ts=1775858005 pending_actions=0 pools_initialized=yes http_active=0 http_queue=0 search_active=0 search_queue=0 write_active=0 mgmt_active=1 modules_loaded=3 shutdown_in_progress=no signal_shutdown=0 force_exit=0 unhealthy_streak=0.
+[2026-04-10 17:53:34] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:53:34] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:53:34] [ OK ] [analytics] Analytics usage flush sent: buckets=7, total_requests=11.
+[2026-04-10 17:53:41] [ OK ] [daemon_health] ts=1775858020 pending_actions=0 pools_initialized=yes http_active=0 http_queue=0 search_active=0 search_queue=0 write_active=0 mgmt_active=1 modules_loaded=3 shutdown_in_progress=no signal_shutdown=0 force_exit=0 unhealthy_streak=0.
+[2026-04-10 17:53:44] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:53:44] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:53:44] [ OK ] [analytics] Analytics usage flush sent: buckets=7, total_requests=11.
+[2026-04-10 17:53:54] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:53:54] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:53:54] [ OK ] [analytics] Analytics usage flush sent: buckets=7, total_requests=11.
+[2026-04-10 17:53:56] [ OK ] [daemon_health] ts=1775858035 pending_actions=0 pools_initialized=yes http_active=0 http_queue=0 search_active=0 search_queue=0 write_active=0 mgmt_active=1 modules_loaded=3 shutdown_in_progress=no signal_shutdown=0 force_exit=0 unhealthy_streak=0.
+[2026-04-10 17:54:04] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:54:04] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:54:04] [ OK ] [analytics] Analytics usage flush sent: buckets=7, total_requests=11.
+[2026-04-10 17:54:11] [ OK ] [daemon_health] ts=1775858050 pending_actions=0 pools_initialized=yes http_active=0 http_queue=0 search_active=0 search_queue=0 write_active=0 mgmt_active=1 modules_loaded=3 shutdown_in_progress=no signal_shutdown=0 force_exit=0 unhealthy_streak=0.
+[2026-04-10 17:54:14] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:54:14] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:54:14] [ OK ] [analytics] Analytics usage flush sent: buckets=7, total_requests=11.
+[2026-04-10 17:54:24] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:54:24] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:54:24] [ OK ] [analytics] Analytics usage flush sent: buckets=7, total_requests=11.
+[2026-04-10 17:54:26] [ OK ] [daemon_health] ts=1775858065 pending_actions=0 pools_initialized=yes http_active=0 http_queue=0 search_active=0 search_queue=0 write_active=0 mgmt_active=1 modules_loaded=3 shutdown_in_progress=no signal_shutdown=0 force_exit=0 unhealthy_streak=0.
+[2026-04-10 17:54:34] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:54:34] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:54:34] [ OK ] [analytics] Analytics usage flush sent: buckets=7, total_requests=11.
+[2026-04-10 17:54:41] [ OK ] [daemon_health] ts=1775858080 pending_actions=0 pools_initialized=yes http_active=0 http_queue=0 search_active=0 search_queue=0 write_active=0 mgmt_active=1 modules_loaded=3 shutdown_in_progress=no signal_shutdown=0 force_exit=0 unhealthy_streak=0.
+[2026-04-10 17:54:44] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:54:44] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:54:44] [ OK ] [analytics] Analytics usage flush sent: buckets=7, total_requests=11.
+[2026-04-10 17:54:54] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:54:54] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:54:54] [ OK ] [analytics] Analytics usage flush sent: buckets=7, total_requests=11.
+[2026-04-10 17:54:56] [ OK ] [daemon_health] ts=1775858095 pending_actions=0 pools_initialized=yes http_active=0 http_queue=0 search_active=0 search_queue=0 write_active=0 mgmt_active=1 modules_loaded=3 shutdown_in_progress=no signal_shutdown=0 force_exit=0 unhealthy_streak=0.
+[2026-04-10 17:55:04] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:55:04] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:55:04] [ OK ] [analytics] Analytics usage flush sent: buckets=7, total_requests=11.
+[2026-04-10 17:55:11] [ OK ] [daemon_health] ts=1775858110 pending_actions=0 pools_initialized=yes http_active=0 http_queue=0 search_active=0 search_queue=0 write_active=0 mgmt_active=1 modules_loaded=3 shutdown_in_progress=no signal_shutdown=0 force_exit=0 unhealthy_streak=0.
+[2026-04-10 17:55:14] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:55:14] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:55:14] [ OK ] [analytics] Analytics usage flush sent: buckets=7, total_requests=11.
+[2026-04-10 17:55:24] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:55:24] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:55:24] [ OK ] [analytics] Analytics usage flush sent: buckets=7, total_requests=11.
+[2026-04-10 17:55:26] [ OK ] [daemon_health] ts=1775858125 pending_actions=0 pools_initialized=yes http_active=0 http_queue=0 search_active=0 search_queue=0 write_active=0 mgmt_active=1 modules_loaded=3 shutdown_in_progress=no signal_shutdown=0 force_exit=0 unhealthy_streak=0.
+[2026-04-10 17:55:34] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:55:34] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:55:34] [ OK ] [analytics] Analytics usage flush sent: buckets=7, total_requests=11.
+[2026-04-10 17:55:41] [ OK ] [daemon_health] ts=1775858140 pending_actions=0 pools_initialized=yes http_active=0 http_queue=0 search_active=0 search_queue=0 write_active=0 mgmt_active=1 modules_loaded=3 shutdown_in_progress=no signal_shutdown=0 force_exit=0 unhealthy_streak=0.
+[2026-04-10 17:55:44] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:55:44] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:55:44] [ OK ] [analytics] Analytics usage flush sent: buckets=7, total_requests=11.
+[2026-04-10 17:55:54] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:55:54] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:55:54] [ OK ] [analytics] Analytics usage flush sent: buckets=7, total_requests=11.
+[2026-04-10 17:55:56] [ OK ] [daemon_health] ts=1775858155 pending_actions=0 pools_initialized=yes http_active=0 http_queue=0 search_active=0 search_queue=0 write_active=0 mgmt_active=1 modules_loaded=3 shutdown_in_progress=no signal_shutdown=0 force_exit=0 unhealthy_streak=0.
+[2026-04-10 17:56:04] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:56:04] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:56:04] [ OK ] [analytics] Analytics usage flush sent: buckets=7, total_requests=11.
+[2026-04-10 17:56:11] [ OK ] [daemon_health] ts=1775858170 pending_actions=0 pools_initialized=yes http_active=0 http_queue=0 search_active=0 search_queue=0 write_active=0 mgmt_active=1 modules_loaded=3 shutdown_in_progress=no signal_shutdown=0 force_exit=0 unhealthy_streak=0.
+[2026-04-10 17:56:14] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:56:14] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:56:14] [ OK ] [analytics] Analytics usage flush sent: buckets=7, total_requests=11.
+[2026-04-10 17:56:24] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:56:24] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:56:24] [ OK ] [analytics] Analytics usage flush sent: buckets=7, total_requests=11.
+[2026-04-10 17:56:26] [ OK ] [daemon_health] ts=1775858185 pending_actions=0 pools_initialized=yes http_active=0 http_queue=0 search_active=0 search_queue=0 write_active=0 mgmt_active=1 modules_loaded=3 shutdown_in_progress=no signal_shutdown=0 force_exit=0 unhealthy_streak=0.
+[2026-04-10 17:56:34] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:56:34] [ OK ] [analytics] Analytics flush failed: could not connect to 'http://127.0.0.1:8089/v1/analytics/hlquery'.
+[2026-04-10 17:56:34] [ OK ] [analytics] Analytics usage flush sent: buckets=7, total_requests=11.

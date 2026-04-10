@@ -15,7 +15,7 @@
 [![GitHub stars](https://img.shields.io/github/stars/hlquery/hlquery?style=social)](https://github.com/hlquery/hlquery/stargazers)
 [![License](https://img.shields.io/badge/License-BSD%203--Clause-blue.svg)](https://opensource.org/licenses/BSD-3-Clause)
 
-[Documentation](https://docs.hlquery.com) • [GitHub](https://github.com/hlquery/hlquery) • [Discord](https://discord.gg/hlquery)
+[Documentation](https://docs.hlquery.com) • [GitHub](https://github.com/hlquery/hlquery) • [Discord](https://discord.hlquery.com)
 
 </div>
 
@@ -294,12 +294,12 @@ We welcome contributions from the community! All contributions must be released 
 - Contribute to client libraries (Node.js, Python, PHP, Rust, Perl, C++)
 - Test and report bugs
 - Improve documentation
-- Join our [Discord community](https://discord.gg/hlquery)
+- Join our [Discord community](https://discord.hlquery.com)
 
 ## Community
 
 - 📖 [Documentation](https://docs.hlquery.com)
-- 💬 [Discord](https://discord.gg/hlquery)
+- 💬 [Discord](https://discord.hlquery.com)
 - 🐦 [X (Twitter)](https://x.com/hlquery)
 - 📦 [GitHub](https://github.com/hlquery/hlquery)
 
