@@ -44,6 +44,7 @@
 #include "search/rfusion.h"
 #include "search/cstore.h"
 #include "search/lindex.h"
+#include "search/sam.h"
 #include "utils/consolewriter.h"
 #include "utils/protocol.h"
 #include "utils/wildcard.h"
@@ -90,6 +91,38 @@ static nlohmann::json BuildDocumentJSON(const Document &Doc)
      return J;
 }
 
+}
+
+static void SyncSamDocument(const std::string& CollectionName, const Document& Doc)
+{
+     if (!Instance || !Instance->Sam)
+     {
+          return;
+     }
+
+     std::string ErrorMessage;
+
+     if (!Instance->Sam->IndexDocument(CollectionName, Doc, &ErrorMessage) &&
+         Instance->Logs && !ErrorMessage.empty())
+     {
+          Instance->Logs->Normal("sam", "Failed to index SAM document '" + CollectionName + "/" + Doc.ID + "': " + ErrorMessage + ".");
+     }
+}
+
+static void RemoveSamDocument(const std::string& CollectionName, const std::string& DocumentID)
+{
+     if (!Instance || !Instance->Sam)
+     {
+          return;
+     }
+
+     std::string ErrorMessage;
+
+     if (!Instance->Sam->DeleteDocument(CollectionName, DocumentID, &ErrorMessage) &&
+         Instance->Logs && !ErrorMessage.empty())
+     {
+          Instance->Logs->Normal("sam", "Failed to delete SAM document '" + CollectionName + "/" + DocumentID + "': " + ErrorMessage + ".");
+     }
 }
 /* HandleListDocuments lists documents in a collection with pagination and sorting. */
 
@@ -868,6 +901,8 @@ HttpResponse SearchAPI::HandleAddDocument(const HttpRequest &Request)
           return Response;
      }
 
+     SyncSamDocument(CollectionName, DocumentObj);
+
      MaybeTriggerCrashInjection("replication_after_local_write");
 
      if (!MarkReplicationOutboxCommitted(ReplicationOutboxID, Request, "add_document", &ReplicationJournalError))
@@ -1190,6 +1225,8 @@ HttpResponse SearchAPI::HandleUpdateDocument(const HttpRequest &Request)
           return Response;
      }
 
+     SyncSamDocument(CollectionName, StorageDoc);
+
      MaybeTriggerCrashInjection("replication_after_local_write");
 
      if (!MarkReplicationOutboxCommitted(ReplicationOutboxID, Request, "update_document", &ReplicationJournalError))
@@ -1294,6 +1331,8 @@ HttpResponse SearchAPI::HandleDeleteDocument(const HttpRequest &Request)
           ClearReplicationOutboxRecord(ReplicationOutboxID);
           return BuildErrorResponse(Status::NOT_FOUND, Code::DOCUMENT_NOT_FOUND, "Document not found", "The specified document does not exist in this collection.");
      }
+
+     RemoveSamDocument(CollectionName, DocumentID);
 
      MaybeTriggerCrashInjection("replication_after_local_write");
 
@@ -1425,6 +1464,7 @@ HttpResponse SearchAPI::HandleDeleteDocumentsByFilter(const HttpRequest &Request
           if (HybridStorageManagerInstance().DeleteDocument(CollectionName, DocID))
           {
                DeletedVal++;
+               RemoveSamDocument(CollectionName, DocID);
           }
           else
           {
@@ -2073,6 +2113,7 @@ HttpResponse SearchAPI::HandleBulkImportDocuments(const HttpRequest &Request)
                               if (HybridStorageManagerInstance().AddDocument(CollectionName, StorageDoc))
                               {
                                    IndividualSuccessCount++;
+                                   SyncSamDocument(CollectionName, StorageDoc);
                               }
                               else
                               {
@@ -2113,6 +2154,18 @@ HttpResponse SearchAPI::HandleBulkImportDocuments(const HttpRequest &Request)
      }
 
      Response.Body = ResponseJSON.dump();
+
+     if (ImportedCount > 0 && Instance && Instance->Sam)
+     {
+          std::string SamError;
+
+          if (!Instance->Sam->Recreate(&SamError) &&
+              Instance->Logs && !SamError.empty())
+          {
+               Instance->Logs->Normal("sam", "Failed to rebuild SAM after bulk import: " + SamError + ".");
+          }
+     }
+
      if (ImportedCount > 0)
      {
           if (IsResyncImport)

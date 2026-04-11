@@ -24,28 +24,27 @@
 ## Overview
 
 hlquery is an open source search engine written in C++17 and backed by RocksDB. It is designed for applications that need fast indexing, real-time queries, and a straightforward HTTP/JSON interface without giving up advanced search features. The engine supports full-text search, hybrid ranking, vector similarity, flexible collections, and configurable runtime modules for features such as AI-assisted search.
-
-It exposes a REST API for indexing, querying, and administration, and includes command-line tools for local management and testing. Documentation is available at [docs.hlquery.com](https://docs.hlquery.com), the source repository lives at [github.com/hlquery/hlquery](https://github.com/hlquery/hlquery), community chat is on [discord.hlquery.com](https://discord.hlquery.com), and issue tracking is handled at [github.com/hlquery/hlquery/issues](https://github.com/hlquery/hlquery/issues).
+It exposes a REST API for indexing, querying, and administration, and includes command-line tools for local management and testing.
 
 ## Quick Start
 
 Clone the repository normally:
 
 ```bash
-git clone https://github.com/hlquery/hlquery.git
-cd hlquery
+$ git clone https://github.com/hlquery/hlquery.git
+$ cd hlquery
 ```
 
 ### Prerequisites
 
 **Debian/Ubuntu:**
 ```bash
-sudo apt-get install build-essential cmake
+$ sudo apt-get install build-essential cmake
 ```
 
 **RedHat/CentOS:**
 ```bash
-dnf install @development-tools
+$ dnf install @development-tools
 ```
 
 **macOS:**
@@ -157,14 +156,15 @@ For complete API documentation, visit [docs.hlquery.com](https://docs.hlquery.co
 
 ## LLM Model Helpers
 
-Use the bundled downloader in `tools/download` (which can also be executed as `perl tools/download`) to fetch GGUF artifacts into `run/models`. The script knows several presets (run `tools/download --list-names`) and accepts `--byname`, `--repo`, `--file`, or `--url` to point at a different Hugging Face repo or direct link. Override `--dir`/`--out` to target custom paths, and pass `--force` to re-download an already existing file.
+Use the bundled downloader in `tools/llm` (which can also be executed as `perl tools/llm`) to fetch GGUF artifacts into `run/models`. By default it pulls a smaller Qwen preset and refuses downloads above 2GB unless you override `--max-gb`. The script knows several presets (run `tools/llm --list-names`) and accepts `--byname`, `--repo`, `--file`, or `--url` to point at a different Hugging Face repo or direct link. Override `--dir`/`--out` to target custom paths, and pass `--force` to re-download an already existing file.
 
 ```bash
-tools/download --byname qwen_latest
-tools/download --repo TheBloke/Baichuan2-7B-Chat-GGUF --file baichuan2-7b-chat.Q4_K_M.gguf
+tools/llm
+tools/llm --byname qwen_latest --max-gb 8
+tools/llm --repo TheBloke/Baichuan2-7B-Chat-GGUF --file baichuan2-7b-chat.Q4_K_M.gguf
 ```
 
-Paths are resolved relative to the config directory, so `models_dir="run/models"` just needs to exist once you've downloaded the weights.
+Paths are resolved relative to the config directory, so the default `<llm models_dir="../models" ...>` in `run/conf/hlquery.conf` points at `run/models`.
 
 ## AI Search Smoke Test
 

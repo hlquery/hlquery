@@ -38,6 +38,7 @@
 #include "core/hlquery.h"
 #include "core/socketengine.h"
 #include "search/cstore.h"
+#include "search/sam.h"
 #include "search/storageengine.h"
 #include "utils/consolewriter.h"
 #include "utils/infos.h"
@@ -1804,6 +1805,12 @@ void hlquery::Cleanup()
      else
      {
           SearchAPI::GetInstance().Shutdown();
+     }
+
+     if (Instance && Instance->Sam)
+     {
+          Instance->Sam->Shutdown();
+          Instance->Sam.reset();
      }
 
      HybridStorageManagerInstance().Shutdown();

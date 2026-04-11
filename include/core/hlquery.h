@@ -46,6 +46,64 @@
 
 CoreExport extern hlquery* Instance;
 
+/*
+ * Lightweight runtime view of the local LLM configuration.
+ * This mirrors the resolved model settings loaded through ServerConfig.
+ */
+
+class CoreExport llm
+{
+   public:
+
+     llm() = default;
+
+     explicit llm(const ServerConfig& ConfigValue)
+         : ModelsDirectory(ConfigValue.GetAIModelsDirectory()),
+           ModelName(ConfigValue.GetAIModelName()),
+           ModelPath(ConfigValue.GetAIModelPath()),
+           InferenceCommand(ConfigValue.GetAIInferenceCommand())
+     {
+     }
+
+     bool Empty() const
+     {
+          return ModelsDirectory.empty() && ModelName.empty() &&
+                 ModelPath.empty() && InferenceCommand.empty();
+     }
+
+     bool Configured() const
+     {
+          return !ModelPath.empty();
+     }
+
+     const std::string& GetModelsDirectory() const
+     {
+          return ModelsDirectory;
+     }
+
+     const std::string& GetModelName() const
+     {
+          return ModelName;
+     }
+
+     const std::string& GetModelPath() const
+     {
+          return ModelPath;
+     }
+
+     const std::string& GetInferenceCommand() const
+     {
+          return InferenceCommand;
+     }
+
+   private:
+
+     std::string ModelsDirectory;
+     std::string ModelName;
+     std::string ModelPath;
+     std::string InferenceCommand;
+};
+
 /* 
  * hlquery's main class.
  * This object coordinates process startup, runtime services,
@@ -314,6 +372,14 @@ class CoreExport hlquery
      /* Server configuration object */
 
      std::unique_ptr<ServerConfig> Config;
+
+     /* Resolved local LLM runtime configuration */
+
+     std::unique_ptr<llm> LLM;
+
+     /* Secondary Assistant Manager */
+
+     std::unique_ptr<SAM> Sam;
 
      /* Server statistics */
 

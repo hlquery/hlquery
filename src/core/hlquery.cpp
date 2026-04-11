@@ -44,6 +44,7 @@
 #include "core/socketengine.h"
 #include "core/threadlimit.h"
 #include "search/storageengine.h"
+#include "search/sam.h"
 #include "search/cstore.h"
 #include "search/lindex.h"
 #include "utils/consolewriter.h"
@@ -122,6 +123,15 @@ bool hlquery::Initialize()
      if (!InitializeServer())
      {
           return false;
+     }
+
+     LLM = std::make_unique<llm>(*Config);
+
+     Sam = std::make_unique<SAM>();
+
+     if (Sam && !Sam->Initialize())
+     {
+          Sam.reset();
      }
 
      /* Verify that critical subsystems are initialized properly */

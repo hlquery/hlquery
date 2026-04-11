@@ -18,8 +18,8 @@ obj/
 *.dll
 *.exe
 run/logs/
-run/models/
 run/models/*
+!run/models/.gitignore
 run/ai/
 run/modules/*.so
 run/data/
