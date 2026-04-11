@@ -223,14 +223,18 @@ ifneq ($(filter FreeBSD OpenBSD NetBSD DragonFly Darwin,$(OS_NAME)),)
   EXTRA_LD_HARDEN_FLAGS =
 endif
 LDFLAGS = $(CONFIGURE_LDFLAGS) $(BASE_LDFLAGS) $(ROCKSDB_LDFLAGS) $(LTO_LDFLAGS) $(STRIP_FLAGS) $(EXTRA_LD_HARDEN_FLAGS)
+MODULE_SHARED_LDFLAGS =
 
 ifeq ($(OS_NAME),Darwin)
   STRIP_FLAGS =
+  RDYNAMIC ?= -Wl,-export_dynamic
+  MODULE_SHARED_LDFLAGS = -Wl,-undefined,dynamic_lookup
+else
+  RDYNAMIC ?= -rdynamic
 endif
 
 # Parallel compilation
 MAKEFLAGS += -j$(shell nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
-RDYNAMIC ?= -rdynamic
 
 # FEATURE FLAGS
 
@@ -522,13 +526,13 @@ ${MODULE_ANNOTATION_CXXFLAGS}
 $(RUN_DIR)/modules/%.so: $(OBJ_DIR)/modules/%.module.o | $(BIN_DIR)
 	@mkdir -p $(dir $@)
 	@rm -f $(SRC_DIR)/modules/$*.so
-	$(CXX) -shared -o $@ $< $(CONFIGURE_LDFLAGS) $(MODULE_EXTRA_LDFLAGS)
+	$(CXX) -shared -o $@ $< $(CONFIGURE_LDFLAGS) $(MODULE_SHARED_LDFLAGS) $(MODULE_EXTRA_LDFLAGS)
 
 define MODULE_DIR_RULE
 $(RUN_DIR)/modules/$(1).so: $$(patsubst $$(SRC_DIR)/modules/%.cpp,$$(OBJ_DIR)/modules/%.module.o,$$(wildcard $$(SRC_DIR)/modules/$(1)/*.cpp)) | $$(BIN_DIR)
 	@mkdir -p $$(dir $$@)
 	@rm -f $$(SRC_DIR)/modules/$(1).so
-	$(CXX) -shared -o $$@ $$^ $$(CONFIGURE_LDFLAGS) $$(MODULE_EXTRA_LDFLAGS)
+	$(CXX) -shared -o $$@ $$^ $$(CONFIGURE_LDFLAGS) $$(MODULE_SHARED_LDFLAGS) $$(MODULE_EXTRA_LDFLAGS)
 endef
 
 # Per-module linker flags injected by configure.
