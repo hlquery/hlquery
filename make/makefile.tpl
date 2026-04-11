@@ -523,13 +523,13 @@ $(OBJ_DIR)/modules/%.module.o: $(SRC_DIR)/modules/%.cpp | $(OBJ_DIR)
 # Per-module annotation flags injected by configure.
 ${MODULE_ANNOTATION_CXXFLAGS}
 
-$(RUN_DIR)/modules/%.so: $(OBJ_DIR)/modules/%.module.o | $(BIN_DIR)
+$(RUN_DIR)/modules/%.so: $(OBJ_DIR)/modules/%.module.o | $(BIN_DIR) $(ROCKSDB_LIB)
 	@mkdir -p $(dir $@)
 	@rm -f $(SRC_DIR)/modules/$*.so
 	$(CXX) -shared -o $@ $< $(CONFIGURE_LDFLAGS) $(MODULE_SHARED_LDFLAGS) $(MODULE_EXTRA_LDFLAGS)
 
 define MODULE_DIR_RULE
-$(RUN_DIR)/modules/$(1).so: $$(patsubst $$(SRC_DIR)/modules/%.cpp,$$(OBJ_DIR)/modules/%.module.o,$$(wildcard $$(SRC_DIR)/modules/$(1)/*.cpp)) | $$(BIN_DIR)
+$(RUN_DIR)/modules/$(1).so: $$(patsubst $$(SRC_DIR)/modules/%.cpp,$$(OBJ_DIR)/modules/%.module.o,$$(wildcard $$(SRC_DIR)/modules/$(1)/*.cpp)) | $$(BIN_DIR) $$(ROCKSDB_LIB)
 	@mkdir -p $$(dir $$@)
 	@rm -f $$(SRC_DIR)/modules/$(1).so
 	$(CXX) -shared -o $$@ $$^ $$(CONFIGURE_LDFLAGS) $$(MODULE_SHARED_LDFLAGS) $$(MODULE_EXTRA_LDFLAGS)
