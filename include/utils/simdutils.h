@@ -13,9 +13,13 @@
 #pragma once
 
 #include <algorithm>
+#include <cstdint>
 #include <cstring>
-#include <immintrin.h>
 #include <string>
+
+#if defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || defined(_M_IX86)
+    #include <immintrin.h>
+#endif
 
 /* SIMD-optimized string operations for ultra-fast text processing */
 

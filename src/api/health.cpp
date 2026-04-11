@@ -92,6 +92,27 @@ static std::string HealthTrimWhitespace(const std::string &Value)
      return Value.substr(Start, End - Start);
 }
 
+static bool HealthParseBoolParam(const std::map<std::string, std::string> &Params, const std::string &Key, bool DefaultValue = false)
+{
+     const auto it = Params.find(Key);
+
+     if (it == Params.end())
+     {
+          return DefaultValue;
+     }
+
+     std::string normalized = HealthTrimWhitespace(it->second);
+     std::transform(normalized.begin(), normalized.end(), normalized.begin(), [](unsigned char ch)
+                    { return static_cast<char>(std::tolower(ch)); });
+
+     if (normalized.empty())
+     {
+          return DefaultValue;
+     }
+
+     return normalized == "1" || normalized == "true" || normalized == "yes" || normalized == "on";
+}
+
 static bool HealthBindMatchesHost(const std::string &BindAddress, const std::string &Host)
 {
      if (BindAddress.empty())
@@ -1400,14 +1421,55 @@ HttpResponse SearchAPI::HandleStartup(const HttpRequest &Request)
 
 HttpResponse SearchAPI::HandleIntegrity(const HttpRequest &Request)
 {
-     (void)Request;
+     std::string collection_name;
+     const auto collection_it = Request.QueryParams.find("collection");
+
+     if (collection_it != Request.QueryParams.end())
+     {
+          collection_name = HealthTrimWhitespace(collection_it->second);
+     }
+
+     if (!collection_name.empty() && !HybridStorageManager::GetInstance().CollectionExists(collection_name))
+     {
+          return BuildErrorResponse(Status::NOT_FOUND, Code::COLLECTION_NOT_FOUND, "Collection not found", "The specified collection does not exist.");
+     }
+
+     const IntegrityReport report = HybridStorageManager::GetInstance().CheckIntegrity(collection_name);
+
+     nlohmann::json response_json;
+     response_json["status"] = (report.CounterMismatches == 0 && report.IndexMismatches == 0) ? "ok" : "degraded";
+     response_json["success"] = report.Success;
+     response_json["collections_scanned"] = report.CollectionsScanned;
+     response_json["counter_mismatches"] = report.CounterMismatches;
+     response_json["index_mismatches"] = report.IndexMismatches;
+
+     nlohmann::json collections_json = nlohmann::json::array();
+
+     for (const auto &status : report.Collections)
+     {
+          nlohmann::json entry;
+          entry["collection"] = status.Collection;
+          entry["exists"] = status.CollectionExists;
+          entry["metadata_count"] = status.MetadataCount;
+          entry["actual_count"] = status.ActualCount;
+          entry["metadata_match"] = status.MetadataMatch;
+          entry["index_present"] = status.IndexPresent;
+          entry["index_verified"] = status.IndexVerified;
+          entry["indexed_count"] = status.IndexedCount;
+          entry["index_match"] = status.IndexMatch;
+
+          if (!status.Error.empty())
+          {
+               entry["note"] = status.Error;
+          }
+
+          collections_json.push_back(std::move(entry));
+     }
+
+     response_json["collections"] = std::move(collections_json);
 
      HttpResponse Response(Status::OK, StatusText(Status::OK), "application/json");
-
-     Response.Body = "{\"status\":\"ok\"}";
-
-     NOTIFY_MODULES(OnRepair, Request.RemoteAddress, Request.APIKeyID, !Request.APIKeyID.empty());
-
+     Response.Body = response_json.dump();
      return Response;
 }
 
@@ -1478,9 +1540,67 @@ HttpResponse SearchAPI::HandleRepair(const HttpRequest &Request)
           }
      }
 
-     HttpResponse Response(Status::OK, StatusText(Status::OK), "application/json");
+     std::string collection_name;
+     const auto collection_it = Request.QueryParams.find("collection");
 
-     Response.Body = "{\"status\":\"ok\"}";
+     if (collection_it != Request.QueryParams.end())
+     {
+          collection_name = HealthTrimWhitespace(collection_it->second);
+     }
+
+     if (!collection_name.empty() && !HybridStorageManager::GetInstance().CollectionExists(collection_name))
+     {
+          return BuildErrorResponse(Status::NOT_FOUND, Code::COLLECTION_NOT_FOUND, "Collection not found", "The specified collection does not exist.");
+     }
+
+     const bool rebuild_index = HealthParseBoolParam(Request.QueryParams, "rebuild_index", false) ||
+                                HealthParseBoolParam(Request.QueryParams, "index", false);
+
+     const IntegrityReport report = HybridStorageManager::GetInstance().RepairIntegrity(collection_name, rebuild_index);
+
+     nlohmann::json response_json;
+     response_json["status"] = report.Success ? "ok" : "partial";
+     response_json["success"] = report.Success;
+     response_json["rebuild_index"] = report.RebuildIndex;
+     response_json["collections_scanned"] = report.CollectionsScanned;
+     response_json["collections_repaired"] = report.CollectionsRepaired;
+     response_json["counter_mismatches_before_repair"] = report.CounterMismatches;
+     response_json["index_mismatches_before_repair"] = report.IndexMismatches;
+
+     nlohmann::json collections_json = nlohmann::json::array();
+
+     for (const auto &status : report.Collections)
+     {
+          nlohmann::json entry;
+          entry["collection"] = status.Collection;
+          entry["exists"] = status.CollectionExists;
+          entry["metadata_count"] = status.MetadataCount;
+          entry["actual_count"] = status.ActualCount;
+          entry["metadata_match"] = status.MetadataMatch;
+          entry["index_present"] = status.IndexPresent;
+          entry["index_verified"] = status.IndexVerified;
+          entry["indexed_count"] = status.IndexedCount;
+          entry["index_match"] = status.IndexMatch;
+          entry["index_rebuilt"] = status.IndexRebuilt;
+          entry["reindexed_documents"] = status.ReindexedDocuments;
+
+          if (!status.Error.empty())
+          {
+               entry["error"] = status.Error;
+          }
+
+          collections_json.push_back(std::move(entry));
+     }
+
+     response_json["collections"] = std::move(collections_json);
+
+     HttpResponse Response(Status::OK, StatusText(Status::OK), "application/json");
+     Response.Body = response_json.dump();
+
+     if (report.Success)
+     {
+          NOTIFY_MODULES(OnRepair, Request.RemoteAddress, Request.APIKeyID, !Request.APIKeyID.empty());
+     }
 
      return Response;
 }

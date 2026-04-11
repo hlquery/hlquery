@@ -56,6 +56,50 @@ struct CollectionConfig
      std::unordered_map<std::string, std::string> Metadata;
 };
 
+struct CollectionIntegrityStatus
+{
+     std::string Collection;
+
+     size_t MetadataCount = 0;
+
+     size_t ActualCount = 0;
+
+     size_t IndexedCount = 0;
+
+     size_t ReindexedDocuments = 0;
+
+     bool CollectionExists = false;
+
+     bool MetadataMatch = false;
+
+     bool IndexMatch = false;
+
+     bool IndexPresent = false;
+
+     bool IndexVerified = false;
+
+     bool IndexRebuilt = false;
+
+     std::string Error;
+};
+
+struct IntegrityReport
+{
+     bool Success = true;
+
+     bool RebuildIndex = false;
+
+     size_t CollectionsScanned = 0;
+
+     size_t CollectionsRepaired = 0;
+
+     size_t CounterMismatches = 0;
+
+     size_t IndexMismatches = 0;
+
+     std::vector<CollectionIntegrityStatus> Collections;
+};
+
 /*
       * HybridStorageManager - RocksDB-based storage and search manager.
       * Provides the same interface as the LSM-based version.
@@ -290,6 +334,30 @@ class HybridStorageManager
      /* GetCollectionDocumentCount returns document count. */
 
      size_t GetCollectionDocumentCount(const std::string& collection);
+
+     /* CountStoredDocuments returns the exact number of persisted documents for a collection. */
+
+     size_t CountStoredDocuments(const std::string& collection);
+
+     /* CheckCollectionIntegrity returns the current consistency state for one collection. */
+
+     CollectionIntegrityStatus CheckCollectionIntegrity(const std::string& collection);
+
+     /* CheckIntegrity returns the current consistency state for one or all collections. */
+
+     IntegrityReport CheckIntegrity(const std::string& collection = "");
+
+     /* RebuildCollectionIndex recreates one collection's inverted index from persisted documents. */
+
+     bool RebuildCollectionIndex(const std::string& collection, size_t* reindexed_documents = nullptr, std::string* error_message = nullptr);
+
+     /* RepairCollection repairs metadata counters and optionally rebuilds one collection index. */
+
+     CollectionIntegrityStatus RepairCollection(const std::string& collection, bool rebuild_index);
+
+     /* RepairIntegrity repairs one or all collections and returns a summary report. */
+
+     IntegrityReport RepairIntegrity(const std::string& collection = "", bool rebuild_index = false);
 
      /* GetCollectionSize returns total collection size. */
 

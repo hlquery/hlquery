@@ -103,6 +103,18 @@ static std::string BuildCollectionMetaValue(size_t Count, time_t Timestamp)
      return std::to_string(Count) + ":" + std::to_string(Timestamp);
 }
 
+static std::string ExtractDocumentIDFromKey(const std::string &DocKey)
+{
+     const size_t last_colon = DocKey.find_last_of(':');
+
+     if (last_colon == std::string::npos || last_colon + 1 >= DocKey.size())
+     {
+          return "";
+     }
+
+     return DocKey.substr(last_colon + 1);
+}
+
 static bool DeserializeCollectionConfig(const std::string &Value, CollectionConfig &Config)
 {
      if (Value.empty())
@@ -2619,6 +2631,301 @@ size_t HybridStorageManager::GetCollectionDocumentCount(const std::string &colle
            */
 
      return metadata_count;
+}
+
+size_t HybridStorageManager::CountStoredDocuments(const std::string &collection)
+{
+     if (!Instance || !Instance->Database)
+     {
+          return 0;
+     }
+
+     return Instance->Database->CountKeys("doc:" + collection + ":");
+}
+
+CollectionIntegrityStatus HybridStorageManager::CheckCollectionIntegrity(const std::string &collection)
+{
+     CollectionIntegrityStatus status;
+     status.Collection = collection;
+     status.CollectionExists = CollectionExists(collection);
+
+     if (!status.CollectionExists)
+     {
+          status.Error = "Collection not found.";
+          return status;
+     }
+
+     status.MetadataCount = GetCollectionDocumentCount(collection);
+     status.ActualCount = CountStoredDocuments(collection);
+     status.MetadataMatch = (status.MetadataCount == status.ActualCount);
+
+     if (Instance && Instance->SearchIndex)
+     {
+          const bool has_in_memory = Instance->SearchIndex->HasInMemoryIndex(collection);
+          const bool has_mmap = Instance->SearchIndex->HasMMapIndex(collection);
+
+          status.IndexPresent = has_in_memory || has_mmap;
+          status.IndexVerified = has_in_memory;
+
+          if (status.IndexPresent)
+          {
+               status.IndexedCount = Instance->SearchIndex->GetDocumentCount(collection);
+          }
+
+          if (status.IndexVerified)
+          {
+               status.IndexMatch = (status.IndexedCount == status.ActualCount);
+          }
+          else if (has_mmap)
+          {
+               status.Error = "Persisted mmap index is present but cannot be fully verified without rebuilding it in memory.";
+          }
+     }
+
+     return status;
+}
+
+IntegrityReport HybridStorageManager::CheckIntegrity(const std::string &collection)
+{
+     IntegrityReport report;
+     std::vector<std::string> target_collections;
+
+     if (!collection.empty())
+     {
+          target_collections.push_back(collection);
+     }
+     else
+     {
+          target_collections = ListCollections();
+     }
+
+     for (const auto &name : target_collections)
+     {
+          CollectionIntegrityStatus status = CheckCollectionIntegrity(name);
+
+          if (!status.CollectionExists)
+          {
+               report.Success = false;
+          }
+
+          if (!status.MetadataMatch)
+          {
+               report.CounterMismatches++;
+          }
+
+          if (status.IndexVerified && !status.IndexMatch)
+          {
+               report.IndexMismatches++;
+          }
+
+          report.Collections.push_back(std::move(status));
+     }
+
+     report.CollectionsScanned = report.Collections.size();
+     return report;
+}
+
+bool HybridStorageManager::RebuildCollectionIndex(const std::string &collection, size_t *reindexed_documents, std::string *error_message)
+{
+     if (reindexed_documents)
+     {
+          *reindexed_documents = 0;
+     }
+
+     if (error_message)
+     {
+          error_message->clear();
+     }
+
+     if (!Instance || !Instance->Database || !Instance->SearchIndex)
+     {
+          if (error_message)
+          {
+               *error_message = "Storage manager is not initialized.";
+          }
+
+          return false;
+     }
+
+     if (!CollectionExists(collection))
+     {
+          if (error_message)
+          {
+               *error_message = "Collection not found.";
+          }
+
+          return false;
+     }
+
+     if (IsCollectionIndexing(collection))
+     {
+          if (error_message)
+          {
+               *error_message = "Collection is already being indexed.";
+          }
+
+          return false;
+     }
+
+     std::lock_guard<std::mutex> collection_lock(GetCollectionMutex(collection));
+
+     const std::vector<std::string> doc_keys = Instance->Database->Keys("doc:" + collection + ":*");
+     size_t indexed_documents = 0;
+
+     try
+     {
+          Instance->SearchIndex->DeleteCollection(collection);
+
+          for (size_t i = 0; i < doc_keys.size(); ++i)
+          {
+               const std::string doc_id = ExtractDocumentIDFromKey(doc_keys[i]);
+
+               if (doc_id.empty())
+               {
+                    continue;
+               }
+
+               const Document doc = GetDocument(collection, doc_id);
+
+               if (doc.ID.empty())
+               {
+                    continue;
+               }
+
+               if (!Instance->SearchIndex->AddDocument(collection, doc))
+               {
+                    if (error_message)
+                    {
+                         *error_message = "Inverted index rejected a document while rebuilding '" + collection + "'.";
+                    }
+
+                    return false;
+               }
+
+               indexed_documents++;
+
+               if (i > 0 && (i % 256) == 0)
+               {
+                    std::this_thread::yield();
+               }
+          }
+
+          Instance->SearchIndex->FlushToDisk(ResolveIndexDir());
+     }
+     catch (const std::exception &e)
+     {
+          if (error_message)
+          {
+               *error_message = e.what();
+          }
+
+          return false;
+     }
+     catch (...)
+     {
+          if (error_message)
+          {
+               *error_message = "Unknown error while rebuilding index.";
+          }
+
+          return false;
+     }
+
+     if (reindexed_documents)
+     {
+          *reindexed_documents = indexed_documents;
+     }
+
+     return true;
+}
+
+CollectionIntegrityStatus HybridStorageManager::RepairCollection(const std::string &collection, bool rebuild_index)
+{
+     CollectionIntegrityStatus status = CheckCollectionIntegrity(collection);
+
+     if (!status.CollectionExists)
+     {
+          return status;
+     }
+
+     {
+          std::lock_guard<std::mutex> collection_lock(GetCollectionMutex(collection));
+
+          time_t timestamp = time(nullptr);
+          ParseCollectionMetaValue(Instance->Database->Get("collection_meta:" + collection), nullptr, &timestamp);
+          Instance->Database->Set("collection_meta:" + collection, BuildCollectionMetaValue(status.ActualCount, timestamp));
+     }
+
+     status.MetadataCount = status.ActualCount;
+     status.MetadataMatch = true;
+
+     if (rebuild_index)
+     {
+          std::string rebuild_error;
+
+          if (!RebuildCollectionIndex(collection, &status.ReindexedDocuments, &rebuild_error))
+          {
+               status.Error = rebuild_error;
+               return status;
+          }
+
+          status.IndexRebuilt = true;
+          status.IndexPresent = true;
+          status.IndexVerified = true;
+          status.IndexedCount = Instance->SearchIndex->GetDocumentCount(collection);
+          status.IndexMatch = (status.IndexedCount == status.ActualCount);
+     }
+
+     return status;
+}
+
+IntegrityReport HybridStorageManager::RepairIntegrity(const std::string &collection, bool rebuild_index)
+{
+     IntegrityReport report;
+     report.RebuildIndex = rebuild_index;
+
+     std::vector<std::string> target_collections;
+
+     if (!collection.empty())
+     {
+          target_collections.push_back(collection);
+     }
+     else
+     {
+          target_collections = ListCollections();
+     }
+
+     for (const auto &name : target_collections)
+     {
+          CollectionIntegrityStatus before = CheckCollectionIntegrity(name);
+
+          if (!before.MetadataMatch)
+          {
+               report.CounterMismatches++;
+          }
+
+          if (before.IndexVerified && !before.IndexMatch)
+          {
+               report.IndexMismatches++;
+          }
+
+          CollectionIntegrityStatus repaired = RepairCollection(name, rebuild_index);
+
+          if (!repaired.CollectionExists || !repaired.Error.empty() || !repaired.MetadataMatch || (rebuild_index && !repaired.IndexMatch))
+          {
+               report.Success = false;
+          }
+
+          if (!before.MetadataMatch || (rebuild_index && repaired.IndexRebuilt))
+          {
+               report.CollectionsRepaired++;
+          }
+
+          report.Collections.push_back(std::move(repaired));
+     }
+
+     report.CollectionsScanned = report.Collections.size();
+     return report;
 }
 
 /* GetCollectionSize - Returns the total size of a collection. */
