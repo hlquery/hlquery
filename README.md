@@ -56,20 +56,12 @@ No additional dependencies required.
 ### Installation
 
 ```bash
-# For production use (stable branch)
-git clone --branch 1.0 https://github.com/hlquery/hlquery.git
-cd hlquery/
-./configure
-make -j$(nproc)
-sudo make install
+$ git clone --branch 1.0 https://github.com/hlquery/hlquery.git
+$ cd hlquery/
+$ ./configure
+$ make -j$(nproc)
+$ make install
 ```
-
-> **Note**: For development or to try the latest features, use the `unstable` branch:
-> ```bash
-> git clone --branch unstable https://github.com/hlquery/hlquery.git
-> ```
-
-> **Tip**: Adjust the `-j` flag based on your CPU core count for optimal build performance.
 
 ### Running hlquery
 
@@ -124,43 +116,6 @@ Found 1 document(s) (showing 1-1 of 1)
 | 1 | product1    | 1.094500 | Laptop Computer | High-performance laptop with 16GB RAM | 0 fields |
 +---+-------------+----------+-----------------+---------------------------------------+----------+
 ```
-
-### Natural-Language AI Search
-
-The `m_ai_search` runtime module lets you execute human-friendly product queries such as "shoes for wedding" or "formal evening bag" by scoring the `title`, `description`, and `labels` fields for every document. Labels can be stored as JSON arrays or comma-separated strings, and the module still works when those fields are missing by falling back to document content.
-
-The module exposes `/modules/ai_search/search` over HTTP and can be configured through the `<ai_search ...>` block in `run/conf/modules.conf`. Raise `label_phrase_weight`/`label_exact_token_weight` to privilege labeled hits, or tweak the description weights if you care more about richer text.
-
-Note: modules that depend on LLM inference declare the requirement flag in code so hlquery refuses to load them unless the shared `<llm>` block is configured with a model.
-
-Example HTTP query:
-
-```bash
-curl "http://localhost:9200/modules/ai_search/search?collection=products&q=shoes%20for%20wedding&limit=5"
-```
-
-CLI example (positional terms are used when `q=` is omitted):
-
-```bash
-xx module ai_search ecommerce search "formal evening bag"
-```
-
-You can omit `collection` to scan everything, or supply comma-separated names via `collection=electronics,apparel`. The module returns the `matched_on` fields and a `description_snippet` to help you inspect why each hit scored highly.
-
-## Query Syntax
-
-hlquery supports a rich query syntax for powerful search capabilities:
-
-| Feature | Syntax | Example |
-|---------|--------|---------|
-| **Field Query** | `field:value` | `title:laptop` |
-| **Range Query** | `field:[min TO max]` | `price:[100 TO 500]` |
-| **Wildcard** | `term*`, `*term` | `laptop*`, `*laptop` |
-| **Fuzzy Search** | `term~` or `term~2` | `laptop~2` |
-| **Regex** | `field:/pattern/` | `title:/laptop.*computer/` |
-| **Boost** | `term^weight` | `laptop^2.0` |
-| **NOT** | `!term` or `NOT term` | `!apple` |
-| **Boolean** | `AND`, `OR`, `NOT` | `title:laptop AND price:[100 TO 500]` |
 
 ### Example Queries
 

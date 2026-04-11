@@ -398,6 +398,15 @@ void ListenManager::OnEventHandlerRead()
 
           int KeepCnt = 3; /* Send 3 probes before considering connection dead */
 
+#if defined(__APPLE__) && defined(TCP_KEEPALIVE)
+          if (setsockopt(ClientFD, IPPROTO_TCP, TCP_KEEPALIVE, &KeepIdle, sizeof(KeepIdle)) < 0)
+          {
+               if (Instance && Instance->Logs)
+               {
+                    Instance->Logs->Debug("listenmanager", "Failed to set TCP_KEEPALIVE: " + std::string(strerror(errno)) + ".");
+               }
+          }
+#elif defined(TCP_KEEPIDLE)
           if (setsockopt(ClientFD, IPPROTO_TCP, TCP_KEEPIDLE, &KeepIdle, sizeof(KeepIdle)) < 0)
           {
                if (Instance && Instance->Logs)
@@ -405,7 +414,9 @@ void ListenManager::OnEventHandlerRead()
                     Instance->Logs->Debug("listenmanager", "Failed to set TCP_KEEPIDLE: " + std::string(strerror(errno)) + ".");
                }
           }
+#endif
 
+#if defined(TCP_KEEPINTVL)
           if (setsockopt(ClientFD, IPPROTO_TCP, TCP_KEEPINTVL, &KeepIntvl, sizeof(KeepIntvl)) < 0)
           {
                if (Instance && Instance->Logs)
@@ -413,7 +424,9 @@ void ListenManager::OnEventHandlerRead()
                     Instance->Logs->Debug("listenmanager", "Failed to set TCP_KEEPINTVL: " + std::string(strerror(errno)) + ".");
                }
           }
+#endif
 
+#if defined(TCP_KEEPCNT)
           if (setsockopt(ClientFD, IPPROTO_TCP, TCP_KEEPCNT, &KeepCnt, sizeof(KeepCnt)) < 0)
           {
                if (Instance && Instance->Logs)
@@ -421,6 +434,7 @@ void ListenManager::OnEventHandlerRead()
                     Instance->Logs->Debug("listenmanager", "Failed to set TCP_KEEPCNT: " + std::string(strerror(errno)) + ".");
                }
           }
+#endif
 
           /* Grow kernel socket buffers for high-bandwidth transfers */
 
