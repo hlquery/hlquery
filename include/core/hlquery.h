@@ -1,6 +1,6 @@
 /*
  * hlquery - Search beyond keywords.
- * http://www.hlquery.com
+ * https://www.hlquery.com
  *
  * Copyright (C) 2021-2026, Carlos F. Ferry <carlos.ferry@gmail.com>
  *
@@ -25,6 +25,9 @@
 #include <thread>
 #include <unordered_map>
 #include <vector>
+#if defined(__linux__)
+#include <time.h>
+#endif
 
 #include "common/searchpool.h"
 #include "common/listenmanager.h"
@@ -44,7 +47,7 @@
 CoreExport extern hlquery* Instance;
 
 /* 
- * Main class.
+ * hlquery's main class.
  * This object coordinates process startup, runtime services,
  * shutdown handling, and access to the major server subsystems.
  */
@@ -187,6 +190,19 @@ class CoreExport hlquery
      {
           try
           {
+#if defined(__linux__) && defined(CLOCK_BOOTTIME)
+               struct timespec ts;
+
+               if (clock_gettime(CLOCK_BOOTTIME, &ts) == 0)
+               {
+                    const auto duration =
+                         std::chrono::seconds(ts.tv_sec) + std::chrono::nanoseconds(ts.tv_nsec);
+
+                    return std::chrono::steady_clock::time_point(
+                         std::chrono::duration_cast<std::chrono::steady_clock::duration>(duration));
+               }
+#endif
+
                return std::chrono::steady_clock::now();
           }
           catch (...)

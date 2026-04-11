@@ -1,7 +1,7 @@
 #!/usr/bin/make -f
 #
 # hlquery - Search beyond keywords.
-# http://www.hlquery.com
+# https://www.hlquery.com
 #
 # Copyright (C) 2021-2026, Carlos F. Ferry <carlos.ferry@gmail.com>
 #
@@ -49,11 +49,22 @@ CC       ?= cc
 CXX      = ${CXX}
 CPPFLAGS ?=
 EXTRA_LDFLAGS ?=
+TLS_CFLAGS ?= ${TLS_CFLAGS}
+TLS_LDFLAGS ?= ${TLS_LDFLAGS}
 OS_NAME := $(shell uname -s 2>/dev/null || echo unknown)
 ARCH_NAME := $(shell uname -m 2>/dev/null || echo unknown)
 FS_LIB := -lstdc++fs
 ifneq ($(filter FreeBSD OpenBSD NetBSD DragonFly Darwin,$(OS_NAME)),)
   FS_LIB :=
+endif
+
+PKG_TLS_CFLAGS_OTHER = $(shell if pkg-config --exists openssl 2>/dev/null; then pkg-config --cflags-only-other openssl 2>/dev/null; elif pkg-config --exists gnutls 2>/dev/null; then pkg-config --cflags-only-other gnutls 2>/dev/null; fi)
+PKG_TLS_CFLAGS_INCLUDE = $(shell if pkg-config --exists openssl 2>/dev/null; then pkg-config --cflags-only-I openssl 2>/dev/null; elif pkg-config --exists gnutls 2>/dev/null; then pkg-config --cflags-only-I gnutls 2>/dev/null; fi)
+ifeq ($(strip $(TLS_CFLAGS)),)
+  TLS_CFLAGS = $(PKG_TLS_CFLAGS_OTHER) $(patsubst -I%,-isystem %,$(PKG_TLS_CFLAGS_INCLUDE))
+endif
+ifeq ($(strip $(TLS_LDFLAGS)),)
+  TLS_LDFLAGS = $(shell if pkg-config --exists openssl 2>/dev/null; then pkg-config --libs openssl 2>/dev/null; elif pkg-config --exists gnutls 2>/dev/null; then pkg-config --libs gnutls 2>/dev/null; else printf '%s' '-lssl -lcrypto'; fi)
 endif
 
 # RocksDB configuration

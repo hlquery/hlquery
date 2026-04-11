@@ -1,6 +1,6 @@
 /*
  * hlquery - Search beyond keywords.
- * http://www.hlquery.com
+ * https://www.hlquery.com
  *
  * Copyright (C) 2021-2026, Carlos F. Ferry <carlos.ferry@gmail.com>
  *
@@ -964,6 +964,25 @@ int SocketEngine::DispatchEvents()
 
                int fd = EH->GetFD();
                bool valid_fd = (fd >= 0 && fd <= MAX_REASONABLE_FD);
+               int error_num = 0;
+
+               if ((ev & EPOLLERR) && valid_fd)
+               {
+                    socklen_t error_len = sizeof(error_num);
+
+                    if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &error_num, &error_len) != 0 || error_num == 0)
+                    {
+                         error_num = errno != 0 ? errno : EIO;
+                    }
+               }
+               else if (ev & EPOLLRDHUP)
+               {
+                    error_num = ECONNRESET;
+               }
+               else
+               {
+                    error_num = EPIPE;
+               }
 
                if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
                {
@@ -984,38 +1003,26 @@ int SocketEngine::DispatchEvents()
                          event_types += "EPOLLERR ";
                     }
 
-                    Instance->Logs->Debug("socketengine", "DispatchEvents: Processing error/hangup event (" + event_types + ", ev=0x" + std::to_string(ev) + ", fd=" + (valid_fd ? std::to_string(fd) : "INVALID") + ") - cleaning up connection immediately.");
+                    Instance->Logs->Debug("socketengine", "DispatchEvents: Processing error/hangup event (" + event_types + ", ev=0x" + std::to_string(ev) + ", fd=" + (valid_fd ? std::to_string(fd) : "INVALID") + ", errno=" + std::to_string(error_num) + ") - dispatching error handler.");
                }
 
-               /*
-             * IMPROVEMENT: Remove file descriptors from epoll and close sockets as soon as
-             * a connection is terminated or reset, ensuring no stale FDs remain registered.
-             */
-
-               if (valid_fd)
+               try
                {
-                    DelFD(EH);
+                    EH->OnEventHandlerError(error_num);
                }
-
-               UnregisterPendingWrite(EH);
-
-               /* Only call handler cleanup if fd is valid */
-
-               if (valid_fd && EH->HasFD())
+               catch (...)
                {
-                    try
+                    if (Instance && Instance->Logs)
                     {
-                         EH->OnEventHandlerRead(); /* Let handler cleanup */
+                         Instance->Logs->Normal("socketengine", "DispatchEvents: Exception in OnEventHandlerError() for fd=" + std::to_string(fd) + " - forcing cleanup.");
                     }
-                    catch (...)
-                    {
-                         /* Ignore exceptions during cleanup */
 
-                         if (Instance && Instance->Logs)
-                         {
-                              Instance->Logs->Normal("socketengine", "DispatchEvents: Exception during error handler cleanup for fd=" + std::to_string(fd) + ".");
-                         }
+                    if (valid_fd)
+                    {
+                         DelFD(EH);
                     }
+
+                    UnregisterPendingWrite(EH);
                }
 
                /* Mark as processed by clearing events */

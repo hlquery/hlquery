@@ -1,7 +1,7 @@
 #!/usr/bin/env perl
 #
 # hlquery - Search beyond keywords.
-# http://www.hlquery.com
+# https://www.hlquery.com
 #
 # Copyright (C) 2021-2026, Carlos F. Ferry <carlos.ferry@gmail.com>
 #
@@ -1058,6 +1058,24 @@ sub check_threading {
     return 0;
 }
 
+sub sanitize_pkg_config_cflags {
+    my ($cflags) = @_;
+    return '' unless defined $cflags && length $cflags;
+
+    my @parts = split /\s+/, $cflags;
+    my @sanitized;
+    for my $part (@parts) {
+        next unless length $part;
+        if ($part =~ /^-I(.+)$/) {
+            push @sanitized, '-isystem', $1;
+        } else {
+            push @sanitized, $part;
+        }
+    }
+
+    return join ' ', @sanitized;
+}
+
 sub check_openssl {
     if (system("pkg-config --exists openssl 2>/dev/null") == 0) {
         my $version = `pkg-config --modversion openssl 2>/dev/null`;
@@ -1068,7 +1086,7 @@ sub check_openssl {
         chomp $libs;
         $config{OPENSSL_AVAILABLE} = 1;
         $config{OPENSSL_VERSION} = $version || 'unknown';
-        $config{OPENSSL_CFLAGS} = $cflags || '';
+        $config{OPENSSL_CFLAGS} = sanitize_pkg_config_cflags($cflags);
         $config{OPENSSL_LIBS} = $libs || '-lssl -lcrypto';
         return 1;
     }
@@ -1088,7 +1106,7 @@ sub check_gnutls {
         chomp $libs;
         $config{GNUTLS_AVAILABLE} = 1;
         $config{GNUTLS_VERSION} = $version || 'unknown';
-        $config{GNUTLS_CFLAGS} = $cflags || '';
+        $config{GNUTLS_CFLAGS} = sanitize_pkg_config_cflags($cflags);
         $config{GNUTLS_LIBS} = $libs || '-lgnutls';
         return 1;
     }
