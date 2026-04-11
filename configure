@@ -332,10 +332,10 @@ sub parse_enabled_extras {
             push @simple_srcs, '$(SRC_DIR)/modules/extra/' . $name . '.cpp';
             push @libs, '$(RUN_DIR)/modules/' . $name . '.so';
             push @rules,
-                '$(RUN_DIR)/modules/' . $name . '.so: $(OBJ_DIR)/modules/extra/' . $name . '.module.o | $(BIN_DIR) $(ROCKSDB_LIB)',
+                '$(RUN_DIR)/modules/' . $name . '.so: $(OBJ_DIR)/modules/extra/' . $name . '.module.o $(ROCKSDB_LIB) | $(BIN_DIR)',
                 "\t" . '@mkdir -p $(RUN_DIR)/modules',
                 "\t" . '@echo "$(CYAN)Linking extra module ' . $name . '...$(NC)"',
-                "\t" . '$(CXX) $(CXXFLAGS) -shared -o $@ $^ $(LDFLAGS) $(MODULE_EXTRA_LDFLAGS)',
+                "\t" . '$(CXX) -shared -o $@ $^ $(CONFIGURE_LDFLAGS) $(MODULE_SHARED_LDFLAGS) $(MODULE_EXTRA_LDFLAGS)',
                 '';
             push @sources, $available->{simple}{$name};
             next;
@@ -355,10 +355,10 @@ sub parse_enabled_extras {
         } @module_sources;
         push @libs, '$(RUN_DIR)/modules/' . $name . '.so';
         push @rules,
-            '$(RUN_DIR)/modules/' . $name . '.so: ' . join(' ', @module_objs) . ' | $(BIN_DIR) $(ROCKSDB_LIB)',
+            '$(RUN_DIR)/modules/' . $name . '.so: ' . join(' ', @module_objs) . ' $(ROCKSDB_LIB) | $(BIN_DIR)',
             "\t" . '@mkdir -p $(RUN_DIR)/modules',
             "\t" . '@echo "$(CYAN)Linking extra module ' . $name . '...$(NC)"',
-            "\t" . '$(CXX) $(CXXFLAGS) -shared -o $@ $^ $(LDFLAGS) $(MODULE_EXTRA_LDFLAGS)',
+            "\t" . '$(CXX) -shared -o $@ $^ $(CONFIGURE_LDFLAGS) $(MODULE_SHARED_LDFLAGS) $(MODULE_EXTRA_LDFLAGS)',
             '';
         push @sources, @module_sources;
     }

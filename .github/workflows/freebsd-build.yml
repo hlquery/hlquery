@@ -1,0 +1,28 @@
+name: FreeBSD Build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build on FreeBSD
+        uses: cross-platform-actions/action@v0.32.0
+        with:
+          operating_system: freebsd
+          version: '14.3'
+          shell: sh
+          memory: 6G
+          cpu_count: 3
+          run: |
+            sudo pkg update
+            sudo pkg install -y cmake gmake perl5 pkgconf openssl
+            ./configure --skip-tests
+            gmake
