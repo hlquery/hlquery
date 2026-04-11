@@ -40,7 +40,7 @@
 #include "common/searchpool.h"
 #include "core/config.h"
 #include "core/hlquery.h"
-#include "modules/m_analytics/analyticsmanager.h"
+#include "modules/extra/m_analytics/analyticsmanager.h"
 #include "vendor/json/json.hpp"
 
 namespace

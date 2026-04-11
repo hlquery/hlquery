@@ -257,12 +257,46 @@ sub discover_available_extra_modules {
     return \%available;
 }
 
+sub discover_default_enabled_extras {
+    my $available = discover_available_extra_modules();
+    my %known = map { $_ => 1 } (keys(%{$available->{simple}}), keys(%{$available->{dir}}));
+    my $modules_conf = catfile($base_path, 'run', 'conf', 'modules.conf');
+    my @enabled;
+
+    return [] unless -f $modules_conf;
+
+    open my $modules_fh, '<', $modules_conf or return [];
+
+    while (my $line = <$modules_fh>) {
+        next if $line =~ /^\s*#/;
+
+        if ($line =~ /<module\s+name="([^"]+)"/i) {
+            my $name = lc $1;
+            my @candidates = ($name, 'm_' . $name);
+            my ($matched) = grep { $known{$_} } @candidates;
+            next unless defined $matched;
+            push @enabled, $matched;
+        }
+    }
+
+    close $modules_fh;
+
+    my %seen;
+    @enabled = grep { !$seen{$_}++ } @enabled;
+    return \@enabled;
+}
+
 sub parse_enabled_extras {
     my ($raw_value) = @_;
     my $available = discover_available_extra_modules();
 
     # Keep the empty case explicit so Makefile generation can always rely on the
     # returned structure shape, even when no extra modules were requested.
+    if (!defined $raw_value || !length $raw_value) {
+        my $defaults = discover_default_enabled_extras();
+        $raw_value = join(',', @$defaults) if @$defaults;
+    }
+
     return {
         names       => [],
         simple_srcs => [],

@@ -18,7 +18,7 @@
 #include "core/configreader.h"
 #include "core/hlquery.h"
 #include "core/modules.h"
-#include "modules/m_analytics/analyticsmanager.h"
+#include "modules/extra/m_analytics/analyticsmanager.h"
 #include "utils/jsonbuilder.h"
 
 /* Runtime module that forwards events into the analytics manager. */
