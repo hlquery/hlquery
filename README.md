@@ -23,19 +23,9 @@
 
 ## Overview
 
-hlquery is a RESTful search engine built with C++17 and powered by RocksDB. It provides real-time search capabilities with advanced features including full-text search, hybrid search (combining keyword and semantic matching), vector similarity search, and intelligent ranking algorithms that adapt automatically for optimal relevance.
+hlquery is an open source search engine written in C++17 and backed by RocksDB. It is designed for applications that need fast indexing, real-time queries, and a straightforward HTTP/JSON interface without giving up advanced search features. The engine supports full-text search, hybrid ranking, vector similarity, flexible collections, and configurable runtime modules for features such as AI-assisted search.
 
-### Key Features
-
-- **Full-Text Search**: Advanced BM25+ ranking with automatic parameter optimization
-- **Hybrid Search**: Seamlessly combines keyword and semantic matching for superior results
-- **Vector Search**: High-performance similarity search for embeddings and semantic queries
-- **Adaptive Ranking**: Algorithms automatically adjust parameters for optimal relevance
-- **Collections & Documents**: Flexible schema design with support for multiple data types
-- **Advanced Query Syntax**: Field queries, ranges, wildcards, fuzzy matching, regex, and boosting
-- **Synonyms & Stopwords**: Built-in support for language-specific text processing
-- **RESTful API**: Simple HTTP/JSON interface for easy integration
-- **Multi-Platform**: Available for GNU/Linux, FreeBSD, and macOS
+It exposes a REST API for indexing, querying, and administration, and includes command-line tools for local management and testing. Documentation is available at [docs.hlquery.com](https://docs.hlquery.com), the source repository lives at [github.com/hlquery/hlquery](https://github.com/hlquery/hlquery), community chat is on [discord.hlquery.com](https://discord.hlquery.com), and issue tracking is handled at [github.com/hlquery/hlquery/issues](https://github.com/hlquery/hlquery/issues).
 
 ## Quick Start
 
@@ -271,16 +261,6 @@ We're committed to **active, continuous development** of hlquery and all related
 - Community discussions
 
 Subscribe to repository notifications to never miss an update!
-
-## Architecture
-
-hlquery is built with a modular architecture:
-
-- **`src/core/`** - Core server components, event loop, and threading
-- **`src/api/`** - HTTP server, REST endpoints, and API handlers
-- **`src/search/`** - RocksDB-backed search storage integration
-- **`include/`** - Header files and public APIs
-- **`vendor/`** - Third-party dependencies
 
 ## Contributing
 
