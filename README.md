@@ -104,7 +104,7 @@ Document 'product1' added to collection 'products'
 
 ### Search
 
-```bash
+```text
 $ hlquery-cli search products "laptop"
 Search results for 'laptop' in collection 'products':
 Found 1 document(s) (showing 1-1 of 1)
@@ -206,8 +206,6 @@ We welcome contributions from the community! All contributions must be released 
 ## License
 
 hlquery is licensed under the [BSD 3-Clause License](https://opensource.org/licenses/BSD-3-Clause).
-
----
 
 <div align="center">
 
