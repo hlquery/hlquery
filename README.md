@@ -154,42 +154,9 @@ Official client libraries are available for popular programming languages:
 
 For complete API documentation, visit [docs.hlquery.com](https://docs.hlquery.com/).
 
-## LLM Model Helpers
-
-Use the bundled downloader in `tools/llm` (which can also be executed as `perl tools/llm`) to fetch GGUF artifacts into `run/models`. By default it pulls a smaller Qwen preset and refuses downloads above 2GB unless you override `--max-gb`. The script knows several presets (run `tools/llm --list-names`) and accepts `--byname`, `--repo`, `--file`, or `--url` to point at a different Hugging Face repo or direct link. Override `--dir`/`--out` to target custom paths, and pass `--force` to re-download an already existing file.
-
-```bash
-tools/llm
-tools/llm --byname qwen_latest --max-gb 8
-tools/llm --repo TheBloke/Baichuan2-7B-Chat-GGUF --file baichuan2-7b-chat.Q4_K_M.gguf
-```
-
-Paths are resolved relative to the config directory, so the default `<llm models_dir="../models" ...>` in `run/conf/hlquery.conf` points at `run/models`.
-
-## AI Search Smoke Test
-
-The PHP smoke test under `tests/llm.php` spins up an `ecommerce` collection, inserts sample documents with labels/descriptions, and verifies that `m_ai_search` returns the expected hits for queries like \"wedding shoes\" and \"formal evening bag\". Run it against a running server at `http://localhost:9200`:
-
-```bash
-php tests/llm.php
-```
-
 ## GitHub Repositories & Development Workflow
 
 hlquery is actively developed across multiple GitHub repositories. We maintain a structured development workflow to ensure stability and continuous improvement.
-
-### Our Repositories
-
-- **[hlquery](https://github.com/hlquery/hlquery)** - Main search engine (C++, BSD 3-Clause License)
-- **[rapid](https://github.com/hlquery/rapid)** - Quick deployment tool (TypeScript)
-- **[cpp-api](https://github.com/hlquery/cpp-api)** - C++ client library
-- **[hanalyzer](https://github.com/hlquery/hanalyzer)** - Web interface and management UI (Vue 3)
-- **[package-builder](https://github.com/hlquery/package-builder)** - Packaging scripts for distributions
-- **[docker](https://github.com/hlquery/docker)** - Docker configurations and containerization
-- **[rust-api](https://github.com/hlquery/rust-api)** - Rust client library
-- **[php-api](https://github.com/hlquery/php-api)** - PHP client library
-- **[perl-api](https://github.com/hlquery/perl-api)** - Perl client library
-- **[node-api](https://github.com/hlquery/node-api)** - Node.js/TypeScript client library
 
 ### Branch Structure
 
