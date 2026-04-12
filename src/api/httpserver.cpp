@@ -2811,6 +2811,10 @@ void HttpConnection::ProcessSingleRequest(const std::string &RequestStr)
      {
           Response = API.HandleUpdateCounters(Request);
      }
+     else if (Request.Path == "/repair" && (Request.Method == "GET" || Request.Method == "POST"))
+     {
+          Response = API.HandleRepair(Request);
+     }
      else if (Request.Path == "/admin/storage_status" && Request.Method == "GET")
      {
           Response = API.HandleStorageStatus(Request);

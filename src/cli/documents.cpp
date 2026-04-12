@@ -149,100 +149,6 @@ void PrintSQLRowsTable(HLQueryCLI &cli, const nlohmann::json &rows_json)
      }
 }
 
-struct DocumentOrdinalLookupCache
-{
-     std::unordered_map<std::string, int> Ordinals;
-     int ScannedCount = 0;
-     bool Exhausted = false;
-};
-
-int ResolveDocumentOrdinal(HLQueryCLI &cli,
-                           const std::string &collection_name,
-                           const std::string &document_id,
-                           DocumentOrdinalLookupCache &cache)
-{
-     if (collection_name.empty() || document_id.empty())
-     {
-          return -1;
-     }
-
-     auto existing = cache.Ordinals.find(document_id);
-
-     if (existing != cache.Ordinals.end())
-     {
-          return existing->second;
-     }
-
-     const int page_size = 250;
-     int offset = cache.ScannedCount;
-
-     while (!cache.Exhausted)
-     {
-          std::string path = "/collections/" + collection_name + "/documents";
-          path += "?offset=" + std::to_string(offset) + "&limit=" + std::to_string(page_size);
-
-          HLQueryCLI::HTTPResponse response = cli.MakeRequest("GET", path);
-
-          if (response.StatusCode != 200)
-          {
-               cache.Exhausted = true;
-               return -1;
-          }
-
-          try
-          {
-               nlohmann::json root = nlohmann::json::parse(response.Body);
-
-               if (!root.contains("documents") || !root["documents"].is_array())
-               {
-                    cache.Exhausted = true;
-                    return -1;
-               }
-
-               const nlohmann::json &documents = root["documents"];
-
-               if (documents.empty())
-               {
-                    cache.Exhausted = true;
-                    return -1;
-               }
-
-               for (size_t i = 0; i < documents.size(); ++i)
-               {
-                    const nlohmann::json &document = documents[i];
-
-                    if (!document.contains("id") || !document["id"].is_string())
-                    {
-                         continue;
-                    }
-
-                    cache.Ordinals[document["id"].get<std::string>()] = offset + static_cast<int>(i) + 1;
-               }
-
-               offset += static_cast<int>(documents.size());
-               cache.ScannedCount = offset;
-
-               existing = cache.Ordinals.find(document_id);
-
-               if (existing != cache.Ordinals.end())
-               {
-                    return existing->second;
-               }
-
-               if (static_cast<int>(documents.size()) < page_size)
-               {
-                    cache.Exhausted = true;
-               }
-          }
-          catch (...)
-          {
-               cache.Exhausted = true;
-               return -1;
-          }
-     }
-
-     return -1;
-}
 }
 
 bool HLQueryCLI::IsDataTooMessyForTable(const nlohmann::json &doc)
@@ -917,8 +823,6 @@ void HLQueryCLI::SearchDocuments(const std::string &collection_name, const std::
      nlohmann::json last_root;
      size_t total_found = 0;
      bool has_found_value = false;
-     DocumentOrdinalLookupCache ordinal_cache;
-
      while (has_more && remaining > 0)
      {
           int page_limit = std::min(PAGE_SIZE_VAL, remaining);
@@ -1186,17 +1090,7 @@ void HLQueryCLI::SearchDocuments(const std::string &collection_name, const std::
                     title = title.substr(0, 27) + "...";
                }
 
-               std::string doc_ref = "?";
-
-               if (!json_output && !RawMode)
-               {
-                    int document_ordinal = ResolveDocumentOrdinal(*this, collection_name, doc_id, ordinal_cache);
-
-                    if (document_ordinal > 0)
-                    {
-                         doc_ref = std::to_string(document_ordinal);
-                    }
-               }
+               const std::string doc_ref = std::to_string(offset + static_cast<int>(all_rows.size()) + 1);
 
                all_rows.push_back({doc_ref, doc_id, score_str, title, content, fields_preview});
 
@@ -1418,8 +1312,6 @@ void HLQueryCLI::SearchSQL(const std::string &sql, const std::string &collection
      }
 
      std::vector<std::vector<std::string>> all_rows;
-     DocumentOrdinalLookupCache ordinal_cache;
-
      for (const auto &hit : hits)
      {
           std::string doc_id;
@@ -1530,17 +1422,7 @@ void HLQueryCLI::SearchSQL(const std::string &sql, const std::string &collection
                title = title.substr(0, 27) + "...";
           }
 
-          std::string doc_ref = "?";
-
-          if (!hit_collection.empty())
-          {
-               const int document_ordinal = ResolveDocumentOrdinal(*this, hit_collection, doc_id, ordinal_cache);
-
-               if (document_ordinal > 0)
-               {
-                    doc_ref = std::to_string(document_ordinal);
-               }
-          }
+          const std::string doc_ref = std::to_string(all_rows.size() + 1);
 
           all_rows.push_back({doc_ref, doc_id, score_str, title, content, fields_preview});
      }

@@ -1069,6 +1069,91 @@ void ParseSearchTalkOptions(const std::vector<std::string> &args, size_t start_i
      }
 }
 
+static std::string JoinTalkSearchQueryTokens(const std::vector<std::string> &tokens)
+{
+     std::string query;
+
+     for (size_t i = 0; i < tokens.size(); ++i)
+     {
+          if (i != 0)
+          {
+               query += ' ';
+          }
+
+          query += tokens[i];
+     }
+
+     return query;
+}
+
+static bool ExtractSearchTalkQuery(const std::vector<std::string> &parts,
+                                   size_t start_index,
+                                   std::string &query,
+                                   size_t &options_start_index,
+                                   bool &phrase_query)
+{
+     std::vector<std::string> positional;
+     size_t index = start_index;
+
+     while (index < parts.size() && parts[index].rfind("--", 0) != 0 && parts[index] != "-e" && parts[index] != "-h")
+     {
+          positional.push_back(parts[index]);
+          ++index;
+     }
+
+     options_start_index = index;
+
+     if (positional.empty())
+     {
+          return false;
+     }
+
+     size_t query_token_count = positional.size();
+
+     if (query_token_count >= 3)
+     {
+          query_token_count -= 3;
+     }
+     else
+     {
+          if (query_token_count >= 2 && IsUnsignedInteger(positional[query_token_count - 1]))
+          {
+               --query_token_count;
+          }
+
+          if (query_token_count >= 2 && IsUnsignedInteger(positional[query_token_count - 1]))
+          {
+               --query_token_count;
+          }
+     }
+
+     if (query_token_count == 0)
+     {
+          query_token_count = 1;
+     }
+
+     std::vector<std::string> query_tokens(positional.begin(), positional.begin() + static_cast<long>(query_token_count));
+     query = JoinTalkSearchQueryTokens(query_tokens);
+     phrase_query = (query_tokens.size() == 1 && query_tokens[0].find(' ') != std::string::npos);
+
+     return !query.empty();
+}
+
+static std::string BuildTalkQueryForServer(const std::string &query, bool phrase_query)
+{
+     if (!phrase_query || query.size() < 2)
+     {
+          return query;
+     }
+
+     if (query.front() == '"' && query.back() == '"')
+     {
+          return query;
+     }
+
+     return "\"" + query + "\"";
+}
+
 /* Fetch visible document IDs to support numeric references in the REPL. */
 
 std::vector<std::string> FetchDocumentIds(HLQueryCLI &cli, const std::string &collection_name, int offset = 0, int limit = 1000)
@@ -2513,14 +2598,11 @@ bool ExecuteTalkCommand(const std::string &line,
                return true;
           }
 
-          std::string query = parts[1];
+          std::string query;
+          std::string server_query;
           SearchTalkOptions options;
-          ParseSearchTalkOptions(parts, 2, options);
-
-          if (options.Distributed.empty())
-          {
-               options.Distributed = "off";
-          }
+          size_t options_start_index = 0;
+          bool phrase_query = false;
 
           if (state.CurrentCollection.empty())
           {
@@ -2542,29 +2624,68 @@ bool ExecuteTalkCommand(const std::string &line,
 
                     if (cli.CollectionExists(explicit_collection_name))
                     {
-                         query = parts[2];
-                         ParseSearchTalkOptions(parts, 3, options);
+                         if (!ExtractSearchTalkQuery(parts, 2, query, options_start_index, phrase_query))
+                         {
+                              TalkPrintError("Usage: search COL|# QUERY [limit] [offset] [sort] [--exact] [--highlight] [--fields=f1,f2] [--maybe=min,limit] [--json]");
+                              return true;
+                         }
+
+                         ParseSearchTalkOptions(parts, options_start_index, options);
                          explicit_document_search = true;
                     }
                }
 
                if (explicit_document_search)
                {
+                    if (options.Distributed.empty())
+                    {
+                         options.Distributed = "off";
+                    }
+
+                    server_query = BuildTalkQueryForServer(query, phrase_query);
                     state.LastListedCollections.clear();
                     state.LastListedDocumentIds.clear();
-                    cli.SearchDocuments(explicit_collection_name, query, options.Limit, options.Offset, options.Sort, options.ExactMatch, options.Highlight, options.HighlightFields, options.Distributed, options.Route, 30, options.MaybeMin, options.MaybeLimit, options.JsonOutput);
+                    cli.SearchDocuments(explicit_collection_name, server_query, options.Limit, options.Offset, options.Sort, options.ExactMatch, options.Highlight, options.HighlightFields, options.Distributed, options.Route, 30, options.MaybeMin, options.MaybeLimit, options.JsonOutput);
                     return true;
                }
 
+               if (!ExtractSearchTalkQuery(parts, 1, query, options_start_index, phrase_query))
+               {
+                    TalkPrintError("Usage: search <query> [limit] [offset] [sort] [--exact] [--highlight] [--fields=f1,f2] [--maybe=min,limit] [--json]");
+                    return true;
+               }
+
+               ParseSearchTalkOptions(parts, options_start_index, options);
+
+               if (options.Distributed.empty())
+               {
+                    options.Distributed = "off";
+               }
+
+               server_query = BuildTalkQueryForServer(query, phrase_query);
                state.LastListedCollections = FetchSearchCollectionNames(cli, query, options);
                state.LastListedDocumentIds.clear();
-               cli.SearchCollections(query, options.Limit, options.Offset, options.Sort, options.Distributed, options.Route, options.MaybeMin, options.MaybeLimit, options.JsonOutput);
+               cli.SearchCollections(server_query, options.Limit, options.Offset, options.Sort, options.Distributed, options.Route, options.MaybeMin, options.MaybeLimit, options.JsonOutput);
                return true;
           }
 
+          if (!ExtractSearchTalkQuery(parts, 1, query, options_start_index, phrase_query))
+          {
+               TalkPrintError("Usage: search <query> [limit] [offset] [sort] [--exact] [--highlight] [--fields=f1,f2] [--maybe=min,limit] [--json]");
+               return true;
+          }
+
+          ParseSearchTalkOptions(parts, options_start_index, options);
+
+          if (options.Distributed.empty())
+          {
+               options.Distributed = "off";
+          }
+
+          server_query = BuildTalkQueryForServer(query, phrase_query);
           state.LastListedCollections.clear();
           state.LastListedDocumentIds.clear();
-          cli.SearchDocuments(state.CurrentCollection, query, options.Limit, options.Offset, options.Sort, options.ExactMatch, options.Highlight, options.HighlightFields, options.Distributed, options.Route, 30, options.MaybeMin, options.MaybeLimit, options.JsonOutput);
+          cli.SearchDocuments(state.CurrentCollection, server_query, options.Limit, options.Offset, options.Sort, options.ExactMatch, options.Highlight, options.HighlightFields, options.Distributed, options.Route, 30, options.MaybeMin, options.MaybeLimit, options.JsonOutput);
           return true;
      }
 

@@ -161,6 +161,19 @@ static bool IsValidHostValue(const std::string &value)
      return IsValidIPAddress(value) || IsValidHostnameValue(value);
 }
 
+static bool IsUnsignedIntegerValue(const std::string &value)
+{
+     if (value.empty())
+     {
+          return false;
+     }
+
+     return std::all_of(value.begin(), value.end(), [](unsigned char character)
+                        {
+                             return std::isdigit(character) != 0;
+                        });
+}
+
 /* Splits a comma-separated string into trimmed non-empty values. */
 
 static std::vector<std::string> ParseCommaSeparatedList(const std::string &value)
@@ -491,6 +504,95 @@ static void ParseSearchCLIOptions(const std::vector<std::string> &args, size_t s
                continue;
           }
      }
+}
+
+/* Joins query tokens and infers phrase search when the shell preserved one quoted multi-word token. */
+
+static std::string JoinSearchQueryTokens(const std::vector<std::string> &tokens)
+{
+     std::string query;
+
+     for (size_t i = 0; i < tokens.size(); ++i)
+     {
+          if (i != 0)
+          {
+               query += ' ';
+          }
+
+          query += tokens[i];
+     }
+
+     return query;
+}
+
+/* Extract search query tokens while preserving trailing limit/offset/sort positional arguments. */
+
+static bool ExtractSearchCLIQuery(const std::vector<std::string> &args,
+                                  size_t start_index,
+                                  std::string &query,
+                                  size_t &options_start_index,
+                                  bool &phrase_query)
+{
+     std::vector<std::string> positional;
+     size_t index = start_index;
+
+     while (index < args.size() && args[index].rfind("--", 0) != 0 && args[index] != "-e" && args[index] != "-h")
+     {
+          positional.push_back(args[index]);
+          ++index;
+     }
+
+     options_start_index = index;
+
+     if (positional.empty())
+     {
+          return false;
+     }
+
+     size_t query_token_count = positional.size();
+
+     if (query_token_count >= 3)
+     {
+          query_token_count -= 3;
+     }
+     else
+     {
+          if (query_token_count >= 2 && IsUnsignedIntegerValue(positional[query_token_count - 1]))
+          {
+               --query_token_count;
+          }
+
+          if (query_token_count >= 2 && IsUnsignedIntegerValue(positional[query_token_count - 1]))
+          {
+               --query_token_count;
+          }
+     }
+
+     if (query_token_count == 0)
+     {
+          query_token_count = 1;
+     }
+
+     std::vector<std::string> query_tokens(positional.begin(), positional.begin() + static_cast<long>(query_token_count));
+     query = JoinSearchQueryTokens(query_tokens);
+     phrase_query = (query_tokens.size() == 1 && query_tokens[0].find(' ') != std::string::npos);
+
+     return !query.empty();
+}
+
+static std::string BuildCLIQueryForServer(const std::string &query, bool phrase_query)
+{
+     if (!phrase_query || query.size() < 2)
+     {
+          return query;
+     }
+
+     if (query.front() == '"' && query.back() == '"')
+     {
+          return query;
+     }
+
+     return "\"" + query + "\"";
 }
 
 /* UpdateHostPortFromURL parses the base URL and extracts host and port. */
@@ -1387,25 +1489,34 @@ int main(int argc, char *argv[])
                SearchCLIOptions opts;
                std::string collection_str;
                std::string query_str;
+               std::string server_query_str;
+               size_t options_start_index = 0;
+               bool phrase_query = false;
 
                if (args_vec.size() >= 2 && args_vec[1] == "--all")
                {
-                    if (args_vec.size() < 3)
+                    if (!ExtractSearchCLIQuery(args_vec, 2, query_str, options_start_index, phrase_query))
                     {
                          ConsoleWriter::WriteError("Error: 'search --all' requires a query.", true);
                          ConsoleWriter::WriteError("Usage: " + program_name + " search --all <query> [limit] [offset] [sort] [--exact] [--highlight] [--collections=col1,col2] [--fields=f1,f2] [--maybe=min,limit].", true);
                          return 1;
                     }
 
-                    query_str = args_vec[2];
-                    ParseSearchCLIOptions(args_vec, 3, opts);
+                    ParseSearchCLIOptions(args_vec, options_start_index, opts);
                     opts.All = true;
-               }
+                }
                else if (args_vec.size() >= 3)
                {
                     collection_str = args_vec[1];
-                    query_str = args_vec[2];
-                    ParseSearchCLIOptions(args_vec, 3, opts);
+
+                    if (!ExtractSearchCLIQuery(args_vec, 2, query_str, options_start_index, phrase_query))
+                    {
+                         ConsoleWriter::WriteError("Error: 'search' command requires a query.", true);
+                         ConsoleWriter::WriteError("Usage: " + program_name + " search <col> <query> [limit] [offset] [sort] [--all] [--exact] [--highlight] [--fields=f1,f2] [--maybe=min,limit].", true);
+                         return 1;
+                    }
+
+                    ParseSearchCLIOptions(args_vec, options_start_index, opts);
                }
                else
                {
@@ -1415,6 +1526,8 @@ int main(int argc, char *argv[])
 
                     return 1;
                }
+
+               server_query_str = BuildCLIQueryForServer(query_str, phrase_query);
 
                if (opts.All)
                {
@@ -1428,7 +1541,7 @@ int main(int argc, char *argv[])
                          opts.Collections = {collection_str};
                     }
 
-                    cli_instance.SearchAcrossCollections(query_str, opts.Collections, opts.Limit, opts.Offset, opts.Sort, opts.ExactMatch, opts.Highlight, opts.HighlightFields, opts.Distributed, opts.Route, true, opts.MaybeMin, opts.MaybeLimit, opts.JsonOutput);
+                    cli_instance.SearchAcrossCollections(server_query_str, opts.Collections, opts.Limit, opts.Offset, opts.Sort, opts.ExactMatch, opts.Highlight, opts.HighlightFields, opts.Distributed, opts.Route, true, opts.MaybeMin, opts.MaybeLimit, opts.JsonOutput);
                     return 0;
                }
 
@@ -1437,7 +1550,7 @@ int main(int argc, char *argv[])
                     opts.Distributed = "off";
                }
 
-               cli_instance.SearchDocuments(collection_str, query_str, opts.Limit, opts.Offset, opts.Sort, opts.ExactMatch, opts.Highlight, opts.HighlightFields, opts.Distributed, opts.Route, 30, opts.MaybeMin, opts.MaybeLimit, opts.JsonOutput);
+               cli_instance.SearchDocuments(collection_str, server_query_str, opts.Limit, opts.Offset, opts.Sort, opts.ExactMatch, opts.Highlight, opts.HighlightFields, opts.Distributed, opts.Route, 30, opts.MaybeMin, opts.MaybeLimit, opts.JsonOutput);
           }
           else if (command_str == "maybe")
           {

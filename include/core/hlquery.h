@@ -33,7 +33,7 @@
 #include "core/modulemanager.h"
 #include "core/startup.h"
 #include "core/stats.h"
-#include "core/time.h"
+#include "core/clock.h"
 #include "core/threadlimit.h"
 #include "core/timers.h"
 #include "core/forwards.h"

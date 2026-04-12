@@ -14,12 +14,7 @@
 
 #include <chrono>
 #include <ctime>
-
-#if defined(__linux__)
-
-     #include <time.h>
-
-#endif
+#include <time.h>
 
 /* 
  * Return the current wall-clock time as whole seconds since the Unix epoch.
@@ -78,24 +73,36 @@ inline long long NowMs()
 /* 
  * Return a monotonic steady-clock time point for interval measurement.
  * On Linux, this prefers `CLOCK_BOOTTIME` when available so elapsed-time
- * calculations can continue across suspend and resume cycles. That behavior is
- * useful for timers and runtime accounting that should reflect real boot time
- * progression instead of only active CPU uptime. When that platform-specific
- * path is unavailable or fails, the helper falls back to
- * `std::chrono::steady_clock::now()`. If all clock access unexpectedly throws,
- * the helper returns a default-constructed steady-clock time point.
+ * calculations can continue across suspend and resume cycles. On BSD and
+ * macOS, it falls back to `CLOCK_MONOTONIC` when that POSIX clock is exposed
+ * by the platform headers. If no suitable POSIX clock is available or the
+ * syscall fails, the helper falls back to `std::chrono::steady_clock::now()`.
+ * If all clock access unexpectedly throws, the helper returns a
+ * default-constructed steady-clock time point.
  */
 
 inline std::chrono::steady_clock::time_point Now()
 {
      try
      {
+          struct timespec ts;
 
 #if defined(__linux__) && defined(CLOCK_BOOTTIME)
 
-          struct timespec ts;
-
           if (clock_gettime(CLOCK_BOOTTIME, &ts) == 0)
+          {
+               const auto duration =
+                    std::chrono::seconds(ts.tv_sec) + std::chrono::nanoseconds(ts.tv_nsec);
+
+               return std::chrono::steady_clock::time_point(
+                    std::chrono::duration_cast<std::chrono::steady_clock::duration>(duration));
+          }
+
+#endif
+
+#if defined(CLOCK_MONOTONIC)
+
+          if (clock_gettime(CLOCK_MONOTONIC, &ts) == 0)
           {
                const auto duration =
                     std::chrono::seconds(ts.tv_sec) + std::chrono::nanoseconds(ts.tv_nsec);
