@@ -556,6 +556,11 @@ class ServerConfig
          return AIModelPath;
     }
 
+    bool GetSamEnabled() const
+    {
+         return SamEnabled;
+    }
+
      /* Search settings */
 
      /* Returns default ranking name. */
@@ -1808,6 +1813,7 @@ class ServerConfig
     std::string AIModelPath;
     std::string AIInferenceCommand;
     std::vector<AIModelDescriptor> AIModelCatalog;
+    bool SamEnabled = false;
 
      /* Default ranking name. */
 

@@ -297,6 +297,7 @@ void ServerConfig::ApplyConfiguration()
 
      auto AITag = ConfigReaderValue.GetTag("ai");
      auto LLMTag = ConfigReaderValue.GetTag("llm");
+     auto SAMTag = ConfigReaderValue.GetTag("sam");
 
      std::string ModelPathOverride;
 
@@ -306,6 +307,7 @@ void ServerConfig::ApplyConfiguration()
           AIModelName = AITag->GetString("model", AIModelName);
           ModelPathOverride = AITag->GetString("model_path", "");
           AIInferenceCommand = AITag->GetString("inference_command", AIInferenceCommand);
+          SamEnabled = AITag->GetBool("sam_enabled", SamEnabled);
      }
 
      if (LLMTag)
@@ -319,6 +321,11 @@ void ServerConfig::ApplyConfiguration()
           }
 
           AIInferenceCommand = LLMTag->GetString("inference_command", AIInferenceCommand);
+     }
+
+     if (SAMTag)
+     {
+          SamEnabled = SAMTag->GetBool("enabled", SamEnabled);
      }
 
      AIModelCatalog.clear();

@@ -84,6 +84,7 @@ struct CollectionRouteInfo
      bool IsDocumentsFacetCounts = false;
      bool IsDocumentsExport = false;
      bool IsDocumentsMaybe = false;
+     bool IsDocumentContext = false;
      bool IsDocumentsUpdateByQuery = false;
      bool IsDocumentsDeleteByQuery = false;
      bool IsSynonymsRoot = false;
@@ -160,6 +161,7 @@ static CollectionRouteInfo BuildCollectionRouteInfo(const std::string &Normalize
      Info.IsDocumentsFacetCounts = Info.IsDocumentsChild && Info.SegmentEquals(3, "facet_counts");
      Info.IsDocumentsExport = Info.IsDocumentsChild && Info.SegmentEquals(3, "export");
      Info.IsDocumentsMaybe = Info.IsDocumentsChild && Info.SegmentEquals(3, "maybe");
+     Info.IsDocumentContext = Info.IsCollectionPath && Info.Segments.size() == 5 && Info.SegmentEquals(2, "documents") && Info.SegmentEquals(4, "context");
      Info.IsDocumentsUpdateByQuery = Info.IsDocumentsChild && Info.SegmentEquals(3, "_update_by_query");
      Info.IsDocumentsDeleteByQuery = Info.IsDocumentsChild && Info.SegmentEquals(3, "_delete_by_query");
      Info.IsSynonymsRoot = Info.IsCollectionPath && Info.Segments.size() == 3 && Info.SegmentEquals(2, "synonyms");
@@ -471,6 +473,11 @@ RouteAction ResolveHttpRoute(const HttpRequest &Request)
                return RouteAction::ListDocuments;
           }
 
+          if (RouteInfo.IsDocumentContext && Method == "GET")
+          {
+               return RouteAction::GetDocumentContext;
+          }
+
           if (RouteInfo.IsDocumentsChild && RouteInfo.Segments.size() == 4 && !RouteInfo.IsDocumentsSearch && !RouteInfo.IsDocumentsMaybe && Method == "GET")
           {
                return RouteAction::GetDocument;
@@ -761,6 +768,8 @@ const char *RouteActionName(RouteAction ActionVal)
                return "ListDocuments";
           case RouteAction::GetDocument:
                return "GetDocument";
+          case RouteAction::GetDocumentContext:
+               return "GetDocumentContext";
           case RouteAction::AddDocument:
                return "AddDocument";
           case RouteAction::BulkImportDocuments:

@@ -1656,6 +1656,74 @@ void HLQueryCLI::MaybeSuggest(const std::string &query, const std::string &colle
      PrintMaybeSuggestions(root, query, collection_name);
 }
 
+void HLQueryCLI::ShowDocumentContext(const std::string &collection_name, const std::string &document_id, bool json_output)
+{
+     if (collection_name.empty() || document_id.empty())
+     {
+          PrintError("Collection name and document ID are required", "Usage: sam <document-id>");
+          return;
+     }
+
+     const std::string path = "/collections/" + hlquery_cli::UrlEncode(collection_name) +
+                              "/documents/" + hlquery_cli::UrlEncode(document_id) + "/context";
+
+     HLQueryCLI::HTTPResponse response = MakeRequest("GET", path);
+
+     if (CheckRequestFailed(response))
+     {
+          return;
+     }
+
+     if (json_output || RawMode)
+     {
+          try
+          {
+               std::cout << nlohmann::json::parse(response.Body).dump(2) << "\n";
+          }
+          catch (const std::exception &)
+          {
+               std::cout << response.Body << "\n";
+          }
+          return;
+     }
+
+     nlohmann::json root;
+     try
+     {
+          root = nlohmann::json::parse(response.Body);
+     }
+     catch (const std::exception &)
+     {
+          PrintError("Failed to parse document context response");
+          return;
+     }
+
+     std::cout << "Context phrases for document '" << document_id << "' in collection '" << collection_name << "':.\n";
+
+     if (root.value("pending", false))
+     {
+          std::cout << "Background context job is still pending.\n";
+     }
+
+     if (!root.contains("suggestions") || !root["suggestions"].is_array() || root["suggestions"].empty())
+     {
+          std::cout << "No contextual phrases available.\n";
+          return;
+     }
+
+     std::vector<std::vector<std::string>> Rows;
+     size_t Index = 1;
+
+     for (const auto &Suggestion : root["suggestions"])
+     {
+          Rows.push_back({std::to_string(Index++),
+                          Suggestion.value("text", ""),
+                          Suggestion.value("kind", "")});
+     }
+
+     PrintTable({"#", "Phrase", "Kind"}, Rows);
+}
+
 void HLQueryCLI::SearchAcrossCollections(const std::string &query, const std::vector<std::string> &collections, int limit, int offset, const std::string &sort, bool exact_match, bool highlight, const std::string &highlight_fields, const std::string &distributed, const std::string &route, bool distributed_collections, int maybe_min, int maybe_limit, bool json_output)
 {
      if (query.empty())

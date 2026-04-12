@@ -1534,9 +1534,12 @@ void PrintHelp()
      std::cout << "  show cols [offset limit]  List all collections (alias for ls when no collection is active)\n";
      std::cout << "  search QUERY [limit] [offset] [sort] [--exact] [--highlight] [--fields=f1,f2] [--maybe=min,limit] [--json]\n";
      std::cout << "           Search documents in the active collection, or collection names when no collection is active\n";
+     std::cout << "  search COL|# QUERY [limit] [offset] [sort] [--exact] [--highlight] [--fields=f1,f2] [--maybe=min,limit] [--json]\n";
+     std::cout << "           Search documents in one collection without changing context when no collection is active\n";
      std::cout << "           Use quotes for multi-word queries, for example: search \"lime juice\"\n";
      std::cout << "  maybe QUERY [collection] [limit] [min_results]\n";
      std::cout << "           Suggest likely intended phrases through the daemon maybe endpoint\n";
+     std::cout << "  sam ID  Show contextual lookup phrases for one document in the active collection\n";
      std::cout << "  connect [HOST:PORT|URL]  Connect to one endpoint, or retry the current node plus all /links endpoints\n";
      std::cout << "  run N COMMAND  Execute one talk command N times, for example: run 5 sql: select * from books\n";
      std::cout << "  sql: SELECT ... FROM ...  Run a SQL query through the daemon /sql route\n";
@@ -2510,7 +2513,7 @@ bool ExecuteTalkCommand(const std::string &line,
                return true;
           }
 
-          const std::string query = parts[1];
+          std::string query = parts[1];
           SearchTalkOptions options;
           ParseSearchTalkOptions(parts, 2, options);
 
@@ -2521,6 +2524,38 @@ bool ExecuteTalkCommand(const std::string &line,
 
           if (state.CurrentCollection.empty())
           {
+               std::string explicit_collection_name;
+               std::string reference_error;
+               bool explicit_document_search = false;
+
+               if (parts.size() >= 3 &&
+                   parts[2].rfind("--", 0) != 0 &&
+                   !IsUnsignedInteger(parts[2]) &&
+                   ResolveCollectionReference(parts[1], state.LastListedCollections, explicit_collection_name, reference_error))
+               {
+                    std::string aliased_collection_name;
+
+                    if (ResolveTalkAliasCollection(state, cli, explicit_collection_name, aliased_collection_name))
+                    {
+                         explicit_collection_name = aliased_collection_name;
+                    }
+
+                    if (cli.CollectionExists(explicit_collection_name))
+                    {
+                         query = parts[2];
+                         ParseSearchTalkOptions(parts, 3, options);
+                         explicit_document_search = true;
+                    }
+               }
+
+               if (explicit_document_search)
+               {
+                    state.LastListedCollections.clear();
+                    state.LastListedDocumentIds.clear();
+                    cli.SearchDocuments(explicit_collection_name, query, options.Limit, options.Offset, options.Sort, options.ExactMatch, options.Highlight, options.HighlightFields, options.Distributed, options.Route, 30, options.MaybeMin, options.MaybeLimit, options.JsonOutput);
+                    return true;
+               }
+
                state.LastListedCollections = FetchSearchCollectionNames(cli, query, options);
                state.LastListedDocumentIds.clear();
                cli.SearchCollections(query, options.Limit, options.Offset, options.Sort, options.Distributed, options.Route, options.MaybeMin, options.MaybeLimit, options.JsonOutput);
@@ -2774,6 +2809,33 @@ bool ExecuteTalkCommand(const std::string &line,
           }
 
           cli.MaybeSuggest(query_str, collection_name, limit_val, min_results_val, false);
+          return true;
+     }
+
+     if (command == "sam")
+     {
+          if (state.CurrentCollection.empty())
+          {
+               TalkPrintError("No active collection. Use 'use <collection>' first");
+               return true;
+          }
+
+          if (parts.size() != 2)
+          {
+               TalkPrintError("Usage: sam <document-id|number>");
+               return true;
+          }
+
+          std::string document_id;
+          std::string error_message;
+
+          if (!ResolveCollectionDocumentReference(cli, state.CurrentCollection, parts[1], state.LastListedDocumentIds, document_id, error_message))
+          {
+               TalkPrintError(error_message);
+               return true;
+          }
+
+          cli.ShowDocumentContext(state.CurrentCollection, document_id);
           return true;
      }
 

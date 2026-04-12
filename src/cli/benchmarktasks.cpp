@@ -11,7 +11,6 @@
  */
 
 #include <chrono>
-#include <future>
 #include <iostream>
 #include <mutex>
 #include <set>
@@ -77,74 +76,18 @@ void CreateCollectionsThread(const std::string &base_url, const std::string &aut
 
           std::string collection_name = g_collection_prefix + std::to_string(i);
 
-          const int COLLECTION_TIMEOUT_MS = 2000;
+          const int COLLECTION_TIMEOUT_MS = 10000;
 
           bool success = false;
 
-          std::promise<bool> promise;
-
-          std::future<bool> future = promise.get_future();
-
-          std::thread timeout_thread([&client, collection_name, promise = std::move(promise)]() mutable
-                                     {
-                                          client.ResetConnection();
-
-                                          try
-                                          {
-                                               bool result = client.CreateCollection(collection_name);
-
-                                               promise.set_value(result);
-                                          }
-                                          catch (...)
-                                          {
-                                               try
-                                               {
-                                                    promise.set_exception(std::current_exception());
-                                               }
-                                               catch (...)
-                                               {
-                                                    /* Ignore. */
-                                               }
-                                          }
-                                     });
-
-          auto status = future.wait_for(std::chrono::milliseconds(COLLECTION_TIMEOUT_MS));
-
-          if (status == std::future_status::ready)
+          try
           {
-               try
-               {
-                    success = future.get();
-               }
-               catch (...)
-               {
-                    success = false;
-               }
-          }
-          else
-          {
-               if (verbose_mode)
-               {
-                    std::lock_guard<std::mutex> lock(console_mutex);
-
-                    std::cerr << "  Collection " << i << " creation timed out after " << COLLECTION_TIMEOUT_MS << "ms - skipping.\n";
-               }
-
-               collections_skipped.fetch_add(1);
-
                client.ResetConnection();
-
-               if (timeout_thread.joinable())
-               {
-                    timeout_thread.detach();
-               }
-
-               continue;
+               success = client.CreateCollection(collection_name, COLLECTION_TIMEOUT_MS);
           }
-
-          if (timeout_thread.joinable())
+          catch (...)
           {
-               timeout_thread.join();
+               success = false;
           }
 
           auto end = std::chrono::high_resolution_clock::now();

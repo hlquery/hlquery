@@ -116,6 +116,7 @@ enum class RouteAction
      GlobalSearch,
      ListDocuments,
      GetDocument,
+     GetDocumentContext,
      AddDocument,
      BulkImportDocuments,
      UpdateDocument,

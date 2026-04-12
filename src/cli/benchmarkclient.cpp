@@ -938,10 +938,20 @@ static bool IsLocalWriteCommittedDespiteReplicationError(const HTTPResponse &res
 
 bool BenchmarkClient::CreateCollection(const std::string &name)
 {
-     return CreateCollectionLocal(name);
+     return CreateCollection(name, 10000);
+}
+
+bool BenchmarkClient::CreateCollection(const std::string &name, int timeout_ms)
+{
+     return CreateCollectionLocal(name, timeout_ms);
 }
 
 bool BenchmarkClient::CreateCollectionLocal(const std::string &name)
+{
+     return CreateCollectionLocal(name, 10000);
+}
+
+bool BenchmarkClient::CreateCollectionLocal(const std::string &name, int timeout_ms)
 {
      nlohmann::json schema;
 
@@ -966,7 +976,7 @@ bool BenchmarkClient::CreateCollectionLocal(const std::string &name)
 
      std::string json_str = schema.dump();
 
-     HTTPResponse response = MakeRequest("POST", AppendLocalOnlyQuery("/collections", true), json_str, 3);
+     HTTPResponse response = MakeRequest("POST", AppendLocalOnlyQuery("/collections", true), json_str, 3, true, timeout_ms);
 
      if (response.StatusCode == 409)
      {
@@ -978,12 +988,12 @@ bool BenchmarkClient::CreateCollectionLocal(const std::string &name)
           }
 
           DeleteCollection(name);
-          response = MakeRequest("POST", AppendLocalOnlyQuery("/collections", true), json_str, 3);
+          response = MakeRequest("POST", AppendLocalOnlyQuery("/collections", true), json_str, 3, true, timeout_ms);
 
           if (response.StatusCode == 409)
           {
                DeleteCollection(name);
-               response = MakeRequest("POST", AppendLocalOnlyQuery("/collections", true), json_str, 3);
+               response = MakeRequest("POST", AppendLocalOnlyQuery("/collections", true), json_str, 3, true, timeout_ms);
           }
 
           if (response.StatusCode == 409)

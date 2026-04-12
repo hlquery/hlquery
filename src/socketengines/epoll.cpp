@@ -893,46 +893,6 @@ int SocketEngine::DispatchEvents()
           return 0;
      }
 
-     /* HLQuery-style flush when event queue is maxed out or under high load */
-
-     if (nfds > 0)
-     {
-          bool should_flush = false;
-
-          if (nfds >= MAX_EVENTS)
-          {
-               /* Force flush when we hit maximum events (like HLQuery) */
-
-               should_flush = true;
-          }
-          else if (nfds >= MAX_EVENTS / 2)
-          {
-               /* Flush when we have many events */
-
-               static int consecutive_high_events = 0;
-
-               consecutive_high_events++;
-
-               if (consecutive_high_events >= 3)
-               {
-                    should_flush = true;
-                    consecutive_high_events = 0;
-               }
-          }
-
-          if (auto *inst = Instance; should_flush && inst && inst->Database)
-          {
-               try
-               {
-                    inst->Database->Flush();
-               }
-               catch (...)
-               {
-                    /* Ignore flush errors, continue processing */
-               }
-          }
-     }
-
      /* Process socket events with HLQuery-style batch optimization */
      /* OPTIMIZATION: Process in-place to avoid extra allocations and improve cache locality */
      /* Process errors first, then reads, then writes for optimal ordering */

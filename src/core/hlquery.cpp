@@ -127,11 +127,18 @@ bool hlquery::Initialize()
 
      LLM = std::make_unique<llm>(*Config);
 
-     Sam = std::make_unique<SAM>();
-
-     if (Sam && !Sam->Initialize())
+     if (Config && Config->GetSamEnabled())
      {
-          Sam.reset();
+          Sam = std::make_unique<SAM>();
+
+          if (Sam && !Sam->Initialize())
+          {
+               Sam.reset();
+          }
+     }
+     else if (Logs)
+     {
+          Logs->Normal("sam", "SAM disabled in configuration.");
      }
 
      /* Verify that critical subsystems are initialized properly */

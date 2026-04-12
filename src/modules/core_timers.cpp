@@ -77,6 +77,7 @@ class CoreTimersModule final : public RuntimeModule
                {
                     LastFlush = NowTime;
                }
+
           }
 
           return true;
@@ -97,6 +98,11 @@ class CoreTimersModule final : public RuntimeModule
 
      void OnEveryOneMinute() override
      {
+          if (Instance && Instance->LLM)
+          {
+               Instance->LLM->ProcessPendingContextJobs(1);
+          }
+
           return;
           
           if (Instance && Instance->Config && Instance->Logs && Instance->Config->GetNoForkMode())

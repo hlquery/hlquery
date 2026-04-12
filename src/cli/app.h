@@ -156,6 +156,10 @@ class HLQueryCLI
 
      void MaybeSuggest(const std::string &query, const std::string &collection_name, int limit = 5, int min_results = 3, bool json_output = false);
 
+     /* Shows contextual lookup phrases for one document. */
+
+     void ShowDocumentContext(const std::string &collection_name, const std::string &document_id, bool json_output = false);
+
      /* Searches across multiple collections via the global search endpoint. */
 
      void SearchAcrossCollections(const std::string &query, const std::vector<std::string> &collections, int limit = 10000, int offset = 0, const std::string &sort = "", bool exact_match = false, bool highlight = false, const std::string &highlight_fields = "", const std::string &distributed = "", const std::string &route = "", bool distributed_collections = false, int maybe_min = -1, int maybe_limit = -1, bool json_output = false);

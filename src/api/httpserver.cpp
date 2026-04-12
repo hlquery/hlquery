@@ -2569,6 +2569,10 @@ void HttpConnection::ProcessSingleRequest(const std::string &RequestStr)
      {
           Response = API.HandleMaybe(Request);
      }
+     else if (Request.Path.find("/collections/") == 0 && Request.Path.find("/documents/") != std::string::npos && Request.Path.find("/context") != std::string::npos && Request.Method == "GET")
+     {
+          Response = API.HandleGetDocumentContext(Request);
+     }
      else if (Request.Path.find("/collections/") == 0 && Request.Path.find("/documents/export") != std::string::npos && (Request.Method == "GET" || Request.Method == "POST"))
      {
           Response = API.HandleExportDocuments(Request);
@@ -4517,6 +4521,7 @@ APIKeyAction MapRouteToKeyAction(RouteAction ActionVal)
           case RouteAction::GlobalSearch:
           case RouteAction::GetDocument:
           case RouteAction::ListDocuments:
+          case RouteAction::GetDocumentContext:
           case RouteAction::FacetCounts:
           case RouteAction::ExportDocuments:
                return APIKeyAction::SEARCH;
@@ -5077,6 +5082,9 @@ HttpResponse ProcessRequestWithAPI(SearchAPI &API, const HttpRequest &Request)
                     }
 
                     return API.HandleGetDocument(Request);
+
+               case RouteAction::GetDocumentContext:
+                    return API.HandleGetDocumentContext(Request);
 
                case RouteAction::AddDocument:
                     return API.HandleAddDocument(Request);

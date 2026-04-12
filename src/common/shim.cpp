@@ -174,57 +174,17 @@ void hlcore::Run()
 
 time_t hlcore::Time() const
 {
-     try
-     {
-          auto now = std::chrono::system_clock::now();
-          auto duration = now.time_since_epoch();
-          auto seconds = std::chrono::duration_cast<std::chrono::seconds>(duration);
-          return static_cast<time_t>(seconds.count());
-     }
-     catch (...)
-     {
-          return 0;
-     }
+     return ::Time();
 }
 
 long long hlcore::NowMs() const
 {
-     try
-     {
-          auto now = std::chrono::system_clock::now();
-          auto duration = now.time_since_epoch();
-          auto milliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(duration);
-          return static_cast<long long>(milliseconds.count());
-     }
-     catch (...)
-     {
-          return 0;
-     }
+     return ::NowMs();
 }
 
 std::chrono::steady_clock::time_point hlcore::Now() const
 {
-     try
-     {
-#if defined(__linux__) && defined(CLOCK_BOOTTIME)
-          struct timespec ts;
-
-          if (clock_gettime(CLOCK_BOOTTIME, &ts) == 0)
-          {
-               const auto duration =
-                    std::chrono::seconds(ts.tv_sec) + std::chrono::nanoseconds(ts.tv_nsec);
-
-               return std::chrono::steady_clock::time_point(
-                    std::chrono::duration_cast<std::chrono::steady_clock::duration>(duration));
-          }
-#endif
-
-          return std::chrono::steady_clock::now();
-     }
-     catch (...)
-     {
-          return std::chrono::steady_clock::time_point{};
-     }
+     return ::Now();
 }
 
 void hlcore::InitializeLogs()

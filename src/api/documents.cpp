@@ -95,7 +95,17 @@ static nlohmann::json BuildDocumentJSON(const Document &Doc)
 
 static void SyncSamDocument(const std::string& CollectionName, const Document& Doc)
 {
-     if (!Instance || !Instance->Sam)
+     if (!Instance)
+     {
+          return;
+     }
+
+     if (Instance->LLM)
+     {
+          Instance->LLM->EnqueueContextualization(CollectionName, Doc);
+     }
+
+     if (!Instance->Sam)
      {
           return;
      }
@@ -111,7 +121,17 @@ static void SyncSamDocument(const std::string& CollectionName, const Document& D
 
 static void RemoveSamDocument(const std::string& CollectionName, const std::string& DocumentID)
 {
-     if (!Instance || !Instance->Sam)
+     if (!Instance)
+     {
+          return;
+     }
+
+     if (Instance->LLM)
+     {
+          Instance->LLM->RemoveDocumentContext(CollectionName, DocumentID);
+     }
+
+     if (!Instance->Sam)
      {
           return;
      }
@@ -1750,6 +1770,91 @@ HttpResponse SearchAPI::HandleGetDocument(const HttpRequest &Request)
      return Response;
 }
 
+HttpResponse SearchAPI::HandleGetDocumentContext(const HttpRequest &Request)
+{
+     if (Request.Method != "GET")
+     {
+          return HttpResponse(Status::METHOD_NOT_ALLOWED, StatusText(Status::METHOD_NOT_ALLOWED), "application/json");
+     }
+
+     const std::string CollectionName = ExtractCollectionFromPath(Request.Path);
+     const std::string DocumentID = ExtractDocumentIdFromPath(Request.Path);
+
+     if (CollectionName.empty() || DocumentID.empty())
+     {
+          return BuildErrorResponse(Status::BAD_REQUEST,
+                                    Code::DOCUMENT_INVALID_ID,
+                                    "Invalid document ID",
+                                    "Document ID validation failed.");
+     }
+
+     if (!HybridStorageManagerInstance().CollectionExists(CollectionName))
+     {
+          return BuildErrorResponse(Status::NOT_FOUND, Code::COLLECTION_NOT_FOUND, "Collection not found", "The specified collection does not exist.");
+     }
+
+     Document DocObj;
+
+     try
+     {
+          DocObj = HybridStorageManagerInstance().GetDocument(CollectionName, DocumentID);
+     }
+     catch (const std::exception& E)
+     {
+          return BuildErrorResponse(Status::INTERNAL_SERVER_ERROR,
+                                    Code::SEARCH_INVALID_PARAMETER,
+                                    "Internal server error",
+                                    "Failed to retrieve document context: " + std::string(E.what()) + ".");
+     }
+     catch (...)
+     {
+          return BuildErrorResponse(Status::INTERNAL_SERVER_ERROR,
+                                    Code::SEARCH_INVALID_PARAMETER,
+                                    "Internal server error",
+                                    "Unknown error occurred while retrieving document context.");
+     }
+
+     if (DocObj.ID.empty())
+     {
+          return BuildErrorResponse(Status::NOT_FOUND, Code::DOCUMENT_NOT_FOUND, "Document not found", "The specified document does not exist in this collection.");
+     }
+
+     nlohmann::json Root;
+     Root["ok"] = true;
+     Root["collection"] = CollectionName;
+     Root["id"] = DocumentID;
+
+     bool Pending = false;
+     std::vector<llm::ContextSuggestion> Suggestions;
+
+     if (Instance && Instance->LLM)
+     {
+          Suggestions = Instance->LLM->GetDocumentContext(CollectionName, DocumentID, &Pending);
+
+          if (Suggestions.empty())
+          {
+               Suggestions = Instance->LLM->BuildDocumentContext(CollectionName, DocObj, 5);
+               Instance->LLM->StoreDocumentContext(CollectionName, DocumentID, Suggestions);
+          }
+     }
+
+     Root["pending"] = Pending;
+     Root["count"] = Suggestions.size();
+     Root["suggestions"] = nlohmann::json::array();
+
+     for (const auto& Suggestion : Suggestions)
+     {
+          Root["suggestions"].push_back({
+               {"text", Suggestion.Text},
+               {"kind", Suggestion.Kind}
+          });
+     }
+
+     HttpResponse Response(Status::OK, StatusText(Status::OK), "application/json");
+     Response.Body = Root.dump();
+     return Response;
+}
+
 /* HandleBulkImportDocuments imports multiple documents. */
 
 HttpResponse SearchAPI::HandleBulkImportDocuments(const HttpRequest &Request)
@@ -2154,17 +2259,6 @@ HttpResponse SearchAPI::HandleBulkImportDocuments(const HttpRequest &Request)
      }
 
      Response.Body = ResponseJSON.dump();
-
-     if (ImportedCount > 0 && Instance && Instance->Sam)
-     {
-          std::string SamError;
-
-          if (!Instance->Sam->Recreate(&SamError) &&
-              Instance->Logs && !SamError.empty())
-          {
-               Instance->Logs->Normal("sam", "Failed to rebuild SAM after bulk import: " + SamError + ".");
-          }
-     }
 
      if (ImportedCount > 0)
      {

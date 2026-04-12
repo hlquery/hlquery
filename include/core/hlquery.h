@@ -13,10 +13,8 @@
 #pragma once
 
 #include <atomic>
-#include <chrono>
 #include <csignal>
 #include <cstdint>
-#include <ctime>
 #include <functional>
 #include <iostream>
 #include <memory>
@@ -25,18 +23,17 @@
 #include <thread>
 #include <unordered_map>
 #include <vector>
-#if defined(__linux__)
-#include <time.h>
-#endif
 
 #include "common/searchpool.h"
 #include "common/listenmanager.h"
 #include "core/config.h"
 #include "core/metrics.h"
 #include "core/logmanager.h"
+#include "core/llm.h"
 #include "core/modulemanager.h"
 #include "core/startup.h"
 #include "core/stats.h"
+#include "core/time.h"
 #include "core/threadlimit.h"
 #include "core/timers.h"
 #include "core/forwards.h"
@@ -45,64 +42,6 @@
 #include "utils/tools.h"
 
 CoreExport extern hlquery* Instance;
-
-/*
- * Lightweight runtime view of the local LLM configuration.
- * This mirrors the resolved model settings loaded through ServerConfig.
- */
-
-class CoreExport llm
-{
-   public:
-
-     llm() = default;
-
-     explicit llm(const ServerConfig& ConfigValue)
-         : ModelsDirectory(ConfigValue.GetAIModelsDirectory()),
-           ModelName(ConfigValue.GetAIModelName()),
-           ModelPath(ConfigValue.GetAIModelPath()),
-           InferenceCommand(ConfigValue.GetAIInferenceCommand())
-     {
-     }
-
-     bool Empty() const
-     {
-          return ModelsDirectory.empty() && ModelName.empty() &&
-                 ModelPath.empty() && InferenceCommand.empty();
-     }
-
-     bool Configured() const
-     {
-          return !ModelPath.empty();
-     }
-
-     const std::string& GetModelsDirectory() const
-     {
-          return ModelsDirectory;
-     }
-
-     const std::string& GetModelName() const
-     {
-          return ModelName;
-     }
-
-     const std::string& GetModelPath() const
-     {
-          return ModelPath;
-     }
-
-     const std::string& GetInferenceCommand() const
-     {
-          return InferenceCommand;
-     }
-
-   private:
-
-     std::string ModelsDirectory;
-     std::string ModelName;
-     std::string ModelPath;
-     std::string InferenceCommand;
-};
 
 /* 
  * hlquery's main class.
@@ -212,61 +151,21 @@ class CoreExport hlquery
 
      time_t Time() const
      {
-          try
-          {
-               auto now = std::chrono::system_clock::now();
-               auto duration = now.time_since_epoch();
-               auto seconds = std::chrono::duration_cast<std::chrono::seconds>(duration);
-               return static_cast<time_t>(seconds.count());
-          }
-          catch (...)
-          {
-               return 0;
-          }
+          return ::Time();
      }
 
      /* Returns milliseconds since epoch */
 
      long long NowMs() const
      {
-          try
-          {
-               auto now = std::chrono::system_clock::now();
-               auto duration = now.time_since_epoch();
-               auto milliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(duration);
-               return static_cast<long long>(milliseconds.count());
-          }
-          catch (...)
-          {
-               return 0;
-          }
+          return ::NowMs();
      }
 
      /* Returns current time point from steady clock */
 
      std::chrono::steady_clock::time_point Now() const
      {
-          try
-          {
-#if defined(__linux__) && defined(CLOCK_BOOTTIME)
-               struct timespec ts;
-
-               if (clock_gettime(CLOCK_BOOTTIME, &ts) == 0)
-               {
-                    const auto duration =
-                         std::chrono::seconds(ts.tv_sec) + std::chrono::nanoseconds(ts.tv_nsec);
-
-                    return std::chrono::steady_clock::time_point(
-                         std::chrono::duration_cast<std::chrono::steady_clock::duration>(duration));
-               }
-#endif
-
-               return std::chrono::steady_clock::now();
-          }
-          catch (...)
-          {
-               return std::chrono::steady_clock::time_point{};
-          }
+          return ::Now();
      }
 
      /* Check if another hlquery process is already running */

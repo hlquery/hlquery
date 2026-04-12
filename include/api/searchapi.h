@@ -828,6 +828,10 @@ class SearchAPI
 
      HttpResponse HandleGetDocument(const HttpRequest& Request);
 
+     /* HandleGetDocumentContext returns alternate contextual phrases for one document. */
+
+     HttpResponse HandleGetDocumentContext(const HttpRequest& Request);
+
      /* HandleBulkImportDocuments handles bulk document imports. */
 
      HttpResponse HandleBulkImportDocuments(const HttpRequest& Request);

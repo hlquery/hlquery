@@ -118,8 +118,10 @@ class BenchmarkClient
      /* Creates a collection. */
 
      bool CreateCollection(const std::string &name);
+     bool CreateCollection(const std::string &name, int timeout_ms);
 
      bool CreateCollectionLocal(const std::string &name);
+     bool CreateCollectionLocal(const std::string &name, int timeout_ms);
 
      /* Creates a collection with custom schema. */
 
