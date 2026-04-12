@@ -31,9 +31,7 @@ inline time_t Time()
      try
      {
           const auto now = std::chrono::system_clock::now();
-
           const auto duration = now.time_since_epoch();
-
           const auto seconds = std::chrono::duration_cast<std::chrono::seconds>(duration);
 
           return static_cast<time_t>(seconds.count());
@@ -104,11 +102,9 @@ inline std::chrono::steady_clock::time_point Now()
 
           if (clock_gettime(CLOCK_MONOTONIC, &ts) == 0)
           {
-               const auto duration =
-                    std::chrono::seconds(ts.tv_sec) + std::chrono::nanoseconds(ts.tv_nsec);
+               const auto duration = std::chrono::seconds(ts.tv_sec) + std::chrono::nanoseconds(ts.tv_nsec);
 
-               return std::chrono::steady_clock::time_point(
-                    std::chrono::duration_cast<std::chrono::steady_clock::duration>(duration));
+               return std::chrono::steady_clock::time_point(std::chrono::duration_cast<std::chrono::steady_clock::duration>(duration));
           }
 
 #endif

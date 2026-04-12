@@ -206,11 +206,3 @@ We welcome contributions from the community! All contributions must be released 
 ## License
 
 hlquery is licensed under the [BSD 3-Clause License](https://opensource.org/licenses/BSD-3-Clause).
-
-<div align="center">
-
-⭐ **Star us on GitHub if you find hlquery useful!**
-
-Made with ❤️ by the hlquery team
-
-</div>

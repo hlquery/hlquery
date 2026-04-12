@@ -55,6 +55,18 @@
 
 hlquery *Instance = nullptr;
 
+/* Entry point for the daemon. */
+
+int main(int argc, char** argv)
+{
+     new hlquery(argc, argv);
+     Instance->Run();
+     delete Instance;
+     Instance = nullptr;
+
+     return 0;
+}
+
 /* Constructor for the main hlquery class */
 
 hlquery::hlquery(int argc, char** argv)
@@ -80,23 +92,11 @@ hlquery::hlquery(int argc, char** argv)
      });
 }
 
-/* Entry point for the daemon. */
-
-int main(int argc, char** argv)
-{
-     new hlquery(argc, argv);
-     Instance->Run();
-     delete Instance;
-     Instance = nullptr;
-
-     return 0;
-}
-
 /* Destructor for the hlquery class */
 
 hlquery::~hlquery()
 {
-     API 	   =  nullptr;
+     API 	         =  nullptr;
      ThreadPools   =  nullptr;
      Engine        =  nullptr;
      
