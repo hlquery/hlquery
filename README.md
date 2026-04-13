@@ -165,13 +165,6 @@ Each repository follows a **two-branch development model**:
 - **`unstable`** - Active development branch where all new features, bug fixes, and improvements are developed
 - **`1.0`** - Stable release branch containing production-ready code
 
-### Development Workflow
-
-1. **Development happens on `unstable`** - All commits, features, and fixes are made to the `unstable` branch
-2. **Testing and validation** - Code is thoroughly tested on `unstable` before merging
-3. **Merge to `1.0`** - Once stable and validated, changes are merged from `unstable` to `1.0`
-4. **Production use** - The `1.0` branch is recommended for production deployments
-
 ### Active Development
 
 We're committed to **active, continuous development** of hlquery and all related projects. New features, performance improvements, and bug fixes are regularly added across all repositories.
