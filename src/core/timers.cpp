@@ -89,9 +89,7 @@ void TimerManager::Add(std::function<void()> callback, std::chrono::milliseconds
      /* Current time */
 
      auto now = Instance->Now();
-
      Entries.push_back(Timer(std::move(callback), now + delay, delay, repeating));
-
      const size_t total_timers = Entries.size();
 
      lock.unlock();

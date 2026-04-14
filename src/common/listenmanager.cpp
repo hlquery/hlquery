@@ -209,11 +209,8 @@ bool ListenManager::BindAndListen()
 void ListenManager::OnEventHandlerRead()
 {
      struct sockaddr_in ClientAddr;
-
      socklen_t ClientLen = sizeof(ClientAddr);
-
      int ConnectionsProcessed = 0;
-
      bool LimitReached = false;
 
      /*
@@ -392,11 +389,9 @@ void ListenManager::OnEventHandlerRead()
 
           /* Configure keepalive parameters for faster dead connection detection */
 
-          int KeepIdle = 10; /* Start keepalive after 10 seconds of inactivity */
-
+          int KeepIdle  = 10; /* Start keepalive after 10 seconds of inactivity */
           int KeepIntvl = 5; /* Send keepalive probes every 5 seconds */
-
-          int KeepCnt = 3; /* Send 3 probes before considering connection dead */
+          int KeepCnt   = 3; /* Send 3 probes before considering connection dead */
 
 #if defined(__APPLE__) && defined(TCP_KEEPALIVE)
 

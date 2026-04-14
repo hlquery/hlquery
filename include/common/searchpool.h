@@ -101,7 +101,6 @@ class SearchThreadPool
      auto Submit(F&& f, Args&&... args) -> std::future<decltype(f(args...))>
      {
           using ReturnType = decltype(f(args...));
-
           auto task = std::make_shared<std::packaged_task<ReturnType()>>(
                std::bind(std::forward<F>(f), std::forward<Args>(args)...));
 

@@ -31,13 +31,13 @@
 #include <vector>
 
 #ifdef HLQUERY_HAS_OPENSSL
-#include <openssl/err.h>
-#include <openssl/ssl.h>
+     #include <openssl/err.h>
+     #include <openssl/ssl.h>
 #else
-struct ssl_ctx_st;
-struct ssl_st;
-using SSL_CTX = ssl_ctx_st;
-using SSL = ssl_st;
+     struct ssl_ctx_st;
+     struct ssl_st;
+     using SSL_CTX = ssl_ctx_st;
+     using SSL = ssl_st;
 #endif
 
 #include "api/searchapi.h"

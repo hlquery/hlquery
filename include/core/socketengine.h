@@ -17,33 +17,34 @@
 #include <fcntl.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
-#ifdef __linux__
 
-#include <sys/epoll.h>
+#ifdef __linux__
+ 
+    #include <sys/epoll.h>
 
 #else
 
-/* Compatibility epoll-style event definitions for non-Linux platforms. */
+     /* Compatibility epoll-style event definitions for non-Linux platforms. */
 
-struct epoll_event
-{
-     uint32_t events;
-     union
+     struct epoll_event
      {
-          int fd;
-          void *ptr;
-          uint64_t u64;
-     } data;
-};
+          uint32_t events;
+          union
+          {
+               int fd;
+               void *ptr;
+               uint64_t u64;
+          } data;
+     };
 
-static constexpr int EPOLLIN = 0x001;
-static constexpr int EPOLLPRI = 0x002;
-static constexpr int EPOLLOUT = 0x004;
-static constexpr int EPOLLERR = 0x008;
-static constexpr int EPOLLHUP = 0x010;
-static constexpr int EPOLLRDHUP = 0x2000;
-static constexpr int EPOLLET = 0x80000000;
-static constexpr int EPOLL_CLOEXEC = 0x80000;
+     static constexpr int EPOLLIN = 0x001;
+     static constexpr int EPOLLPRI = 0x002;
+     static constexpr int EPOLLOUT = 0x004;
+     static constexpr int EPOLLERR = 0x008;
+     static constexpr int EPOLLHUP = 0x010;
+     static constexpr int EPOLLRDHUP = 0x2000;
+     static constexpr int EPOLLET = 0x80000000;
+     static constexpr int EPOLL_CLOEXEC = 0x80000;
 
 #endif
 
@@ -301,6 +302,8 @@ class SocketEngine
 
      static std::atomic<bool> EpollFDValid;
 
+     /* Events */
+     
      static std::vector<epoll_event> Events;
 
      /* Pending writes queue */
