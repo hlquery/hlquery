@@ -37,6 +37,7 @@
 #include "core/exitmanager.h"
 #include "core/hlquery.h"
 #include "core/socketengine.h"
+#include "core/typedefs.h"
 #include "search/cstore.h"
 #include "search/sam.h"
 #include "search/storageengine.h"
@@ -217,6 +218,7 @@ void DrainSignalWakePipe()
 
      while (read(SignalWakePipe[0], Buffer, sizeof(Buffer)) > 0)
      {
+
      }
 }
 
@@ -628,7 +630,7 @@ void hlquery::ParseArgs()
                     case 'h':
                     {
                          std::cout << "Usage: " << ArgvList[0] << " [options]" << std::endl;
-                         std::cout << std::endl;
+                         newline();
                          std::cout << "Options:" << std::endl;
                          std::cout << "  -t, --test          Run in test mode" << std::endl;
                          std::cout << "  -n, --nofork        Run in foreground (prevents daemonization)" << std::endl;
@@ -639,12 +641,12 @@ void hlquery::ParseArgs()
                          std::cout << "  -s, --skip-auth     Skip password authentication (dev/testing only)" << std::endl;
                          std::cout << "  -f, --forcestop     Force stop running daemon and remove PID file" << std::endl;
                          std::cout << "  -h, --help          Show this help message" << std::endl;
-                         std::cout << std::endl;
+                         newline();
                          std::cout << "Note: --debug and --verbose are separate options:" << std::endl;
                          std::cout << "  --debug:   logs debug messages to log files only (no terminal output)" << std::endl;
                          std::cout << "  --verbose: logs debug messages to files AND prints them to terminal (both)" << std::endl;
                          std::cout << "  They can be used independently or together." << std::endl;
-                         std::cout << std::endl;
+                         newline();
                          ExitManager::Exit(0);
                     }
 
@@ -678,7 +680,6 @@ static void SafeWrite(const char *Msg)
      }
 
      ssize_t WriteResult = write(STDERR_FILENO, Msg, LenVal);
-
      (void)WriteResult;
 }
 
@@ -722,7 +723,6 @@ void hlquery::SetSignal(int SignalNum)
           /* SIGALRM is only used as a last-resort timeout for blocked shutdown paths. */
 
           SafeWrite("\nSave timeout, forcing exit!\n");
-
           ExitManager::EmergencyExit(1);
      }
      else if (SignalNum == SIGUSR1)
@@ -730,11 +730,8 @@ void hlquery::SetSignal(int SignalNum)
           /* SIGUSR1 reuses the same deferred shutdown path as the main termination signals. */
 
           PendingShutdownSignal = SignalNum;
-
           ShuttingDown = 1;
-
           NotifySignalWakeup();
-
           InSignalHandler = 0;
 
           return;
@@ -744,11 +741,8 @@ void hlquery::SetSignal(int SignalNum)
           /* All other managed signals still wake the main loop for centralized handling. */
 
           PendingShutdownSignal = SignalNum;
-
           ShuttingDown = 1;
-
           NotifySignalWakeup();
-
           InSignalHandler = 0;
      }
 }
@@ -1570,11 +1564,8 @@ void hlquery::CompleteDaemonSetup()
           if (NullFdFinal >= 0)
           {
                dup2(NullFdFinal, STDIN_FILENO);
-
                dup2(NullFdFinal, STDOUT_FILENO);
-
                dup2(NullFdFinal, STDERR_FILENO);
-
                close(NullFdFinal);
           }
      }
@@ -1595,9 +1586,7 @@ bool hlquery::Daemonize()
           if (pipe(DaemonSyncPipe) < 0)
           {
                DaemonSyncPipe[0] = -1;
-
                DaemonSyncPipe[1] = -1;
-
                return false;
           }
 
@@ -1606,9 +1595,7 @@ bool hlquery::Daemonize()
           if (ForkPidValueVal < 0)
           {
                close(DaemonSyncPipe[0]);
-
                close(DaemonSyncPipe[1]);
-
                DaemonSyncPipe[0] = -1;
 
                DaemonSyncPipe[1] = -1;
@@ -1637,7 +1624,7 @@ bool hlquery::Daemonize()
 
                print_ok("Now detaching.");
 
-               std::cout << std::endl;
+               newline();
 
                fflush(stdout);
                ExitManager::EmergencyExit(0);

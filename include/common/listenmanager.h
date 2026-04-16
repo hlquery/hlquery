@@ -12,10 +12,13 @@
 
 #pragma once
 
+#include <memory>
 #include <netinet/in.h>
 #include <string>
+#include <vector>
 
 #include "core/socketengine.h"
+#include "core/serverconfig.h"
 
 /* 
  * Manages one listening socket for incoming client connections.
@@ -48,6 +51,10 @@ class ListenManager : public EventHandler
      /* Destroy the listen manager and release listener resources. */
 
      ~ListenManager();
+
+     /* Build listen managers for non-HTTP bind entries in the server config. */
+
+     static std::vector<std::unique_ptr<ListenManager>> CreateCustomProtocolListeners(const ServerConfig& Config);
 
      /* Bind the socket and start listening for incoming connections. */
 

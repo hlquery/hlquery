@@ -111,7 +111,7 @@ class ModuleManager
      * The array index matches the ModuleHook enumeration value.
      */
 
-    using HookSubscribers = std::array<ModuleSnapshot, static_cast<size_t>(ModuleHook::Count)>;
+    using HookSubscribers = std::array<ModuleSnapshot, static_cast<size_t>(ModuleHook::OnCount)>;
 
      /* 
       * Stores one loaded module entry.
@@ -310,6 +310,14 @@ class ModuleManager
 
      bool LoadModules(const ServerConfig& Config, LogManager* Logger, std::string& ErrorMessage);
 
+     /* Loads one runtime module into the active registry without replacing the rest. */
+
+     bool LoadModule(const ServerConfig& Config,
+                     const std::string& ModuleName,
+                     LogManager* Logger,
+                     std::string& ErrorMessage,
+                     const std::string& ExplicitPath = "");
+
      /* 
       * Loads all configured modules and reports any failure details.
       * This performs the actual configuration-driven module load pass.
@@ -392,6 +400,10 @@ class ModuleManager
       */
 
      void OnUnloadModules();
+
+     /* Unloads one named runtime module from the active registry. */
+
+     bool UnloadModule(const std::string& ModuleName, LogManager* Logger, std::string& ErrorMessage);
 
      /*  
       * Computes a module-adjusted multiplier for a search hit score.

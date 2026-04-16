@@ -137,6 +137,10 @@ class CoreExport TimerManager
 
      void Add(std::function<void()> callback, std::chrono::milliseconds delay, bool repeating = false);
 
+     /* Add one preconstructed timer entry. */
+
+     void Add(Timer entry);
+
      /* 
       * Execute due timers.
       * Any timer whose next run time has already passed is dispatched.

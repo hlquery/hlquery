@@ -50,7 +50,6 @@ class CoreTimersModule final : public RuntimeModule
    private:
 
      time_t LastSnapshot = 0;
-
      time_t LastFlush = 0;
 
    public:
@@ -119,9 +118,7 @@ class CoreTimersModule final : public RuntimeModule
                return;
           }
 
-          auto *Filter = Instance->IPFilter.get();
-
-          if (!Filter->IsEnabled())
+          if (!Instance->IPFilter->IsEnabled())
           {
                LastFlush = Instance->Time();
                return;
@@ -142,7 +139,7 @@ class CoreTimersModule final : public RuntimeModule
 
           if (NowTime - LastFlush >= DNS_CACHE_FLUSH_INTERVAL_SEC)
           {
-               Filter->FlushDNSCache();
+               Instance->IPFilter->FlushDNSCache();
                LastFlush = NowTime;
 
                if (Instance->Logs)

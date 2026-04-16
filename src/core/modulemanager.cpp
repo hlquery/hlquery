@@ -140,6 +140,132 @@ bool ModuleManager::LoadModules(const ServerConfig &Config, LogManager *Logger, 
      return LoadConfiguredModules(Config, Logger, ErrorMessage);
 }
 
+bool ModuleManager::LoadModule(const ServerConfig &Config,
+                               const std::string &ModuleName,
+                               LogManager *Logger,
+                               std::string &ErrorMessage,
+                               const std::string &ExplicitPath)
+{
+     if (ModuleName.empty())
+     {
+          ErrorMessage = "Module name is required.";
+          return false;
+     }
+
+     std::unique_lock<std::shared_mutex> Lock(ModulesMutex);
+     ReapRetiredModules(Logger);
+
+     for (const auto &Loaded : Modules)
+     {
+          if (Loaded.Name == ModuleName && Loaded.Instance)
+          {
+               ErrorMessage = "Module '" + ModuleName + "' is already loaded.";
+               return false;
+          }
+     }
+
+     ServerConfig::ModuleLoadEntry ModuleEntry;
+     ModuleEntry.Name = ModuleName;
+     ModuleEntry.Path = ExplicitPath;
+
+     const std::string ModulePath = ResolveModulePath(Config, ModuleEntry);
+     const bool IsCoreModule = ModuleName.rfind("core_", 0) == 0;
+
+     if (!std::filesystem::exists(ModulePath))
+     {
+          ErrorMessage = "Configured module '" + ModuleName + "' could not be found: " + ModulePath;
+          return false;
+     }
+
+     if (Logger)
+     {
+          const std::string ModuleType = IsCoreModule ? "core module" : "module";
+          Logger->Normal("modules", "Loading " + ModuleType + " '" + ModuleName + "' from " + ModulePath + ".");
+     }
+
+     void *Handle = dlopen(ModulePath.c_str(), RTLD_NOW | RTLD_LOCAL);
+
+     if (!Handle)
+     {
+          ErrorMessage = "Failed to load module '" + ModuleName + "' from " + ModulePath + ": " + dlerror();
+          return false;
+     }
+
+     dlerror();
+
+     auto *CreateFn = reinterpret_cast<CreateRuntimeModuleFn>(dlsym(Handle, "CreateRuntimeModule"));
+     const char *SymbolError = dlerror();
+
+     if (SymbolError)
+     {
+          dlclose(Handle);
+          ErrorMessage = "Module '" + ModuleName + "' is missing CreateRuntimeModule(): " + std::string(SymbolError);
+          return false;
+     }
+
+     std::shared_ptr<RuntimeModule> Module(CreateFn());
+
+     if (!Module)
+     {
+          dlclose(Handle);
+          ErrorMessage = "Module '" + ModuleName + "' returned a null module instance.";
+          return false;
+     }
+
+     std::string StartError;
+     bool Started = false;
+
+     try
+     {
+          Started = Module->Start(Config, StartError);
+     }
+     catch (const std::exception &Ex)
+     {
+          StartError = "Module '" + ModuleName + "' threw during start: " + std::string(Ex.what());
+          Started = false;
+     }
+     catch (...)
+     {
+          StartError = "Module '" + ModuleName + "' threw during start: unknown exception.";
+          Started = false;
+     }
+
+     if (!Started)
+     {
+          try
+          {
+               Module->Stop();
+          }
+          catch (...)
+          {
+          }
+
+          Module.reset();
+          dlclose(Handle);
+          ErrorMessage = StartError.empty() ? "Module '" + ModuleName + "' failed to start." : StartError;
+          return false;
+     }
+
+     LoadedModule Loaded;
+     Loaded.Name = ModuleName;
+     Loaded.Path = ModulePath;
+     Loaded.Handle = Handle;
+     Loaded.Instance = std::move(Module);
+     Loaded.ExecutionState = std::make_shared<ModuleExecutionState>();
+     Loaded.UnloadNotified = false;
+
+     Modules.push_back(std::move(Loaded));
+     RebuildHookRegistriesLocked();
+     Lock.unlock();
+
+     if (Logger)
+     {
+          Logger->Normal("modules", "Loaded module '" + ModuleName + "' from " + ModulePath + ".");
+     }
+
+     return true;
+}
+
 /* Finalizes retired modules once no external shared_ptr references remain. */
 
 void ModuleManager::ReapRetiredModules(LogManager *Logger)
@@ -262,7 +388,7 @@ void ModuleManager::RebuildHookRegistriesLocked()
                continue;
           }
 
-          for (size_t HookIndex = 0; HookIndex < static_cast<size_t>(ModuleHook::Count); ++HookIndex)
+          for (size_t HookIndex = 0; HookIndex < static_cast<size_t>(ModuleHook::OnCount); ++HookIndex)
           {
                const ModuleHook Hook = static_cast<ModuleHook>(HookIndex);
 
@@ -654,6 +780,41 @@ void ModuleManager::UnloadAll(LogManager *Logger)
      }
 
      UnloadModuleList(std::move(ModulesToUnload), Logger);
+}
+
+bool ModuleManager::UnloadModule(const std::string &ModuleName, LogManager *Logger, std::string &ErrorMessage)
+{
+     if (ModuleName.empty())
+     {
+          ErrorMessage = "Module name is required.";
+          return false;
+     }
+
+     std::vector<LoadedModule> ModulesToUnload;
+
+     {
+          std::unique_lock<std::shared_mutex> Lock(ModulesMutex);
+
+          auto It = std::find_if(Modules.begin(), Modules.end(),
+                                 [&](const LoadedModule &Loaded)
+                                 {
+                                      return Loaded.Name == ModuleName;
+                                 });
+
+          if (It == Modules.end())
+          {
+               ErrorMessage = "Module '" + ModuleName + "' is not loaded.";
+               return false;
+          }
+
+          ModulesToUnload.push_back(std::move(*It));
+          Modules.erase(It);
+          RebuildHookRegistriesLocked();
+          ReapRetiredModules(Logger);
+     }
+
+     UnloadModuleList(std::move(ModulesToUnload), Logger);
+     return true;
 }
 
 /* Stops modules in reverse load order and defers dlclose() when external references are still alive. */

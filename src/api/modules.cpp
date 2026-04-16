@@ -102,6 +102,45 @@ std::string ExtractModuleSubPathFromRequest(const HttpRequest &Request)
      return sub_path;
 }
 
+std::string ExtractControlledModuleName(const HttpRequest &Request)
+{
+     const std::string sub_path = ExtractModuleSubPathFromRequest(Request);
+
+     if (!sub_path.empty())
+     {
+          return sub_path;
+     }
+
+     if (!Request.Body.empty())
+     {
+          try
+          {
+               const nlohmann::json body_json = nlohmann::json::parse(Request.Body);
+
+               if (body_json.contains("name") && body_json["name"].is_string())
+               {
+                    return body_json["name"].get<std::string>();
+               }
+
+               if (body_json.contains("module") && body_json["module"].is_string())
+               {
+                    return body_json["module"].get<std::string>();
+               }
+
+               if (body_json.contains("parameters") && body_json["parameters"].is_array() &&
+                   !body_json["parameters"].empty() && body_json["parameters"][0].is_string())
+               {
+                    return body_json["parameters"][0].get<std::string>();
+               }
+          }
+          catch (...)
+          {
+          }
+     }
+
+     return "";
+}
+
 nlohmann::json BuildModuleDescriptionJSON(const ModuleAPIDescription &Description)
 {
      nlohmann::json module_json;
@@ -254,6 +293,16 @@ HttpResponse SearchAPI::HandleModuleAPI(const HttpRequest &Request)
           return BuildErrorResponse(Status::SERVICE_UNAVAILABLE, MODULE_UNAVAILABLE, "Module manager unavailable.", "Runtime modules are not available.");
      }
 
+     if (module_name == "load")
+     {
+          return HandleModuleLoad(Request);
+     }
+
+     if (module_name == "unload")
+     {
+          return HandleModuleUnload(Request);
+     }
+
      const std::string sub_path = ExtractModuleSubPathFromRequest(Request);
 
      if (sub_path == "syntax")
@@ -268,5 +317,83 @@ HttpResponse SearchAPI::HandleModuleAPI(const HttpRequest &Request)
           return BuildErrorResponse(Status::NOT_FOUND, MODULE_ROUTE_NOT_FOUND, "Route not found.", "The module did not recognize the requested route.");
      }
 
+     return response;
+}
+
+HttpResponse SearchAPI::HandleModuleLoad(const HttpRequest &Request)
+{
+     if (Request.Method != "POST")
+     {
+          return BuildErrorResponse(Status::METHOD_NOT_ALLOWED, Code::VALIDATION_INVALID_JSON, "Method not allowed.", "Use POST /modules/load/<name>.");
+     }
+
+     if (!Instance || !Instance->Modules || !Instance->Config)
+     {
+          return BuildErrorResponse(Status::SERVICE_UNAVAILABLE, MODULE_UNAVAILABLE, "Module manager unavailable.", "Runtime modules are not available.");
+     }
+
+     const std::string target_module = ExtractControlledModuleName(Request);
+
+     if (target_module.empty())
+     {
+          return BuildErrorResponse(Status::BAD_REQUEST, Code::VALIDATION_INVALID_JSON, "Invalid module request.", "Module name is required.");
+     }
+
+     std::string ErrorMessage;
+
+     if (!Instance->Modules->LoadModule(*Instance->Config, target_module, Instance->Logs.get(), ErrorMessage))
+     {
+          return BuildErrorResponse(Status::BAD_REQUEST,
+                                    MODULE_UNAVAILABLE,
+                                    "Failed to load module.",
+                                    ErrorMessage.empty() ? ("Module '" + target_module + "' could not be loaded.") : ErrorMessage);
+     }
+
+     nlohmann::json response_json;
+     response_json["loaded"] = true;
+     response_json["module"] = target_module;
+     response_json["message"] = "Module loaded successfully.";
+
+     HttpResponse response(Status::OK, StatusText(Status::OK), "application/json");
+     response.Body = response_json.dump();
+     return response;
+}
+
+HttpResponse SearchAPI::HandleModuleUnload(const HttpRequest &Request)
+{
+     if (Request.Method != "POST")
+     {
+          return BuildErrorResponse(Status::METHOD_NOT_ALLOWED, Code::VALIDATION_INVALID_JSON, "Method not allowed.", "Use POST /modules/unload/<name>.");
+     }
+
+     if (!Instance || !Instance->Modules)
+     {
+          return BuildErrorResponse(Status::SERVICE_UNAVAILABLE, MODULE_UNAVAILABLE, "Module manager unavailable.", "Runtime modules are not available.");
+     }
+
+     const std::string target_module = ExtractControlledModuleName(Request);
+
+     if (target_module.empty())
+     {
+          return BuildErrorResponse(Status::BAD_REQUEST, Code::VALIDATION_INVALID_JSON, "Invalid module request.", "Module name is required.");
+     }
+
+     std::string ErrorMessage;
+
+     if (!Instance->Modules->UnloadModule(target_module, Instance->Logs.get(), ErrorMessage))
+     {
+          return BuildErrorResponse(Status::BAD_REQUEST,
+                                    MODULE_UNAVAILABLE,
+                                    "Failed to unload module.",
+                                    ErrorMessage.empty() ? ("Module '" + target_module + "' could not be unloaded.") : ErrorMessage);
+     }
+
+     nlohmann::json response_json;
+     response_json["loaded"] = false;
+     response_json["module"] = target_module;
+     response_json["message"] = "Module unloaded successfully.";
+
+     HttpResponse response(Status::OK, StatusText(Status::OK), "application/json");
+     response.Body = response_json.dump();
      return response;
 }

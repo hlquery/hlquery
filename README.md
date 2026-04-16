@@ -32,25 +32,32 @@ Clone the repository normally:
 
 ```bash
 $ git clone https://github.com/hlquery/hlquery.git
-$ cd hlquery
+$ cd hlquery/
 ```
 
 ### Prerequisites
 
 **Debian/Ubuntu:**
 ```bash
-$ sudo apt-get install build-essential cmake
+$ sudo apt-get install build-essential cmake libssl-dev
 ```
 
 **RedHat/CentOS:**
 ```bash
-$ dnf install @development-tools
+$ dnf install @development-tools openssl-devel
 ```
 
 **macOS:**
-No additional dependencies required.
+```bash
+$ brew install openssl
+```
 
-> **Note**: For SSL/TLS support, install `libssl-dev` (Debian), `openssl-devel` (RedHat), or `openssl` (macOS).
+**FreeBSD:**
+```bash
+$ sudo pkg install git gmake cmake openssl
+```
+
+> **Note**: This project uses GNU make features. On FreeBSD, run `gmake` instead of `make`.
 
 ### Installation
 
@@ -58,8 +65,18 @@ No additional dependencies required.
 $ git clone --branch 1.0 https://github.com/hlquery/hlquery.git
 $ cd hlquery/
 $ ./configure
-$ make -j$(nproc)
+$ make -j10
 $ make install
+```
+
+On FreeBSD, use GNU make for the build and install steps:
+
+```bash
+$ git clone --branch 1.0 https://github.com/hlquery/hlquery.git
+$ cd hlquery/
+$ ./configure
+$ gmake -j10
+$ sudo gmake install
 ```
 
 ### Running hlquery
@@ -146,6 +163,7 @@ $ hlquery-cli search products "title:laptop AND price:[100 TO 500]"
 Official client libraries are available for popular programming languages:
 
 - **[Node.js](https://github.com/hlquery/node-api)** - Official Node.js client
+- **[Go](https://github.com/hlquery/go-api)** - Official Go client
 - **[Python](https://github.com/hlquery/python-hlquery)** - Official Python client
 - **[PHP](https://github.com/hlquery/php-api)** - Official PHP client
 - **[Rust](https://github.com/hlquery/rust-api)** - Rust client library
@@ -184,7 +202,7 @@ We welcome contributions from the community! All contributions must be released 
 ### How to Contribute
 
 - Check existing [issues](https://github.com/hlquery/hlquery/issues) or create new ones
-- Contribute to client libraries (Node.js, Python, PHP, Rust, Perl, C++)
+- Contribute to client libraries (Node.js, Go, Python, PHP, Rust, Perl, C++)
 - Test and report bugs
 - Improve documentation
 - Join our [Discord community](https://discord.hlquery.com)

@@ -270,6 +270,14 @@ class HLQueryCLI
 
      void RunModuleCommand(const std::string &module_name, const std::string &route, const std::vector<std::string> &args = {});
 
+     /* Loads one runtime module through the shared module API. */
+
+     void LoadModule(const std::string &module_name);
+
+     /* Unloads one runtime module through the shared module API. */
+
+     void UnloadModule(const std::string &module_name);
+
      /* Checks whether one collection exists. */
 
      bool CollectionExists(const std::string &collection_name);

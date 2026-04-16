@@ -344,7 +344,7 @@ enum class ModuleHook : size_t
 
      /* Sentinel used to size hook tracking storage. */
 
-     Count
+     OnCount
 };
 
 /* Base class for runtime-loadable modules. */
@@ -354,7 +354,7 @@ class RuntimeModule
    private:
      /* Number of hook slots tracked by the module base class. */
 
-     static constexpr size_t HookCount = static_cast<size_t>(ModuleHook::Count);
+     static constexpr size_t HookCount = static_cast<size_t>(ModuleHook::OnCount);
 
      /* The runtime module name exposed to the loader. */
 

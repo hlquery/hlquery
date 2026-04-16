@@ -107,6 +107,12 @@ void TimerManager::Add(std::function<void()> callback, std::chrono::milliseconds
      }
 }
 
+void TimerManager::Add(Timer entry)
+{
+     std::unique_lock<std::shared_mutex> lock(MutexValue);
+     Entries.push_back(std::move(entry));
+}
+
 /* Execute due timers */
 
 void TimerManager::Tick()

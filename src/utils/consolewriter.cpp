@@ -16,6 +16,7 @@
 #include <sys/ioctl.h>
 #include <unistd.h>
 
+#include "core/typedefs.h"
 #include "utils/consolewriter.h"
 
 /* ANSI color codes. */
@@ -264,13 +265,15 @@ void ConsoleWriter::WriteHeader(const std::string &Title)
 
      if (SupportsColor())
      {
-          std::cout << std::endl
-                    << ColorBold << ColorBrightCyan << Title << ColorReset << std::endl;
+          newline();
+          std::cout << ColorBold << ColorBrightCyan << Title << ColorReset;
+          newline();
      }
      else
      {
-          std::cout << std::endl
-                    << Title << std::endl;
+          newline();
+          std::cout << Title;
+          newline();
      }
 }
 
@@ -311,7 +314,7 @@ void ConsoleWriter::WriteBlankLine()
 {
      /* Print blank lines in both nofork and background modes. */
 
-     std::cout << std::endl;
+     newline();
 }
 
 /*

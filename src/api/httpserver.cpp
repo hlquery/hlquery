@@ -44,7 +44,6 @@
 
 #define HTTP_MAX_HEADER_COUNT 1000
 
-/* Forward declarations. */
 /* ProcessRequestWithAPI handles API calls. */
 
 HttpResponse ProcessRequestWithAPI(SearchAPI &API, const HttpRequest &Request);
@@ -268,7 +267,9 @@ HttpConnection::HttpConnection(int FDVal, const std::string &ClientIPVal, int Cl
      SetAdvancedSocketOptions(FDVal);
 
 #ifdef HLQUERY_HAS_OPENSSL
+
      SSLValue = nullptr;
+     
 #endif
 }
 
@@ -281,12 +282,14 @@ HttpConnection::~HttpConnection()
      ClosingValue.store(true);
 
 #ifdef HLQUERY_HAS_OPENSSL
+
      if (SSLValue)
      {
           SSL_shutdown(SSLValue);
           SSL_free(SSLValue);
           SSLValue = nullptr;
      }
+
 #endif
 
      /* Prevent use-after-free by checking and caching fd before operations. */
@@ -606,6 +609,7 @@ void HttpConnection::OnEventHandlerRead()
           SocketEngine::IncrementBytesProcessed(static_cast<uint64_t>(BytesRead));
 
 #ifdef HLQUERY_HAS_OPENSSL
+
           if (SSLValue)
           {
                BytesRead = SSL_read(SSLValue, Buffer, sizeof(Buffer) - 1);
@@ -4153,6 +4157,7 @@ void HttpServer::AcceptConnection()
      /* Accept multiple connections per tick for better performance (similar to ListenManager). */
 
      int ConnectionsAccepted = 0;
+     bool AcceptSliceLimitReached = false;
 
      while (ConnectionsAccepted < HTTP_MAX_ACCEPTS_PER_TICK)
      {
@@ -4404,6 +4409,60 @@ void HttpServer::AcceptConnection()
           }
 
           ConnectionsAccepted++;
+     }
+
+     if (ConnectionsAccepted >= HTTP_MAX_ACCEPTS_PER_TICK)
+     {
+          AcceptSliceLimitReached = true;
+     }
+
+     /*
+      * Edge-triggered epoll requires draining the accept queue to EAGAIN. If we stop
+      * early because of the per-tick slice limit, probe once more and explicitly rearm
+      * the listener when the backlog is still non-empty. Without this, the listener can
+      * go permanently quiet while the kernel still completes TCP handshakes.
+      */
+
+     if (AcceptSliceLimitReached)
+     {
+          int ProbeFD = accept(GetFD(), reinterpret_cast<struct sockaddr *>(&ClientAddr), &ClientLen);
+
+          if (ProbeFD < 0)
+          {
+               const int SavedErrno = errno;
+
+#if EAGAIN == EWOULDBLOCK
+
+               if (SavedErrno == EAGAIN)
+               {
+#else
+
+               if (SavedErrno == EAGAIN || SavedErrno == EWOULDBLOCK)
+               {
+
+#endif
+                    if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
+                    {
+                         Instance->Logs->Debug("http_server", "[AcceptConnection] Accept slice limit reached but backlog was fully drained.");
+                    }
+               }
+               else if (Instance && Instance->Logs)
+               {
+                    Instance->Logs->Normal("http_server", "[AcceptConnection] Listener backlog probe failed after slice limit: " + std::string(strerror(SavedErrno)) + ".");
+               }
+          }
+          else
+          {
+               close(ProbeFD);
+
+               if (Instance && Instance->Logs)
+               {
+                    Instance->Logs->Normal("http_server", "[AcceptConnection] Listener backlog still pending after " + std::to_string(HTTP_MAX_ACCEPTS_PER_TICK) + " accepts; rearming HTTP listener.");
+               }
+
+               SocketEngine::DelFD(this);
+               SocketEngine::AddFD(this, EPOLLIN);
+          }
      }
 
      /*

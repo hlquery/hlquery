@@ -32,6 +32,7 @@
 
 #include "cli/app.h"
 #include "cli/cliutils.h"
+#include "core/typedefs.h"
 #include "talk/session.h"
 
 std::string ToLower(std::string value);
@@ -399,7 +400,7 @@ void TalkPrintLine(const std::string &message)
           std::cout << '.';
      }
 
-     std::cout << std::endl;
+     newline();
 }
 
 void TalkPrintError(const std::string &message)
@@ -1646,6 +1647,8 @@ void PrintHelp()
      std::cout << "  bw [kb|mb|gb]  Show total bandwidth transferred\n";
      std::cout << "  modules  List API-enabled modules\n";
      std::cout << "  module NAME [info|syntax|ROUTE [args...]]  Run one module command\n";
+     std::cout << "  load NAME  Load one runtime module\n";
+     std::cout << "  unload NAME  Unload one runtime module\n";
      std::cout << "  dbsize [kb|mb|gb]  Show database size\n";
      std::cout << "  flush    Flush all data\n";
      std::cout << "  reset    Clear the terminal\n";
@@ -1768,6 +1771,8 @@ std::vector<std::string> GetTalkCommands()
          "bw",
          "modules",
          "module",
+         "load",
+         "unload",
          "dbsize",
          "flush",
          "reset",
@@ -3088,6 +3093,30 @@ bool ExecuteTalkCommand(const std::string &line,
           }
 
           cli.RunModuleCommand(module_name, parts[2], module_args);
+          return true;
+     }
+
+     if (command == "load")
+     {
+          if (parts.size() != 2)
+          {
+               TalkPrintError("Usage: load <name>");
+               return true;
+          }
+
+          cli.LoadModule(parts[1]);
+          return true;
+     }
+
+     if (command == "unload")
+     {
+          if (parts.size() != 2)
+          {
+               TalkPrintError("Usage: unload <name>");
+               return true;
+          }
+
+          cli.UnloadModule(parts[1]);
           return true;
      }
 

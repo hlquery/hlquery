@@ -54,6 +54,41 @@ ListenManager::~ListenManager()
      }
 }
 
+std::vector<std::unique_ptr<ListenManager>> ListenManager::CreateCustomProtocolListeners(const ServerConfig &Config)
+{
+     const auto &BindConfigs = Config.GetBindConfigs();
+     std::vector<std::unique_ptr<ListenManager>> Listeners;
+
+     Listeners.reserve(BindConfigs.size());
+
+     if (Instance && Instance->Logs)
+     {
+          Instance->Logs->Debug("listenmanager", "Checking " + std::to_string(BindConfigs.size()) + " bind configurations for custom protocols.");
+     }
+
+     for (const auto &BindConfigVal : BindConfigs)
+     {
+          if (BindConfigVal.type == "http" || BindConfigVal.type == "https")
+          {
+               if (Instance && Instance->Logs)
+               {
+                    Instance->Logs->Debug("listenmanager", "Skipping HTTP/HTTPS port " + std::to_string(BindConfigVal.port) + " (HttpServer is self-contained).");
+               }
+
+               continue;
+          }
+
+          if (Instance && Instance->Logs)
+          {
+               Instance->Logs->Debug("listenmanager", "Creating ListenManager for custom protocol on " + BindConfigVal.address + ":" + std::to_string(BindConfigVal.port) + ".");
+          }
+
+          Listeners.push_back(std::make_unique<ListenManager>(BindConfigVal.address, BindConfigVal.port));
+     }
+
+     return Listeners;
+}
+
 /* Binds and listens to the socket */
 
 bool ListenManager::BindAndListen()

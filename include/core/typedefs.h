@@ -15,6 +15,7 @@
 #include <cstddef>
 #include <cstdlib>
 #include <functional>
+#include <iostream>
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -76,3 +77,9 @@ using FastVector = std::vector<T, PoolAllocator<T>>;
 template <typename K, typename V>
 using FastHashMap = std::unordered_map<K, V, std::hash<K>, std::equal_to<K>, PoolAllocator<std::pair<const K, V>>>;
 
+/* Writes one newline without forcing an output flush. */
+
+inline void newline(std::ostream &Out = std::cout)
+{
+     Out.put('\n');
+}

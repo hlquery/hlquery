@@ -43,6 +43,7 @@
 #include "core/hlquery.h"
 #include "core/socketengine.h"
 #include "core/threadlimit.h"
+#include "core/typedefs.h"
 #include "search/storageengine.h"
 #include "search/sam.h"
 #include "search/cstore.h"
@@ -51,7 +52,6 @@
 #include "utils/infos.h"
 #include "utils/simdutils.h"
 #include "utils/tools.h"
-#include "vendor/json/json.hpp"
 
 hlquery *Instance = nullptr;
 
@@ -96,7 +96,7 @@ hlquery::hlquery(int argc, char** argv)
 
 hlquery::~hlquery()
 {
-     API 	         =  nullptr;
+     API 	   =  nullptr;
      ThreadPools   =  nullptr;
      Engine        =  nullptr;
      
@@ -114,7 +114,7 @@ bool hlquery::Initialize()
           return true;
      }
 
-     std::cout << std::endl;
+     newline();
      const std::vector<std::string> loaded_modules = Modules ? Modules->GetLoadedModuleNames() : std::vector<std::string>{};
      ConsoleWriter::WriteStartup(Tools::FormatStartupMessage(loaded_modules), true, false);
 
@@ -160,39 +160,9 @@ bool hlquery::Initialize()
           Logs->Debug("hlquery", "Initializing network listeners for custom protocols.");
      }
 
-     /* Initialize Network Listeners for configured protocols */
+     /* Initialize network listeners for configured non-HTTP protocols. */
 
-     const auto &BindConfigs = Config->GetBindConfigs();
-
-     if (Logs)
-     {
-          Logs->Debug("hlquery", "Checking " + std::to_string(BindConfigs.size()) + " bind configurations for custom protocols.");
-     }
-
-     for (const auto &BindConfigVal : BindConfigs)
-     {
-          /* Skip HTTP/HTTPS ports as the HttpServer subsystem manages those internally */
-
-          if (BindConfigVal.type == "http" || BindConfigVal.type == "https")
-          {
-               if (Logs)
-               {
-                    Logs->Debug("hlquery", "Skipping HTTP/HTTPS port " + std::to_string(BindConfigVal.port) + " (HttpServer is self-contained).");
-               }
-
-               continue;
-          }
-
-          /* Provision a ListenManager for each remaining custom protocol bind entry */
-
-          if (Logs)
-          {
-               Logs->Debug("hlquery", "Creating ListenManager for custom protocol on " + BindConfigVal.address + ":" + std::to_string(BindConfigVal.port) + ".");
-          }
-
-          auto ListenerInstance = std::make_unique<ListenManager>(BindConfigVal.address, BindConfigVal.port);
-          Listeners.push_back(std::move(ListenerInstance));
-     }
+     Listeners = ListenManager::CreateCustomProtocolListeners(*Config);
 
      RunListeners();
 

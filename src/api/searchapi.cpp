@@ -55,6 +55,7 @@ namespace
 static constexpr const char *kReplicationOutboxPrefix = "replication_outbox:";
 static constexpr const char *kReplicationAppliedPrefix = "replication_applied:";
 static constexpr const char *kReplicationResyncStateKey = "replication_resync:active";
+static constexpr size_t kReplicationOutboxStoredBodyLimit = 64 * 1024;
 
 static std::string ToLowerCopy(const std::string &Value)
 {
@@ -240,7 +241,17 @@ static nlohmann::json SerializeReplicationOutboxRecord(const std::string &EntryI
      Record["method"] = Request.Method;
      Record["path"] = Request.Path;
      Record["version"] = Request.Version;
-     Record["body"] = Request.Body;
+     if (Request.Body.size() <= kReplicationOutboxStoredBodyLimit)
+     {
+          Record["body"] = Request.Body;
+          Record["body_truncated"] = false;
+     }
+     else
+     {
+          Record["body"] = Request.Body.substr(0, kReplicationOutboxStoredBodyLimit);
+          Record["body_truncated"] = true;
+          Record["body_original_size"] = Request.Body.size();
+     }
      Record["remote_address"] = Request.RemoteAddress;
      Record["remote_port"] = Request.RemotePort;
      Record["api_key_id"] = Request.APIKeyID;
@@ -451,6 +462,12 @@ bool SearchAPI::PrepareReplicationOutboxRecord(const HttpRequest &Request,
           if (OutError)
           {
                *OutError = "Failed to persist replication outbox record.";
+
+               const std::string WriteError = Instance->Database->GetLastWriteErrorMessage();
+               if (!WriteError.empty())
+               {
+                    *OutError += " " + WriteError;
+               }
           }
           return false;
      }
@@ -490,6 +507,12 @@ bool SearchAPI::MarkReplicationOutboxCommitted(const std::string &EntryID,
           if (OutError)
           {
                *OutError = "Failed to mark replication outbox record committed.";
+
+               const std::string WriteError = Instance->Database->GetLastWriteErrorMessage();
+               if (!WriteError.empty())
+               {
+                    *OutError += " " + WriteError;
+               }
           }
           return false;
      }

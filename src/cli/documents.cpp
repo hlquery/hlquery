@@ -23,6 +23,7 @@
 #include <vector>
 #include <vendor/json/json.hpp>
 
+#include "core/typedefs.h"
 #include "cli/cliutils.h"
 #include "app.h"
 
@@ -478,7 +479,7 @@ void HLQueryCLI::OpenDocument(const std::string &collection_name, const std::str
                     std::cout << value.dump();
                }
 
-               std::cout << std::endl;
+               newline();
           }
      }
      else

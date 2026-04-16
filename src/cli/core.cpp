@@ -22,8 +22,15 @@
 #include <mutex>
 #include <netdb.h>
 #include <netinet/in.h>
+#if defined(HLQUERY_HAS_OPENSSL) && defined(__has_include)
+# if __has_include(<openssl/err.h>) && __has_include(<openssl/ssl.h>)
+#  define HLQUERY_CLI_HAS_OPENSSL 1
+# endif
+#endif
+#ifdef HLQUERY_CLI_HAS_OPENSSL
 #include <openssl/err.h>
 #include <openssl/ssl.h>
+#endif
 #include <sstream>
 #include <string>
 #include <sys/ioctl.h>
@@ -32,6 +39,7 @@
 #include <vector>
 #include <vendor/json/json.hpp>
 
+#include "core/typedefs.h"
 #include "cli/cliutils.h"
 #include "app.h"
 #include "utils/consolewriter.h"
@@ -148,7 +156,7 @@ void HLQueryCLI::PrintSuccess(const std::string &message)
           std::cout << ".";
      }
 
-     std::cout << std::endl;
+     newline();
 }
 
 /* Prints an info message. */
@@ -162,7 +170,7 @@ void HLQueryCLI::PrintInfo(const std::string &message)
           std::cout << ".";
      }
 
-     std::cout << std::endl;
+     newline();
 }
 
 /* Helper to format bytes. */
@@ -600,6 +608,17 @@ HLQueryCLI::HTTPResponse HLQueryCLI::MakeRequest(const std::string &method, cons
           (void)fcntl(sock, F_SETFL, flags);
      }
 
+#ifndef HLQUERY_CLI_HAS_OPENSSL
+     if (UseSSL)
+     {
+          response.StatusCode = -1;
+          response.Body = "HTTPS support is unavailable in this build because OpenSSL headers were not found.\n";
+          close(sock);
+          return response;
+     }
+#endif
+
+#ifdef HLQUERY_CLI_HAS_OPENSSL
      SSL_CTX *SSLCtx = nullptr;
      SSL *SSLObj = nullptr;
 
@@ -656,6 +675,7 @@ HLQueryCLI::HTTPResponse HLQueryCLI::MakeRequest(const std::string &method, cons
                return response;
           }
      }
+#endif
 
      std::stringstream request;
 
@@ -701,11 +721,13 @@ HLQueryCLI::HTTPResponse HLQueryCLI::MakeRequest(const std::string &method, cons
      std::string request_str = request.str();
 
      int SendResult = -1;
+#ifdef HLQUERY_CLI_HAS_OPENSSL
      if (UseSSL && SSLObj)
      {
           SendResult = SSL_write(SSLObj, request_str.c_str(), static_cast<int>(request_str.length()));
      }
      else
+#endif
      {
           SendResult = static_cast<int>(send(sock, request_str.c_str(), request_str.length(), 0));
      }
@@ -715,6 +737,7 @@ HLQueryCLI::HTTPResponse HLQueryCLI::MakeRequest(const std::string &method, cons
           response.StatusCode = -1;
           response.Body = "Failed to send request.\n";
 
+#ifdef HLQUERY_CLI_HAS_OPENSSL
           if (SSLObj)
           {
                SSL_free(SSLObj);
@@ -725,6 +748,7 @@ HLQueryCLI::HTTPResponse HLQueryCLI::MakeRequest(const std::string &method, cons
                SSL_CTX_free(SSLCtx);
                SSLCtx = nullptr;
           }
+#endif
           close(sock);
 
           return response;
@@ -752,11 +776,13 @@ HLQueryCLI::HTTPResponse HLQueryCLI::MakeRequest(const std::string &method, cons
      while (true)
      {
           bytes_received = -1;
+#ifdef HLQUERY_CLI_HAS_OPENSSL
           if (UseSSL && SSLObj)
           {
                bytes_received = SSL_read(SSLObj, buffer, sizeof(buffer) - 1);
           }
           else
+#endif
           {
                bytes_received = static_cast<int>(recv(sock, buffer, sizeof(buffer) - 1, 0));
           }
@@ -776,6 +802,7 @@ HLQueryCLI::HTTPResponse HLQueryCLI::MakeRequest(const std::string &method, cons
           if (response_str.size() + bytes_received > max_response_size)
           {
                close(sock);
+#ifdef HLQUERY_CLI_HAS_OPENSSL
                if (SSLObj)
                {
                     SSL_free(SSLObj);
@@ -786,6 +813,7 @@ HLQueryCLI::HTTPResponse HLQueryCLI::MakeRequest(const std::string &method, cons
                     SSL_CTX_free(SSLCtx);
                     SSLCtx = nullptr;
                }
+#endif
 
                response.StatusCode = -1;
                response.Body = "Response too large (>" + std::to_string(max_response_size / (1024 * 1024)) + "MB).\n";
@@ -846,6 +874,7 @@ HLQueryCLI::HTTPResponse HLQueryCLI::MakeRequest(const std::string &method, cons
 
      if (bytes_received < 0)
      {
+#ifdef HLQUERY_CLI_HAS_OPENSSL
           if (SSLObj)
           {
                SSL_free(SSLObj);
@@ -856,6 +885,7 @@ HLQueryCLI::HTTPResponse HLQueryCLI::MakeRequest(const std::string &method, cons
                SSL_CTX_free(SSLCtx);
                SSLCtx = nullptr;
           }
+#endif
           close(sock);
 
           response.StatusCode = -1;
@@ -872,6 +902,7 @@ HLQueryCLI::HTTPResponse HLQueryCLI::MakeRequest(const std::string &method, cons
           return response;
      }
 
+#ifdef HLQUERY_CLI_HAS_OPENSSL
      if (SSLObj)
      {
           SSL_free(SSLObj);
@@ -882,6 +913,7 @@ HLQueryCLI::HTTPResponse HLQueryCLI::MakeRequest(const std::string &method, cons
           SSL_CTX_free(SSLCtx);
           SSLCtx = nullptr;
      }
+#endif
      close(sock);
 
      /* Split headers from body and extract the HTTP status code. */
@@ -1041,7 +1073,7 @@ void HLQueryCLI::PrintTable(const std::vector<std::string> &headers, const std::
           std::cout << std::string(width + 2, '-') << "+";
      }
 
-     std::cout << std::endl;
+     newline();
 
      std::cout << "|";
 
@@ -1050,7 +1082,7 @@ void HLQueryCLI::PrintTable(const std::vector<std::string> &headers, const std::
           std::cout << " " << std::left << std::setw(col_widths[i]) << headers[i] << " |";
      }
 
-     std::cout << std::endl;
+     newline();
 
      std::cout << "+";
 
@@ -1059,7 +1091,7 @@ void HLQueryCLI::PrintTable(const std::vector<std::string> &headers, const std::
           std::cout << std::string(width + 2, '-') << "+";
      }
 
-     std::cout << std::endl;
+     newline();
 
      for (const auto &row : rows)
      {
@@ -1093,7 +1125,7 @@ void HLQueryCLI::PrintTable(const std::vector<std::string> &headers, const std::
                     std::cout << " " << std::left << std::setw(col_widths[i]) << cell_content << " |";
                }
 
-               std::cout << std::endl;
+               newline();
           }
      }
 
@@ -1104,5 +1136,5 @@ void HLQueryCLI::PrintTable(const std::vector<std::string> &headers, const std::
           std::cout << std::string(width + 2, '-') << "+";
      }
 
-     std::cout << std::endl;
+     newline();
 }

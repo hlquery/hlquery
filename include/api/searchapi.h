@@ -1036,6 +1036,14 @@ class SearchAPI
 
      HttpResponse HandleModuleAPI(const HttpRequest& Request);
 
+     /* HandleModuleLoad loads one module into the live runtime registry. */
+
+     HttpResponse HandleModuleLoad(const HttpRequest& Request);
+
+     /* HandleModuleUnload unloads one module from the live runtime registry. */
+
+     HttpResponse HandleModuleUnload(const HttpRequest& Request);
+
      /* HandleHealth handles health check requests. */
 
      HttpResponse HandleHealth(const HttpRequest& Request);

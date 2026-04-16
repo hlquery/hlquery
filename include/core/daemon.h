@@ -29,24 +29,31 @@ class DaemonHandler
      /* Static optimization state variables */
 
      /* Current backoff delay applied between daemon work cycles. */
+
      static std::atomic<int> AdaptiveSleepMS;
 
      /* Number of consecutive cycles that processed meaningful work. */
+
      static std::atomic<int> ConsecutiveBusyIterations;
 
      /* Number of consecutive cycles that observed no useful work. */
+
      static std::atomic<int> ConsecutiveIdleIterations;
 
      /* Flag-like state indicating whether the daemon is in high-throughput mode. */
+
      static std::atomic<int> HighThroughputModeValue;
 
      /* Event count captured on the previous optimization pass. */
+
      static std::atomic<int> LastEventCount;
 
      /* Monotonic counter used to defer expensive background work. */
+
      static std::atomic<uint64_t> LazyProcessingCounter;
 
      /* Current work batch size selected by the optimizer. */
+
      static std::atomic<int> BatchSize;
 
    public:

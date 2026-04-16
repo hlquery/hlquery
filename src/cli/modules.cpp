@@ -707,3 +707,29 @@ void HLQueryCLI::RunModuleCommand(const std::string &module_name, const std::str
 
      PrintModuleResponse(*this, module_name, response.Body, json_output);
 }
+
+void HLQueryCLI::LoadModule(const std::string &module_name)
+{
+     const std::string path = "/modules/load/" + hlquery_cli::UrlEncode(module_name);
+     HTTPResponse response = MakeRequest("POST", path, "{}");
+
+     if (CheckRequestFailed(response, false, path))
+     {
+          return;
+     }
+
+     PrintModuleResponse(*this, "load", response.Body);
+}
+
+void HLQueryCLI::UnloadModule(const std::string &module_name)
+{
+     const std::string path = "/modules/unload/" + hlquery_cli::UrlEncode(module_name);
+     HTTPResponse response = MakeRequest("POST", path, "{}");
+
+     if (CheckRequestFailed(response, false, path))
+     {
+          return;
+     }
+
+     PrintModuleResponse(*this, "unload", response.Body);
+}

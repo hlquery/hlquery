@@ -16,8 +16,6 @@
 #include <cctype>
 #include <cstdlib>
 
-namespace
-{
 static constexpr size_t SQLMaxQueryBytes = 32768;
 static constexpr size_t SQLMaxTokens = 1024;
 static constexpr size_t SQLMaxParenthesisDepth = 64;
@@ -72,7 +70,6 @@ static bool SQLCanAppendToken(const std::vector<SQLToken> &tokens, std::string *
      }
 
      return true;
-}
 }
 
 std::string SQLTrimWhitespace(const std::string &value)
