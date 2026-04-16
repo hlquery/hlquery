@@ -75,8 +75,8 @@ hlquery::hlquery(int argc, char** argv)
 
      Instance 		= 	this;
      Metrics 		=	std::make_unique<HLQueryMetrics>();
-     SQL 	        = 	std::make_unique<SQLService>();
-     Config 	        =       std::make_unique<ServerConfig>(argc, argv);
+     SQL 	          = 	std::make_unique<SQLService>();
+     Config 	     =    std::make_unique<ServerConfig>(argc, argv);
      
      ParseArgs();
      StatsVal.Start();
@@ -96,7 +96,7 @@ hlquery::hlquery(int argc, char** argv)
 
 hlquery::~hlquery()
 {
-     API 	   =  nullptr;
+     API 	         =  nullptr;
      ThreadPools   =  nullptr;
      Engine        =  nullptr;
      
@@ -163,7 +163,6 @@ bool hlquery::Initialize()
      /* Initialize network listeners for configured non-HTTP protocols. */
 
      Listeners = ListenManager::CreateCustomProtocolListeners(*Config);
-
      RunListeners();
 
      for (auto *server : HTTPServers)

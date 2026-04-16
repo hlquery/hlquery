@@ -6,15 +6,13 @@
 
 **A high-performance search engine built for modern applications.**
 
-[![Follow hlquery](https://img.shields.io/badge/Follow-%40hlquery-111111?logo=x&logoColor=white)](https://x.com/hlquery)
+[![Follow hlquery](https://img.shields.io/badge/Follow-%40hlquery-blue?logo=x&logoColor=white)](https://x.com/hlquery)
 [![Linux Build](https://github.com/hlquery/hlquery/workflows/Linux%20build/badge.svg)](https://github.com/hlquery/hlquery/actions)
 [![macOS Build](https://github.com/hlquery/hlquery/workflows/macOS%20Build/badge.svg)](https://github.com/hlquery/hlquery/actions)
 [![FreeBSD Build](https://github.com/hlquery/hlquery/workflows/FreeBSD%20Build/badge.svg)](https://github.com/hlquery/hlquery/actions)
 [![Commit Activity](https://img.shields.io/github/commit-activity/m/hlquery/hlquery)](https://github.com/hlquery/hlquery/pulse)
-[![Star hlquery](https://img.shields.io/badge/GitHub-Star%20hlquery-181717?logo=github&logoColor=white)](https://github.com/hlquery/hlquery/stargazers)
+[![hlquery](https://img.shields.io/badge/GitHub-Star%20hlquery-181717?logo=github&logoColor=white)](https://github.com/hlquery/hlquery/stargazers)
 [![License](https://img.shields.io/badge/License-BSD%203--Clause-blue.svg)](https://opensource.org/licenses/BSD-3-Clause)
-
-[Documentation](https://docs.hlquery.com) • [GitHub](https://github.com/hlquery/hlquery) • [Discord](https://discord.hlquery.com)
 
 </div>
 
@@ -22,12 +20,12 @@
 
 > **Development Status**: hlquery is currently in active development and should not be used in production environments. The software may contain bugs, incomplete features, and breaking changes may occur without notice.
 
-## Overview
+### Overview
 
 hlquery is an open source search engine written in C++17 and backed by RocksDB. It is designed for applications that need fast indexing, real-time queries, and a straightforward HTTP/JSON interface without giving up advanced search features. The engine supports full-text search, hybrid ranking, vector similarity, flexible collections, and configurable runtime modules for features such as AI-assisted search.
 It exposes a REST API for indexing, querying, and administration, and includes command-line tools for local management and testing.
 
-## Quick Start
+### Quick Start
 
 Clone the repository normally:
 

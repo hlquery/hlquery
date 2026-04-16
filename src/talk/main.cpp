@@ -1140,19 +1140,103 @@ static bool ExtractSearchTalkQuery(const std::vector<std::string> &parts,
      return !query.empty();
 }
 
+static bool ContainsTalkQueryKeyword(const std::string &query, const std::string &keyword)
+{
+     if (keyword.empty() || query.size() < keyword.size())
+     {
+          return false;
+     }
+
+     for (size_t i = 0; i + keyword.size() <= query.size(); ++i)
+     {
+          bool matches = true;
+
+          for (size_t j = 0; j < keyword.size(); ++j)
+          {
+               if (std::toupper(static_cast<unsigned char>(query[i + j])) != keyword[j])
+               {
+                    matches = false;
+                    break;
+               }
+          }
+
+          if (!matches)
+          {
+               continue;
+          }
+
+          const bool left_ok = (i == 0) || !std::isalnum(static_cast<unsigned char>(query[i - 1]));
+          const bool right_ok = (i + keyword.size() == query.size()) || !std::isalnum(static_cast<unsigned char>(query[i + keyword.size()]));
+
+          if (left_ok && right_ok)
+          {
+               return true;
+          }
+     }
+
+     return false;
+}
+
+static bool LooksLikeStructuredTalkQuery(const std::string &query)
+{
+     if (query.empty())
+     {
+          return false;
+     }
+
+     if (query.find_first_of("\"*?~^[]()") != std::string::npos)
+     {
+          return true;
+     }
+
+     if (query.find("&&") != std::string::npos || query.find("||") != std::string::npos)
+     {
+          return true;
+     }
+
+     if (query.front() == '!')
+     {
+          return true;
+     }
+
+     if (query.find(':') != std::string::npos)
+     {
+          return true;
+     }
+
+     if (ContainsTalkQueryKeyword(query, "AND") || ContainsTalkQueryKeyword(query, "OR") || ContainsTalkQueryKeyword(query, "NOT") || ContainsTalkQueryKeyword(query, "TO"))
+     {
+          return true;
+     }
+
+     return false;
+}
+
 static std::string BuildTalkQueryForServer(const std::string &query, bool phrase_query)
 {
-     if (!phrase_query || query.size() < 2)
+     std::string trimmed = TrimWhitespace(query);
+
+     if (trimmed.empty())
      {
           return query;
      }
 
-     if (query.front() == '"' && query.back() == '"')
+     if (trimmed.size() >= 2 && trimmed.front() == '\'' && trimmed.back() == '\'')
      {
-          return query;
+          return "\"" + trimmed.substr(1, trimmed.size() - 2) + "\"";
      }
 
-     return "\"" + query + "\"";
+     if (trimmed.size() >= 2 && trimmed.front() == '"' && trimmed.back() == '"')
+     {
+          return trimmed;
+     }
+
+     if (phrase_query || !LooksLikeStructuredTalkQuery(trimmed))
+     {
+          return "\"" + trimmed + "\"";
+     }
+
+     return trimmed;
 }
 
 /* Fetch visible document IDs to support numeric references in the REPL. */
