@@ -301,10 +301,28 @@ void ServerConfig::ApplyConfiguration()
 
      std::string ModelPathOverride;
 
+     auto ReadModelName = [](const std::shared_ptr<ConfigTag> &Tag,
+                             const std::string &Fallback) -> std::string
+     {
+          if (!Tag)
+          {
+               return Fallback;
+          }
+
+          std::string Value = Tag->GetString("model_name", "");
+
+          if (!Value.empty())
+          {
+               return Value;
+          }
+
+          return Tag->GetString("model", Fallback);
+     };
+
      if (AITag)
      {
           AIModelsDirectory = AITag->GetString("models_dir", AIModelsDirectory);
-          AIModelName = AITag->GetString("model", AIModelName);
+          AIModelName = ReadModelName(AITag, AIModelName);
           ModelPathOverride = AITag->GetString("model_path", "");
           AIInferenceCommand = AITag->GetString("inference_command", AIInferenceCommand);
           SamEnabled = AITag->GetBool("sam_enabled", SamEnabled);
@@ -313,7 +331,7 @@ void ServerConfig::ApplyConfiguration()
      if (LLMTag)
      {
           AIModelsDirectory = LLMTag->GetString("models_dir", AIModelsDirectory);
-          AIModelName = LLMTag->GetString("model", AIModelName);
+          AIModelName = ReadModelName(LLMTag, AIModelName);
 
           if (ModelPathOverride.empty())
           {
@@ -345,6 +363,14 @@ void ServerConfig::ApplyConfiguration()
           bool IsDefaultModel = ModelTag->GetBool("default", false);
 
           AIModelCatalog.push_back({ModelName, ModelFile, IsDefaultModel});
+     }
+
+     if (AIModelCatalog.empty())
+     {
+          AIModelCatalog.push_back({"qwen_0_5", "Qwen2.5-0.5B-Instruct-Q4_K_M.gguf", false});
+          AIModelCatalog.push_back({"qwen_1_5", "Qwen2.5-1.5B-Instruct-Q4_K_M.gguf", true});
+          AIModelCatalog.push_back({"qwen_3", "Qwen2.5-3B-Instruct-Q4_K_M.gguf", false});
+          AIModelCatalog.push_back({"qwen_coder_1_5", "Qwen2.5.1-Coder-1.5B-Instruct-Q4_K_M.gguf", false});
      }
 
     auto ResolveModelPath = [&](const ServerConfig::AIModelDescriptor &Descriptor) -> std::string

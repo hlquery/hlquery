@@ -24,6 +24,21 @@ use File::Spec::Functions qw(abs2rel catfile catdir rel2abs);
 use FindBin qw($RealDir);
 use Getopt::Long qw(GetOptions);
 use POSIX qw(getgid getuid);
+use lib $RealDir;
+use make::configure::Annotations qw(collect_module_annotations);
+use make::configure::Extras qw(
+    list_known_extra_module_names
+    parse_enabled_extras
+    sync_enabled_extra_module_links
+);
+use make::configure::System qw(
+    apply_install_layout
+    default_cxx
+    get_cpu_count
+    get_make_command
+    get_system_name
+    get_version_from_script
+);
 
 # Enable autoflush for STDOUT
 $| = 1;
@@ -91,35 +106,6 @@ $base_path = rel2abs($base_path);
 my $uid = getuid();
 my $username = getpwuid($uid);
 my $gid = getgid();
-my $detected_system = `uname -s 2>/dev/null`;
-chomp $detected_system;
-$detected_system ||= $^O;
-
-sub get_system_name {
-    return $detected_system;
-}
-
-sub get_make_command {
-    return get_system_name() eq 'FreeBSD' ? 'gmake' : 'make';
-}
-
-sub get_cpu_count {
-    my $count = 0;
-
-    if (get_system_name() eq 'FreeBSD') {
-        $count = `sysctl -n hw.ncpu 2>/dev/null`;
-    } else {
-        $count = `nproc 2>/dev/null`;
-    }
-
-    chomp $count if defined $count;
-    return ($count && $count =~ /^\d+$/ && $count > 0) ? $count : 1;
-}
-
-sub default_cxx {
-    return $ENV{CXX} if $ENV{CXX};
-    return 'c++';
-}
 
 # Terminal ANSI support detection
 my $ansi_supported = 0;
@@ -178,36 +164,6 @@ sub check_root {
     }
 }
 
-# Get version information from src/version.sh or fallback
-sub get_version_from_script {
-    # Try to run version script if it exists
-    if (-f 'src/version.sh') {
-        my $version_output = `bash src/version.sh 2>/dev/null`;
-        chomp $version_output;
-        if ($version_output && $version_output !~ /error/i) {
-            # Remove hlquery- prefix if present
-            $version_output =~ s/^hlquery-//;
-            return $version_output;
-        }
-    }
-    
-    # Try to extract from file directly
-    if (-f 'src/version.sh') {
-        open my $fh, '<', 'src/version.sh' or return "1.0.0";
-        while (my $line = <$fh>) {
-            if ($line =~ /VERSION_STRING=['"](.+?)['"]/) {
-                my $version = $1;
-                $version =~ s/^hlquery-//;
-                close $fh;
-                return $version;
-            }
-        }
-        close $fh;
-    }
-    
-    return "1.0.0";
-}
-
 # Configuration state
 my %config = (
     'CXX'           => default_cxx(),
@@ -224,521 +180,8 @@ my %config = (
     'BINDIR'        => '',
     'SOCKETENGINE'  => 'epoll',
     'LAYOUT'        => 'dev',
-    'VERSION'       => get_version_from_script(),
+    'VERSION'       => get_version_from_script($base_path),
 );
-
-sub discover_available_extra_modules {
-    # Extra modules can be implemented either as a single m_name.cpp file or as
-    # a directory with multiple compilation units. We index both forms here so
-    # later parsing can treat --enable-extra consistently.
-    my $extras_root = catdir($base_path, 'src', 'modules', 'extra');
-    my %available = (
-        simple => {},
-        dir    => {},
-    );
-
-    return \%available unless -d $extras_root;
-
-    for my $path (glob(catfile($extras_root, 'm_*.cpp'))) {
-        next unless -f $path;
-        my $name = basename($path);
-        $name =~ s/\.cpp$//;
-        $available{simple}{$name} = $path;
-    }
-
-    for my $path (glob(catdir($extras_root, 'm_*'))) {
-        next unless -d $path;
-        my $name = basename($path);
-        my @sources = grep { -f $_ } glob(catfile($path, '*.cpp'));
-        next unless @sources;
-        $available{dir}{$name} = [ sort @sources ];
-    }
-
-    return \%available;
-}
-
-sub discover_default_enabled_extras {
-    my $available = discover_available_extra_modules();
-    my %known = map { $_ => 1 } (keys(%{$available->{simple}}), keys(%{$available->{dir}}));
-    my $modules_conf = catfile($base_path, 'run', 'conf', 'modules.conf');
-    my @enabled;
-
-    return [] unless -f $modules_conf;
-
-    open my $modules_fh, '<', $modules_conf or return [];
-
-    while (my $line = <$modules_fh>) {
-        next if $line =~ /^\s*#/;
-
-        if ($line =~ /<module\s+name="([^"]+)"/i) {
-            my $name = lc $1;
-            my @candidates = ($name, 'm_' . $name);
-            my ($matched) = grep { $known{$_} } @candidates;
-            next unless defined $matched;
-            push @enabled, $matched;
-        }
-    }
-
-    close $modules_fh;
-
-    my %seen;
-    @enabled = grep { !$seen{$_}++ } @enabled;
-    return \@enabled;
-}
-
-sub parse_enabled_extras {
-    my ($raw_value) = @_;
-    my $available = discover_available_extra_modules();
-
-    # Keep the empty case explicit so Makefile generation can always rely on the
-    # returned structure shape, even when no extra modules were requested.
-    if (!defined $raw_value || !length $raw_value) {
-        my $defaults = discover_default_enabled_extras();
-        $raw_value = join(',', @$defaults) if @$defaults;
-    }
-
-    return {
-        names       => [],
-        simple_srcs => [],
-        dir_srcs    => [],
-        libs        => [],
-        rules       => [],
-        sources     => [],
-    } unless defined $raw_value && length $raw_value;
-
-    my @requested = grep { length $_ } map { lc $_ } split(/\s*,\s*/, $raw_value);
-    if (grep { $_ eq 'all' } @requested) {
-        @requested = sort(keys(%{$available->{simple}}), keys(%{$available->{dir}}));
-    }
-
-    my %seen;
-    @requested = grep { !$seen{$_}++ } @requested;
-
-    # Fail early on typos before we start generating symlinks or Makefile rules.
-    my @unknown = grep { !exists $available->{simple}{$_} && !exists $available->{dir}{$_} } @requested;
-    if (@unknown) {
-        print "Error: Unknown extra module(s): " . join(', ', @unknown) . "\n";
-        my @known = sort(keys(%{$available->{simple}}), keys(%{$available->{dir}}));
-        print "Available extras: " . (@known ? join(', ', @known) : '(none)') . "\n";
-        exit 1;
-    }
-
-    my (@simple_srcs, @dir_srcs, @libs, @rules, @sources);
-
-    for my $name (@requested) {
-        if (exists $available->{simple}{$name}) {
-            # Single-file extras compile to one module object and one shared
-            # object rule.
-            push @simple_srcs, '$(SRC_DIR)/modules/extra/' . $name . '.cpp';
-            push @libs, '$(RUN_DIR)/modules/' . $name . '.so';
-            push @rules,
-                '$(RUN_DIR)/modules/' . $name . '.so: $(OBJ_DIR)/modules/extra/' . $name . '.module.o $(ROCKSDB_LIB) | $(BIN_DIR)',
-                "\t" . '@mkdir -p $(RUN_DIR)/modules',
-                "\t" . '@echo "$(CYAN)Linking extra module ' . $name . '...$(NC)"',
-                "\t" . '$(CXX) -shared -o $@ $^ $(CONFIGURE_LDFLAGS) $(MODULE_SHARED_LDFLAGS) $(MODULE_EXTRA_LDFLAGS)',
-                '';
-            push @sources, $available->{simple}{$name};
-            next;
-        }
-
-        next unless exists $available->{dir}{$name};
-        my @module_sources = @{$available->{dir}{$name}};
-        # Multi-file extras are emitted as one .so with one object per source.
-        push @dir_srcs, map {
-            my $rel = abs2rel($_, catdir($base_path, 'src', 'modules'));
-            '$(SRC_DIR)/modules/' . $rel;
-        } @module_sources;
-        my @module_objs = map {
-            my $rel = abs2rel($_, catdir($base_path, 'src', 'modules'));
-            $rel =~ s/\.cpp$/.module.o/;
-            '$(OBJ_DIR)/modules/' . $rel;
-        } @module_sources;
-        push @libs, '$(RUN_DIR)/modules/' . $name . '.so';
-        push @rules,
-            '$(RUN_DIR)/modules/' . $name . '.so: ' . join(' ', @module_objs) . ' $(ROCKSDB_LIB) | $(BIN_DIR)',
-            "\t" . '@mkdir -p $(RUN_DIR)/modules',
-            "\t" . '@echo "$(CYAN)Linking extra module ' . $name . '...$(NC)"',
-            "\t" . '$(CXX) -shared -o $@ $^ $(CONFIGURE_LDFLAGS) $(MODULE_SHARED_LDFLAGS) $(MODULE_EXTRA_LDFLAGS)',
-            '';
-        push @sources, @module_sources;
-    }
-
-    return {
-        names       => \@requested,
-        simple_srcs => \@simple_srcs,
-        dir_srcs    => \@dir_srcs,
-        libs        => \@libs,
-        rules       => \@rules,
-        sources     => \@sources,
-    };
-}
-
-sub list_known_extra_module_names {
-    my $available = discover_available_extra_modules();
-    return [ sort(keys(%{$available->{simple}}), keys(%{$available->{dir}})) ];
-}
-
-sub sync_enabled_extra_module_links {
-    my ($enabled_extras) = @_;
-    my $available = discover_available_extra_modules();
-    my $modules_root = catdir($base_path, 'src', 'modules');
-
-    # The runtime/module loader expects enabled extras to appear under
-    # src/modules. We satisfy that without copying files by maintaining
-    # symlinks that point back into src/modules/extra.
-    mkpath($modules_root) unless -d $modules_root;
-
-    for my $name (@{list_known_extra_module_names()}) {
-        my $target_path = catfile($modules_root, $name);
-        $target_path .= '.cpp' if exists $available->{simple}{$name};
-
-        my $enabled = grep { $_ eq $name } @{$enabled_extras->{names} // []};
-        if (!$enabled) {
-            # Remove stale symlinks for extras that are no longer enabled, but
-            # never touch real files the user may have created manually.
-            unlink $target_path if -l $target_path;
-            next;
-        }
-
-        my $link_target = exists $available->{simple}{$name}
-            ? catfile('extra', $name . '.cpp')
-            : catfile('extra', $name);
-
-        if (-l $target_path) {
-            my $current = readlink($target_path);
-            next if defined $current && $current eq $link_target;
-            unlink $target_path;
-        } elsif (-e $target_path) {
-            warn "Warning: refusing to replace non-symlink path $target_path while enabling extra module $name\n";
-            next;
-        }
-
-        symlink($link_target, $target_path) or die "Failed to create symlink $target_path -> $link_target: $!\n";
-    }
-}
-
-sub detect_packaging_layout {
-    return 'system' unless get_system_name() eq 'Linux';
-
-    my $os_release = '/etc/os-release';
-    return 'system' unless -f $os_release;
-
-    my ($id, $id_like) = ('', '');
-    if (open my $fh, '<', $os_release) {
-        while (my $line = <$fh>) {
-            chomp $line;
-            if ($line =~ /^ID=(.*)$/) {
-                $id = $1;
-                $id =~ s/^"(.*)"$/$1/;
-            } elsif ($line =~ /^ID_LIKE=(.*)$/) {
-                $id_like = $1;
-                $id_like =~ s/^"(.*)"$/$1/;
-            }
-        }
-        close $fh;
-    }
-
-    my $all = lc("$id $id_like");
-    return 'debian' if $all =~ /\b(debian|ubuntu|mint|pop|kali)\b/;
-    return 'rpm' if $all =~ /\b(rhel|fedora|centos|rocky|almalinux|suse|opensuse)\b/;
-
-    return 'system';
-}
-
-sub get_os_release_info {
-    my %info;
-    my $os_release = '/etc/os-release';
-    return %info unless -f $os_release;
-
-    if (open my $fh, '<', $os_release) {
-        while (my $line = <$fh>) {
-            chomp $line;
-            next unless $line =~ /^([A-Z_]+)=(.*)$/;
-            my ($key, $value) = (lc($1), $2);
-            $value =~ s/^"(.*)"$/$1/;
-            $info{$key} = lc($value);
-        }
-        close $fh;
-    }
-
-    return %info;
-}
-
-sub current_system_tokens {
-    my %os = get_os_release_info();
-    my %tokens;
-
-    my $system = lc(get_system_name());
-    $tokens{$system} = 1 if $system;
-    $tokens{lc($config{LAYOUT})} = 1 if $config{LAYOUT};
-
-    for my $key (qw(id id_like)) {
-        next unless $os{$key};
-        for my $token (split /\s+/, $os{$key}) {
-            $tokens{$token} = 1 if $token;
-        }
-    }
-
-    return %tokens;
-}
-
-sub system_pattern_matches {
-    my ($pattern) = @_;
-    return 0 unless defined $pattern && length $pattern;
-
-    my %tokens = current_system_tokens();
-    my $normalized = lc($pattern);
-    my $prefix = ($normalized =~ s/~$//);
-
-    if ($prefix) {
-        for my $token (keys %tokens) {
-            return 1 if index($token, $normalized) == 0;
-        }
-        return 0;
-    }
-
-    return $tokens{$normalized} ? 1 : 0;
-}
-
-sub parse_annotation_arguments {
-    my ($raw) = @_;
-    my @args = ($raw =~ /"((?:[^"\\]|\\.)*)"/g);
-    @args = map {
-        my $v = $_;
-        $v =~ s/\\"/"/g;
-        $v =~ s/\\\\/\\/g;
-        $v;
-    } @args;
-    return @args;
-}
-
-sub collapse_annotation_value {
-    my ($value) = @_;
-    $value //= '';
-    $value =~ s/\s+/ /g;
-    $value =~ s/^\s+//;
-    $value =~ s/\s+$//;
-    return $value;
-}
-
-sub quote_makefile_value {
-    my ($value) = @_;
-    $value //= '';
-    $value =~ s/\$/\$\$/g;
-    return $value;
-}
-
-sub resolve_annotation_value {
-    my ($expr, $source, $kind) = @_;
-    $expr = collapse_annotation_value($expr);
-    return '' unless length $expr;
-
-    if ($expr =~ /^find_compiler_flags\s*\((.*)\)\s*$/) {
-        my @args = parse_annotation_arguments($1);
-        return '' unless @args;
-
-        my $package = $args[0];
-        my $label = $args[1] // $package;
-        my $fallback = $args[2] // '';
-
-        my $candidates = [
-            ["pkg-config", "--cflags", $package],
-            ["pkgconf", "--cflags", $package],
-        ];
-
-        for my $command (@$candidates) {
-            my $output = `@$command 2>/dev/null`;
-            my $exit_code = $? >> 8;
-            $output = collapse_annotation_value($output);
-
-            if ($exit_code == 0 && length $output) {
-                print_success("Module $kind flags", "$source => $output") if $ENV{DEBUG_CONFIGURE};
-                return $output;
-            }
-        }
-
-        if (length $fallback) {
-            print_warning("Module $kind flags", "$source => fallback $fallback") if $ENV{DEBUG_CONFIGURE};
-            return collapse_annotation_value($fallback);
-        }
-
-        print_warning("Module $kind flags", "$source => unavailable ($label)") if $ENV{DEBUG_CONFIGURE};
-        return '';
-    }
-
-    if ($expr =~ /^find_linker_flags\s*\((.*)\)\s*$/) {
-        my @args = parse_annotation_arguments($1);
-        return '' unless @args;
-
-        my $package = $args[0];
-        my $label = $args[1] // $package;
-        my $fallback = $args[2] // '';
-
-        my $candidates = [
-            ["pkg-config", "--libs", $package],
-            ["pkgconf", "--libs", $package],
-        ];
-
-        for my $command (@$candidates) {
-            my $output = `@$command 2>/dev/null`;
-            my $exit_code = $? >> 8;
-            $output = collapse_annotation_value($output);
-
-            if ($exit_code == 0 && length $output) {
-                print_success("Module $kind flags", "$source => $output") if $ENV{DEBUG_CONFIGURE};
-                return $output;
-            }
-        }
-
-        if (length $fallback) {
-            print_warning("Module $kind flags", "$source => fallback $fallback") if $ENV{DEBUG_CONFIGURE};
-            return collapse_annotation_value($fallback);
-        }
-
-        print_warning("Module $kind flags", "$source => unavailable ($label)") if $ENV{DEBUG_CONFIGURE};
-        return '';
-    }
-
-    if ($expr =~ /^execute\s*\((.*)\)\s*$/) {
-        my @args = parse_annotation_arguments($1);
-        return '' unless @args;
-
-        my $command = shift @args;
-        my $label = @args ? shift @args : '';
-        my $fallback = @args ? shift @args : '';
-
-        my $output = `$command 2>/dev/null`;
-        my $exit_code = $? >> 8;
-        $output = collapse_annotation_value($output);
-
-        if ($exit_code == 0 && length $output) {
-            print_success("Module $kind flags", "$source => $output") if $ENV{DEBUG_CONFIGURE};
-            return $output;
-        }
-
-        if (length $fallback) {
-            print_warning("Module $kind flags", "$source => fallback $fallback") if $ENV{DEBUG_CONFIGURE};
-            return collapse_annotation_value($fallback);
-        }
-
-        my $desc = $label || $command;
-        print_warning("Module $kind flags", "$source => unavailable ($desc)");
-        return '';
-    }
-
-    return $expr;
-}
-
-sub collect_module_annotations {
-    my ($enabled_extras) = @_;
-    my @module_sources;
-    my $modules_root = catdir($base_path, 'src', 'modules');
-    # Scan both built-in modules and any enabled extras for inline build
-    # annotations such as extra compiler flags, linker flags, or package hints.
-    push @module_sources, grep { -f $_ } glob(catfile($modules_root, 'm_*.cpp'));
-    push @module_sources, grep { -f $_ } glob(catfile($modules_root, 'm_*', '*.cpp'));
-    push @module_sources, @{$enabled_extras->{sources} // []};
-
-    my (%source_cxxflags, %module_ldflags, %module_packages);
-
-    for my $source (@module_sources) {
-        my $relative = abs2rel($source, $modules_root);
-        my $stem = $relative;
-        $stem =~ s/\.cpp$//;
-        my $module_name = $relative;
-        $module_name =~ s{/.*$}{};
-        $module_name =~ s/\.cpp$//;
-
-        open my $fh, '<', $source or next;
-        while (my $line = <$fh>) {
-            # Module source files can declare build metadata in /// $Foo:
-            # annotations. We translate those into Makefile fragments instead of
-            # hard-coding per-module rules in configure itself.
-            next unless $line =~ m{^\s*///\s*\$(CompilerFlags|LinkerFlags|PackageInfo):\s*(.*?)\s*$};
-            my ($kind, $payload) = ($1, $2);
-
-            if ($kind eq 'CompilerFlags') {
-                my $value = resolve_annotation_value($payload, $relative, 'compiler');
-                push @{$source_cxxflags{$stem}}, $value if length $value;
-            } elsif ($kind eq 'LinkerFlags') {
-                my $value = resolve_annotation_value($payload, $relative, 'linker');
-                push @{$module_ldflags{$module_name}}, $value if length $value;
-            } elsif ($kind eq 'PackageInfo') {
-                if ($payload =~ /^require_system\("([^"]+)"\)\s+(.+?)\s*$/) {
-                    my ($pattern, $package) = (lc($1), collapse_annotation_value($2));
-                    if (system_pattern_matches($pattern)) {
-                        push @{$module_packages{$module_name}}, $package if length $package;
-                    }
-                }
-            }
-        }
-        close $fh;
-    }
-
-    my @cxx_rules;
-    for my $stem (sort keys %source_cxxflags) {
-        my %seen;
-        my @flags = grep { length $_ && !$seen{$_}++ } @{$source_cxxflags{$stem}};
-        next unless @flags;
-        push @cxx_rules, '$(OBJ_DIR)/modules/' . $stem . '.module.o: CXXFLAGS += ' . quote_makefile_value(join(' ', @flags));
-    }
-
-    my @ld_rules;
-    for my $module (sort keys %module_ldflags) {
-        my %seen;
-        my @flags = grep { length $_ && !$seen{$_}++ } @{$module_ldflags{$module}};
-        next unless @flags;
-        push @ld_rules, '$(RUN_DIR)/modules/' . $module . '.so: MODULE_EXTRA_LDFLAGS += ' . quote_makefile_value(join(' ', @flags));
-    }
-
-    my @package_lines;
-    for my $module (sort keys %module_packages) {
-        my %seen;
-        my @packages = grep { length $_ && !$seen{$_}++ } @{$module_packages{$module}};
-        next unless @packages;
-        push @package_lines, $module . ': ' . join(', ', @packages);
-    }
-
-    return {
-        cxx_rules => join("\n", @cxx_rules),
-        ld_rules => join("\n", @ld_rules),
-        package_lines => \@package_lines,
-    };
-}
-
-sub apply_install_layout {
-    my ($layout, $set_ref) = @_;
-
-    if ($layout eq 'auto') {
-        # Auto mode picks a packaging-friendly layout from the host OS, but
-        # explicit --prefix/--confdir/... options still win below.
-        $layout = detect_packaging_layout();
-    }
-
-    if ($layout eq 'dev') {
-        # Development layout keeps everything inside the repository so the tree
-        # is self-contained and runnable without system install steps.
-        $config{PREFIX} = $base_path unless $set_ref->{prefix};
-        $config{CONFDIR} ||= catdir($base_path, RUN_DIR, 'conf') unless $set_ref->{confdir};
-        $config{LOGDIR}  ||= catdir($base_path, RUN_DIR, 'logs') unless $set_ref->{logdir};
-        $config{DATADIR} ||= catdir($base_path, RUN_DIR, 'data') unless $set_ref->{datadir};
-        $config{RUNDIR}  ||= catdir($base_path, RUN_DIR, 'pid') unless $set_ref->{rundir};
-        $config{BINDIR}  ||= catdir($base_path, RUN_DIR, 'bin') unless $set_ref->{bindir};
-    } elsif ($layout eq 'system' || $layout eq 'debian' || $layout eq 'rpm') {
-        # System packaging layouts split config, data, logs and runtime state
-        # into conventional FHS locations.
-        $config{PREFIX} = '/usr' unless $set_ref->{prefix};
-        $config{CONFDIR} ||= '/etc/hlquery' unless $set_ref->{confdir};
-        $config{LOGDIR}  ||= '/var/log/hlquery' unless $set_ref->{logdir};
-        $config{DATADIR} ||= '/var/lib/hlquery' unless $set_ref->{datadir};
-        $config{RUNDIR}  ||= '/run/hlquery' unless $set_ref->{rundir};
-        $config{BINDIR}  ||= '/usr/bin' unless $set_ref->{bindir};
-    } else {
-        die "Invalid layout '$layout'. Valid layouts: dev, system, debian, rpm, auto\n";
-    }
-
-    $config{LAYOUT} = $layout;
-}
 
 # Enhanced startup banner
 # Create required directories
@@ -1441,7 +884,14 @@ sub generate_makefile {
     my ($enabled_extras) = @_;
     my $makefile_template = catfile($base_path, 'make', 'makefile.tpl');
     my $makefile_path = catfile($base_path, 'Makefile');
-    my $module_annotations = collect_module_annotations($enabled_extras);
+    my $module_annotations = collect_module_annotations(
+        base_path      => $base_path,
+        layout         => $config{LAYOUT},
+        enabled_extras => $enabled_extras,
+        debug          => $ENV{DEBUG_CONFIGURE},
+        on_success     => \&print_success,
+        on_warning     => \&print_warning,
+    );
     
     # Debug: Print paths for troubleshooting
     if ($ENV{DEBUG_CONFIGURE}) {
@@ -1491,7 +941,7 @@ sub generate_makefile {
     my $extra_module_simple_srcs = join(' ', @{$enabled_extras->{simple_srcs} // []});
     my $extra_module_dir_srcs = join(' ', @{$enabled_extras->{dir_srcs} // []});
     my $extra_module_libs = join(' ', @{$enabled_extras->{libs} // []});
-    my $extra_module_known_names = join(' ', @{list_known_extra_module_names()});
+    my $extra_module_known_names = join(' ', @{list_known_extra_module_names($base_path)});
     my $extra_module_enabled_names = join(' ', @{$enabled_extras->{names} // []});
     my $extra_module_rules = join("\n", @{$enabled_extras->{rules} // []});
     $template_content =~ s/\$\{MODULE_ANNOTATION_CXXFLAGS\}/$module_annotation_cxx/g;
@@ -1982,10 +1432,22 @@ sub main {
     # Resolve paths.
     # Priority: explicit layout > explicit prefix > default dev layout.
     if ($path_set{layout}) {
-        apply_install_layout($config{LAYOUT}, \%path_set);
+        apply_install_layout(
+            layout    => $config{LAYOUT},
+            config    => \%config,
+            set_ref   => \%path_set,
+            base_path => $base_path,
+            run_dir   => RUN_DIR,
+        );
     } elsif ($path_set{prefix}) {
         if ($config{PREFIX} eq '/usr') {
-            apply_install_layout('system', \%path_set);
+            apply_install_layout(
+                layout    => 'system',
+                config    => \%config,
+                set_ref   => \%path_set,
+                base_path => $base_path,
+                run_dir   => RUN_DIR,
+            );
         } else {
             $config{CONFDIR} ||= catdir($config{PREFIX}, 'etc');
             $config{LOGDIR}  ||= catdir($config{PREFIX}, 'var', 'log');
@@ -1994,11 +1456,23 @@ sub main {
             $config{BINDIR}  ||= catdir($config{PREFIX}, 'bin');
         }
     } else {
-        apply_install_layout('dev', \%path_set);
+        apply_install_layout(
+            layout    => 'dev',
+            config    => \%config,
+            set_ref   => \%path_set,
+            base_path => $base_path,
+            run_dir   => RUN_DIR,
+        );
     }
 
-    my $enabled_extras = parse_enabled_extras($enable_extras);
-    sync_enabled_extra_module_links($enabled_extras);
+    my $enabled_extras = parse_enabled_extras(
+        base_path => $base_path,
+        raw_value => $enable_extras,
+    );
+    sync_enabled_extra_module_links(
+        base_path      => $base_path,
+        enabled_extras => $enabled_extras,
+    );
 
     # Env overrides only when corresponding CLI path flag is not explicitly set.
     $config{CONFDIR} = $ENV{HLQUERY_CONFIG_DIR} if $ENV{HLQUERY_CONFIG_DIR} && !$path_set{confdir};

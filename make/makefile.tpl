@@ -417,7 +417,7 @@ rocksdb-preflight:
 # Otherwise gmake may consider prebuilt targets up to date and skip rebuilding them locally.
 binary-compat-check:
 	@if [ "$$(uname -s)" = "FreeBSD" ]; then \
-		for f in "$(BIN_DIR)/hlquery" "$(BIN_DIR)/hlquery-cli" "$(BIN_DIR)/hlquery-benchmark" "$(BIN_DIR)/talk" "$(RUN_DIR)/modules/"*.so; do \
+		for f in "$(BIN_DIR)/hlquery" "$(BIN_DIR)/hlquery-cli" "$(BIN_DIR)/hlquery-benchmark" "$(BIN_DIR)/hlquery-talk" "$(RUN_DIR)/modules/"*.so; do \
 			[ -e "$$f" ] || continue; \
 			if grep -aqE "libc\\.so\\.6|ld-linux|GLIBC_" "$$f"; then \
 				echo "$(YELLOW)Warning: removing incompatible Linux binary artifact $$f$(NC)"; \
@@ -674,8 +674,8 @@ install:
 	@if [ -f "$(BIN_DIR)/hlquery-benchmark" ]; then \
 		$(INSTALL) -m 0755 $(BIN_DIR)/hlquery-benchmark "$(STAGED_RUN_DIR)/bin/hlquery-benchmark"; \
 	fi
-	@if [ -f "$(BIN_DIR)/talk" ]; then \
-		$(INSTALL) -m 0755 $(BIN_DIR)/talk "$(STAGED_RUN_DIR)/bin/talk"; \
+	@if [ -f "$(BIN_DIR)/hlquery-talk" ]; then \
+		$(INSTALL) -m 0755 $(BIN_DIR)/hlquery-talk "$(STAGED_RUN_DIR)/bin/hlquery-talk"; \
 	fi
 	@if [ -n "$(MODULE_LIBS)" ]; then \
 		if [ -z "$(DESTDIR)" ] && [ "$(STAGED_RUN_DIR)" = "$(RUN_DIR)" ]; then \
@@ -689,8 +689,8 @@ install:
 	fi
 	@echo "$(GREEN) Installation complete!$(NC)"
 	@echo "$(BLUE)   Binaries: $(STAGED_RUN_DIR)/bin/hlquery, $(STAGED_RUN_DIR)/bin/hlquery-cli$(NC)"
-	@if [ -f "$(STAGED_RUN_DIR)/bin/talk" ]; then \
-		echo "$(BLUE)   Talk:     $(STAGED_RUN_DIR)/bin/talk$(NC)"; \
+	@if [ -f "$(STAGED_RUN_DIR)/bin/hlquery-talk" ]; then \
+		echo "$(BLUE)   Talk:     $(STAGED_RUN_DIR)/bin/hlquery-talk$(NC)"; \
 	fi
 	@if [ -d "$(STAGED_RUN_DIR)/modules" ]; then \
 		echo "$(BLUE)   Modules:  $(STAGED_RUN_DIR)/modules$(NC)"; \
@@ -716,7 +716,7 @@ install:
 		echo ""; \
 		echo "To run the command line, run:"; \
 		echo "  ./run/bin/hlquery-cli"; \
-		echo "  ./run/bin/talk"; \
+		echo "  ./run/bin/hlquery-talk"; \
 		echo ""; \
 	else \
 		echo "$(CYAN)Staging tree ready at $(STAGED_RUN_DIR)$(NC)"; \
@@ -727,7 +727,7 @@ uninstall:
 	@rm -f "$(RUN_DIR)/bin/hlquery"
 	@rm -f "$(RUN_DIR)/bin/hlquery-cli"
 	@rm -f "$(RUN_DIR)/bin/hlquery-benchmark"
-	@rm -f "$(RUN_DIR)/bin/talk"
+	@rm -f "$(RUN_DIR)/bin/talk" "$(RUN_DIR)/bin/hlquery-talk"
 	@rm -f "$(RUN_DIR)/modules/"*.so
 	@rm -f "$(RUN_DIR)/hlquery"
 	@echo "$(GREEN)" Uninstallation complete!$(NC)"
@@ -824,23 +824,23 @@ $(BIN_DIR)/hlquery-benchmark: $(BENCHMARK_OBJ) | prepare
 		-o $@ \
 		$(LDFLAGS)
 
-$(BIN_DIR)/talk: $(TALK_OBJS) | prepare
+$(BIN_DIR)/hlquery-talk: $(TALK_OBJS) | prepare
 	@mkdir -p $(BIN_DIR) $(RUN_DIR)/bin
 	$(CXX) $(CXXFLAGS) \
 		$(TALK_OBJS) \
 		-o $@ \
 		$(LDFLAGS)
-	@$(INSTALL) -m 0755 $@ "$(RUN_DIR)/bin/talk"
+	@$(INSTALL) -m 0755 $@ "$(RUN_DIR)/bin/hlquery-talk"
 
 $(REGULAR_OBJS) $(HTTP_OBJS) $(CLI_OBJS) $(BENCHMARK_OBJ) $(TALK_OBJS) $(MODULE_OBJS): $(CONFIG_HEADER)
 
 # Main build target
-all: prepare $(BIN_DIR)/hlquery $(BIN_DIR)/hlquery-cli $(BIN_DIR)/hlquery-benchmark $(BIN_DIR)/talk $(MODULE_LIBS)
+all: prepare $(BIN_DIR)/hlquery $(BIN_DIR)/hlquery-cli $(BIN_DIR)/hlquery-benchmark $(BIN_DIR)/hlquery-talk $(MODULE_LIBS)
 	@echo ""
 	@echo "$(GREEN)  Build complete!$(NC)"
 	@echo "$(BLUE)   Server: build/bin/hlquery$(NC)"
 	@echo "$(BLUE)   CLI:    build/bin/hlquery-cli$(NC)"
-	@echo "$(BLUE)   Talk:   build/bin/talk$(NC)"
+	@echo "$(BLUE)   Talk:   build/bin/hlquery-talk$(NC)"
 	@echo "$(YELLOW)   Run 'make install' to install to run/bin/$(NC)"
 	@echo ""
 	@echo "$(NC)$(BOLD)Done!$(NC)"
@@ -933,8 +933,8 @@ install-system: all
 	@if [ -f "$(BIN_DIR)/hlquery-benchmark" ]; then \
 		$(INSTALL) -m 0755 $(BIN_DIR)/hlquery-benchmark "$(DESTDIR)$(BINDIR)/hlquery-benchmark"; \
 	fi
-	@if [ -f "$(BIN_DIR)/talk" ]; then \
-		$(INSTALL) -m 0755 $(BIN_DIR)/talk "$(DESTDIR)$(BINDIR)/talk"; \
+	@if [ -f "$(BIN_DIR)/hlquery-talk" ]; then \
+		$(INSTALL) -m 0755 $(BIN_DIR)/hlquery-talk "$(DESTDIR)$(BINDIR)/hlquery-talk"; \
 	fi
 	@if [ -n "$(MODULE_LIBS)" ]; then \
 		$(INSTALL) -d "$(DESTDIR)$(PREFIX)/lib/hlquery/modules"; \
