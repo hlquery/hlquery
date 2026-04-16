@@ -9,6 +9,7 @@
 [![Twitter Follow](https://img.shields.io/twitter/url/https/x.com/hlquery.svg?style=social&label=Follow%20%40hlquery)](https://x.com/hlquery)
 [![Linux Build](https://github.com/hlquery/hlquery/workflows/Linux%20build/badge.svg)](https://github.com/hlquery/hlquery/actions)
 [![macOS Build](https://github.com/hlquery/hlquery/workflows/macOS%20Build/badge.svg)](https://github.com/hlquery/hlquery/actions)
+[![FreeBSD Build](https://github.com/hlquery/hlquery/workflows/FreeBSD%20Build/badge.svg)](https://github.com/hlquery/hlquery/actions)
 [![Commit Activity](https://img.shields.io/github/commit-activity/m/hlquery/hlquery)](https://github.com/hlquery/hlquery/pulse)
 [![GitHub stars](https://img.shields.io/github/stars/hlquery/hlquery?style=social)](https://github.com/hlquery/hlquery/stargazers)
 [![License](https://img.shields.io/badge/License-BSD%203--Clause-blue.svg)](https://opensource.org/licenses/BSD-3-Clause)
@@ -164,7 +165,8 @@ Official client libraries are available for popular programming languages:
 
 - **[Node.js](https://github.com/hlquery/node-api)** - Official Node.js client
 - **[Go](https://github.com/hlquery/go-api)** - Official Go client
-- **[Python](https://github.com/hlquery/python-hlquery)** - Official Python client
+- **[Java](https://github.com/hlquery/java-api)** - Official Java client
+- **[Python](https://github.com/hlquery/python-api)** - Official Python client
 - **[PHP](https://github.com/hlquery/php-api)** - Official PHP client
 - **[Rust](https://github.com/hlquery/rust-api)** - Rust client library
 - **[Perl](https://github.com/hlquery/perl-api)** - Perl client library
@@ -202,7 +204,7 @@ We welcome contributions from the community! All contributions must be released 
 ### How to Contribute
 
 - Check existing [issues](https://github.com/hlquery/hlquery/issues) or create new ones
-- Contribute to client libraries (Node.js, Go, Python, PHP, Rust, Perl, C++)
+- Contribute to client libraries (Node.js, Go, Java, Python, PHP, Rust, Perl, C++)
 - Test and report bugs
 - Improve documentation
 - Join our [Discord community](https://discord.hlquery.com)
