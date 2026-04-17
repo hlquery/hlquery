@@ -258,6 +258,17 @@ RouteAction ResolveHttpRoute(const HttpRequest &Request)
                return RouteAction::ListModules;
           }
 
+          if (ExactRoute(Path, Method, {"/loadmodule", "/unloadmodule"}, {"POST"}))
+          {
+               return RouteAction::ModuleAPI;
+          }
+
+          if (PrefixRoute(Path, Method, "/loadmodule/", {"POST"}) ||
+              PrefixRoute(Path, Method, "/unloadmodule/", {"POST"}))
+          {
+               return RouteAction::ModuleAPI;
+          }
+
           if (PrefixRoute(Path, Method, "/modules/", {"GET", "POST", "PUT", "DELETE"}))
           {
                if (Path.rfind("/syntax") == Path.size() - 7 && Method == "GET")

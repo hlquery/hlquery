@@ -9,7 +9,7 @@
 # under the terms of the BSD License.
 # For more details, please visit: https://docs.hlquery.com
 
-package make::console;
+package make::configure::Console;
 
 use v5.26.0;
 use strict;
@@ -17,7 +17,6 @@ use warnings FATAL => qw(all);
 
 use Exporter qw(import);
 
-# Color constants
 use constant {
     RESET   => "\033[0m",
     BOLD    => "\033[1m",

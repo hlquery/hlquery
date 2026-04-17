@@ -1013,6 +1013,8 @@ int main(int argc, char *argv[])
                std::cout << "  " << program_name << " module <name> syntax    # Show module command syntax\n";
                std::cout << "  " << program_name << " module <name> <route> [--json] [--key=value] [args...]    # Run a module command\n";
                std::cout << "  " << program_name << " module <name> <free text prompt> [--json]    # For natural-language modules, bare text is passed as arguments when it is not a declared route\n";
+               std::cout << "  " << program_name << " loadmodule <name>      # Load one runtime module\n";
+               std::cout << "  " << program_name << " unloadmodule <name>    # Unload one runtime module\n";
                std::cout << "  " << program_name << " syn list                # Show synonym counts per collection\n";
                std::cout << "  " << program_name << " global syn list         # List global synonyms\n";
                std::cout << "  " << program_name << " stop list               # Show stopword counts per collection\n";
@@ -1411,6 +1413,28 @@ int main(int argc, char *argv[])
 
                     cli_instance.RunModuleCommand(module_name, route_str, module_args);
                }
+          }
+          else if (command_str == "loadmodule")
+          {
+               if (args_vec.size() != 2)
+               {
+                    ConsoleWriter::WriteError("Error: 'loadmodule' command requires a module name.", true);
+                    ConsoleWriter::WriteError("Usage: " + program_name + " loadmodule <name>.", true);
+                    return 1;
+               }
+
+               cli_instance.LoadModule(args_vec[1]);
+          }
+          else if (command_str == "unloadmodule")
+          {
+               if (args_vec.size() != 2)
+               {
+                    ConsoleWriter::WriteError("Error: 'unloadmodule' command requires a module name.", true);
+                    ConsoleWriter::WriteError("Usage: " + program_name + " unloadmodule <name>.", true);
+                    return 1;
+               }
+
+               cli_instance.UnloadModule(args_vec[1]);
           }
           else if (command_str == "rebuild-counters" || command_str == "repair")
           {

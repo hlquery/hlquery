@@ -1733,6 +1733,8 @@ void PrintHelp()
      std::cout << "  module NAME [info|syntax|ROUTE [args...]]  Run one module command\n";
      std::cout << "  load NAME  Load one runtime module\n";
      std::cout << "  unload NAME  Unload one runtime module\n";
+     std::cout << "  loadmodule NAME  Alias for load\n";
+     std::cout << "  unloadmodule NAME  Alias for unload\n";
      std::cout << "  dbsize [kb|mb|gb]  Show database size\n";
      std::cout << "  flush    Flush all data\n";
      std::cout << "  reset    Clear the terminal\n";
@@ -1856,7 +1858,9 @@ std::vector<std::string> GetTalkCommands()
          "modules",
          "module",
          "load",
+         "loadmodule",
          "unload",
+         "unloadmodule",
          "dbsize",
          "flush",
          "reset",
@@ -3180,11 +3184,11 @@ bool ExecuteTalkCommand(const std::string &line,
           return true;
      }
 
-     if (command == "load")
+     if (command == "load" || command == "loadmodule")
      {
           if (parts.size() != 2)
           {
-               TalkPrintError("Usage: load <name>");
+               TalkPrintError((command == "loadmodule") ? "Usage: loadmodule <name>" : "Usage: load <name>");
                return true;
           }
 
@@ -3192,11 +3196,11 @@ bool ExecuteTalkCommand(const std::string &line,
           return true;
      }
 
-     if (command == "unload")
+     if (command == "unload" || command == "unloadmodule")
      {
           if (parts.size() != 2)
           {
-               TalkPrintError("Usage: unload <name>");
+               TalkPrintError((command == "unloadmodule") ? "Usage: unloadmodule <name>" : "Usage: unload <name>");
                return true;
           }
 

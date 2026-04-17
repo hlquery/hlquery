@@ -104,6 +104,18 @@ std::string ExtractModuleSubPathFromRequest(const HttpRequest &Request)
 
 std::string ExtractControlledModuleName(const HttpRequest &Request)
 {
+     const std::string normalized_path = NormalizeModulePath(Request.Path);
+
+     if (normalized_path.rfind("/loadmodule/", 0) == 0)
+     {
+          return normalized_path.substr(std::string("/loadmodule/").size());
+     }
+
+     if (normalized_path.rfind("/unloadmodule/", 0) == 0)
+     {
+          return normalized_path.substr(std::string("/unloadmodule/").size());
+     }
+
      const std::string sub_path = ExtractModuleSubPathFromRequest(Request);
 
      if (!sub_path.empty())
@@ -281,6 +293,18 @@ HttpResponse SearchAPI::HandleModuleSyntax(const HttpRequest &Request)
 
 HttpResponse SearchAPI::HandleModuleAPI(const HttpRequest &Request)
 {
+     const std::string normalized_path = NormalizeModulePath(Request.Path);
+
+     if (normalized_path == "/loadmodule" || normalized_path.rfind("/loadmodule/", 0) == 0)
+     {
+          return HandleModuleLoad(Request);
+     }
+
+     if (normalized_path == "/unloadmodule" || normalized_path.rfind("/unloadmodule/", 0) == 0)
+     {
+          return HandleModuleUnload(Request);
+     }
+
      const std::string module_name = ExtractModuleNameFromRequest(Request);
 
      if (module_name.empty())
@@ -324,7 +348,7 @@ HttpResponse SearchAPI::HandleModuleLoad(const HttpRequest &Request)
 {
      if (Request.Method != "POST")
      {
-          return BuildErrorResponse(Status::METHOD_NOT_ALLOWED, Code::VALIDATION_INVALID_JSON, "Method not allowed.", "Use POST /modules/load/<name>.");
+          return BuildErrorResponse(Status::METHOD_NOT_ALLOWED, Code::VALIDATION_INVALID_JSON, "Method not allowed.", "Use POST /modules/load/<name> or POST /loadmodule/<name>.");
      }
 
      if (!Instance || !Instance->Modules || !Instance->Config)
@@ -363,7 +387,7 @@ HttpResponse SearchAPI::HandleModuleUnload(const HttpRequest &Request)
 {
      if (Request.Method != "POST")
      {
-          return BuildErrorResponse(Status::METHOD_NOT_ALLOWED, Code::VALIDATION_INVALID_JSON, "Method not allowed.", "Use POST /modules/unload/<name>.");
+          return BuildErrorResponse(Status::METHOD_NOT_ALLOWED, Code::VALIDATION_INVALID_JSON, "Method not allowed.", "Use POST /modules/unload/<name> or POST /unloadmodule/<name>.");
      }
 
      if (!Instance || !Instance->Modules)

@@ -705,6 +705,15 @@ void HLQueryCLI::ShowHelp()
      std::cout << "    dbsize [mb|gb|kb]       Show database size (default: MB).\n";
      std::cout << "    tx [kb|mb|gb]           Show total bytes transferred (default: KB).\n\n";
 
+     std::cout << "MODULES:.\n";
+     std::cout << "    modules                 List API-enabled modules.\n";
+     std::cout << "    module info             List loaded modules with routes.\n";
+     std::cout << "    module <name> info      Show module routes and parameter info.\n";
+     std::cout << "    module <name> syntax    Show module command syntax.\n";
+     std::cout << "    module <name> <route> [--json] [--key=value] [args...]  Run one module command.\n";
+     std::cout << "    loadmodule <name>       Load one runtime module.\n";
+     std::cout << "    unloadmodule <name>     Unload one runtime module.\n\n";
+
      std::cout << "DANGEROUS OPS:.\n";
      std::cout << "    create <name> [fields]  Create a new collection.\n";
      std::cout << "    delete <collection> [id] [--filter=q]  Delete a collection, a document, or by filter.\n";
