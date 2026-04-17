@@ -1007,7 +1007,7 @@ int main(int argc, char *argv[])
                std::cout << "  " << program_name << " lsm                    # Show deep LSM statistics\n";
                std::cout << "  " << program_name << " doctotal                # Show total documents and collections\n";
                std::cout << "  " << program_name << " flush                   # Flush all data (destructive)\n";
-               std::cout << "  " << program_name << " modules                 # List API-enabled modules\n";
+               std::cout << "  " << program_name << " modules [1|0]           # List loaded modules, core only with 1, optional only with 0\n";
                std::cout << "  " << program_name << " module info            # List loaded modules with routes\n";
                std::cout << "  " << program_name << " module <name> info      # Show module routes and parameter info\n";
                std::cout << "  " << program_name << " module <name> syntax    # Show module command syntax\n";
@@ -1341,7 +1341,14 @@ int main(int argc, char *argv[])
           }
           else if (command_str == "modules")
           {
-               cli_instance.ListModules();
+               if (args_vec.size() > 2)
+               {
+                    ConsoleWriter::WriteError("Error: 'modules' accepts at most one optional filter argument.", true);
+                    ConsoleWriter::WriteError("Usage: " + program_name + " modules [1|0].", true);
+                    return 1;
+               }
+
+               cli_instance.ListModules(args_vec.size() == 2 ? args_vec[1] : "");
           }
           else if (command_str == "session" || command_str == "sessions")
           {

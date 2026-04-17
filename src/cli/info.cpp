@@ -706,7 +706,7 @@ void HLQueryCLI::ShowHelp()
      std::cout << "    tx [kb|mb|gb]           Show total bytes transferred (default: KB).\n\n";
 
      std::cout << "MODULES:.\n";
-     std::cout << "    modules                 List API-enabled modules.\n";
+     std::cout << "    modules [1|0]           List loaded modules, core only with 1, optional only with 0.\n";
      std::cout << "    module info             List loaded modules with routes.\n";
      std::cout << "    module <name> info      Show module routes and parameter info.\n";
      std::cout << "    module <name> syntax    Show module command syntax.\n";

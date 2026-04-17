@@ -258,9 +258,9 @@ class HLQueryCLI
 
      void ShowRoutes();
 
-     /* Lists module endpoints exposed by the server. */
+     /* Lists loaded modules, optionally filtered to core or optional entries. */
 
-     void ListModules();
+     void ListModules(const std::string &filter = "");
 
      /* Shows syntax for one module. */
 

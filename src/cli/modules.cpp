@@ -23,6 +23,13 @@
 
 namespace
 {
+enum class LoadedModuleFilter
+{
+     All,
+     CoreOnly,
+     OptionalOnly
+};
+
 std::string JoinStrings(const std::vector<std::string> &Values, const std::string &Separator)
 {
      std::string joined_value;
@@ -248,6 +255,53 @@ void PrintScalarArrayTable(HLQueryCLI &CLI, const std::string &Header, const nlo
 void PrintCollectionsTable(HLQueryCLI &CLI, const nlohmann::json &Values)
 {
      PrintScalarArrayTable(CLI, "Collection", Values);
+}
+
+LoadedModuleFilter ParseLoadedModuleFilter(const std::string &FilterText, bool &Valid)
+{
+     Valid = true;
+
+     if (FilterText.empty())
+     {
+          return LoadedModuleFilter::All;
+     }
+
+     if (FilterText == "1")
+     {
+          return LoadedModuleFilter::CoreOnly;
+     }
+
+     if (FilterText == "0")
+     {
+          return LoadedModuleFilter::OptionalOnly;
+     }
+
+     Valid = false;
+     return LoadedModuleFilter::All;
+}
+
+bool IsCoreLoadedModule(const std::string &ModuleName)
+{
+     return ModuleName.rfind("core_", 0) == 0;
+}
+
+void PrintLoadedModulesTable(HLQueryCLI &CLI, const std::vector<std::string> &ModuleNames)
+{
+     std::vector<std::vector<std::string>> rows;
+     rows.reserve(ModuleNames.size());
+
+     for (const auto &ModuleName : ModuleNames)
+     {
+          rows.push_back({ModuleName});
+     }
+
+     if (!rows.empty())
+     {
+          CLI.PrintTable({"Module"}, rows);
+          return;
+     }
+
+     std::cout << "No loaded modules." << std::endl;
 }
 
 void PrintDocumentsTable(HLQueryCLI &CLI, const nlohmann::json &Values)
@@ -517,16 +571,65 @@ bool TryPrintCompletedLlamaJob(HLQueryCLI &CLI, const std::string &Body, bool js
      }
 }
 }
-void HLQueryCLI::ListModules()
+void HLQueryCLI::ListModules(const std::string &filter)
 {
-     HTTPResponse response = MakeRequest("GET", "/modules");
+     bool valid_filter = false;
+     const LoadedModuleFilter parsed_filter = ParseLoadedModuleFilter(filter, valid_filter);
 
-     if (CheckRequestFailed(response, false, "/modules"))
+     if (!valid_filter)
+     {
+          PrintError("Invalid modules filter", "Usage: modules [1|0]");
+          return;
+     }
+
+     HTTPResponse response = MakeRequest("GET", "/health");
+
+     if (CheckRequestFailed(response, false, "/health"))
      {
           return;
      }
 
-     PrintModuleResponse(*this, "", response.Body);
+     try
+     {
+          const nlohmann::json root = nlohmann::json::parse(response.Body);
+
+          if (!root.contains("loaded_modules") || !root["loaded_modules"].is_array())
+          {
+               PrintError("Server response did not include loaded_modules", "");
+               return;
+          }
+
+          std::vector<std::string> module_names;
+
+          for (const auto &ModuleValue : root["loaded_modules"])
+          {
+               if (!ModuleValue.is_string())
+               {
+                    continue;
+               }
+
+               const std::string module_name = ModuleValue.get<std::string>();
+               const bool is_core = IsCoreLoadedModule(module_name);
+
+               if (parsed_filter == LoadedModuleFilter::CoreOnly && !is_core)
+               {
+                    continue;
+               }
+
+               if (parsed_filter == LoadedModuleFilter::OptionalOnly && is_core)
+               {
+                    continue;
+               }
+
+               module_names.push_back(module_name);
+          }
+
+          PrintLoadedModulesTable(*this, module_names);
+     }
+     catch (...)
+     {
+          PrintError("Failed to parse /health response", "");
+     }
 }
 
 void HLQueryCLI::ShowModuleSyntax(const std::string &module_name)

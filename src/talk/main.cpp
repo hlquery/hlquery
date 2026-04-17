@@ -1729,7 +1729,7 @@ void PrintHelp()
      std::cout << "  delete COL|#  Delete a collection when no collection is active\n";
      std::cout << "  links    Show distributed links\n";
      std::cout << "  bw [kb|mb|gb]  Show total bandwidth transferred\n";
-     std::cout << "  modules  List API-enabled modules\n";
+     std::cout << "  modules [1|0]  List loaded modules, core only with 1, optional only with 0\n";
      std::cout << "  module NAME [info|syntax|ROUTE [args...]]  Run one module command\n";
      std::cout << "  load NAME  Load one runtime module\n";
      std::cout << "  unload NAME  Unload one runtime module\n";
@@ -3141,13 +3141,19 @@ bool ExecuteTalkCommand(const std::string &line,
 
      if (command == "modules")
      {
-          if (parts.size() != 1)
+          if (parts.size() > 2)
           {
-               TalkPrintError("Usage: modules");
+               TalkPrintError("Usage: modules [1|0]");
                return true;
           }
 
-          cli.ListModules();
+          if (parts.size() == 2 && parts[1] != "1" && parts[1] != "0")
+          {
+               TalkPrintError("Usage: modules [1|0]");
+               return true;
+          }
+
+          cli.ListModules(parts.size() == 2 ? parts[1] : "");
           return true;
      }
 
