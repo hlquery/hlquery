@@ -601,7 +601,7 @@ class SearchAPI
                                   bool AllowOverflow,
                                   std::string* OutError = nullptr) const;
      std::vector<HttpRequest> TakePendingReplications(const std::string& Endpoint) const;
-     void ReplayPendingReplications(const std::string& Endpoint, const std::string& Host, int Port) const;
+     bool ReplayPendingReplications(const std::string& Endpoint, const std::string& Host, int Port) const;
 
      void EnsureReplicationMonitorStarted() const;
 

@@ -73,11 +73,11 @@ hlquery::hlquery(int argc, char** argv)
 {
      ThreadLimit::SetThreadName("hlquery");
 
-     Instance 		= 	this;
-     Metrics 		=	std::make_unique<HLQueryMetrics>();
-     SQL 	          = 	std::make_unique<SQLService>();
-     Config 	     =    std::make_unique<ServerConfig>(argc, argv);
-     
+     Instance       =       this;
+     Metrics        =       std::make_unique<HLQueryMetrics>();
+     SQL            =       std::make_unique<SQLService>();
+     Config         =       std::make_unique<ServerConfig>(argc, argv);
+
      ParseArgs();
      StatsVal.Start();
 
@@ -96,10 +96,10 @@ hlquery::hlquery(int argc, char** argv)
 
 hlquery::~hlquery()
 {
-     API 	         =  nullptr;
-     ThreadPools   =  nullptr;
-     Engine        =  nullptr;
-     
+     API         =        nullptr;
+     ThreadPools =        nullptr;
+     Engine      =        nullptr;
+
      HTTPServers.clear();
 }
 

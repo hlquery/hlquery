@@ -364,6 +364,33 @@ static bool BuildSlaveEndpoints(std::vector<NodeEndpoint> &OutNodes)
      return BuildConfiguredEndpoints(Instance->Config->GetSlaveNodes(), OutNodes);
 }
 
+static std::vector<std::string> SnapshotCollectionDocumentIDs(const std::string &Collection)
+{
+     std::vector<std::string> IDs;
+
+     if (!Instance || !Instance->Database || Collection.empty())
+     {
+          return IDs;
+     }
+
+     const std::string Pattern = "doc:" + Collection + ":*";
+     const std::vector<std::string> Keys = Instance->Database->Keys(Pattern);
+     IDs.reserve(Keys.size());
+
+     for (const auto &Key : Keys)
+     {
+          const std::size_t LastColon = Key.find_last_of(':');
+          if (LastColon == std::string::npos || LastColon + 1 >= Key.size())
+          {
+               continue;
+          }
+
+          IDs.push_back(Key.substr(LastColon + 1));
+     }
+
+     return IDs;
+}
+
 static bool IsReplicationReplicaEndpoint(const std::string &Endpoint)
 {
      if (!Instance || !Instance->Config)
@@ -2591,12 +2618,12 @@ std::vector<HttpRequest> SearchAPI::TakePendingReplications(const std::string &E
      return Pending;
 }
 
-void SearchAPI::ReplayPendingReplications(const std::string &Endpoint, const std::string &Host, int Port) const
+bool SearchAPI::ReplayPendingReplications(const std::string &Endpoint, const std::string &Host, int Port) const
 {
      auto Pending = TakePendingReplications(Endpoint);
      if (Pending.empty())
      {
-          return;
+          return true;
      }
 
      std::vector<HttpRequest> Failed;
@@ -2619,7 +2646,7 @@ void SearchAPI::ReplayPendingReplications(const std::string &Endpoint, const std
 
      if (Failed.empty())
      {
-          return;
+          return true;
      }
 
      std::lock_guard<std::mutex> lock(PendingReplicationMutex);
@@ -2633,6 +2660,8 @@ void SearchAPI::ReplayPendingReplications(const std::string &Endpoint, const std
      {
           RecordReplicationFailure("Pending replication queue for " + Endpoint + " exceeded nominal limit during replay; preserving " + std::to_string(Queue.size()) + " queued requests to avoid data loss.");
      }
+
+     return false;
 }
 
 void SearchAPI::RecordReplicationFailure(const std::string &ErrorMessage) const
@@ -2916,9 +2945,10 @@ bool SearchAPI::ResyncSlaveFromScratch(const std::string &Host,
           (void)HybridStorageManagerInstance().GetCollectionConfig(Collection, Config);
           Config.Name = Collection;
           const bool IsLastCollection = (CollectionIndex + 1 == Collections.size());
+          const std::vector<std::string> SnapshotDocIDs = SnapshotCollectionDocumentIDs(Collection);
 
           const std::string CollectionBody = SerializeCollectionConfigForReplication(Config);
-          const bool HasDocuments = !HybridStorageManagerInstance().ListDocuments(Collection, 1, 0).empty();
+          const bool HasDocuments = !SnapshotDocIDs.empty();
           const std::string CollectionStage = (IsLastCollection && !HasDocuments) ? "complete" : std::string();
           if (!SendToSlave("POST", "/collections", CollectionBody, CollectionStage, &StatusCode, &ResponseBody, &SendError))
           {
@@ -2939,18 +2969,53 @@ bool SearchAPI::ResyncSlaveFromScratch(const std::string &Host,
           }
 
           constexpr int BatchSize = 2000;
-          int Offset = 0;
-          while (true)
+          bool CompleteStageSent = (!CollectionStage.empty());
+          for (std::size_t Offset = 0; Offset < SnapshotDocIDs.size(); Offset += BatchSize)
           {
-               std::vector<Document> Docs = HybridStorageManagerInstance().ListDocuments(Collection, BatchSize, Offset);
+               std::vector<Document> Docs;
+               const std::size_t BatchEnd = std::min<std::size_t>(Offset + BatchSize, SnapshotDocIDs.size());
+               Docs.reserve(BatchEnd - Offset);
+
+               for (std::size_t I = Offset; I < BatchEnd; ++I)
+               {
+                    const Document Doc = HybridStorageManagerInstance().GetDocument(Collection, SnapshotDocIDs[I]);
+                    if (!Doc.ID.empty())
+                    {
+                         Docs.push_back(Doc);
+                    }
+               }
+
+               const bool IsLastBatch = (BatchEnd >= SnapshotDocIDs.size());
                if (Docs.empty())
                {
-                    break;
+                    if (IsLastCollection && IsLastBatch && !CompleteStageSent)
+                    {
+                         if (!SendToSlave("GET", "/health", "", "complete", &StatusCode, &ResponseBody, &SendError))
+                         {
+                              if (OutError)
+                              {
+                                   *OutError = "finalize resync failed: " + SendError;
+                              }
+                              return false;
+                         }
+
+                         if (StatusCode < 200 || StatusCode >= 300)
+                         {
+                              if (OutError)
+                              {
+                                   *OutError = "finalize resync returned HTTP " + std::to_string(StatusCode);
+                              }
+                              return false;
+                         }
+
+                         CompleteStageSent = true;
+                    }
+
+                    continue;
                }
 
                const std::string BatchBody = SerializeDocumentBatchForReplication(Docs);
                const std::string ImportPath = "/collections/" + Collection + "/documents/import?distributed=off";
-               const bool IsLastBatch = HybridStorageManagerInstance().ListDocuments(Collection, 1, Offset + static_cast<int>(Docs.size())).empty();
                const std::string ImportStage = (IsLastCollection && IsLastBatch) ? "complete" : std::string();
                if (!SendToSlave("POST", ImportPath, BatchBody, ImportStage, &StatusCode, &ResponseBody, &SendError))
                {
@@ -2970,10 +3035,9 @@ bool SearchAPI::ResyncSlaveFromScratch(const std::string &Host,
                     return false;
                }
 
-               Offset += static_cast<int>(Docs.size());
-               if (static_cast<int>(Docs.size()) < BatchSize)
+               if (!ImportStage.empty())
                {
-                    break;
+                    CompleteStageSent = true;
                }
           }
      }
@@ -3044,7 +3108,18 @@ void SearchAPI::ReplicationMonitorLoop() const
                          continue;
                     }
 
-                    ReplayPendingReplications(Node.Endpoint, Node.Host, Node.Port);
+                    if (!ReplayPendingReplications(Node.Endpoint, Node.Host, Node.Port))
+                    {
+                         RecordReplicationFailure("Slave replay backlog still pending for " + Node.Endpoint + " after full resync; leaving replica dirty for retry.");
+                         {
+                              std::lock_guard<std::mutex> lock(ReplicationSlaveStateMutex);
+                              ReplicationResyncInProgress.erase(Node.Endpoint);
+                              ReplicationDirtySlaves.insert(Node.Endpoint);
+                         }
+                         PersistReplicationSlaveState(Node.Endpoint);
+                         continue;
+                    }
+
                     MarkSlaveResynced(Node.Endpoint);
                }
           }
