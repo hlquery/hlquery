@@ -19,12 +19,9 @@
 
 #include "core/exitmanager.h"
 
-namespace
-{
-     std::vector<void (*)()> CleanupFuncs;
-     std::mutex CleanupMutex;
-     std::atomic<bool> ShuttingDownValue{false};
-}
+static std::vector<void (*)()> CleanupFuncs;
+static std::mutex CleanupMutex;
+static std::atomic<bool> ShuttingDownValue{false};
 
 /* Register a cleanup function to be called on process termination */
 

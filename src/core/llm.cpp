@@ -21,9 +21,7 @@
 #include "core/llm.h"
 #include "vendor/json/json.hpp"
 
-namespace
-{
-std::string TrimCopy(const std::string& Value)
+static std::string TrimCopy(const std::string& Value)
 {
      const size_t Start = Value.find_first_not_of(" \t\r\n");
 
@@ -36,7 +34,7 @@ std::string TrimCopy(const std::string& Value)
      return Value.substr(Start, End - Start + 1);
 }
 
-std::string ToLowerCopy(std::string Value)
+static std::string ToLowerCopy(std::string Value)
 {
      std::transform(Value.begin(), Value.end(), Value.begin(),
                     [](unsigned char C)
@@ -46,7 +44,7 @@ std::string ToLowerCopy(std::string Value)
      return Value;
 }
 
-std::string NormalizePhrase(const std::string& Value)
+static std::string NormalizePhrase(const std::string& Value)
 {
      std::string Normalized;
      Normalized.reserve(Value.size());
@@ -72,7 +70,7 @@ std::string NormalizePhrase(const std::string& Value)
      return TrimCopy(Normalized);
 }
 
-std::vector<std::string> ExtractArrayishValues(const std::string& Raw)
+static std::vector<std::string> ExtractArrayishValues(const std::string& Raw)
 {
      std::vector<std::string> Values;
      const std::string Trimmed = TrimCopy(Raw);
@@ -132,11 +130,11 @@ std::vector<std::string> ExtractArrayishValues(const std::string& Raw)
      return Values;
 }
 
-void AppendSuggestion(std::vector<llm::ContextSuggestion>& Suggestions,
-                      std::unordered_set<std::string>& Seen,
-                      const std::string& Value,
-                      const std::string& Kind,
-                      size_t Limit)
+static void AppendSuggestion(std::vector<llm::ContextSuggestion>& Suggestions,
+                             std::unordered_set<std::string>& Seen,
+                             const std::string& Value,
+                             const std::string& Kind,
+                             size_t Limit)
 {
      if (Suggestions.size() >= Limit)
      {
@@ -160,8 +158,6 @@ void AppendSuggestion(std::vector<llm::ContextSuggestion>& Suggestions,
      Entry.Kind = Kind;
      Suggestions.push_back(std::move(Entry));
 }
-}
-
 std::string llm::BuildContextKey(const std::string& Collection, const std::string& DocumentID)
 {
      return Collection + "\n" + DocumentID;

@@ -23,8 +23,6 @@
 #include "core/hlquery.h"
 #include "core/threadlimit.h"
 
-namespace PerformanceMonitor
-{
 /* High-resolution performance counters for tracking application metrics */
 
 class PerformanceCounters
@@ -514,21 +512,20 @@ class PerformanceProfiler
           Profiles.clear();
      }
 };
-}
 
 /* Global performance monitoring subsystem components */
 
-static std::unique_ptr<PerformanceMonitor::PerformanceCounters> GlobalPerformanceCounters;
+static std::unique_ptr<PerformanceCounters> GlobalPerformanceCounters;
 
-static std::unique_ptr<PerformanceMonitor::SystemResourceMonitor> GlobalResourceMonitor;
+static std::unique_ptr<SystemResourceMonitor> GlobalResourceMonitor;
 
 /* Initializes the global performance monitoring infrastructure */
 
 void InitializePerformanceMonitoring()
 {
-     GlobalPerformanceCounters = std::make_unique<PerformanceMonitor::PerformanceCounters>();
+     GlobalPerformanceCounters = std::make_unique<PerformanceCounters>();
 
-     GlobalResourceMonitor = std::make_unique<PerformanceMonitor::SystemResourceMonitor>();
+     GlobalResourceMonitor = std::make_unique<SystemResourceMonitor>();
 }
 
 /* Gracefully terminates the performance monitoring infrastructure */
@@ -542,19 +539,19 @@ void ShutdownPerformanceMonitoring()
 
 /* Accessor for the global high-resolution performance counters */
 
-PerformanceMonitor::PerformanceCounters *GetPerformanceCounters()
+PerformanceCounters *GetPerformanceCounters()
 {
      return GlobalPerformanceCounters.get();
 }
 
 /* Returns current system-wide resource utilization statistics */
 
-PerformanceMonitor::SystemResourceMonitor::ResourceStats GetResourceStats()
+SystemResourceMonitor::ResourceStats GetResourceStats()
 {
      if (GlobalResourceMonitor)
      {
           return GlobalResourceMonitor->GetStats();
      }
 
-     return PerformanceMonitor::SystemResourceMonitor::ResourceStats{};
+     return SystemResourceMonitor::ResourceStats{};
 }

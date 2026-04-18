@@ -85,11 +85,9 @@ static std::atomic<bool> ShutdownProcessingValue{false};
 
 bool SkipAuthentication = false;
 
-namespace
-{
 /* Resolves logical server id used for PID file naming. */
 
-std::string ResolveEffectiveServerId()
+static std::string ResolveEffectiveServerId()
 {
      std::string ServerID = "001";
 
@@ -114,7 +112,7 @@ std::string ResolveEffectiveServerId()
 
 /* Resolves the PID file path for the active server instance. */
 
-std::string ResolvePIDFilePath()
+static std::string ResolvePIDFilePath()
 {
      std::string PIDFileName = "hlquery.pid";
      std::string ServerID = ResolveEffectiveServerId();
@@ -129,7 +127,7 @@ std::string ResolvePIDFilePath()
 
 /* Closes a file descriptor and resets the tracked value. */
 
-void CloseTrackedFD(int &FDValue)
+static void CloseTrackedFD(int &FDValue)
 {
      if (FDValue >= 0)
      {
@@ -140,7 +138,7 @@ void CloseTrackedFD(int &FDValue)
 
 /* Attempts to unlink a PID file after taking an exclusive lock. */
 
-bool RemovePIDFileIfUnlocked(const std::string &PIDFilePath)
+static bool RemovePIDFileIfUnlocked(const std::string &PIDFilePath)
 {
      int LockFileHandle = open(PIDFilePath.c_str(), O_RDWR);
 
@@ -169,7 +167,7 @@ bool RemovePIDFileIfUnlocked(const std::string &PIDFilePath)
 
 /* Releases the active PID lock and removes the corresponding PID file. */
 
-void ReleasePIDFile()
+static void ReleasePIDFile()
 {
      if (NoPIDFile)
      {
@@ -195,7 +193,7 @@ void ReleasePIDFile()
 
 /* Writes a byte to the signal wake pipe to break blocking waits. */
 
-void NotifySignalWakeup()
+static void NotifySignalWakeup()
 {
      if (SignalWakePipe[1] >= 0)
      {
@@ -207,7 +205,7 @@ void NotifySignalWakeup()
 
 /* Drains any bytes queued on the signal wake pipe. */
 
-void DrainSignalWakePipe()
+static void DrainSignalWakePipe()
 {
      if (SignalWakePipe[0] < 0)
      {
@@ -224,7 +222,7 @@ void DrainSignalWakePipe()
 
 /* Configures a pipe for non-blocking, close-on-exec behavior. */
 
-bool ConfigurePipeFD(int FDValue)
+static bool ConfigurePipeFD(int FDValue)
 {
      int Flags = fcntl(FDValue, F_GETFL, 0);
 
@@ -245,7 +243,7 @@ bool ConfigurePipeFD(int FDValue)
 
 /* Creates the signal wake pipe if it has not been initialized yet. */
 
-bool EnsureSignalWakePipe()
+static bool EnsureSignalWakePipe()
 {
      if (SignalWakePipe[0] >= 0 && SignalWakePipe[1] >= 0)
      {
@@ -274,7 +272,7 @@ bool EnsureSignalWakePipe()
 
 /* Installs a signal handler using sigaction semantics. */
 
-bool InstallSignalHandler(int SignalNum, void (*Handler)(int))
+static bool InstallSignalHandler(int SignalNum, void (*Handler)(int))
 {
      struct sigaction ActionValue;
      memset(&ActionValue, 0, sizeof(ActionValue));
@@ -287,7 +285,7 @@ bool InstallSignalHandler(int SignalNum, void (*Handler)(int))
 
 /* Installs an ignored signal using sigaction semantics. */
 
-bool IgnoreSignal(int SignalNum)
+static bool IgnoreSignal(int SignalNum)
 {
      struct sigaction ActionValue;
      memset(&ActionValue, 0, sizeof(ActionValue));
@@ -300,7 +298,7 @@ bool IgnoreSignal(int SignalNum)
 
 /* Determines whether a PID refers to a zombie process. */
 
-bool IsZombieProcess(pid_t PIDValue)
+static bool IsZombieProcess(pid_t PIDValue)
 {
      if (PIDValue <= 1)
      {
@@ -332,11 +330,9 @@ bool IsZombieProcess(pid_t PIDValue)
 
      return (StateValue == 'Z' || StateValue == 'X');
 }
-}
-
 /* Returns true if authentication is skipped for the current process. */
 
-bool IsAuthenticationSkipped()
+static bool IsAuthenticationSkipped()
 {
      try
      {

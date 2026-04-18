@@ -65,9 +65,7 @@ std::mutex BackgroundThreadsMutex;
           }                                                                  \
      } while (0)
 
-namespace
-{
-void PrintStartupModuleList(const std::string &Heading, const std::vector<std::string> &ModuleNames)
+static void PrintStartupModuleList(const std::string &Heading, const std::vector<std::string> &ModuleNames)
 {
      ConsoleWriter::WriteStartup(Heading + ":", true, false);
 
@@ -82,8 +80,6 @@ void PrintStartupModuleList(const std::string &Heading, const std::vector<std::s
           ConsoleWriter::WriteStartupPlain("       - " + ModuleName, false);
      }
 }
-}
-
 /* Handles core server logic initialization and early setup tasks */
 
 bool hlquery::InitializeServer()

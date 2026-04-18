@@ -19,18 +19,16 @@
 #include "search/storageengine.h"
 #include "vendor/json/json.hpp"
 
-namespace
-{
 /* Builds the fixed storage prefix used by one module. */
 
-std::string BuildModuleStoragePrefix(const std::string &ModuleName)
+static std::string BuildModuleStoragePrefix(const std::string &ModuleName)
 {
      return "module_data:" + ModuleName + ":";
 }
 
 /* Removes the module prefix from one stored key. */
 
-std::string StripModuleStoragePrefix(const std::string &FullKey, const std::string &Prefix)
+static std::string StripModuleStoragePrefix(const std::string &FullKey, const std::string &Prefix)
 {
      if (FullKey.rfind(Prefix, 0) != 0)
      {
@@ -40,7 +38,7 @@ std::string StripModuleStoragePrefix(const std::string &FullKey, const std::stri
      return FullKey.substr(Prefix.size());
 }
 
-std::string ExtractAuthTokenFromHeaders(const std::map<std::string, std::string> &Headers)
+static std::string ExtractAuthTokenFromHeaders(const std::map<std::string, std::string> &Headers)
 {
      auto AuthIt = Headers.find("Authorization");
      if (AuthIt == Headers.end())
@@ -77,7 +75,7 @@ std::string ExtractAuthTokenFromHeaders(const std::map<std::string, std::string>
 
 /* Extracts command parameters from a JSON request body. */
 
-void ParseJSONBodyParameters(const std::string &Body, ModuleCommandRequest &Request)
+static void ParseJSONBodyParameters(const std::string &Body, ModuleCommandRequest &Request)
 {
      if (Body.empty())
      {
@@ -140,7 +138,6 @@ void ParseJSONBodyParameters(const std::string &Body, ModuleCommandRequest &Requ
      catch (...)
      {
      }
-}
 }
 /* Returns the storage prefix reserved for this module. */
 
