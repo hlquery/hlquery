@@ -1430,7 +1430,6 @@ HttpResponse SearchAPI::HandleLLM(const HttpRequest &Request)
      LLMJSON["inference_command"] = "";
      LLMJSON["pending_context_jobs"] = 0;
      LLMJSON["loaded_modules"] = nlohmann::json::array();
-     LLMJSON["ai_search_loaded"] = false;
      LLMJSON["model_catalog"] = nlohmann::json::array();
 
      if (Instance)
@@ -1439,8 +1438,6 @@ HttpResponse SearchAPI::HandleLLM(const HttpRequest &Request)
           {
                const std::vector<std::string> LoadedModules = Instance->Modules->GetLoadedModuleNames();
                LLMJSON["loaded_modules"] = LoadedModules;
-               LLMJSON["ai_search_loaded"] =
-                    std::find(LoadedModules.begin(), LoadedModules.end(), "ai_search") != LoadedModules.end();
           }
 
           if (Instance->LLM)

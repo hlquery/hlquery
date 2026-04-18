@@ -16,7 +16,7 @@
 #include <unordered_map>
 #include <vector>
 
-/* Runtime settings for the ai_search module. */
+/* Runtime settings for the AISearch module. */
 
 struct AISearchConfig
 {

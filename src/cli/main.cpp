@@ -1352,12 +1352,12 @@ int main(int argc, char *argv[])
           }
           else if (command_str == "session" || command_str == "sessions")
           {
-               std::string module_name = "ai_search";
+               std::string module_name = "llama";
                std::string action = "list";
                size_t cursor = 1;
 
                if (cursor < args_vec.size() &&
-                   args_vec[cursor] == "ai_search")
+                   args_vec[cursor] == "llama")
                {
                     module_name = args_vec[cursor];
                     ++cursor;

@@ -663,7 +663,6 @@ void HLQueryCLI::ShowLLMInfo()
           rows.push_back({"Model Path", root.value("model_path", std::string("")).empty() ? "-" : root.value("model_path", std::string(""))});
           rows.push_back({"Models Dir", root.value("models_dir", std::string("")).empty() ? "-" : root.value("models_dir", std::string(""))});
           rows.push_back({"Inference Cmd", root.value("inference_command", std::string("")).empty() ? "-" : root.value("inference_command", std::string(""))});
-          rows.push_back({"ai_search Loaded", root.value("ai_search_loaded", false) ? "yes" : "no"});
           rows.push_back({"Pending Context Jobs", std::to_string(root.value("pending_context_jobs", 0))});
 
           if (root.contains("loaded_modules") && root["loaded_modules"].is_array())
@@ -694,17 +693,6 @@ void HLQueryCLI::RunModuleCommand(const std::string &module_name, const std::str
      std::string effective_route = route;
      std::vector<std::string> effective_args = args;
      bool async_requested = false;
-     bool run_requested = false;
-     auto to_lower_copy = [](std::string value) -> std::string
-     {
-          std::transform(value.begin(), value.end(), value.begin(),
-                         [](unsigned char c)
-                         {
-                              return static_cast<char>(std::tolower(c));
-                         });
-          return value;
-     };
-
      if (!route.empty())
      {
           const std::string syntax_path = "/modules/" + hlquery_cli::UrlEncode(module_name) + "/syntax";
@@ -778,21 +766,12 @@ void HLQueryCLI::RunModuleCommand(const std::string &module_name, const std::str
                {
                     const std::string flag_name = arg.substr(2);
                     body_json[flag_name] = "true";
-                    if (flag_name == "run")
-                    {
-                         run_requested = true;
-                    }
                }
                else
                {
                     const std::string flag_name = arg.substr(2, equals_pos - 2);
                     const std::string flag_value = arg.substr(equals_pos + 1);
                     body_json[flag_name] = flag_value;
-                    if (flag_name == "run")
-                    {
-                         const std::string lower_value = to_lower_copy(flag_value);
-                         run_requested = (lower_value == "1" || lower_value == "true" || lower_value == "yes" || lower_value == "on");
-                    }
                }
           }
           else
@@ -804,11 +783,6 @@ void HLQueryCLI::RunModuleCommand(const std::string &module_name, const std::str
      if (!positional_parameters.empty())
      {
           body_json["parameters"] = positional_parameters;
-     }
-
-     if (module_name == "ai_search" && run_requested)
-     {
-          json_output = true;
      }
 
      const std::string normalized_route = effective_route.empty() ? "" : "/" + hlquery_cli::UrlEncode(effective_route);
