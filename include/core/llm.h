@@ -1,0 +1,129 @@
+/*
+ * hlquery - Search beyond keywords.
+ * https://www.hlquery.com
+ *
+ * Copyright (C) 2021-2026, Carlos F. Ferry <carlos.ferry@gmail.com>
+ *
+ * This file is part of hlquery, released under the BSD License version 3.
+ * You are free to redistribute and/or modify this software
+ * under the terms of the BSD License.
+ * For more details, please visit: https://docs.hlquery.com
+ */
+
+#pragma once
+
+#include <cstddef>
+#include <deque>
+#include <mutex>
+#include <string>
+#include <unordered_map>
+#include <unordered_set>
+#include <vector>
+
+#include "core/config.h"
+#include "runtime/serverconfig.h"
+#include "search/cstore.h"
+
+/*
+ * Lightweight runtime view of the local LLM configuration.
+ * This mirrors the resolved model settings loaded through ServerConfig.
+ */
+
+class CoreExport llm
+{
+   public:
+
+     struct ContextSuggestion
+     {
+          std::string Text;
+          std::string Kind;
+     };
+
+     llm() = default;
+
+     explicit llm(const ServerConfig& ConfigValue)
+         : ModelsDirectory(ConfigValue.GetAIModelsDirectory()),
+           ModelName(ConfigValue.GetAIModelName()),
+           ModelPath(ConfigValue.GetAIModelPath()),
+           InferenceCommand(ConfigValue.GetAIInferenceCommand())
+     {
+     }
+
+     bool Empty() const
+     {
+          return ModelsDirectory.empty() && ModelName.empty() &&
+                 ModelPath.empty() && InferenceCommand.empty();
+     }
+
+     bool Configured() const
+     {
+          return !ModelPath.empty();
+     }
+
+     const std::string& GetModelsDirectory() const
+     {
+          return ModelsDirectory;
+     }
+
+     const std::string& GetModelName() const
+     {
+          return ModelName;
+     }
+
+     const std::string& GetModelPath() const
+     {
+          return ModelPath;
+     }
+
+     const std::string& GetInferenceCommand() const
+     {
+          return InferenceCommand;
+     }
+
+     std::vector<ContextSuggestion> BuildDocumentContext(const std::string& Collection,
+                                                         const Document& Doc,
+                                                         size_t Limit = 5) const;
+
+     void EnqueueContextualization(const std::string& Collection, const Document& Doc);
+
+     size_t ProcessPendingContextJobs(size_t MaxJobs = 1);
+
+     void StoreDocumentContext(const std::string& Collection,
+                               const std::string& DocumentID,
+                               const std::vector<ContextSuggestion>& Suggestions);
+
+     std::vector<ContextSuggestion> GetDocumentContext(const std::string& Collection,
+                                                      const std::string& DocumentID,
+                                                      bool* Pending = nullptr) const;
+
+     void RemoveDocumentContext(const std::string& Collection, const std::string& DocumentID);
+
+     size_t GetPendingContextJobs() const;
+
+   private:
+
+     struct ContextJob
+     {
+          std::string Collection;
+          Document Doc;
+     };
+
+     struct ContextCacheEntry
+     {
+          std::vector<ContextSuggestion> Suggestions;
+          long long UpdatedAtMs = 0;
+     };
+
+     static std::string BuildContextKey(const std::string& Collection, const std::string& DocumentID);
+
+     std::string ModelsDirectory;
+     std::string ModelName;
+     std::string ModelPath;
+     std::string InferenceCommand;
+
+     mutable std::mutex ContextMutex;
+     mutable std::mutex InferenceMutex;
+     std::deque<ContextJob> PendingContextJobs;
+     std::unordered_set<std::string> PendingContextKeys;
+     std::unordered_map<std::string, ContextCacheEntry> ContextCache;
+};

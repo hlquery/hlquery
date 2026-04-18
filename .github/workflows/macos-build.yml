@@ -1,0 +1,33 @@
+name: macOS Build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: "1"
+        run: |
+          brew install cmake make pkg-config openssl@3
+
+      - name: Configure Homebrew paths
+        run: |
+          OPENSSL_PREFIX="$(brew --prefix openssl@3)"
+          echo "PKG_CONFIG_PATH=${OPENSSL_PREFIX}/lib/pkgconfig:${PKG_CONFIG_PATH}" >> "$GITHUB_ENV"
+          echo "CPPFLAGS=-isystem ${OPENSSL_PREFIX}/include ${CPPFLAGS}" >> "$GITHUB_ENV"
+          echo "EXTRA_LDFLAGS=-L${OPENSSL_PREFIX}/lib ${EXTRA_LDFLAGS}" >> "$GITHUB_ENV"
+
+      - name: Configure
+        run: ./configure --skip-tests
+
+      - name: Build
+        run: gmake

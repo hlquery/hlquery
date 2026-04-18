@@ -1,0 +1,476 @@
+/*
+ * hlquery - Search beyond keywords.
+ * https://www.hlquery.com
+ *
+ * Copyright (C) 2021-2026, Carlos F. Ferry <carlos.ferry@gmail.com>
+ *
+ * This file is part of hlquery, released under the BSD License version 3.
+ * You are free to redistribute and/or modify this software
+ * under the terms of the BSD License.
+ * For more details, please visit: https://docs.hlquery.com
+ */
+
+#pragma once
+
+#include <atomic>
+#include <chrono>
+#include <functional>
+#include <map>
+#include <memory>
+#include <mutex>
+#include <string>
+#include <unordered_map>
+
+#include "core/config.h"
+
+#ifdef HLQUERY_HAS_OPENSSL
+    
+    #include <openssl/err.h>
+    #include <openssl/ssl.h>
+    
+#endif
+
+#include "common/searchpool.h"
+#include "runtime/serverconfig.h"
+#include "core/socketengine.h"
+
+/* HTTP Request structure. */
+
+struct HttpRequest
+{
+     std::string Method;
+     std::string Path;
+     std::string Version;
+     std::map<std::string, std::string> Headers;
+     std::string Body;
+     std::string RemoteAddress;
+     int RemotePort;
+
+     /* Query parameters parsed from path. */
+
+     std::map<std::string, std::string> QueryParams;
+
+     /* Internal metadata for scoped API keys. */
+
+     std::string APIKeyID;
+     std::string EmbeddedFilters;
+     bool Authenticated = false;
+     std::function<bool()> IsCancelled;
+
+     HttpRequest() : RemotePort(0)
+     {
+     
+     }
+};
+
+/* HTTP Response structure. */
+
+struct HttpResponse
+{
+     int StatusCode;
+     std::string StatusText;
+     std::map<std::string, std::string> Headers;
+     std::string Body;
+
+     HttpResponse(int Code = 200, const std::string& Text = "OK", const std::string& ContentType = "text/plain")
+         : StatusCode(Code), StatusText(Text)
+     {
+          Headers["Content-Type"] = ContentType;
+          Headers["Server"] = "hlquery/1.0";
+     }
+};
+
+/* Route actions returned by HTTP route resolution. */
+
+enum class RouteAction
+{
+     Status,
+     SearchConfig,
+     Health,
+     Ping,
+     Stats,
+     Metrics,
+     MetricsHistory,
+     Connections,
+     RocksDB,
+     DocTotal,
+     Flush,
+     UpdateCounters,
+     DebugCounters,
+     Repair,
+     Startup,
+     LLM,
+     Integrity,
+     SelfCheck,
+     StorageStatus,
+     Etc,
+     Root,
+     ListCollections,
+     ListCollectionsDistributed,
+     CreateCollection,
+     GetCollection,
+     UpdateCollection,
+     DeleteCollection,
+     DocumentSearch,
+     VectorSearch,
+     MultiSearch,
+     GlobalSearch,
+     ListDocuments,
+     GetDocument,
+     GetDocumentContext,
+     SamRebuild,
+     SamSearch,
+     SamStatus,
+     SamDebug,
+     SamListDocuments,
+     SamGetDocument,
+     AddDocument,
+     BulkImportDocuments,
+     UpdateDocument,
+     DeleteDocument,
+     DeleteDocumentsByFilter,
+     UpdateByQuery,
+     DeleteByQuery,
+     FacetCounts,
+     ExportDocuments,
+     MaybeSuggest,
+     ListSynonyms,
+     ListAllSynonyms,
+     UpsertSynonym,
+     GetSynonym,
+     DeleteSynonym,
+     ListGlobalSynonyms,
+     UpsertGlobalSynonym,
+     GetGlobalSynonym,
+     DeleteGlobalSynonym,
+     ListStopwords,
+     ListAllStopwords,
+     CreateStopword,
+     DeleteStopword,
+     ListGlobalStopwords,
+     CreateGlobalStopword,
+     DeleteGlobalStopword,
+     ListOverrides,
+     UpsertOverride,
+     GetOverride,
+     DeleteOverride,
+     ListAliases,
+     UpsertAlias,
+     GetAlias,
+     DeleteAlias,
+     LinksList,
+     LinksPing,
+     LinksConnect,
+     LinksDisconnect,
+     ListUsers,
+     CreateUser,
+     GetUser,
+     UpdateUser,
+     DeleteUser,
+     ListKeys,
+     CreateKey,
+     GetKey,
+     UpdateKey,
+     DeleteKey,
+     AnalyticsClick,
+     ListModules,
+     GetModuleSyntax,
+     ModuleAPI,
+     NotFound
+};
+
+/*
+ * Identifies the resolved action for one incoming HTTP request.
+ * Each value maps a parsed route to the handler logic used by the server.
+ */
+
+/* Resolve the route action for one parsed HTTP request. */
+
+RouteAction ResolveHttpRoute(const HttpRequest& Request);
+
+/* Return the human-readable name for one route action value. */
+
+const char* RouteActionName(RouteAction ActionVal);
+
+/* 
+ * HTTP connection handler.
+ * This event handler owns request parsing, response buffering,
+ * socket lifecycle handling, and optional threaded execution.
+ */
+
+class HttpConnection : public EventHandler
+{
+   public:
+
+     /* Construct one HTTP connection handler for an accepted socket. */
+
+     HttpConnection(int FD, const std::string& ClientIP, int ClientPort, SearchThreadPool* ThreadPool = nullptr);
+
+     /* Destroy the connection handler and release any remaining resources. */
+
+     virtual ~HttpConnection();
+
+     /* Handle a readable event for this connection. */
+
+     void OnEventHandlerRead() override;
+
+     /* Handle a writable event for this connection. */
+
+     void OnEventHandlerWrite() override;
+
+     /* Handle a socket error reported by the event engine. */
+
+     void OnEventHandlerError(int ErrorNum) override;
+
+     /* Process one or more pending HTTP requests from the connection buffer. */
+
+     void ProcessRequest();
+
+     /* Process all complete requests currently buffered on the connection. */
+
+     void ProcessMultipleRequests();
+
+     /* Process one complete raw HTTP request string. */
+
+     void ProcessSingleRequest(const std::string& RequestStr);
+
+     /* Queue or send one HTTP response for this connection. */
+
+     void SendResponse(const HttpResponse& Response);
+
+     /* Apply socket-level options used by the HTTP connection. */
+
+     void SetAdvancedSocketOptions(int FD);
+
+     /* Clean up the connection state before final close. */
+
+     void CleanupConnection();
+
+     /* Force the connection into closed state immediately. */
+
+     void ForceClose();
+
+#ifdef HLQUERY_HAS_OPENSSL
+
+     void SetSSL(SSL* SSLVal)
+     {
+          SSLValue = SSLVal;
+     }
+
+     SSL* GetSSL() const
+     {
+          return SSLValue;
+     }
+
+#endif
+
+   private:
+
+     /* Remote client IP address */
+
+     std::string ClientIP;
+
+     /* Remote client port */
+
+     int ClientPort;
+
+#ifdef HLQUERY_HAS_OPENSSL
+
+     SSL* SSLValue = nullptr;
+     bool SSLHandshaked = false;
+
+#endif
+
+     /* Buffered unread request data */
+
+     std::string RequestBuffer;
+
+     /* Buffered response data waiting to be written */
+
+     std::string ResponseBuffer;
+
+     /* Track offset to avoid O(N^2) buffer erasures. */
+
+     size_t ResponseSentOffset = 0;
+
+     /* Indicates whether a response is currently pending for write */
+
+     bool ResponsePending;
+
+     /* Protect ResponseBuffer and ResponsePending. */
+
+     std::mutex ResponseMutex;
+
+     /* Connection pooling and keep-alive state */
+
+     bool KeepAlive;
+
+     /* Number of requests already processed on this connection */
+
+     int RequestsProcessed;
+
+     /* Last observed activity time for timeout handling */
+
+     std::chrono::steady_clock::time_point LastActivity;
+
+     /* Mark connection as closing to prevent use-after-free. */
+
+     std::atomic<bool> ClosingValue;
+
+     /* Number of active asynchronous request tasks */
+
+     std::atomic<int> ActiveRequestTasks{0};
+
+     /* Parse one raw HTTP request into the structured request object. */
+
+     bool ParseHttpRequest(const std::string& RawRequest, HttpRequest& Request);
+
+     /* Parse query parameters from one request path. */
+
+     std::map<std::string, std::string> ParseQueryParams(const std::string& Path);
+
+     /* Parse HTTP header lines into the request header map. */
+
+     void ParseHeaders(const std::string& HeaderLines, std::map<std::string, std::string>& Headers);
+
+     /* Optional HTTP execution pool assigned by server acceptor. */
+
+     SearchThreadPool* ThreadPoolValue{nullptr};
+
+   public:
+
+     bool HasActiveRequests() const
+     {
+          return ActiveRequestTasks.load(std::memory_order_acquire) > 0;
+     }
+};
+
+/* 
+ * Accepts and coordinates raw HTTP traffic through the socket engine.
+ * This server owns listener lifecycle, connection acceptance,
+ * and integration with the request handling pipeline.
+ */
+
+class HttpServer : public EventHandler
+{
+   public:
+
+     /* Constructor. */
+
+     HttpServer(const BindConfig& ConfigVal);
+
+     /* Destructor. */
+
+     virtual ~HttpServer();
+
+     /* Server lifecycle. */
+
+     bool Start();
+
+     void Stop();
+
+     bool IsRunning() const
+     {
+          return Running;
+     }
+
+     /* Thread pool integration. */
+
+     void SetThreadPool(SearchThreadPool* Pool)
+     {
+          ThreadPoolValue = Pool;
+     }
+
+     /* Server readiness control. */
+
+     void SetReadyToAccept(bool Ready);
+
+     bool IsReadyToAccept() const
+     {
+          return ReadyToAcceptValue.load();
+     }
+
+     /* Loading state control. */
+
+     void SetLoading(bool Loading);
+
+     bool IsLoading() const
+     {
+          return IsLoadingValue.load();
+     }
+
+     /* Route registration. */
+
+     void RegisterRoute(const std::string& Method, const std::string& Path,
+                        std::function<HttpResponse(const HttpRequest&)> Handler);
+
+     /* Default handlers. */
+
+     HttpResponse HandleNotFound(const HttpRequest& Request);
+
+     HttpResponse HandleHealth(const HttpRequest& Request);
+
+     /* EventHandler interface. */
+
+     void OnEventHandlerRead() override;
+
+     void OnEventHandlerWrite() override
+     {
+     }
+
+     void OnEventHandlerError(int ErrorNum) override;
+
+   private:
+
+     BindConfig Config;
+
+     bool Running;
+
+     /* Prevent accepting connections until data loading is complete. */
+
+     std::atomic<bool> ReadyToAcceptValue{false};
+
+     /* Block ALL HTTP requests during data loading. */
+
+     std::atomic<bool> IsLoadingValue{true};
+
+     std::unordered_map<std::string, std::function<HttpResponse(const HttpRequest&)>> Routes;
+
+     /* Connection management. */
+
+     std::vector<std::unique_ptr<HttpConnection>> Connections;
+
+     /* Protect Connections vector from race conditions. */
+
+     std::mutex ConnectionsMutex;
+
+#ifdef HLQUERY_HAS_OPENSSL
+
+     SSL_CTX* SSLCtx = nullptr;
+
+#endif
+
+     void AcceptConnection();
+
+     void CleanupConnections();
+
+     /* Thread pool for request processing. */
+
+     SearchThreadPool* ThreadPoolValue{nullptr};
+};
+
+/* Validate SSL settings without binding sockets (preflight). */
+
+bool ValidateSSLConfig(const BindConfig& ConfigVal, std::string* ErrorMsg = nullptr);
+
+/* Initialize and start the HTTP server. */
+
+bool InitializeHttpServer(const BindConfig& ConfigVal, HttpServer*& HttpServerPtr, LogManager* Logs);
+
+/* Stop and destroy the HTTP server. */
+
+void ShutdownHttpServer(HttpServer*& HttpServerPtr);
+
+/* URL decoding utility function. */
+
+std::string URLDecode(const std::string& Str);

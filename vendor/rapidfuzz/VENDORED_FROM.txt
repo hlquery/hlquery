@@ -1,0 +1,9 @@
+RapidFuzz C++ vendored from:
+https://github.com/rapidfuzz/rapidfuzz-cpp
+
+Commit:
+b8ce411e91e01599d0697ad307933e05ddf3a723
+
+Contents:
+- `rapidfuzz/` header tree
+- upstream `LICENSE`

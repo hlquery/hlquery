@@ -1,0 +1,78 @@
+# These are some examples of commonly ignored file patterns.
+# You should customize this list as applicable to your project.
+# Learn more about .gitignore:
+#     https://www.atlassian.com/git/tutorials/saving-changes/gitignore
+# Build directories
+build/
+cmake-build-*/
+out/
+bin/
+lib/
+!etc/api/node/lib/
+!etc/api/node/lib/*.js
+obj/
+*.o
+*.a
+*.so
+*.dylib
+*.dll
+*.exe
+run/logs/
+run/models/*
+!run/models/.gitignore
+run/ai/
+run/modules/*.so
+run/data/
+run/conf/run/
+run/ssl/
+run/pid/
+2nd/data/
+2nd/pid/
+2nd/ssl/
+2nd/logs/
+2nd/run/data/
+2nd/run/logs/
+3rd/data/
+3rd/logs/
+3rd/pid/
+3rd/ssl/
+3rd/run/data/
+3rd/run/logs/
+etc/package/dist/
+etc/api/crawler/venv/
+etc/api/rust/target/
+etc/api/tests/target/
+etc/appi/rust/target/
+output.txt
+out.txt
+tests.txt
+ad.json
+
+# Vendored dependencies and large third-party sources
+vendor/**/node_modules/
+
+# Generated docs/web dependencies
+docs/node_modules/
+etc/docs/node_modules/
+etc/web/node_modules/
+etc/rapid/examples/**/node_modules/
+hanalyzer/node_modules/
+hanalyzer/dist/
+
+# Local runtime data and test artifacts
+tests/server2/data/
+tests/server2/logs/*.log
+2nd/logs/*.log
+tests/bench.log
+etc/serv/data/
+etc/scripts/venv/
+data/crawler/bot/data/
+data/crawler/bot/logs/
+data/crawler/cli/logs/
+data/crawler/serv/data/
+data/crawler/serv/logs/
+data/crawler/p1/data/
+data/ai/
+run/conf/.#*
+*.gguf
+.talk_history

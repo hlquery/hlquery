@@ -1,0 +1,1692 @@
+#!/usr/bin/env perl
+#
+# hlquery - Search beyond keywords.
+# https://www.hlquery.com
+#
+# Copyright (C) 2021-2026, Carlos F. Ferry <carlos.ferry@gmail.com>
+#
+# This file is part of hlquery, released under the BSD License version 3.
+# You are free to redistribute and/or modify this software
+# under the terms of the BSD License.
+# For more details, please visit: https://docs.hlquery.com
+
+use v5.26.0;
+use strict;
+use warnings FATAL => qw(all);
+
+use Config qw(%Config);
+use Cwd qw(getcwd);
+use File::Basename qw(basename dirname);
+use File::Copy qw(copy);
+use File::Find qw(find);
+use File::Path qw(mkpath rmtree);
+use File::Spec::Functions qw(abs2rel catfile catdir rel2abs);
+use FindBin qw($RealDir);
+use Getopt::Long qw(GetOptions);
+use POSIX qw(getgid getuid);
+use lib $RealDir;
+use make::configure::Annotations qw(collect_module_annotations);
+use make::configure::Extras qw(
+    list_known_extra_module_names
+    parse_enabled_extras
+    sync_enabled_extra_module_links
+);
+use make::configure::System qw(
+    apply_install_layout
+    default_cxx
+    get_cpu_count
+    get_make_command
+    get_system_name
+    get_version_from_script
+);
+
+# Enable autoflush for STDOUT
+$| = 1;
+
+# Handle Ctrl+C (SIGINT) gracefully
+$SIG{INT} = sub {
+    print "\n\033[91mInterrupted by user. Exiting.\033[0m\n";
+
+    exit 1;
+};
+
+# Enhanced color constants - adapted from aa script styling
+use constant {
+    RESET     => "\033[0m",
+    BOLD      => "\033[1m",
+    DIM       => "\033[2m",
+    ITALIC    => "\033[3m",
+    UNDERLINE => "\033[4m",
+    
+    # Primary colors - matching aa script style
+    BLACK     => "\033[30m",
+    RED       => "\033[31m",
+    GREEN     => "\033[32m",
+    YELLOW    => "\033[33m",
+    MAGENTA   => "\033[35m",
+    CYAN      => "\033[36m",
+    WHITE     => "\033[37m",
+    GRAY      => "\033[90m",
+    
+    # Bright variants - matching aa script
+    OKGREEN     => "\033[92m",
+    OKCYAN      => "\033[96m",
+    OKBLUE      => "\033[94m",
+    WARNING     => "\033[1;38;5;208m",  # Orange warning color
+    FAIL        => "\033[91m",
+    ENDC        => "\033[0m",
+    BRIGHT_CYAN => "\033[1;96m",
+    BRIGHT_BLUE => "\033[1;94m",
+    BRIGHT_WHITE=> "\033[1;97m",
+};
+
+# Project constants
+use constant {
+    PROJECT_NAME    => 'HLManager Server',
+    PROJECT_VERSION => '1.0.0',
+    BUILD_DIR       => 'build',
+    SRC_DIR         => 'src',
+    INCLUDE_DIR     => 'include',
+    RUN_DIR         => 'run',
+    CONFIG_FILE     => 'config.h',
+};
+
+# Global variables
+# Use script directory, not current working directory
+# This ensures configure works correctly even when run from a different directory
+# (e.g., /app/configure run from /tmp will still create Makefile in /app)
+my $script_path = $0;
+# Convert to absolute path if relative
+if ($script_path !~ m{^/}) {
+    $script_path = rel2abs($script_path);
+}
+my $base_path = dirname($script_path);
+# Normalize the path (remove . and .. components)
+$base_path = rel2abs($base_path);
+my $uid = getuid();
+my $username = getpwuid($uid);
+my $gid = getgid();
+
+# Terminal ANSI support detection
+my $ansi_supported = 0;
+
+# Check if terminal supports ANSI colors and Unicode characters
+sub detect_terminal_support {
+    # Check if we're outputting to a terminal
+    return 0 unless -t STDOUT;
+    
+    # Check TERM environment variable
+    my $term = $ENV{TERM} || '';
+    return 0 if $term eq 'dumb';
+    
+    # Check if NO_COLOR is set
+    return 0 if $ENV{NO_COLOR};
+    
+    # Check if FORCE_COLOR is set to 0
+    return 0 if $ENV{FORCE_COLOR} && $ENV{FORCE_COLOR} eq '0';
+    
+    # Check if we're in a CI environment that might not support colors
+    return 0 if $ENV{CI} && !$ENV{FORCE_COLOR};
+    
+    # If we get here, assume ANSI is supported
+    return 1;
+}
+
+# Initialize terminal support detection
+$ansi_supported = detect_terminal_support();
+
+
+# Character mapping based on terminal support
+my %char_map = (
+    'checkmark_ok'   => $ansi_supported ? '✔' : '[OK]',
+    'checkmark_fail' => $ansi_supported ? '✘' : '[FAIL]',
+    'gear'           => $ansi_supported ? '•' : '-',
+    'star'           => $ansi_supported ? '•' : '-',
+    'arrow'          => $ansi_supported ? '⟶' : '>',
+    'asterisk'       => $ansi_supported ? '•' : '*',
+    'bullet'         => $ansi_supported ? '•' : '-'
+);
+
+# Check if running as root and refuse to continue
+sub check_root {
+    if ($uid == 0) {
+        print_error("You are running this script as root!");
+        print_error("hlquery should NEVER be built or run as root for security reasons.");
+        print_error("Please run this script as a regular user.");
+        print "";
+        print WARNING . "If you need to install to system directories, use:" . ENDC . "\n";
+        print "  " . OKCYAN . "./configure --prefix=/opt/hlquery" . ENDC . "\n";
+        my $make_cmd = get_make_command();
+        print "  " . OKCYAN . "$make_cmd" . ENDC . "\n";
+        print "  " . OKCYAN . "sudo $make_cmd install" . ENDC . "\n";
+        print "";
+        exit 1;
+    }
+}
+
+# Configuration state
+my %config = (
+    'CXX'           => default_cxx(),
+    'CXXFLAGS'      => '-std=c++17 -O2 -fPIC',
+    'CFLAGS'        => '-std=c11 -O2 -fPIC',
+    'LDFLAGS'       => '-ldl -lstdc++fs -pthread',
+    'TLS_CFLAGS'    => '',
+    'TLS_LDFLAGS'   => '',
+    'PREFIX'        => '/usr/local',
+    'CONFDIR'       => '',
+    'DATADIR'       => '',
+    'LOGDIR'        => '',
+    'RUNDIR'        => '',
+    'BINDIR'        => '',
+    'SOCKETENGINE'  => 'epoll',
+    'LAYOUT'        => 'dev',
+    'VERSION'       => get_version_from_script($base_path),
+);
+
+# Enhanced startup banner
+# Create required directories
+sub create_required_directories {
+    # Runtime directories (in project root)
+    my @runtime_dirs = qw(
+        run/admin run/bin run/conf run/data run/logs
+        run/pid run/ssl
+    );
+    
+    # Build directories (inside build/)
+    my @build_dirs = qw(
+        build/obj build/bin build/include
+    );
+    
+    print_success("Validating directory structure ...");
+    
+    my @all_dirs = ('build', @runtime_dirs, @build_dirs);
+    my $created_count = 0;
+    my $existing_count = 0;
+    
+    # Configure may run in a partially prepared tree. Create only what is
+    # missing and leave any existing content alone.
+    foreach my $dir (@all_dirs) {
+        my $dir_path = catdir($base_path, $dir);
+        if (!-d $dir_path) {
+            eval { mkpath($dir_path); };
+            if ($@) {
+                print_error("Failed to create directory $dir: $@");
+                die "Cannot create directory $dir: $@\n";
+            } else {
+                $created_count++;
+            }
+        } else {
+            $existing_count++;
+        }
+    }
+    
+    # Professional consolidated message
+    if ($created_count > 0) {
+        print_success("Directory structure", "Created $created_count new directories");
+    } else {
+        print_success("Directory structure", "All directories validated");
+    }
+}
+
+# Ensure vendor directories are readable and writable
+sub check_vendor_permissions {
+    my $vendor_root = catdir($base_path, 'vendor');
+
+    if (!-d $vendor_root) {
+        print_error('Vendor directory missing', $vendor_root);
+        die "Error: vendor directory not found at $vendor_root\n";
+    }
+
+    my @bad_dirs;
+    find(
+        {
+            wanted => sub {
+                return unless -d $File::Find::name;
+                my $dir = $File::Find::name;
+                if (!-r $dir || !-w $dir || !-x $dir) {
+                    push @bad_dirs, $dir;
+                }
+            },
+            no_chdir => 1
+        },
+        $vendor_root
+    );
+
+    if (@bad_dirs) {
+        print_error('Vendor directory permissions check failed');
+        foreach my $dir (@bad_dirs) {
+            print_error('Not readable/writable/executable', $dir);
+        }
+        die "Error: insufficient permissions in vendor directories\n";
+    }
+
+    print_success('Vendor directory permissions', 'read/write/execute ok');
+}
+
+sub print_animated_header {
+    my $version = $config{VERSION};
+    print "\n";
+    
+    # Animated startup like aa script
+    my $bold_start = $ansi_supported ? BOLD : "";
+    my $bold_end = $ansi_supported ? ENDC : "";
+    print "" . $bold_start . " ⟶ Starting configuration on hlquery " . $version . $bold_end;
+    
+    # Simple dots animation
+
+}
+
+sub print_header {
+    my $bold_start = $ansi_supported ? BOLD : "";
+    my $white_start = $ansi_supported ? WHITE : "";
+    my $reset_end = $ansi_supported ? RESET : "";
+    print "\n" . $bold_start . $white_start . PROJECT_NAME . " Configuration" . $reset_end . "\n";
+    my $system = `uname -s`;
+    chomp $system;
+    #print "Version " . BOLD . BLACK . $config{VERSION} . RESET . " " . BOLD . BLACK . "on " . $system . RESET . "\n\n";
+}
+
+# Enhanced status output functions - bracket style from aa script
+sub print_status {
+    my ($status, $description, $value) = @_;
+
+    my ($status_color, $status_text);
+
+    my $label = $status;
+    $label = "ERROR" if $status eq 'FAIL' || $status eq 'ERROR';
+
+    if ($status eq 'OK') {
+        $status_color = $ansi_supported ? OKGREEN : "";
+    } elsif ($status eq 'SKIP') {
+        $status_color = $ansi_supported ? WARNING : "";
+    } elsif ($status eq 'AVAIL') {
+        $status_color = $ansi_supported ? OKCYAN : "";
+    } elsif ($status eq 'FAIL' || $status eq 'ERROR') {
+        $status_color = $ansi_supported ? FAIL : "";
+    } elsif ($status eq 'INFO') {
+        $status_color = $ansi_supported ? OKBLUE : "";
+    } else {
+        $status_color = $ansi_supported ? OKCYAN : "";
+    }
+
+    # Bracket with exactly one space on each side of the label: [ OK ]
+    # This satisfies "ONE Space between brakcet and alert"
+    my $tag_content = " " . $label . " ";
+    my $lb = $ansi_supported ? BLACK . "[" . RESET : "[";
+    my $rb = $ansi_supported ? BLACK . "]" . RESET : "]";
+    my $bracket_status = $lb . $status_color . $tag_content . ($ansi_supported ? RESET : "") . $rb;
+
+    # Align description text at a fixed column (column 14) to satisfy "same tabulation"
+    # [ OK ] is 6 chars, [ AVAIL ] is 9 chars.
+    my $tag_width = length($label) + 4;
+    my $gap = 10 - $tag_width;
+    $gap = 1 if $gap < 1;
+    my $indent = " " x $gap;
+
+    if (defined $value) {
+        my $checkmark = "";
+
+        if ($status eq 'OK' || $status eq 'AVAIL') {
+            # Add a checkmark for any positive/neutral value.
+            if ($value !~ /^(no|not available|not found|disabled)\b/i) {
+                $checkmark = $ansi_supported
+                    ? " " . OKGREEN . $char_map{'checkmark_ok'} . RESET
+                    : " " . $char_map{'checkmark_ok'};
+            }
+        } elsif ($status eq 'SKIP' || $status eq 'FAIL') {
+            if ($value =~ /^(no|not available|not found|disabled)\b/i) {
+                $checkmark = $ansi_supported
+                    ? " " . FAIL . $char_map{'checkmark_fail'} . RESET
+                    : " " . $char_map{'checkmark_fail'};
+            }
+        }
+
+        my $bold_start = $ansi_supported ? BOLD : "";
+        my $bold_end   = $ansi_supported ? RESET : "";
+
+        printf "%s%s%s .. %s%s%s%s\n",
+            $bracket_status,
+            $indent,
+            $description,
+            $bold_start,
+            $value,
+            $bold_end,
+            $checkmark;
+    } else {
+        printf "%s%s%s\n", $bracket_status, $indent, $description;
+    }
+}
+
+# Additional status helpers
+sub print_step {
+    my ($message) = @_;
+    print_status("INFO", $message);
+}
+
+sub print_success {
+    my ($message, $value) = @_;
+    print_status("OK", $message, $value);
+}
+
+sub print_warning {
+    my ($message, $value) = @_;
+    print_status("SKIP", $message, $value);
+}
+
+sub print_error {
+    my ($message, $value) = @_;
+    print_status("ERROR", $message, $value);
+}
+
+sub print_section {
+    my ($title) = @_;
+    print "\n";
+    # Left-aligned title with dynamic rules for consistent total width
+    my $indent = "  ";
+    my $total_width = 50;  # Target total width for all sections
+    my $title_length = length($title);
+    my $available_width = $total_width - length($indent) - $title_length - 2; # -2 for spaces
+    my $rule_length = int($available_width / 2);
+    
+    # Ensure minimum rule length
+    $rule_length = 4 if $rule_length < 4;
+    
+    my $rule = '─' x $rule_length;
+    
+    my $bold_start = $ansi_supported ? BOLD : "";
+    my $reset_end = $ansi_supported ? RESET : "";
+    print $indent . $bold_start . $rule . " " . $title . " " . $rule . $reset_end . "\n\n";
+}
+
+sub print_section_end {
+    # Consistent spacing between sections
+    print "\n";
+}
+
+# Key-value printing like aa script
+sub print_kv {
+    my ($label, $value, $width) = @_;
+    $width //= 20;
+    printf "  %s%-*s%s... %s\n", BOLD, $width, $label, ENDC, $value;
+}
+
+# Feature item printing without arrows
+sub print_feature_item {
+    my ($desc, $enabled) = @_;
+    my $symbol = $enabled ? "[Y]" : "[N]";
+    my $color = $enabled ? OKGREEN : FAIL;
+    printf "  %s%s%s %s\n", $color, $symbol, RESET, $desc;
+}
+
+# Performance tier detection from aa script
+sub detect_performance_tier {
+    # Simple performance tier detection based on available features
+    my $tier = "Standard";
+    
+    # Check for high-performance indicators
+    if ($config{CXXFLAGS} =~ /-mavx2/) {
+        $tier = "High Performance (AVX2)";
+    } elsif ($config{SOCKETENGINE} eq 'epoll') {
+        $tier = "Performance (epoll)";
+    } elsif ($config{LDFLAGS} =~ /-lssl/) {
+        $tier = "Secure (OpenSSL)";
+    }
+    
+    return $tier;
+}
+
+sub get_performance_color {
+    my $tier = detect_performance_tier();
+    
+    if ($tier =~ /High Performance/) {
+        return OKGREEN;
+    } elsif ($tier =~ /Performance/) {
+        return OKCYAN;
+    } elsif ($tier =~ /Secure/) {
+        return OKBLUE;
+    } else {
+        return WHITE;
+    }
+}
+
+# System checks
+sub check_compiler {
+    my @candidates;
+    my %seen;
+    my @preferred = get_system_name() eq 'FreeBSD'
+        ? ($config{CXX}, $ENV{CXX}, 'clang++', 'c++', 'g++')
+        : ($config{CXX}, $ENV{CXX}, 'c++', 'g++', 'clang++');
+
+    foreach my $cand (@preferred) {
+        next unless defined $cand && $cand ne '';
+        next if $seen{$cand}++;
+        push @candidates, $cand;
+    }
+
+    my $test_src = "/tmp/hlquery_compiler_test_$$.cpp";
+    my $test_bin = "/tmp/hlquery_compiler_test_$$";
+    open my $tfh, '>', $test_src or die "Cannot write compiler test file: $!\n";
+    print $tfh "#include <iostream>\nint main(){return 0;}\n";
+    close $tfh;
+
+    foreach my $cxx (@candidates) {
+        next if system("command -v $cxx >/dev/null 2>&1") != 0;
+        my $res = system("$cxx -std=c++17 -x c++ \"$test_src\" -o \"$test_bin\" >/dev/null 2>&1");
+        if (($res & 127) == 0 && $res == 0 && -x $test_bin) {
+            $config{CXX} = $cxx;
+            my $version = `$cxx --version 2>/dev/null | head -1`;
+            chomp $version;
+            $version =~ s/.*\s(\d+\.\d+).*/$1/ if $version;
+            $config{CXX_VERSION} = $version || 'unknown';
+            unlink $test_src;
+            unlink $test_bin;
+            print_success('C++ compiler', $cxx);
+            print_success('Compiler compatibility', "C++17 ($version)") if $version;
+            return 1;
+        }
+    }
+
+    unlink $test_src if -f $test_src;
+    unlink $test_bin if -f $test_bin;
+    print_error('C++ compiler not found or not functional');
+    return 0;
+}
+
+sub check_threading {
+    if ($Config{usethreads}) {
+        print_status('OK', 'Threading support', 'yes');
+        return 1;
+    }
+    print_status('FAIL', 'Threading support', 'no');
+    return 0;
+}
+
+sub sanitize_pkg_config_cflags {
+    my ($cflags) = @_;
+    return '' unless defined $cflags && length $cflags;
+
+    my @parts = split /\s+/, $cflags;
+    my @sanitized;
+    for my $part (@parts) {
+        next unless length $part;
+        if ($part =~ /^-I(.+)$/) {
+            push @sanitized, '-isystem', $1;
+        } else {
+            push @sanitized, $part;
+        }
+    }
+
+    return join ' ', @sanitized;
+}
+
+sub check_openssl {
+    if (system("pkg-config --exists openssl 2>/dev/null") == 0) {
+        my $version = `pkg-config --modversion openssl 2>/dev/null`;
+        my $cflags = `pkg-config --cflags openssl 2>/dev/null`;
+        my $libs = `pkg-config --libs openssl 2>/dev/null`;
+        chomp $version;
+        chomp $cflags;
+        chomp $libs;
+        $config{OPENSSL_AVAILABLE} = 1;
+        $config{OPENSSL_VERSION} = $version || 'unknown';
+        $config{OPENSSL_CFLAGS} = sanitize_pkg_config_cflags($cflags);
+        $config{OPENSSL_LIBS} = $libs || '-lssl -lcrypto';
+        return 1;
+    }
+    $config{OPENSSL_AVAILABLE} = 0;
+    $config{OPENSSL_CFLAGS} = '';
+    $config{OPENSSL_LIBS} = '';
+    return 0;
+}
+
+sub check_gnutls {
+    if (system("pkg-config --exists gnutls 2>/dev/null") == 0) {
+        my $version = `pkg-config --modversion gnutls 2>/dev/null`;
+        my $cflags = `pkg-config --cflags gnutls 2>/dev/null`;
+        my $libs = `pkg-config --libs gnutls 2>/dev/null`;
+        chomp $version;
+        chomp $cflags;
+        chomp $libs;
+        $config{GNUTLS_AVAILABLE} = 1;
+        $config{GNUTLS_VERSION} = $version || 'unknown';
+        $config{GNUTLS_CFLAGS} = sanitize_pkg_config_cflags($cflags);
+        $config{GNUTLS_LIBS} = $libs || '-lgnutls';
+        return 1;
+    }
+    $config{GNUTLS_AVAILABLE} = 0;
+    $config{GNUTLS_CFLAGS} = '';
+    $config{GNUTLS_LIBS} = '';
+    return 0;
+}
+
+sub check_ssl_certificate {
+    my $ssl_dir = catdir($base_path, RUN_DIR, 'ssl');
+    my $cert_file = catfile($ssl_dir, 'server.crt');
+    my $key_file = catfile($ssl_dir, 'server.key');
+    
+    if (-f $cert_file && -f $key_file) {
+        $config{SSL_ENABLED} = 1;
+        return 1;
+    }
+    
+    $config{SSL_ENABLED} = 0;
+    return 0;
+}
+
+sub check_io_engines {
+    my ($socket_engine) = @_;
+    my @engines;
+    
+    # Get operating system
+    my $os = `uname -s 2>/dev/null`;
+    chomp($os);
+    
+    print_success('Operating System', $os);
+    
+    # Get the configured compiler
+    my $cxx = $config{CXX} || 'g++';
+    
+    # Test compilation and runtime for socket engines
+    my $epoll_test = '#include <sys/epoll.h>
+#include <unistd.h>
+int main() {
+    int epfd = epoll_create1(EPOLL_CLOEXEC);
+    if (epfd == -1) return 1;
+    close(epfd);
+    return 0;
+}';
+    
+    my $poll_test = '#include <poll.h>
+int main() {
+    struct pollfd pfd;
+    poll(&pfd, 0, 0);
+    return 0;
+}';
+    
+    my $kqueue_test = '#include <sys/event.h>
+#include <sys/time.h>
+#include <unistd.h>
+int main() {
+    int kq = kqueue();
+    if (kq == -1) return 1;
+    close(kq);
+    return 0;
+}';
+    
+    # Socket engine selection with user override support
+    my $selected_engine = '';
+    
+    # Test all available engines first (compile AND run to verify they work)
+    my %engine_available = ();
+    my $test_dir = "/tmp/hlquery_engine_test_$$";
+    mkdir $test_dir unless -d $test_dir;
+    
+    # Test epoll (Linux) - compile and run
+    my $epoll_binary = "$test_dir/test_epoll";
+    my $res1 = system("echo '$epoll_test' | $cxx -x c++ -o $epoll_binary - 2>/dev/null");
+    if ($res1 & 127) { exit 1; }
+    if ($res1 == 0) {
+        # Verify it actually runs (not just compiles)
+        my $res2 = system("$epoll_binary 2>/dev/null");
+        if ($res2 & 127) { exit 1; }
+        if ($res2 == 0) {
+            push @engines, 'epoll';
+            $engine_available{'epoll'} = 1;
+        }
+        unlink $epoll_binary if -f $epoll_binary;
+    }
+    
+    # Test poll (fallback) - compile and run
+    my $poll_binary = "$test_dir/test_poll";
+    my $res3 = system("echo '$poll_test' | $cxx -x c++ -o $poll_binary - 2>/dev/null");
+    if ($res3 & 127) { exit 1; }
+    if ($res3 == 0) {
+        # Verify it actually runs (not just compiles)
+        my $res4 = system("$poll_binary 2>/dev/null");
+        if ($res4 & 127) { exit 1; }
+        if ($res4 == 0) {
+            push @engines, 'poll';
+            $engine_available{'poll'} = 1;
+        }
+        unlink $poll_binary if -f $poll_binary;
+    }
+    
+    # Test kqueue (BSD/macOS) - compile and run
+    my $kqueue_binary = "$test_dir/test_kqueue";
+    my $res5 = system("echo '$kqueue_test' | $cxx -x c++ -o $kqueue_binary - 2>/dev/null");
+    if ($res5 & 127) { exit 1; }
+    if ($res5 == 0) {
+        # Verify it actually runs (not just compiles)
+        my $res6 = system("$kqueue_binary 2>/dev/null");
+        if ($res6 & 127) { exit 1; }
+        if ($res6 == 0) {
+            push @engines, 'kqueue';
+            $engine_available{'kqueue'} = 1;
+        }
+        unlink $kqueue_binary if -f $kqueue_binary;
+    }
+    
+    # Clean up test directory
+    rmtree($test_dir) if -d $test_dir;
+    
+    # Apply user selection if specified
+    if ($socket_engine) {
+        if ($engine_available{$socket_engine}) {
+            $selected_engine = $socket_engine;
+            $config{SOCKETENGINE} = $socket_engine;
+            print_status('INFO', 'I/O Engine Selection', "$socket_engine");
+        } else {
+            print_status('FAIL', 'I/O Engine Selection', "Requested engine '$socket_engine' not available on this system");
+            print "Available engines: " . join(', ', keys %engine_available) . "\n";
+            exit 1;
+        }
+    } else {
+        # Auto-selection with OS-aware preference order:
+        # - BSD/macOS: kqueue -> poll -> epoll
+        # - Linux/other: epoll -> kqueue -> poll
+        if ($os =~ /^(FreeBSD|OpenBSD|NetBSD|DragonFly|Darwin)$/) {
+            if ($engine_available{'kqueue'}) {
+                $selected_engine = 'kqueue';
+                $config{SOCKETENGINE} = 'kqueue';
+            } elsif ($engine_available{'poll'}) {
+                $selected_engine = 'poll';
+                $config{SOCKETENGINE} = 'poll';
+            } elsif ($engine_available{'epoll'}) {
+                $selected_engine = 'epoll';
+                $config{SOCKETENGINE} = 'epoll';
+            }
+        } else {
+            if ($engine_available{'epoll'}) {
+                $selected_engine = 'epoll';
+                $config{SOCKETENGINE} = 'epoll';
+            } elsif ($engine_available{'kqueue'}) {
+                $selected_engine = 'kqueue';
+                $config{SOCKETENGINE} = 'kqueue';
+            } elsif ($engine_available{'poll'}) {
+                $selected_engine = 'poll';
+                $config{SOCKETENGINE} = 'poll';
+            }
+        }
+    }
+    
+    # Display detection results
+    if ($selected_engine eq 'epoll') {
+        print_status('OK', 'I/O Engine', "epoll");
+        print_status('OK', 'Epoll I/O (Linux)', 'yes');
+        print_status($engine_available{'kqueue'} ? 'AVAIL' : 'SKIP', 'Kqueue I/O (BSD/macOS)', $engine_available{'kqueue'} ? 'available' : 'no');
+        print_status($engine_available{'poll'} ? 'AVAIL' : 'SKIP', 'Poll I/O (POSIX)', $engine_available{'poll'} ? 'available' : 'no');
+    } elsif ($selected_engine eq 'kqueue') {
+        print_status('OK', 'I/O Engine', "kqueue");
+        print_status($engine_available{'epoll'} ? 'AVAIL' : 'SKIP', 'Epoll I/O (Linux)', $engine_available{'epoll'} ? 'available' : 'no');
+        print_status('OK', 'Kqueue I/O (BSD/macOS)', 'yes');
+        print_status($engine_available{'poll'} ? 'AVAIL' : 'SKIP', 'Poll I/O (POSIX)', $engine_available{'poll'} ? 'available' : 'no');
+    } elsif ($selected_engine eq 'poll') {
+        print_status('OK', 'I/O Engine', "poll");
+        print_status($engine_available{'epoll'} ? 'AVAIL' : 'SKIP', 'Epoll I/O (Linux)', $engine_available{'epoll'} ? 'available' : 'no');
+        print_status($engine_available{'kqueue'} ? 'AVAIL' : 'SKIP', 'Kqueue I/O (BSD/macOS)', $engine_available{'kqueue'} ? 'available' : 'no');
+        print_status('OK', 'Poll I/O (POSIX)', 'yes');
+    } else {
+        print_status('FAIL', 'I/O Engine', 'No compatible I/O engine found');
+        print "Available engines: " . join(', ', keys %engine_available) . "\n";
+        exit 1;
+    }
+    
+    
+    return @engines;
+}
+
+# Determine performance tier like aa script
+sub get_performance_tier {
+    my @io_engines = @_;
+    
+    if (grep {$_ eq 'epoll'} @io_engines) {
+        return {
+            tier => "High Performance",
+            profile => "Optimized for Linux production environments",
+            color => OKGREEN
+        };
+    } elsif (grep {$_ eq 'kqueue'} @io_engines) {
+        return {
+            tier => "High Performance",
+            profile => "Optimized for BSD/macOS production environments",
+            color => OKGREEN
+        };
+    } elsif (grep {$_ eq 'poll'} @io_engines) {
+        return {
+            tier => "STANDARD",
+            profile => "Cross-platform compatibility mode",
+            color => WARNING
+        };
+    } else {
+        return {
+            tier => "FALLBACK",
+            profile => "Limited performance - upgrade recommended",
+            color => FAIL
+        };
+    }
+}
+
+sub check_clock_gettime {
+    if (system("echo '#include <time.h>\nint main(){clock_gettime(CLOCK_REALTIME,0);return 0;}' | gcc -x c - -o /tmp/clock_test 2>/dev/null") == 0) {
+        print_status('OK', 'Clock gettime', 'yes');
+        unlink '/tmp/clock_test';
+        return 1;
+    }
+    print_status('SKIP', 'Clock gettime', 'no');
+    return 0;
+}
+
+sub check_lsm_storage {
+    # LSM Storage Engine - using custom high-performance implementation
+    print_status('OK', 'LSM Storage Engine', 'enabled');
+    return 1;
+}
+
+# Configuration generation
+# Configuration generation - REFACTORED: Uses template file for cleaner code
+sub generate_config_h {
+    my ($disable_lsm) = @_;
+    my $template_path = catfile($base_path, 'make', 'config.h.tpl');
+    my $core_path = catdir($base_path, INCLUDE_DIR, 'core');
+    mkpath($core_path) unless -d $core_path;
+    my $config_path = catfile($core_path, CONFIG_FILE);
+    
+    # Read the template file
+    if (!-f $template_path) {
+        die "Error: config.h template not found at $template_path\n";
+    }
+    
+    open my $template_fh, '<', $template_path or die "Cannot read template: $!\n";
+    my $template_content = do { local $/; <$template_fh> };
+    close $template_fh;
+    
+    # Get system information
+    my $system_name = `uname -s`;
+    chomp $system_name;
+    
+    # Calculate LSM enabled status
+    my $env_disabled = $ENV{HLQ_DISABLE_LSM} &&
+                      ($ENV{HLQ_DISABLE_LSM} eq '1' ||
+                       $ENV{HLQ_DISABLE_LSM} eq 'true' ||
+                       $ENV{HLQ_DISABLE_LSM} eq 'on');
+    my $lsm_disabled = $disable_lsm || $env_disabled;
+    my $lsm_enabled = $lsm_disabled ? 'false' : 'true';
+    
+    # Build SSL defines string
+    my $ssl_defines = '';
+    if ($config{SSL_LIBRARY}) {
+        if ($config{SSL_LIBRARY} eq 'OpenSSL') {
+            $ssl_defines .= "#define HLQUERY_HAS_OPENSSL\n";
+            $ssl_defines .= "#define HLQUERY_SSL_BACKEND \"OpenSSL\"\n";
+        } elsif ($config{SSL_LIBRARY} eq 'GnuTLS') {
+            $ssl_defines .= "#define HLQUERY_HAS_GNUTLS\n";
+            $ssl_defines .= "#define HLQUERY_SSL_BACKEND \"GnuTLS\"\n";
+        }
+        
+        # HLQUERY_SSL_ENABLED is only set if certs are also found
+        if ($config{SSL_ENABLED}) {
+            $ssl_defines .= "#define HLQUERY_SSL_ENABLED\n";
+        }
+    }
+    
+    # Build threads define
+    my $has_threads = $Config{usethreads} ? "#define HLQUERY_HAS_THREADS\n" : '';
+    
+    # Build substitution hash
+    # Use paths from %config
+    my $config_dir = $config{CONFDIR};
+    my $data_dir = $config{DATADIR};
+    my $sam_data_dir = catdir($data_dir, 'sam');
+    my $log_dir = $config{LOGDIR};
+    my $pid_dir = $config{RUNDIR};
+    my $admin_dir = catdir($data_dir, 'admin'); # Admin dir usually under data
+    my $ssl_dir = catdir($config_dir, 'ssl');   # SSL certs usually under etc
+    my $module_dir;
+
+    if (index($config_dir, catdir($base_path, RUN_DIR, 'conf')) == 0) {
+        $module_dir = catdir($base_path, RUN_DIR, 'modules');
+    } else {
+        $module_dir = catdir($config{PREFIX}, 'lib', 'hlquery', 'modules');
+    }
+    
+    my %vars = (
+        'SOCKETENGINE_NAME' => $config{SOCKETENGINE},
+        'HLQUERY_VERSION' => PROJECT_VERSION,
+        'HLQUERY_SYSTEM' => $system_name,
+        'HLQUERY_CONFIG_DIR' => $config_dir,
+        'HLQUERY_DATA_DIR' => $data_dir,
+        'HLQUERY_SAM_DATA_DIR' => $sam_data_dir,
+        'HLQUERY_LOG_DIR' => $log_dir,
+        'HLQUERY_ADMIN_DIR' => $admin_dir,
+        'HLQUERY_PID_DIR' => $pid_dir,
+        'HLQUERY_SSL_DIR' => $ssl_dir,
+        'HLQUERY_MODULE_DIR' => $module_dir,
+        'HLQUERY_DEFAULT_HTTP_PORT' => 9200,
+        'HLQUERY_HAS_THREADS' => $has_threads,
+        'HLQUERY_SSL_DEFINES' => $ssl_defines,
+        'HLQ_LSM_ENABLED' => $lsm_enabled,
+        'HLQUERY_MAX_THREADS' => $config{MAX_THREADS} || 8,
+    );
+    
+    # Substitute all variables in template
+    foreach my $key (keys %vars) {
+        my $value = $vars{$key};
+        $template_content =~ s/\$\{$key\}/$value/g;
+    }
+    
+    # Write the generated config.h
+    open my $fh, '>', $config_path or die "Cannot write $config_path: $!\n";
+    print $fh $template_content;
+    close $fh;
+    
+    chmod 0644, $config_path;
+}
+
+sub generate_makefile {
+    my ($enabled_extras) = @_;
+    my $makefile_template = catfile($base_path, 'make', 'makefile.tpl');
+    my $makefile_path = catfile($base_path, 'Makefile');
+    my $module_annotations = collect_module_annotations(
+        base_path      => $base_path,
+        layout         => $config{LAYOUT},
+        enabled_extras => $enabled_extras,
+        debug          => $ENV{DEBUG_CONFIGURE},
+        on_success     => \&print_success,
+        on_warning     => \&print_warning,
+    );
+    
+    # Debug: Print paths for troubleshooting
+    if ($ENV{DEBUG_CONFIGURE}) {
+        print "DEBUG: base_path = $base_path\n";
+        print "DEBUG: makefile_template = $makefile_template\n";
+        print "DEBUG: makefile_path = $makefile_path\n";
+        print "DEBUG: current directory = " . getcwd() . "\n";
+    }
+    
+    # Read the template file
+    if (!-f $makefile_template) {
+        print_error("Makefile template not found at $makefile_template");
+        print_error("Current directory: " . getcwd());
+        print_error("Base path: $base_path");
+        die "Error: Makefile template not found at $makefile_template\n";
+    }
+    open my $template_fh, '<', $makefile_template or die "Cannot read template: $!\n";
+    my $template_content = do { local $/; <$template_fh> };
+    close $template_fh;
+    
+    # Substitute template variables
+    $template_content =~ s/\$\{CXX\}/$config{CXX}/g;
+    $template_content =~ s/\$\{CXXFLAGS\}/$config{CXXFLAGS}/g;
+    $template_content =~ s/\$\{CFLAGS\}/$config{CFLAGS}/g;
+    $template_content =~ s/\$\{LDFLAGS\}/$config{LDFLAGS}/g;
+    $template_content =~ s/\$\{TLS_CFLAGS\}/$config{TLS_CFLAGS}/g;
+    $template_content =~ s/\$\{TLS_LDFLAGS\}/$config{TLS_LDFLAGS}/g;
+    my $socketengine_file = "$config{SOCKETENGINE}.cpp";
+    $template_content =~ s/\$\{SOCKETENGINE_FILE\}/$socketengine_file/g;
+    $template_content =~ s/\$\{PREFIX\}/$config{PREFIX}/g;
+    $template_content =~ s/\$\{CONFDIR\}/$config{CONFDIR}/g;
+    $template_content =~ s/\$\{LOGDIR\}/$config{LOGDIR}/g;
+    $template_content =~ s/\$\{DATADIR\}/$config{DATADIR}/g;
+    $template_content =~ s/\$\{RUNDIR\}/$config{RUNDIR}/g;
+    $template_content =~ s/\$\{BINDIR\}/$config{BINDIR}/g;
+    
+    # SSL support - auto-detected
+    my $with_ssl = $config{SSL_ENABLED} ? '1' : '0';
+    my $with_openssl = ($config{SSL_LIBRARY} && $config{SSL_LIBRARY} eq 'OpenSSL') ? '1' : '0';
+    my $with_gnutls = ($config{SSL_LIBRARY} && $config{SSL_LIBRARY} eq 'GnuTLS') ? '1' : '0';
+    
+    $template_content =~ s/\$\{WITH_SSL\}/$with_ssl/g;
+    $template_content =~ s/\$\{WITH_OPENSSL\}/$with_openssl/g;
+    $template_content =~ s/\$\{WITH_TLS\}/$with_ssl/g; # Use with_ssl for general TLS flag
+    my $module_annotation_cxx = $module_annotations->{cxx_rules} // '';
+    my $module_annotation_ld = $module_annotations->{ld_rules} // '';
+    my $extra_module_simple_srcs = join(' ', @{$enabled_extras->{simple_srcs} // []});
+    my $extra_module_dir_srcs = join(' ', @{$enabled_extras->{dir_srcs} // []});
+    my $extra_module_libs = join(' ', @{$enabled_extras->{libs} // []});
+    my $extra_module_known_names = join(' ', @{list_known_extra_module_names($base_path)});
+    my $extra_module_enabled_names = join(' ', @{$enabled_extras->{names} // []});
+    my $extra_module_rules = join("\n", @{$enabled_extras->{rules} // []});
+    $template_content =~ s/\$\{MODULE_ANNOTATION_CXXFLAGS\}/$module_annotation_cxx/g;
+    $template_content =~ s/\$\{MODULE_ANNOTATION_LDFLAGS\}/$module_annotation_ld/g;
+    $template_content =~ s/\$\{EXTRA_MODULE_SIMPLE_SRCS\}/$extra_module_simple_srcs/g;
+    $template_content =~ s/\$\{EXTRA_MODULE_DIR_SRCS\}/$extra_module_dir_srcs/g;
+    $template_content =~ s/\$\{EXTRA_MODULE_LIBS\}/$extra_module_libs/g;
+    $template_content =~ s/\$\{EXTRA_MODULE_KNOWN_NAMES\}/$extra_module_known_names/g;
+    $template_content =~ s/\$\{EXTRA_MODULE_ENABLED_NAMES\}/$extra_module_enabled_names/g;
+    $template_content =~ s/\$\{EXTRA_MODULE_BUILD_RULES\}/$extra_module_rules/g;
+    
+    # Write the generated Makefile.
+    my $abs_makefile_path = rel2abs($makefile_path);
+    open my $makefile_fh, '>', $abs_makefile_path or do {
+        print_error("Cannot write Makefile at $abs_makefile_path: $!");
+        print_error("Current directory: " . getcwd());
+        die "Cannot write Makefile at $abs_makefile_path: $!\n";
+    };
+    print $makefile_fh $template_content;
+    close $makefile_fh or do {
+        print_error("Cannot close Makefile: $!");
+        die "Cannot close Makefile: $!\n";
+    };
+    
+    # Force filesystem sync BEFORE verification to ensure file is written
+    system('sync') if ($^O ne 'MSWin32');
+    
+    # Small delay to allow filesystem to catch up (especially in Docker/VMs)
+    select(undef, undef, undef, 0.1);
+    
+    # Verify Makefile was written
+    if (!-f $abs_makefile_path) {
+        print_error("Makefile was not created at $abs_makefile_path");
+        print_error("Current directory: " . getcwd());
+        print_error("Base path: $base_path");
+        die "Error: Makefile was not created at $abs_makefile_path\n";
+    }
+    # Verify Makefile has content
+    if (-z $abs_makefile_path) {
+        print_error("Makefile is empty at $abs_makefile_path");
+        die "Error: Makefile is empty at $abs_makefile_path\n";
+    }
+    
+    chmod 0644, $abs_makefile_path;
+
+    if (@{$module_annotations->{package_lines}}) {
+        print_status('INFO', 'Module package hints', scalar(@{$module_annotations->{package_lines}}) . ' module(s)');
+        foreach my $line (@{$module_annotations->{package_lines}}) {
+            print "    $line\n";
+        }
+    }
+
+    # Remove stale Makefile.gnu from older configure runs.
+    my $stale_makefile_gnu = catfile($base_path, 'Makefile.gnu');
+    unlink $stale_makefile_gnu if -f $stale_makefile_gnu;
+    
+    # Fix ownership if running in Docker/container environment
+    # Try to match the ownership of other files in the directory (like configure script)
+    my $parent_dir = dirname($makefile_path);
+    if (-d $parent_dir) {
+        my @stat = stat($parent_dir);
+        if (@stat) {
+            my $dir_uid = $stat[4];
+            my $dir_gid = $stat[5];
+            # Only change ownership if we're root and the directory is owned by someone else
+            # This fixes Docker volume mount permission issues
+            if ($uid == 0 && ($dir_uid != 0 || $dir_gid != 0)) {
+                if (chown $dir_uid, $dir_gid, $abs_makefile_path) {
+                    if ($ENV{DEBUG_CONFIGURE}) {
+                        print "DEBUG: Changed Makefile ownership to $dir_uid:$dir_gid\n";
+                    }
+                }
+            }
+        }
+    }
+    
+    # Additional verification - check file size
+    my $makefile_size = -s $abs_makefile_path;
+    if (!$makefile_size || $makefile_size < 50) {
+        print_error("Makefile appears to be too small ($makefile_size bytes)");
+        die "Error: Makefile appears to be invalid (size: $makefile_size bytes)\n";
+    }
+    
+    # Final sync after all operations
+    system('sync') if ($^O ne 'MSWin32');
+}
+
+sub generate_hlquery_wrapper {
+    my $template_path = catfile($base_path, 'make', 'hlquery.tpl');
+    my $output_path = catfile($base_path, RUN_DIR, 'hlquery');
+    
+    if (!-f $template_path) {
+        print_warning("hlquery template not found at $template_path, skipping wrapper generation");
+        return;
+    }
+    
+    open my $template_fh, '<', $template_path or die "Cannot read template: $!\n";
+    my $template_content = do { local $/; <$template_fh> };
+    close $template_fh;
+    
+    my %vars = (
+        'HLQUERY_VERSION' => PROJECT_VERSION,
+        'HLQUERY_CONFIG_DIR' => $config{CONFDIR},
+        'HLQUERY_DATA_DIR' => $config{DATADIR},
+        'HLQUERY_LOG_DIR' => $config{LOGDIR},
+        'HLQUERY_PID_DIR' => $config{RUNDIR},
+        'HLQUERY_BIN_DIR' => $config{BINDIR},
+    );
+    
+    foreach my $key (keys %vars) {
+        my $value = $vars{$key};
+        $template_content =~ s/\$\{$key\}/$value/g;
+    }
+    
+    open my $fh, '>', $output_path or die "Cannot write $output_path: $!\n";
+    print $fh $template_content;
+    close $fh;
+    
+    chmod 0755, $output_path;
+    print_success('Generated run/hlquery wrapper');
+}
+
+# Test suite infrastructure from aa script
+sub create_test_infrastructure {
+    my $test_dir = catdir($base_path, RUN_DIR, 'test');
+    
+    print_step("Creating test infrastructure");
+    
+    # Create test directories
+    for my $dir ('unit', 'integration', 'performance', 'fixtures', 'reports') {
+        my $full_dir = catdir($test_dir, $dir);
+        mkpath($full_dir) unless -d $full_dir;
+    }
+    
+    # Create test runner script
+    my $test_runner = catfile($test_dir, 'run_tests.sh');
+    unless (-f $test_runner) {
+        open my $fh, '>', $test_runner or die "Cannot create test runner: $!";
+        print $fh "#!/bin/bash\n";
+        print $fh "# Auto-generated test runner\n\n";
+        print $fh "set -e\n\n";
+        print $fh "TEST_DIR=\$(cd \"\$(dirname \"\${BASH_SOURCE[0]}\")\"; pwd)\n";
+        print $fh "PROJECT_DIR=\$(cd \"\$TEST_DIR/..\"; pwd)\n\n";
+        print $fh "echo \"Running HLManager test suite...\"\n";
+        print $fh "echo \"Test directory: \$TEST_DIR\"\n";
+        print $fh "echo \"Project directory: \$PROJECT_DIR\"\n\n";
+        print $fh "# Unit tests\n";
+        print $fh "if [ -d \"\$TEST_DIR/unit\" ]; then\n";
+        print $fh "    echo \"Running unit tests...\"\n";
+        print $fh "    for test in \$TEST_DIR/unit/*.cpp; do\n";
+        print $fh "        if [ -f \"\$test\" ]; then\n";
+        print $fh "            echo \"  Running \$(basename \$test)\"\n";
+        print $fh "            g++ -I\$PROJECT_DIR/include -I\$PROJECT_DIR/src \$test -o \$TEST_DIR/unit_runner && \$TEST_DIR/unit_runner\n";
+        print $fh "        fi\n";
+        print $fh "    done\n";
+        print $fh "fi\n\n";
+        print $fh "echo \"Test suite completed.\"\n";
+        close $fh;
+        chmod 0755, $test_runner;
+    }
+    
+    # Create sample unit test
+    my $sample_test = catfile($test_dir, 'unit', 'sample_test.cpp');
+    unless (-f $sample_test) {
+        open my $fh, '>', $sample_test or die "Cannot create sample test: $!";
+        print $fh "#include <cassert>\n";
+        print $fh "#include <iostream>\n\n";
+        print $fh "// Sample unit test for HLManager\n";
+        print $fh "void test_basic_functionality() {\n";
+        print $fh "    assert(1 + 1 == 2);\n";
+        print $fh "    std::cout << \"Basic functionality test passed\\n\";\n";
+        print $fh "}\n\n";
+        print $fh "int main() {\n";
+        print $fh "    test_basic_functionality();\n";
+        print $fh "    return 0;\n";
+        print $fh "}\n";
+        close $fh;
+    }
+    
+#    print_success("Test infrastructure", "Created");
+}
+
+# Configuration caching and cleanup
+sub setup_config_cache {
+    my $cache_dir = catdir($base_path, BUILD_DIR, 'cache');
+    my $cache_file = catfile($cache_dir, 'configure.cache');
+    
+    mkpath($cache_dir) unless -d $cache_dir;
+    
+    # Save current configuration to cache
+    open my $fh, '>', $cache_file or return;
+    print $fh "# Auto-generated configure cache\n";
+    print $fh "# Generated on: " . localtime() . "\n\n";
+    
+    for my $key (sort keys %config) {
+        print $fh "$key=$config{$key}\n";
+    }
+    close $fh;
+}
+
+sub cleanup_old_builds {
+    my @cleanup_dirs = (
+        catdir($base_path, BUILD_DIR, 'obj'),
+        catdir($base_path, BUILD_DIR, 'bin')
+    );
+    
+    for my $dir (@cleanup_dirs) {
+        if (-d $dir) {
+            print_step("Cleaning old build artifacts");
+            system("rm -rf '$dir'");
+            last;
+        }
+    }
+}
+
+# Enhanced next steps with colored commands
+sub show_next_steps {
+    print "\n";
+    print_step("Next Steps", "Ready to build");
+    print "\n";
+    
+    my $bold = BOLD . BRIGHT_CYAN;
+    my $cmd = BOLD . WHITE;
+    my $reset = RESET;
+    my $make_cmd = get_make_command();
+    
+    print "  ${bold}Build Commands:${reset}\n";
+    print "    ${cmd}${make_cmd}${reset}                 # Build HLManager server\n";
+    print "    ${cmd}${make_cmd} install${reset}         # Install to run/ directory\n";
+    print "    ${cmd}${make_cmd} clean${reset}           # Clean build artifacts\n";
+    print "\n";
+    
+    print "  ${bold}Test Commands:${reset}\n";
+    print "    ${cmd}./run/test/run_tests.sh${reset}  # Run test suite\n";
+    print "    ${cmd}${make_cmd} debug${reset}           # Show build variables\n";
+    print "\n";
+    
+    print "  ${bold}Runtime Commands:${reset}\n";
+    print "    ${cmd}./run/bin/hlquery-cli --server${reset}   # Start HLManager server\n";
+    print "    ${cmd}./run/bin/hlquery-cli --help${reset} # Show help options\n";
+    print "\n";
+    
+    my $perf_color = get_performance_color();
+    print "  Performance Tier: ${perf_color}" . detect_performance_tier() . "${reset}\n";
+    print "\n";
+}
+
+# Table formatting functions
+sub print_table {
+    my ($title, $data, $col1_width, $col2_width) = @_;
+    $col1_width ||= 20;
+    $col2_width ||= 30;
+    my $table_width = $col1_width + $col2_width + 3;
+    
+    print "\n$title\n";
+    print "-" x $table_width . "\n";
+    printf "%-${col1_width}s %-${col2_width}s\n", "Component", "Path";
+    print "-" x $table_width . "\n";
+    
+    for my $item (@$data) {
+        printf "%-${col1_width}s %-${col2_width}s\n", $item->[0], $item->[1];
+    }
+}
+
+# Library and feature testing
+sub compile_and_test {
+    print_section("Library Testing");
+    
+    my $test_dir = catdir($base_path, 'make', 'test');
+    my %excluded_test_files = map { $_ => 1 } qw(
+        test_simd.cpp
+        test_snappy.cpp
+        test_json.cpp
+    );
+
+    unless (-d $test_dir) {
+        print_warning("Test directory", "make/test/ not found");
+        return;
+    }
+    
+    # Find all test files
+    opendir my $dh, $test_dir or return;
+    my @test_files = grep { /\.cpp$/ && !$excluded_test_files{$_} && -f catfile($test_dir, $_) } readdir $dh;
+    closedir $dh;
+    
+    unless (@test_files) {
+        print_warning("Test files", "No .cpp files found in make/test/");
+        return;
+    }
+    
+    # Test each library/feature
+    for my $test_file (sort @test_files) {
+        my $test_path = catfile($test_dir, $test_file);
+        my $test_name = $test_file;
+        $test_name =~ s/^test_//;
+        $test_name =~ s/\.cpp$//;
+        
+        my $display_name = $test_name;
+        $display_name =~ s/_/ /g;
+        $display_name = ucfirst($display_name);
+        
+        # Compile test file as an object (no wrapper main)
+        my $temp_object = catfile($base_path, 'test_' . $$ . '.o');
+        
+        # Compile with proper defines for features
+        my $defines = "";
+        
+        my $compile_cmd = "$config{CXX} $config{CXXFLAGS} -I$base_path $defines -c $test_path -o $temp_object 2>/dev/null";
+        
+        my $result = system($compile_cmd);
+        
+        if ($result & 127) {
+            print "\n\033[91m Interrupted by user. Exiting...\033[0m\n";
+            exit 1;
+        }
+        
+        my $test_name_lower = lc($display_name);
+        
+        if ($result == 0) {
+            print_success($test_name_lower, "yes");
+            # Clean up test object
+            unlink $temp_object if -f $temp_object;
+        } else {
+            print_status("SKIP", $test_name_lower, "no");
+        }
+    }
+    
+    print_section_end();
+}
+
+# Main configuration routine
+sub main {
+    # Parse command line arguments using proper getopt-style parsing
+    my $skip_tests = 0;
+    my $show_help = 0;
+    my $disable_lsm = 0;
+    my $socket_engine = '';
+    my $max_threads = 0;
+    my $enable_extras = '';
+    my %path_set = (
+        prefix  => 0,
+        confdir => 0,
+        datadir => 0,
+        logdir  => 0,
+        rundir  => 0,
+        bindir  => 0,
+        layout  => 0,
+    );
+
+    # Process arguments
+    while (my $arg = shift @ARGV) {
+        if ($arg eq '--prefix') {
+            $config{PREFIX} = shift @ARGV;
+            $path_set{prefix} = 1;
+        } elsif ($arg =~ /^--prefix=(.+)$/) {
+            $config{PREFIX} = $1;
+            $path_set{prefix} = 1;
+        } elsif ($arg eq '--layout') {
+            $config{LAYOUT} = lc(shift @ARGV // '');
+            $path_set{layout} = 1;
+        } elsif ($arg =~ /^--layout=(.+)$/) {
+            $config{LAYOUT} = lc($1);
+            $path_set{layout} = 1;
+        } elsif ($arg eq '--debian-layout') {
+            $config{LAYOUT} = 'debian';
+            $path_set{layout} = 1;
+        } elsif ($arg eq '--rpm-layout') {
+            $config{LAYOUT} = 'rpm';
+            $path_set{layout} = 1;
+        } elsif ($arg eq '--confdir') {
+            $config{CONFDIR} = shift @ARGV;
+            $path_set{confdir} = 1;
+        } elsif ($arg =~ /^--confdir=(.+)$/) {
+            $config{CONFDIR} = $1;
+            $path_set{confdir} = 1;
+        } elsif ($arg eq '--datadir') {
+            $config{DATADIR} = shift @ARGV;
+            $path_set{datadir} = 1;
+        } elsif ($arg =~ /^--datadir=(.+)$/) {
+            $config{DATADIR} = $1;
+            $path_set{datadir} = 1;
+        } elsif ($arg eq '--logdir') {
+            $config{LOGDIR} = shift @ARGV;
+            $path_set{logdir} = 1;
+        } elsif ($arg =~ /^--logdir=(.+)$/) {
+            $config{LOGDIR} = $1;
+            $path_set{logdir} = 1;
+        } elsif ($arg eq '--rundir') {
+            $config{RUNDIR} = shift @ARGV;
+            $path_set{rundir} = 1;
+        } elsif ($arg =~ /^--rundir=(.+)$/) {
+            $config{RUNDIR} = $1;
+            $path_set{rundir} = 1;
+        } elsif ($arg eq '--bindir') {
+            $config{BINDIR} = shift @ARGV;
+            $path_set{bindir} = 1;
+        } elsif ($arg =~ /^--bindir=(.+)$/) {
+            $config{BINDIR} = $1;
+            $path_set{bindir} = 1;
+        } elsif ($arg eq '--skip-tests') {
+            $skip_tests = 1;
+        } elsif ($arg eq '--disable-lsm') {
+            $disable_lsm = 1;
+        } elsif ($arg eq '--enable-extras') {
+            $enable_extras = shift @ARGV // '';
+        } elsif ($arg =~ /^--enable-extras=(.+)$/) {
+            $enable_extras = $1;
+        } elsif ($arg eq '--max-threads') {
+            $max_threads = shift @ARGV;
+        } elsif ($arg =~ /^--max-threads=(.+)$/) {
+            $max_threads = $1;
+        } elsif ($arg eq '--engine' || $arg eq '--socketengine') {
+            $socket_engine = shift @ARGV;
+            if (!$socket_engine || !grep {$_ eq $socket_engine} qw(epoll kqueue poll)) {
+                print "Error: Invalid engine '$socket_engine'\n";
+                print "Valid options: epoll, kqueue, poll\n";
+                exit 1;
+            }
+        } elsif ($arg =~ /^(?:--engine|--socketengine)=(.+)$/) {
+            $socket_engine = $1;
+            if (!grep {$_ eq $socket_engine} qw(epoll kqueue poll)) {
+                print "Error: Invalid engine '$socket_engine'\n";
+                print "Valid options: epoll, kqueue, poll\n";
+                exit 1;
+            }
+        } elsif ($arg eq '--help' || $arg eq '-h') {
+            $show_help = 1;
+        } elsif ($arg =~ /^--/) {
+            print "Unknown option: $arg\n";
+            print "Use --help for usage information\n";
+            exit 1;
+        } else {
+            print "Unexpected argument: $arg\n";
+            print "Use --help for usage information\n";
+            exit 1;
+        }
+    }
+    
+    # Show help if requested
+    if ($show_help) {
+        print "HLManager Configure Script\n";
+        print "Usage: ./configure [options]\n";
+        print "Options:\n";
+        print "  --prefix=PATH             Base directory for installation (default: /usr/local)\n";
+        print "  --layout=NAME             Install layout: dev|system|debian|rpm|auto\n";
+        print "  --debian-layout           Alias for --layout=debian\n";
+        print "  --rpm-layout              Alias for --layout=rpm\n";
+        print "  --confdir=PATH            Directory for configuration files\n";
+        print "  --logdir=PATH             Directory for log files\n";
+        print "  --datadir=PATH            Directory for data files\n";
+        print "  --rundir=PATH             Directory for PID files\n";
+        print "  --bindir=PATH             Directory for executables\n";
+        print "  --skip-tests              Skip library testing and compilation steps\n";
+        print "  --disable-lsm             Disable LSM storage engine (enabled by default)\n";
+        print "  --enable-extras=LIST      Enable extra modules from src/modules/extra (comma-separated or all)\n";
+        print "  --max-threads=N           Set maximum threads (default: auto-detected)\n";
+        print "  --engine=ENGINE          Force specific I/O engine (epoll|kqueue|poll)\n";
+        print "  --socketengine=ENGINE    Alias for --engine\n";
+        print "  --help, -h                Show this help message\n";
+        print "\n";
+        print "I/O Engine Options:\n";
+        print "  epoll    High-performance I/O multiplexing (Linux, default)\n";
+        print "  kqueue   High-performance I/O multiplexing (BSD/macOS)\n";
+        print "  poll     Standard POSIX I/O multiplexing (fallback)\n";
+        print "\n";
+        print "SSL Configuration:\n";
+        print "  SSL is auto-detected. If OpenSSL libraries are found, SSL will be enabled\n";
+        print "  automatically when a certificate is present in run/ssl/\n";
+        print "  To create an SSL certificate, run: etc/scripts/create_ssl.sh\n";
+        print "\n";
+        print "Examples:\n";
+        print "  ./configure --layout=debian   # FHS paths for Debian/Ubuntu packaging\n";
+        print "  ./configure --layout=rpm      # FHS paths for RPM-based packaging\n";
+        print "  ./configure --layout=auto     # Detect distro family from /etc/os-release\n";
+        print "  ./configure --enable-extras=all\n";
+        print "  ./configure --engine=poll            # Force poll for compatibility\n";
+        print "  ./configure --socketengine=kqueue    # Alias: force kqueue on BSD/macOS\n";
+        print "  ./configure --engine=epoll           # Force epoll (default)\n";
+        print "\n";
+        print "Process Order:\n";
+        print "  1. System Analysis (compiler, libraries, I/O engines, SSL)\n";
+        print "  2. Library Testing (compile and test features)\n";
+        print "  3. Generation (config.h, Makefile, infrastructure)\n";
+        print "  4. Installation Layout (directory structure)\n";
+        exit 0;
+    }
+    
+    # Resolve paths.
+    # Priority: explicit layout > explicit prefix > default dev layout.
+    if ($path_set{layout}) {
+        apply_install_layout(
+            layout    => $config{LAYOUT},
+            config    => \%config,
+            set_ref   => \%path_set,
+            base_path => $base_path,
+            run_dir   => RUN_DIR,
+        );
+    } elsif ($path_set{prefix}) {
+        if ($config{PREFIX} eq '/usr') {
+            apply_install_layout(
+                layout    => 'system',
+                config    => \%config,
+                set_ref   => \%path_set,
+                base_path => $base_path,
+                run_dir   => RUN_DIR,
+            );
+        } else {
+            $config{CONFDIR} ||= catdir($config{PREFIX}, 'etc');
+            $config{LOGDIR}  ||= catdir($config{PREFIX}, 'var', 'log');
+            $config{DATADIR} ||= catdir($config{PREFIX}, 'var', 'lib');
+            $config{RUNDIR}  ||= catdir($config{PREFIX}, 'var', 'run');
+            $config{BINDIR}  ||= catdir($config{PREFIX}, 'bin');
+        }
+    } else {
+        apply_install_layout(
+            layout    => 'dev',
+            config    => \%config,
+            set_ref   => \%path_set,
+            base_path => $base_path,
+            run_dir   => RUN_DIR,
+        );
+    }
+
+    my $enabled_extras = parse_enabled_extras(
+        base_path => $base_path,
+        raw_value => $enable_extras,
+    );
+    sync_enabled_extra_module_links(
+        base_path      => $base_path,
+        enabled_extras => $enabled_extras,
+    );
+
+    # Env overrides only when corresponding CLI path flag is not explicitly set.
+    $config{CONFDIR} = $ENV{HLQUERY_CONFIG_DIR} if $ENV{HLQUERY_CONFIG_DIR} && !$path_set{confdir};
+    $config{LOGDIR}  = $ENV{HLQUERY_LOG_DIR}    if $ENV{HLQUERY_LOG_DIR} && !$path_set{logdir};
+    $config{DATADIR} = $ENV{HLQUERY_DATA_DIR}   if $ENV{HLQUERY_DATA_DIR} && !$path_set{datadir};
+    $config{RUNDIR}  = $ENV{HLQUERY_PID_DIR}    if $ENV{HLQUERY_PID_DIR} && !$path_set{rundir};
+
+    print_animated_header();
+    print_header();
+    create_required_directories();
+    check_vendor_permissions();
+    
+    # Cache check
+    my $cache_dir = catdir($base_path, '.configure');
+    mkpath($cache_dir) unless -d $cache_dir;
+    print_success('Configuration cache', '.configure/cache.cfg');
+    print_success('Write permissions', $base_path);
+    
+    print_section("System Analysis");
+    my $detected_os = get_system_name();
+    print_success('Detected OS', $detected_os);
+    
+    my $compiler_ok = check_compiler();
+    my $threading_ok = check_threading();
+
+    # Detect CPU count for max threads
+    my $cpus = get_cpu_count();
+    $config{MAX_THREADS} = $max_threads || $cpus;
+    print_success('Max threads', $config{MAX_THREADS});
+
+    my $openssl_ok = check_openssl();
+    my $gnutls_ok = check_gnutls();
+    my @io_engines = check_io_engines($socket_engine);
+    
+    # Select SSL library if available, regardless of certificate presence
+    my $ssl_lib_ok = 0;
+    if ($openssl_ok || $gnutls_ok) {
+        if ($openssl_ok) {
+            $config{SSL_LIBRARY} = 'OpenSSL';
+            $config{TLS_CFLAGS} = $config{OPENSSL_CFLAGS} || '';
+            $config{TLS_LDFLAGS} = $config{OPENSSL_LIBS} || '-lssl -lcrypto';
+            $ssl_lib_ok = 1;
+        } elsif ($gnutls_ok) {
+            $config{SSL_LIBRARY} = 'GnuTLS';
+            $config{TLS_CFLAGS} = $config{GNUTLS_CFLAGS} || '';
+            $config{TLS_LDFLAGS} = $config{GNUTLS_LIBS} || '-lgnutls';
+            $ssl_lib_ok = 1;
+        }
+    }
+
+    # Check for SSL certificate
+    my $ssl_cert_ok = check_ssl_certificate();
+    
+    # Display SSL/TLS library status with checkmarks
+    if ($ssl_lib_ok) {
+        if ($config{SSL_LIBRARY} eq 'OpenSSL') {
+            print_success('OK', 'OpenSSL libraries', "available ($config{OPENSSL_VERSION})");
+            if ($gnutls_ok) {
+                print_status('AVAIL', 'GnuTLS libraries', "available ($config{GNUTLS_VERSION}) - OpenSSL preferred");
+            }
+        } elsif ($config{SSL_LIBRARY} eq 'GnuTLS') {
+            print_status('SKIP', 'OpenSSL libraries', 'not available');
+            print_status('OK', 'GnuTLS libraries', "available ($config{GNUTLS_VERSION})");
+        }
+        
+        print_status('INFO', 'TLS backend', $config{SSL_LIBRARY});
+
+        if ($config{SSL_ENABLED}) {
+            print_status('OK', 'SSL certificate', 'found');
+            print_status('OK', 'SSL/TLS Support', 'enabled (full)');
+        } else {
+            print_status('SKIP', 'SSL certificate', 'not found');
+            print_status('OK', 'SSL/TLS Support', 'enabled (capabilities only, no certs)');
+        }
+    } else {
+        # No SSL libraries available
+        print_status('SKIP', 'OpenSSL libraries', 'not available');
+        print_status('SKIP', 'GnuTLS libraries', 'not available');
+        print_status('SKIP', 'SSL/TLS Support', 'no (libraries missing)');
+    }
+    
+    my $clock_ok = check_clock_gettime();
+    my $lsm_ok = check_lsm_storage();
+    
+    print_section_end();
+    
+    unless ($compiler_ok) {
+        print_error("FATAL: C++ compiler required");
+        die "\n";
+    }
+    
+    # Library testing (unless skipped) - run BEFORE generation
+    unless ($skip_tests) {
+        compile_and_test();
+    }
+    
+    print_section("Generation");
+    
+    # Generate configuration files
+    mkpath(catdir($base_path, INCLUDE_DIR)) unless -d catdir($base_path, INCLUDE_DIR);
+    
+    print_step('Generating configuration cache');
+    generate_config_h($disable_lsm);
+    print_success('Generated include/core/config.h');
+    
+    print_step('Generating Makefile');
+    if (@{$enabled_extras->{names}}) {
+        print_status('INFO', 'Enabled extra modules', join(', ', @{$enabled_extras->{names}}));
+    } else {
+        print_status('INFO', 'Enabled extra modules', 'none');
+    }
+    
+    # Call generate_makefile with error handling
+    eval {
+        generate_makefile($enabled_extras);
+    };
+    if ($@) {
+        print_error("Makefile generation failed: $@");
+        die "FATAL: Makefile generation failed: $@\n";
+    }
+    
+    # Verify Makefile was actually created
+    my $makefile_path = catfile($base_path, 'Makefile');
+    if (!-f $makefile_path) {
+        print_error("Makefile was not created at $makefile_path");
+        print_error("Current directory: " . getcwd());
+        print_error("Base path: $base_path");
+        print_error("Makefile path: $makefile_path");
+        die "FATAL: Makefile generation failed - file not found\n";
+    }
+    
+    # Verify Makefile has content
+    my $makefile_size = -s $makefile_path;
+    if (!$makefile_size || $makefile_size < 100) {
+        print_error("Makefile is too small ($makefile_size bytes)");
+        die "FATAL: Makefile generation failed - file is invalid\n";
+    }
+    
+    print_success('Generated Makefile');
+    
+    print_step('Generating wrapper script');
+    generate_hlquery_wrapper();
+    
+    # Setup configuration caching and cleanup
+    setup_config_cache();
+    cleanup_old_builds();
+    
+    # Create test infrastructure
+    create_test_infrastructure();
+    
+    print_section("Installation Layout");
+    
+    # Configuration Summary
+    my $bold_start = $ansi_supported ? BOLD : "";
+    my $reset_end = $ansi_supported ? RESET : "";
+    
+    # Consistent tabulation for summary section as well
+    sub print_summary_line {
+        my ($sym, $label, $val) = @_;
+        my $full_label = sprintf("  %s %s%s%s", $_[0], BOLD, $_[1], RESET);
+        # Total width of label part including invisible ANSI (which we must account for)
+        # Plain text part: "  • Binary" = 10 chars. 
+        # Target value start at column 24
+        my $plain_label = "  " . $char_map{'star'} . " " . $label;
+        my $gap = " " x (24 - length($plain_label));
+        printf "%s%s%s\n", $full_label, $gap, $val;
+    }
+
+    print_summary_line($char_map{'gear'}, "I/O Engine", $config{SOCKETENGINE});
+    print_summary_line($char_map{'gear'}, "Compiler", "$config{CXX} ($config{CXX_VERSION})");
+    print_summary_line($char_map{'gear'}, "Layout", $config{LAYOUT});
+    print "\n";
+    print_summary_line($char_map{'star'}, "Binary", catfile($config{BINDIR}, 'hlquery'));
+    print_summary_line($char_map{'star'}, "Configuration", $config{CONFDIR});
+    print_summary_line($char_map{'star'}, "Data", $config{DATADIR});
+    print_summary_line($char_map{'star'}, "Logs", $config{LOGDIR});
+    print_summary_line($char_map{'star'}, "PID", $config{RUNDIR});
+    print_summary_line($char_map{'star'}, "Runtime", catdir($base_path, RUN_DIR));
+    
+    print_section_end();
+
+    my $okgreen_start = $ansi_supported ? OKGREEN : "";
+    my $bright_blue_start = $ansi_supported ? BRIGHT_BLUE : "";
+#    print "\n" . $bold_start . $okgreen_start . "  " . $char_map{'checkmark_ok'} . " Configuration Complete!" . $reset_end . "\n\n";
+
+print "\n"
+    . $bold_start
+    . $okgreen_start
+    . "  Configuration Complete!"
+    . $reset_end
+    . "\n\n";
+
+    # Documentation and support links with cool symbols
+    print "  " . $char_map{'arrow'} . " " . $bold_start . $bright_blue_start . "Documentation:" . $reset_end . " https://docs.hlquery.com/\n";
+    print "  " . $char_map{'arrow'} . " " . $bold_start . $bright_blue_start . "Issues:" . $reset_end . " https://github.com/hlquery/hlquery/issues\n";
+    
+    print_section("Next Steps");
+    
+    my $make_cmd = get_make_command();
+
+    # Get processor count for make -j recommendation
+    my $num_procs = get_cpu_count();
+    my $make_jobs = int($num_procs);
+    print "  " . $char_map{'asterisk'} . " To build the project, run:\n";
+    print "    " . $bold_start . "$make_cmd -j$make_jobs" . $reset_end . "\n\n";
+    print "  " . $char_map{'asterisk'} . " To install locally, run:\n";
+    print "    " . $bold_start . "$make_cmd install" . $reset_end . "\n\n";
+    print_section_end();
+    
+}
+
+# Run main if called directly
+main() if __FILE__ eq $0;
+
+1;
