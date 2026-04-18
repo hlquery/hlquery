@@ -832,6 +832,30 @@ class SearchAPI
 
      HttpResponse HandleGetDocumentContext(const HttpRequest& Request);
 
+     /* HandleSAMRebuild rebuilds SAM entries for one collection. */
+
+     HttpResponse HandleSAMRebuild(const HttpRequest& Request);
+
+     /* HandleSAMSearch searches one collection's SAM index. */
+
+     HttpResponse HandleSAMSearch(const HttpRequest& Request);
+
+     /* HandleSAMStatus returns SAM indexing status for one collection. */
+
+     HttpResponse HandleSAMStatus(const HttpRequest& Request);
+
+     /* HandleSAMDebug returns recent SAM debug events. */
+
+     HttpResponse HandleSAMDebug(const HttpRequest& Request);
+
+     /* HandleSAMListDocuments lists SAM-indexed documents for one collection. */
+
+     HttpResponse HandleSAMListDocuments(const HttpRequest& Request);
+
+     /* HandleSAMGetDocument fetches one SAM document entry by collection and ID. */
+
+     HttpResponse HandleSAMGetDocument(const HttpRequest& Request);
+
      /* HandleBulkImportDocuments handles bulk document imports. */
 
      HttpResponse HandleBulkImportDocuments(const HttpRequest& Request);
@@ -1107,6 +1131,10 @@ class SearchAPI
      /* HandleStartup handles startup status requests. */
 
      HttpResponse HandleStartup(const HttpRequest& Request);
+
+     /* HandleLLM returns active LLM runtime information. */
+
+     HttpResponse HandleLLM(const HttpRequest& Request);
 
      /* HandleDocTotal handles total document count requests. */
 

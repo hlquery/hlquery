@@ -818,7 +818,6 @@ void hlquery::SetupSignalHandlers()
           InstallSignalHandler(SIGUSR1, SetSignal);
           InstallSignalHandler(SIGUSR2, SetSignal);
           IgnoreSignal(SIGPIPE);
-          IgnoreSignal(SIGCHLD);
           InstallSignalHandler(SIGALRM, SetSignal);
           InstallSignalHandler(SIGSEGV, CrashSignalHandler);
           InstallSignalHandler(SIGABRT, CrashSignalHandler);

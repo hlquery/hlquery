@@ -1607,6 +1607,434 @@ void HLQueryCLI::ShowDocumentContext(const std::string &collection_name, const s
      PrintTable({"#", "Phrase", "Kind"}, Rows);
 }
 
+void HLQueryCLI::RebuildSAMCollection(const std::string &collection_name, bool json_output)
+{
+     if (collection_name.empty())
+     {
+          PrintError("Collection name is required", "Usage: sam run <collection>");
+          return;
+     }
+
+     const std::string path = "/sam/rebuild?collection=" + hlquery_cli::UrlEncode(collection_name);
+     HLQueryCLI::HTTPResponse response = MakeRequest("POST", path);
+
+     if (CheckRequestFailed(response))
+     {
+          return;
+     }
+
+     nlohmann::json root;
+
+     try
+     {
+          root = nlohmann::json::parse(response.Body);
+     }
+     catch (const std::exception &)
+     {
+          PrintError("Failed to parse SAM rebuild response");
+          return;
+     }
+
+     if (json_output || RawMode)
+     {
+          std::cout << root.dump(2) << "\n";
+          return;
+     }
+
+     if (root.value("started", false))
+     {
+          std::cout << "SAM rebuild started in the background for collection '" << collection_name << "'.\n";
+          return;
+     }
+
+     std::cout << "SAM rebuild is already running for collection '" << collection_name << "'.\n";
+}
+
+void HLQueryCLI::SearchSAM(const std::string &collection_name, const std::string &query, int limit, bool json_output)
+{
+     if (collection_name.empty() || query.empty())
+     {
+          PrintError("Collection and query are required", "Usage: sam search <collection> <query> [limit]");
+          return;
+     }
+
+     if (limit <= 0)
+     {
+          limit = 20;
+     }
+
+     std::string path = "/sam/search?collection=" + hlquery_cli::UrlEncode(collection_name) +
+                        "&q=" + hlquery_cli::UrlEncode(query) +
+                        "&limit=" + std::to_string(limit);
+     HLQueryCLI::HTTPResponse response = MakeRequest("GET", path);
+
+     if (CheckRequestFailed(response))
+     {
+          return;
+     }
+
+     nlohmann::json root;
+
+     try
+     {
+          root = nlohmann::json::parse(response.Body);
+     }
+     catch (const std::exception &)
+     {
+          PrintError("Failed to parse SAM search response");
+          return;
+     }
+
+     if (json_output || RawMode)
+     {
+          std::cout << root.dump(2) << "\n";
+          return;
+     }
+
+     const nlohmann::json &hits = root["hits"];
+
+     std::cout << "SAM results for '" << query << "' in collection '" << collection_name << "':.\n";
+
+     if (!hits.is_array() || hits.empty())
+     {
+          std::cout << "No SAM matches found.\n";
+          return;
+     }
+
+     std::vector<std::vector<std::string>> rows;
+     size_t index = 1;
+
+     for (const auto &hit : hits)
+     {
+          std::ostringstream score_stream;
+          score_stream << std::fixed << std::setprecision(2) << hit.value("score", 0.0);
+
+          rows.push_back({
+               std::to_string(index++),
+               hit.value("id", ""),
+               hit.value("title", ""),
+               hit.value("term", ""),
+               hit.value("source", ""),
+               score_stream.str()
+          });
+     }
+
+     PrintTable({"#", "ID", "Title", "Matched Term", "Source", "Score"}, rows);
+}
+
+void HLQueryCLI::ShowSAMStatus(const std::string &collection_name, bool json_output)
+{
+     const std::string path = collection_name.empty()
+          ? "/sam/status"
+          : "/sam/status?collection=" + hlquery_cli::UrlEncode(collection_name);
+     HLQueryCLI::HTTPResponse response = MakeRequest("GET", path);
+
+     if (CheckRequestFailed(response))
+     {
+          return;
+     }
+
+     nlohmann::json root;
+
+     try
+     {
+          root = nlohmann::json::parse(response.Body);
+     }
+     catch (const std::exception &)
+     {
+          PrintError("Failed to parse SAM status response");
+          return;
+     }
+
+     if (json_output || RawMode)
+     {
+          std::cout << root.dump(2) << "\n";
+          return;
+     }
+
+     if (collection_name.empty())
+     {
+          std::cout << "SAM background status:.\n";
+
+          const nlohmann::json &collections = root["collections"];
+
+          if (collections.is_array() && !collections.empty())
+          {
+               std::vector<std::vector<std::string>> rows;
+               bool any_running = false;
+
+               for (const auto &entry : collections)
+               {
+                    const bool running = entry.value("running", false);
+                    any_running = any_running || running;
+
+                    rows.push_back({
+                         entry.value("collection", ""),
+                         running ? "yes" : "no",
+                         entry.value("completed", false) ? "yes" : "no",
+                         std::to_string(entry.value("indexed", static_cast<size_t>(0))),
+                         std::to_string(entry.value("failed", static_cast<size_t>(0)))
+                    });
+               }
+
+               PrintTable({"Collection", "Running", "Completed", "Indexed", "Failed"}, rows);
+
+               if (!any_running)
+               {
+                    std::cout << root.value("message", "No SAM collections are currently indexing.") << "\n";
+               }
+          }
+          else
+          {
+               std::cout << root.value("message", "No SAM collections are currently indexing.") << "\n";
+          }
+
+          return;
+     }
+
+     std::vector<std::vector<std::string>> rows;
+     rows.push_back({"collection", root.value("collection", "")});
+     rows.push_back({"known", root.value("known", false) ? "yes" : "no"});
+     rows.push_back({"running", root.value("running", false) ? "yes" : "no"});
+     rows.push_back({"completed", root.value("completed", false) ? "yes" : "no"});
+     rows.push_back({"indexed", std::to_string(root.value("indexed", static_cast<size_t>(0)))});
+     rows.push_back({"failed", std::to_string(root.value("failed", static_cast<size_t>(0)))});
+
+     const std::string error_value = root.value("error", "");
+
+     if (!error_value.empty())
+     {
+          rows.push_back({"error", error_value});
+     }
+
+     rows.push_back({"message", root.value("message", "")});
+
+     std::cout << "SAM status for collection '" << collection_name << "':.\n";
+     PrintTable({"Field", "Value"}, rows);
+}
+
+void HLQueryCLI::ListSAMDocuments(const std::string &collection_name, int offset, int limit, bool json_output)
+{
+     if (collection_name.empty())
+     {
+          PrintError("Collection name is required", "Usage: sam ls [collection] [offset limit]");
+          return;
+     }
+
+     if (offset < 0)
+     {
+          offset = 0;
+     }
+
+     if (limit <= 0)
+     {
+          limit = 20;
+     }
+
+     const std::string path = "/sam/documents?collection=" + hlquery_cli::UrlEncode(collection_name) +
+                              "&offset=" + std::to_string(offset) +
+                              "&limit=" + std::to_string(limit);
+     HLQueryCLI::HTTPResponse response = MakeRequest("GET", path);
+
+     if (CheckRequestFailed(response))
+     {
+          return;
+     }
+
+     nlohmann::json root;
+
+     try
+     {
+          root = nlohmann::json::parse(response.Body);
+     }
+     catch (const std::exception &)
+     {
+          PrintError("Failed to parse SAM list response");
+          return;
+     }
+
+     if (json_output || RawMode)
+     {
+          std::cout << root.dump(2) << "\n";
+          return;
+     }
+
+     const nlohmann::json &documents = root["documents"];
+
+     std::cout << "SAM indexed documents for collection '" << collection_name << "':.\n";
+
+     if (root.value("rebuilding", false))
+     {
+          std::cout << "Background indexing is still running.\n";
+     }
+
+     if (!documents.is_array() || documents.empty())
+     {
+          std::cout << "No SAM documents found.\n";
+          return;
+     }
+
+     std::vector<std::vector<std::string>> rows;
+     size_t index = static_cast<size_t>(offset) + 1;
+
+     for (const auto &entry : documents)
+     {
+          std::string terms_preview;
+
+          if (entry.contains("terms") && entry["terms"].is_array())
+          {
+               size_t shown = 0;
+
+               for (const auto &term : entry["terms"])
+               {
+                    if (!term.is_object())
+                    {
+                         continue;
+                    }
+
+                    if (!terms_preview.empty())
+                    {
+                         terms_preview += ", ";
+                    }
+
+                    const std::string text = term.value("text", "");
+                    const double score = term.value("score", 0.0);
+
+                    if (text.empty())
+                    {
+                         continue;
+                    }
+
+               std::ostringstream score_stream;
+               score_stream << std::fixed << std::setprecision(2) << score;
+               const std::string source = term.value("source", "");
+               terms_preview += text + " (" + score_stream.str();
+               if (!source.empty())
+               {
+                    terms_preview += ", " + source;
+               }
+               terms_preview += ")";
+               shown++;
+
+                    if (shown >= 2)
+                    {
+                         break;
+                    }
+               }
+          }
+
+          rows.push_back({
+               std::to_string(index++),
+               entry.value("id", ""),
+               entry.value("title", ""),
+               terms_preview
+          });
+     }
+
+     PrintTable({"#", "ID", "Title", "Terms"}, rows);
+}
+
+void HLQueryCLI::OpenSAMDocument(const std::string &collection_name, const std::string &document_id, bool json_output)
+{
+     if (collection_name.empty() || document_id.empty())
+     {
+          PrintError("Collection name and document ID are required", "Usage: sam open <collection>/<document-id>");
+          return;
+     }
+
+     const std::string path = "/sam/documents/" + hlquery_cli::UrlEncode(collection_name) +
+                              "/" + hlquery_cli::UrlEncode(document_id);
+     HLQueryCLI::HTTPResponse response = MakeRequest("GET", path);
+
+     if (CheckRequestFailed(response))
+     {
+          return;
+     }
+
+     nlohmann::json root;
+
+     try
+     {
+          root = nlohmann::json::parse(response.Body);
+     }
+     catch (const std::exception &)
+     {
+          PrintError("Failed to parse SAM document response");
+          return;
+     }
+
+     if (json_output || RawMode)
+     {
+          std::cout << root.dump(2) << "\n";
+          return;
+     }
+
+     std::vector<std::vector<std::string>> metadata_rows;
+     metadata_rows.push_back({"collection", root.value("collection", "")});
+     metadata_rows.push_back({"id", root.value("id", "")});
+     metadata_rows.push_back({"title", root.value("title", "")});
+     metadata_rows.push_back({"term_count", root.contains("terms") && root["terms"].is_array()
+                                               ? std::to_string(root["terms"].size())
+                                               : "0"});
+
+     std::cout << "SAM entry for '" << collection_name << "/" << document_id << "':.\n";
+
+     if (root.value("rebuilding", false))
+     {
+          std::cout << "Background indexing is still running for this collection.\n";
+     }
+
+     PrintTable({"Field", "Value"}, metadata_rows);
+
+     if (root.contains("terms") && root["terms"].is_array() && !root["terms"].empty())
+     {
+          std::cout << "Ranked terms:\n";
+          std::vector<std::vector<std::string>> term_rows;
+          size_t rank = 1;
+
+          for (const auto &term : root["terms"])
+          {
+               if (!term.is_object())
+               {
+                    continue;
+               }
+
+               std::ostringstream score_stream;
+               score_stream << std::fixed << std::setprecision(2) << term.value("score", 0.0);
+               std::ostringstream signal_stream;
+               signal_stream << std::fixed << std::setprecision(2) << term.value("signal", 0.0);
+
+               term_rows.push_back({
+                    std::to_string(rank++),
+                    term.value("text", ""),
+                    term.value("kind", ""),
+                    term.value("source", ""),
+                    score_stream.str(),
+                    signal_stream.str()
+               });
+          }
+
+          PrintTable({"#", "Term", "Kind", "Source", "Score", "Signal"}, term_rows);
+     }
+
+     if (root.contains("document") && root["document"].is_object() && !root["document"].empty())
+     {
+          std::cout << "Source document:\n";
+          const nlohmann::json &doc = root["document"];
+          std::vector<std::vector<std::string>> doc_rows;
+
+          for (auto it = doc.begin(); it != doc.end(); ++it)
+          {
+               doc_rows.push_back({
+                    it.key(),
+                    it.value().is_string() ? it.value().get<std::string>() : it.value().dump()
+               });
+          }
+
+          PrintTable({"Field", "Value"}, doc_rows);
+     }
+}
+
 void HLQueryCLI::SearchAcrossCollections(const std::string &query, const std::vector<std::string> &collections, int limit, int offset, const std::string &sort, bool exact_match, bool highlight, const std::string &highlight_fields, const std::string &distributed, const std::string &route, bool distributed_collections, int maybe_min, int maybe_limit, bool json_output)
 {
      if (query.empty())

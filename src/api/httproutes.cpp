@@ -207,6 +207,38 @@ RouteAction ResolveHttpRoute(const HttpRequest &Request)
                return RouteAction::Flush;
           }
 
+          if (NormalizedPath == "/sam/rebuild" && Request.Method == "POST")
+          {
+               return RouteAction::SamRebuild;
+          }
+
+          if (NormalizedPath == "/sam/search" && Request.Method == "GET")
+          {
+               return RouteAction::SamSearch;
+          }
+
+          if (NormalizedPath == "/sam/status" && Request.Method == "GET")
+          {
+               return RouteAction::SamStatus;
+          }
+
+          if (NormalizedPath == "/sam/debug" && Request.Method == "GET")
+          {
+               return RouteAction::SamDebug;
+          }
+
+          if (NormalizedPath == "/sam/documents" && Request.Method == "GET")
+          {
+               return RouteAction::SamListDocuments;
+          }
+
+          if (NormalizedPath.rfind("/sam/documents/", 0) == 0 &&
+              NormalizedPath.size() > std::string("/sam/documents/").size() &&
+              Request.Method == "GET")
+          {
+               return RouteAction::SamGetDocument;
+          }
+
           const CollectionRouteInfo RouteInfo = BuildCollectionRouteInfo(NormalizedPath);
 
           const std::string &Method = Request.Method;
@@ -282,6 +314,11 @@ RouteAction ResolveHttpRoute(const HttpRequest &Request)
           if (ExactRoute(Path, Method, {"/startup", "/boot-status"}, {"GET"}))
           {
                return RouteAction::Startup;
+          }
+
+          if (ExactRoute(Path, Method, {"/llm"}, {"GET"}))
+          {
+               return RouteAction::LLM;
           }
 
           if (ExactRoute(Path, Method, {"/integrity", "/consistency"}, {"GET"}))
@@ -745,6 +782,8 @@ const char *RouteActionName(RouteAction ActionVal)
                return "Repair";
           case RouteAction::Startup:
                return "Startup";
+          case RouteAction::LLM:
+               return "LLM";
           case RouteAction::Integrity:
                return "Integrity";
           case RouteAction::SelfCheck:
@@ -781,6 +820,18 @@ const char *RouteActionName(RouteAction ActionVal)
                return "GetDocument";
           case RouteAction::GetDocumentContext:
                return "GetDocumentContext";
+          case RouteAction::SamRebuild:
+               return "SamRebuild";
+          case RouteAction::SamSearch:
+               return "SamSearch";
+          case RouteAction::SamStatus:
+               return "SamStatus";
+          case RouteAction::SamDebug:
+               return "SamDebug";
+          case RouteAction::SamListDocuments:
+               return "SamListDocuments";
+          case RouteAction::SamGetDocument:
+               return "SamGetDocument";
           case RouteAction::AddDocument:
                return "AddDocument";
           case RouteAction::BulkImportDocuments:

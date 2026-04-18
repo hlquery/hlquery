@@ -300,6 +300,7 @@ void ServerConfig::ApplyConfiguration()
      auto SAMTag = ConfigReaderValue.GetTag("sam");
 
      std::string ModelPathOverride;
+     std::string ModelFileOverride;
 
      auto ReadModelName = [](const std::shared_ptr<ConfigTag> &Tag,
                              const std::string &Fallback) -> std::string
@@ -324,6 +325,7 @@ void ServerConfig::ApplyConfiguration()
           AIModelsDirectory = AITag->GetString("models_dir", AIModelsDirectory);
           AIModelName = ReadModelName(AITag, AIModelName);
           ModelPathOverride = AITag->GetString("model_path", "");
+          ModelFileOverride = AITag->GetString("model_file", ModelFileOverride);
           AIInferenceCommand = AITag->GetString("inference_command", AIInferenceCommand);
           SamEnabled = AITag->GetBool("sam_enabled", SamEnabled);
      }
@@ -338,12 +340,62 @@ void ServerConfig::ApplyConfiguration()
                ModelPathOverride = LLMTag->GetString("model_path", "");
           }
 
+          if (ModelFileOverride.empty())
+          {
+               ModelFileOverride = LLMTag->GetString("model_file", "");
+          }
+
           AIInferenceCommand = LLMTag->GetString("inference_command", AIInferenceCommand);
      }
 
      if (SAMTag)
      {
           SamEnabled = SAMTag->GetBool("enabled", SamEnabled);
+          SamDataDirectory = SAMTag->GetString("data_dir", SamDataDirectory);
+          Sam25DynamicQueryWeight = SAMTag->GetBool("sam25_dynamic_query_weight", Sam25DynamicQueryWeight);
+          Sam25ShortQueryPhraseBoost = SAMTag->GetDoubleRange("sam25_short_query_phrase_boost", Sam25ShortQueryPhraseBoost, 0.1, 5.0);
+          Sam25LongQueryPhraseBoost = SAMTag->GetDoubleRange("sam25_long_query_phrase_boost", Sam25LongQueryPhraseBoost, 0.1, 5.0);
+          Sam25SourcePhraseBoostTitle = SAMTag->GetDoubleRange("sam25_source_phrase_boost_title", Sam25SourcePhraseBoostTitle, 0.1, 5.0);
+          Sam25SourcePhraseBoostLabelPair = SAMTag->GetDoubleRange("sam25_source_phrase_boost_label_pair", Sam25SourcePhraseBoostLabelPair, 0.1, 5.0);
+          Sam25SourcePhraseBoostLabel = SAMTag->GetDoubleRange("sam25_source_phrase_boost_label", Sam25SourcePhraseBoostLabel, 0.1, 5.0);
+          Sam25SourcePhraseBoostLlm = SAMTag->GetDoubleRange("sam25_source_phrase_boost_llm", Sam25SourcePhraseBoostLlm, 0.1, 5.0);
+          Sam25EnableIdf = SAMTag->GetBool("sam25_enable_idf", Sam25EnableIdf);
+          Sam25IdfFloor = SAMTag->GetDoubleRange("sam25_idf_floor", Sam25IdfFloor, 0.0, 10.0);
+          Sam25IdfCeiling = SAMTag->GetDoubleRange("sam25_idf_ceiling", Sam25IdfCeiling, 0.0, 10.0);
+          Sam25EnableDocPrior = SAMTag->GetBool("sam25_enable_doc_prior", Sam25EnableDocPrior);
+          Sam25DocPriorField = SAMTag->GetString("sam25_doc_prior_field", Sam25DocPriorField);
+          Sam25DocPriorWeight = SAMTag->GetDoubleRange("sam25_doc_prior_weight", Sam25DocPriorWeight, 0.0, 1.0);
+          Sam25OrderedSlop = SAMTag->GetIntRange("sam25_ordered_slop", Sam25OrderedSlop, 0, 32);
+          Sam25UnorderedWindowSlop = SAMTag->GetIntRange("sam25_unordered_window_slop", Sam25UnorderedWindowSlop, 0, 32);
+          Sam25ExactPhraseRequiresStopwords = SAMTag->GetBool("sam25_exact_phrase_requires_stopwords", Sam25ExactPhraseRequiresStopwords);
+          Sam25ExactPhraseIgnoreOuterStopwords = SAMTag->GetBool("sam25_exact_phrase_ignore_outer_stopwords", Sam25ExactPhraseIgnoreOuterStopwords);
+          Sam25EnableSynonymExpansion = SAMTag->GetBool("sam25_enable_synonym_expansion", Sam25EnableSynonymExpansion);
+          Sam25SynonymBoost = SAMTag->GetDoubleRange("sam25_synonym_boost", Sam25SynonymBoost, 0.0, 5.0);
+          Sam25MaxSynonymsPerToken = SAMTag->GetIntRange("sam25_max_synonyms_per_token", Sam25MaxSynonymsPerToken, 0, 16);
+          Sam25EnableNoisePenalty = SAMTag->GetBool("sam25_enable_noise_penalty", Sam25EnableNoisePenalty);
+          Sam25NoisePenalty = SAMTag->GetDoubleRange("sam25_noise_penalty", Sam25NoisePenalty, 0.0, 1.0);
+          Sam25NoisePenaltyLlmExtra = SAMTag->GetDoubleRange("sam25_noise_penalty_llm_extra", Sam25NoisePenaltyLlmExtra, 0.0, 1.0);
+          Sam25MinCoverage = SAMTag->GetDoubleRange("sam25_min_coverage", Sam25MinCoverage, 0.0, 1.0);
+          Sam25MinOrderedBoostForPhrase = SAMTag->GetDoubleRange("sam25_min_ordered_boost_for_phrase",
+               Sam25MinOrderedBoostForPhrase, 0.0, 1.0);
+          Sam25MinFinalScore = SAMTag->GetDoubleRange("sam25_min_final_score", Sam25MinFinalScore, 0.0, 1.0);
+          Sam25EnableSourceDocMerge = SAMTag->GetBool("sam25_enable_source_doc_merge", Sam25EnableSourceDocMerge);
+          Sam25SourceDocWeight = SAMTag->GetDoubleRange("sam25_source_doc_weight", Sam25SourceDocWeight, 0.0, 5.0);
+          Sam25SourceDocTitleWeight = SAMTag->GetDoubleRange("sam25_source_doc_title_weight", Sam25SourceDocTitleWeight, 0.0, 5.0);
+          Sam25SourceDocDescriptionWeight = SAMTag->GetDoubleRange("sam25_source_doc_description_weight",
+               Sam25SourceDocDescriptionWeight, 0.0, 5.0);
+          Sam25SourceDocLabelsWeight = SAMTag->GetDoubleRange("sam25_source_doc_labels_weight", Sam25SourceDocLabelsWeight, 0.0, 5.0);
+          Sam25SourceDocContentWeight = SAMTag->GetDoubleRange("sam25_source_doc_content_weight", Sam25SourceDocContentWeight, 0.0, 5.0);
+          Sam25SourceDocMinScore = SAMTag->GetDoubleRange("sam25_source_doc_min_score", Sam25SourceDocMinScore, 0.0, 1.0);
+          Sam25SourceDocMergeBonus = SAMTag->GetDoubleRange("sam25_source_doc_merge_bonus", Sam25SourceDocMergeBonus, 0.0, 1.0);
+          Sam25DebugExplain = SAMTag->GetBool("sam25_debug_explain", Sam25DebugExplain);
+          Sam25DebugLogTopK = SAMTag->GetIntRange("sam25_debug_log_top_k", Sam25DebugLogTopK, 0, 1000);
+          Sam25DebugIncludeComponents = SAMTag->GetBool("sam25_debug_include_components", Sam25DebugIncludeComponents);
+
+          if (SAMTag->HasAttribute("sam_data_dir"))
+          {
+               SamDataDirectory = SAMTag->GetString("sam_data_dir", SamDataDirectory);
+          }
      }
 
      AIModelCatalog.clear();
@@ -373,6 +425,69 @@ void ServerConfig::ApplyConfiguration()
           AIModelCatalog.push_back({"qwen_coder_1_5", "Qwen2.5.1-Coder-1.5B-Instruct-Q4_K_M.gguf", false});
      }
 
+    auto ResolveRelativePath = [&](const std::filesystem::path &RawPath) -> std::filesystem::path
+    {
+         if (RawPath.empty() || RawPath.is_absolute())
+         {
+              return RawPath;
+         }
+
+         std::error_code Ec;
+         const std::filesystem::path WorkingCandidate = std::filesystem::absolute(RawPath, Ec);
+
+         if (!Ec && std::filesystem::exists(WorkingCandidate))
+         {
+              return WorkingCandidate;
+         }
+
+         if (!ConfigDirectory.empty())
+         {
+              const std::filesystem::path ConfigCandidate =
+                   std::filesystem::absolute(std::filesystem::path(ConfigDirectory) / RawPath, Ec);
+
+              if (!Ec && std::filesystem::exists(ConfigCandidate))
+              {
+                   return ConfigCandidate;
+              }
+
+              if (RawPath.has_relative_path())
+              {
+                   std::filesystem::path RepoRootCandidateBase = std::filesystem::path(ConfigDirectory);
+
+                   if (RepoRootCandidateBase.filename() == "conf")
+                   {
+                        const std::filesystem::path RunDir = RepoRootCandidateBase.parent_path();
+
+                        if (RunDir.filename() == "run")
+                        {
+                             const std::filesystem::path RepoRootCandidate =
+                                  std::filesystem::absolute(RunDir.parent_path() / RawPath, Ec);
+
+                             /* Paths like run/data/... in run/conf/hlquery.conf are project-root-relative,
+                              * not relative to run/conf. Resolve them to <repo>/run/... even before the
+                              * target exists so runtime directories do not get created under run/conf/run/. */
+                             if (RawPath.begin() != RawPath.end() && *RawPath.begin() == "run" && !Ec)
+                             {
+                                  return RepoRootCandidate;
+                             }
+
+                             if (!Ec && std::filesystem::exists(RepoRootCandidate))
+                             {
+                                  return RepoRootCandidate;
+                             }
+                        }
+                   }
+              }
+
+              if (!Ec)
+              {
+                   return ConfigCandidate;
+              }
+         }
+
+         return WorkingCandidate;
+    };
+
     auto ResolveModelPath = [&](const ServerConfig::AIModelDescriptor &Descriptor) -> std::string
     {
          std::filesystem::path Candidate(Descriptor.File);
@@ -382,26 +497,7 @@ void ServerConfig::ApplyConfiguration()
               Candidate = std::filesystem::path(AIModelsDirectory) / Candidate;
          }
 
-         std::error_code Ec;
-         std::filesystem::path ResolvedPath;
-
-         if (!Candidate.is_absolute())
-         {
-              if (!ConfigDirectory.empty())
-              {
-                   ResolvedPath = std::filesystem::absolute(ConfigDirectory / Candidate, Ec);
-              }
-              else
-              {
-                   ResolvedPath = std::filesystem::absolute(Candidate, Ec);
-              }
-         }
-         else
-         {
-              ResolvedPath = Candidate;
-         }
-
-         return ResolvedPath.string();
+         return ResolveRelativePath(Candidate).string();
     };
 
     auto PickDefaultModel = [&]() -> std::string
@@ -425,7 +521,18 @@ void ServerConfig::ApplyConfiguration()
          return AIModelCatalog.front().Name;
     };
 
-    if (!ModelPathOverride.empty())
+    if (!ModelFileOverride.empty())
+    {
+         std::filesystem::path FilePath(ModelFileOverride);
+
+         if (!FilePath.is_absolute() && !AIModelsDirectory.empty())
+         {
+              FilePath = std::filesystem::path(AIModelsDirectory) / FilePath;
+         }
+
+         AIModelPath = ResolveRelativePath(FilePath).string();
+    }
+    else if (!ModelPathOverride.empty())
     {
          std::filesystem::path OverridePath(ModelPathOverride);
 
@@ -434,21 +541,7 @@ void ServerConfig::ApplyConfiguration()
               OverridePath = std::filesystem::path(AIModelsDirectory) / OverridePath;
          }
 
-         std::error_code Ec;
-
-         if (!OverridePath.is_absolute())
-         {
-              if (!ConfigDirectory.empty())
-              {
-                   OverridePath = std::filesystem::absolute(ConfigDirectory / OverridePath, Ec);
-              }
-              else
-              {
-                   OverridePath = std::filesystem::absolute(OverridePath, Ec);
-              }
-         }
-
-         AIModelPath = OverridePath.string();
+         AIModelPath = ResolveRelativePath(OverridePath).string();
     }
     else if (!AIModelCatalog.empty())
     {
@@ -475,6 +568,16 @@ void ServerConfig::ApplyConfiguration()
     else
     {
          AIModelPath.clear();
+    }
+
+    if (!AIInferenceCommand.empty())
+    {
+         AIInferenceCommand = ResolveRelativePath(std::filesystem::path(AIInferenceCommand)).string();
+    }
+
+    if (!SamDataDirectory.empty())
+    {
+         SamDataDirectory = ResolveRelativePath(std::filesystem::path(SamDataDirectory)).string();
     }
 
      /* Handle network binding configurations for multiple listeners */

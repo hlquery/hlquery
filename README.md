@@ -60,6 +60,11 @@ $ sudo pkg install git gmake cmake openssl
 $ git clone --branch 1.0 https://github.com/hlquery/hlquery.git
 $ cd hlquery/
 $ ./configure
+```
+
+On Linux:
+
+```
 $ make -j10
 $ make install
 ```
@@ -74,23 +79,28 @@ $ gmake install
 ### Running hlquery
 
 Start the server:
+
 ```bash
 $ ./run/hlquery start
 ```
 
 Stop the server:
+
 ```bash
 $ ./run/hlquery stop
 ```
 
-Check server status:
-```bash
-$ ./run/hlquery status
-```
-
 Run in foreground (for debugging):
+
 ```bash
 $ ./run/hlquery start --nofork
+```
+
+Run talk:
+
+```bash
+$ ./run/bin/hlquery-talk
+localhost:9200> 
 ```
 
 > **Note**: hlquery uses port **9200** by default. Ensure this port is available and not blocked by your firewall.
@@ -159,6 +169,7 @@ Official client libraries are available for popular programming languages:
 - **[Java](https://github.com/hlquery/java-api)** - Official Java client
 - **[Python](https://github.com/hlquery/python-api)** - Official Python client
 - **[PHP](https://github.com/hlquery/php-api)** - Official PHP client
+- **[Ruby](https://github.com/hlquery/ruby-api)** - Official Ruby client
 - **[Rust](https://github.com/hlquery/rust-api)** - Rust client library
 - **[Perl](https://github.com/hlquery/perl-api)** - Perl client library
 - **[C++](https://github.com/hlquery/cpp-api)** - C++ client library
@@ -195,7 +206,7 @@ We welcome contributions from the community! All contributions must be released 
 ### How to Contribute
 
 - Check existing [issues](https://github.com/hlquery/hlquery/issues) or create new ones
-- Contribute to client libraries (Node.js, Go, Java, Python, PHP, Rust, Perl, C++)
+- Contribute to client libraries (Node.js, Go, Java, Python, PHP, Ruby, Rust, Perl, C++)
 - Test and report bugs
 - Improve documentation
 - Join our [Discord community](https://discord.hlquery.com)

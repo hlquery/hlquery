@@ -352,8 +352,10 @@ void ListenManager::OnEventHandlerRead()
                          LoggedFileLimit = true;
                     }
 
-                    /* Sleep removed for maximum benchmark performance */
-                    /* Connection pressure will be handled by connection limit checks */
+                    /* 
+                     * Sleep removed for maximum benchmark performance *
+                     * Connection pressure will be handled by connection limit checks 
+                     */
 
                     break;
                }

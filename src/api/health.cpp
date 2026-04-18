@@ -1417,6 +1417,61 @@ HttpResponse SearchAPI::HandleStartup(const HttpRequest &Request)
      return Response;
 }
 
+HttpResponse SearchAPI::HandleLLM(const HttpRequest &Request)
+{
+     (void)Request;
+
+     nlohmann::json LLMJSON;
+     LLMJSON["status"] = "ok";
+     LLMJSON["configured"] = false;
+     LLMJSON["models_dir"] = "";
+     LLMJSON["model_name"] = "";
+     LLMJSON["model_path"] = "";
+     LLMJSON["inference_command"] = "";
+     LLMJSON["pending_context_jobs"] = 0;
+     LLMJSON["loaded_modules"] = nlohmann::json::array();
+     LLMJSON["ai_search_loaded"] = false;
+     LLMJSON["model_catalog"] = nlohmann::json::array();
+
+     if (Instance)
+     {
+          if (Instance->Modules)
+          {
+               const std::vector<std::string> LoadedModules = Instance->Modules->GetLoadedModuleNames();
+               LLMJSON["loaded_modules"] = LoadedModules;
+               LLMJSON["ai_search_loaded"] =
+                    std::find(LoadedModules.begin(), LoadedModules.end(), "ai_search") != LoadedModules.end();
+          }
+
+          if (Instance->LLM)
+          {
+               LLMJSON["configured"] = Instance->LLM->Configured();
+               LLMJSON["models_dir"] = Instance->LLM->GetModelsDirectory();
+               LLMJSON["model_name"] = Instance->LLM->GetModelName();
+               LLMJSON["model_path"] = Instance->LLM->GetModelPath();
+               LLMJSON["inference_command"] = Instance->LLM->GetInferenceCommand();
+               LLMJSON["pending_context_jobs"] =
+                    static_cast<unsigned long long>(Instance->LLM->GetPendingContextJobs());
+          }
+
+          if (Instance->Config)
+          {
+               for (const auto &Entry : Instance->Config->GetAIModelCatalog())
+               {
+                    nlohmann::json Item;
+                    Item["name"] = Entry.Name;
+                    Item["file"] = Entry.File;
+                    Item["default"] = Entry.IsDefault;
+                    LLMJSON["model_catalog"].push_back(std::move(Item));
+               }
+          }
+     }
+
+     HttpResponse Response(Status::OK, StatusText(Status::OK), "application/json");
+     Response.Body = LLMJSON.dump();
+     return Response;
+}
+
 /* HandleIntegrity performs data integrity check. */
 
 HttpResponse SearchAPI::HandleIntegrity(const HttpRequest &Request)

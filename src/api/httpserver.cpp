@@ -2499,6 +2499,30 @@ void HttpConnection::ProcessSingleRequest(const std::string &RequestStr)
      {
           Response = API.HandleUpdateKey(Request);
      }
+     else if (NormalizedPath == "/sam/rebuild" && Request.Method == "POST")
+     {
+          Response = API.HandleSAMRebuild(Request);
+     }
+     else if (NormalizedPath == "/sam/search" && Request.Method == "GET")
+     {
+          Response = API.HandleSAMSearch(Request);
+     }
+     else if (NormalizedPath == "/sam/status" && Request.Method == "GET")
+     {
+          Response = API.HandleSAMStatus(Request);
+     }
+     else if (NormalizedPath == "/sam/debug" && Request.Method == "GET")
+     {
+          Response = API.HandleSAMDebug(Request);
+     }
+     else if (NormalizedPath == "/sam/documents" && Request.Method == "GET")
+     {
+          Response = API.HandleSAMListDocuments(Request);
+     }
+     else if (NormalizedPath.find("/sam/documents/") == 0 && Request.Method == "GET")
+     {
+          Response = API.HandleSAMGetDocument(Request);
+     }
 
      /* Check for synonyms/stopwords/overrides FIRST before search to avoid false matches. */
      /* Check synonyms BEFORE search, because synonym IDs might contain "search". */
@@ -2806,6 +2830,10 @@ void HttpConnection::ProcessSingleRequest(const std::string &RequestStr)
      else if (Request.Path == "/stats" && Request.Method == "GET")
      {
           Response = API.HandleStats(Request);
+     }
+     else if (Request.Path == "/llm" && Request.Method == "GET")
+     {
+          Response = API.HandleLLM(Request);
      }
      else if (Request.Path == "/doctotal" && Request.Method == "GET")
      {
@@ -4585,6 +4613,11 @@ APIKeyAction MapRouteToKeyAction(RouteAction ActionVal)
           case RouteAction::GetDocument:
           case RouteAction::ListDocuments:
           case RouteAction::GetDocumentContext:
+          case RouteAction::SamSearch:
+          case RouteAction::SamStatus:
+          case RouteAction::SamDebug:
+          case RouteAction::SamListDocuments:
+          case RouteAction::SamGetDocument:
           case RouteAction::FacetCounts:
           case RouteAction::ExportDocuments:
                return APIKeyAction::SEARCH;
@@ -4638,6 +4671,9 @@ APIKeyAction MapRouteToKeyAction(RouteAction ActionVal)
 
           case RouteAction::BulkImportDocuments:
                return APIKeyAction::IMPORT;
+
+          case RouteAction::SamRebuild:
+               return APIKeyAction::UPDATE;
 
           default:
                return APIKeyAction::SEARCH;
@@ -5148,6 +5184,24 @@ HttpResponse ProcessRequestWithAPI(SearchAPI &API, const HttpRequest &Request)
 
                case RouteAction::GetDocumentContext:
                     return API.HandleGetDocumentContext(Request);
+
+               case RouteAction::SamRebuild:
+                    return API.HandleSAMRebuild(Request);
+
+               case RouteAction::SamSearch:
+                    return API.HandleSAMSearch(Request);
+
+               case RouteAction::SamStatus:
+                    return API.HandleSAMStatus(Request);
+
+               case RouteAction::SamDebug:
+                    return API.HandleSAMDebug(Request);
+
+               case RouteAction::SamListDocuments:
+                    return API.HandleSAMListDocuments(Request);
+
+               case RouteAction::SamGetDocument:
+                    return API.HandleSAMGetDocument(Request);
 
                case RouteAction::AddDocument:
                     return API.HandleAddDocument(Request);

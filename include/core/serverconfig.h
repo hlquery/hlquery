@@ -561,6 +561,196 @@ class ServerConfig
          return SamEnabled;
     }
 
+    const std::string& GetSamDataDirectory() const
+    {
+         return SamDataDirectory;
+    }
+
+    bool GetSam25DynamicQueryWeight() const
+    {
+         return Sam25DynamicQueryWeight;
+    }
+
+    double GetSam25ShortQueryPhraseBoost() const
+    {
+         return Sam25ShortQueryPhraseBoost;
+    }
+
+    double GetSam25LongQueryPhraseBoost() const
+    {
+         return Sam25LongQueryPhraseBoost;
+    }
+
+    double GetSam25SourcePhraseBoostTitle() const
+    {
+         return Sam25SourcePhraseBoostTitle;
+    }
+
+    double GetSam25SourcePhraseBoostLabelPair() const
+    {
+         return Sam25SourcePhraseBoostLabelPair;
+    }
+
+    double GetSam25SourcePhraseBoostLabel() const
+    {
+         return Sam25SourcePhraseBoostLabel;
+    }
+
+    double GetSam25SourcePhraseBoostLlm() const
+    {
+         return Sam25SourcePhraseBoostLlm;
+    }
+
+    bool GetSam25EnableIdf() const
+    {
+         return Sam25EnableIdf;
+    }
+
+    double GetSam25IdfFloor() const
+    {
+         return Sam25IdfFloor;
+    }
+
+    double GetSam25IdfCeiling() const
+    {
+         return Sam25IdfCeiling;
+    }
+
+    bool GetSam25EnableDocPrior() const
+    {
+         return Sam25EnableDocPrior;
+    }
+
+    const std::string& GetSam25DocPriorField() const
+    {
+         return Sam25DocPriorField;
+    }
+
+    double GetSam25DocPriorWeight() const
+    {
+         return Sam25DocPriorWeight;
+    }
+
+    int GetSam25OrderedSlop() const
+    {
+         return Sam25OrderedSlop;
+    }
+
+    int GetSam25UnorderedWindowSlop() const
+    {
+         return Sam25UnorderedWindowSlop;
+    }
+
+    bool GetSam25ExactPhraseRequiresStopwords() const
+    {
+         return Sam25ExactPhraseRequiresStopwords;
+    }
+
+    bool GetSam25ExactPhraseIgnoreOuterStopwords() const
+    {
+         return Sam25ExactPhraseIgnoreOuterStopwords;
+    }
+
+    bool GetSam25EnableSynonymExpansion() const
+    {
+         return Sam25EnableSynonymExpansion;
+    }
+
+    double GetSam25SynonymBoost() const
+    {
+         return Sam25SynonymBoost;
+    }
+
+    int GetSam25MaxSynonymsPerToken() const
+    {
+         return Sam25MaxSynonymsPerToken;
+    }
+
+    bool GetSam25EnableNoisePenalty() const
+    {
+         return Sam25EnableNoisePenalty;
+    }
+
+    double GetSam25NoisePenalty() const
+    {
+         return Sam25NoisePenalty;
+    }
+
+    double GetSam25NoisePenaltyLlmExtra() const
+    {
+         return Sam25NoisePenaltyLlmExtra;
+    }
+
+    double GetSam25MinCoverage() const
+    {
+         return Sam25MinCoverage;
+    }
+
+    double GetSam25MinOrderedBoostForPhrase() const
+    {
+         return Sam25MinOrderedBoostForPhrase;
+    }
+
+    double GetSam25MinFinalScore() const
+    {
+         return Sam25MinFinalScore;
+    }
+
+    bool GetSam25EnableSourceDocMerge() const
+    {
+         return Sam25EnableSourceDocMerge;
+    }
+
+    double GetSam25SourceDocWeight() const
+    {
+         return Sam25SourceDocWeight;
+    }
+
+    double GetSam25SourceDocTitleWeight() const
+    {
+         return Sam25SourceDocTitleWeight;
+    }
+
+    double GetSam25SourceDocDescriptionWeight() const
+    {
+         return Sam25SourceDocDescriptionWeight;
+    }
+
+    double GetSam25SourceDocLabelsWeight() const
+    {
+         return Sam25SourceDocLabelsWeight;
+    }
+
+    double GetSam25SourceDocContentWeight() const
+    {
+         return Sam25SourceDocContentWeight;
+    }
+
+    double GetSam25SourceDocMinScore() const
+    {
+         return Sam25SourceDocMinScore;
+    }
+
+    double GetSam25SourceDocMergeBonus() const
+    {
+         return Sam25SourceDocMergeBonus;
+    }
+
+    bool GetSam25DebugExplain() const
+    {
+         return Sam25DebugExplain;
+    }
+
+    int GetSam25DebugLogTopK() const
+    {
+         return Sam25DebugLogTopK;
+    }
+
+    bool GetSam25DebugIncludeComponents() const
+    {
+         return Sam25DebugIncludeComponents;
+    }
+
      /* Search settings */
 
      /* Returns default ranking name. */
@@ -1814,6 +2004,44 @@ class ServerConfig
     std::string AIInferenceCommand;
     std::vector<AIModelDescriptor> AIModelCatalog;
     bool SamEnabled = false;
+    std::string SamDataDirectory = HLQUERY_SAM_DATA_DIR;
+    bool Sam25DynamicQueryWeight = true;
+    double Sam25ShortQueryPhraseBoost = 1.20;
+    double Sam25LongQueryPhraseBoost = 0.85;
+    double Sam25SourcePhraseBoostTitle = 1.25;
+    double Sam25SourcePhraseBoostLabelPair = 1.15;
+    double Sam25SourcePhraseBoostLabel = 1.00;
+    double Sam25SourcePhraseBoostLlm = 0.85;
+    bool Sam25EnableIdf = true;
+    double Sam25IdfFloor = 0.10;
+    double Sam25IdfCeiling = 2.50;
+    bool Sam25EnableDocPrior = false;
+    std::string Sam25DocPriorField = "popularity_score";
+    double Sam25DocPriorWeight = 0.08;
+    int Sam25OrderedSlop = 2;
+    int Sam25UnorderedWindowSlop = 3;
+    bool Sam25ExactPhraseRequiresStopwords = true;
+    bool Sam25ExactPhraseIgnoreOuterStopwords = true;
+    bool Sam25EnableSynonymExpansion = true;
+    double Sam25SynonymBoost = 0.72;
+    int Sam25MaxSynonymsPerToken = 4;
+    bool Sam25EnableNoisePenalty = true;
+    double Sam25NoisePenalty = 0.18;
+    double Sam25NoisePenaltyLlmExtra = 0.10;
+    double Sam25MinCoverage = 0.50;
+    double Sam25MinOrderedBoostForPhrase = 0.20;
+    double Sam25MinFinalScore = 0.35;
+    bool Sam25EnableSourceDocMerge = true;
+    double Sam25SourceDocWeight = 0.90;
+    double Sam25SourceDocTitleWeight = 1.20;
+    double Sam25SourceDocDescriptionWeight = 1.08;
+    double Sam25SourceDocLabelsWeight = 1.10;
+    double Sam25SourceDocContentWeight = 0.92;
+    double Sam25SourceDocMinScore = 0.32;
+    double Sam25SourceDocMergeBonus = 0.10;
+    bool Sam25DebugExplain = false;
+    int Sam25DebugLogTopK = 10;
+    bool Sam25DebugIncludeComponents = true;
 
      /* Default ranking name. */
 

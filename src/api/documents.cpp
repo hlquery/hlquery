@@ -91,6 +91,91 @@ static nlohmann::json BuildDocumentJSON(const Document &Doc)
      return J;
 }
 
+static std::string TrimCopy(const std::string &Value)
+{
+     const size_t Start = Value.find_first_not_of(" \t\r\n");
+
+     if (Start == std::string::npos)
+     {
+          return "";
+     }
+
+     const size_t End = Value.find_last_not_of(" \t\r\n");
+     return Value.substr(Start, End - Start + 1);
+}
+
+static bool ParseNonNegativeIntParam(const std::map<std::string, std::string> &Params,
+                                     const std::string &Key,
+                                     int DefaultValue,
+                                     int &OutValue)
+{
+     OutValue = DefaultValue;
+
+     const auto It = Params.find(Key);
+
+     if (It == Params.end())
+     {
+          return true;
+     }
+
+     try
+     {
+          const int Parsed = std::stoi(It->second);
+
+          if (Parsed < 0)
+          {
+               return false;
+          }
+
+          OutValue = Parsed;
+          return true;
+     }
+     catch (...)
+     {
+          return false;
+     }
+}
+
+static bool ExtractSAMDocumentPathParts(const std::string &Path,
+                                        std::string &Collection,
+                                        std::string &DocumentID)
+{
+     Collection.clear();
+     DocumentID.clear();
+
+     std::string Normalized = Path;
+     const size_t QueryPos = Normalized.find('?');
+
+     if (QueryPos != std::string::npos)
+     {
+          Normalized = Normalized.substr(0, QueryPos);
+     }
+
+     if (Normalized.size() > 1 && Normalized.back() == '/')
+     {
+          Normalized.pop_back();
+     }
+
+     const std::string Prefix = "/sam/documents/";
+
+     if (Normalized.rfind(Prefix, 0) != 0)
+     {
+          return false;
+     }
+
+     const std::string Remainder = Normalized.substr(Prefix.size());
+     const size_t SlashPos = Remainder.find('/');
+
+     if (SlashPos == std::string::npos || SlashPos == 0 || SlashPos + 1 >= Remainder.size())
+     {
+          return false;
+     }
+
+     Collection = Remainder.substr(0, SlashPos);
+     DocumentID = Remainder.substr(SlashPos + 1);
+     return !Collection.empty() && !DocumentID.empty();
+}
+
 }
 
 static void SyncSamDocument(const std::string& CollectionName, const Document& Doc)
@@ -103,19 +188,6 @@ static void SyncSamDocument(const std::string& CollectionName, const Document& D
      if (Instance->LLM)
      {
           Instance->LLM->EnqueueContextualization(CollectionName, Doc);
-     }
-
-     if (!Instance->Sam)
-     {
-          return;
-     }
-
-     std::string ErrorMessage;
-
-     if (!Instance->Sam->IndexDocument(CollectionName, Doc, &ErrorMessage) &&
-         Instance->Logs && !ErrorMessage.empty())
-     {
-          Instance->Logs->Normal("sam", "Failed to index SAM document '" + CollectionName + "/" + Doc.ID + "': " + ErrorMessage + ".");
      }
 }
 
@@ -1849,6 +1921,511 @@ HttpResponse SearchAPI::HandleGetDocumentContext(const HttpRequest &Request)
                {"kind", Suggestion.Kind}
           });
      }
+
+     HttpResponse Response(Status::OK, StatusText(Status::OK), "application/json");
+     Response.Body = Root.dump();
+     return Response;
+}
+
+HttpResponse SearchAPI::HandleSAMRebuild(const HttpRequest &Request)
+{
+     if (Request.Method != "POST")
+     {
+          return HttpResponse(Status::METHOD_NOT_ALLOWED, StatusText(Status::METHOD_NOT_ALLOWED), "application/json");
+     }
+
+     const auto CollectionIt = Request.QueryParams.find("collection");
+     const std::string CollectionName = (CollectionIt != Request.QueryParams.end()) ? TrimCopy(CollectionIt->second) : "";
+
+     if (CollectionName.empty())
+     {
+          return BuildErrorResponse(Status::BAD_REQUEST,
+                                    Code::SEARCH_INVALID_PARAMETER,
+                                    "Missing collection",
+                                    "Query parameter 'collection' is required.");
+     }
+
+     if (!HybridStorageManagerInstance().CollectionExists(CollectionName))
+     {
+          return BuildErrorResponse(Status::NOT_FOUND,
+                                    Code::COLLECTION_NOT_FOUND,
+                                    "Collection not found",
+                                    "The specified collection does not exist.");
+     }
+
+     if (!Instance || !Instance->Sam || !Instance->Sam->IsOpen())
+     {
+          return BuildErrorResponse(Status::SERVICE_UNAVAILABLE,
+                                    Code::SEARCH_INVALID_PARAMETER,
+                                    "SAM unavailable",
+                                    "Secondary Assistant Manager is not initialized.");
+     }
+
+     std::string ErrorMessage;
+     bool AlreadyRunning = false;
+
+     if (!Instance->Sam->StartRecreateCollectionAsync(CollectionName, &AlreadyRunning, &ErrorMessage))
+     {
+          return BuildErrorResponse(Status::INTERNAL_SERVER_ERROR,
+                                    Code::SEARCH_INVALID_PARAMETER,
+                                    "SAM rebuild failed",
+                                    ErrorMessage.empty() ? std::string("Unable to start SAM rebuild.") : ErrorMessage);
+     }
+
+     nlohmann::json Root;
+     Root["ok"] = true;
+     Root["collection"] = CollectionName;
+     Root["started"] = !AlreadyRunning;
+     Root["running"] = true;
+     Root["message"] = AlreadyRunning ? "SAM rebuild already running" : "SAM rebuild started";
+
+     HttpResponse Response(AlreadyRunning ? Status::OK : Status::ACCEPTED,
+                           StatusText(AlreadyRunning ? Status::OK : Status::ACCEPTED),
+                           "application/json");
+     Response.Body = Root.dump();
+     return Response;
+}
+
+HttpResponse SearchAPI::HandleSAMSearch(const HttpRequest &Request)
+{
+     if (Request.Method != "GET")
+     {
+          return HttpResponse(Status::METHOD_NOT_ALLOWED, StatusText(Status::METHOD_NOT_ALLOWED), "application/json");
+     }
+
+     const auto CollectionIt = Request.QueryParams.find("collection");
+     const auto QueryIt = Request.QueryParams.find("q");
+     const std::string CollectionName = (CollectionIt != Request.QueryParams.end()) ? TrimCopy(CollectionIt->second) : "";
+     const std::string Query = (QueryIt != Request.QueryParams.end()) ? TrimCopy(QueryIt->second) : "";
+
+     if (CollectionName.empty() || Query.empty())
+     {
+          return BuildErrorResponse(Status::BAD_REQUEST,
+                                    Code::SEARCH_INVALID_PARAMETER,
+                                    "Missing SAM search parameters",
+                                    "Query parameters 'collection' and 'q' are required.");
+     }
+
+     if (!HybridStorageManagerInstance().CollectionExists(CollectionName))
+     {
+          return BuildErrorResponse(Status::NOT_FOUND,
+                                    Code::COLLECTION_NOT_FOUND,
+                                    "Collection not found",
+                                    "The specified collection does not exist.");
+     }
+
+     if (!Instance || !Instance->Sam || !Instance->Sam->IsOpen())
+     {
+          return BuildErrorResponse(Status::SERVICE_UNAVAILABLE,
+                                    Code::SEARCH_INVALID_PARAMETER,
+                                    "SAM unavailable",
+                                    "Secondary Assistant Manager is not initialized.");
+     }
+
+     int LimitVal = 20;
+
+     if (!ParseNonNegativeIntParam(Request.QueryParams, "limit", 20, LimitVal) || LimitVal <= 0)
+     {
+          return BuildErrorResponse(Status::BAD_REQUEST,
+                                    Code::SEARCH_INVALID_PARAMETER,
+                                    "Invalid limit",
+                                    "Query parameter 'limit' must be a positive integer.");
+     }
+
+     const std::vector<SAM::LookupHit> Hits = Instance->Sam->Lookup(CollectionName, Query, static_cast<size_t>(LimitVal));
+     nlohmann::json Root;
+     Root["ok"] = true;
+     Root["collection"] = CollectionName;
+     Root["query"] = Query;
+     Root["count"] = Hits.size();
+     Root["hits"] = nlohmann::json::array();
+
+     for (const auto &Hit : Hits)
+     {
+          nlohmann::json HitJson = {
+               {"collection", Hit.Collection},
+               {"id", Hit.DocumentID},
+               {"title", Hit.Title},
+               {"term", Hit.MatchedTerm},
+               {"kind", Hit.MatchedKind},
+               {"source", Hit.MatchedSource},
+               {"score", Hit.MatchedScore},
+               {"signal", Hit.MatchedSignal}
+          };
+
+          if (Instance->Config && Instance->Config->GetSam25DebugExplain() && !Hit.Explain.empty())
+          {
+               HitJson["explain"] = Hit.Explain;
+          }
+
+          Root["hits"].push_back(std::move(HitJson));
+     }
+
+     HttpResponse Response(Status::OK, StatusText(Status::OK), "application/json");
+     Response.Body = Root.dump();
+     return Response;
+}
+
+HttpResponse SearchAPI::HandleSAMStatus(const HttpRequest &Request)
+{
+     if (Request.Method != "GET")
+     {
+          return HttpResponse(Status::METHOD_NOT_ALLOWED, StatusText(Status::METHOD_NOT_ALLOWED), "application/json");
+     }
+
+     const auto CollectionIt = Request.QueryParams.find("collection");
+     const std::string CollectionName = (CollectionIt != Request.QueryParams.end()) ? TrimCopy(CollectionIt->second) : "";
+
+     if (!Instance || !Instance->Sam || !Instance->Sam->IsOpen())
+     {
+          return BuildErrorResponse(Status::SERVICE_UNAVAILABLE,
+                                    Code::SEARCH_INVALID_PARAMETER,
+                                    "SAM unavailable",
+                                    "Secondary Assistant Manager is not initialized.");
+     }
+
+     nlohmann::json Root;
+     Root["ok"] = true;
+     Root["collections"] = nlohmann::json::array();
+     Root["running_collections"] = nlohmann::json::array();
+
+     const std::map<std::string, SAM::CollectionJobStatus> AllStatuses = Instance->Sam->GetAllCollectionJobStatuses();
+     size_t RunningCount = 0;
+
+     for (const auto &Entry : AllStatuses)
+     {
+          if (!CollectionName.empty() && Entry.first != CollectionName)
+          {
+               continue;
+          }
+
+          if (!CollectionName.empty() && !HybridStorageManagerInstance().CollectionExists(CollectionName))
+          {
+               return BuildErrorResponse(Status::NOT_FOUND,
+                                         Code::COLLECTION_NOT_FOUND,
+                                         "Collection not found",
+                                         "The specified collection does not exist.");
+          }
+
+          nlohmann::json JobJson = {
+               {"collection", Entry.first},
+               {"known", true},
+               {"running", Entry.second.Running},
+               {"completed", Entry.second.Completed},
+               {"indexed", Entry.second.IndexedDocuments},
+               {"failed", Entry.second.FailedDocuments},
+               {"error", Entry.second.ErrorMessage}
+          };
+
+          Root["collections"].push_back(JobJson);
+
+          if (Entry.second.Running)
+          {
+               Root["running_collections"].push_back(Entry.first);
+               RunningCount++;
+          }
+     }
+
+     if (!CollectionName.empty() && AllStatuses.find(CollectionName) == AllStatuses.end())
+     {
+          if (!HybridStorageManagerInstance().CollectionExists(CollectionName))
+          {
+               return BuildErrorResponse(Status::NOT_FOUND,
+                                         Code::COLLECTION_NOT_FOUND,
+                                         "Collection not found",
+                                         "The specified collection does not exist.");
+          }
+
+          Root["collection"] = CollectionName;
+          Root["known"] = false;
+          Root["running"] = false;
+          Root["completed"] = false;
+          Root["indexed"] = 0;
+          Root["failed"] = 0;
+          Root["error"] = std::string();
+          Root["message"] = "No SAM rebuild has been recorded for this collection.";
+     }
+     else if (!CollectionName.empty())
+     {
+          const SAM::CollectionJobStatus &JobStatus = AllStatuses.at(CollectionName);
+          Root["collection"] = CollectionName;
+          Root["known"] = true;
+          Root["running"] = JobStatus.Running;
+          Root["completed"] = JobStatus.Completed;
+          Root["indexed"] = JobStatus.IndexedDocuments;
+          Root["failed"] = JobStatus.FailedDocuments;
+          Root["error"] = JobStatus.ErrorMessage;
+          Root["message"] = JobStatus.Running ? "SAM indexing is running."
+                                              : (JobStatus.Completed ? "SAM indexing is idle."
+                                                                     : "SAM indexing has not started.");
+     }
+     else
+     {
+          Root["running_count"] = RunningCount;
+          Root["known_count"] = Root["collections"].size();
+          Root["message"] = RunningCount > 0 ? "SAM indexing is running in the background."
+                                             : "No SAM collections are currently indexing.";
+     }
+
+     HttpResponse Response(Status::OK, StatusText(Status::OK), "application/json");
+     Response.Body = Root.dump();
+     return Response;
+}
+
+HttpResponse SearchAPI::HandleSAMDebug(const HttpRequest &Request)
+{
+     if (Request.Method != "GET")
+     {
+          return HttpResponse(Status::METHOD_NOT_ALLOWED, StatusText(Status::METHOD_NOT_ALLOWED), "application/json");
+     }
+
+     if (!Instance || !Instance->Sam || !Instance->Sam->IsOpen())
+     {
+          return BuildErrorResponse(Status::SERVICE_UNAVAILABLE,
+                                    Code::SEARCH_INVALID_PARAMETER,
+                                    "SAM unavailable",
+                                    "Secondary Assistant Manager is not initialized.");
+     }
+
+     const auto CollectionIt = Request.QueryParams.find("collection");
+     const std::string CollectionName = (CollectionIt != Request.QueryParams.end()) ? TrimCopy(CollectionIt->second) : "";
+
+     if (!CollectionName.empty() && !HybridStorageManagerInstance().CollectionExists(CollectionName))
+     {
+          return BuildErrorResponse(Status::NOT_FOUND,
+                                    Code::COLLECTION_NOT_FOUND,
+                                    "Collection not found",
+                                    "The specified collection does not exist.");
+     }
+
+     int LimitVal = 100;
+     int SinceVal = 0;
+
+     if (!ParseNonNegativeIntParam(Request.QueryParams, "limit", 100, LimitVal) || LimitVal <= 0)
+     {
+          return BuildErrorResponse(Status::BAD_REQUEST,
+                                    Code::SEARCH_INVALID_PARAMETER,
+                                    "Invalid limit",
+                                    "Query parameter 'limit' must be a positive integer.");
+     }
+
+     if (!ParseNonNegativeIntParam(Request.QueryParams, "since", 0, SinceVal))
+     {
+          return BuildErrorResponse(Status::BAD_REQUEST,
+                                    Code::SEARCH_INVALID_PARAMETER,
+                                    "Invalid since",
+                                    "Query parameter 'since' must be a non-negative integer.");
+     }
+
+     nlohmann::json Root;
+     Root["ok"] = true;
+     Root["collection"] = CollectionName;
+     Root["since"] = SinceVal;
+     Root["latest_sequence"] = Instance->Sam->GetLatestDebugSequence();
+     Root["events"] = nlohmann::json::array();
+
+     SAM::CollectionJobStatus JobStatus;
+     const bool HasJobStatus = !CollectionName.empty() && Instance->Sam->GetCollectionJobStatus(CollectionName, JobStatus);
+     Root["running"] = HasJobStatus && JobStatus.Running;
+     Root["known"] = HasJobStatus;
+
+     const std::vector<SAM::DebugEvent> Events = Instance->Sam->GetDebugEvents(CollectionName,
+                                                                               static_cast<uint64_t>(SinceVal),
+                                                                               static_cast<size_t>(LimitVal));
+
+     for (const auto &Event : Events)
+     {
+          Root["events"].push_back({
+               {"sequence", Event.Sequence},
+               {"collection", Event.Collection},
+               {"message", Event.Message}
+          });
+     }
+
+     HttpResponse Response(Status::OK, StatusText(Status::OK), "application/json");
+     Response.Body = Root.dump();
+     return Response;
+}
+
+HttpResponse SearchAPI::HandleSAMListDocuments(const HttpRequest &Request)
+{
+     if (Request.Method != "GET")
+     {
+          return HttpResponse(Status::METHOD_NOT_ALLOWED, StatusText(Status::METHOD_NOT_ALLOWED), "application/json");
+     }
+
+     const auto CollectionIt = Request.QueryParams.find("collection");
+     const std::string CollectionName = (CollectionIt != Request.QueryParams.end()) ? TrimCopy(CollectionIt->second) : "";
+
+     if (CollectionName.empty())
+     {
+          return BuildErrorResponse(Status::BAD_REQUEST,
+                                    Code::SEARCH_INVALID_PARAMETER,
+                                    "Missing collection",
+                                    "Query parameter 'collection' is required.");
+     }
+
+     if (!HybridStorageManagerInstance().CollectionExists(CollectionName))
+     {
+          return BuildErrorResponse(Status::NOT_FOUND,
+                                    Code::COLLECTION_NOT_FOUND,
+                                    "Collection not found",
+                                    "The specified collection does not exist.");
+     }
+
+     if (!Instance || !Instance->Sam || !Instance->Sam->IsOpen())
+     {
+          return BuildErrorResponse(Status::SERVICE_UNAVAILABLE,
+                                    Code::SEARCH_INVALID_PARAMETER,
+                                    "SAM unavailable",
+                                    "Secondary Assistant Manager is not initialized.");
+     }
+
+     int OffsetVal = 0;
+     int LimitVal = 20;
+
+     if (!ParseNonNegativeIntParam(Request.QueryParams, "offset", 0, OffsetVal))
+     {
+          return BuildErrorResponse(Status::BAD_REQUEST,
+                                    Code::SEARCH_INVALID_PARAMETER,
+                                    "Invalid offset",
+                                    "Query parameter 'offset' must be a non-negative integer.");
+     }
+
+     if (!ParseNonNegativeIntParam(Request.QueryParams, "limit", 20, LimitVal) || LimitVal <= 0)
+     {
+          return BuildErrorResponse(Status::BAD_REQUEST,
+                                    Code::SEARCH_INVALID_PARAMETER,
+                                    "Invalid limit",
+                                    "Query parameter 'limit' must be a positive integer.");
+     }
+
+     const std::vector<SAM::DocumentEntry> Entries = Instance->Sam->ListDocuments(CollectionName,
+                                                                                  static_cast<size_t>(LimitVal),
+                                                                                  static_cast<size_t>(OffsetVal));
+     SAM::CollectionJobStatus JobStatus;
+     const bool HasJobStatus = Instance->Sam->GetCollectionJobStatus(CollectionName, JobStatus);
+     nlohmann::json Root;
+     Root["ok"] = true;
+     Root["collection"] = CollectionName;
+     Root["offset"] = OffsetVal;
+     Root["limit"] = LimitVal;
+     Root["count"] = Entries.size();
+     Root["rebuilding"] = HasJobStatus && JobStatus.Running;
+     Root["job"] = {
+          {"known", HasJobStatus},
+          {"running", HasJobStatus && JobStatus.Running},
+          {"completed", HasJobStatus && JobStatus.Completed},
+          {"indexed", HasJobStatus ? JobStatus.IndexedDocuments : 0},
+          {"failed", HasJobStatus ? JobStatus.FailedDocuments : 0},
+          {"error", HasJobStatus ? JobStatus.ErrorMessage : std::string()}
+     };
+     Root["documents"] = nlohmann::json::array();
+
+     for (const auto &Entry : Entries)
+     {
+          nlohmann::json TermsJSON = nlohmann::json::array();
+
+          for (const auto &Term : Entry.Terms)
+          {
+               TermsJSON.push_back({
+                    {"text", Term.Text},
+                    {"kind", Term.Kind},
+                    {"source", Term.Source},
+                    {"score", Term.Score},
+                    {"signal", Term.Signal}
+               });
+          }
+
+          Root["documents"].push_back({
+               {"collection", Entry.Collection},
+               {"id", Entry.DocumentID},
+               {"title", Entry.Title},
+               {"terms", TermsJSON}
+          });
+     }
+
+     HttpResponse Response(Status::OK, StatusText(Status::OK), "application/json");
+     Response.Body = Root.dump();
+     return Response;
+}
+
+HttpResponse SearchAPI::HandleSAMGetDocument(const HttpRequest &Request)
+{
+     if (Request.Method != "GET")
+     {
+          return HttpResponse(Status::METHOD_NOT_ALLOWED, StatusText(Status::METHOD_NOT_ALLOWED), "application/json");
+     }
+
+     std::string CollectionName;
+     std::string DocumentID;
+
+     if (!ExtractSAMDocumentPathParts(Request.Path, CollectionName, DocumentID))
+     {
+          return BuildErrorResponse(Status::BAD_REQUEST,
+                                    Code::SEARCH_INVALID_PARAMETER,
+                                    "Invalid SAM path",
+                                    "Expected /sam/documents/<collection>/<document-id>.");
+     }
+
+     if (!HybridStorageManagerInstance().CollectionExists(CollectionName))
+     {
+          return BuildErrorResponse(Status::NOT_FOUND,
+                                    Code::COLLECTION_NOT_FOUND,
+                                    "Collection not found",
+                                    "The specified collection does not exist.");
+     }
+
+     if (!Instance || !Instance->Sam || !Instance->Sam->IsOpen())
+     {
+          return BuildErrorResponse(Status::SERVICE_UNAVAILABLE,
+                                    Code::SEARCH_INVALID_PARAMETER,
+                                    "SAM unavailable",
+                                    "Secondary Assistant Manager is not initialized.");
+     }
+
+     SAM::DocumentEntry Entry;
+     std::string ErrorMessage;
+     SAM::CollectionJobStatus JobStatus;
+     const bool HasJobStatus = Instance->Sam->GetCollectionJobStatus(CollectionName, JobStatus);
+
+     if (!Instance->Sam->GetDocumentEntry(CollectionName, DocumentID, Entry, &ErrorMessage))
+     {
+          return BuildErrorResponse(Status::NOT_FOUND,
+                                    Code::DOCUMENT_NOT_FOUND,
+                                    "SAM document not found",
+                                    ErrorMessage.empty() ? std::string("The specified SAM document does not exist.") : ErrorMessage);
+     }
+
+     Document StorageDoc = HybridStorageManagerInstance().GetDocument(CollectionName, DocumentID);
+     nlohmann::json Root;
+     Root["ok"] = true;
+     Root["collection"] = Entry.Collection;
+     Root["id"] = Entry.DocumentID;
+     Root["title"] = Entry.Title;
+     Root["terms"] = nlohmann::json::array();
+
+     for (const auto &Term : Entry.Terms)
+     {
+          Root["terms"].push_back({
+               {"text", Term.Text},
+               {"kind", Term.Kind},
+               {"source", Term.Source},
+               {"score", Term.Score},
+               {"signal", Term.Signal}
+          });
+     }
+
+     Root["rebuilding"] = HasJobStatus && JobStatus.Running;
+     Root["job"] = {
+          {"known", HasJobStatus},
+          {"running", HasJobStatus && JobStatus.Running},
+          {"completed", HasJobStatus && JobStatus.Completed},
+          {"indexed", HasJobStatus ? JobStatus.IndexedDocuments : 0},
+          {"failed", HasJobStatus ? JobStatus.FailedDocuments : 0},
+          {"error", HasJobStatus ? JobStatus.ErrorMessage : std::string()}
+     };
+     Root["document"] = BuildDocumentJSON(StorageDoc);
 
      HttpResponse Response(Status::OK, StatusText(Status::OK), "application/json");
      Response.Body = Root.dump();

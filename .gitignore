@@ -23,6 +23,7 @@ run/models/*
 run/ai/
 run/modules/*.so
 run/data/
+run/conf/run/
 run/ssl/
 run/pid/
 2nd/data/
