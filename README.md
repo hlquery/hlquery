@@ -98,7 +98,7 @@ $ ./run/hlquery start --nofork
 
 Run talk:
 
-```bash
+```text
 $ ./run/bin/hlquery-talk
 localhost:9200> 
 ```

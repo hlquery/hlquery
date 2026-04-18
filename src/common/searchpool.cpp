@@ -62,9 +62,13 @@ SearchThreadPool::~SearchThreadPool()
 
 void SearchThreadPool::Start()
 {
-     if (!Workers.empty())
      {
-          return;
+          std::lock_guard<std::mutex> Lock(WorkersMutex);
+
+          if (!Workers.empty())
+          {
+               return;
+          }
      }
 
      /* Calculate available thread slots respecting global limit */
@@ -126,14 +130,19 @@ void SearchThreadPool::Start()
           }
 
           auto worker = std::make_unique<WorkerThread>();
+          WorkerThread *worker_ptr = worker.get();
 
-          Workers.push_back(std::move(worker));
+          {
+               std::lock_guard<std::mutex> Lock(WorkersMutex);
+               Workers.push_back(std::move(worker));
+               ActiveWorkerCount.store(Workers.size(), std::memory_order_release);
+          }
 
           /* Register thread before creating to prevent exceeding limit */
 
           ThreadLimit::IncrementThreadCount();
 
-          Workers[i]->Thread = std::thread([this, i]()
+          worker_ptr->Thread = std::thread([this, worker_ptr, i]()
                                            {
                                                 /* Set thread name */
 
@@ -141,16 +150,16 @@ void SearchThreadPool::Start()
 
                                                 ThreadLimit::SetThreadName(thread_name.c_str());
 
-                                                WorkerLoop(i);
+                                                WorkerLoop(worker_ptr, i);
                                            });
 
           if (Config.EnableCPUAffinity && !CPUCores.empty())
           {
                int cpu_core = CPUCores[i % CPUCores.size()];
 
-               SetThreadAffinity(Workers[i]->Thread, cpu_core);
+               SetThreadAffinity(worker_ptr->Thread, cpu_core);
 
-               Workers[i]->CPUCore = cpu_core;
+               worker_ptr->CPUCore = cpu_core;
           }
      }
 }
@@ -162,6 +171,8 @@ void SearchThreadPool::Shutdown()
      QueueCV.notify_all();
 
      /* Join all worker threads (daemon mode removed - always join, never detach) */
+
+     std::lock_guard<std::mutex> Lock(WorkersMutex);
 
      size_t NumThreads = Workers.size();
 
@@ -197,6 +208,7 @@ void SearchThreadPool::Shutdown()
      }
 
      Workers.clear();
+     ActiveWorkerCount.store(0, std::memory_order_release);
 
      try
      {
@@ -227,9 +239,12 @@ SearchThreadPool::PoolStats SearchThreadPool::GetStats()
      PoolStats Stats;
 
      Stats.ActiveThreads = 0;
-     Stats.TotalThreads = Workers.size();
      Stats.CompletedTasks = CompletedTasks.load();
      Stats.RejectedTasks = RejectedTasks.load();
+
+     std::lock_guard<std::mutex> WorkersLock(WorkersMutex);
+
+     Stats.TotalThreads = Workers.size();
 
      for (const auto &worker : Workers)
      {
@@ -290,6 +305,8 @@ void SearchThreadPool::SetCPUAffinity(const std::vector<int> &cpu_cores)
 
      /* Apply affinity to existing threads */
 
+     std::lock_guard<std::mutex> Lock(WorkersMutex);
+
      for (size_t i = 0; i < Workers.size() && i < CPUCores.size(); ++i)
      {
           SetThreadAffinity(Workers[i]->Thread, CPUCores[i]);
@@ -311,22 +328,8 @@ void SearchThreadPool::EnableNUMAOptimization()
      }
 }
 
-void SearchThreadPool::WorkerLoop(size_t worker_id)
+void SearchThreadPool::WorkerLoop(WorkerThread *worker, size_t worker_id)
 {
-     /* Validate worker_id bounds to prevent crash during scale-down */
-
-     if (worker_id >= Workers.size())
-     {
-          if (Instance && Instance->Logs)
-          {
-               Instance->Logs->Normal("thread_pool", "WorkerLoop: Invalid worker_id " + std::to_string(worker_id) + " (size=" + std::to_string(Workers.size()) + "), exiting.");
-          }
-
-          return;
-     }
-
-     WorkerThread *worker = Workers[worker_id].get();
-
      if (!worker)
      {
           if (Instance && Instance->Logs)
@@ -339,13 +342,6 @@ void SearchThreadPool::WorkerLoop(size_t worker_id)
 
      while (!ShutdownFlag && worker->Running.load())
      {
-          /* Re-validate on each iteration in case worker was removed during scale-down */
-
-          if (worker_id >= Workers.size() || Workers[worker_id].get() != worker)
-          {
-               break;
-          }
-
           Task task;
 
           bool HasTask = false;
@@ -446,7 +442,7 @@ bool SearchThreadPool::TryStealWork(size_t worker_id, Task &task)
 
      /* Try to steal from other workers */
 
-     size_t NumWorkers = Workers.size();
+     size_t NumWorkers = ActiveWorkerCount.load(std::memory_order_acquire);
 
      for (size_t i = 0; i < NumWorkers; ++i)
      {
@@ -483,6 +479,8 @@ void SearchThreadPool::UpdateStatistics(const std::chrono::steady_clock::time_po
 
 void SearchThreadPool::ScaleThreads(size_t target_threads)
 {
+     std::lock_guard<std::mutex> Lock(WorkersMutex);
+
      size_t CurrentThreads = Workers.size();
 
      if (target_threads > CurrentThreads)
@@ -508,32 +506,40 @@ void SearchThreadPool::ScaleThreads(size_t target_threads)
                try
                {
                     auto worker = std::make_unique<WorkerThread>();
+                    WorkerThread *worker_ptr = worker.get();
 
-                    worker->Thread = std::thread([this, i]()
-                                                 {
-                                                      /* Set thread name */
+                    Workers.push_back(std::move(worker));
+                    ActiveWorkerCount.store(Workers.size(), std::memory_order_release);
 
-                                                      std::string thread_name = "hlquery:search:" + std::to_string(i);
+                    worker_ptr->Thread = std::thread([this, worker_ptr, i]()
+                                                     {
+                                                          /* Set thread name */
 
-                                                      ThreadLimit::SetThreadName(thread_name.c_str());
+                                                          std::string thread_name = "hlquery:search:" + std::to_string(i);
 
-                                                      WorkerLoop(i);
-                                                 });
+                                                          ThreadLimit::SetThreadName(thread_name.c_str());
+
+                                                          WorkerLoop(worker_ptr, i);
+                                                     });
 
                     if (Config.EnableCPUAffinity && !CPUCores.empty())
                     {
                          int cpu_core = CPUCores[i % CPUCores.size()];
 
-                         SetThreadAffinity(worker->Thread, cpu_core);
+                         SetThreadAffinity(worker_ptr->Thread, cpu_core);
 
-                         worker->CPUCore = cpu_core;
+                         worker_ptr->CPUCore = cpu_core;
                     }
-
-                    Workers.push_back(std::move(worker));
                }
                catch (const std::exception &e)
                {
                     /* Thread creation failed - unregister to maintain accurate count */
+
+                    if (!Workers.empty())
+                    {
+                         Workers.pop_back();
+                         ActiveWorkerCount.store(Workers.size(), std::memory_order_release);
+                    }
 
                     ThreadLimit::DecrementThreadCount();
 
@@ -584,6 +590,8 @@ void SearchThreadPool::ScaleThreads(size_t target_threads)
                }
           }
 
+          ActiveWorkerCount.store(target_threads, std::memory_order_release);
+
           /* Wake workers so only the selected tail threads can observe Running=false and exit. */
 
           QueueCV.notify_all();
@@ -633,6 +641,8 @@ void SearchThreadPool::OptimizeForNUMA()
      }
 
      /* Distribute threads across NUMA nodes */
+
+     std::lock_guard<std::mutex> Lock(WorkersMutex);
 
      for (size_t i = 0; i < Workers.size(); ++i)
      {

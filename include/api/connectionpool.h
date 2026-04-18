@@ -374,7 +374,7 @@ class PooledConnection
 
 /* Connection pool with advanced management. */
 
-class AdvancedConnectionPool
+class AdvancedConnectionPool : public std::enable_shared_from_this<AdvancedConnectionPool>
 {
    private:
 
@@ -391,8 +391,8 @@ class AdvancedConnectionPool
 
      /* Owned connections plus the idle queue used for fast lease operations. */
 
-     std::vector<std::unique_ptr<PooledConnection>> Connections;
-     std::queue<PooledConnection*> AvailableConnections;
+     std::vector<std::shared_ptr<PooledConnection>> Connections;
+     std::queue<std::shared_ptr<PooledConnection>> AvailableConnections;
      std::mutex PoolMutex;
      std::condition_variable PoolCV;
 
@@ -491,7 +491,7 @@ class AdvancedConnectionPool
                            return !AvailableConnections.empty() || CurrentConnections < MaxConnectionsVal;
                       });
 
-          PooledConnection* Conn = nullptr;
+          std::shared_ptr<PooledConnection> Conn;
 
           if (!AvailableConnections.empty())
           {
@@ -516,10 +516,18 @@ class AdvancedConnectionPool
 
           /* Return a shared handle that automatically requeues the connection. */
 
-          return std::shared_ptr<PooledConnection>(Conn, [this](PooledConnection* C)
+          std::weak_ptr<AdvancedConnectionPool> PoolWeak = shared_from_this();
+
+          return std::shared_ptr<PooledConnection>(Conn.get(), [PoolWeak, OwnedConnection = Conn](PooledConnection* C) mutable
                                                    {
                                                         C->Release();
-                                                        ReturnConnection(C);
+
+                                                        if (auto Pool = PoolWeak.lock())
+                                                        {
+                                                             Pool->ReturnConnection(OwnedConnection);
+                                                        }
+
+                                                        OwnedConnection.reset();
                                                    });
      }
 
@@ -535,7 +543,7 @@ class AdvancedConnectionPool
 
      /* Return connection to pool. */
 
-     void ReturnConnection(PooledConnection* Conn)
+     void ReturnConnection(const std::shared_ptr<PooledConnection> &Conn)
      {
           if (!Conn)
           {
@@ -552,7 +560,7 @@ class AdvancedConnectionPool
           {
                /* Remove connections that are unhealthy or no longer worth retaining. */
 
-               RemoveConnection(Conn);
+               RemoveConnection(Conn.get());
           }
 
           PoolCV.notify_one();
@@ -650,7 +658,7 @@ class AdvancedConnectionPool
 
    private:
 
-     PooledConnection* CreateNewConnectionLocked()
+     std::shared_ptr<PooledConnection> CreateNewConnectionLocked()
      {
           /* Caller already owns PoolMutex and wants a new live socket immediately. */
 
@@ -680,17 +688,16 @@ class AdvancedConnectionPool
 
           fcntl(Sock, F_SETFL, Flags | O_NONBLOCK);
 
-          auto Conn = std::make_unique<PooledConnection>(Sock, Host, Port);
-          PooledConnection* ConnPtr = Conn.get();
+          auto Conn = std::make_shared<PooledConnection>(Sock, Host, Port);
 
-          Connections.push_back(std::move(Conn));
+          Connections.push_back(Conn);
           CurrentConnections++;
           ConnectionCreates++;
 
-          return ConnPtr;
+          return Conn;
      }
 
-     PooledConnection* CreateNewConnection()
+     std::shared_ptr<PooledConnection> CreateNewConnection()
      {
           /* Standalone creation path used by background warmup and maintenance work. */
 
@@ -720,23 +727,22 @@ class AdvancedConnectionPool
 
           fcntl(Sock, F_SETFL, Flags | O_NONBLOCK);
 
-          auto Conn = std::make_unique<PooledConnection>(Sock, Host, Port);
-          PooledConnection* ConnPtr = Conn.get();
+          auto Conn = std::make_shared<PooledConnection>(Sock, Host, Port);
 
           std::lock_guard<std::mutex> Lock(PoolMutex);
 
-          Connections.push_back(std::move(Conn));
+          Connections.push_back(Conn);
           CurrentConnections++;
           ConnectionCreates++;
 
-          return ConnPtr;
+          return Conn;
      }
 
      void RemoveConnection(PooledConnection* Conn)
      {
           /* Erase the owned object so destructor-driven socket close happens once. */
 
-          auto It = std::find_if(Connections.begin(), Connections.end(), [Conn](const std::unique_ptr<PooledConnection>& C)
+          auto It = std::find_if(Connections.begin(), Connections.end(), [Conn](const std::shared_ptr<PooledConnection> &C)
                                  {
                                       return C.get() == Conn;
                                  });
@@ -819,7 +825,7 @@ class ConnectionPoolManager
 
      /* Pools are keyed by host:port so remote endpoints share reusable sockets. */
 
-     std::unordered_map<std::string, std::unique_ptr<AdvancedConnectionPool>> Pools;
+     std::unordered_map<std::string, std::shared_ptr<AdvancedConnectionPool>> Pools;
      std::mutex ManagerMutex;
 
    public:
@@ -843,7 +849,7 @@ class ConnectionPoolManager
 
           if (It == Pools.end())
           {
-               Pools[Key] = std::make_unique<AdvancedConnectionPool>(HostVal, PortVal);
+               Pools[Key] = std::make_shared<AdvancedConnectionPool>(HostVal, PortVal);
                It = Pools.find(Key);
           }
 

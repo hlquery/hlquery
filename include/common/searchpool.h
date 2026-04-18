@@ -261,6 +261,14 @@ class SearchThreadPool
 
      std::vector<std::unique_ptr<WorkerThread>> Workers;
 
+     /* Serializes mutations and snapshots of the worker list. */
+
+     mutable std::mutex WorkersMutex;
+
+     /* Number of worker slots currently active in the pool. */
+
+     std::atomic<size_t> ActiveWorkerCount{0};
+
      /* Indicates that shutdown has been requested */
 
      std::atomic<bool> ShutdownFlag{false};
@@ -319,7 +327,7 @@ class SearchThreadPool
 
      /* Main execution loop for one worker thread. */
 
-     void WorkerLoop(size_t worker_id);
+     void WorkerLoop(WorkerThread *worker, size_t worker_id);
 
      /* Apply CPU affinity to one thread when supported by the platform. */
 
