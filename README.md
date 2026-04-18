@@ -100,7 +100,10 @@ Run talk:
 
 ```text
 $ ./run/bin/hlquery-talk
-localhost:9200> 
+localhost:9200> use art
+Using collection 'art'.
+localhost:9200|art> uptime
+Server up for 3 days, 1h 0m 31s
 ```
 
 > **Note**: hlquery uses port **9200** by default. Ensure this port is available and not blocked by your firewall.
