@@ -45,7 +45,7 @@ namespace
      }
 }
 
-class CoreTimersModule final : public RuntimeModule
+class CoreTimersModule final : public AutoRuntimeModule<CoreTimersModule>
 {
    private:
 
@@ -54,11 +54,8 @@ class CoreTimersModule final : public RuntimeModule
 
    public:
 
-     CoreTimersModule() : RuntimeModule("core_timers")
+     CoreTimersModule() : AutoRuntimeModule("core_timers")
      {
-          AttachHooks({ModuleHook::OnThreadPoolsReady,
-                       ModuleHook::OnEveryOneMinute,
-                       ModuleHook::OnIdleTick});
      }
 
      bool Start(const ServerConfig &, std::string &) override

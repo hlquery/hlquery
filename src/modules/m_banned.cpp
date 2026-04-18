@@ -92,7 +92,7 @@ const std::vector<std::string> &GetSupportedScopes()
      return scopes;
 }
 }
-class BannedRuntimeModule final : public RuntimeModule
+class BannedRuntimeModule final : public AutoRuntimeModule<BannedRuntimeModule>
 {
    private:
 
@@ -378,13 +378,8 @@ class BannedRuntimeModule final : public RuntimeModule
    public:
 
      BannedRuntimeModule()
-         : RuntimeModule("banned", true)
+         : AutoRuntimeModule("banned", true)
      {
-          AttachHooks({ModuleHook::OnPreCreateCollection,
-                       ModuleHook::OnPreUpdateCollection,
-                       ModuleHook::OnPreAddDocument,
-                       ModuleHook::OnPreUpdateDocument,
-                       ModuleHook::OnPreUpsertAlias});
      }
 
      bool Start(const ServerConfig &, std::string &) override

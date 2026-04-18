@@ -18,7 +18,7 @@
 #include <vector>
 
 #include "core/socketengine.h"
-#include "core/serverconfig.h"
+#include "runtime/serverconfig.h"
 
 /* 
  * Manages one listening socket for incoming client connections.

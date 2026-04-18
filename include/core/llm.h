@@ -21,7 +21,7 @@
 #include <vector>
 
 #include "core/config.h"
-#include "core/serverconfig.h"
+#include "runtime/serverconfig.h"
 #include "search/cstore.h"
 
 /*

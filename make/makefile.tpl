@@ -304,6 +304,10 @@ SRCS_TOP += $(COMMON_SRCS)
 CORE_SRCS := $(wildcard $(SRC_DIR)/core/*.cpp)
 SRCS_TOP += $(CORE_SRCS)
 
+# Runtime source files
+RUNTIME_SRCS := $(wildcard $(SRC_DIR)/runtime/*.cpp)
+SRCS_TOP += $(RUNTIME_SRCS)
+
 # Utils source files
 UTILS_SRCS := $(wildcard $(SRC_DIR)/utils/*.cpp)
 SRCS_TOP += $(UTILS_SRCS)
@@ -374,7 +378,7 @@ ALL_OBJS = $(REGULAR_ALL_OBJS) $(HTTP_OBJS)
 
 prepare: rocksdb-check rocksdb-preflight binary-compat-check $(ROCKSDB_LIB) prune-disabled-extra-modules
 	@mkdir -p $(OBJ_DIR) $(BIN_DIR)
-	@mkdir -p $(OBJ_DIR)/core $(OBJ_DIR)/utils $(OBJ_DIR)/api $(OBJ_DIR)/search $(OBJ_DIR)/sql $(OBJ_DIR)/socketengines $(OBJ_DIR)/timers $(OBJ_DIR)/cli $(OBJ_DIR)/talk $(OBJ_DIR)/modules $(OBJ_DIR)/vendor/fmt $(OBJ_DIR)/vendor/sha2 $(OBJ_DIR)/vendor/md5
+	@mkdir -p $(OBJ_DIR)/core $(OBJ_DIR)/runtime $(OBJ_DIR)/utils $(OBJ_DIR)/api $(OBJ_DIR)/search $(OBJ_DIR)/sql $(OBJ_DIR)/socketengines $(OBJ_DIR)/timers $(OBJ_DIR)/cli $(OBJ_DIR)/talk $(OBJ_DIR)/modules $(OBJ_DIR)/vendor/fmt $(OBJ_DIR)/vendor/sha2 $(OBJ_DIR)/vendor/md5
 	@mkdir -p $(RUN_DIR)/bin $(RUN_DIR)/conf $(RUN_DIR)/data $(RUN_DIR)/logs $(RUN_DIR)/modules $(RUN_DIR)/pid
 	@mkdir -p $(INC_DIR)
 	@# Fix permissions for Docker volume mounts - ensure entire build tree is writable
@@ -556,9 +560,9 @@ $(foreach mod,$(MODULE_DIRS),$(eval $(call MODULE_DIR_RULE,$(mod))))
 
 # Create all object directories as order-only prerequisites
 $(OBJ_DIR):
-	@mkdir -p $(OBJ_DIR)/core $(OBJ_DIR)/utils $(OBJ_DIR)/api $(OBJ_DIR)/search $(OBJ_DIR)/socketengines $(OBJ_DIR)/timers $(OBJ_DIR)/cli $(OBJ_DIR)/talk $(OBJ_DIR)/modules $(OBJ_DIR)/vendor/fmt $(OBJ_DIR)/vendor/sha2 $(OBJ_DIR)/vendor/md5 || \
+	@mkdir -p $(OBJ_DIR)/core $(OBJ_DIR)/runtime $(OBJ_DIR)/utils $(OBJ_DIR)/api $(OBJ_DIR)/search $(OBJ_DIR)/socketengines $(OBJ_DIR)/timers $(OBJ_DIR)/cli $(OBJ_DIR)/talk $(OBJ_DIR)/modules $(OBJ_DIR)/vendor/fmt $(OBJ_DIR)/vendor/sha2 $(OBJ_DIR)/vendor/md5 || \
 	(chmod -R u+w $(OBJ_DIR) 2>/dev/null || true; chown -R $$(id -u):$$(id -g) $(OBJ_DIR) 2>/dev/null || true; \
-	mkdir -p $(OBJ_DIR)/core $(OBJ_DIR)/utils $(OBJ_DIR)/api $(OBJ_DIR)/search $(OBJ_DIR)/socketengines $(OBJ_DIR)/timers $(OBJ_DIR)/cli $(OBJ_DIR)/talk $(OBJ_DIR)/modules $(OBJ_DIR)/vendor/fmt $(OBJ_DIR)/vendor/sha2 $(OBJ_DIR)/vendor/md5)
+	mkdir -p $(OBJ_DIR)/core $(OBJ_DIR)/runtime $(OBJ_DIR)/utils $(OBJ_DIR)/api $(OBJ_DIR)/search $(OBJ_DIR)/socketengines $(OBJ_DIR)/timers $(OBJ_DIR)/cli $(OBJ_DIR)/talk $(OBJ_DIR)/modules $(OBJ_DIR)/vendor/fmt $(OBJ_DIR)/vendor/sha2 $(OBJ_DIR)/vendor/md5)
 	@# Ensure all directories are writable (fixes Docker volume mount permissions)
 	@chmod -R u+w $(OBJ_DIR) 2>/dev/null || true
 	@([ "$$(id -u)" != "0" ] && chown -R $$(id -u):$$(id -g) $(OBJ_DIR) 2>/dev/null || true) || true
@@ -783,7 +787,7 @@ CLI_OBJS := $(CLI_SUPPORT_OBJS) \
             $(OBJ_DIR)/cli/stopwords.o \
             $(OBJ_DIR)/cli/keys.o \
             $(OBJ_DIR)/cli/main.o \
-            $(OBJ_DIR)/core/exitmanager.o
+            $(OBJ_DIR)/runtime/exitmanager.o
 BENCHMARK_OBJ := $(CLI_SUPPORT_OBJS) \
                  $(OBJ_DIR)/cli/benchmarkclient.o \
                  $(OBJ_DIR)/cli/benchmarktasks.o \
@@ -793,7 +797,7 @@ BENCHMARK_OBJ := $(CLI_SUPPORT_OBJS) \
                  $(OBJ_DIR)/cli/benchmarkdata.o \
                  $(OBJ_DIR)/cli/benchmarkmain.o \
                  $(OBJ_DIR)/cli/modules.o \
-                 $(OBJ_DIR)/core/exitmanager.o
+                 $(OBJ_DIR)/runtime/exitmanager.o
 TALK_OBJS := $(CLI_SUPPORT_OBJS) \
              $(OBJ_DIR)/cli/collections.o \
              $(OBJ_DIR)/cli/documents.o \
@@ -802,7 +806,7 @@ TALK_OBJS := $(CLI_SUPPORT_OBJS) \
              $(OBJ_DIR)/talk/entry.o \
              $(OBJ_DIR)/talk/linenoise.o \
              $(OBJ_DIR)/talk/main.o \
-             $(OBJ_DIR)/core/exitmanager.o
+             $(OBJ_DIR)/runtime/exitmanager.o
 
 $(ALL_OBJS) $(CLI_OBJS) $(BENCHMARK_OBJ) $(TALK_OBJS): | prepare
 

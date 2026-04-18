@@ -12,12 +12,22 @@
 
 #pragma once
 
+#include <atomic>
+#include <mutex>
+#include <vector>
+
 #include "core/config.h"
 
 /* ExitManager handles application exit routines and cleanup. */
 
 class CoreExport ExitManager
 {
+   private:
+
+     inline static std::vector<void (*)()> CleanupFuncs;
+     inline static std::mutex CleanupMutex;
+     inline static std::atomic<bool> ShuttingDownValue{false};
+
    public:
 
      /* Register a cleanup function to be called on exit */

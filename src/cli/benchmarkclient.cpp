@@ -40,7 +40,7 @@
 #include <vendor/json/json.hpp>
 
 #include "benchmarkclient.h"
-#include "core/exitmanager.h"
+#include "runtime/exitmanager.h"
 
 /* Global stats forward declarations. */
 

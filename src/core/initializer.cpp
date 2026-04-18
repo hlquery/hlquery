@@ -24,7 +24,7 @@
 #include "common/health.h"
 #include "common/searchpool.h"
 #include "core/config.h"
-#include "core/daemon.h"
+#include "runtime/daemon.h"
 #include "core/modulemanager.h"
 #include "vendor/json/json.hpp"
 
@@ -36,7 +36,7 @@ std::mutex BackgroundThreadsMutex;
 
 #include "core/hlquery.h"
 #include "core/socketengine.h"
-#include "core/threadlimit.h"
+#include "runtime/threadlimit.h"
 #include "search/cstore.h"
 #include "search/lindex.h"
 #include "utils/consolewriter.h"

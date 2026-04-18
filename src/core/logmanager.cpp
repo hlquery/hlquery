@@ -21,7 +21,7 @@
 
 #include "core/config.h"
 #include "core/logmanager.h"
-#include "core/serverconfig.h"
+#include "runtime/serverconfig.h"
 #include "utils/consolewriter.h"
 
 namespace fs = std::filesystem;

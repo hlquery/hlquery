@@ -15,7 +15,7 @@
 #include <stdexcept>
 #include <string>
 
-#include "core/configreader.h"
+#include "runtime/configreader.h"
 #include "core/hlquery.h"
 #include "core/modules.h"
 #include "modules/extra/m_analytics/analyticsmanager.h"
@@ -23,7 +23,7 @@
 
 /* Runtime module that forwards events into the analytics manager. */
 
-class AnalyticsRuntimeModule final : public RuntimeModule
+class AnalyticsRuntimeModule final : public AutoRuntimeModule<AnalyticsRuntimeModule>
 {
    private:
 
@@ -45,30 +45,8 @@ class AnalyticsRuntimeModule final : public RuntimeModule
 
      /* Initialize the analytics runtime module. */
 
-     AnalyticsRuntimeModule() : RuntimeModule("analytics", true)
+     AnalyticsRuntimeModule() : AutoRuntimeModule("analytics", true)
      {
-          AttachHooks({ModuleHook::OnRequestAnalytics,
-                       ModuleHook::OnSearchCollection,
-                       ModuleHook::OnSearchDocument,
-                       ModuleHook::OnCreateCollection,
-                       ModuleHook::OnUpdateCollection,
-                       ModuleHook::OnDeleteCollection,
-                       ModuleHook::OnAddDocument,
-                       ModuleHook::OnUpdateDocument,
-                       ModuleHook::OnDeleteDocument,
-                       ModuleHook::OnDeleteDocuments,
-                       ModuleHook::OnBulkImportDocuments,
-                       ModuleHook::OnUpsertSynonym,
-                       ModuleHook::OnDeleteSynonym,
-                       ModuleHook::OnCreateStopword,
-                       ModuleHook::OnDeleteStopword,
-                       ModuleHook::OnUpsertOverride,
-                       ModuleHook::OnDeleteOverride,
-                       ModuleHook::OnUpsertAlias,
-                       ModuleHook::OnDeleteAlias,
-                       ModuleHook::OnFlush,
-                       ModuleHook::OnAnalyticsClick,
-                       ModuleHook::OnThreadPoolsReady});
      }
 
      /* Start the module and build the analytics manager from config. */

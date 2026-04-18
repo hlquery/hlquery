@@ -62,7 +62,7 @@ void Trace(const std::string &Message)
 
 /* Runtime module used to print extensive debug information for module callbacks. */
 
-class DebugRuntimeModule final : public RuntimeModule
+class DebugRuntimeModule final : public AutoRuntimeModule<DebugRuntimeModule>
 {
    private:
 
@@ -119,67 +119,8 @@ class DebugRuntimeModule final : public RuntimeModule
    public:
 
      DebugRuntimeModule()
-         : RuntimeModule("debug", true)
+         : AutoRuntimeModule("debug", true)
      {
-          AttachHooks({ModuleHook::OnThreadPoolsReady,
-                       ModuleHook::OnEveryOneMinute,
-                       ModuleHook::OnNewTimer,
-                       ModuleHook::OnRequestAnalytics,
-                       ModuleHook::OnAuthenticatedRequest,
-                       ModuleHook::OnSearchCollection,
-                       ModuleHook::OnSearchDocument,
-                       ModuleHook::ComputeSearchWeightMultiplier,
-                       ModuleHook::OnPreCreateCollection,
-                       ModuleHook::OnPreUpdateCollection,
-                       ModuleHook::OnPreDeleteCollection,
-                       ModuleHook::OnPreAddDocument,
-                       ModuleHook::OnPreUpdateDocument,
-                       ModuleHook::OnPreBulkImportDocuments,
-                       ModuleHook::OnPreDeleteDocument,
-                       ModuleHook::OnPreDeleteDocuments,
-                       ModuleHook::OnPreUpdateByQuery,
-                       ModuleHook::OnPreDeleteByQuery,
-                       ModuleHook::OnPreUpsertAlias,
-                       ModuleHook::OnPreDeleteAlias,
-                       ModuleHook::OnPreUpsertSynonym,
-                       ModuleHook::OnPreDeleteSynonym,
-                       ModuleHook::OnPreCreateStopword,
-                       ModuleHook::OnPreDeleteStopword,
-                       ModuleHook::OnPreUpsertOverride,
-                       ModuleHook::OnPreDeleteOverride,
-                       ModuleHook::OnPreCreateUser,
-                       ModuleHook::OnPreUpdateUser,
-                       ModuleHook::OnPreDeleteUser,
-                       ModuleHook::OnPreCreateKey,
-                       ModuleHook::OnPreUpdateKey,
-                       ModuleHook::OnPreDeleteKey,
-                       ModuleHook::OnPreLinksConnect,
-                       ModuleHook::OnPreLinksDisconnect,
-                       ModuleHook::OnPreFlush,
-                       ModuleHook::OnPreRepair,
-                       ModuleHook::OnCreateCollection,
-                       ModuleHook::OnUpdateCollection,
-                       ModuleHook::OnDeleteCollection,
-                       ModuleHook::OnAddDocument,
-                       ModuleHook::OnUpdateDocument,
-                       ModuleHook::OnDeleteDocument,
-                       ModuleHook::OnDeleteDocuments,
-                       ModuleHook::OnBulkImportDocuments,
-                       ModuleHook::OnUpdateByQuery,
-                       ModuleHook::OnDeleteByQuery,
-                       ModuleHook::OnUpsertSynonym,
-                       ModuleHook::OnDeleteSynonym,
-                       ModuleHook::OnCreateStopword,
-                       ModuleHook::OnDeleteStopword,
-                       ModuleHook::OnUpsertOverride,
-                       ModuleHook::OnDeleteOverride,
-                       ModuleHook::OnUpsertAlias,
-                       ModuleHook::OnDeleteAlias,
-                       ModuleHook::OnFlush,
-                       ModuleHook::OnLinksConnect,
-                       ModuleHook::OnLinksDisconnect,
-                       ModuleHook::OnRepair,
-                       ModuleHook::OnAnalyticsClick});
      }
 
      bool Start(const ServerConfig &, std::string &) override

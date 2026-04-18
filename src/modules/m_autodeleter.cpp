@@ -34,7 +34,7 @@
 
 /* Runtime module that purges expired documents and collections. */
 
-class AutoDeleterRuntimeModule final : public RuntimeModule
+class AutoDeleterRuntimeModule final : public AutoRuntimeModule<AutoDeleterRuntimeModule>
 {
    private:
 
@@ -1121,9 +1121,8 @@ class AutoDeleterRuntimeModule final : public RuntimeModule
      /* Initialize the auto-deleter runtime module. */
 
      AutoDeleterRuntimeModule()
-         : RuntimeModule("autodeleter", true)
+         : AutoRuntimeModule("autodeleter", true)
      {
-          AttachHooks({ModuleHook::OnEveryOneMinute});
      }
 
      /* Start the module and load retention settings. */

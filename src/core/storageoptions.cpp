@@ -13,7 +13,7 @@
 #include <algorithm>
 #include <cctype>
 
-#include "core/configreader.h"
+#include "runtime/configreader.h"
 
 #if __has_include("core/hlcore.h")
 #include "core/hlcore.h"
@@ -21,7 +21,7 @@
 #include "core/hlquery.h"
 #endif
 
-#include "core/serverconfig.h"
+#include "runtime/serverconfig.h"
 
 /* Loads RocksDB configuration options from the provided config reader instance */
 

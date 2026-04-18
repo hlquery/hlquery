@@ -19,7 +19,7 @@
 
 /* Runtime module that manages collection language metadata. */
 
-class LangRuntimeModule final : public RuntimeModule
+class LangRuntimeModule final : public AutoRuntimeModule<LangRuntimeModule>
 {
    private:
 
@@ -66,7 +66,7 @@ class LangRuntimeModule final : public RuntimeModule
      /* Initialize the lang runtime module. */
 
      LangRuntimeModule()
-         : RuntimeModule("lang", true)
+         : AutoRuntimeModule("lang", true)
      {
      }
 

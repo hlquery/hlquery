@@ -23,7 +23,7 @@
 
 #include "core/config.h"
 #include "core/hlquery.h"
-#include "core/serverconfig.h"
+#include "runtime/serverconfig.h"
 #include "search/cstore.h"
 #include "search/lindex.h"
 #include "search/mindex.h"

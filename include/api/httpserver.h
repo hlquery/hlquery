@@ -31,7 +31,7 @@
 #endif
 
 #include "common/searchpool.h"
-#include "core/serverconfig.h"
+#include "runtime/serverconfig.h"
 #include "core/socketengine.h"
 
 /* HTTP Request structure. */

@@ -17,7 +17,7 @@
 #include <mutex>
 #include <string>
 
-#include "core/startup.h"
+#include "runtime/startup.h"
 
 /*
  * ServerStats - Tracks server statistics and state information.

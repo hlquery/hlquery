@@ -22,7 +22,7 @@
 #include <sstream>
 
 #include "core/hlquery.h"
-#include "core/serverconfig.h"
+#include "runtime/serverconfig.h"
 #include "search/storageengine.h"
 #include "search/writeaheadlogvalidator.h"
 #include "utils/consolewriter.h"

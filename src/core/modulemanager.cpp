@@ -22,7 +22,7 @@
 #include "core/hlquery.h"
 #include "core/modulemanager.h"
 #include "core/logmanager.h"
-#include "core/serverconfig.h"
+#include "runtime/serverconfig.h"
 #include "core/modules.h"
 #include "api/searchapi.h"
 

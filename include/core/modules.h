@@ -16,9 +16,9 @@
 #include <cstdint>
 #include <ctime>
 #include <functional>
-#include <initializer_list>
 #include <map>
 #include <string>
+#include <type_traits>
 #include <vector>
 
 #include "api/httpserver.h"
@@ -347,14 +347,83 @@ enum class ModuleHook : size_t
      OnCount
 };
 
+#define HLQUERY_MODULE_HOOK_METHODS(X)                                                                                 \
+     X(OnThreadPoolsReady)                                                                                              \
+     X(OnEveryOneMinute)                                                                                                \
+     X(OnIdleTick)                                                                                                      \
+     X(OnNewTimer)                                                                                                      \
+     X(OnRequestAnalytics)                                                                                              \
+     X(OnAuthenticatedRequest)                                                                                          \
+     X(OnPingRequest)                                                                                                   \
+     X(OnDBRequest)                                                                                                     \
+     X(OnSearchCollection)                                                                                              \
+     X(OnSearchDocument)                                                                                                \
+     X(ComputeSearchWeightMultiplier)                                                                                   \
+     X(OnPreCreateCollection)                                                                                           \
+     X(OnPreUpdateCollection)                                                                                           \
+     X(OnPreDeleteCollection)                                                                                           \
+     X(OnPreAddDocument)                                                                                                \
+     X(OnPreUpdateDocument)                                                                                             \
+     X(OnPreBulkImportDocuments)                                                                                        \
+     X(OnPreDeleteDocument)                                                                                             \
+     X(OnPreDeleteDocuments)                                                                                            \
+     X(OnPreUpdateByQuery)                                                                                              \
+     X(OnPreDeleteByQuery)                                                                                              \
+     X(OnPreUpsertAlias)                                                                                                \
+     X(OnPreDeleteAlias)                                                                                                \
+     X(OnPreUpsertSynonym)                                                                                              \
+     X(OnPreDeleteSynonym)                                                                                              \
+     X(OnPreCreateStopword)                                                                                             \
+     X(OnPreDeleteStopword)                                                                                             \
+     X(OnPreUpsertOverride)                                                                                             \
+     X(OnPreDeleteOverride)                                                                                             \
+     X(OnPreCreateUser)                                                                                                 \
+     X(OnPreUpdateUser)                                                                                                 \
+     X(OnPreDeleteUser)                                                                                                 \
+     X(OnPreCreateKey)                                                                                                  \
+     X(OnPreUpdateKey)                                                                                                  \
+     X(OnPreDeleteKey)                                                                                                  \
+     X(OnPreLinksConnect)                                                                                               \
+     X(OnPreLinksDisconnect)                                                                                            \
+     X(OnPreFlush)                                                                                                      \
+     X(OnPreRepair)                                                                                                     \
+     X(OnCreateCollection)                                                                                              \
+     X(OnUpdateCollection)                                                                                              \
+     X(OnDeleteCollection)                                                                                              \
+     X(OnAddDocument)                                                                                                   \
+     X(OnUpdateDocument)                                                                                                \
+     X(OnDeleteDocument)                                                                                                \
+     X(OnDeleteDocuments)                                                                                               \
+     X(OnBulkImportDocuments)                                                                                           \
+     X(OnUpdateByQuery)                                                                                                 \
+     X(OnDeleteByQuery)                                                                                                 \
+     X(OnGlobalSynAdd)                                                                                                  \
+     X(OnGlobalSynDel)                                                                                                  \
+     X(OnUpsertSynonym)                                                                                                 \
+     X(OnDeleteSynonym)                                                                                                 \
+     X(OnGlobalStopwordAdd)                                                                                             \
+     X(OnCreateStopword)                                                                                                \
+     X(OnDeleteStopword)                                                                                                \
+     X(OnUpsertOverride)                                                                                                \
+     X(OnDeleteOverride)                                                                                                \
+     X(OnUpsertAlias)                                                                                                   \
+     X(OnDeleteAlias)                                                                                                   \
+     X(OnFlush)                                                                                                         \
+     X(OnLinksConnect)                                                                                                  \
+     X(OnLinksDisconnect)                                                                                               \
+     X(OnRepair)                                                                                                        \
+     X(OnAnalyticsClick)
+
 /* Base class for runtime-loadable modules. */
 
 class RuntimeModule
 {
-   private:
+   protected:
      /* Number of hook slots tracked by the module base class. */
 
      static constexpr size_t HookCount = static_cast<size_t>(ModuleHook::OnCount);
+
+   private:
 
      /* The runtime module name exposed to the loader. */
 
@@ -374,19 +443,24 @@ class RuntimeModule
 
    protected:
 
-     /* Marks one hook as implemented by the derived module. */
-
-     void AttachHook(ModuleHook Hook)
+     template <typename Derived>
+     static constexpr std::array<bool, HookCount> BuildAutomaticHookMap()
      {
-          attached_hooks[static_cast<size_t>(Hook)] = true;
+          std::array<bool, HookCount> Hooks{};
+
+ #define HLQUERY_SET_AUTO_HOOK(Method)                                                                                  \
+          Hooks[static_cast<size_t>(ModuleHook::Method)] =                                                              \
+               !std::is_same_v<decltype(&Derived::Method), decltype(&RuntimeModule::Method)>;
+          HLQUERY_MODULE_HOOK_METHODS(HLQUERY_SET_AUTO_HOOK)
+ #undef HLQUERY_SET_AUTO_HOOK
+
+          return Hooks;
      }
 
-     void AttachHooks(std::initializer_list<ModuleHook> Hooks)
+     template <typename Derived>
+     void AutoAttachHooks()
      {
-          for (ModuleHook Hook : Hooks)
-          {
-               AttachHook(Hook);
-          }
+          attached_hooks = BuildAutomaticHookMap<Derived>();
      }
 
   public:
@@ -1063,6 +1137,18 @@ class RuntimeModule
      /* Handles a module HTTP API request. */
 
      virtual HttpResponse HandleAPIRequest(const HttpRequest&, const std::string&) const;
+};
+
+template <typename Derived>
+class AutoRuntimeModule : public RuntimeModule
+{
+   protected:
+
+     explicit AutoRuntimeModule(const std::string& Name, bool EnableAPIRoute = false, uint32_t RequirementFlags = ModuleRequirementNone)
+          : RuntimeModule(Name, EnableAPIRoute, RequirementFlags)
+     {
+          this->template AutoAttachHooks<Derived>();
+     }
 };
 
 /* Signature exported by shared modules for runtime construction. */

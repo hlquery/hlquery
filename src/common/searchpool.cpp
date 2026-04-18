@@ -25,7 +25,7 @@
 
 #include "common/searchpool.h"
 #include "core/hlquery.h"
-#include "core/threadlimit.h"
+#include "runtime/threadlimit.h"
 #include "search/storageengine.h"
 
 SearchThreadPool::SearchThreadPool(const ThreadPoolConfig &config)

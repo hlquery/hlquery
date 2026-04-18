@@ -37,7 +37,7 @@ ModulePreCheckResult MakeDeniedResult(const std::string &Operation, const std::s
 
 /* Runtime module that enforces demo mode restrictions. */
 
-class DemoRuntimeModule final : public RuntimeModule
+class DemoRuntimeModule final : public AutoRuntimeModule<DemoRuntimeModule>
 {
    private:
 
@@ -73,41 +73,8 @@ class DemoRuntimeModule final : public RuntimeModule
      /* Initialize the demo runtime module. */
 
      DemoRuntimeModule()
-          : RuntimeModule("demo", false)
+          : AutoRuntimeModule("demo", false)
      {
-          AttachHooks({ModuleHook::OnPreCreateCollection,
-                       ModuleHook::OnPreUpdateCollection,
-                       ModuleHook::OnPreDeleteCollection,
-                       ModuleHook::OnPreAddDocument,
-                       ModuleHook::OnPreUpdateDocument,
-                       ModuleHook::OnPreBulkImportDocuments,
-                       ModuleHook::OnPreDeleteDocument,
-                       ModuleHook::OnPreDeleteDocuments,
-                       ModuleHook::OnPreUpdateByQuery,
-                       ModuleHook::OnPreDeleteByQuery,
-                       ModuleHook::OnPreUpsertAlias,
-                       ModuleHook::OnPreDeleteAlias,
-                       ModuleHook::OnPreUpsertSynonym,
-                       ModuleHook::OnPreDeleteSynonym,
-                       ModuleHook::OnPreCreateStopword,
-                       ModuleHook::OnPreDeleteStopword,
-                       ModuleHook::OnPreUpsertOverride,
-                       ModuleHook::OnPreDeleteOverride,
-                       ModuleHook::OnPreCreateUser,
-                       ModuleHook::OnPreUpdateUser,
-                       ModuleHook::OnPreDeleteUser,
-                       ModuleHook::OnPreCreateKey,
-                       ModuleHook::OnPreUpdateKey,
-                       ModuleHook::OnPreDeleteKey,
-                       ModuleHook::OnPreLinksConnect,
-                       ModuleHook::OnPreLinksDisconnect,
-                       ModuleHook::OnPreFlush,
-                       ModuleHook::OnPreRepair,
-                       ModuleHook::OnUpdateByQuery,
-                       ModuleHook::OnDeleteByQuery,
-                       ModuleHook::OnLinksConnect,
-                       ModuleHook::OnLinksDisconnect,
-                       ModuleHook::OnRepair});
      }
 
      /* Start the module and load demo settings. */

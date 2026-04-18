@@ -22,7 +22,7 @@
 #include <utility>
 #include <vector>
 
-#include "configreader.h"
+#include "runtime/configreader.h"
 #include "core/config.h"
 #include "core/logmanager.h"
 

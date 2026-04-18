@@ -15,8 +15,8 @@
 #include <pthread.h>
 
 #include "core/hlquery.h"
-#include "core/serverconfig.h"
-#include "core/threadlimit.h"
+#include "runtime/serverconfig.h"
+#include "runtime/threadlimit.h"
 
 /* Initialize the shared atomic thread tracking values */
 

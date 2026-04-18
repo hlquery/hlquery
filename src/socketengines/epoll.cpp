@@ -26,7 +26,7 @@
 #include <unordered_set>
 
 #include "common/actionlist.h"
-#include "core/exitmanager.h"
+#include "runtime/exitmanager.h"
 #include "core/hlquery.h"
 #include "core/socketengine.h"
 #include "search/storageengine.h"

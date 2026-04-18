@@ -20,12 +20,12 @@
 #include "core/modules.h"
 #include "search/storageengine.h"
 
-class DumpModule final : public RuntimeModule
+class DumpModule final : public AutoRuntimeModule<DumpModule>
 {
    public:
 
      DumpModule()
-         : RuntimeModule("dump", true)
+         : AutoRuntimeModule("dump", true)
      {
 
      }

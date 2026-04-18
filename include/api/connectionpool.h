@@ -25,7 +25,7 @@
 #include <vector>
 
 #include "core/hlquery.h"
-#include "core/threadlimit.h"
+#include "runtime/threadlimit.h"
 
 /*
  * High-Performance Connection Pool System.

@@ -23,7 +23,7 @@
 #include <unordered_set>
 #include <vector>
 
-#include "core/configreader.h"
+#include "runtime/configreader.h"
 
 #if __has_include("core/hlcore.h")
 #include "core/hlcore.h"

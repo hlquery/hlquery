@@ -33,8 +33,8 @@
 #include "common/actionlist.h"
 #include "common/searchpool.h"
 #include "core/config.h"
-#include "core/daemon.h"
-#include "core/exitmanager.h"
+#include "runtime/daemon.h"
+#include "runtime/exitmanager.h"
 #include "core/hlquery.h"
 #include "core/socketengine.h"
 #include "core/typedefs.h"
@@ -330,20 +330,6 @@ static bool IsZombieProcess(pid_t PIDValue)
 
      return (StateValue == 'Z' || StateValue == 'X');
 }
-/* Returns true if authentication is skipped for the current process. */
-
-static bool IsAuthenticationSkipped()
-{
-     try
-     {
-          return SkipAuthentication;
-     }
-     catch (...)
-     {
-          return false;
-     }
-}
-
 std::atomic<int> DaemonHandler::AdaptiveSleepMS(0);
 
 std::atomic<int> DaemonHandler::ConsecutiveBusyIterations(0);

@@ -14,7 +14,7 @@
 #include <mutex>
 
 #include "core/hlquery.h"
-#include "core/timers.h"
+#include "runtime/timers.h"
 
 Timer::Timer() : NextRun(Clock::time_point::max()), Interval(0), Repeating(false)
 {

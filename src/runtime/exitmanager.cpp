@@ -10,18 +10,9 @@
  * For more details, please visit: https://docs.hlquery.com
  */
 
-#include <atomic>
 #include <cstdlib>
-#include <iostream>
-#include <mutex>
-#include <unistd.h>
-#include <vector>
 
-#include "core/exitmanager.h"
-
-static std::vector<void (*)()> CleanupFuncs;
-static std::mutex CleanupMutex;
-static std::atomic<bool> ShuttingDownValue{false};
+#include "runtime/exitmanager.h"
 
 /* Register a cleanup function to be called on process termination */
 

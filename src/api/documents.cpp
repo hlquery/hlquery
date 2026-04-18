@@ -40,7 +40,7 @@
 #include "core/hlquery.h"
 #include "core/modulemanager.h"
 #include "core/socketengine.h"
-#include "core/threadlimit.h"
+#include "runtime/threadlimit.h"
 #include "search/rfusion.h"
 #include "search/cstore.h"
 #include "search/lindex.h"

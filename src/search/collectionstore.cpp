@@ -21,7 +21,7 @@
 #include <vendor/json/json.hpp>
 
 #include "core/hlquery.h"
-#include "core/threadlimit.h"
+#include "runtime/threadlimit.h"
 #include "search/storageengine.h"
 #include "search/cstore.h"
 #include "search/lindex.h"

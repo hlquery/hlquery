@@ -207,7 +207,7 @@
 #include "api/userauth.h"
 #include "common/cryptoutils.h"
 #include "core/config.h"
-#include "core/configreader.h"
+#include "runtime/configreader.h"
 #include "core/hlquery.h"
 #include "utils/consolewriter.h"
 #include "utils/infos.h"

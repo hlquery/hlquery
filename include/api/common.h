@@ -39,7 +39,7 @@
 #include "core/config.h"
 #include "core/hlquery.h"
 #include "core/socketengine.h"
-#include "core/threadlimit.h"
+#include "runtime/threadlimit.h"
 #include "search/rfusion.h"
 #include "search/cstore.h"
 #include "search/storageengine.h"

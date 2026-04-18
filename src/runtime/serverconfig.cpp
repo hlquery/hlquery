@@ -21,8 +21,8 @@
 #include <vector>
 
 #include "core/config.h"
-#include "core/configreader.h"
-#include "core/exitmanager.h"
+#include "runtime/configreader.h"
+#include "runtime/exitmanager.h"
 
 #if __has_include("core/hlcore.h")
 #include "core/hlcore.h"
@@ -31,7 +31,7 @@
 #endif
 
 #include "core/logmanager.h"
-#include "core/serverconfig.h"
+#include "runtime/serverconfig.h"
 #include "utils/consolewriter.h"
 #include "utils/tools.h"
 
