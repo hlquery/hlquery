@@ -294,8 +294,10 @@ void ListenManager::OnEventHandlerRead()
                     break;
                }
 
-               /* Still have connections, but we've hit the limit */
-               /* Close the test connection and break (remaining will be processed next tick) */
+               /*
+                * Still have connections, but we've hit the limit 
+                * Close the test connection and break (remaining will be processed next tick) 
+                */
 
                close(TestFD);
 
@@ -316,8 +318,10 @@ void ListenManager::OnEventHandlerRead()
           {
                int SavedErrno = errno;
 
-               /* EAGAIN and EWOULDBLOCK are the same on Linux, different on some other systems */
-               /* Use compile-time check to avoid logical-op warning while maintaining portability */
+               /* 
+                * EAGAIN and EWOULDBLOCK are the same on Linux, different on some other systems 
+                * Use compile-time check to avoid logical-op warning while maintaining portability 
+                */
 
 #if EAGAIN == EWOULDBLOCK
 
@@ -379,9 +383,7 @@ void ListenManager::OnEventHandlerRead()
           }
 
           char ClientIP[INET_ADDRSTRLEN];
-
           inet_ntop(AF_INET, &ClientAddr.sin_addr, ClientIP, INET_ADDRSTRLEN);
-
           int ClientPortValue = ntohs(ClientAddr.sin_port);
 
           /* Set CLOEXEC to avoid fd leaking across exec */

@@ -141,29 +141,17 @@ struct ModuleCommandRequest
      /* Transport identifier such as http or cli. */
 
      std::string Transport;
-
      std::string Route;
-
      std::vector<std::string> Parameters;
-
      std::vector<std::string> PositionalParameters;
-
      std::map<std::string, std::string> NamedParameters;
-
      std::string Body;
-
      bool Authenticated = false;
-
      bool IsAdmin = false;
-
      bool IsAPIKey = false;
-
      std::string AuthToken;
-
      std::string RequesterUser;
-
      std::string APIKeyID;
-
      std::string RemoteAddress;
 
      /* Cooperative cancellation probe for long-running commands. */
@@ -419,6 +407,7 @@ enum class ModuleHook : size_t
 class RuntimeModule
 {
    protected:
+
      /* Number of hook slots tracked by the module base class. */
 
      static constexpr size_t HookCount = static_cast<size_t>(ModuleHook::OnCount);
@@ -861,12 +850,14 @@ class RuntimeModule
 
      virtual void OnCreateCollection(const std::string& Collection, const std::string& RequesterIP, const std::string& RequesterUser, bool Authenticated)
      {
+     
      }
 
      /* Called after a collection has been updated successfully. */
 
      virtual void OnUpdateCollection(const std::string& Collection, const std::string& RequesterIP, const std::string& RequesterUser, bool Authenticated)
      {
+     
      }
 
      /* Called after a collection has been deleted successfully. */
@@ -1039,6 +1030,7 @@ class RuntimeModule
                                 const std::string& RequesterUser,
                                 bool Authenticated)
      {
+     
      }
 
      /* Called after an alias has been deleted successfully. */
