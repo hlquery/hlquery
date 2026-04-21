@@ -3285,6 +3285,12 @@ std::vector<SAM::TermEntry> SAM::GenerateLLMTerms(const std::string& Collection,
      Payload["title"] = Doc.Title;
      Payload["content"] = Doc.Content;
      Payload["fields"] = Doc.Fields;
+     const int MaxIdeas = (Instance && Instance->Config)
+          ? std::max(1, Instance->Config->GetSamLLMMaxIdeas())
+          : 6;
+     const std::string CreativityMode = (Instance && Instance->Config)
+          ? Instance->Config->GetSamLLMCreativityMode()
+          : "balanced";
 
      const auto StartedAt = std::chrono::steady_clock::now();
      std::lock_guard<std::mutex> Lock(InferenceMutex);
@@ -3292,6 +3298,8 @@ std::vector<SAM::TermEntry> SAM::GenerateLLMTerms(const std::string& Collection,
 
      setenv("HLQUERY_LLM_MODEL", ModelPath.c_str(), 1);
      setenv("HLQUERY_SAM_DOC_JSON", Payload.dump().c_str(), 1);
+     setenv("HLQUERY_SAM_TERM_LIMIT", std::to_string(MaxIdeas).c_str(), 1);
+     setenv("HLQUERY_SAM_CREATIVITY_MODE", CreativityMode.c_str(), 1);
 
      FILE* Pipe = popen(Command.c_str(), "r");
 
@@ -3311,6 +3319,8 @@ std::vector<SAM::TermEntry> SAM::GenerateLLMTerms(const std::string& Collection,
 
           unsetenv("HLQUERY_LLM_MODEL");
           unsetenv("HLQUERY_SAM_DOC_JSON");
+          unsetenv("HLQUERY_SAM_TERM_LIMIT");
+          unsetenv("HLQUERY_SAM_CREATIVITY_MODE");
           RecordDebugEvent(Collection, "failed to start LLM command for " + Doc.ID);
           return Terms;
      }
@@ -3331,7 +3341,7 @@ std::vector<SAM::TermEntry> SAM::GenerateLLMTerms(const std::string& Collection,
           const std::string Kind = ClassifyLLMTermKind(Normalized, Subject);
           AppendScoredTerm(Terms, IndexByTerm, Normalized, Kind, ClassifyLLMTermScore(Kind), "llm", 0.72);
 
-          if (Terms.size() >= 6)
+          if (static_cast<int>(Terms.size()) >= MaxIdeas)
           {
                break;
           }
@@ -3340,6 +3350,8 @@ std::vector<SAM::TermEntry> SAM::GenerateLLMTerms(const std::string& Collection,
      const int PipeStatus = pclose(Pipe);
      unsetenv("HLQUERY_LLM_MODEL");
      unsetenv("HLQUERY_SAM_DOC_JSON");
+      unsetenv("HLQUERY_SAM_TERM_LIMIT");
+      unsetenv("HLQUERY_SAM_CREATIVITY_MODE");
 
      const auto ElapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(
           std::chrono::steady_clock::now() - StartedAt).count();

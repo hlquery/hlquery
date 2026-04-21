@@ -189,7 +189,7 @@ struct ComprehensiveSearchQuery
 
      int NumTypos = 2;
      bool NumTyposExplicit = false;
-     int DropTokensThreshold = 1;
+     int DropTokensThreshold = 0;
      int TypoTokensThreshold = 2;
      bool Prefix = false;
 

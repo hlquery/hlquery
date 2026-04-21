@@ -909,7 +909,7 @@ ComprehensiveSearchQuery SearchAPI::ParseComprehensiveSearchQuery(const std::uno
           }
           catch (...)
           {
-               QueryObj.DropTokensThreshold = 1;
+               QueryObj.DropTokensThreshold = 0;
           }
      }
 

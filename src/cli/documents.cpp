@@ -1616,7 +1616,7 @@ void HLQueryCLI::RebuildSAMCollection(const std::string &collection_name, bool j
      }
 
      const std::string path = "/sam/rebuild?collection=" + hlquery_cli::UrlEncode(collection_name);
-     HLQueryCLI::HTTPResponse response = MakeRequest("POST", path);
+     HLQueryCLI::HTTPResponse response = MakeRequest("POST", path, "", std::max(15, DefaultTimeoutSeconds));
 
      if (CheckRequestFailed(response))
      {
@@ -1757,7 +1757,7 @@ void HLQueryCLI::ShowSAMStatus(const std::string &collection_name, bool json_out
      const std::string path = collection_name.empty()
           ? "/sam/status"
           : "/sam/status?collection=" + hlquery_cli::UrlEncode(collection_name);
-     HLQueryCLI::HTTPResponse response = MakeRequest("GET", path);
+     HLQueryCLI::HTTPResponse response = MakeRequest("GET", path, "", std::max(60, DefaultTimeoutSeconds));
 
      if (CheckRequestFailed(response))
      {

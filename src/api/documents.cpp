@@ -268,14 +268,11 @@ HttpResponse SearchAPI::HandleListDocuments(const HttpRequest &Request)
           IncludeCreatedAtVal = (Value == "true" || Value == "1" || Value == "yes");
      }
 
+     const bool RequiresGlobalSort = !SortByStr.empty();
      std::vector<Document> Documents;
-
-     try
+     const auto AppendStorageDocuments = [&Documents](const std::vector<Document> &StorageDocs)
      {
-          auto StorageDocs = HybridStorageManagerInstance().ListDocuments(CollectionName, LimitVal, OffsetVal);
-
-          Documents.clear();
-          Documents.reserve(StorageDocs.size());
+          Documents.reserve(Documents.size() + StorageDocs.size());
 
           for (const auto &StorageDoc : StorageDocs)
           {
@@ -289,6 +286,41 @@ HttpResponse SearchAPI::HandleListDocuments(const HttpRequest &Request)
                DocObj.Timestamp = StorageDoc.Timestamp;
 
                Documents.push_back(DocObj);
+          }
+     };
+
+     try
+     {
+          Documents.clear();
+
+          if (RequiresGlobalSort)
+          {
+               const int BatchLimit = 1000;
+               int BatchOffset = 0;
+
+               while (true)
+               {
+                    const auto StorageDocs = HybridStorageManagerInstance().ListDocuments(CollectionName, BatchLimit, BatchOffset);
+
+                    if (StorageDocs.empty())
+                    {
+                         break;
+                    }
+
+                    AppendStorageDocuments(StorageDocs);
+
+                    if (static_cast<int>(StorageDocs.size()) < BatchLimit)
+                    {
+                         break;
+                    }
+
+                    BatchOffset += static_cast<int>(StorageDocs.size());
+               }
+          }
+          else
+          {
+               const auto StorageDocs = HybridStorageManagerInstance().ListDocuments(CollectionName, LimitVal, OffsetVal);
+               AppendStorageDocuments(StorageDocs);
           }
      }
      catch (const std::exception &E)
@@ -326,7 +358,7 @@ HttpResponse SearchAPI::HandleListDocuments(const HttpRequest &Request)
 
           if (TotalVal == 0 && !Documents.empty())
           {
-               TotalVal = static_cast<int>(Documents.size() + OffsetVal);
+               TotalVal = static_cast<int>(Documents.size() + (RequiresGlobalSort ? 0 : OffsetVal));
 
                if (Instance && Instance->Logs)
                {
@@ -341,7 +373,7 @@ HttpResponse SearchAPI::HandleListDocuments(const HttpRequest &Request)
                Instance->Logs->Normal("search_api", "Exception getting document count: " + std::string(E.what()) + " - using Documents.size() as fallback.");
           }
 
-          TotalVal = static_cast<int>(Documents.size() + OffsetVal);
+          TotalVal = static_cast<int>(Documents.size() + (RequiresGlobalSort ? 0 : OffsetVal));
      }
      catch (...)
      {
@@ -350,7 +382,7 @@ HttpResponse SearchAPI::HandleListDocuments(const HttpRequest &Request)
                Instance->Logs->Normal("search_api", "Unknown exception getting document count - using Documents.size() as fallback.");
           }
 
-          TotalVal = static_cast<int>(Documents.size() + OffsetVal);
+          TotalVal = static_cast<int>(Documents.size() + (RequiresGlobalSort ? 0 : OffsetVal));
      }
 
      if (Documents.empty() && OffsetVal >= TotalVal)
@@ -475,6 +507,22 @@ HttpResponse SearchAPI::HandleListDocuments(const HttpRequest &Request)
 
                          return false;
                     });
+
+          if (OffsetVal > 0 || static_cast<int>(Documents.size()) > LimitVal)
+          {
+               const size_t SliceStart = static_cast<size_t>(std::min(OffsetVal, static_cast<int>(Documents.size())));
+               const size_t SliceEnd = std::min(Documents.size(), SliceStart + static_cast<size_t>(LimitVal));
+
+               if (SliceStart >= Documents.size())
+               {
+                    Documents.clear();
+               }
+               else
+               {
+                    Documents = std::vector<Document>(Documents.begin() + static_cast<std::ptrdiff_t>(SliceStart),
+                                                      Documents.begin() + static_cast<std::ptrdiff_t>(SliceEnd));
+               }
+          }
      }
 
      HttpResponse Response(Status::OK, StatusText(Status::OK), "application/json");

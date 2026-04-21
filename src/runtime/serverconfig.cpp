@@ -298,6 +298,7 @@ void ServerConfig::ApplyConfiguration()
      auto AITag = ConfigReaderValue.GetTag("ai");
      auto LLMTag = ConfigReaderValue.GetTag("llm");
      auto SAMTag = ConfigReaderValue.GetTag("sam");
+     bool ResolveLLMPathsRelativeToConfig = false;
 
      std::string ModelPathOverride;
      std::string ModelFileOverride;
@@ -328,6 +329,7 @@ void ServerConfig::ApplyConfiguration()
           ModelFileOverride = AITag->GetString("model_file", ModelFileOverride);
           AIInferenceCommand = AITag->GetString("inference_command", AIInferenceCommand);
           SamEnabled = AITag->GetBool("sam_enabled", SamEnabled);
+          ResolveLLMPathsRelativeToConfig = AITag->GetBool("relative", ResolveLLMPathsRelativeToConfig);
      }
 
      if (LLMTag)
@@ -346,6 +348,7 @@ void ServerConfig::ApplyConfiguration()
           }
 
           AIInferenceCommand = LLMTag->GetString("inference_command", AIInferenceCommand);
+          ResolveLLMPathsRelativeToConfig = LLMTag->GetBool("relative", ResolveLLMPathsRelativeToConfig);
      }
 
      if (SAMTag)
@@ -359,6 +362,23 @@ void ServerConfig::ApplyConfiguration()
           Sam25SourcePhraseBoostLabelPair = SAMTag->GetDoubleRange("sam25_source_phrase_boost_label_pair", Sam25SourcePhraseBoostLabelPair, 0.1, 5.0);
           Sam25SourcePhraseBoostLabel = SAMTag->GetDoubleRange("sam25_source_phrase_boost_label", Sam25SourcePhraseBoostLabel, 0.1, 5.0);
           Sam25SourcePhraseBoostLlm = SAMTag->GetDoubleRange("sam25_source_phrase_boost_llm", Sam25SourcePhraseBoostLlm, 0.1, 5.0);
+          SamLLMMaxIdeas = SAMTag->GetIntRange("sam_llm_max_ideas", SamLLMMaxIdeas, 1, 64);
+          SamLLMCreativityMode = SAMTag->GetString("sam_llm_creativity_mode", SamLLMCreativityMode);
+          SamLLMCreativityMode.erase(0, SamLLMCreativityMode.find_first_not_of(" \t\r\n"));
+          SamLLMCreativityMode.erase(SamLLMCreativityMode.find_last_not_of(" \t\r\n") == std::string::npos
+               ? 0
+               : SamLLMCreativityMode.find_last_not_of(" \t\r\n") + 1);
+          std::transform(SamLLMCreativityMode.begin(), SamLLMCreativityMode.end(), SamLLMCreativityMode.begin(),
+                         [](unsigned char C)
+                         {
+                              return static_cast<char>(std::tolower(C));
+                         });
+          if (SamLLMCreativityMode != "conservative" &&
+              SamLLMCreativityMode != "balanced" &&
+              SamLLMCreativityMode != "creative")
+          {
+               SamLLMCreativityMode = "balanced";
+          }
           Sam25EnableIdf = SAMTag->GetBool("sam25_enable_idf", Sam25EnableIdf);
           Sam25IdfFloor = SAMTag->GetDoubleRange("sam25_idf_floor", Sam25IdfFloor, 0.0, 10.0);
           Sam25IdfCeiling = SAMTag->GetDoubleRange("sam25_idf_ceiling", Sam25IdfCeiling, 0.0, 10.0);
@@ -442,6 +462,32 @@ void ServerConfig::ApplyConfiguration()
 
          if (!ConfigDirectory.empty())
          {
+              std::filesystem::path RepoRootCandidateBase = std::filesystem::path(ConfigDirectory);
+              std::filesystem::path RunDir;
+              std::filesystem::path RepoRootDir;
+
+              if (RepoRootCandidateBase.filename() == "conf")
+              {
+                   RunDir = RepoRootCandidateBase.parent_path();
+
+                   if (RunDir.filename() == "run")
+                   {
+                        RepoRootDir = RunDir.parent_path();
+
+                        if (!RepoRootDir.empty())
+                        {
+                             const std::filesystem::path LocalSharedModelsDir = RepoRootDir / "run" / "models";
+                             const std::filesystem::path ParentSharedModelsDir = RepoRootDir.parent_path() / "run" / "models";
+
+                             if (!std::filesystem::exists(LocalSharedModelsDir) &&
+                                 std::filesystem::exists(ParentSharedModelsDir))
+                             {
+                                  RepoRootDir = RepoRootDir.parent_path();
+                             }
+                        }
+                   }
+              }
+
               const std::filesystem::path ConfigCandidate =
                    std::filesystem::absolute(std::filesystem::path(ConfigDirectory) / RawPath, Ec);
 
@@ -450,31 +496,52 @@ void ServerConfig::ApplyConfiguration()
                    return ConfigCandidate;
               }
 
+              if (!ResolveLLMPathsRelativeToConfig && !RepoRootDir.empty())
+              {
+                   std::error_code RepoRootEC;
+                   const std::filesystem::path NormalizedRaw = RawPath.lexically_normal();
+                   const std::string NormalizedRawString = NormalizedRaw.generic_string();
+
+                   if (NormalizedRawString == "../models" ||
+                       NormalizedRawString.rfind("../models/", 0) == 0)
+                   {
+                        std::filesystem::path SharedModelsPath = RepoRootDir / "run" / "models";
+                        static const std::string SharedModelsPrefix = "../models/";
+
+                        if (NormalizedRawString.rfind(SharedModelsPrefix, 0) == 0 &&
+                            NormalizedRawString.size() > SharedModelsPrefix.size())
+                        {
+                             SharedModelsPath /= NormalizedRawString.substr(SharedModelsPrefix.size());
+                        }
+
+                        const std::filesystem::path SharedModelsCandidate =
+                             std::filesystem::absolute(SharedModelsPath, RepoRootEC);
+
+                        if (!RepoRootEC && std::filesystem::exists(SharedModelsCandidate))
+                        {
+                             return SharedModelsCandidate;
+                        }
+                   }
+              }
+
               if (RawPath.has_relative_path())
               {
-                   std::filesystem::path RepoRootCandidateBase = std::filesystem::path(ConfigDirectory);
-
-                   if (RepoRootCandidateBase.filename() == "conf")
+                   if (!RepoRootDir.empty())
                    {
-                        const std::filesystem::path RunDir = RepoRootCandidateBase.parent_path();
+                        const std::filesystem::path RepoRootCandidate =
+                             std::filesystem::absolute(RepoRootDir / RawPath, Ec);
 
-                        if (RunDir.filename() == "run")
+                        /* Paths like run/data/... in run/conf/hlquery.conf are project-root-relative,
+                         * not relative to run/conf. Resolve them to <repo>/run/... even before the
+                         * target exists so runtime directories do not get created under run/conf/run/. */
+                        if (RawPath.begin() != RawPath.end() && *RawPath.begin() == "run" && !Ec)
                         {
-                             const std::filesystem::path RepoRootCandidate =
-                                  std::filesystem::absolute(RunDir.parent_path() / RawPath, Ec);
+                             return RepoRootCandidate;
+                        }
 
-                             /* Paths like run/data/... in run/conf/hlquery.conf are project-root-relative,
-                              * not relative to run/conf. Resolve them to <repo>/run/... even before the
-                              * target exists so runtime directories do not get created under run/conf/run/. */
-                             if (RawPath.begin() != RawPath.end() && *RawPath.begin() == "run" && !Ec)
-                             {
-                                  return RepoRootCandidate;
-                             }
-
-                             if (!Ec && std::filesystem::exists(RepoRootCandidate))
-                             {
-                                  return RepoRootCandidate;
-                             }
+                        if (!Ec && std::filesystem::exists(RepoRootCandidate))
+                        {
+                             return RepoRootCandidate;
                         }
                    }
               }
@@ -517,7 +584,20 @@ void ServerConfig::ApplyConfiguration()
 
          if (Base.filename() == "run")
          {
-              const std::filesystem::path RepoRoot = Base.parent_path();
+              std::filesystem::path RepoRoot = Base.parent_path();
+
+              if (!RepoRoot.empty())
+              {
+                   const std::filesystem::path LocalBundledCommand = RepoRoot / "tools" / "hlquery-llm-infer";
+                   const std::filesystem::path ParentBundledCommand = RepoRoot.parent_path() / "tools" / "hlquery-llm-infer";
+
+                   if (!std::filesystem::exists(LocalBundledCommand) &&
+                       std::filesystem::exists(ParentBundledCommand))
+                   {
+                        RepoRoot = RepoRoot.parent_path();
+                   }
+              }
+
               const std::filesystem::path Candidate = std::filesystem::absolute(RepoRoot / "tools" / "hlquery-llm-infer", Ec);
 
               if (!Ec && std::filesystem::exists(Candidate))
