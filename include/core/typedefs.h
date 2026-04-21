@@ -34,9 +34,9 @@ class PoolAllocator
 
      PoolAllocator() = default;
 
-     template <typename U>
-     PoolAllocator(const PoolAllocator<U> &)
+     template <typename U> PoolAllocator(const PoolAllocator<U> &)
      {
+     
      }
 
      T *allocate(size_t n)

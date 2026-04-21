@@ -2187,12 +2187,21 @@ bool SAM::Initialize()
           }
      }
 
+     StartIndexWorker();
+
      return true;
 }
 
 void SAM::Shutdown()
 {
      std::vector<std::thread> ThreadsToJoin;
+
+     {
+          std::lock_guard<std::mutex> Lock(QueueMutex);
+          ShuttingDown = true;
+     }
+
+     QueueCV.notify_all();
 
      {
           std::lock_guard<std::mutex> Lock(JobMutex);
@@ -2209,6 +2218,114 @@ void SAM::Shutdown()
 
      std::lock_guard<std::mutex> Lock(DBMutex);
      Database.reset();
+}
+
+std::string SAM::BuildPendingIndexKey(const std::string& Collection, const std::string& DocumentID)
+{
+     return Collection + "\n" + DocumentID;
+}
+
+void SAM::StartIndexWorker()
+{
+     std::lock_guard<std::mutex> Lock(JobMutex);
+     ShuttingDown = false;
+
+     if (!WorkerThreads.empty())
+     {
+          return;
+     }
+
+     WorkerThreads.emplace_back([this]()
+     {
+          RunIndexWorker();
+     });
+}
+
+void SAM::RunIndexWorker()
+{
+     while (true)
+     {
+          PendingIndexJob Job;
+
+          {
+               std::unique_lock<std::mutex> Lock(QueueMutex);
+               QueueCV.wait(Lock, [this]()
+               {
+                    return ShuttingDown || !PendingIndexJobs.empty();
+               });
+
+               if (ShuttingDown && PendingIndexJobs.empty())
+               {
+                    return;
+               }
+
+               Job = std::move(PendingIndexJobs.front());
+               PendingIndexJobs.pop_front();
+               PendingIndexKeys.erase(BuildPendingIndexKey(Job.Collection, Job.Doc.ID));
+          }
+
+          std::string ErrorMessage;
+          const bool Success = IndexDocument(Job.Collection, Job.Doc, &ErrorMessage);
+
+          {
+               std::lock_guard<std::mutex> JobLock(JobMutex);
+               CollectionJobStatus& Status = CollectionJobs[Job.Collection];
+
+               if (Status.PendingDocuments > 0)
+               {
+                    --Status.PendingDocuments;
+               }
+
+               if (Success)
+               {
+                    ++Status.IndexedDocuments;
+               }
+               else
+               {
+                    ++Status.FailedDocuments;
+                    if (!ErrorMessage.empty())
+                    {
+                         Status.ErrorMessage = ErrorMessage;
+                    }
+               }
+
+               if (Status.Running && Status.PendingDocuments == 0)
+               {
+                    Status.Running = false;
+                    Status.Completed = true;
+
+                    if (Success)
+                    {
+                         RecordDebugEvent(Job.Collection,
+                                          "rebuild complete: indexed " + std::to_string(Status.IndexedDocuments) +
+                                               ", failed " + std::to_string(Status.FailedDocuments));
+                    }
+                    else
+                    {
+                         RecordDebugEvent(Job.Collection,
+                                          "rebuild complete with failures: indexed " + std::to_string(Status.IndexedDocuments) +
+                                               ", failed " + std::to_string(Status.FailedDocuments));
+                    }
+               }
+          }
+
+          if (Success)
+          {
+               RecordDebugEvent(Job.Collection, "background indexed " + Job.Doc.ID);
+               continue;
+          }
+
+          RecordDebugEvent(Job.Collection,
+                           "background indexing failed for " + Job.Doc.ID + ": " +
+                                (ErrorMessage.empty() ? std::string("unknown error") : ErrorMessage));
+
+          if (Instance && Instance->Logs)
+          {
+               Instance->Logs->Normal("sam",
+                                      "Failed to background index '" + Job.Collection + "/" + Job.Doc.ID +
+                                           "': " + (ErrorMessage.empty() ? std::string("unknown error") : ErrorMessage) + ".");
+          }
+     }
 }
 
 bool SAM::IsOpen() const
@@ -2512,55 +2629,165 @@ bool SAM::StartRecreateCollectionAsync(const std::string& Collection,
           return false;
      }
 
-     std::lock_guard<std::mutex> Lock(JobMutex);
-     CollectionJobStatus& JobStatus = CollectionJobs[Collection];
-
-     if (JobStatus.Running)
      {
-          if (AlreadyRunning)
-          {
-               *AlreadyRunning = true;
-          }
+          std::lock_guard<std::mutex> Lock(JobMutex);
+          const auto ExistingIt = CollectionJobs.find(Collection);
 
-          return true;
+          if (ExistingIt != CollectionJobs.end() && ExistingIt->second.Running)
+          {
+               if (AlreadyRunning)
+               {
+                    *AlreadyRunning = true;
+               }
+
+               return true;
+          }
      }
 
-     JobStatus = CollectionJobStatus{};
-     JobStatus.Running = true;
-     RecordDebugEvent(Collection, "queued background rebuild");
-
-     WorkerThreads.emplace_back([this, Collection]()
+     std::vector<std::string> ExistingDocumentIDs;
      {
-          RecordDebugEvent(Collection, "starting rebuild");
-          size_t IndexedDocuments = 0;
-          size_t FailedDocuments = 0;
-          std::string RebuildError;
-          const bool Success = RecreateCollection(Collection,
-                                                  &IndexedDocuments,
-                                                  &FailedDocuments,
-                                                  &RebuildError);
+          std::lock_guard<std::mutex> Lock(DBMutex);
+          const std::string ManifestPrefix = "sam:doc:" + Collection + ":";
+          std::unique_ptr<rocksdb::Iterator> ManifestIterator(Database->NewIterator(rocksdb::ReadOptions()));
 
-          std::lock_guard<std::mutex> JobLock(JobMutex);
-          CollectionJobStatus& FinishedStatus = CollectionJobs[Collection];
-          FinishedStatus.Running = false;
-          FinishedStatus.Completed = true;
-          FinishedStatus.IndexedDocuments = IndexedDocuments;
-          FinishedStatus.FailedDocuments = FailedDocuments;
-          FinishedStatus.ErrorMessage = Success ? std::string() : RebuildError;
-
-          if (Success)
+          for (ManifestIterator->Seek(ManifestPrefix);
+               ManifestIterator->Valid() && ManifestIterator->key().starts_with(ManifestPrefix);
+               ManifestIterator->Next())
           {
-               RecordDebugEvent(Collection,
-                                "rebuild complete: indexed " + std::to_string(IndexedDocuments) +
-                                     ", failed " + std::to_string(FailedDocuments));
-          }
-          else
-          {
-               RecordDebugEvent(Collection,
-                                "rebuild failed: " + (RebuildError.empty() ? std::string("unknown error") : RebuildError));
-          }
-     });
+               const std::string Key = ManifestIterator->key().ToString();
 
+               if (Key.size() > ManifestPrefix.size())
+               {
+                    ExistingDocumentIDs.push_back(Key.substr(ManifestPrefix.size()));
+               }
+          }
+     }
+
+     for (const auto& DocumentID : ExistingDocumentIDs)
+     {
+          std::string RemoveError;
+
+          if (!DeleteDocument(Collection, DocumentID, &RemoveError) && ErrorMessage && ErrorMessage->empty())
+          {
+               *ErrorMessage = RemoveError;
+          }
+     }
+
+     const std::vector<std::string> DocKeys = Instance->Database->Keys("doc:" + Collection + ":*");
+     std::vector<Document> DocumentsToQueue;
+     DocumentsToQueue.reserve(DocKeys.size());
+
+     for (const auto& DocKey : DocKeys)
+     {
+          const size_t LastColon = DocKey.find_last_of(':');
+
+          if (LastColon == std::string::npos || LastColon + 1 >= DocKey.size())
+          {
+               continue;
+          }
+
+          const std::string DocumentID = DocKey.substr(LastColon + 1);
+          const Document Doc = HybridStorageManager::GetInstance().GetDocument(Collection, DocumentID);
+
+          if (!Doc.ID.empty())
+          {
+               DocumentsToQueue.push_back(Doc);
+          }
+     }
+
+     {
+          std::lock_guard<std::mutex> Lock(JobMutex);
+          CollectionJobStatus& JobStatus = CollectionJobs[Collection];
+          JobStatus = CollectionJobStatus{};
+          JobStatus.Running = true;
+          JobStatus.Completed = false;
+          JobStatus.PendingDocuments = DocumentsToQueue.size();
+          JobStatus.TotalDocuments = DocumentsToQueue.size();
+          JobStatus.ErrorMessage.clear();
+     }
+
+     RecordDebugEvent(Collection,
+                      "queued background rebuild with " + std::to_string(DocumentsToQueue.size()) + " document(s)");
+
+     for (const auto& Doc : DocumentsToQueue)
+     {
+          std::string QueueError;
+
+          if (!EnqueueIndexDocument(Collection, Doc, &QueueError))
+          {
+               std::lock_guard<std::mutex> Lock(JobMutex);
+               CollectionJobStatus& JobStatus = CollectionJobs[Collection];
+               if (JobStatus.PendingDocuments > 0)
+               {
+                    --JobStatus.PendingDocuments;
+               }
+               ++JobStatus.FailedDocuments;
+               JobStatus.ErrorMessage = QueueError;
+          }
+     }
+
+     if (DocumentsToQueue.empty())
+     {
+          std::lock_guard<std::mutex> Lock(JobMutex);
+          CollectionJobStatus& JobStatus = CollectionJobs[Collection];
+          JobStatus.Running = false;
+          JobStatus.Completed = true;
+          RecordDebugEvent(Collection, "rebuild complete: indexed 0, failed 0");
+     }
+
+     return true;
+}
+
+bool SAM::EnqueueIndexDocument(const std::string& Collection, const Document& Doc, std::string* ErrorMessage)
+{
+     {
+          std::lock_guard<std::mutex> Lock(DBMutex);
+
+          if (!Database)
+          {
+               if (ErrorMessage)
+               {
+                    *ErrorMessage = "SAM database is not open.";
+               }
+
+               return false;
+          }
+     }
+
+     if (Collection.empty() || Doc.ID.empty())
+     {
+          if (ErrorMessage)
+          {
+               *ErrorMessage = "Collection or document ID is empty.";
+          }
+
+          return false;
+     }
+
+     const std::string PendingKey = BuildPendingIndexKey(Collection, Doc.ID);
+
+     {
+          std::lock_guard<std::mutex> Lock(QueueMutex);
+
+          if (!PendingIndexKeys.insert(PendingKey).second)
+          {
+               for (auto& ExistingJob : PendingIndexJobs)
+               {
+                    if (ExistingJob.Collection == Collection && ExistingJob.Doc.ID == Doc.ID)
+                    {
+                         ExistingJob.Doc = Doc;
+                         break;
+                    }
+               }
+
+               return true;
+          }
+
+          PendingIndexJobs.push_back(PendingIndexJob{Collection, Doc});
+     }
+
+     RecordDebugEvent(Collection, "queued background index for " + Doc.ID);
+     QueueCV.notify_one();
      return true;
 }
 
@@ -2745,6 +2972,18 @@ bool SAM::IndexDocument(const std::string& Collection, const Document& Doc, std:
 
 bool SAM::DeleteDocument(const std::string& Collection, const std::string& DocumentID, std::string* ErrorMessage)
 {
+     {
+          std::lock_guard<std::mutex> QueueLock(QueueMutex);
+          PendingIndexKeys.erase(BuildPendingIndexKey(Collection, DocumentID));
+          PendingIndexJobs.erase(
+               std::remove_if(PendingIndexJobs.begin(), PendingIndexJobs.end(),
+                              [&](const PendingIndexJob& Job)
+                              {
+                                   return Job.Collection == Collection && Job.Doc.ID == DocumentID;
+                              }),
+               PendingIndexJobs.end());
+     }
+
      std::lock_guard<std::mutex> Lock(DBMutex);
 
      if (!Database)
@@ -3439,7 +3678,8 @@ std::vector<SAM::TermEntry> SAM::GenerateHeuristicTerms(const std::string& Colle
 
 std::vector<SAM::TermEntry> SAM::ExpandDocumentTerms(const std::string& Collection, const Document& Doc) const
 {
-     std::vector<TermEntry> Terms = GenerateLLMTerms(Collection, Doc);
+     const bool LLMConfigured = (Instance && Instance->LLM && Instance->LLM->Configured());
+     std::vector<TermEntry> Terms = LLMConfigured ? GenerateLLMTerms(Collection, Doc) : std::vector<TermEntry>{};
      std::unordered_map<std::string, size_t> IndexByTerm;
 
      for (size_t Index = 0; Index < Terms.size(); ++Index)
@@ -3447,7 +3687,34 @@ std::vector<SAM::TermEntry> SAM::ExpandDocumentTerms(const std::string& Collecti
           IndexByTerm[Terms[Index].Text] = Index;
      }
 
-     std::vector<TermEntry> HeuristicTerms = GenerateHeuristicTerms(Collection, Doc);
+     if (LLMConfigured && !Terms.empty())
+     {
+          const std::string Subject = ResolveSubjectTitle(Doc);
+
+          if (!Subject.empty())
+          {
+               AppendScoredTerm(Terms, IndexByTerm, Subject, "entity", 1.00, "title", 1.00);
+          }
+
+          if (!Collection.empty() && !Subject.empty())
+          {
+               AppendScoredTerm(Terms, IndexByTerm, Subject + " " + Collection, "collection", 0.34, "collection", 0.26);
+          }
+
+          const auto CategoryIt = Doc.Fields.find("category");
+
+          if (CategoryIt != Doc.Fields.end() && !CategoryIt->second.empty() && !Subject.empty())
+          {
+               AppendScoredTerm(Terms, IndexByTerm, Subject + " " + CategoryIt->second, "category", 0.42, "category", 0.40);
+          }
+     }
+
+     std::vector<TermEntry> HeuristicTerms;
+
+     if (!LLMConfigured || Terms.empty())
+     {
+          HeuristicTerms = GenerateHeuristicTerms(Collection, Doc);
+     }
 
      for (const auto& Term : HeuristicTerms)
      {

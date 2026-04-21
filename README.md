@@ -108,6 +108,22 @@ localhost:9200|art> uptime
 Server up for 3 days, 1h 0m 31s
 ```
 
+## Client Libraries
+
+Official client libraries are available for popular programming languages:
+
+- **[Node.js](https://github.com/hlquery/node-api)** - Official Node.js client.
+- **[Go](https://github.com/hlquery/go-api)** - Official Go client.
+- **[Java](https://github.com/hlquery/java-api)** - Official Java client.
+- **[Python](https://github.com/hlquery/python-api)** - Official Python client.
+- **[PHP](https://github.com/hlquery/php-api)** - Official PHP client.
+- **[Ruby](https://github.com/hlquery/ruby-api)** - Official Ruby client.
+- **[Rust](https://github.com/hlquery/rust-api)** - Rust client library.
+- **[Perl](https://github.com/hlquery/perl-api)** - Perl client library.
+- **[C++](https://github.com/hlquery/cpp-api)** - C++ client library.
+
+For complete API documentation, visit [docs.hlquery.com](https://docs.hlquery.com/).
+
 ## Getting Started
 
 ### Create a Collection
@@ -162,22 +178,6 @@ $ hlquery-cli search products "!apple"
 # Combined queries
 $ hlquery-cli search products "title:laptop AND price:[100 TO 500]"
 ```
-
-## Client Libraries
-
-Official client libraries are available for popular programming languages:
-
-- **[Node.js](https://github.com/hlquery/node-api)** - Official Node.js client
-- **[Go](https://github.com/hlquery/go-api)** - Official Go client
-- **[Java](https://github.com/hlquery/java-api)** - Official Java client
-- **[Python](https://github.com/hlquery/python-api)** - Official Python client
-- **[PHP](https://github.com/hlquery/php-api)** - Official PHP client
-- **[Ruby](https://github.com/hlquery/ruby-api)** - Official Ruby client
-- **[Rust](https://github.com/hlquery/rust-api)** - Rust client library
-- **[Perl](https://github.com/hlquery/perl-api)** - Perl client library
-- **[C++](https://github.com/hlquery/cpp-api)** - C++ client library
-
-For complete API documentation, visit [docs.hlquery.com](https://docs.hlquery.com/).
 
 ## GitHub Repositories & Development Workflow
 

@@ -189,6 +189,21 @@ static void SyncSamDocument(const std::string& CollectionName, const Document& D
      {
           Instance->LLM->EnqueueContextualization(CollectionName, Doc);
      }
+
+     if (!Instance->Sam)
+     {
+          return;
+     }
+
+     std::string ErrorMessage;
+
+     if (!Instance->Sam->EnqueueIndexDocument(CollectionName, Doc, &ErrorMessage) &&
+         Instance->Logs && !ErrorMessage.empty())
+     {
+          Instance->Logs->Normal("sam",
+                                 "Failed to queue SAM document '" + CollectionName + "/" + Doc.ID +
+                                      "': " + ErrorMessage + ".");
+     }
 }
 
 static void RemoveSamDocument(const std::string& CollectionName, const std::string& DocumentID)
@@ -2114,6 +2129,8 @@ HttpResponse SearchAPI::HandleSAMStatus(const HttpRequest &Request)
                {"completed", Entry.second.Completed},
                {"indexed", Entry.second.IndexedDocuments},
                {"failed", Entry.second.FailedDocuments},
+               {"pending", Entry.second.PendingDocuments},
+               {"total", Entry.second.TotalDocuments},
                {"error", Entry.second.ErrorMessage}
           };
 
@@ -2142,6 +2159,8 @@ HttpResponse SearchAPI::HandleSAMStatus(const HttpRequest &Request)
           Root["completed"] = false;
           Root["indexed"] = 0;
           Root["failed"] = 0;
+          Root["pending"] = 0;
+          Root["total"] = 0;
           Root["error"] = std::string();
           Root["message"] = "No SAM rebuild has been recorded for this collection.";
      }
@@ -2154,6 +2173,8 @@ HttpResponse SearchAPI::HandleSAMStatus(const HttpRequest &Request)
           Root["completed"] = JobStatus.Completed;
           Root["indexed"] = JobStatus.IndexedDocuments;
           Root["failed"] = JobStatus.FailedDocuments;
+          Root["pending"] = JobStatus.PendingDocuments;
+          Root["total"] = JobStatus.TotalDocuments;
           Root["error"] = JobStatus.ErrorMessage;
           Root["message"] = JobStatus.Running ? "SAM indexing is running."
                                               : (JobStatus.Completed ? "SAM indexing is idle."
