@@ -16,6 +16,7 @@
 #define ROCKSDB_NAMESPACE rocksdb
 #endif
 
+#include <atomic>
 #include <condition_variable>
 #include <mutex>
 #include <map>
@@ -40,14 +41,28 @@ class SAM
 
      struct LookupHit
      {
+          struct ScoreBreakdown
+          {
+               double TermScore = 0.0;
+               double SourceDocScore = 0.0;
+               double EvidenceBonus = 0.0;
+               double DocPrior = 0.0;
+               double SourceDocBonus = 0.0;
+               double FinalScore = 0.0;
+          };
+
           std::string Collection;
           std::string DocumentID;
           std::string Title;
           std::string MatchedTerm;
           std::string MatchedKind;
           std::string MatchedSource;
+          std::string MatchedPath;
+          std::string TermOrigin;
+          size_t EvidenceCount = 0;
           double MatchedScore = 0.0;
           double MatchedSignal = 0.0;
+          ScoreBreakdown Breakdown;
           std::string Explain;
      };
 
@@ -134,6 +149,7 @@ class SAM
      std::unique_ptr<rocksdb::DB> Database;
      rocksdb::Options OptionsValue;
      std::string DBPath;
+     std::atomic<bool> DatabaseOpen{false};
 
      mutable std::mutex DBMutex;
      mutable std::mutex InferenceMutex;
@@ -157,7 +173,11 @@ class SAM
      bool RemoveExistingDocumentTermsLocked(const std::string& Collection, const std::string& DocumentID, std::string* ErrorMessage = nullptr);
      bool IndexDocumentLocked(const std::string& Collection, const Document& Doc, std::string* ErrorMessage = nullptr);
 
-     std::vector<TermEntry> ExpandDocumentTerms(const std::string& Collection, const Document& Doc) const;
-     std::vector<TermEntry> GenerateLLMTerms(const std::string& Collection, const Document& Doc) const;
+     std::vector<TermEntry> ExpandDocumentTerms(const std::string& Collection,
+                                                const Document& Doc,
+                                                std::string* ErrorMessage = nullptr) const;
+     std::vector<TermEntry> GenerateLLMTerms(const std::string& Collection,
+                                             const Document& Doc,
+                                             std::string* ErrorMessage = nullptr) const;
      void RecordDebugEvent(const std::string& Collection, const std::string& Message) const;
 };

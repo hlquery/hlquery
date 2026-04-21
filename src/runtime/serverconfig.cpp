@@ -500,6 +500,35 @@ void ServerConfig::ApplyConfiguration()
          return ResolveRelativePath(Candidate).string();
     };
 
+    auto ResolveBundledInferenceCommand = [&]() -> std::string
+    {
+         if (ConfigDirectory.empty())
+         {
+              return "";
+         }
+
+         std::error_code Ec;
+         std::filesystem::path Base = std::filesystem::path(ConfigDirectory);
+
+         if (Base.filename() == "conf")
+         {
+              Base = Base.parent_path();
+         }
+
+         if (Base.filename() == "run")
+         {
+              const std::filesystem::path RepoRoot = Base.parent_path();
+              const std::filesystem::path Candidate = std::filesystem::absolute(RepoRoot / "tools" / "hlquery-llm-infer", Ec);
+
+              if (!Ec && std::filesystem::exists(Candidate))
+              {
+                   return Candidate.string();
+              }
+         }
+
+         return "";
+    };
+
     auto PickDefaultModel = [&]() -> std::string
     {
          if (AIModelCatalog.empty())
@@ -573,11 +602,62 @@ void ServerConfig::ApplyConfiguration()
     if (!AIInferenceCommand.empty())
     {
          AIInferenceCommand = ResolveRelativePath(std::filesystem::path(AIInferenceCommand)).string();
+
+         std::error_code CommandEC;
+
+         if ((!std::filesystem::exists(AIInferenceCommand, CommandEC) ||
+              std::filesystem::is_directory(AIInferenceCommand, CommandEC)) &&
+             std::filesystem::path(AIInferenceCommand).filename() == "hlquery-llm-infer")
+         {
+              const std::string BundledCommand = ResolveBundledInferenceCommand();
+
+              if (!BundledCommand.empty())
+              {
+                   AIInferenceCommand = BundledCommand;
+              }
+         }
+    }
+    else
+    {
+         const std::string BundledCommand = ResolveBundledInferenceCommand();
+
+         if (!BundledCommand.empty())
+         {
+              AIInferenceCommand = BundledCommand;
+         }
     }
 
     if (!SamDataDirectory.empty())
     {
          SamDataDirectory = ResolveRelativePath(std::filesystem::path(SamDataDirectory)).string();
+    }
+
+    const bool HasExplicitLLMConfig = (AITag != nullptr) || (LLMTag != nullptr);
+
+    if (HasExplicitLLMConfig)
+    {
+         if (AIModelPath.empty())
+         {
+              throw std::runtime_error("LLM is configured but no model path could be resolved.");
+         }
+
+         std::error_code ModelEC;
+
+         if (!std::filesystem::exists(AIModelPath, ModelEC) || std::filesystem::is_directory(AIModelPath, ModelEC))
+         {
+              throw std::runtime_error("Configured LLM model file does not exist: " + AIModelPath);
+         }
+
+         if (!AIInferenceCommand.empty())
+         {
+              std::error_code CommandEC;
+
+              if (!std::filesystem::exists(AIInferenceCommand, CommandEC) ||
+                  std::filesystem::is_directory(AIInferenceCommand, CommandEC))
+              {
+                   throw std::runtime_error("Configured LLM inference command does not exist: " + AIInferenceCommand);
+              }
+         }
     }
 
      /* Handle network binding configurations for multiple listeners */

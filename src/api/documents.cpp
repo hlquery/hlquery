@@ -178,59 +178,6 @@ static bool ExtractSAMDocumentPathParts(const std::string &Path,
 
 }
 
-static void SyncSamDocument(const std::string& CollectionName, const Document& Doc)
-{
-     if (!Instance)
-     {
-          return;
-     }
-
-     if (Instance->LLM)
-     {
-          Instance->LLM->EnqueueContextualization(CollectionName, Doc);
-     }
-
-     if (!Instance->Sam)
-     {
-          return;
-     }
-
-     std::string ErrorMessage;
-
-     if (!Instance->Sam->EnqueueIndexDocument(CollectionName, Doc, &ErrorMessage) &&
-         Instance->Logs && !ErrorMessage.empty())
-     {
-          Instance->Logs->Normal("sam",
-                                 "Failed to queue SAM document '" + CollectionName + "/" + Doc.ID +
-                                      "': " + ErrorMessage + ".");
-     }
-}
-
-static void RemoveSamDocument(const std::string& CollectionName, const std::string& DocumentID)
-{
-     if (!Instance)
-     {
-          return;
-     }
-
-     if (Instance->LLM)
-     {
-          Instance->LLM->RemoveDocumentContext(CollectionName, DocumentID);
-     }
-
-     if (!Instance->Sam)
-     {
-          return;
-     }
-
-     std::string ErrorMessage;
-
-     if (!Instance->Sam->DeleteDocument(CollectionName, DocumentID, &ErrorMessage) &&
-         Instance->Logs && !ErrorMessage.empty())
-     {
-          Instance->Logs->Normal("sam", "Failed to delete SAM document '" + CollectionName + "/" + DocumentID + "': " + ErrorMessage + ".");
-     }
-}
 /* HandleListDocuments lists documents in a collection with pagination and sorting. */
 
 HttpResponse SearchAPI::HandleListDocuments(const HttpRequest &Request)
@@ -1008,8 +955,6 @@ HttpResponse SearchAPI::HandleAddDocument(const HttpRequest &Request)
           return Response;
      }
 
-     SyncSamDocument(CollectionName, DocumentObj);
-
      MaybeTriggerCrashInjection("replication_after_local_write");
 
      if (!MarkReplicationOutboxCommitted(ReplicationOutboxID, Request, "add_document", &ReplicationJournalError))
@@ -1332,8 +1277,6 @@ HttpResponse SearchAPI::HandleUpdateDocument(const HttpRequest &Request)
           return Response;
      }
 
-     SyncSamDocument(CollectionName, StorageDoc);
-
      MaybeTriggerCrashInjection("replication_after_local_write");
 
      if (!MarkReplicationOutboxCommitted(ReplicationOutboxID, Request, "update_document", &ReplicationJournalError))
@@ -1438,8 +1381,6 @@ HttpResponse SearchAPI::HandleDeleteDocument(const HttpRequest &Request)
           ClearReplicationOutboxRecord(ReplicationOutboxID);
           return BuildErrorResponse(Status::NOT_FOUND, Code::DOCUMENT_NOT_FOUND, "Document not found", "The specified document does not exist in this collection.");
      }
-
-     RemoveSamDocument(CollectionName, DocumentID);
 
      MaybeTriggerCrashInjection("replication_after_local_write");
 
@@ -1571,7 +1512,6 @@ HttpResponse SearchAPI::HandleDeleteDocumentsByFilter(const HttpRequest &Request
           if (HybridStorageManagerInstance().DeleteDocument(CollectionName, DocID))
           {
                DeletedVal++;
-               RemoveSamDocument(CollectionName, DocID);
           }
           else
           {
@@ -2064,8 +2004,19 @@ HttpResponse SearchAPI::HandleSAMSearch(const HttpRequest &Request)
                {"term", Hit.MatchedTerm},
                {"kind", Hit.MatchedKind},
                {"source", Hit.MatchedSource},
+               {"matched_path", Hit.MatchedPath},
+               {"term_origin", Hit.TermOrigin},
+               {"evidence_count", Hit.EvidenceCount},
                {"score", Hit.MatchedScore},
-               {"signal", Hit.MatchedSignal}
+               {"signal", Hit.MatchedSignal},
+               {"score_breakdown", {
+                    {"term_score", Hit.Breakdown.TermScore},
+                    {"source_doc_score", Hit.Breakdown.SourceDocScore},
+                    {"evidence_bonus", Hit.Breakdown.EvidenceBonus},
+                    {"doc_prior", Hit.Breakdown.DocPrior},
+                    {"source_doc_bonus", Hit.Breakdown.SourceDocBonus},
+                    {"final_score", Hit.Breakdown.FinalScore}
+               }}
           };
 
           if (Instance->Config && Instance->Config->GetSam25DebugExplain() && !Hit.Explain.empty())
@@ -2114,10 +2065,15 @@ HttpResponse SearchAPI::HandleSAMStatus(const HttpRequest &Request)
                continue;
           }
 
+          if (CollectionName.empty() && !Entry.second.Running)
+          {
+               continue;
+          }
+
           if (!CollectionName.empty() && !HybridStorageManagerInstance().CollectionExists(CollectionName))
           {
                return BuildErrorResponse(Status::NOT_FOUND,
-                                         Code::COLLECTION_NOT_FOUND,
+                                        Code::COLLECTION_NOT_FOUND,
                                          "Collection not found",
                                          "The specified collection does not exist.");
           }
@@ -2183,7 +2139,7 @@ HttpResponse SearchAPI::HandleSAMStatus(const HttpRequest &Request)
      else
      {
           Root["running_count"] = RunningCount;
-          Root["known_count"] = Root["collections"].size();
+          Root["known_count"] = AllStatuses.size();
           Root["message"] = RunningCount > 0 ? "SAM indexing is running in the background."
                                              : "No SAM collections are currently indexing.";
      }
@@ -2816,7 +2772,6 @@ HttpResponse SearchAPI::HandleBulkImportDocuments(const HttpRequest &Request)
                               if (HybridStorageManagerInstance().AddDocument(CollectionName, StorageDoc))
                               {
                                    IndividualSuccessCount++;
-                                   SyncSamDocument(CollectionName, StorageDoc);
                               }
                               else
                               {
