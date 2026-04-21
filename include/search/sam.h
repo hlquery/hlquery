@@ -159,6 +159,5 @@ class SAM
 
      std::vector<TermEntry> ExpandDocumentTerms(const std::string& Collection, const Document& Doc) const;
      std::vector<TermEntry> GenerateLLMTerms(const std::string& Collection, const Document& Doc) const;
-     std::vector<TermEntry> GenerateHeuristicTerms(const std::string& Collection, const Document& Doc) const;
      void RecordDebugEvent(const std::string& Collection, const std::string& Message) const;
 };
