@@ -38,7 +38,8 @@ run/pid/
 3rd/ssl/
 3rd/run/data/
 3rd/run/logs/
-etc/package/dist/
+etc/package-builder/build/
+etc/package-builder/dist/
 etc/api/crawler/venv/
 etc/api/rust/target/
 etc/api/tests/target/

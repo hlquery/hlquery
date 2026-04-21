@@ -601,15 +601,20 @@ class ServerConfig
          return Sam25SourcePhraseBoostLlm;
     }
 
-    int GetSamLLMMaxIdeas() const
-    {
-         return SamLLMMaxIdeas;
-    }
+     int GetSamLLMMaxIdeas() const
+     {
+          return SamLLMMaxIdeas;
+     }
 
-    const std::string& GetSamLLMCreativityMode() const
-    {
-         return SamLLMCreativityMode;
-    }
+     int GetSamContextMaxIdeas() const
+     {
+          return SamContextMaxIdeas;
+     }
+
+     const std::string& GetSamLLMCreativityMode() const
+     {
+          return SamLLMCreativityMode;
+     }
 
     bool GetSam25EnableIdf() const
     {
@@ -2022,8 +2027,9 @@ class ServerConfig
     double Sam25SourcePhraseBoostLabelPair = 1.15;
     double Sam25SourcePhraseBoostLabel = 1.00;
     double Sam25SourcePhraseBoostLlm = 0.85;
-    int SamLLMMaxIdeas = 6;
-    std::string SamLLMCreativityMode = "balanced";
+     int SamLLMMaxIdeas = 6;
+     int SamContextMaxIdeas = 20;
+     std::string SamLLMCreativityMode = "balanced";
     bool Sam25EnableIdf = true;
     double Sam25IdfFloor = 0.10;
     double Sam25IdfCeiling = 2.50;

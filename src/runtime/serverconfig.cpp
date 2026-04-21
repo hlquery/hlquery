@@ -363,6 +363,7 @@ void ServerConfig::ApplyConfiguration()
           Sam25SourcePhraseBoostLabel = SAMTag->GetDoubleRange("sam25_source_phrase_boost_label", Sam25SourcePhraseBoostLabel, 0.1, 5.0);
           Sam25SourcePhraseBoostLlm = SAMTag->GetDoubleRange("sam25_source_phrase_boost_llm", Sam25SourcePhraseBoostLlm, 0.1, 5.0);
           SamLLMMaxIdeas = SAMTag->GetIntRange("sam_llm_max_ideas", SamLLMMaxIdeas, 1, 64);
+          SamContextMaxIdeas = SAMTag->GetIntRange("sam_context_max_ideas", SamContextMaxIdeas, 4, 128);
           SamLLMCreativityMode = SAMTag->GetString("sam_llm_creativity_mode", SamLLMCreativityMode);
           SamLLMCreativityMode.erase(0, SamLLMCreativityMode.find_first_not_of(" \t\r\n"));
           SamLLMCreativityMode.erase(SamLLMCreativityMode.find_last_not_of(" \t\r\n") == std::string::npos
