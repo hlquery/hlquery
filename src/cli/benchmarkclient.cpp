@@ -33,7 +33,7 @@
 
 #include "core/config.h"
 
-#ifdef HLQUERY_BENCH_HAS_OPENSSL
+#ifdef HLQUERY_HAS_OPENSSL
 #include <openssl/err.h>
 #include <openssl/ssl.h>
 #endif
@@ -42,6 +42,17 @@
 
 #include "benchmarkclient.h"
 #include "runtime/exitmanager.h"
+
+namespace
+{
+HTTPResponse MakeSSLMissingResponse()
+{
+     HTTPResponse response;
+     response.StatusCode = -1;
+     response.ErrorMessage = "HTTPS support is unavailable in this build because OpenSSL support was not enabled.";
+     return response;
+}
+}
 
 /* Global stats forward declarations. */
 
@@ -294,6 +305,13 @@ HTTPResponse BenchmarkClient::MakeRequest(const std::string &method, const std::
 {
      HTTPResponse response;
 
+#ifndef HLQUERY_HAS_OPENSSL
+     if (UseSSL)
+     {
+          return MakeSSLMissingResponse();
+     }
+#endif
+
      int sock = -1;
 
      if (!GetConnection(sock))
@@ -349,11 +367,20 @@ HTTPResponse BenchmarkClient::MakeRequest(const std::string &method, const std::
                if (!SSLCtx)
                {
                     response.StatusCode = -1;
+                    response.ErrorMessage = "Failed to initialize TLS context.";
 
                     return response;
                }
 
                SSLObj = SSL_new(SSLCtx);
+
+               if (!SSLObj)
+               {
+                    response.StatusCode = -1;
+                    response.ErrorMessage = "Failed to initialize TLS session.";
+
+                    return response;
+               }
 
                SSL_set_fd(SSLObj, sock);
 
@@ -364,6 +391,7 @@ HTTPResponse BenchmarkClient::MakeRequest(const std::string &method, const std::
                     if (attempt == max_retries - 1)
                     {
                          response.StatusCode = -1;
+                         response.ErrorMessage = "TLS handshake failed.";
 
                          return response;
                     }
