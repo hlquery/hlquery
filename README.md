@@ -17,7 +17,7 @@
 </div>
 
 > Feel free to check the live demo at [demo.hlquery.com](https://demo.hlquery.com/).
-> Demo mode does not allow running custom `src/modules` modules.
+> Demo mode does runs using `src/modules/m_demo.cpp`, so inserts are not allowed.
 > The demo UI uses [hanalyzer](https://github.com/hlquery/hanalyzer).
 
 ### Overview
