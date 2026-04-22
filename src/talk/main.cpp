@@ -2071,6 +2071,7 @@ void SetCurrentCollection(TalkState &state, const std::string &collection_name)
 
      state.CurrentCollection = collection_name;
      state.LastListedDocumentIds.clear();
+     state.LastListedSAMDocumentIds.clear();
 }
 
 bool GoBackCollection(TalkState &state)
@@ -2084,12 +2085,14 @@ bool GoBackCollection(TalkState &state)
 
           state.CurrentCollection.clear();
           state.LastListedDocumentIds.clear();
+          state.LastListedSAMDocumentIds.clear();
           return true;
      }
 
      state.CurrentCollection = state.CollectionHistory.back();
      state.CollectionHistory.pop_back();
      state.LastListedDocumentIds.clear();
+     state.LastListedSAMDocumentIds.clear();
      return true;
 }
 
@@ -3578,7 +3581,7 @@ bool ExecuteTalkCommand(const std::string &line,
                     return true;
                }
 
-               state.LastListedDocumentIds = FetchSAMDocumentIds(cli, collection_name, offset, limit);
+               state.LastListedSAMDocumentIds = FetchSAMDocumentIds(cli, collection_name, offset, limit);
                cli.ListSAMDocuments(collection_name, offset, limit);
                return true;
           }
@@ -3609,14 +3612,14 @@ bool ExecuteTalkCommand(const std::string &line,
                     return true;
                }
 
-               if (IsUnsignedInteger(document_id) && !state.LastListedDocumentIds.empty())
+               if (IsUnsignedInteger(document_id) && !state.LastListedSAMDocumentIds.empty())
                {
                     std::string resolved_document_id;
 
                     if (!ResolveCollectionDocumentReference(cli,
                                                             resolved_collection,
                                                             document_id,
-                                                            state.LastListedDocumentIds,
+                                                            state.LastListedSAMDocumentIds,
                                                             resolved_document_id,
                                                             error_message))
                     {

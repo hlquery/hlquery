@@ -272,6 +272,85 @@ bool MatchWildcard(const char *Str, const char *Pattern)
           Pattern++;
      }
 
+    return *Pattern == '\0';
+}
+
+bool MatchExactCaseSensitive(const char *Str, const char *Pattern)
+{
+     return std::strcmp(Str, Pattern) == 0;
+}
+
+bool MatchPrefixCaseSensitive(const char *Str, const char *Pattern, size_t PrefixLen)
+{
+     return std::memcmp(Str, Pattern, PrefixLen) == 0;
+}
+
+bool MatchSuffixCaseSensitive(const char *Str, const char *Pattern, size_t StrLen, size_t SuffixLen)
+{
+     if (StrLen < SuffixLen)
+     {
+          return false;
+     }
+
+     return std::memcmp(Str + (StrLen - SuffixLen), Pattern + 1, SuffixLen) == 0;
+}
+
+bool MatchContainsCaseSensitive(const char *Str, const char *Pattern, size_t StrLen, size_t SubstrLen)
+{
+     if (StrLen < SubstrLen)
+     {
+          return false;
+     }
+
+     const char *SubPattern = Pattern + 1;
+
+     for (size_t i = 0; i <= StrLen - SubstrLen; ++i)
+     {
+          if (std::memcmp(Str + i, SubPattern, SubstrLen) == 0)
+          {
+               return true;
+          }
+     }
+
+     return false;
+}
+
+bool MatchWildcardCaseSensitive(const char *Str, const char *Pattern)
+{
+     const char *Star = nullptr;
+     const char *StrCheckpoint = nullptr;
+
+     while (*Str)
+     {
+          if (*Pattern == '*')
+          {
+               Star = Pattern++;
+               StrCheckpoint = Str;
+               continue;
+          }
+
+          if (*Pattern == '?' || *Str == *Pattern)
+          {
+               ++Str;
+               ++Pattern;
+               continue;
+          }
+
+          if (Star)
+          {
+               Pattern = Star + 1;
+               Str = ++StrCheckpoint;
+               continue;
+          }
+
+          return false;
+     }
+
+     while (*Pattern == '*')
+     {
+          ++Pattern;
+     }
+
      return *Pattern == '\0';
 }
 
@@ -286,6 +365,11 @@ bool Wildcard::Match(const std::string &Str, const std::string &Pattern)
      return MatchInternal(Str.c_str(), Pattern.c_str());
 }
 
+bool Wildcard::MatchCaseSensitive(const std::string &Str, const std::string &Pattern)
+{
+     return MatchCaseSensitive(Str.c_str(), Pattern.c_str());
+}
+
 bool Wildcard::Match(const char *Str, const char *Pattern)
 {
      if (!Str || !Pattern)
@@ -294,6 +378,45 @@ bool Wildcard::Match(const char *Str, const char *Pattern)
      }
 
      return MatchInternal(Str, Pattern);
+}
+
+bool Wildcard::MatchCaseSensitive(const char *Str, const char *Pattern)
+{
+     if (!Str || !Pattern)
+     {
+          return false;
+     }
+
+     if (std::strcmp(Pattern, "*") == 0)
+     {
+          return true;
+     }
+
+     std::string Normalized = NormalizePattern(std::string(Pattern));
+
+     if (Normalized.find('*') == std::string::npos && Normalized.find('?') == std::string::npos)
+     {
+          return MatchExactCaseSensitive(Str, Normalized.c_str());
+     }
+
+     size_t StrLen = std::strlen(Str);
+
+     if (Normalized.front() == '*' && Normalized.back() == '*' && Normalized.size() > 2)
+     {
+          return MatchContainsCaseSensitive(Str, Normalized.c_str(), StrLen, Normalized.size() - 2);
+     }
+
+     if (Normalized.front() == '*' && Normalized.find_first_of("*?", 1) == std::string::npos)
+     {
+          return MatchSuffixCaseSensitive(Str, Normalized.c_str(), StrLen, Normalized.size() - 1);
+     }
+
+     if (Normalized.back() == '*' && Normalized.find_first_of("*?", 0) == Normalized.size() - 1)
+     {
+          return MatchPrefixCaseSensitive(Str, Normalized.c_str(), Normalized.size() - 1);
+     }
+
+     return MatchWildcardCaseSensitive(Str, Normalized.c_str());
 }
 
 bool Wildcard::MatchInternal(const char *Str, const char *Pattern)

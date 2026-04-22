@@ -243,23 +243,6 @@ std::vector<llm::ContextSuggestion> llm::BuildDocumentContext(const std::string&
           AppendSuggestion(Suggestions, Seen, Title + " report", "article", Limit);
      }
 
-     static const std::unordered_map<std::string, std::vector<std::string>> EntityAliases = {
-          {"madonna", {"queen of pop", "madonna music", "madonna songs", "pop queen"}},
-          {"beyonce", {"queen bey", "beyonce music", "beyonce songs"}},
-          {"taylor swift", {"taylor swift music", "taylor swift songs", "swift pop"}},
-          {"picasso", {"pablo picasso", "picasso art", "cubist artist"}},
-          {"vincent van gogh", {"van gogh", "van gogh art", "post impressionist artist"}}};
-
-     const auto AliasIt = EntityAliases.find(LowerTitle);
-
-     if (AliasIt != EntityAliases.end())
-     {
-          for (const auto& Alias : AliasIt->second)
-          {
-               AppendSuggestion(Suggestions, Seen, Alias, "alias", Limit);
-          }
-     }
-
      if (Configured() && !InferenceCommand.empty() && Suggestions.size() < Limit)
      {
           nlohmann::json Payload;

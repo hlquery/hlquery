@@ -36,6 +36,7 @@ class CoreExport Wildcard
       */
 
      static bool Match(const std::string& Str, const std::string& Pattern);
+     static bool MatchCaseSensitive(const std::string& Str, const std::string& Pattern);
 
      /*
       * Match a C-string against a wildcard pattern
@@ -45,6 +46,7 @@ class CoreExport Wildcard
       */
 
      static bool Match(const char* Str, const char* Pattern);
+     static bool MatchCaseSensitive(const char* Str, const char* Pattern);
 
      /*
       * Filter a vector of strings using wildcard pattern

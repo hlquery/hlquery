@@ -178,44 +178,6 @@ static bool ExtractSAMDocumentPathParts(const std::string &Path,
 
 }
 
-static void SyncSamDocument(const std::string& CollectionName, const Document& Doc)
-{
-     if (!Instance)
-     {
-          return;
-     }
-
-     if (Instance->LLM)
-     {
-          Instance->LLM->EnqueueContextualization(CollectionName, Doc);
-     }
-}
-
-static void RemoveSamDocument(const std::string& CollectionName, const std::string& DocumentID)
-{
-     if (!Instance)
-     {
-          return;
-     }
-
-     if (Instance->LLM)
-     {
-          Instance->LLM->RemoveDocumentContext(CollectionName, DocumentID);
-     }
-
-     if (!Instance->Sam)
-     {
-          return;
-     }
-
-     std::string ErrorMessage;
-
-     if (!Instance->Sam->DeleteDocument(CollectionName, DocumentID, &ErrorMessage) &&
-         Instance->Logs && !ErrorMessage.empty())
-     {
-          Instance->Logs->Normal("sam", "Failed to delete SAM document '" + CollectionName + "/" + DocumentID + "': " + ErrorMessage + ".");
-     }
-}
 /* HandleListDocuments lists documents in a collection with pagination and sorting. */
 
 HttpResponse SearchAPI::HandleListDocuments(const HttpRequest &Request)
@@ -306,14 +268,11 @@ HttpResponse SearchAPI::HandleListDocuments(const HttpRequest &Request)
           IncludeCreatedAtVal = (Value == "true" || Value == "1" || Value == "yes");
      }
 
+     const bool RequiresGlobalSort = !SortByStr.empty();
      std::vector<Document> Documents;
-
-     try
+     const auto AppendStorageDocuments = [&Documents](const std::vector<Document> &StorageDocs)
      {
-          auto StorageDocs = HybridStorageManagerInstance().ListDocuments(CollectionName, LimitVal, OffsetVal);
-
-          Documents.clear();
-          Documents.reserve(StorageDocs.size());
+          Documents.reserve(Documents.size() + StorageDocs.size());
 
           for (const auto &StorageDoc : StorageDocs)
           {
@@ -327,6 +286,41 @@ HttpResponse SearchAPI::HandleListDocuments(const HttpRequest &Request)
                DocObj.Timestamp = StorageDoc.Timestamp;
 
                Documents.push_back(DocObj);
+          }
+     };
+
+     try
+     {
+          Documents.clear();
+
+          if (RequiresGlobalSort)
+          {
+               const int BatchLimit = 1000;
+               int BatchOffset = 0;
+
+               while (true)
+               {
+                    const auto StorageDocs = HybridStorageManagerInstance().ListDocuments(CollectionName, BatchLimit, BatchOffset);
+
+                    if (StorageDocs.empty())
+                    {
+                         break;
+                    }
+
+                    AppendStorageDocuments(StorageDocs);
+
+                    if (static_cast<int>(StorageDocs.size()) < BatchLimit)
+                    {
+                         break;
+                    }
+
+                    BatchOffset += static_cast<int>(StorageDocs.size());
+               }
+          }
+          else
+          {
+               const auto StorageDocs = HybridStorageManagerInstance().ListDocuments(CollectionName, LimitVal, OffsetVal);
+               AppendStorageDocuments(StorageDocs);
           }
      }
      catch (const std::exception &E)
@@ -364,7 +358,7 @@ HttpResponse SearchAPI::HandleListDocuments(const HttpRequest &Request)
 
           if (TotalVal == 0 && !Documents.empty())
           {
-               TotalVal = static_cast<int>(Documents.size() + OffsetVal);
+               TotalVal = static_cast<int>(Documents.size() + (RequiresGlobalSort ? 0 : OffsetVal));
 
                if (Instance && Instance->Logs)
                {
@@ -379,7 +373,7 @@ HttpResponse SearchAPI::HandleListDocuments(const HttpRequest &Request)
                Instance->Logs->Normal("search_api", "Exception getting document count: " + std::string(E.what()) + " - using Documents.size() as fallback.");
           }
 
-          TotalVal = static_cast<int>(Documents.size() + OffsetVal);
+          TotalVal = static_cast<int>(Documents.size() + (RequiresGlobalSort ? 0 : OffsetVal));
      }
      catch (...)
      {
@@ -388,7 +382,7 @@ HttpResponse SearchAPI::HandleListDocuments(const HttpRequest &Request)
                Instance->Logs->Normal("search_api", "Unknown exception getting document count - using Documents.size() as fallback.");
           }
 
-          TotalVal = static_cast<int>(Documents.size() + OffsetVal);
+          TotalVal = static_cast<int>(Documents.size() + (RequiresGlobalSort ? 0 : OffsetVal));
      }
 
      if (Documents.empty() && OffsetVal >= TotalVal)
@@ -513,6 +507,22 @@ HttpResponse SearchAPI::HandleListDocuments(const HttpRequest &Request)
 
                          return false;
                     });
+
+          if (OffsetVal > 0 || static_cast<int>(Documents.size()) > LimitVal)
+          {
+               const size_t SliceStart = static_cast<size_t>(std::min(OffsetVal, static_cast<int>(Documents.size())));
+               const size_t SliceEnd = std::min(Documents.size(), SliceStart + static_cast<size_t>(LimitVal));
+
+               if (SliceStart >= Documents.size())
+               {
+                    Documents.clear();
+               }
+               else
+               {
+                    Documents = std::vector<Document>(Documents.begin() + static_cast<std::ptrdiff_t>(SliceStart),
+                                                      Documents.begin() + static_cast<std::ptrdiff_t>(SliceEnd));
+               }
+          }
      }
 
      HttpResponse Response(Status::OK, StatusText(Status::OK), "application/json");
@@ -993,8 +1003,6 @@ HttpResponse SearchAPI::HandleAddDocument(const HttpRequest &Request)
           return Response;
      }
 
-     SyncSamDocument(CollectionName, DocumentObj);
-
      MaybeTriggerCrashInjection("replication_after_local_write");
 
      if (!MarkReplicationOutboxCommitted(ReplicationOutboxID, Request, "add_document", &ReplicationJournalError))
@@ -1317,8 +1325,6 @@ HttpResponse SearchAPI::HandleUpdateDocument(const HttpRequest &Request)
           return Response;
      }
 
-     SyncSamDocument(CollectionName, StorageDoc);
-
      MaybeTriggerCrashInjection("replication_after_local_write");
 
      if (!MarkReplicationOutboxCommitted(ReplicationOutboxID, Request, "update_document", &ReplicationJournalError))
@@ -1423,8 +1429,6 @@ HttpResponse SearchAPI::HandleDeleteDocument(const HttpRequest &Request)
           ClearReplicationOutboxRecord(ReplicationOutboxID);
           return BuildErrorResponse(Status::NOT_FOUND, Code::DOCUMENT_NOT_FOUND, "Document not found", "The specified document does not exist in this collection.");
      }
-
-     RemoveSamDocument(CollectionName, DocumentID);
 
      MaybeTriggerCrashInjection("replication_after_local_write");
 
@@ -1556,7 +1560,6 @@ HttpResponse SearchAPI::HandleDeleteDocumentsByFilter(const HttpRequest &Request
           if (HybridStorageManagerInstance().DeleteDocument(CollectionName, DocID))
           {
                DeletedVal++;
-               RemoveSamDocument(CollectionName, DocID);
           }
           else
           {
@@ -2049,8 +2052,19 @@ HttpResponse SearchAPI::HandleSAMSearch(const HttpRequest &Request)
                {"term", Hit.MatchedTerm},
                {"kind", Hit.MatchedKind},
                {"source", Hit.MatchedSource},
+               {"matched_path", Hit.MatchedPath},
+               {"term_origin", Hit.TermOrigin},
+               {"evidence_count", Hit.EvidenceCount},
                {"score", Hit.MatchedScore},
-               {"signal", Hit.MatchedSignal}
+               {"signal", Hit.MatchedSignal},
+               {"score_breakdown", {
+                    {"term_score", Hit.Breakdown.TermScore},
+                    {"source_doc_score", Hit.Breakdown.SourceDocScore},
+                    {"evidence_bonus", Hit.Breakdown.EvidenceBonus},
+                    {"doc_prior", Hit.Breakdown.DocPrior},
+                    {"source_doc_bonus", Hit.Breakdown.SourceDocBonus},
+                    {"final_score", Hit.Breakdown.FinalScore}
+               }}
           };
 
           if (Instance->Config && Instance->Config->GetSam25DebugExplain() && !Hit.Explain.empty())
@@ -2099,10 +2113,15 @@ HttpResponse SearchAPI::HandleSAMStatus(const HttpRequest &Request)
                continue;
           }
 
+          if (CollectionName.empty() && !Entry.second.Running)
+          {
+               continue;
+          }
+
           if (!CollectionName.empty() && !HybridStorageManagerInstance().CollectionExists(CollectionName))
           {
                return BuildErrorResponse(Status::NOT_FOUND,
-                                         Code::COLLECTION_NOT_FOUND,
+                                        Code::COLLECTION_NOT_FOUND,
                                          "Collection not found",
                                          "The specified collection does not exist.");
           }
@@ -2114,6 +2133,8 @@ HttpResponse SearchAPI::HandleSAMStatus(const HttpRequest &Request)
                {"completed", Entry.second.Completed},
                {"indexed", Entry.second.IndexedDocuments},
                {"failed", Entry.second.FailedDocuments},
+               {"pending", Entry.second.PendingDocuments},
+               {"total", Entry.second.TotalDocuments},
                {"error", Entry.second.ErrorMessage}
           };
 
@@ -2142,6 +2163,8 @@ HttpResponse SearchAPI::HandleSAMStatus(const HttpRequest &Request)
           Root["completed"] = false;
           Root["indexed"] = 0;
           Root["failed"] = 0;
+          Root["pending"] = 0;
+          Root["total"] = 0;
           Root["error"] = std::string();
           Root["message"] = "No SAM rebuild has been recorded for this collection.";
      }
@@ -2154,6 +2177,8 @@ HttpResponse SearchAPI::HandleSAMStatus(const HttpRequest &Request)
           Root["completed"] = JobStatus.Completed;
           Root["indexed"] = JobStatus.IndexedDocuments;
           Root["failed"] = JobStatus.FailedDocuments;
+          Root["pending"] = JobStatus.PendingDocuments;
+          Root["total"] = JobStatus.TotalDocuments;
           Root["error"] = JobStatus.ErrorMessage;
           Root["message"] = JobStatus.Running ? "SAM indexing is running."
                                               : (JobStatus.Completed ? "SAM indexing is idle."
@@ -2162,7 +2187,7 @@ HttpResponse SearchAPI::HandleSAMStatus(const HttpRequest &Request)
      else
      {
           Root["running_count"] = RunningCount;
-          Root["known_count"] = Root["collections"].size();
+          Root["known_count"] = AllStatuses.size();
           Root["message"] = RunningCount > 0 ? "SAM indexing is running in the background."
                                              : "No SAM collections are currently indexing.";
      }
@@ -2795,7 +2820,6 @@ HttpResponse SearchAPI::HandleBulkImportDocuments(const HttpRequest &Request)
                               if (HybridStorageManagerInstance().AddDocument(CollectionName, StorageDoc))
                               {
                                    IndividualSuccessCount++;
-                                   SyncSamDocument(CollectionName, StorageDoc);
                               }
                               else
                               {

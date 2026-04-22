@@ -16,6 +16,10 @@
 
 </div>
 
+> You can explore the live demo at [demo.hlquery.com](https://demo.hlquery.com/).
+> Demo mode is powered by [`m_demo.cpp`](./src/modules/m_demo.cpp), so insert operations are disabled.
+> The demo UI is built with [hanalyzer](https://github.com/hlquery/hanalyzer).
+
 ### Overview
 
 hlquery is an open source search engine written in C++17 and backed by RocksDB. It is designed for applications that need fast indexing, real-time queries, and a straightforward HTTP/JSON interface without giving up advanced search features. The engine supports full-text search, hybrid ranking, vector similarity, flexible collections, and configurable runtime modules for features such as AI-assisted search.
@@ -108,6 +112,22 @@ localhost:9200|art> uptime
 Server up for 3 days, 1h 0m 31s
 ```
 
+## Client Libraries
+
+Official client libraries are available for popular programming languages:
+
+- **[Node.js](https://github.com/hlquery/node-api)** - Official Node.js client.
+- **[Go](https://github.com/hlquery/go-api)** - Official Go client.
+- **[Java](https://github.com/hlquery/java-api)** - Official Java client.
+- **[Python](https://github.com/hlquery/python-api)** - Official Python client.
+- **[PHP](https://github.com/hlquery/php-api)** - Official PHP client.
+- **[Ruby](https://github.com/hlquery/ruby-api)** - Official Ruby client.
+- **[Rust](https://github.com/hlquery/rust-api)** - Rust client library.
+- **[Perl](https://github.com/hlquery/perl-api)** - Perl client library.
+- **[C++](https://github.com/hlquery/cpp-api)** - C++ client library.
+
+For complete API documentation, visit [docs.hlquery.com](https://docs.hlquery.com/).
+
 ## Getting Started
 
 ### Create a Collection
@@ -117,11 +137,46 @@ $ hlquery-cli create products title content price
 Collection 'products' created successfully
 ```
 
+**using the PHP API:**
+
+```php
+<?php
+
+require_once __DIR__ . '/vendor/autoload.php';
+
+use Hlquery\Client;
+
+$client = new Client('http://localhost:9200');
+
+$collections = $client->collections();
+
+$schema = [
+    'fields' => [
+        ['name' => 'id', 'type' => 'string'],
+        ['name' => 'title', 'type' => 'string'],
+        ['name' => 'content', 'type' => 'string'],
+        ['name' => 'price', 'type' => 'float'],
+    ],
+];
+
+$collections->create('products', $schema);
+```
+
 ### Index Documents
 
 ```bash
 $ hlquery-cli add products product1 "Laptop Computer" "High-performance laptop with 16GB RAM"
 Document 'product1' added to collection 'products'
+```
+
+**using the Node API:**
+
+```js
+await client.documents().add('products', {
+  id: 'product1',
+  title: 'Laptop Computer',
+  content: 'High-performance laptop with 16GB RAM'
+});
 ```
 
 ### Search
@@ -136,6 +191,13 @@ Found 1 document(s) (showing 1-1 of 1)
 +---+-------------+----------+-----------------+---------------------------------------+----------+
 | 1 | product1    | 1.094500 | Laptop Computer | High-performance laptop with 16GB RAM | 0 fields |
 +---+-------------+----------+-----------------+---------------------------------------+----------+
+```
+
+**using the C++ API:**
+
+```cpp
+hlquery::Client client("http://localhost:9200");
+auto result = client.search("products", {{"q", "laptop"}});
 ```
 
 ### Example Queries
@@ -153,6 +215,9 @@ $ hlquery-cli search products "laptop~2"
 # Wildcard search
 $ hlquery-cli search products "laptop*"
 
+# Case-sensitive search
+$ hlquery-cli search products "is:casesensitive Laptop"
+
 # Boost term importance
 $ hlquery-cli search products "laptop^2.0 computer"
 
@@ -162,22 +227,6 @@ $ hlquery-cli search products "!apple"
 # Combined queries
 $ hlquery-cli search products "title:laptop AND price:[100 TO 500]"
 ```
-
-## Client Libraries
-
-Official client libraries are available for popular programming languages:
-
-- **[Node.js](https://github.com/hlquery/node-api)** - Official Node.js client
-- **[Go](https://github.com/hlquery/go-api)** - Official Go client
-- **[Java](https://github.com/hlquery/java-api)** - Official Java client
-- **[Python](https://github.com/hlquery/python-api)** - Official Python client
-- **[PHP](https://github.com/hlquery/php-api)** - Official PHP client
-- **[Ruby](https://github.com/hlquery/ruby-api)** - Official Ruby client
-- **[Rust](https://github.com/hlquery/rust-api)** - Rust client library
-- **[Perl](https://github.com/hlquery/perl-api)** - Perl client library
-- **[C++](https://github.com/hlquery/cpp-api)** - C++ client library
-
-For complete API documentation, visit [docs.hlquery.com](https://docs.hlquery.com/).
 
 ## GitHub Repositories & Development Workflow
 

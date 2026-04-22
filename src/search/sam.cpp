@@ -32,8 +32,6 @@
 #include "utils/tools.h"
 #include "vendor/json/json.hpp"
 
-namespace
-{
 bool ParseManifestValue(const std::string& RawValue, SAM::DocumentEntry& Entry);
 
 std::string TrimCopy(const std::string& Value)
@@ -218,7 +216,13 @@ struct SAMTokenMatchResult
 };
 
 size_t EditDistance(const std::string& A, const std::string& B);
-bool LooksLikeWeakLLMSuffix(const std::string& Value);
+bool LooksLikeWeakLLMSuffix(const std::string& Value)
+{
+     static const std::unordered_set<std::string> WeakSuffixes = {
+          "artist", "artists", "music", "songs", "career", "careers", "industry",
+          "performance", "performances", "profile", "profiles", "official"};
+     return WeakSuffixes.find(Value) != WeakSuffixes.end();
+}
 
 bool IsQuotedSAMQuery(const std::string& Value)
 {
@@ -1356,6 +1360,24 @@ void AccumulateSAMHit(std::unordered_map<std::string, SAMAggregatedHit>& Aggrega
      ++Aggregate.EvidenceCount;
 }
 
+std::string ClassifySAMMatchedPath(const SAM::LookupHit& Hit)
+{
+     const bool HasTermEvidence = Hit.Breakdown.TermScore > 0.0;
+     const bool HasSourceEvidence = Hit.Breakdown.SourceDocScore > 0.0 || Hit.Breakdown.SourceDocBonus > 0.0;
+
+     if (HasTermEvidence && HasSourceEvidence)
+     {
+          return "hybrid";
+     }
+
+     if (HasSourceEvidence)
+     {
+          return "source_doc";
+     }
+
+     return "sam_term";
+}
+
 void FinalizeSAMAggregatedHits(std::vector<SAM::LookupHit>& Hits,
                                const std::unordered_map<std::string, SAMAggregatedHit>& AggregatedHits,
                                const SAMQueryTokenViews& QueryViews,
@@ -1382,11 +1404,21 @@ void FinalizeSAMAggregatedHits(std::vector<SAM::LookupHit>& Hits,
           const double SourceScoreBonus = SourceMatch.Score > 0.0
                ? std::min(SourceDocMergeBonus, SourceMatch.Score * SourceDocWeight)
                : 0.0;
+          FinalHit.EvidenceCount = Entry.second.EvidenceCount;
+          FinalHit.Breakdown.EvidenceBonus = EvidenceBonus;
+          FinalHit.Breakdown.DocPrior = DocPrior;
+          FinalHit.Breakdown.SourceDocBonus = SourceScoreBonus;
           FinalHit.MatchedScore += EvidenceBonus;
           FinalHit.MatchedScore += Instance && Instance->Config
                ? (DocPrior * Instance->Config->GetSam25DocPriorWeight())
                : 0.0;
           FinalHit.MatchedScore += SourceScoreBonus;
+          FinalHit.Breakdown.FinalScore = FinalHit.MatchedScore;
+          FinalHit.MatchedPath = ClassifySAMMatchedPath(FinalHit);
+          if (FinalHit.TermOrigin.empty())
+          {
+               FinalHit.TermOrigin = FinalHit.MatchedSource;
+          }
           if (IsSAM25DebugExplainEnabled() && !FinalHit.Explain.empty())
           {
                std::ostringstream Stream;
@@ -1592,14 +1624,13 @@ double ComputeSAM25TermScore(rocksdb::DB* Database,
      return Score;
 }
 
-void AppendFuzzyFallbackHits(std::vector<SAM::LookupHit>& Hits,
-                             std::unordered_set<std::string>& SeenDocuments,
+void AppendFuzzyFallbackHits(std::unordered_map<std::string, SAMAggregatedHit>& AggregatedHits,
                              rocksdb::DB* Database,
                              const std::string& Collection,
                              const std::string& Query,
                              size_t Limit)
 {
-     if (!Database || Hits.size() >= Limit)
+     if (!Database || Limit == 0)
      {
           return;
      }
@@ -1632,11 +1663,6 @@ void AppendFuzzyFallbackHits(std::vector<SAM::LookupHit>& Hits,
 
           const std::string DedupKey = Entry.Collection + "/" + Entry.DocumentID;
 
-          if (SeenDocuments.find(DedupKey) != SeenDocuments.end())
-          {
-               continue;
-          }
-
           double BestScore = -1.0;
           SAM::LookupHit BestHit;
 
@@ -1657,8 +1683,12 @@ void AppendFuzzyFallbackHits(std::vector<SAM::LookupHit>& Hits,
                BestHit.MatchedTerm = Term.Text;
                BestHit.MatchedKind = Term.Kind;
                BestHit.MatchedSource = Term.Source;
+               BestHit.TermOrigin = Term.Source;
+               BestHit.MatchedPath = "sam_term";
                BestHit.MatchedScore = FuzzyScore;
                BestHit.MatchedSignal = Term.Signal;
+               BestHit.Breakdown.TermScore = FuzzyScore;
+               BestHit.Breakdown.FinalScore = FuzzyScore;
                if (IsSAM25DebugExplainEnabled())
                {
                     BestHit.Explain = FormatSAM25Explain(Debug);
@@ -1687,8 +1717,13 @@ void AppendFuzzyFallbackHits(std::vector<SAM::LookupHit>& Hits,
                     : QueryViews.NormalizedPhrase;
                BestHit.MatchedKind = "source_doc";
                BestHit.MatchedSource = SourceMatch.Field.empty() ? "source_doc" : "source_" + SourceMatch.Field;
+               BestHit.TermOrigin = BestHit.MatchedSource;
+               BestHit.MatchedPath = "source_doc";
                BestHit.MatchedScore = EffectiveSourceScore;
                BestHit.MatchedSignal = EffectiveSourceScore;
+               BestHit.Breakdown.TermScore = 0.0;
+               BestHit.Breakdown.SourceDocScore = EffectiveSourceScore;
+               BestHit.Breakdown.FinalScore = EffectiveSourceScore;
 
                if (IsSAM25DebugExplainEnabled())
                {
@@ -1699,6 +1734,10 @@ void AppendFuzzyFallbackHits(std::vector<SAM::LookupHit>& Hits,
           {
                const double MergeBonus = std::min(SourceDocMergeBonus, EffectiveSourceScore);
                BestHit.MatchedScore += MergeBonus;
+               BestHit.Breakdown.SourceDocScore = EffectiveSourceScore;
+               BestHit.Breakdown.SourceDocBonus += MergeBonus;
+               BestHit.Breakdown.FinalScore = BestHit.MatchedScore;
+               BestHit.MatchedPath = "hybrid";
 
                if (IsSAM25DebugExplainEnabled() && !BestHit.Explain.empty())
                {
@@ -1726,285 +1765,13 @@ void AppendFuzzyFallbackHits(std::vector<SAM::LookupHit>& Hits,
           }
      }
 
-     std::sort(Candidates.begin(), Candidates.end(),
-               [](const SAM::LookupHit& A, const SAM::LookupHit& B)
-               {
-                    if (A.MatchedScore != B.MatchedScore)
-                    {
-                         return A.MatchedScore > B.MatchedScore;
-                    }
-
-                    if (A.MatchedSignal != B.MatchedSignal)
-                    {
-                         return A.MatchedSignal > B.MatchedSignal;
-                    }
-
-                    if (A.Collection != B.Collection)
-                    {
-                         return A.Collection < B.Collection;
-                    }
-
-                    return A.DocumentID < B.DocumentID;
-               });
-
      for (auto& Candidate : Candidates)
      {
-          const std::string DedupKey = Candidate.Collection + "/" + Candidate.DocumentID;
-
-          if (!SeenDocuments.insert(DedupKey).second)
+          if (!Candidate.Collection.empty() && !Candidate.DocumentID.empty())
           {
-               continue;
-          }
-
-          Hits.push_back(std::move(Candidate));
-
-          if (Hits.size() >= Limit)
-          {
-               break;
+               AccumulateSAMHit(AggregatedHits, Candidate);
           }
      }
-}
-
-bool IsBadSamTerm(const std::string& Value)
-{
-     if (Value.empty() || Value.size() < 3 || Value.size() > 96)
-     {
-          return true;
-     }
-
-     if (Value.find("document id") != std::string::npos ||
-         Value.find("collection ") != std::string::npos ||
-         Value.find("artist profile") != std::string::npos ||
-         Value.find(" biography and discography") != std::string::npos ||
-         Value.find(" benchmark") != std::string::npos ||
-         Value.find(" fake") != std::string::npos)
-     {
-          return true;
-     }
-
-     return false;
-}
-
-bool LooksLikeWeakLLMSuffix(const std::string& Value)
-{
-     static const std::unordered_set<std::string> WeakSuffixes = {
-          "artist", "artists", "music", "songs", "career", "careers", "industry",
-          "performance", "performances", "profile", "profiles", "official"};
-     return WeakSuffixes.find(Value) != WeakSuffixes.end();
-}
-
-bool HasDuplicateTokens(const std::string& Value)
-{
-     std::unordered_map<std::string, size_t> Counts;
-
-     for (const auto& Token : TokenizeNormalized(Value))
-     {
-          if (++Counts[Token] > 1)
-          {
-               return true;
-          }
-     }
-
-     return false;
-}
-
-bool IsWeakLLMTerm(const std::string& Value, const std::string& Subject)
-{
-     const std::vector<std::string> Tokens = TokenizeNormalized(Value);
-
-     if (Tokens.empty() || Tokens.size() > 5)
-     {
-          return true;
-     }
-
-     if (HasDuplicateTokens(Value))
-     {
-          return true;
-     }
-
-     const std::string NormalizedSubject = NormalizeTerm(Subject);
-
-     if (Value == NormalizedSubject)
-     {
-          return true;
-     }
-
-     for (const auto& Token : Tokens)
-     {
-          if (IsWeakSamToken(Token))
-          {
-               return true;
-          }
-     }
-
-     if (!NormalizedSubject.empty() && Value.rfind(NormalizedSubject + " ", 0) == 0)
-     {
-          const std::string Suffix = TrimCopy(Value.substr(NormalizedSubject.size()));
-          const std::vector<std::string> SuffixTokens = TokenizeNormalized(Suffix);
-
-          if (SuffixTokens.empty())
-          {
-               return true;
-          }
-
-          if (SuffixTokens.size() > 2)
-          {
-               return true;
-          }
-
-          if (SuffixTokens.size() == 1 && LooksLikeWeakLLMSuffix(SuffixTokens.front()))
-          {
-               return true;
-          }
-     }
-
-     return false;
-}
-
-std::string ClassifyLLMTermKind(const std::string& Value, const std::string& Subject)
-{
-     const std::string NormalizedSubject = NormalizeTerm(Subject);
-
-     if (!NormalizedSubject.empty() && Value.rfind(NormalizedSubject + " ", 0) == 0)
-     {
-          return "synonym";
-     }
-
-     return "descriptor";
-}
-
-double ClassifyLLMTermScore(const std::string& Kind)
-{
-     return Kind == "synonym" ? 0.82 : 0.67;
-}
-
-std::string ResolveSubjectTitle(const Document& Doc)
-{
-     std::string Title = TrimCopy(Doc.Title.empty() ? Doc.ID : Doc.Title);
-     const std::string LowerTitle = ToLowerCopy(Title);
-     const size_t ColonPos = Title.find(':');
-
-     if (ColonPos != std::string::npos)
-     {
-          const std::string Prefix = ToLowerCopy(TrimCopy(Title.substr(0, ColonPos)));
-          const std::string Suffix = TrimCopy(Title.substr(ColonPos + 1));
-
-          if ((Prefix == "artist profile" || Prefix == "album review" || Prefix == "book profile" ||
-               Prefix == "book spotlight" || Prefix == "movie profile" || Prefix == "profile") &&
-              !Suffix.empty())
-          {
-               return Suffix;
-          }
-     }
-
-     if (LowerTitle.rfind("music_artist_profile_", 0) == 0)
-     {
-          return TrimCopy(Title.substr(std::string("music_artist_profile_").size()));
-     }
-
-     return Title;
-}
-
-void AppendScoredTerm(std::vector<SAM::TermEntry>& Target,
-                      std::unordered_map<std::string, size_t>& IndexByTerm,
-                      const std::string& Value,
-                      const std::string& Kind,
-                      double Score,
-                      const std::string& Source = "",
-                      double Signal = 0.0)
-{
-     const std::string Normalized = NormalizeTerm(Value);
-
-     if (IsBadSamTerm(Normalized))
-     {
-          return;
-     }
-
-     auto ExistingIt = IndexByTerm.find(Normalized);
-
-     if (ExistingIt != IndexByTerm.end())
-     {
-          SAM::TermEntry& Existing = Target[ExistingIt->second];
-
-          if (Score > Existing.Score || (Score == Existing.Score && Signal > Existing.Signal))
-          {
-               Existing.Score = Score;
-               Existing.Kind = Kind;
-               Existing.Source = Source;
-               Existing.Signal = Signal;
-          }
-
-          return;
-     }
-
-     SAM::TermEntry Entry;
-     Entry.Text = Normalized;
-     Entry.Kind = Kind;
-     Entry.Source = Source;
-     Entry.Score = Score;
-     Entry.Signal = Signal;
-     IndexByTerm[Normalized] = Target.size();
-     Target.push_back(std::move(Entry));
-}
-
-std::vector<std::string> ExtractArrayishValues(const std::string& Raw)
-{
-     std::vector<std::string> Values;
-     const std::string Trimmed = TrimCopy(Raw);
-
-     if (Trimmed.empty())
-     {
-          return Values;
-     }
-
-     try
-     {
-          if (!Trimmed.empty() && Trimmed.front() == '[')
-          {
-               nlohmann::json Parsed = nlohmann::json::parse(Trimmed);
-
-               if (Parsed.is_array())
-               {
-                    for (const auto& Entry : Parsed)
-                    {
-                         if (Entry.is_string())
-                         {
-                              const std::string Value = TrimCopy(Entry.get<std::string>());
-
-                              if (!Value.empty())
-                              {
-                                   Values.push_back(Value);
-                              }
-                         }
-                    }
-               }
-
-               return Values;
-          }
-     }
-     catch (...)
-     {
-     }
-
-     std::string Token;
-     std::istringstream In(Trimmed);
-
-     while (std::getline(In, Token, ','))
-     {
-          Token = TrimCopy(Token);
-
-          if (!Token.empty())
-          {
-               Values.push_back(Token);
-          }
-     }
-
-     if (Values.empty() && !Trimmed.empty())
-     {
-          Values.push_back(Trimmed);
-     }
-
-     return Values;
 }
 
 std::string ResolveSamDataDir()
@@ -2108,8 +1875,6 @@ bool ParseManifestValue(const std::string& RawValue, SAM::DocumentEntry& Entry)
           return false;
      }
 }
-}
-
 SAM::SAM()
 {
      OptionsValue.create_if_missing = true;
@@ -2180,6 +1945,7 @@ bool SAM::Initialize()
           }
 
           Database = std::move(RawDB);
+          DatabaseOpen.store(true, std::memory_order_release);
 
           if (Instance && Instance->Logs)
           {
@@ -2187,12 +1953,21 @@ bool SAM::Initialize()
           }
      }
 
+     StartIndexWorker();
+
      return true;
 }
 
 void SAM::Shutdown()
 {
      std::vector<std::thread> ThreadsToJoin;
+
+     {
+          std::lock_guard<std::mutex> Lock(QueueMutex);
+          ShuttingDown = true;
+     }
+
+     QueueCV.notify_all();
 
      {
           std::lock_guard<std::mutex> Lock(JobMutex);
@@ -2209,12 +1984,120 @@ void SAM::Shutdown()
 
      std::lock_guard<std::mutex> Lock(DBMutex);
      Database.reset();
+     DatabaseOpen.store(false, std::memory_order_release);
+}
+
+std::string SAM::BuildPendingIndexKey(const std::string& Collection, const std::string& DocumentID)
+{
+     return Collection + "\n" + DocumentID;
+}
+
+void SAM::StartIndexWorker()
+{
+     std::lock_guard<std::mutex> Lock(JobMutex);
+     ShuttingDown = false;
+
+     if (!WorkerThreads.empty())
+     {
+          return;
+     }
+
+     WorkerThreads.emplace_back([this]()
+     {
+          RunIndexWorker();
+     });
+}
+
+void SAM::RunIndexWorker()
+{
+     while (true)
+     {
+          PendingIndexJob Job;
+
+          {
+               std::unique_lock<std::mutex> Lock(QueueMutex);
+               QueueCV.wait(Lock, [this]()
+               {
+                    return ShuttingDown || !PendingIndexJobs.empty();
+               });
+
+               if (ShuttingDown && PendingIndexJobs.empty())
+               {
+                    return;
+               }
+
+               Job = std::move(PendingIndexJobs.front());
+               PendingIndexJobs.pop_front();
+               PendingIndexKeys.erase(BuildPendingIndexKey(Job.Collection, Job.Doc.ID));
+          }
+
+          std::string ErrorMessage;
+          const bool Success = IndexDocument(Job.Collection, Job.Doc, &ErrorMessage);
+
+          {
+               std::lock_guard<std::mutex> JobLock(JobMutex);
+               CollectionJobStatus& Status = CollectionJobs[Job.Collection];
+
+               if (Status.PendingDocuments > 0)
+               {
+                    --Status.PendingDocuments;
+               }
+
+               if (Success)
+               {
+                    ++Status.IndexedDocuments;
+               }
+               else
+               {
+                    ++Status.FailedDocuments;
+                    if (!ErrorMessage.empty())
+                    {
+                         Status.ErrorMessage = ErrorMessage;
+                    }
+               }
+
+               if (Status.Running && Status.PendingDocuments == 0)
+               {
+                    Status.Running = false;
+                    Status.Completed = true;
+
+                    if (Success)
+                    {
+                         RecordDebugEvent(Job.Collection,
+                                          "rebuild complete: indexed " + std::to_string(Status.IndexedDocuments) +
+                                               ", failed " + std::to_string(Status.FailedDocuments));
+                    }
+                    else
+                    {
+                         RecordDebugEvent(Job.Collection,
+                                          "rebuild complete with failures: indexed " + std::to_string(Status.IndexedDocuments) +
+                                               ", failed " + std::to_string(Status.FailedDocuments));
+                    }
+               }
+          }
+
+          if (Success)
+          {
+               RecordDebugEvent(Job.Collection, "background indexed " + Job.Doc.ID);
+               continue;
+          }
+
+          RecordDebugEvent(Job.Collection,
+                           "background indexing failed for " + Job.Doc.ID + ": " +
+                                (ErrorMessage.empty() ? std::string("unknown error") : ErrorMessage));
+
+          if (Instance && Instance->Logs)
+          {
+               Instance->Logs->Normal("sam",
+                                      "Failed to background index '" + Job.Collection + "/" + Job.Doc.ID +
+                                           "': " + (ErrorMessage.empty() ? std::string("unknown error") : ErrorMessage) + ".");
+          }
+     }
 }
 
 bool SAM::IsOpen() const
 {
-     std::lock_guard<std::mutex> Lock(DBMutex);
-     return static_cast<bool>(Database);
+     return DatabaseOpen.load(std::memory_order_acquire);
 }
 
 std::string SAM::ResolveDBPath() const
@@ -2512,55 +2395,178 @@ bool SAM::StartRecreateCollectionAsync(const std::string& Collection,
           return false;
      }
 
-     std::lock_guard<std::mutex> Lock(JobMutex);
-     CollectionJobStatus& JobStatus = CollectionJobs[Collection];
-
-     if (JobStatus.Running)
      {
-          if (AlreadyRunning)
+          std::lock_guard<std::mutex> Lock(JobMutex);
+          const auto ExistingIt = CollectionJobs.find(Collection);
+
+          if (ExistingIt != CollectionJobs.end() && ExistingIt->second.Running)
           {
-               *AlreadyRunning = true;
+               if (AlreadyRunning)
+               {
+                    *AlreadyRunning = true;
+               }
+
+               return true;
           }
 
-          return true;
+          CollectionJobStatus& JobStatus = CollectionJobs[Collection];
+          JobStatus = CollectionJobStatus{};
+          JobStatus.Running = true;
+          JobStatus.Completed = false;
+          JobStatus.ErrorMessage.clear();
      }
 
-     JobStatus = CollectionJobStatus{};
-     JobStatus.Running = true;
-     RecordDebugEvent(Collection, "queued background rebuild");
+     RecordDebugEvent(Collection,
+                      "queued background rebuild setup");
 
-     WorkerThreads.emplace_back([this, Collection]()
+     std::thread([this, Collection]()
      {
-          RecordDebugEvent(Collection, "starting rebuild");
-          size_t IndexedDocuments = 0;
-          size_t FailedDocuments = 0;
-          std::string RebuildError;
-          const bool Success = RecreateCollection(Collection,
-                                                  &IndexedDocuments,
-                                                  &FailedDocuments,
-                                                  &RebuildError);
-
-          std::lock_guard<std::mutex> JobLock(JobMutex);
-          CollectionJobStatus& FinishedStatus = CollectionJobs[Collection];
-          FinishedStatus.Running = false;
-          FinishedStatus.Completed = true;
-          FinishedStatus.IndexedDocuments = IndexedDocuments;
-          FinishedStatus.FailedDocuments = FailedDocuments;
-          FinishedStatus.ErrorMessage = Success ? std::string() : RebuildError;
-
-          if (Success)
+          std::vector<std::string> ExistingDocumentIDs;
           {
-               RecordDebugEvent(Collection,
-                                "rebuild complete: indexed " + std::to_string(IndexedDocuments) +
-                                     ", failed " + std::to_string(FailedDocuments));
-          }
-          else
-          {
-               RecordDebugEvent(Collection,
-                                "rebuild failed: " + (RebuildError.empty() ? std::string("unknown error") : RebuildError));
-          }
-     });
+               std::lock_guard<std::mutex> Lock(DBMutex);
+               const std::string ManifestPrefix = "sam:doc:" + Collection + ":";
+               std::unique_ptr<rocksdb::Iterator> ManifestIterator(Database->NewIterator(rocksdb::ReadOptions()));
 
+               for (ManifestIterator->Seek(ManifestPrefix);
+                    ManifestIterator->Valid() && ManifestIterator->key().starts_with(ManifestPrefix);
+                    ManifestIterator->Next())
+               {
+                    const std::string Key = ManifestIterator->key().ToString();
+
+                    if (Key.size() > ManifestPrefix.size())
+                    {
+                         ExistingDocumentIDs.push_back(Key.substr(ManifestPrefix.size()));
+                    }
+               }
+          }
+
+          for (const auto& DocumentID : ExistingDocumentIDs)
+          {
+               std::string RemoveError;
+
+               if (!DeleteDocument(Collection, DocumentID, &RemoveError))
+               {
+                    std::lock_guard<std::mutex> Lock(JobMutex);
+                    CollectionJobStatus& JobStatus = CollectionJobs[Collection];
+                    if (JobStatus.ErrorMessage.empty())
+                    {
+                         JobStatus.ErrorMessage = RemoveError;
+                    }
+               }
+          }
+
+          const std::vector<std::string> DocKeys = Instance->Database->Keys("doc:" + Collection + ":*");
+          std::vector<Document> DocumentsToQueue;
+          DocumentsToQueue.reserve(DocKeys.size());
+
+          for (const auto& DocKey : DocKeys)
+          {
+               const size_t LastColon = DocKey.find_last_of(':');
+
+               if (LastColon == std::string::npos || LastColon + 1 >= DocKey.size())
+               {
+                    continue;
+               }
+
+               const std::string DocumentID = DocKey.substr(LastColon + 1);
+               const Document Doc = HybridStorageManager::GetInstance().GetDocument(Collection, DocumentID);
+
+               if (!Doc.ID.empty())
+               {
+                    DocumentsToQueue.push_back(Doc);
+               }
+          }
+
+          {
+               std::lock_guard<std::mutex> Lock(JobMutex);
+               CollectionJobStatus& JobStatus = CollectionJobs[Collection];
+               JobStatus.PendingDocuments = DocumentsToQueue.size();
+               JobStatus.TotalDocuments = DocumentsToQueue.size();
+          }
+
+          RecordDebugEvent(Collection,
+                           "queued background rebuild with " + std::to_string(DocumentsToQueue.size()) + " document(s)");
+
+          for (const auto& Doc : DocumentsToQueue)
+          {
+               std::string QueueError;
+
+               if (!EnqueueIndexDocument(Collection, Doc, &QueueError))
+               {
+                    std::lock_guard<std::mutex> Lock(JobMutex);
+                    CollectionJobStatus& JobStatus = CollectionJobs[Collection];
+                    if (JobStatus.PendingDocuments > 0)
+                    {
+                         --JobStatus.PendingDocuments;
+                    }
+                    ++JobStatus.FailedDocuments;
+                    JobStatus.ErrorMessage = QueueError;
+               }
+          }
+
+          if (DocumentsToQueue.empty())
+          {
+               std::lock_guard<std::mutex> Lock(JobMutex);
+               CollectionJobStatus& JobStatus = CollectionJobs[Collection];
+               JobStatus.Running = false;
+               JobStatus.Completed = true;
+               RecordDebugEvent(Collection, "rebuild complete: indexed 0, failed 0");
+          }
+     }).detach();
+
+     return true;
+}
+
+bool SAM::EnqueueIndexDocument(const std::string& Collection, const Document& Doc, std::string* ErrorMessage)
+{
+     {
+          std::lock_guard<std::mutex> Lock(DBMutex);
+
+          if (!Database)
+          {
+               if (ErrorMessage)
+               {
+                    *ErrorMessage = "SAM database is not open.";
+               }
+
+               return false;
+          }
+     }
+
+     if (Collection.empty() || Doc.ID.empty())
+     {
+          if (ErrorMessage)
+          {
+               *ErrorMessage = "Collection or document ID is empty.";
+          }
+
+          return false;
+     }
+
+     const std::string PendingKey = BuildPendingIndexKey(Collection, Doc.ID);
+
+     {
+          std::lock_guard<std::mutex> Lock(QueueMutex);
+
+          if (!PendingIndexKeys.insert(PendingKey).second)
+          {
+               for (auto& ExistingJob : PendingIndexJobs)
+               {
+                    if (ExistingJob.Collection == Collection && ExistingJob.Doc.ID == Doc.ID)
+                    {
+                         ExistingJob.Doc = Doc;
+                         break;
+                    }
+               }
+
+               return true;
+          }
+
+          PendingIndexJobs.push_back(PendingIndexJob{Collection, Doc});
+     }
+
+     RecordDebugEvent(Collection, "queued background index for " + Doc.ID);
+     QueueCV.notify_one();
      return true;
 }
 
@@ -2667,10 +2673,22 @@ bool SAM::IndexDocumentLocked(const std::string& Collection, const Document& Doc
           return false;
      }
 
-     const std::vector<TermEntry> Terms = ExpandDocumentTerms(Collection, Doc);
+     std::string TermsError;
+     const std::vector<TermEntry> Terms = ExpandDocumentTerms(Collection, Doc, &TermsError);
      if (Terms.empty())
      {
-          RecordDebugEvent(Collection, "indexed " + Doc.ID + " with no usable terms");
+          const std::string FailureMessage = TermsError.empty()
+               ? std::string("SAM indexing produced no usable terms.")
+               : TermsError;
+
+          RecordDebugEvent(Collection, "failed to index " + Doc.ID + ": " + FailureMessage);
+
+          if (ErrorMessage)
+          {
+               *ErrorMessage = FailureMessage;
+          }
+
+          return false;
      }
      else
      {
@@ -2745,6 +2763,18 @@ bool SAM::IndexDocument(const std::string& Collection, const Document& Doc, std:
 
 bool SAM::DeleteDocument(const std::string& Collection, const std::string& DocumentID, std::string* ErrorMessage)
 {
+     {
+          std::lock_guard<std::mutex> QueueLock(QueueMutex);
+          PendingIndexKeys.erase(BuildPendingIndexKey(Collection, DocumentID));
+          PendingIndexJobs.erase(
+               std::remove_if(PendingIndexJobs.begin(), PendingIndexJobs.end(),
+                              [&](const PendingIndexJob& Job)
+                              {
+                                   return Job.Collection == Collection && Job.Doc.ID == DocumentID;
+                              }),
+               PendingIndexJobs.end());
+     }
+
      std::lock_guard<std::mutex> Lock(DBMutex);
 
      if (!Database)
@@ -2758,736 +2788,6 @@ bool SAM::DeleteDocument(const std::string& Collection, const std::string& Docum
      }
 
      return RemoveExistingDocumentTermsLocked(Collection, DocumentID, ErrorMessage);
-}
-
-std::vector<SAM::TermEntry> SAM::GenerateLLMTerms(const std::string& Collection, const Document& Doc) const
-{
-     std::vector<TermEntry> Terms;
-
-     if (!Instance || !Instance->LLM || !Instance->LLM->Configured())
-     {
-          if (Instance && Instance->Logs)
-          {
-               Instance->Logs->Debug("sam",
-                                     "GenerateLLMTerms: skipped for '" + Collection + "/" + Doc.ID +
-                                          "' because LLM is not configured.");
-          }
-
-          return Terms;
-     }
-
-     const std::string& Command = Instance->LLM->GetInferenceCommand();
-
-     if (Command.empty())
-     {
-          if (Instance && Instance->Logs)
-          {
-               Instance->Logs->Debug("sam",
-                                     "GenerateLLMTerms: skipped for '" + Collection + "/" + Doc.ID +
-                                          "' because inference_command is empty.");
-          }
-
-          return Terms;
-     }
-
-     nlohmann::json Payload;
-     Payload["collection"] = Collection;
-     Payload["id"] = Doc.ID;
-     Payload["title"] = Doc.Title;
-     Payload["content"] = Doc.Content;
-     Payload["fields"] = Doc.Fields;
-
-     const auto StartedAt = std::chrono::steady_clock::now();
-     std::lock_guard<std::mutex> Lock(InferenceMutex);
-     RecordDebugEvent(Collection, "running LLM for " + Doc.ID);
-
-     setenv("HLQUERY_LLM_MODEL", Instance->LLM->GetModelPath().c_str(), 1);
-     setenv("HLQUERY_SAM_DOC_JSON", Payload.dump().c_str(), 1);
-
-     FILE* Pipe = popen(Command.c_str(), "r");
-
-     if (!Pipe)
-     {
-          if (Instance && Instance->Logs)
-          {
-               Instance->Logs->Normal("sam",
-                                      "GenerateLLMTerms: failed to start inference command for '" +
-                                           Collection + "/" + Doc.ID + "': " + Command + ".");
-          }
-
-          unsetenv("HLQUERY_LLM_MODEL");
-          unsetenv("HLQUERY_SAM_DOC_JSON");
-          RecordDebugEvent(Collection, "failed to start LLM command for " + Doc.ID);
-          return Terms;
-     }
-
-     std::unordered_map<std::string, size_t> IndexByTerm;
-     std::array<char, 512> Buffer{};
-     const std::string Subject = ResolveSubjectTitle(Doc);
-
-     while (fgets(Buffer.data(), static_cast<int>(Buffer.size()), Pipe))
-     {
-          const std::string Normalized = NormalizeTerm(Buffer.data());
-
-          if (IsWeakLLMTerm(Normalized, Subject))
-          {
-               continue;
-          }
-
-          const std::string Kind = ClassifyLLMTermKind(Normalized, Subject);
-          AppendScoredTerm(Terms, IndexByTerm, Normalized, Kind, ClassifyLLMTermScore(Kind), "llm", 0.72);
-
-          if (Terms.size() >= 6)
-          {
-               break;
-          }
-     }
-
-     const int PipeStatus = pclose(Pipe);
-     unsetenv("HLQUERY_LLM_MODEL");
-     unsetenv("HLQUERY_SAM_DOC_JSON");
-
-     const auto ElapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(
-          std::chrono::steady_clock::now() - StartedAt).count();
-
-     if (PipeStatus == -1)
-     {
-          if (Instance && Instance->Logs)
-          {
-               Instance->Logs->Normal("sam",
-                                      "GenerateLLMTerms: inference command close failed for '" +
-                                           Collection + "/" + Doc.ID + "' after " +
-                                           std::to_string(ElapsedMs) + " ms.");
-          }
-          RecordDebugEvent(Collection, "LLM close failed for " + Doc.ID);
-     }
-     else if (WIFEXITED(PipeStatus) && WEXITSTATUS(PipeStatus) != 0)
-     {
-          if (Instance && Instance->Logs)
-          {
-               Instance->Logs->Normal("sam",
-                                      "GenerateLLMTerms: inference command exited with status " +
-                                           std::to_string(WEXITSTATUS(PipeStatus)) + " for '" +
-                                           Collection + "/" + Doc.ID + "' after " +
-                                           std::to_string(ElapsedMs) + " ms.");
-          }
-          RecordDebugEvent(Collection,
-                           "LLM exited with status " + std::to_string(WEXITSTATUS(PipeStatus)) +
-                                " for " + Doc.ID);
-     }
-     else if (Instance && Instance->Logs)
-     {
-          Instance->Logs->Debug("sam",
-                                "GenerateLLMTerms: produced " + std::to_string(Terms.size()) +
-                                     " term(s) for '" + Collection + "/" + Doc.ID + "' in " +
-                                     std::to_string(ElapsedMs) + " ms.");
-     }
-
-     RecordDebugEvent(Collection,
-                      "LLM produced " + std::to_string(Terms.size()) + " term(s) for " + Doc.ID +
-                           " in " + std::to_string(ElapsedMs) + " ms");
-
-     return Terms;
-}
-
-std::vector<SAM::TermEntry> SAM::GenerateHeuristicTerms(const std::string& Collection, const Document& Doc) const
-{
-     std::vector<TermEntry> Terms;
-     std::unordered_map<std::string, size_t> IndexByTerm;
-
-     const std::string Subject = ResolveSubjectTitle(Doc);
-     const std::string LowerSubject = ToLowerCopy(Subject);
-     const std::string LowerTitle = ToLowerCopy(Doc.Title);
-     const std::string NormalizedCollection = NormalizeTerm(Collection);
-     const bool IsBookEntry = LowerTitle.rfind("book spotlight:", 0) == 0 ||
-                              LowerTitle.rfind("book profile:", 0) == 0 ||
-                              NormalizedCollection == "books";
-     const bool IsMusicEntry = LowerTitle.rfind("artist profile:", 0) == 0 ||
-                               LowerTitle.rfind("album review:", 0) == 0 ||
-                               LowerTitle.find("music") != std::string::npos ||
-                               NormalizedCollection == "music";
-     const bool IsTravelEntry = LowerTitle.find("travel") != std::string::npos ||
-                                LowerTitle.find("itinerary") != std::string::npos ||
-                                LowerTitle.find("guide") != std::string::npos ||
-                                NormalizedCollection == "travel";
-     const bool IsMovieEntry = LowerTitle.rfind("movie profile:", 0) == 0 ||
-                               LowerTitle.find("film") != std::string::npos ||
-                               LowerTitle.find("movie") != std::string::npos ||
-                               NormalizedCollection == "movies";
-     const bool IsProductEntry = NormalizedCollection == "products" ||
-                                 LowerTitle.find("product") != std::string::npos ||
-                                 LowerTitle.find("sku") != std::string::npos;
-
-     std::string Category;
-     std::vector<std::string> Labels;
-     std::vector<std::string> Genres;
-     std::vector<std::string> DescriptorPhrases;
-     std::vector<std::string> LabelSingles;
-     std::vector<std::string> AuthorTerms;
-     const std::string NormalizedSubject = NormalizeTerm(Subject);
-     std::vector<std::string> ArtistTerms;
-     std::vector<std::string> AlbumTerms;
-     std::vector<std::string> TopicTerms;
-     std::vector<std::string> PlaceTerms;
-     std::vector<std::string> SeriesTerms;
-     std::vector<std::string> CharacterTerms;
-     std::vector<std::string> BrandTerms;
-     std::vector<std::string> MaterialTerms;
-     std::vector<std::string> FeatureTerms;
-     std::vector<std::string> ThemeTerms;
-
-     for (const auto& Pair : Doc.Fields)
-     {
-          const std::string LowerKey = ToLowerCopy(Pair.first);
-
-          if (LowerKey == "category" && Category.empty())
-          {
-               Category = Pair.second;
-          }
-          else if (LowerKey == "labels" || LowerKey == "tags" || LowerKey == "keywords")
-          {
-              auto Values = ExtractArrayishValues(Pair.second);
-              for (const auto& Value : Values)
-              {
-                   const std::string Normalized = CollapsePossessiveTail(NormalizeTerm(Value));
-                   const std::vector<std::string> Tokens = TokenizeNormalized(Normalized);
-
-                   bool HasTinyToken = false;
-                   for (const auto& Token : Tokens)
-                   {
-                        if (Token.size() <= 1)
-                        {
-                             HasTinyToken = true;
-                             break;
-                        }
-                   }
-
-                   if (Normalized.empty() || IsWeakSamToken(Normalized) ||
-                       Normalized == NormalizedCollection || Normalized == NormalizedSubject ||
-                       HasTinyToken)
-                   {
-                        continue;
-                   }
-
-                   Labels.push_back(Normalized);
-
-                    if (Tokens.size() == 1 && Tokens.front().size() >= 3 &&
-                        std::all_of(Tokens.front().begin(), Tokens.front().end(),
-                                    [](unsigned char C) { return std::isalpha(C) != 0; }))
-                    {
-                         LabelSingles.push_back(Tokens.front());
-                    }
-              }
-          }
-          else if (LowerKey == "genre" || LowerKey == "genres" || LowerKey == "style")
-          {
-              auto Values = ExtractArrayishValues(Pair.second);
-              for (const auto& Value : Values)
-              {
-                   const std::string Normalized = NormalizeTerm(Value);
-
-                   if (!Normalized.empty())
-                   {
-                        Genres.push_back(Normalized);
-                   }
-              }
-          }
-          else if (LowerKey == "author" || LowerKey == "authors" || LowerKey == "writer")
-          {
-               auto Values = ExtractArrayishValues(Pair.second);
-               for (const auto& Value : Values)
-               {
-                    const std::string Normalized = NormalizeTerm(Value);
-
-                    if (!Normalized.empty() && Normalized != NormalizedSubject)
-                    {
-                         AuthorTerms.push_back(Normalized);
-                    }
-               }
-          }
-          else if (LowerKey == "artist" || LowerKey == "artists" || LowerKey == "performer" || LowerKey == "band")
-          {
-               auto Values = ExtractArrayishValues(Pair.second);
-               for (const auto& Value : Values)
-               {
-                    const std::string Normalized = NormalizeTerm(Value);
-
-                    if (!Normalized.empty() && Normalized != NormalizedSubject)
-                    {
-                         ArtistTerms.push_back(Normalized);
-                    }
-               }
-          }
-          else if (LowerKey == "album" || LowerKey == "albums" || LowerKey == "record")
-          {
-               auto Values = ExtractArrayishValues(Pair.second);
-               for (const auto& Value : Values)
-               {
-                    const std::string Normalized = NormalizeTerm(Value);
-
-                    if (!Normalized.empty())
-                    {
-                         AlbumTerms.push_back(Normalized);
-                    }
-               }
-          }
-          else if (LowerKey == "topic" || LowerKey == "topics" || LowerKey == "entity" ||
-                   LowerKey == "entities" || LowerKey == "theme" || LowerKey == "themes")
-          {
-               auto Values = ExtractArrayishValues(Pair.second);
-               for (const auto& Value : Values)
-               {
-                    const std::string Normalized = NormalizeTerm(Value);
-
-                    if (!Normalized.empty())
-                    {
-                         TopicTerms.push_back(Normalized);
-                         ThemeTerms.push_back(Normalized);
-                    }
-               }
-          }
-          else if (LowerKey == "location" || LowerKey == "locations" || LowerKey == "city" ||
-                   LowerKey == "country" || LowerKey == "region" || LowerKey == "destination")
-          {
-               auto Values = ExtractArrayishValues(Pair.second);
-               for (const auto& Value : Values)
-               {
-                    const std::string Normalized = NormalizeTerm(Value);
-
-                    if (!Normalized.empty())
-                    {
-                         PlaceTerms.push_back(Normalized);
-                    }
-               }
-          }
-          else if (LowerKey == "series" || LowerKey == "franchise")
-          {
-               auto Values = ExtractArrayishValues(Pair.second);
-               for (const auto& Value : Values)
-               {
-                    const std::string Normalized = NormalizeTerm(Value);
-
-                    if (!Normalized.empty())
-                    {
-                         SeriesTerms.push_back(Normalized);
-                    }
-               }
-          }
-          else if (LowerKey == "character" || LowerKey == "characters" || LowerKey == "cast")
-          {
-               auto Values = ExtractArrayishValues(Pair.second);
-               for (const auto& Value : Values)
-               {
-                    const std::string Normalized = NormalizeTerm(Value);
-
-                    if (!Normalized.empty())
-                    {
-                         CharacterTerms.push_back(Normalized);
-                    }
-               }
-          }
-          else if (LowerKey == "brand" || LowerKey == "maker" || LowerKey == "manufacturer")
-          {
-               auto Values = ExtractArrayishValues(Pair.second);
-               for (const auto& Value : Values)
-               {
-                    const std::string Normalized = NormalizeTerm(Value);
-
-                    if (!Normalized.empty())
-                    {
-                         BrandTerms.push_back(Normalized);
-                    }
-               }
-          }
-          else if (LowerKey == "material" || LowerKey == "materials")
-          {
-               auto Values = ExtractArrayishValues(Pair.second);
-               for (const auto& Value : Values)
-               {
-                    const std::string Normalized = NormalizeTerm(Value);
-
-                    if (!Normalized.empty())
-                    {
-                         MaterialTerms.push_back(Normalized);
-                    }
-               }
-          }
-          else if (LowerKey == "feature" || LowerKey == "features")
-          {
-               auto Values = ExtractArrayishValues(Pair.second);
-               for (const auto& Value : Values)
-               {
-                    const std::string Normalized = NormalizeTerm(Value);
-
-                    if (!Normalized.empty())
-                    {
-                         FeatureTerms.push_back(Normalized);
-                    }
-               }
-          }
-          else if (LowerKey == "description")
-          {
-               const std::string LowerDesc = ToLowerCopy(Pair.second);
-               static const std::regex AuthorPrefix("^\\s*([A-Z][A-Za-z0-9.-]+(?:\\s+[A-Z][A-Za-z0-9.-]+){0,2})['’]s\\b");
-               std::smatch Match;
-
-               if (std::regex_search(Pair.second, Match, AuthorPrefix) && Match.size() > 1)
-               {
-                    const std::string Author = NormalizeTerm(Match[1].str());
-
-                    if (!Author.empty() && Author != NormalizedSubject)
-                    {
-                         AuthorTerms.push_back(Author);
-                    }
-               }
-
-               if (LowerDesc.find("narrative lyricism") != std::string::npos)
-               {
-                    DescriptorPhrases.push_back("narrative lyricism");
-               }
-
-               if (LowerDesc.find("social commentary") != std::string::npos)
-               {
-                    DescriptorPhrases.push_back("social commentary");
-               }
-
-               if (LowerDesc.find("hip-hop production") != std::string::npos ||
-                   LowerDesc.find("hip hop production") != std::string::npos)
-               {
-                    DescriptorPhrases.push_back("hip hop production");
-               }
-          }
-     }
-
-     AppendScoredTerm(Terms, IndexByTerm, Subject, "entity", 1.00, "title", 1.00);
-
-     {
-          const std::vector<std::string> SubjectTokens = TokenizeNormalized(NormalizedSubject);
-          std::vector<std::string> ReducedSubjectTokens;
-          ReducedSubjectTokens.reserve(SubjectTokens.size());
-
-          for (const auto& Token : SubjectTokens)
-          {
-               if (IsSamStopword(Token))
-               {
-                    continue;
-               }
-
-               ReducedSubjectTokens.push_back(SingularizeToken(Token));
-          }
-
-          if (ReducedSubjectTokens.size() >= 2)
-          {
-               AppendScoredTerm(Terms, IndexByTerm, JoinTokens(ReducedSubjectTokens), "descriptor", 0.76, "title_reduced", 0.90);
-
-               for (size_t First = 0; First < ReducedSubjectTokens.size(); ++First)
-               {
-                    for (size_t Second = First + 1; Second < ReducedSubjectTokens.size(); ++Second)
-                    {
-                         AppendScoredTerm(Terms, IndexByTerm,
-                                          ReducedSubjectTokens[First] + " " + ReducedSubjectTokens[Second],
-                                          "descriptor", 0.62, "title_pair", 0.74);
-                    }
-               }
-          }
-     }
-
-     if (IsBookEntry)
-     {
-          AppendScoredTerm(Terms, IndexByTerm, "book spotlight", "descriptor", 0.58, "title_wrapper", 0.40);
-          AppendScoredTerm(Terms, IndexByTerm, "spotlight", "descriptor", 0.46, "title_wrapper", 0.30);
-          AppendScoredTerm(Terms, IndexByTerm, Subject + " book", "descriptor", 0.71, "domain_book", 0.72);
-     }
-
-     if (!Collection.empty())
-     {
-          AppendScoredTerm(Terms, IndexByTerm, Subject + " " + Collection, "collection", 0.30, "collection", 0.22);
-     }
-
-     if (!Category.empty())
-     {
-          AppendScoredTerm(Terms, IndexByTerm, Subject + " " + NormalizeTerm(Category), "category", 0.44, "category", 0.46);
-     }
-
-     for (const auto& Label : Labels)
-     {
-          AppendScoredTerm(Terms, IndexByTerm, Label, "label", TokenizeNormalized(Label).size() == 1 ? 0.54 : 0.42, "label", TokenizeNormalized(Label).size() == 1 ? 0.52 : 0.38);
-     }
-
-     for (const auto& Label : Labels)
-     {
-          const std::vector<std::string> LabelTokens = TokenizeNormalized(Label);
-
-          if (LabelTokens.size() < 2 || LabelTokens.size() > 4)
-          {
-               continue;
-          }
-
-          std::vector<std::string> FilteredLabelTokens;
-          FilteredLabelTokens.reserve(LabelTokens.size());
-
-          for (const auto& Token : LabelTokens)
-          {
-               if (IsSamStopword(Token) || IsWeakSamToken(Token))
-               {
-                    continue;
-               }
-
-               FilteredLabelTokens.push_back(SingularizeToken(Token));
-          }
-
-          if (FilteredLabelTokens.size() >= 2)
-          {
-               AppendScoredTerm(Terms, IndexByTerm, JoinTokens(FilteredLabelTokens), "descriptor", 0.56, "label_reduced", 0.50);
-          }
-     }
-
-     if (AuthorTerms.empty())
-     {
-          for (size_t Index = 0; Index + 1 < LabelSingles.size() && Index < 1; ++Index)
-          {
-               AppendScoredTerm(Terms, IndexByTerm,
-                                LabelSingles[Index] + " " + LabelSingles[Index + 1],
-                                "author", 0.84, "label_pair", 0.66);
-          }
-     }
-
-     for (const auto& Author : AuthorTerms)
-     {
-          AppendScoredTerm(Terms, IndexByTerm, Author, "author", 0.88, "author", 0.90);
-          AppendScoredTerm(Terms, IndexByTerm, Subject + " " + Author, "author", 0.72, "author_join", 0.70);
-     }
-
-     for (const auto& Artist : ArtistTerms)
-     {
-          AppendScoredTerm(Terms, IndexByTerm, Artist, "artist", 0.88, "artist", 0.90);
-          AppendScoredTerm(Terms, IndexByTerm, Subject + " " + Artist, "artist", 0.72, "artist_join", 0.70);
-     }
-
-     for (const auto& Genre : Genres)
-     {
-          AppendScoredTerm(Terms, IndexByTerm, Genre + " artist", "descriptor", 0.55, "genre", 0.54);
-          AppendScoredTerm(Terms, IndexByTerm, Genre + " " + Subject, "genre", 0.68, "genre", 0.66);
-     }
-
-     for (const auto& Album : AlbumTerms)
-     {
-          AppendScoredTerm(Terms, IndexByTerm, Album, "album", 0.78, "album", 0.80);
-          AppendScoredTerm(Terms, IndexByTerm, Subject + " " + Album, "album", 0.66, "album_join", 0.66);
-     }
-
-     for (const auto& Topic : TopicTerms)
-     {
-          AppendScoredTerm(Terms, IndexByTerm, Topic, "topic", TokenizeNormalized(Topic).size() == 1 ? 0.58 : 0.64, "topic", 0.62);
-          AppendScoredTerm(Terms, IndexByTerm, Subject + " " + Topic, "topic", 0.52, "topic_join", 0.52);
-     }
-
-     for (const auto& Place : PlaceTerms)
-     {
-          AppendScoredTerm(Terms, IndexByTerm, Place, "place", 0.76, "location", 0.78);
-          AppendScoredTerm(Terms, IndexByTerm, Subject + " " + Place, "place", 0.60, "location_join", 0.58);
-     }
-
-     for (const auto& Series : SeriesTerms)
-     {
-          AppendScoredTerm(Terms, IndexByTerm, Series, "series", 0.74, "series", 0.76);
-          AppendScoredTerm(Terms, IndexByTerm, Subject + " " + Series, "series", 0.61, "series_join", 0.60);
-     }
-
-     for (const auto& Character : CharacterTerms)
-     {
-          AppendScoredTerm(Terms, IndexByTerm, Character, "character", 0.68, "character", 0.70);
-          AppendScoredTerm(Terms, IndexByTerm, Subject + " " + Character, "character", 0.57, "character_join", 0.56);
-     }
-
-     for (const auto& Brand : BrandTerms)
-     {
-          AppendScoredTerm(Terms, IndexByTerm, Brand, "brand", 0.78, "brand", 0.80);
-          AppendScoredTerm(Terms, IndexByTerm, Subject + " " + Brand, "brand", 0.60, "brand_join", 0.58);
-     }
-
-     for (const auto& Material : MaterialTerms)
-     {
-          AppendScoredTerm(Terms, IndexByTerm, Material, "material", 0.58, "material", 0.56);
-          AppendScoredTerm(Terms, IndexByTerm, Subject + " " + Material, "material", 0.48, "material_join", 0.46);
-     }
-
-     for (const auto& Feature : FeatureTerms)
-     {
-          AppendScoredTerm(Terms, IndexByTerm, Feature, "feature", 0.58, "feature", 0.56);
-          AppendScoredTerm(Terms, IndexByTerm, Subject + " " + Feature, "feature", 0.48, "feature_join", 0.46);
-     }
-
-     for (const auto& Theme : ThemeTerms)
-     {
-          if (TokenizeNormalized(Theme).size() >= 2)
-          {
-               AppendScoredTerm(Terms, IndexByTerm, Theme, "theme", 0.63, "theme", 0.60);
-          }
-     }
-
-     const std::string CombinedContext = ToLowerCopy(Collection + " " + Category + " " + Doc.Content);
-
-     if (CombinedContext.find("music") != std::string::npos ||
-         CombinedContext.find("song") != std::string::npos ||
-         CombinedContext.find("singer") != std::string::npos ||
-         CombinedContext.find("album") != std::string::npos ||
-         std::find_if(Genres.begin(), Genres.end(), [](const std::string& Value)
-                      {
-                           return Value.find("pop") != std::string::npos ||
-                                  Value.find("rock") != std::string::npos ||
-                                  Value.find("hip hop") != std::string::npos;
-                      }) != Genres.end())
-     {
-          AppendScoredTerm(Terms, IndexByTerm, Subject + " songs", "descriptor", 0.70, "music_context", 0.64);
-          AppendScoredTerm(Terms, IndexByTerm, Subject + " music", "descriptor", 0.74, "music_context", 0.68);
-     }
-
-     if (IsMusicEntry)
-     {
-          AppendScoredTerm(Terms, IndexByTerm, Subject + " artist", "descriptor", 0.69, "music_domain", 0.66);
-
-          for (const auto& Genre : Genres)
-          {
-               AppendScoredTerm(Terms, IndexByTerm, Genre + " music", "descriptor", 0.60, "genre", 0.58);
-          }
-     }
-
-     if (IsBookEntry)
-     {
-          AppendScoredTerm(Terms, IndexByTerm, Subject + " novel", "descriptor", 0.68, "book_domain", 0.70);
-          AppendScoredTerm(Terms, IndexByTerm, Subject + " book", "descriptor", 0.71, "book_domain", 0.72);
-
-          for (const auto& Theme : ThemeTerms)
-          {
-               AppendScoredTerm(Terms, IndexByTerm, Subject + " " + Theme, "theme", 0.56, "theme_join", 0.54);
-          }
-     }
-
-     if (IsTravelEntry)
-     {
-          AppendScoredTerm(Terms, IndexByTerm, Subject + " travel", "descriptor", 0.62, "travel_domain", 0.64);
-
-          for (const auto& Place : PlaceTerms)
-          {
-               AppendScoredTerm(Terms, IndexByTerm, Place + " travel", "place", 0.56, "travel_place", 0.58);
-               AppendScoredTerm(Terms, IndexByTerm, Place + " itinerary", "place", 0.60, "travel_place", 0.62);
-          }
-
-          for (const auto& Topic : TopicTerms)
-          {
-               AppendScoredTerm(Terms, IndexByTerm, Topic + " travel", "topic", 0.54, "travel_topic", 0.54);
-          }
-     }
-
-     if (IsMovieEntry)
-     {
-          AppendScoredTerm(Terms, IndexByTerm, Subject + " film", "descriptor", 0.68, "movie_domain", 0.68);
-          AppendScoredTerm(Terms, IndexByTerm, Subject + " movie", "descriptor", 0.72, "movie_domain", 0.72);
-     }
-
-     if (IsProductEntry)
-     {
-          AppendScoredTerm(Terms, IndexByTerm, Subject + " product", "descriptor", 0.64, "product_domain", 0.64);
-     }
-
-     static const std::unordered_map<std::string, std::vector<std::string>> EntityAliases = {
-          {"madonna", {"queen of pop", "pop queen", "madonna songs", "madonna music"}},
-          {"beyonce", {"queen bey", "beyonce songs", "beyonce music"}},
-          {"taylor swift", {"taylor swift songs", "swift music", "pop star taylor swift"}},
-          {"picasso", {"pablo picasso", "picasso art", "cubist artist"}},
-          {"vincent van gogh", {"van gogh", "van gogh art", "post impressionist artist"}}};
-
-     const auto AliasIt = EntityAliases.find(LowerSubject);
-
-     if (AliasIt != EntityAliases.end())
-     {
-          for (const auto& Alias : AliasIt->second)
-          {
-               AppendScoredTerm(Terms, IndexByTerm, Alias, "synonym", 0.96, "entity_alias", 0.94);
-          }
-     }
-
-     for (const auto& Phrase : DescriptorPhrases)
-     {
-          AppendScoredTerm(Terms, IndexByTerm, Phrase, "descriptor", 0.61, "description", 0.60);
-     }
-
-     std::sort(Terms.begin(), Terms.end(),
-               [](const TermEntry& A, const TermEntry& B)
-               {
-                    if (A.Score != B.Score)
-                    {
-                         return A.Score > B.Score;
-                    }
-
-                    if (A.Signal != B.Signal)
-                    {
-                         return A.Signal > B.Signal;
-                    }
-
-                    return A.Text < B.Text;
-               });
-
-     if (Terms.size() > 12)
-     {
-          Terms.resize(12);
-     }
-
-     return Terms;
-}
-
-std::vector<SAM::TermEntry> SAM::ExpandDocumentTerms(const std::string& Collection, const Document& Doc) const
-{
-     std::vector<TermEntry> Terms = GenerateLLMTerms(Collection, Doc);
-     std::unordered_map<std::string, size_t> IndexByTerm;
-
-     for (size_t Index = 0; Index < Terms.size(); ++Index)
-     {
-          IndexByTerm[Terms[Index].Text] = Index;
-     }
-
-     std::vector<TermEntry> HeuristicTerms = GenerateHeuristicTerms(Collection, Doc);
-
-     for (const auto& Term : HeuristicTerms)
-     {
-          auto ExistingIt = IndexByTerm.find(Term.Text);
-
-          if (ExistingIt == IndexByTerm.end())
-          {
-               Terms.push_back(Term);
-               IndexByTerm[Term.Text] = Terms.size() - 1;
-          }
-          else if (Term.Score > Terms[ExistingIt->second].Score ||
-                   (Term.Score == Terms[ExistingIt->second].Score &&
-                    Term.Signal > Terms[ExistingIt->second].Signal))
-          {
-               Terms[ExistingIt->second] = Term;
-          }
-     }
-
-     std::sort(Terms.begin(), Terms.end(),
-               [](const TermEntry& A, const TermEntry& B)
-               {
-                    if (A.Score != B.Score)
-                    {
-                         return A.Score > B.Score;
-                    }
-
-                    if (A.Signal != B.Signal)
-                    {
-                         return A.Signal > B.Signal;
-                    }
-
-                    return A.Text < B.Text;
-               });
-
-     if (Terms.size() > 14)
-     {
-          Terms.resize(14);
-     }
-
-     return Terms;
 }
 
 std::vector<SAM::LookupHit> SAM::Lookup(const std::string& Query, size_t Limit) const
@@ -3508,7 +2808,6 @@ std::vector<SAM::LookupHit> SAM::Lookup(const std::string& Query, size_t Limit) 
           return Hits;
      }
 
-     std::unordered_set<std::string> SeenDocuments;
      std::unordered_map<std::string, SAMAggregatedHit> AggregatedHits;
 
      for (const auto& Variant : Variants)
@@ -3528,8 +2827,12 @@ std::vector<SAM::LookupHit> SAM::Lookup(const std::string& Query, size_t Limit) 
                     Hit.MatchedTerm = Payload.value("term", "");
                     Hit.MatchedKind = Payload.value("kind", "");
                     Hit.MatchedSource = Payload.value("source", "");
+                    Hit.TermOrigin = Hit.MatchedSource;
+                    Hit.MatchedPath = "sam_term";
                     Hit.MatchedScore = Payload.value("score", 0.0);
                     Hit.MatchedSignal = Payload.value("signal", 0.0);
+                    Hit.Breakdown.TermScore = Hit.MatchedScore;
+                    Hit.Breakdown.FinalScore = Hit.MatchedScore;
                     if (IsSAM25DebugExplainEnabled())
                     {
                          std::ostringstream Stream;
@@ -3550,17 +2853,9 @@ std::vector<SAM::LookupHit> SAM::Lookup(const std::string& Query, size_t Limit) 
           }
      }
 
+     AppendFuzzyFallbackHits(AggregatedHits, Database.get(), "", Query, Limit);
+
      FinalizeSAMAggregatedHits(Hits, AggregatedHits, QueryViews, Limit);
-
-     for (const auto& Hit : Hits)
-     {
-          SeenDocuments.insert(MakeSAMHitKey(Hit));
-     }
-
-     if (Hits.size() < Limit)
-     {
-          AppendFuzzyFallbackHits(Hits, SeenDocuments, Database.get(), "", Query, Limit);
-     }
 
      EmitSAM25DebugLog(Query, Hits);
      return Hits;
@@ -3590,7 +2885,6 @@ std::vector<SAM::LookupHit> SAM::Lookup(const std::string& Collection, const std
           return Hits;
      }
 
-     std::unordered_set<std::string> SeenDocuments;
      std::unordered_map<std::string, SAMAggregatedHit> AggregatedHits;
 
      for (const auto& Variant : Variants)
@@ -3610,8 +2904,12 @@ std::vector<SAM::LookupHit> SAM::Lookup(const std::string& Collection, const std
                     Hit.MatchedTerm = Payload.value("term", "");
                     Hit.MatchedKind = Payload.value("kind", "");
                     Hit.MatchedSource = Payload.value("source", "");
+                    Hit.TermOrigin = Hit.MatchedSource;
+                    Hit.MatchedPath = "sam_term";
                     Hit.MatchedScore = Payload.value("score", 0.0);
                     Hit.MatchedSignal = Payload.value("signal", 0.0);
+                    Hit.Breakdown.TermScore = Hit.MatchedScore;
+                    Hit.Breakdown.FinalScore = Hit.MatchedScore;
                     if (IsSAM25DebugExplainEnabled())
                     {
                          std::ostringstream Stream;
@@ -3637,17 +2935,9 @@ std::vector<SAM::LookupHit> SAM::Lookup(const std::string& Collection, const std
           }
      }
 
+     AppendFuzzyFallbackHits(AggregatedHits, Database.get(), Collection, Query, Limit);
+
      FinalizeSAMAggregatedHits(Hits, AggregatedHits, QueryViews, Limit);
-
-     for (const auto& Hit : Hits)
-     {
-          SeenDocuments.insert(MakeSAMHitKey(Hit));
-     }
-
-     if (Hits.size() < Limit)
-     {
-          AppendFuzzyFallbackHits(Hits, SeenDocuments, Database.get(), Collection, Query, Limit);
-     }
 
      EmitSAM25DebugLog(Query, Hits);
      return Hits;
@@ -3705,7 +2995,13 @@ bool SAM::GetCollectionJobStatus(const std::string& Collection, CollectionJobSta
           return false;
      }
 
-     std::lock_guard<std::mutex> Lock(JobMutex);
+     std::unique_lock<std::mutex> Lock(JobMutex, std::try_to_lock);
+
+     if (!Lock.owns_lock())
+     {
+          return false;
+     }
+
      const auto It = CollectionJobs.find(Collection);
 
      if (It == CollectionJobs.end())
@@ -3719,7 +3015,13 @@ bool SAM::GetCollectionJobStatus(const std::string& Collection, CollectionJobSta
 
 std::map<std::string, SAM::CollectionJobStatus> SAM::GetAllCollectionJobStatuses() const
 {
-     std::lock_guard<std::mutex> Lock(JobMutex);
+     std::unique_lock<std::mutex> Lock(JobMutex, std::try_to_lock);
+
+     if (!Lock.owns_lock())
+     {
+          return {};
+     }
+
      return CollectionJobs;
 }
 

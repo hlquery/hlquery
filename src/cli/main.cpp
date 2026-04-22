@@ -716,6 +716,28 @@ static void UpdateHostPortFromURL(const std::string &BaseURL, std::string &HostV
      }
 }
 
+/* URLUsesHTTPS returns true when the URL explicitly uses the https scheme. */
+
+static bool URLUsesHTTPS(const std::string &BaseURL)
+{
+     size_t scheme_pos = BaseURL.find("://");
+
+     if (scheme_pos == std::string::npos)
+     {
+          return false;
+     }
+
+     std::string scheme = BaseURL.substr(0, scheme_pos);
+
+     std::transform(scheme.begin(), scheme.end(), scheme.begin(),
+                    [](unsigned char c)
+                    {
+                         return static_cast<char>(std::tolower(c));
+                    });
+
+     return scheme == "https";
+}
+
 /* ExtractProgramName resolves the display name from argv[0]. */
 
 static std::string ExtractProgramName(const char *argv0)
@@ -759,6 +781,7 @@ int main(int argc, char *argv[])
           std::string host_val = "localhost";
 
           int port_val = 9200;
+          bool use_https_val = false;
 
           /* CLI settings with safe defaults. */
 
@@ -777,6 +800,7 @@ int main(int argc, char *argv[])
           {
                base_url = env_base_url;
                UpdateHostPortFromURL(base_url, host_val, port_val);
+               use_https_val = URLUsesHTTPS(base_url);
           }
 
           /* Load the auth token from the environment if provided. */
@@ -880,18 +904,19 @@ int main(int argc, char *argv[])
                     {
                          base_url = optarg;
                          UpdateHostPortFromURL(base_url, host_val, port_val);
+                         use_https_val = URLUsesHTTPS(base_url);
                     }
                     else if (option_name == "host")
                     {
                          host_val = optarg;
-                         base_url = "http://" + host_val + ":" + std::to_string(port_val);
+                         base_url = std::string(use_https_val ? "https://" : "http://") + host_val + ":" + std::to_string(port_val);
                     }
                     else if (option_name == "port")
                     {
                          try
                          {
                               port_val = std::stoi(optarg);
-                              base_url = "http://" + host_val + ":" + std::to_string(port_val);
+                              base_url = std::string(use_https_val ? "https://" : "http://") + host_val + ":" + std::to_string(port_val);
                          }
                          catch (...)
                          {
@@ -911,6 +936,8 @@ int main(int argc, char *argv[])
                     else if (option_name == "ssl-auth")
                     {
                          ssl_auth_val = true;
+                         use_https_val = true;
+                         base_url = "https://" + host_val + ":" + std::to_string(port_val);
                     }
                     else if (option_name == "timeout")
                     {
@@ -970,7 +997,12 @@ int main(int argc, char *argv[])
                return 1;
           }
 
-          base_url = "http://" + host_val + ":" + std::to_string(port_val);
+          if (ssl_auth_val)
+          {
+               use_https_val = true;
+          }
+
+          base_url = std::string(use_https_val ? "https://" : "http://") + host_val + ":" + std::to_string(port_val);
 
           for (int i = optind; i < getopt_argc; i++)
           {

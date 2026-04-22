@@ -611,7 +611,7 @@ clean:
 	@find $(SRC_DIR)/modules -mindepth 1 -maxdepth 1 -type l -delete 2>/dev/null || true
 	@rm -f $(SRC_DIR)/modules/*.so 2>/dev/null || true
 	@find $(SRC_DIR)/modules -mindepth 2 -maxdepth 2 -name '*.so' -delete 2>/dev/null || true
-	@rm -rf $(RUN_DIR)/modules/* 2>/dev/null || true
+	@rm -rf $(RUN_DIR)/modules 2>/dev/null || true
 	@rm -f $(RUN_DIR)/pid/*.pid $(RUN_DIR)/pid/*.lock 2>/dev/null || true
 	@rm -rf $(RUN_DIR)/test/* 2>/dev/null || true
 	@find $(RUN_DIR) -maxdepth 2 \( -name '*.core' -o -name 'core.*' -o -name '*.stackdump' \) -delete 2>/dev/null || true

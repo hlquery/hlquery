@@ -334,7 +334,7 @@ void HLQueryCLI::ShowRoutes()
      std::cout << "      include_fields (string, optional): Comma-separated fields to include\n";
      std::cout << "      exclude_fields (string, optional): Comma-separated fields to exclude\n";
      std::cout << "      num_typos (integer, optional): Max typos allowed (default: 2, max: 10)\n";
-     std::cout << "      drop_tokens_threshold (integer, optional): Drop tokens threshold (default: 1)\n";
+     std::cout << "      drop_tokens_threshold (integer, optional): Drop tokens threshold (default: 0, disabled unless set)\n";
      std::cout << "      typo_tokens_threshold (integer, optional): Typo tokens threshold (default: 2)\n";
      std::cout << "      prefix (boolean, optional): Enable prefix matching (default: false)\n";
      std::cout << "      group_by (string, optional): Comma-separated fields for grouping\n";

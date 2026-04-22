@@ -1616,7 +1616,7 @@ void HLQueryCLI::RebuildSAMCollection(const std::string &collection_name, bool j
      }
 
      const std::string path = "/sam/rebuild?collection=" + hlquery_cli::UrlEncode(collection_name);
-     HLQueryCLI::HTTPResponse response = MakeRequest("POST", path);
+     HLQueryCLI::HTTPResponse response = MakeRequest("POST", path, "", std::max(15, DefaultTimeoutSeconds));
 
      if (CheckRequestFailed(response))
      {
@@ -1709,17 +1709,47 @@ void HLQueryCLI::SearchSAM(const std::string &collection_name, const std::string
           std::ostringstream score_stream;
           score_stream << std::fixed << std::setprecision(2) << hit.value("score", 0.0);
 
+          const std::string matched_path = hit.value("matched_path", "");
+          const std::string term_origin = hit.value("term_origin", "");
+          const int evidence_count = hit.value("evidence_count", 0);
+          std::string provenance = matched_path.empty() ? hit.value("source", "") : matched_path;
+
+          if (!term_origin.empty())
+          {
+               provenance += provenance.empty() ? term_origin : ":" + term_origin;
+          }
+
           rows.push_back({
                std::to_string(index++),
                hit.value("id", ""),
                hit.value("title", ""),
                hit.value("term", ""),
-               hit.value("source", ""),
+               provenance,
+               std::to_string(evidence_count),
                score_stream.str()
           });
      }
 
-     PrintTable({"#", "ID", "Title", "Matched Term", "Source", "Score"}, rows);
+     PrintTable({"#", "ID", "Title", "Matched Term", "Provenance", "Ev", "Score"}, rows);
+
+     std::cout << "Score breakdowns:\n";
+
+     size_t detail_index = 1;
+     for (const auto &hit : hits)
+     {
+          const nlohmann::json &breakdown = hit.contains("score_breakdown") ? hit["score_breakdown"] : nlohmann::json{};
+          std::ostringstream detail;
+          detail << std::fixed << std::setprecision(2)
+                 << "#" << detail_index++
+                 << " term=" << breakdown.value("term_score", 0.0)
+                 << " source_doc=" << breakdown.value("source_doc_score", 0.0)
+                 << " evidence=" << breakdown.value("evidence_bonus", 0.0)
+                 << " doc_prior=" << breakdown.value("doc_prior", 0.0)
+                 << " source_bonus=" << breakdown.value("source_doc_bonus", 0.0)
+                 << " final=" << breakdown.value("final_score", hit.value("score", 0.0));
+
+          std::cout << detail.str() << "\n";
+     }
 }
 
 void HLQueryCLI::ShowSAMStatus(const std::string &collection_name, bool json_output)
@@ -1727,7 +1757,7 @@ void HLQueryCLI::ShowSAMStatus(const std::string &collection_name, bool json_out
      const std::string path = collection_name.empty()
           ? "/sam/status"
           : "/sam/status?collection=" + hlquery_cli::UrlEncode(collection_name);
-     HLQueryCLI::HTTPResponse response = MakeRequest("GET", path);
+     HLQueryCLI::HTTPResponse response = MakeRequest("GET", path, "", std::max(60, DefaultTimeoutSeconds));
 
      if (CheckRequestFailed(response))
      {

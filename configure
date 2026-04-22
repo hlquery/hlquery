@@ -1677,9 +1677,15 @@ print "\n"
 
     # Get processor count for make -j recommendation
     my $num_procs = get_cpu_count();
-    my $make_jobs = int($num_procs);
+    my $make_jobs = int($num_procs || 1);
+    my $build_cmd = $make_cmd;
+
+    if ($make_jobs > 1) {
+        $build_cmd = "$make_cmd -j$make_jobs";
+    }
+
     print "  " . $char_map{'asterisk'} . " To build the project, run:\n";
-    print "    " . $bold_start . "$make_cmd -j$make_jobs" . $reset_end . "\n\n";
+    print "    " . $bold_start . $build_cmd . $reset_end . "\n\n";
     print "  " . $char_map{'asterisk'} . " To install locally, run:\n";
     print "    " . $bold_start . "$make_cmd install" . $reset_end . "\n\n";
     print_section_end();

@@ -14,13 +14,16 @@
 #include <chrono>
 #include <csignal>
 #include <fstream>
+#include <iomanip>
 #include <iostream>
+#include <limits>
 #include <random>
 #include <set>
 #include <string>
 #include <thread>
 #include <unordered_map>
 #include <unordered_set>
+#include <unistd.h>
 #include <vector>
 #include <vendor/json/json.hpp>
 
@@ -96,6 +99,85 @@ struct RealDocSeed
      std::string Title;
      std::string Content;
 };
+
+struct FakeSynonymSeed
+{
+     std::string Root;
+     std::vector<std::string> Synonyms;
+};
+
+struct AdaptiveBenchmarkDefaults
+{
+     int Threads;
+     int BatchSize;
+     uint64_t TotalMemoryBytes;
+     unsigned HardwareThreads;
+};
+
+static AdaptiveBenchmarkDefaults GetAdaptiveBenchmarkDefaults()
+{
+     const unsigned hardware_threads = std::max(1u, std::thread::hardware_concurrency());
+
+     long pages = sysconf(_SC_PHYS_PAGES);
+     long page_size = sysconf(_SC_PAGESIZE);
+
+     uint64_t total_memory_bytes = 0;
+
+     if (pages > 0 && page_size > 0)
+     {
+          total_memory_bytes = static_cast<uint64_t>(pages) * static_cast<uint64_t>(page_size);
+     }
+
+     int recommended_threads = 4;
+     int recommended_batch_size = 1000;
+
+     if (hardware_threads <= 2)
+     {
+          recommended_threads = 1;
+          recommended_batch_size = 250;
+     }
+     else if (hardware_threads <= 4)
+     {
+          recommended_threads = 2;
+          recommended_batch_size = 500;
+     }
+     else if (hardware_threads <= 8)
+     {
+          recommended_threads = 4;
+          recommended_batch_size = 1000;
+     }
+     else
+     {
+          recommended_threads = 6;
+          recommended_batch_size = 1500;
+     }
+
+     if (total_memory_bytes > 0)
+     {
+          static constexpr uint64_t GiB = 1024ULL * 1024ULL * 1024ULL;
+
+          if (total_memory_bytes <= 2ULL * GiB)
+          {
+               recommended_threads = 1;
+               recommended_batch_size = 100;
+          }
+          else if (total_memory_bytes <= 4ULL * GiB)
+          {
+               recommended_threads = std::min(recommended_threads, 2);
+               recommended_batch_size = std::min(recommended_batch_size, 250);
+          }
+          else if (total_memory_bytes <= 8ULL * GiB)
+          {
+               recommended_threads = std::min(recommended_threads, 4);
+               recommended_batch_size = std::min(recommended_batch_size, 500);
+          }
+     }
+
+     recommended_threads = std::max(1, recommended_threads);
+     recommended_batch_size = std::max(50, recommended_batch_size);
+
+     return AdaptiveBenchmarkDefaults{recommended_threads, recommended_batch_size, total_memory_bytes, hardware_threads};
+}
 
 static std::string Capitalize(const std::string &input)
 {
@@ -376,6 +458,47 @@ static std::vector<std::string> BuildBenchmarkLabels(const std::string &collecti
      return labels;
 }
 
+static const std::vector<FakeSynonymSeed> kFakeBenchmarkSynonymSeeds = {
+     {"car", {"automobile", "vehicle", "auto", "motorcar"}},
+     {"phone", {"mobile", "cellphone", "smartphone", "device"}},
+     {"computer", {"pc", "laptop", "desktop", "machine"}},
+     {"house", {"home", "residence", "dwelling", "abode"}},
+     {"dog", {"puppy", "canine", "pet", "hound"}},
+     {"cat", {"kitten", "feline", "pet", "kitty"}},
+     {"book", {"novel", "tome", "volume", "publication"}},
+     {"food", {"meal", "cuisine", "dish", "fare"}},
+     {"water", {"liquid", "h2o", "aqua", "fluid"}},
+     {"tree", {"plant", "sapling", "wood", "forest"}},
+     {"music", {"song", "melody", "tune", "track"}},
+     {"science", {"physics", "biology", "chemistry", "experiment"}},
+     {"cake", {"pastry", "dessert", "sweet", "bakery"}}};
+
+static const std::vector<std::string> kFakeBenchmarkStopwords = {
+     "the", "and", "for", "with", "from", "into", "over", "under",
+     "before", "after", "within", "without", "between", "across", "during", "around"};
+
+static bool AddGlobalSynonym(BenchmarkClient &client,
+                             const std::string &synonym_id,
+                             const std::string &root_term,
+                             const std::vector<std::string> &synonyms)
+{
+     nlohmann::json synonym_data;
+     synonym_data["root"] = root_term;
+     synonym_data["synonyms"] = synonyms;
+
+     HTTPResponse response = client.MakeRequest("POST", "/synonyms/global/" + synonym_id, synonym_data.dump());
+     return response.StatusCode == 200 || response.StatusCode == 201;
+}
+
+static bool AddGlobalStopword(BenchmarkClient &client, const std::string &word)
+{
+     nlohmann::json stopword_data;
+     stopword_data["word"] = word;
+
+     HTTPResponse response = client.MakeRequest("POST", "/stopwords/global", stopword_data.dump());
+     return response.StatusCode == 200 || response.StatusCode == 201;
+}
+
 bool CreateFakeCollections(const std::string &base_url, const std::string &auth_token, bool reuse_collections, bool verbose)
 {
      static const std::unordered_map<std::string, std::vector<RealDocSeed>> RealSeeds = {
@@ -494,6 +617,42 @@ bool CreateFakeCollections(const std::string &base_url, const std::string &auth_
      {
           std::cerr << "✗ Cannot connect to server for fake collections: " << conn_error << ".\n";
           return false;
+     }
+
+     std::mt19937 rng(std::random_device{}());
+
+     std::vector<size_t> synonym_seed_order;
+     synonym_seed_order.reserve(kFakeBenchmarkSynonymSeeds.size());
+     for (size_t i = 0; i < kFakeBenchmarkSynonymSeeds.size(); ++i)
+     {
+          synonym_seed_order.push_back(i);
+     }
+     std::shuffle(synonym_seed_order.begin(), synonym_seed_order.end(), rng);
+
+     std::vector<size_t> stopword_order;
+     stopword_order.reserve(kFakeBenchmarkStopwords.size());
+     for (size_t i = 0; i < kFakeBenchmarkStopwords.size(); ++i)
+     {
+          stopword_order.push_back(i);
+     }
+     std::shuffle(stopword_order.begin(), stopword_order.end(), rng);
+
+     std::unordered_map<std::string, std::vector<size_t>> collection_synonym_assignments;
+     std::unordered_map<std::string, std::vector<size_t>> collection_stopword_assignments;
+     std::uniform_int_distribution<size_t> collection_dist(0, specs.size() - 1);
+
+     const size_t collection_synonym_count = std::min<size_t>(5, synonym_seed_order.size());
+     for (size_t i = 0; i < collection_synonym_count; ++i)
+     {
+          const std::string &collection_name = specs[collection_dist(rng)].Name;
+          collection_synonym_assignments[collection_name].push_back(synonym_seed_order[i]);
+     }
+
+     const size_t collection_stopword_count = std::min<size_t>(10, stopword_order.size());
+     for (size_t i = 0; i < collection_stopword_count; ++i)
+     {
+          const std::string &collection_name = specs[collection_dist(rng)].Name;
+          collection_stopword_assignments[collection_name].push_back(stopword_order[i]);
      }
 
      for (const auto &spec : specs)
@@ -1022,7 +1181,87 @@ bool CreateFakeCollections(const std::string &base_url, const std::string &auth_
           {
                LogOutput("  ↳ Enriched " + std::to_string(enriched_updated) + " fake documents with description and labels.\n");
           }
+
+          size_t collection_synonyms_added = 0;
+          auto synonym_it = collection_synonym_assignments.find(spec.Name);
+          if (synonym_it != collection_synonym_assignments.end())
+          {
+               for (size_t local_index = 0; local_index < synonym_it->second.size(); ++local_index)
+               {
+                    const FakeSynonymSeed &seed = kFakeBenchmarkSynonymSeeds[synonym_it->second[local_index]];
+                    const std::string synonym_id = "fake_syn_" + std::to_string(synonym_it->second[local_index]) + "_" + std::to_string(local_index + 1);
+
+                    if (client.AddSynonym(spec.Name, synonym_id, seed.Root, seed.Synonyms))
+                    {
+                         collection_synonyms_added++;
+                    }
+                    else
+                    {
+                         std::cerr << "✗ Failed to add fake synonym '" << synonym_id << "' to collection '" << spec.Name << "'.\n";
+                    }
+               }
+          }
+
+          size_t collection_stopwords_added = 0;
+          auto stopword_it = collection_stopword_assignments.find(spec.Name);
+          if (stopword_it != collection_stopword_assignments.end())
+          {
+               for (size_t stopword_index : stopword_it->second)
+               {
+                    const std::string &word = kFakeBenchmarkStopwords[stopword_index];
+                    if (client.AddStopword(spec.Name, word))
+                    {
+                         collection_stopwords_added++;
+                    }
+                    else
+                    {
+                         std::cerr << "✗ Failed to add fake stopword '" << word << "' to collection '" << spec.Name << "'.\n";
+                    }
+               }
+          }
+
+          if (verbose && (collection_synonyms_added > 0 || collection_stopwords_added > 0))
+          {
+               LogOutput("  ↳ Added " + std::to_string(collection_synonyms_added) +
+                         " fake synonym group(s) and " + std::to_string(collection_stopwords_added) +
+                         " fake stopword(s) to '" + spec.Name + "'.\n");
+          }
      }
+
+     size_t global_synonyms_added = 0;
+     const size_t global_synonym_count = std::min<size_t>(10, synonym_seed_order.size());
+     for (size_t i = 0; i < global_synonym_count; ++i)
+     {
+          const FakeSynonymSeed &seed = kFakeBenchmarkSynonymSeeds[synonym_seed_order[i]];
+          const std::string synonym_id = "fake_global_syn_" + std::to_string(i + 1);
+
+          if (AddGlobalSynonym(client, synonym_id, seed.Root, seed.Synonyms))
+          {
+               global_synonyms_added++;
+          }
+          else
+          {
+               std::cerr << "✗ Failed to add global fake synonym '" << synonym_id << "'.\n";
+          }
+     }
+
+     size_t global_stopwords_added = 0;
+     const size_t global_stopword_count = std::min<size_t>(10, stopword_order.size());
+     for (size_t i = 0; i < global_stopword_count; ++i)
+     {
+          const std::string &word = kFakeBenchmarkStopwords[stopword_order[i]];
+          if (AddGlobalStopword(client, word))
+          {
+               global_stopwords_added++;
+          }
+          else
+          {
+               std::cerr << "✗ Failed to add global fake stopword '" << word << "'.\n";
+          }
+     }
+
+     LogOutput("✓ Added " + std::to_string(global_synonyms_added) + " global fake synonym group(s) and " +
+               std::to_string(global_stopwords_added) + " global fake stopword(s).\n");
 
      return true;
 }
@@ -1195,6 +1434,8 @@ int main(int argc, char *argv[])
           int num_threads = 8;
           int batch_size = 2000;
           bool documents_explicitly_set = false;
+          bool threads_explicitly_set = false;
+          bool batch_size_explicitly_set = false;
 
           bool default_limits_applied = false;
           bool advanced_mode = false;
@@ -1279,10 +1520,12 @@ int main(int argc, char *argv[])
                else if (arg == "--threads" && i + 1 < argc)
                {
                     num_threads = std::stoi(argv[++i]);
+                    threads_explicitly_set = true;
                }
                else if (arg == "--batch-size" && i + 1 < argc)
                {
                     batch_size = std::stoi(argv[++i]);
+                    batch_size_explicitly_set = true;
                }
                else if (arg == "--advanced")
                {
@@ -1386,8 +1629,8 @@ int main(int argc, char *argv[])
                               << "  --ssl-auth        Over HTTPS, send token as both Authorization and X-API-Key\n"
                               << "  --collections N   Number of collections to create (default: 2)\n"
                               << "  --documents N     Total number of documents to insert (default: 50000 per collection)\n"
-                              << "  --threads N        Number of threads (default: 8)\n"
-                              << "  --batch-size N     Documents per bulk insert batch (default: 2000)\n"
+                              << "  --threads N        Number of threads (default: auto-tuned from CPU/RAM)\n"
+                              << "  --batch-size N     Documents per bulk insert batch (default: auto-tuned from CPU/RAM)\n"
                               << "  --advanced [FILE]  Output detailed JSON metrics (default: adv.json)\n"
                               << "  --detailed [FILE] Run comprehensive benchmark testing ALL routes\n"
                               << "                    and functionalities (includes --advanced)\n"
@@ -1425,6 +1668,21 @@ int main(int argc, char *argv[])
           {
                num_documents = num_collections * default_docs_per_collection;
           }
+
+          const AdaptiveBenchmarkDefaults adaptive_defaults = GetAdaptiveBenchmarkDefaults();
+
+          if (!threads_explicitly_set)
+          {
+               num_threads = adaptive_defaults.Threads;
+          }
+
+          if (!batch_size_explicitly_set)
+          {
+               batch_size = adaptive_defaults.BatchSize;
+          }
+
+          num_threads = std::max(1, num_threads);
+          batch_size = std::max(1, batch_size);
 
           BenchmarkClient::SetGlobalSSLAuthMode(ssl_auth_mode);
 
@@ -1833,6 +2091,39 @@ int main(int argc, char *argv[])
           std::cout << "Documents: " << num_documents << ".\n";
           std::cout << "Threads: " << num_threads << " requested, " << active_document_threads << " ingest worker(s), " << active_collection_threads << " collection worker(s).\n";
           std::cout << "Batch size: " << batch_size << ".\n";
+
+          if (!threads_explicitly_set || !batch_size_explicitly_set)
+          {
+               std::cout << "Adaptive defaults:";
+
+               if (!threads_explicitly_set)
+               {
+                    std::cout << " threads auto-tuned for " << adaptive_defaults.HardwareThreads << " CPU thread(s)";
+               }
+               else
+               {
+                    std::cout << " threads user-set";
+               }
+
+               if (adaptive_defaults.TotalMemoryBytes > 0)
+               {
+                    const double gib = static_cast<double>(adaptive_defaults.TotalMemoryBytes) / (1024.0 * 1024.0 * 1024.0);
+                    std::cout << ", memory " << std::fixed << std::setprecision(1) << gib << " GiB";
+                    std::cout.unsetf(std::ios::floatfield);
+                    std::cout << std::setprecision(6);
+               }
+
+               if (!batch_size_explicitly_set)
+               {
+                    std::cout << ", batch size auto-tuned";
+               }
+               else
+               {
+                    std::cout << ", batch size user-set";
+               }
+
+               std::cout << ".\n";
+          }
 
           if (advanced_mode)
           {

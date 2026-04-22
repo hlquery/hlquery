@@ -16,12 +16,15 @@
 #define ROCKSDB_NAMESPACE rocksdb
 #endif
 
+#include <atomic>
+#include <condition_variable>
 #include <mutex>
 #include <map>
 #include <rocksdb/db.h>
 #include <deque>
 #include <string>
 #include <thread>
+#include <unordered_set>
 #include <vector>
 
 #include "search/cstore.h"
@@ -38,14 +41,28 @@ class SAM
 
      struct LookupHit
      {
+          struct ScoreBreakdown
+          {
+               double TermScore = 0.0;
+               double SourceDocScore = 0.0;
+               double EvidenceBonus = 0.0;
+               double DocPrior = 0.0;
+               double SourceDocBonus = 0.0;
+               double FinalScore = 0.0;
+          };
+
           std::string Collection;
           std::string DocumentID;
           std::string Title;
           std::string MatchedTerm;
           std::string MatchedKind;
           std::string MatchedSource;
+          std::string MatchedPath;
+          std::string TermOrigin;
+          size_t EvidenceCount = 0;
           double MatchedScore = 0.0;
           double MatchedSignal = 0.0;
+          ScoreBreakdown Breakdown;
           std::string Explain;
      };
 
@@ -72,6 +89,8 @@ class SAM
           bool Completed = false;
           size_t IndexedDocuments = 0;
           size_t FailedDocuments = 0;
+          size_t PendingDocuments = 0;
+          size_t TotalDocuments = 0;
           std::string ErrorMessage;
      };
 
@@ -102,6 +121,7 @@ class SAM
      bool StartRecreateCollectionAsync(const std::string& Collection,
                                        bool* AlreadyRunning = nullptr,
                                        std::string* ErrorMessage = nullptr);
+     bool EnqueueIndexDocument(const std::string& Collection, const Document& Doc, std::string* ErrorMessage = nullptr);
      bool IndexDocument(const std::string& Collection, const Document& Doc, std::string* ErrorMessage = nullptr);
      bool DeleteDocument(const std::string& Collection, const std::string& DocumentID, std::string* ErrorMessage = nullptr);
      std::vector<LookupHit> Lookup(const std::string& Query, size_t Limit = 20) const;
@@ -120,26 +140,44 @@ class SAM
 
    private:
 
+     struct PendingIndexJob
+     {
+          std::string Collection;
+          Document Doc;
+     };
+
      std::unique_ptr<rocksdb::DB> Database;
      rocksdb::Options OptionsValue;
      std::string DBPath;
+     std::atomic<bool> DatabaseOpen{false};
 
      mutable std::mutex DBMutex;
      mutable std::mutex InferenceMutex;
      mutable std::mutex JobMutex;
      mutable std::mutex DebugMutex;
+     mutable std::mutex QueueMutex;
+     std::condition_variable QueueCV;
      std::map<std::string, CollectionJobStatus> CollectionJobs;
      mutable std::deque<DebugEvent> DebugEvents;
      mutable uint64_t NextDebugSequence = 1;
+     std::deque<PendingIndexJob> PendingIndexJobs;
+     std::unordered_set<std::string> PendingIndexKeys;
+     bool ShuttingDown = false;
      std::vector<std::thread> WorkerThreads;
 
      std::string ResolveDBPath() const;
+     static std::string BuildPendingIndexKey(const std::string& Collection, const std::string& DocumentID);
+     void StartIndexWorker();
+     void RunIndexWorker();
      bool ClearAll(std::string* ErrorMessage = nullptr);
      bool RemoveExistingDocumentTermsLocked(const std::string& Collection, const std::string& DocumentID, std::string* ErrorMessage = nullptr);
      bool IndexDocumentLocked(const std::string& Collection, const Document& Doc, std::string* ErrorMessage = nullptr);
 
-     std::vector<TermEntry> ExpandDocumentTerms(const std::string& Collection, const Document& Doc) const;
-     std::vector<TermEntry> GenerateLLMTerms(const std::string& Collection, const Document& Doc) const;
-     std::vector<TermEntry> GenerateHeuristicTerms(const std::string& Collection, const Document& Doc) const;
+     std::vector<TermEntry> ExpandDocumentTerms(const std::string& Collection,
+                                                const Document& Doc,
+                                                std::string* ErrorMessage = nullptr) const;
+     std::vector<TermEntry> GenerateLLMTerms(const std::string& Collection,
+                                             const Document& Doc,
+                                             std::string* ErrorMessage = nullptr) const;
      void RecordDebugEvent(const std::string& Collection, const std::string& Message) const;
 };

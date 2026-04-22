@@ -1136,9 +1136,7 @@ bool IPFilter::ResolveHostnameToIP(const std::string &Hostname, std::string &Res
 std::vector<std::string> IPFilter::ParseIPList(const std::string &AllowedIPsConfig)
 {
      std::vector<std::string> Result;
-
      std::stringstream SS(AllowedIPsConfig);
-
      std::string Item;
 
      while (std::getline(SS, Item, ','))

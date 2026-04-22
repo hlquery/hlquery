@@ -292,7 +292,6 @@ bool hlquery::InitializeServer()
      if (!HybridStorageManager::GetInstance().Start())
      {
           ConsoleWriter::WriteError("[FATAL] Failed to start HybridStorageManager!", false);
-
           SetShutdownFlag();
 
           return false;
@@ -305,7 +304,6 @@ bool hlquery::InitializeServer()
      if (!API->Start())
      {
           ConsoleWriter::WriteError("[FATAL] Failed to start SearchAPI!", false);
-
           SetShutdownFlag();
 
           return false;
@@ -444,13 +442,9 @@ bool hlquery::InitializeServer()
      */
 
      fflush(stdout);
-
      fflush(stderr);
-
      std::cout.flush();
-
      std::cerr.flush();
-
      fflush(NULL);
 
      /*
