@@ -39,7 +39,7 @@
 
 struct HTTPResponse
 {
-     int StatusCode;
+     int StatusCode = -1;
 
      std::string Body;
 

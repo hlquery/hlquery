@@ -640,6 +640,11 @@ HTTPResponse BenchmarkClient::MakeRequest(const std::string &method, const std::
                          break;
                     }
 
+                    response.StatusCode = -1;
+                    response.ErrorMessage = (bytes == 0)
+                                                  ? "Connection closed before a complete HTTP response was received."
+                                                  : "Failed to read HTTP response from server.";
+
                     return response;
                }
 

@@ -17,7 +17,7 @@
 </div>
 
 > You can explore the live demo at [demo.hlquery.com](https://demo.hlquery.com/).
-> Demo mode is powered by [`src/modules/m_demo.cpp`](./src/modules/m_demo.cpp), so insert operations are disabled.
+> Demo mode is powered by [`m_demo.cpp`](./src/modules/m_demo.cpp), so insert operations are disabled.
 > The demo UI is built with [hanalyzer](https://github.com/hlquery/hanalyzer).
 
 ### Overview
@@ -137,9 +137,29 @@ $ hlquery-cli create products title content price
 Collection 'products' created successfully
 ```
 
+**using the PHP API:**
+
 ```php
 <?php
-$client->createCollection('products', ['title', 'content', 'price']);
+
+require_once __DIR__ . '/vendor/autoload.php';
+
+use Hlquery\Client;
+
+$client = new Client('http://localhost:9200');
+
+$collections = $client->collections();
+
+$schema = [
+    'fields' => [
+        ['name' => 'id', 'type' => 'string'],
+        ['name' => 'title', 'type' => 'string'],
+        ['name' => 'content', 'type' => 'string'],
+        ['name' => 'price', 'type' => 'float'],
+    ],
+];
+
+$collections->create('products', $schema);
 ```
 
 ### Index Documents
@@ -148,6 +168,8 @@ $client->createCollection('products', ['title', 'content', 'price']);
 $ hlquery-cli add products product1 "Laptop Computer" "High-performance laptop with 16GB RAM"
 Document 'product1' added to collection 'products'
 ```
+
+**using the Node API:**
 
 ```js
 await client.documents().add('products', {
@@ -171,6 +193,8 @@ Found 1 document(s) (showing 1-1 of 1)
 +---+-------------+----------+-----------------+---------------------------------------+----------+
 ```
 
+**using the C++ API:**
+
 ```cpp
 hlquery::Client client("http://localhost:9200");
 auto result = client.search("products", {{"q", "laptop"}});
@@ -190,6 +214,9 @@ $ hlquery-cli search products "laptop~2"
 
 # Wildcard search
 $ hlquery-cli search products "laptop*"
+
+# Case-sensitive search
+$ hlquery-cli search products "is:casesensitive Laptop"
 
 # Boost term importance
 $ hlquery-cli search products "laptop^2.0 computer"

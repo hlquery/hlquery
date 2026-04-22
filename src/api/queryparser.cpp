@@ -43,7 +43,8 @@ static void ApplyInlineQueryDirectives(std::string &QueryText, bool &CaseSensiti
                               return static_cast<char>(std::tolower(C));
                          });
 
-          if (Lowered == "do:casesensitive" || Lowered == "do:case_sensitive" || Lowered == "do:case-sensitive")
+          if (Lowered == "do:casesensitive" || Lowered == "do:case_sensitive" || Lowered == "do:case-sensitive" ||
+              Lowered == "is:casesensitive" || Lowered == "is:case_sensitive" || Lowered == "is:case-sensitive")
           {
                CaseSensitive = true;
                continue;
