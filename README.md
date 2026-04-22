@@ -16,6 +16,10 @@
 
 </div>
 
+> Feel free to check the live demo at [demo.hlquery.com](https://demo.hlquery.com/).
+> Demo mode does not allow running custom `src/modules` modules.
+> The demo UI uses [hanalyzer](https://github.com/hlquery/hanalyzer).
+
 ### Overview
 
 hlquery is an open source search engine written in C++17 and backed by RocksDB. It is designed for applications that need fast indexing, real-time queries, and a straightforward HTTP/JSON interface without giving up advanced search features. The engine supports full-text search, hybrid ranking, vector similarity, flexible collections, and configurable runtime modules for features such as AI-assisted search.
