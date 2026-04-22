@@ -43,7 +43,12 @@ class SAM
      struct TermEntry;
      struct DocumentEntry;
      struct CollectionJobStatus;
-     struct DebugEvent;
+     struct DebugEvent
+     {
+          uint64_t Sequence = 0;
+          std::string Collection;
+          std::string Message;
+     };
 
    private:
 
@@ -171,13 +176,6 @@ class SAM
           size_t PendingDocuments = 0;
           size_t TotalDocuments = 0;
           std::string ErrorMessage;
-     };
-
-     struct DebugEvent
-     {
-          uint64_t Sequence = 0;
-          std::string Collection;
-          std::string Message;
      };
 
      /* Construct the SAM manager and initialize its runtime state. */

@@ -17,7 +17,7 @@
 </div>
 
 > You can explore the live demo at [demo.hlquery.com](https://demo.hlquery.com/).
-> Demo mode is powered by [`m_demo.cpp`](./src/modules/m_demo.cpp), so insert operations are disabled.
+> Demo mode is powered by [m_demo.cpp](https://github.com/hlquery/hlquery/blob/unstable/src/modules/m_demo.cpp), so insert operations are disabled.
 > The demo UI is built with [hanalyzer](https://github.com/hlquery/hanalyzer).
 
 ### Overview
