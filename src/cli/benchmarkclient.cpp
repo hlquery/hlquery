@@ -33,7 +33,7 @@
 
 #include "core/config.h"
 
-#ifdef HLQUERY_HAS_OPENSSL
+#ifdef HLQUERY_BENCH_HAS_OPENSSL
 #include <openssl/err.h>
 #include <openssl/ssl.h>
 #endif

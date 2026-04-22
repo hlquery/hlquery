@@ -203,6 +203,7 @@ struct ComprehensiveSearchQuery
      bool PrioritizeExactMatch = true;
      bool ExhaustiveSearch = false;
      bool AllowScanFallback = true;
+     bool CaseSensitive = false;
 
      /* Vector search. */
 

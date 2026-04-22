@@ -22,7 +22,7 @@
 #include <mutex>
 #include <netdb.h>
 #include <netinet/in.h>
-#if defined(HLQUERY_HAS_OPENSSL) && defined(__has_include)
+#if defined(__has_include)
 # if __has_include(<openssl/err.h>) && __has_include(<openssl/ssl.h>)
 #  define HLQUERY_CLI_HAS_OPENSSL 1
 # endif
@@ -50,7 +50,10 @@ HLQueryCLI::HLQueryCLI(const std::string &url, bool raw, const std::string &toke
     : BaseURL(url),
       RawMode(raw), AuthToken(token), SSLAuthMode(ssl_auth), ProgramName(program_name), ExitCodeValue(0)
 {
-
+     if (AuthToken.empty())
+     {
+          SSLAuthMode = false;
+     }
 }
 
 /* Gets the exit code. */
@@ -451,6 +454,8 @@ bool HLQueryCLI::IsServerLoading()
 
 HLQueryCLI::HTTPResponse HLQueryCLI::MakeRequest(const std::string &method, const std::string &path, const std::string &body, int timeout_seconds)
 {
+     static thread_local int TLSHandshakeRetryDepth = 0;
+
      /* Normalize timeouts and validate request inputs. */
 
      if (timeout_seconds < 0)
@@ -627,6 +632,7 @@ HLQueryCLI::HTTPResponse HLQueryCLI::MakeRequest(const std::string &method, cons
           static std::once_flag OpenSSLInitOnce;
           std::call_once(OpenSSLInitOnce, []()
                          {
+                              SSL_library_init();
                               SSL_load_error_strings();
                               OpenSSL_add_ssl_algorithms();
                          });
@@ -657,10 +663,7 @@ HLQueryCLI::HTTPResponse HLQueryCLI::MakeRequest(const std::string &method, cons
           SSL_set_fd(SSLObj, sock);
           if (!Host.empty())
           {
-               static_cast<void>(SSL_ctrl(SSLObj,
-                                          SSL_CTRL_SET_TLSEXT_HOSTNAME,
-                                          TLSEXT_NAMETYPE_host_name,
-                                          const_cast<void *>(static_cast<const void *>(Host.c_str()))));
+               SSL_set_tlsext_host_name(SSLObj, Host.c_str());
           }
 
           if (SSL_connect(SSLObj) != 1)
@@ -672,6 +675,17 @@ HLQueryCLI::HTTPResponse HLQueryCLI::MakeRequest(const std::string &method, cons
                SSL_free(SSLObj);
                SSL_CTX_free(SSLCtx);
                close(sock);
+
+               const bool RetryableHandshake = ErrText.find("unexpected message") != std::string::npos;
+               if (RetryableHandshake && TLSHandshakeRetryDepth < 2)
+               {
+                    ++TLSHandshakeRetryDepth;
+                    usleep(150000);
+                    HTTPResponse RetryResponse = MakeRequest(method, path, body, timeout_seconds);
+                    --TLSHandshakeRetryDepth;
+                    return RetryResponse;
+               }
+
                return response;
           }
      }

@@ -138,11 +138,14 @@ static bool FieldNameHasToken(const std::string &field_name, const std::initiali
  * NormalizeTermSimple implementation.
  */
 
-static std::string NormalizeTermSimple(const std::string &term)
+static std::string NormalizeTermSimple(const std::string &term, bool case_sensitive = false)
 {
      std::string normalized = term;
 
-     std::transform(normalized.begin(), normalized.end(), normalized.begin(), ::tolower);
+     if (!case_sensitive)
+     {
+          std::transform(normalized.begin(), normalized.end(), normalized.begin(), ::tolower);
+     }
 
      while (!normalized.empty() && !std::isalnum(static_cast<unsigned char>(normalized.front())) && normalized.front() != '*' && normalized.front() != '?' && normalized.front() != '_')
      {
@@ -161,7 +164,7 @@ static std::string NormalizeTermSimple(const std::string &term)
  * ExtractTermsSimple implementation.
  */
 
-static std::vector<std::string> ExtractTermsSimple(const std::string &text)
+static std::vector<std::string> ExtractTermsSimple(const std::string &text, bool case_sensitive = false)
 {
      std::vector<std::string> terms;
 
@@ -202,7 +205,7 @@ static std::vector<std::string> ExtractTermsSimple(const std::string &text)
           if (pos > word_start)
           {
                std::string word = text_to_process.substr(word_start, pos - word_start);
-               std::string normalized = NormalizeTermSimple(word);
+               std::string normalized = NormalizeTermSimple(word, case_sensitive);
 
                if (!normalized.empty())
                {
@@ -221,7 +224,7 @@ static std::vector<std::string> ExtractTermsSimple(const std::string &text)
  * ExtractQuotedPhrases implementation.
  */
 
-static std::vector<std::string> ExtractQuotedPhrases(const std::string &text)
+static std::vector<std::string> ExtractQuotedPhrases(const std::string &text, bool case_sensitive = false)
 {
      std::vector<std::string> phrases;
 
@@ -246,7 +249,7 @@ static std::vector<std::string> ExtractQuotedPhrases(const std::string &text)
                std::string phrase = TrimWhitespace(normalized.substr(start + 1, end - start - 1));
                if (!phrase.empty())
                {
-                    phrases.push_back(ToLowerCopy(phrase));
+                    phrases.push_back(case_sensitive ? phrase : ToLowerCopy(phrase));
                }
           }
 
@@ -312,14 +315,18 @@ static bool IsTypoTolerantMatchSimple(const std::string &field_term, const std::
      return CalculateLevenshteinDistanceSimple(field_term, term) <= max_typos;
 }
 
-static bool FieldMatchesTermSimple(const std::string &field_value, const std::string &term, bool allow_prefix_match, int max_typos = 0)
+static bool FieldMatchesTermSimple(const std::string &field_value,
+                                   const std::string &term,
+                                   bool allow_prefix_match,
+                                   int max_typos = 0,
+                                   bool case_sensitive = false)
 {
      if (field_value.empty() || term.empty())
      {
           return false;
      }
 
-     std::vector<std::string> field_terms = ExtractTermsSimple(field_value);
+     std::vector<std::string> field_terms = ExtractTermsSimple(field_value, case_sensitive);
      if (field_terms.empty())
      {
           return false;
@@ -331,7 +338,7 @@ static bool FieldMatchesTermSimple(const std::string &field_value, const std::st
      {
           if (is_wildcard)
           {
-               if (Wildcard::Match(field_term, term))
+               if (case_sensitive ? Wildcard::MatchCaseSensitive(field_term, term) : Wildcard::Match(field_term, term))
                {
                     return true;
                }
@@ -381,12 +388,14 @@ static std::string BuildIndexQueryForSearch(const std::string &query_text, bool 
      return term + "*";
 }
 
-static std::vector<std::string> BuildRelaxedQueryVariants(const std::string &query_text, int drop_tokens_threshold)
+static std::vector<std::string> BuildRelaxedQueryVariants(const std::string &query_text,
+                                                          int drop_tokens_threshold,
+                                                          bool case_sensitive = false)
 {
      std::vector<std::string> variants;
      variants.push_back(query_text);
 
-     std::vector<std::string> terms = ExtractTermsSimple(query_text);
+     std::vector<std::string> terms = ExtractTermsSimple(query_text, case_sensitive);
      if (drop_tokens_threshold < 0 || static_cast<int>(terms.size()) <= drop_tokens_threshold || terms.size() <= 1)
      {
           return variants;
@@ -426,15 +435,15 @@ static std::vector<std::string> BuildRelaxedQueryVariants(const std::string &que
      return variants;
 }
 
-static std::vector<std::string> BuildHighlightTermsForSearch(const std::string &query_text)
+static std::vector<std::string> BuildHighlightTermsForSearch(const std::string &query_text, bool case_sensitive = false)
 {
-     std::vector<std::string> raw_terms = ExtractTermsSimple(query_text);
+     std::vector<std::string> raw_terms = ExtractTermsSimple(query_text, case_sensitive);
      std::vector<std::string> highlight_terms;
      highlight_terms.reserve(raw_terms.size());
 
      for (const auto &term : raw_terms)
      {
-          std::string cleaned = NormalizeTermSimple(StripWildcardChars(term));
+          std::string cleaned = NormalizeTermSimple(StripWildcardChars(term), case_sensitive);
           if (!cleaned.empty())
           {
                highlight_terms.push_back(cleaned);
@@ -469,7 +478,8 @@ struct ParsedQueryExpression
 static bool HasRequestedQueryFields(const std::vector<std::string> &query_by);
 static void AppendRequestedFieldValues(const Document &doc,
                                        const std::vector<std::string> &query_by,
-                                       std::vector<std::pair<std::string, std::string>> &field_values);
+                                       std::vector<std::pair<std::string, std::string>> &field_values,
+                                       bool case_sensitive = false);
 
 static bool IsFieldSpecifier(const std::string &value)
 {
@@ -537,7 +547,7 @@ static std::vector<std::string> TokenizeStructuredQuery(const std::string &query
      return tokens;
 }
 
-static ParsedQueryExpression ParseStructuredQueryExpression(const std::string &query_text)
+static ParsedQueryExpression ParseStructuredQueryExpression(const std::string &query_text, bool case_sensitive = false)
 {
      ParsedQueryExpression expression;
      std::vector<std::string> tokens = TokenizeStructuredQuery(query_text);
@@ -624,12 +634,13 @@ static ParsedQueryExpression ParseStructuredQueryExpression(const std::string &q
           clause.Phrase = (token.size() >= 2 && token.front() == '"' && token.back() == '"');
           if (clause.Phrase)
           {
-               clause.Value = ToLowerCopy(TrimWhitespace(StripQuotes(token)));
+               const std::string PhraseValue = TrimWhitespace(StripQuotes(token));
+               clause.Value = case_sensitive ? PhraseValue : ToLowerCopy(PhraseValue);
                expression.UsesStructuredSemantics = true;
           }
           else
           {
-               clause.Value = NormalizeTermSimple(token);
+               clause.Value = NormalizeTermSimple(token, case_sensitive);
           }
 
           if (clause.Value.empty())
@@ -647,25 +658,27 @@ static ParsedQueryExpression ParseStructuredQueryExpression(const std::string &q
 static void CollectFieldValuesForClause(const Document &doc,
                                         const ParsedQueryClause &clause,
                                         const std::vector<std::string> &query_by,
-                                        std::vector<std::pair<std::string, std::string>> &field_values)
+                                        std::vector<std::pair<std::string, std::string>> &field_values,
+                                        bool case_sensitive)
 {
      if (!clause.Field.empty())
      {
-          AppendRequestedFieldValues(doc, {clause.Field}, field_values);
+          AppendRequestedFieldValues(doc, {clause.Field}, field_values, case_sensitive);
           return;
      }
 
-     AppendRequestedFieldValues(doc, query_by, field_values);
+     AppendRequestedFieldValues(doc, query_by, field_values, case_sensitive);
 }
 
 static bool EvaluateQueryClause(const Document &doc,
                                 const ParsedQueryClause &clause,
                                 const std::vector<std::string> &query_by,
                                 bool allow_prefix_match,
-                                int max_typos)
+                                int max_typos,
+                                bool case_sensitive)
 {
      std::vector<std::pair<std::string, std::string>> field_values;
-     CollectFieldValuesForClause(doc, clause, query_by, field_values);
+     CollectFieldValuesForClause(doc, clause, query_by, field_values, case_sensitive);
 
      if (field_values.empty())
      {
@@ -683,7 +696,7 @@ static bool EvaluateQueryClause(const Document &doc,
                continue;
           }
 
-          if (FieldMatchesTermSimple(field_val.second, clause.Value, allow_prefix_match, max_typos))
+          if (FieldMatchesTermSimple(field_val.second, clause.Value, allow_prefix_match, max_typos, case_sensitive))
           {
                return true;
           }
@@ -696,7 +709,8 @@ static bool EvaluateParsedQueryExpression(const Document &doc,
                                           const ParsedQueryExpression &expression,
                                           const std::vector<std::string> &query_by,
                                           bool allow_prefix_match,
-                                          int max_typos)
+                                          int max_typos,
+                                          bool case_sensitive)
 {
      if (expression.Groups.empty())
      {
@@ -709,7 +723,7 @@ static bool EvaluateParsedQueryExpression(const Document &doc,
 
           for (const auto &clause : group.Clauses)
           {
-               const bool clause_matches = EvaluateQueryClause(doc, clause, query_by, allow_prefix_match, max_typos);
+               const bool clause_matches = EvaluateQueryClause(doc, clause, query_by, allow_prefix_match, max_typos, case_sensitive);
 
                if (clause.Prohibited)
                {
@@ -1038,7 +1052,9 @@ static std::vector<std::string> BuildExpandedQueriesFromSynonyms(const std::stri
  * HighlightTermsSimple wraps matched terms with <em> tags.
  */
 
-static std::string HighlightTermsSimple(const std::string &text, const std::vector<std::string> &terms)
+static std::string HighlightTermsSimple(const std::string &text,
+                                        const std::vector<std::string> &terms,
+                                        bool case_sensitive = false)
 {
      if (text.empty() || terms.empty())
      {
@@ -1063,7 +1079,7 @@ static std::string HighlightTermsSimple(const std::string &text, const std::vect
                     continue;
                }
 
-               size_t found = lowered.find(term, pos);
+               size_t found = case_sensitive ? text.find(term, pos) : lowered.find(term, pos);
                if (found != std::string::npos)
                {
                     if (best_pos == std::string::npos || found < best_pos || (found == best_pos && term.size() > best_len))
@@ -1097,7 +1113,8 @@ static bool HasRequestedQueryFields(const std::vector<std::string> &query_by)
 
 static void AppendRequestedFieldValues(const Document &doc,
                                        const std::vector<std::string> &query_by,
-                                       std::vector<std::pair<std::string, std::string>> &field_values)
+                                       std::vector<std::pair<std::string, std::string>> &field_values,
+                                       bool case_sensitive)
 {
      field_values.clear();
 
@@ -1105,19 +1122,19 @@ static void AppendRequestedFieldValues(const Document &doc,
      {
           if (!doc.Title.empty())
           {
-               field_values.push_back({"title", ToLowerCopy(doc.Title)});
+               field_values.push_back({"title", case_sensitive ? doc.Title : ToLowerCopy(doc.Title)});
           }
 
           if (!doc.Content.empty())
           {
-               field_values.push_back({"content", ToLowerCopy(doc.Content)});
+               field_values.push_back({"content", case_sensitive ? doc.Content : ToLowerCopy(doc.Content)});
           }
 
           for (const auto &field : doc.Fields)
           {
                if (!field.second.empty())
                {
-                    field_values.push_back({field.first, ToLowerCopy(field.second)});
+                    field_values.push_back({field.first, case_sensitive ? field.second : ToLowerCopy(field.second)});
                }
           }
 
@@ -1130,7 +1147,7 @@ static void AppendRequestedFieldValues(const Document &doc,
           {
                if (!doc.Title.empty())
                {
-                    field_values.push_back({"title", ToLowerCopy(doc.Title)});
+                    field_values.push_back({"title", case_sensitive ? doc.Title : ToLowerCopy(doc.Title)});
                }
                continue;
           }
@@ -1139,7 +1156,7 @@ static void AppendRequestedFieldValues(const Document &doc,
           {
                if (!doc.Content.empty())
                {
-                    field_values.push_back({"content", ToLowerCopy(doc.Content)});
+                    field_values.push_back({"content", case_sensitive ? doc.Content : ToLowerCopy(doc.Content)});
                }
                continue;
           }
@@ -1147,7 +1164,7 @@ static void AppendRequestedFieldValues(const Document &doc,
           auto field_it = doc.Fields.find(field_name);
           if (field_it != doc.Fields.end() && !field_it->second.empty())
           {
-               field_values.push_back({field_name, ToLowerCopy(field_it->second)});
+               field_values.push_back({field_name, case_sensitive ? field_it->second : ToLowerCopy(field_it->second)});
           }
      }
 }
@@ -1156,6 +1173,7 @@ static bool AllQueryTermsMatchRequestedFields(const std::vector<std::pair<std::s
                                               const std::vector<std::string> &query_terms,
                                               bool allow_prefix_match,
                                               int max_typos,
+                                              bool case_sensitive,
                                               int *matched_terms_out = nullptr)
 {
      int matched_terms = 0;
@@ -1166,7 +1184,7 @@ static bool AllQueryTermsMatchRequestedFields(const std::vector<std::pair<std::s
 
           for (const auto &field_val : field_values)
           {
-               if (FieldMatchesTermSimple(field_val.second, term, allow_prefix_match, max_typos))
+               if (FieldMatchesTermSimple(field_val.second, term, allow_prefix_match, max_typos, case_sensitive))
                {
                     term_found = true;
                     break;
@@ -1197,6 +1215,7 @@ static bool MatchesAnyQueryVariant(const std::vector<std::pair<std::string, std:
                                    const std::vector<std::vector<std::string>> &variant_terms_list,
                                    bool allow_prefix_match,
                                    int max_typos,
+                                   bool case_sensitive,
                                    int *matched_terms_out = nullptr)
 {
      int best_matched_terms = 0;
@@ -1213,6 +1232,7 @@ static bool MatchesAnyQueryVariant(const std::vector<std::pair<std::string, std:
                                                variant_terms,
                                                allow_prefix_match,
                                                max_typos,
+                                               case_sensitive,
                                                &matched_terms))
           {
                if (matched_terms_out)
@@ -1262,7 +1282,8 @@ static double CalculateRequestedFieldExactMatchBoost(const Document &doc,
                                                      const std::vector<std::string> &query_by,
                                                      const std::string &normalized_query_for_boost,
                                                      double exact_match_boost,
-                                                     double title_exact_boost)
+                                                     double title_exact_boost,
+                                                     bool case_sensitive = false)
 {
      if (normalized_query_for_boost.empty())
      {
@@ -1270,7 +1291,7 @@ static double CalculateRequestedFieldExactMatchBoost(const Document &doc,
      }
 
      std::vector<std::pair<std::string, std::string>> field_values;
-     AppendRequestedFieldValues(doc, query_by, field_values);
+     AppendRequestedFieldValues(doc, query_by, field_values, case_sensitive);
 
      double match_boost = 1.0;
 
@@ -1317,8 +1338,8 @@ std::vector<SearchHit> SearchAPI::ProcessLexicalSearch(const std::string &Collec
           return Hits;
      }
 
-     const ParsedQueryExpression ParsedExpression = ParseStructuredQueryExpression(SearchQueryVal);
-     std::vector<std::string> quoted_phrases = ExtractQuotedPhrases(SearchQueryVal);
+     const ParsedQueryExpression ParsedExpression = ParseStructuredQueryExpression(SearchQueryVal, Query.CaseSensitive);
+     std::vector<std::string> quoted_phrases = ExtractQuotedPhrases(SearchQueryVal, Query.CaseSensitive);
 
      if (SearchQueryVal == "*")
      {
@@ -1435,7 +1456,7 @@ std::vector<SearchHit> SearchAPI::ProcessLexicalSearch(const std::string &Collec
      }
      else
      {
-          const std::vector<std::string> RelaxedVariants = BuildRelaxedQueryVariants(SearchQueryVal, Query.DropTokensThreshold);
+          const std::vector<std::string> RelaxedVariants = BuildRelaxedQueryVariants(SearchQueryVal, Query.DropTokensThreshold, Query.CaseSensitive);
           for (const auto &VariantSeed : RelaxedVariants)
           {
                auto ExpandedVariants = BuildExpandedQueriesFromSynonyms(VariantSeed, Collection);
@@ -1477,15 +1498,23 @@ std::vector<SearchHit> SearchAPI::ProcessLexicalSearch(const std::string &Collec
           title_exact_boost = Instance->Config->GetTitleExactBoost();
      }
 
-     std::string normalized_query = ToLowerCopy(StripQuotes(TrimWhitespace(SearchQueryVal)));
-     std::string normalized_query_for_boost = ToLowerCopy(TrimWhitespace(StripWildcardChars(normalized_query)));
-     std::vector<std::string> highlight_terms = BuildHighlightTermsForSearch(SearchQueryVal);
-     const std::vector<std::string> base_query_terms = ExtractTermsSimple(SearchQueryVal);
+     std::string normalized_query = StripQuotes(TrimWhitespace(SearchQueryVal));
+     if (!Query.CaseSensitive)
+     {
+          normalized_query = ToLowerCopy(normalized_query);
+     }
+     std::string normalized_query_for_boost = TrimWhitespace(StripWildcardChars(normalized_query));
+     if (!Query.CaseSensitive)
+     {
+          normalized_query_for_boost = ToLowerCopy(normalized_query_for_boost);
+     }
+     std::vector<std::string> highlight_terms = BuildHighlightTermsForSearch(SearchQueryVal, Query.CaseSensitive);
+     const std::vector<std::string> base_query_terms = ExtractTermsSimple(SearchQueryVal, Query.CaseSensitive);
      std::vector<std::vector<std::string>> query_variant_terms_list;
      query_variant_terms_list.reserve(QueryVariants.size());
      for (const auto &Variant : QueryVariants)
      {
-          std::vector<std::string> VariantTerms = ExtractTermsSimple(Variant);
+          std::vector<std::string> VariantTerms = ExtractTermsSimple(Variant, Query.CaseSensitive);
           if (!VariantTerms.empty())
           {
                query_variant_terms_list.push_back(std::move(VariantTerms));
@@ -1560,7 +1589,7 @@ std::vector<SearchHit> SearchAPI::ProcessLexicalSearch(const std::string &Collec
                          scanned++;
 
                          std::vector<std::pair<std::string, std::string>> fields;
-                         AppendRequestedFieldValues(doc, restrict_to_query_fields ? Query.QueryBy : std::vector<std::string>{}, fields);
+                         AppendRequestedFieldValues(doc, restrict_to_query_fields ? Query.QueryBy : std::vector<std::string>{}, fields, Query.CaseSensitive);
 
                          int matched_terms = 0;
                          bool query_matches = true;
@@ -1571,7 +1600,8 @@ std::vector<SearchHit> SearchAPI::ProcessLexicalSearch(const std::string &Collec
                                                                           ParsedExpression,
                                                                           restrict_to_query_fields ? Query.QueryBy : std::vector<std::string>{},
                                                                           allow_prefix_match,
-                                                                          effective_max_typos);
+                                                                          effective_max_typos,
+                                                                          Query.CaseSensitive);
                          }
                          else
                          {
@@ -1579,6 +1609,7 @@ std::vector<SearchHit> SearchAPI::ProcessLexicalSearch(const std::string &Collec
                                                                     query_variant_terms_list,
                                                                     allow_prefix_match,
                                                                     effective_max_typos,
+                                                                    Query.CaseSensitive,
                                                                     &matched_terms);
                           }
 
@@ -1614,7 +1645,8 @@ std::vector<SearchHit> SearchAPI::ProcessLexicalSearch(const std::string &Collec
                                                                                            restrict_to_query_fields ? Query.QueryBy : std::vector<std::string>{},
                                                                                            normalized_query_for_boost,
                                                                                            exact_match_boost,
-                                                                                           title_exact_boost);
+                                                                                           title_exact_boost,
+                                                                                           Query.CaseSensitive);
                               score = static_cast<float>(score * match_boost);
                          }
 
@@ -1623,11 +1655,11 @@ std::vector<SearchHit> SearchAPI::ProcessLexicalSearch(const std::string &Collec
                          {
                               if (!doc.Title.empty() && (!restrict_to_query_fields || std::find(Query.QueryBy.begin(), Query.QueryBy.end(), "title") != Query.QueryBy.end()))
                               {
-                                   HitObj.Highlights["title"] = HighlightTermsSimple(doc.Title, highlight_terms.empty() ? base_query_terms : highlight_terms);
+                                   HitObj.Highlights["title"] = HighlightTermsSimple(doc.Title, highlight_terms.empty() ? base_query_terms : highlight_terms, Query.CaseSensitive);
                               }
                               if (!doc.Content.empty() && (!restrict_to_query_fields || std::find(Query.QueryBy.begin(), Query.QueryBy.end(), "content") != Query.QueryBy.end()))
                               {
-                                   HitObj.Highlights["content"] = HighlightTermsSimple(doc.Content, highlight_terms.empty() ? base_query_terms : highlight_terms);
+                                   HitObj.Highlights["content"] = HighlightTermsSimple(doc.Content, highlight_terms.empty() ? base_query_terms : highlight_terms, Query.CaseSensitive);
                               }
                               for (const auto &Field : doc.Fields)
                               {
@@ -1642,7 +1674,7 @@ std::vector<SearchHit> SearchAPI::ProcessLexicalSearch(const std::string &Collec
                                         continue;
                                    }
 
-                                   HitObj.Highlights[Field.first] = HighlightTermsSimple(Field.second, highlight_terms.empty() ? base_query_terms : highlight_terms);
+                                   HitObj.Highlights[Field.first] = HighlightTermsSimple(Field.second, highlight_terms.empty() ? base_query_terms : highlight_terms, Query.CaseSensitive);
                               }
                          }
                          HitObj.Weight = CalculateWeight(HitObj);
@@ -1671,7 +1703,7 @@ std::vector<SearchHit> SearchAPI::ProcessLexicalSearch(const std::string &Collec
           if (!StorageDoc.ID.empty())
           {
                std::vector<std::pair<std::string, std::string>> selected_fields;
-               AppendRequestedFieldValues(StorageDoc, restrict_to_query_fields ? Query.QueryBy : std::vector<std::string>{}, selected_fields);
+               AppendRequestedFieldValues(StorageDoc, restrict_to_query_fields ? Query.QueryBy : std::vector<std::string>{}, selected_fields, Query.CaseSensitive);
 
                if (ParsedExpression.UsesStructuredSemantics)
                {
@@ -1679,13 +1711,14 @@ std::vector<SearchHit> SearchAPI::ProcessLexicalSearch(const std::string &Collec
                                                        ParsedExpression,
                                                        restrict_to_query_fields ? Query.QueryBy : std::vector<std::string>{},
                                                        Query.Prefix,
-                                                       effective_max_typos))
+                                                       effective_max_typos,
+                                                       Query.CaseSensitive))
                     {
                          continue;
                     }
                }
                else if (!query_variant_terms_list.empty() &&
-                        !MatchesAnyQueryVariant(selected_fields, query_variant_terms_list, Query.Prefix, effective_max_typos, nullptr))
+                        !MatchesAnyQueryVariant(selected_fields, query_variant_terms_list, Query.Prefix, effective_max_typos, Query.CaseSensitive, nullptr))
                {
                     continue;
                }
@@ -1719,7 +1752,8 @@ std::vector<SearchHit> SearchAPI::ProcessLexicalSearch(const std::string &Collec
                                                                                  restrict_to_query_fields ? Query.QueryBy : std::vector<std::string>{},
                                                                                  normalized_query_for_boost,
                                                                                  exact_match_boost,
-                                                                                 title_exact_boost);
+                                                                                 title_exact_boost,
+                                                                                 Query.CaseSensitive);
 
                     if (match_boost > 1.0)
                     {

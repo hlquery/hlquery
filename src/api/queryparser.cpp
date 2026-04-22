@@ -23,6 +23,49 @@
 #include "core/hlquery.h"
 #include "vendor/json/json.hpp"
 
+static void ApplyInlineQueryDirectives(std::string &QueryText, bool &CaseSensitive)
+{
+     if (QueryText.empty())
+     {
+          return;
+     }
+
+     std::stringstream Stream(QueryText);
+     std::string Token;
+     std::vector<std::string> KeptTokens;
+
+     while (Stream >> Token)
+     {
+          std::string Lowered = Token;
+          std::transform(Lowered.begin(), Lowered.end(), Lowered.begin(),
+                         [](unsigned char C)
+                         {
+                              return static_cast<char>(std::tolower(C));
+                         });
+
+          if (Lowered == "do:casesensitive" || Lowered == "do:case_sensitive" || Lowered == "do:case-sensitive")
+          {
+               CaseSensitive = true;
+               continue;
+          }
+
+          KeptTokens.push_back(Token);
+     }
+
+     std::ostringstream Rebuilt;
+     for (std::size_t I = 0; I < KeptTokens.size(); ++I)
+     {
+          if (I > 0)
+          {
+               Rebuilt << ' ';
+          }
+
+          Rebuilt << KeptTokens[I];
+     }
+
+     QueryText = Rebuilt.str();
+}
+
 /* ParseMultiSearchRequest parses a multi-search request body. */
 
 /*
@@ -652,6 +695,13 @@ ComprehensiveSearchQuery SearchAPI::ParseComprehensiveSearchQuery(const std::uno
      {
           QueryObj.Q = Params.at("q");
      }
+
+     if (Params.count("case_sensitive"))
+     {
+          QueryObj.CaseSensitive = ParseBool(Params.at("case_sensitive"), false);
+     }
+
+     ApplyInlineQueryDirectives(QueryObj.Q, QueryObj.CaseSensitive);
 
      if (Params.count("query_by"))
      {

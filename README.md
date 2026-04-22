@@ -16,9 +16,9 @@
 
 </div>
 
-> Feel free to check the live demo at [demo.hlquery.com](https://demo.hlquery.com/).
-> Demo mode does runs using `src/modules/m_demo.cpp`, so inserts are not allowed.
-> The demo UI uses [hanalyzer](https://github.com/hlquery/hanalyzer).
+> You can explore the live demo at [demo.hlquery.com](https://demo.hlquery.com/).
+> Demo mode is powered by [`src/modules/m_demo.cpp`](./src/modules/m_demo.cpp), so insert operations are disabled.
+> The demo UI is built with [hanalyzer](https://github.com/hlquery/hanalyzer).
 
 ### Overview
 
@@ -137,11 +137,24 @@ $ hlquery-cli create products title content price
 Collection 'products' created successfully
 ```
 
+```php
+<?php
+$client->createCollection('products', ['title', 'content', 'price']);
+```
+
 ### Index Documents
 
 ```bash
 $ hlquery-cli add products product1 "Laptop Computer" "High-performance laptop with 16GB RAM"
 Document 'product1' added to collection 'products'
+```
+
+```js
+await client.documents().add('products', {
+  id: 'product1',
+  title: 'Laptop Computer',
+  content: 'High-performance laptop with 16GB RAM'
+});
 ```
 
 ### Search
@@ -156,6 +169,11 @@ Found 1 document(s) (showing 1-1 of 1)
 +---+-------------+----------+-----------------+---------------------------------------+----------+
 | 1 | product1    | 1.094500 | Laptop Computer | High-performance laptop with 16GB RAM | 0 fields |
 +---+-------------+----------+-----------------+---------------------------------------+----------+
+```
+
+```cpp
+hlquery::Client client("http://localhost:9200");
+auto result = client.search("products", {{"q", "laptop"}});
 ```
 
 ### Example Queries
