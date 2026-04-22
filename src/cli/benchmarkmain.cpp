@@ -14,13 +14,16 @@
 #include <chrono>
 #include <csignal>
 #include <fstream>
+#include <iomanip>
 #include <iostream>
+#include <limits>
 #include <random>
 #include <set>
 #include <string>
 #include <thread>
 #include <unordered_map>
 #include <unordered_set>
+#include <unistd.h>
 #include <vector>
 #include <vendor/json/json.hpp>
 
@@ -96,6 +99,79 @@ struct RealDocSeed
      std::string Title;
      std::string Content;
 };
+
+struct AdaptiveBenchmarkDefaults
+{
+     int Threads;
+     int BatchSize;
+     uint64_t TotalMemoryBytes;
+     unsigned HardwareThreads;
+};
+
+static AdaptiveBenchmarkDefaults GetAdaptiveBenchmarkDefaults()
+{
+     const unsigned hardware_threads = std::max(1u, std::thread::hardware_concurrency());
+
+     long pages = sysconf(_SC_PHYS_PAGES);
+     long page_size = sysconf(_SC_PAGESIZE);
+
+     uint64_t total_memory_bytes = 0;
+
+     if (pages > 0 && page_size > 0)
+     {
+          total_memory_bytes = static_cast<uint64_t>(pages) * static_cast<uint64_t>(page_size);
+     }
+
+     int recommended_threads = 4;
+     int recommended_batch_size = 1000;
+
+     if (hardware_threads <= 2)
+     {
+          recommended_threads = 1;
+          recommended_batch_size = 250;
+     }
+     else if (hardware_threads <= 4)
+     {
+          recommended_threads = 2;
+          recommended_batch_size = 500;
+     }
+     else if (hardware_threads <= 8)
+     {
+          recommended_threads = 4;
+          recommended_batch_size = 1000;
+     }
+     else
+     {
+          recommended_threads = 6;
+          recommended_batch_size = 1500;
+     }
+
+     if (total_memory_bytes > 0)
+     {
+          static constexpr uint64_t GiB = 1024ULL * 1024ULL * 1024ULL;
+
+          if (total_memory_bytes <= 2ULL * GiB)
+          {
+               recommended_threads = 1;
+               recommended_batch_size = 100;
+          }
+          else if (total_memory_bytes <= 4ULL * GiB)
+          {
+               recommended_threads = std::min(recommended_threads, 2);
+               recommended_batch_size = std::min(recommended_batch_size, 250);
+          }
+          else if (total_memory_bytes <= 8ULL * GiB)
+          {
+               recommended_threads = std::min(recommended_threads, 4);
+               recommended_batch_size = std::min(recommended_batch_size, 500);
+          }
+     }
+
+     recommended_threads = std::max(1, recommended_threads);
+     recommended_batch_size = std::max(50, recommended_batch_size);
+
+     return AdaptiveBenchmarkDefaults{recommended_threads, recommended_batch_size, total_memory_bytes, hardware_threads};
+}
 
 static std::string Capitalize(const std::string &input)
 {
@@ -1195,6 +1271,8 @@ int main(int argc, char *argv[])
           int num_threads = 8;
           int batch_size = 2000;
           bool documents_explicitly_set = false;
+          bool threads_explicitly_set = false;
+          bool batch_size_explicitly_set = false;
 
           bool default_limits_applied = false;
           bool advanced_mode = false;
@@ -1279,10 +1357,12 @@ int main(int argc, char *argv[])
                else if (arg == "--threads" && i + 1 < argc)
                {
                     num_threads = std::stoi(argv[++i]);
+                    threads_explicitly_set = true;
                }
                else if (arg == "--batch-size" && i + 1 < argc)
                {
                     batch_size = std::stoi(argv[++i]);
+                    batch_size_explicitly_set = true;
                }
                else if (arg == "--advanced")
                {
@@ -1386,8 +1466,8 @@ int main(int argc, char *argv[])
                               << "  --ssl-auth        Over HTTPS, send token as both Authorization and X-API-Key\n"
                               << "  --collections N   Number of collections to create (default: 2)\n"
                               << "  --documents N     Total number of documents to insert (default: 50000 per collection)\n"
-                              << "  --threads N        Number of threads (default: 8)\n"
-                              << "  --batch-size N     Documents per bulk insert batch (default: 2000)\n"
+                              << "  --threads N        Number of threads (default: auto-tuned from CPU/RAM)\n"
+                              << "  --batch-size N     Documents per bulk insert batch (default: auto-tuned from CPU/RAM)\n"
                               << "  --advanced [FILE]  Output detailed JSON metrics (default: adv.json)\n"
                               << "  --detailed [FILE] Run comprehensive benchmark testing ALL routes\n"
                               << "                    and functionalities (includes --advanced)\n"
@@ -1425,6 +1505,21 @@ int main(int argc, char *argv[])
           {
                num_documents = num_collections * default_docs_per_collection;
           }
+
+          const AdaptiveBenchmarkDefaults adaptive_defaults = GetAdaptiveBenchmarkDefaults();
+
+          if (!threads_explicitly_set)
+          {
+               num_threads = adaptive_defaults.Threads;
+          }
+
+          if (!batch_size_explicitly_set)
+          {
+               batch_size = adaptive_defaults.BatchSize;
+          }
+
+          num_threads = std::max(1, num_threads);
+          batch_size = std::max(1, batch_size);
 
           BenchmarkClient::SetGlobalSSLAuthMode(ssl_auth_mode);
 
@@ -1833,6 +1928,39 @@ int main(int argc, char *argv[])
           std::cout << "Documents: " << num_documents << ".\n";
           std::cout << "Threads: " << num_threads << " requested, " << active_document_threads << " ingest worker(s), " << active_collection_threads << " collection worker(s).\n";
           std::cout << "Batch size: " << batch_size << ".\n";
+
+          if (!threads_explicitly_set || !batch_size_explicitly_set)
+          {
+               std::cout << "Adaptive defaults:";
+
+               if (!threads_explicitly_set)
+               {
+                    std::cout << " threads auto-tuned for " << adaptive_defaults.HardwareThreads << " CPU thread(s)";
+               }
+               else
+               {
+                    std::cout << " threads user-set";
+               }
+
+               if (adaptive_defaults.TotalMemoryBytes > 0)
+               {
+                    const double gib = static_cast<double>(adaptive_defaults.TotalMemoryBytes) / (1024.0 * 1024.0 * 1024.0);
+                    std::cout << ", memory " << std::fixed << std::setprecision(1) << gib << " GiB";
+                    std::cout.unsetf(std::ios::floatfield);
+                    std::cout << std::setprecision(6);
+               }
+
+               if (!batch_size_explicitly_set)
+               {
+                    std::cout << ", batch size auto-tuned";
+               }
+               else
+               {
+                    std::cout << ", batch size user-set";
+               }
+
+               std::cout << ".\n";
+          }
 
           if (advanced_mode)
           {

@@ -85,6 +85,13 @@ class BenchmarkClient
 
      bool GetConnection(int &sock);
 
+     /* Bulk insert helpers for adaptive retries on constrained systems. */
+
+     int InsertDocumentsBulkInternal(const std::string &collection, const std::vector<std::tuple<std::string, std::string, std::string>> &docs, int split_depth);
+     int InsertDocumentsBulkRequest(const std::string &collection, const std::vector<std::tuple<std::string, std::string, std::string>> &docs, HTTPResponse &response);
+     bool IsRetryableBulkInsertResponse(const HTTPResponse &response) const;
+     void SleepBeforeBulkRetry(int attempt, int split_depth) const;
+
    public:
 
      BenchmarkClient(const std::string &base_url, const std::string &token = "", bool reuse_collections = false);

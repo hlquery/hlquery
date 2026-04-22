@@ -12,6 +12,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cctype>
 #include <chrono>
 #include <cstring>
 #include <fcntl.h>
@@ -936,6 +937,13 @@ static bool IsLocalWriteCommittedDespiteReplicationError(const HTTPResponse &res
               lower_body.find("completed locally") != std::string::npos));
 }
 
+static std::string LowercaseCopy(std::string value)
+{
+     std::transform(value.begin(), value.end(), value.begin(), [](unsigned char ch)
+                    { return static_cast<char>(std::tolower(ch)); });
+     return value;
+}
+
 bool BenchmarkClient::CreateCollection(const std::string &name)
 {
      return CreateCollection(name, 10000);
@@ -1688,7 +1696,7 @@ bool BenchmarkClient::AddStopword(const std::string &collection, const std::stri
 
 /* Inserts documents in bulk. */
 
-int BenchmarkClient::InsertDocumentsBulk(const std::string &collection, const std::vector<std::tuple<std::string, std::string, std::string>> &docs)
+int BenchmarkClient::InsertDocumentsBulkRequest(const std::string &collection, const std::vector<std::tuple<std::string, std::string, std::string>> &docs, HTTPResponse &response)
 {
      nlohmann::json payload;
 
@@ -1711,12 +1719,12 @@ int BenchmarkClient::InsertDocumentsBulk(const std::string &collection, const st
 
      const int import_timeout_ms = std::max(30000, static_cast<int>(docs.size()) * 100);
 
-     HTTPResponse response = MakeRequest("POST",
-                                         "/collections/" + encoded_collection + "/documents/import?assume_new=true&batch_size=" + std::to_string(docs.size()),
-                                         json_str,
-                                         3,
-                                         false,
-                                         import_timeout_ms);
+     response = MakeRequest("POST",
+                            "/collections/" + encoded_collection + "/documents/import?assume_new=true&batch_size=" + std::to_string(docs.size()),
+                            json_str,
+                            3,
+                            false,
+                            import_timeout_ms);
 
      if (response.StatusCode == 401 || response.StatusCode == 403)
      {
@@ -1773,6 +1781,89 @@ int BenchmarkClient::InsertDocumentsBulk(const std::string &collection, const st
           return static_cast<int>(docs.size());
      }
 
+     return 0;
+}
+
+bool BenchmarkClient::IsRetryableBulkInsertResponse(const HTTPResponse &response) const
+{
+     if (response.StatusCode == -1 || response.StatusCode == 408 || response.StatusCode == 425 ||
+         response.StatusCode == 429 || response.StatusCode == 500 || response.StatusCode == 502 ||
+         response.StatusCode == 503 || response.StatusCode == 504)
+     {
+          return true;
+     }
+
+     const std::string body = LowercaseCopy(response.Body);
+
+     if (body.find("temporarily unavailable") != std::string::npos ||
+         body.find("try again") != std::string::npos ||
+         body.find("timed out") != std::string::npos ||
+         body.find("replication outbox") != std::string::npos ||
+         body.find("failed to persist replication outbox record") != std::string::npos ||
+         body.find("sync in progress") != std::string::npos)
+     {
+          return true;
+     }
+
+     return false;
+}
+
+void BenchmarkClient::SleepBeforeBulkRetry(int attempt, int split_depth) const
+{
+     const int capped_attempt = std::max(0, std::min(attempt, 6));
+     const int capped_split_depth = std::max(0, std::min(split_depth, 8));
+     const int sleep_ms = 150 * (1 << capped_attempt) + (capped_split_depth * 75);
+
+     std::this_thread::sleep_for(std::chrono::milliseconds(sleep_ms));
+}
+
+int BenchmarkClient::InsertDocumentsBulkInternal(const std::string &collection, const std::vector<std::tuple<std::string, std::string, std::string>> &docs, int split_depth)
+{
+     if (docs.empty())
+     {
+          return 0;
+     }
+
+     HTTPResponse response;
+
+     for (int attempt = 0; attempt < 3; ++attempt)
+     {
+          const int inserted = InsertDocumentsBulkRequest(collection, docs, response);
+
+          if (inserted > 0 || (response.StatusCode == 200 || response.StatusCode == 201) || IsLocalWriteCommittedDespiteReplicationError(response))
+          {
+               return inserted;
+          }
+
+          if (!IsRetryableBulkInsertResponse(response))
+          {
+               break;
+          }
+
+          ResetConnection();
+          SleepBeforeBulkRetry(attempt, split_depth);
+     }
+
+     if (IsRetryableBulkInsertResponse(response) && docs.size() > 1)
+     {
+          const size_t midpoint = docs.size() / 2;
+          std::vector<std::tuple<std::string, std::string, std::string>> left(docs.begin(), docs.begin() + midpoint);
+          std::vector<std::tuple<std::string, std::string, std::string>> right(docs.begin() + midpoint, docs.end());
+
+          if (verbose_mode && split_depth < 4)
+          {
+               std::lock_guard<std::mutex> lock(console_mutex);
+               std::cerr << "  [WARN] Bulk insert for '" << collection << "' is backing off and splitting batch "
+                         << docs.size() << " -> " << left.size() << "+" << right.size()
+                         << " after transient HTTP " << response.StatusCode << ".\n";
+          }
+
+          const int left_inserted = InsertDocumentsBulkInternal(collection, left, split_depth + 1);
+          const int right_inserted = InsertDocumentsBulkInternal(collection, right, split_depth + 1);
+
+          return left_inserted + right_inserted;
+     }
+
      if (response.StatusCode != -1)
      {
           std::string error_msg = "  [ERROR] InsertDocumentsBulk failed for collection '" + collection + "': HTTP " + std::to_string(response.StatusCode);
@@ -1801,6 +1892,11 @@ int BenchmarkClient::InsertDocumentsBulk(const std::string &collection, const st
      }
 
      return 0;
+}
+
+int BenchmarkClient::InsertDocumentsBulk(const std::string &collection, const std::vector<std::tuple<std::string, std::string, std::string>> &docs)
+{
+     return InsertDocumentsBulkInternal(collection, docs, 0);
 }
 
 int BenchmarkClient::InsertDocumentsBulkLocal(const std::string &collection, const std::vector<std::tuple<std::string, std::string, std::string>> &docs)

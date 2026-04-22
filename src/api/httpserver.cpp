@@ -15,6 +15,7 @@
 #include <charconv>
 #include <chrono>
 #include <climits>
+#include <cstdlib>
 #include <cstring>
 #include <fcntl.h>
 #include <filesystem>
@@ -50,6 +51,27 @@ HttpResponse ProcessRequestWithAPI(SearchAPI &API, const HttpRequest &Request);
 static bool ExtractAuthTokenFromRequest(const HttpRequest &Request, std::string &OutAuthHeader, std::string &OutToken);
 
 static RouteAction ResolveRouteWithFallback(const HttpRequest &Request);
+
+static bool ShouldUseAsyncHttpDispatch()
+{
+     static const bool UseThreadPool = []
+     {
+          const char *EnvValue = std::getenv("HLQUERY_HTTP_USE_THREAD_POOL");
+
+          if (!EnvValue)
+          {
+               return false;
+          }
+
+          std::string Value(EnvValue);
+          std::transform(Value.begin(), Value.end(), Value.begin(), [](unsigned char c)
+                         { return static_cast<char>(std::tolower(c)); });
+
+          return Value == "1" || Value == "true" || Value == "yes" || Value == "on";
+     }();
+
+     return UseThreadPool;
+}
 
 /* UrlDecode decodes a URL string. */
 
@@ -1504,6 +1526,7 @@ void HttpConnection::ProcessMultipleRequests()
      /* Process all complete HTTP requests in the buffer (with proper Content-Length handling). */
 
      int RequestsProcessedVal = 0;
+     int RequestsDispatchedAsync = 0;
 
      while (true)
      {
@@ -1700,7 +1723,7 @@ void HttpConnection::ProcessMultipleRequests()
 
           /* Process the request through the configured HTTP pool when available. */
 
-          if (ThreadPoolValue)
+          if (ThreadPoolValue && ShouldUseAsyncHttpDispatch())
           {
                ActiveRequestTasks.fetch_add(1, std::memory_order_acq_rel);
 
@@ -1722,6 +1745,13 @@ void HttpConnection::ProcessMultipleRequests()
 
                if (RequestFuture.valid())
                {
+                    RequestsDispatchedAsync++;
+
+                    if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
+                    {
+                         Instance->Logs->Debug("http_server", "ProcessMultipleRequests: Request dispatched to HTTP pool; deferring local processed count until worker completes.");
+                    }
+
                     break;
                }
                else
@@ -1741,6 +1771,11 @@ void HttpConnection::ProcessMultipleRequests()
           }
           else
           {
+               if (ThreadPoolValue && !ShouldUseAsyncHttpDispatch() && Instance && Instance->Logs && Instance->Logs->GetDebugMode())
+               {
+                    Instance->Logs->Debug("http_server", "ProcessMultipleRequests: HTTP pool available but disabled via HLQUERY_HTTP_USE_THREAD_POOL; processing inline.");
+               }
+
                ProcessSingleRequest(RequestStr);
           }
 
@@ -1766,7 +1801,7 @@ void HttpConnection::ProcessMultipleRequests()
 
      if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
      {
-          Instance->Logs->Debug("http_server", "ProcessMultipleRequests: EXIT (processed=" + std::to_string(RequestsProcessed) + " requests, remaining_buffer=" + std::to_string(RequestBuffer.size()) + ").");
+          Instance->Logs->Debug("http_server", "ProcessMultipleRequests: EXIT (processed_local=" + std::to_string(RequestsProcessedVal) + ", processed_total=" + std::to_string(RequestsProcessed) + ", dispatched_async=" + std::to_string(RequestsDispatchedAsync) + ", remaining_buffer=" + std::to_string(RequestBuffer.size()) + ").");
      }
 }
 
@@ -2138,6 +2173,11 @@ void HttpConnection::ProcessSingleRequest(const std::string &RequestStr)
      }
 
      RouteAction ActionVal = ResolveRouteWithFallback(Request);
+
+     if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
+     {
+          Instance->Logs->Debug("http_server", "ProcessSingleRequest: route_resolved=" + std::string(RouteActionName(ActionVal)) + ", method=" + Request.Method + ", path=" + Request.Path + ", version=" + Request.Version + ", requests_processed_total=" + std::to_string(RequestsProcessed) + ".");
+     }
 
      auto *KeyObj = APIKeyManager::Instance().ValidateKey(TokenVal);
 
@@ -2862,14 +2902,19 @@ void HttpConnection::ProcessSingleRequest(const std::string &RequestStr)
      API.FinalizeReplicationOperation(Request, Response);
      API.FinalizeReplicationResyncRequest(Request, Response);
 
+     if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
+     {
+          Instance->Logs->Debug("http_server", "ProcessSingleRequest: response_ready=true status=" + std::to_string(Response.StatusCode) + " route=" + std::string(RouteActionName(ActionVal)) + " keep_alive=" + std::string(KeepAlive ? "true" : "false") + " body_size=" + std::to_string(Response.Body.size()) + ".");
+     }
+
      SendResponse(Response);
 
      LastActivity = Instance->Now();
 
      if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
      {
-          Instance->Logs->Debug("http_server", "ProcessSingleRequest: Response sent - " + std::to_string(Response.StatusCode) + " " + Response.StatusText + " (body_size: " + std::to_string(Response.Body.size()) + ", path: " + Request.Path + ").");
-     }
+          Instance->Logs->Debug("http_server", "ProcessSingleRequest: SendResponse invoked - " + std::to_string(Response.StatusCode) + " " + Response.StatusText + " (body_size: " + std::to_string(Response.Body.size()) + ", path: " + Request.Path + ", fd=" + std::to_string(GetFD()) + ").");
+      }
      }
      catch (const std::exception &E)
      {
@@ -2880,6 +2925,12 @@ void HttpConnection::ProcessSingleRequest(const std::string &RequestStr)
 
           HttpResponse ErrorResponse(http_code::INTERNAL_SERVER_ERROR, StatusText(http_code::INTERNAL_SERVER_ERROR), "application/json");
           ErrorResponse.Body = "{\"error\":\"Internal server error\",\"message\":\"" + SearchAPI::GetInstance().EscapeJSONString(E.what()) + "\"}";
+
+          if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
+          {
+               Instance->Logs->Debug("http_server", "ProcessSingleRequest: exception path queued 500 response for " + Request.Method + " " + Request.Path + ".");
+          }
+
           SendResponse(ErrorResponse);
      }
      catch (...)
@@ -2891,6 +2942,12 @@ void HttpConnection::ProcessSingleRequest(const std::string &RequestStr)
 
           HttpResponse ErrorResponse(http_code::INTERNAL_SERVER_ERROR, StatusText(http_code::INTERNAL_SERVER_ERROR), "application/json");
           ErrorResponse.Body = "{\"error\":\"Internal server error\",\"message\":\"Unknown error occurred\"}";
+
+          if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
+          {
+               Instance->Logs->Debug("http_server", "ProcessSingleRequest: unknown exception path queued 500 response for " + Request.Method + " " + Request.Path + ".");
+          }
+
           SendResponse(ErrorResponse);
      }
 }
@@ -2911,7 +2968,7 @@ void HttpConnection::SendResponse(const HttpResponse &Response)
 
      if (Instance && Instance->Logs)
      {
-          Instance->Logs->Normal("http_server.", "[SendResponse] ENTRY - status=" + std::to_string(Response.StatusCode) + " " + Response.StatusText + ", body_size=" + std::to_string(Response.Body.length()) + ", closing=" + std::string(ClosingValue.load() ? "true" : "false") + ", fd=" + std::to_string(GetFD()) + ".");
+          Instance->Logs->Normal("http_server.", "[SendResponse] ENTRY - status=" + std::to_string(Response.StatusCode) + " " + Response.StatusText + ", body_size=" + std::to_string(Response.Body.length()) + ", keep_alive=" + std::string(KeepAlive ? "true" : "false") + ", closing=" + std::string(ClosingValue.load() ? "true" : "false") + ", fd=" + std::to_string(GetFD()) + ".");
      }
 
      /* Cap response body size to prevent OOM. */
@@ -3034,7 +3091,7 @@ void HttpConnection::SendResponse(const HttpResponse &Response)
 
      if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
      {
-          Instance->Logs->Debug("http_server", "SendResponse: Registering pending write for fd=" + std::to_string(GetFD()) + ".");
+          Instance->Logs->Debug("http_server", "SendResponse: Registering pending write for fd=" + std::to_string(GetFD()) + " (response_pending=true, buffered_bytes=" + std::to_string(ResponseBuffer.size()) + ").");
      }
 
      SocketEngine::RegisterPendingWrite(this);
