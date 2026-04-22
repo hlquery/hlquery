@@ -34,6 +34,7 @@
 #include <vector>
 #include <vendor/json/json.hpp>
 
+#include "core/config.h"
 #include "core/typedefs.h"
 #include "cli/cliutils.h"
 #include "app.h"
