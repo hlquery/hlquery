@@ -22,12 +22,7 @@
 #include <mutex>
 #include <netdb.h>
 #include <netinet/in.h>
-#if defined(__has_include)
-# if __has_include(<openssl/err.h>) && __has_include(<openssl/ssl.h>)
-#  define HLQUERY_CLI_HAS_OPENSSL 1
-# endif
-#endif
-#ifdef HLQUERY_CLI_HAS_OPENSSL
+#ifdef HLQUERY_HAS_OPENSSL
 #include <openssl/err.h>
 #include <openssl/ssl.h>
 #endif
@@ -613,17 +608,17 @@ HLQueryCLI::HTTPResponse HLQueryCLI::MakeRequest(const std::string &method, cons
           (void)fcntl(sock, F_SETFL, flags);
      }
 
-#ifndef HLQUERY_CLI_HAS_OPENSSL
+#ifndef HLQUERY_HAS_OPENSSL
      if (UseSSL)
      {
           response.StatusCode = -1;
-          response.Body = "HTTPS support is unavailable in this build because OpenSSL headers were not found.\n";
+          response.Body = "HTTPS support is unavailable in this build because OpenSSL support was not enabled.\n";
           close(sock);
           return response;
      }
 #endif
 
-#ifdef HLQUERY_CLI_HAS_OPENSSL
+#ifdef HLQUERY_HAS_OPENSSL
      SSL_CTX *SSLCtx = nullptr;
      SSL *SSLObj = nullptr;
 
@@ -735,7 +730,7 @@ HLQueryCLI::HTTPResponse HLQueryCLI::MakeRequest(const std::string &method, cons
      std::string request_str = request.str();
 
      int SendResult = -1;
-#ifdef HLQUERY_CLI_HAS_OPENSSL
+#ifdef HLQUERY_HAS_OPENSSL
      if (UseSSL && SSLObj)
      {
           SendResult = SSL_write(SSLObj, request_str.c_str(), static_cast<int>(request_str.length()));
@@ -751,7 +746,7 @@ HLQueryCLI::HTTPResponse HLQueryCLI::MakeRequest(const std::string &method, cons
           response.StatusCode = -1;
           response.Body = "Failed to send request.\n";
 
-#ifdef HLQUERY_CLI_HAS_OPENSSL
+#ifdef HLQUERY_HAS_OPENSSL
           if (SSLObj)
           {
                SSL_free(SSLObj);
@@ -790,7 +785,7 @@ HLQueryCLI::HTTPResponse HLQueryCLI::MakeRequest(const std::string &method, cons
      while (true)
      {
           bytes_received = -1;
-#ifdef HLQUERY_CLI_HAS_OPENSSL
+#ifdef HLQUERY_HAS_OPENSSL
           if (UseSSL && SSLObj)
           {
                bytes_received = SSL_read(SSLObj, buffer, sizeof(buffer) - 1);
@@ -816,7 +811,7 @@ HLQueryCLI::HTTPResponse HLQueryCLI::MakeRequest(const std::string &method, cons
           if (response_str.size() + bytes_received > max_response_size)
           {
                close(sock);
-#ifdef HLQUERY_CLI_HAS_OPENSSL
+#ifdef HLQUERY_HAS_OPENSSL
                if (SSLObj)
                {
                     SSL_free(SSLObj);
@@ -888,7 +883,7 @@ HLQueryCLI::HTTPResponse HLQueryCLI::MakeRequest(const std::string &method, cons
 
      if (bytes_received < 0)
      {
-#ifdef HLQUERY_CLI_HAS_OPENSSL
+#ifdef HLQUERY_HAS_OPENSSL
           if (SSLObj)
           {
                SSL_free(SSLObj);
@@ -916,7 +911,7 @@ HLQueryCLI::HTTPResponse HLQueryCLI::MakeRequest(const std::string &method, cons
           return response;
      }
 
-#ifdef HLQUERY_CLI_HAS_OPENSSL
+#ifdef HLQUERY_HAS_OPENSSL
      if (SSLObj)
      {
           SSL_free(SSLObj);

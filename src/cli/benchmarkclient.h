@@ -24,13 +24,7 @@
 #include "core/config.h"
 #include <vendor/json/json.hpp>
 
-#if defined(__has_include)
-# if __has_include(<openssl/err.h>) && __has_include(<openssl/ssl.h>)
-#  define HLQUERY_BENCH_HAS_OPENSSL 1
-# endif
-#endif
-
-#ifdef HLQUERY_BENCH_HAS_OPENSSL
+#ifdef HLQUERY_HAS_OPENSSL
 #include <openssl/err.h>
 #include <openssl/ssl.h>
 #endif
