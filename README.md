@@ -25,15 +25,6 @@
 hlquery is an open source search engine written in C++17 and backed by RocksDB. It is designed for applications that need fast indexing, real-time queries, and a straightforward HTTP/JSON interface without giving up advanced search features. The engine supports full-text search, hybrid ranking, vector similarity, flexible collections, and configurable runtime modules for features such as AI-assisted search.
 It exposes a REST API for indexing, querying, and administration, and includes command-line tools for local management and testing.
 
-### Quick Start
-
-Clone the repository normally:
-
-```bash
-$ git clone https://github.com/hlquery/hlquery.git
-$ cd hlquery/
-```
-
 ### Prerequisites
 
 **Debian/Ubuntu:**
@@ -43,13 +34,17 @@ $ sudo apt-get install build-essential cmake libssl-dev
 
 **RedHat/CentOS:**
 ```bash
-$ dnf install @development-tools openssl-devel
+$ sudo dnf install @development-tools cmake openssl-devel
 ```
 
 **macOS:**
 ```bash
-$ brew install openssl
+$ xcode-select --install
+$ brew install cmake openssl
 ```
+
+On macOS, Xcode Command Line Tools provide the C/C++ compiler and `make`;
+Homebrew provides CMake and OpenSSL.
 
 **FreeBSD:**
 ```bash
@@ -61,7 +56,7 @@ $ sudo pkg install git gmake cmake openssl
 ### Installation
 
 ```bash
-$ git clone --branch 1.0 https://github.com/hlquery/hlquery.git
+$ wget https://github.com/hlquery/hlquery/archive/refs/heads/unstable.zip
 $ cd hlquery/
 $ ./configure
 ```

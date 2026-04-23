@@ -67,6 +67,215 @@ static void ApplyInlineQueryDirectives(std::string &QueryText, bool &CaseSensiti
      QueryText = Rebuilt.str();
 }
 
+static void ApplyCaseSensitiveSearchDefaults(ComprehensiveSearchQuery &QueryObj)
+{
+     if (!QueryObj.CaseSensitive)
+     {
+          return;
+     }
+
+     QueryObj.Prefix = false;
+     QueryObj.NumTypos = 0;
+     QueryObj.DropTokensThreshold = 0;
+     QueryObj.TypoTokensThreshold = 0;
+}
+
+static std::string TrimCopy(std::string Value)
+{
+     const std::size_t First = Value.find_first_not_of(" \t\r\n");
+     if (First == std::string::npos)
+     {
+          return "";
+     }
+
+     const std::size_t Last = Value.find_last_not_of(" \t\r\n");
+     return Value.substr(First, Last - First + 1);
+}
+
+static std::string NormalizeInlineTerm(std::string Term, bool CaseSensitive)
+{
+     if (!CaseSensitive)
+     {
+          std::transform(Term.begin(), Term.end(), Term.begin(),
+                         [](unsigned char C)
+                         {
+                              return static_cast<char>(std::tolower(C));
+                         });
+     }
+
+     while (!Term.empty() && !std::isalnum(static_cast<unsigned char>(Term.front())) && Term.front() != '*' && Term.front() != '?' && Term.front() != '_')
+     {
+          Term.erase(0, 1);
+     }
+
+     while (!Term.empty() && !std::isalnum(static_cast<unsigned char>(Term.back())) && Term.back() != '*' && Term.back() != '?' && Term.back() != '_')
+     {
+          Term.pop_back();
+     }
+
+     return Term;
+}
+
+static void AppendInlineFilter(ComprehensiveSearchQuery &QueryObj, const std::string &Filter)
+{
+     if (Filter.empty())
+     {
+          return;
+     }
+
+     if (QueryObj.FilterBy.empty())
+     {
+          QueryObj.FilterBy = Filter;
+          return;
+     }
+
+     QueryObj.FilterBy += " && " + Filter;
+}
+
+static void CleanupInlineQueryOperators(std::string &QueryText)
+{
+     QueryText = std::regex_replace(QueryText, std::regex(R"(\s+)"), " ");
+     QueryText = TrimCopy(QueryText);
+
+     bool Changed = true;
+     while (Changed)
+     {
+          const std::string Before = QueryText;
+          QueryText = std::regex_replace(QueryText, std::regex(R"(^(AND|OR)\s+)", std::regex_constants::icase), "");
+          QueryText = std::regex_replace(QueryText, std::regex(R"(\s+(AND|OR)$)", std::regex_constants::icase), "");
+          QueryText = TrimCopy(QueryText);
+          Changed = QueryText != Before;
+     }
+}
+
+static void ExtractInlineRangeFilters(ComprehensiveSearchQuery &QueryObj)
+{
+     if (QueryObj.Q.empty())
+     {
+          return;
+     }
+
+     const std::regex RangeRegex(R"(([A-Za-z_][A-Za-z0-9_]*)\s*:\s*([\[\{])\s*([^\]\}]+?)\s+TO\s+([^\]\}]+?)\s*([\]\}]))",
+                                 std::regex_constants::icase);
+
+     std::string Rebuilt;
+     std::size_t LastPos = 0;
+
+     for (std::sregex_iterator It(QueryObj.Q.begin(), QueryObj.Q.end(), RangeRegex), End; It != End; ++It)
+     {
+          const std::smatch &Match = *It;
+          Rebuilt.append(QueryObj.Q, LastPos, static_cast<std::size_t>(Match.position()) - LastPos);
+
+          const std::string Field = Match[1].str();
+          const std::string Open = Match[2].str();
+          const std::string Min = TrimCopy(Match[3].str());
+          const std::string Max = TrimCopy(Match[4].str());
+          const std::string Close = Match[5].str();
+          AppendInlineFilter(QueryObj, Field + ":" + Open + Min + " TO " + Max + Close);
+
+          LastPos = static_cast<std::size_t>(Match.position() + Match.length());
+     }
+
+     Rebuilt.append(QueryObj.Q, LastPos, std::string::npos);
+     QueryObj.Q = Rebuilt;
+}
+
+static void ExtractInlineBoosts(ComprehensiveSearchQuery &QueryObj)
+{
+     if (QueryObj.Q.empty())
+     {
+          return;
+     }
+
+     const std::regex BoostRegex(R"((^|[\s:])([A-Za-z0-9_\*\?]+)\^([0-9]+(?:\.[0-9]+)?))");
+     std::string Rebuilt;
+     std::size_t LastPos = 0;
+
+     for (std::sregex_iterator It(QueryObj.Q.begin(), QueryObj.Q.end(), BoostRegex), End; It != End; ++It)
+     {
+          const std::smatch &Match = *It;
+          Rebuilt.append(QueryObj.Q, LastPos, static_cast<std::size_t>(Match.position()) - LastPos);
+          Rebuilt += Match[1].str() + Match[2].str();
+
+          const std::string Term = NormalizeInlineTerm(Match[2].str(), QueryObj.CaseSensitive);
+          if (!Term.empty())
+          {
+               try
+               {
+                    double Boost = std::stod(Match[3].str());
+                    Boost = std::max(0.1, std::min(10.0, Boost));
+                    QueryObj.TermBoosts[Term] = std::max(QueryObj.TermBoosts[Term], Boost);
+               }
+               catch (...)
+               {
+                    QueryObj.TermBoosts[Term] = std::max(QueryObj.TermBoosts[Term], 2.0);
+               }
+          }
+
+          LastPos = static_cast<std::size_t>(Match.position() + Match.length());
+     }
+
+     Rebuilt.append(QueryObj.Q, LastPos, std::string::npos);
+     QueryObj.Q = Rebuilt;
+}
+
+static void ExtractInlineFuzzy(ComprehensiveSearchQuery &QueryObj)
+{
+     if (QueryObj.Q.empty())
+     {
+          return;
+     }
+
+     const std::regex FuzzyRegex(R"((^|[\s:])([A-Za-z0-9_]+)~([0-4]?))");
+     std::string Rebuilt;
+     std::size_t LastPos = 0;
+     bool FoundFuzzy = false;
+     int MaxTypos = QueryObj.NumTyposExplicit ? QueryObj.NumTypos : 0;
+
+     for (std::sregex_iterator It(QueryObj.Q.begin(), QueryObj.Q.end(), FuzzyRegex), End; It != End; ++It)
+     {
+          const std::smatch &Match = *It;
+          Rebuilt.append(QueryObj.Q, LastPos, static_cast<std::size_t>(Match.position()) - LastPos);
+          Rebuilt += Match[1].str() + Match[2].str();
+
+          int Typos = 2;
+          if (Match[3].matched && !Match[3].str().empty())
+          {
+               Typos = std::stoi(Match[3].str());
+          }
+
+          MaxTypos = std::max(MaxTypos, std::max(0, std::min(4, Typos)));
+          FoundFuzzy = true;
+          LastPos = static_cast<std::size_t>(Match.position() + Match.length());
+     }
+
+     Rebuilt.append(QueryObj.Q, LastPos, std::string::npos);
+     QueryObj.Q = Rebuilt;
+
+     if (FoundFuzzy)
+     {
+          QueryObj.NumTypos = std::max(0, std::min(4, MaxTypos));
+          QueryObj.NumTyposExplicit = true;
+          QueryObj.InlineFuzzy = true;
+     }
+}
+
+static void ApplyInlineQuerySyntax(ComprehensiveSearchQuery &QueryObj)
+{
+     ApplyInlineQueryDirectives(QueryObj.Q, QueryObj.CaseSensitive);
+     ExtractInlineRangeFilters(QueryObj);
+     ExtractInlineBoosts(QueryObj);
+     ExtractInlineFuzzy(QueryObj);
+     CleanupInlineQueryOperators(QueryObj.Q);
+
+     if (QueryObj.Q.empty() && !QueryObj.FilterBy.empty())
+     {
+          QueryObj.Q = "*";
+     }
+
+     ApplyCaseSensitiveSearchDefaults(QueryObj);
+}
+
 /* ParseMultiSearchRequest parses a multi-search request body. */
 
 /*
@@ -114,6 +323,24 @@ std::vector<std::pair<std::string, ComprehensiveSearchQuery>> SearchAPI::ParseMu
                ComprehensiveSearchQuery SearchQueryObj;
 
                SearchQueryObj.Q = QueryStr;
+
+               if (SearchObj.contains("case_sensitive"))
+               {
+                    if (SearchObj["case_sensitive"].is_boolean())
+                    {
+                         SearchQueryObj.CaseSensitive = SearchObj["case_sensitive"].get<bool>();
+                    }
+                    else if (SearchObj["case_sensitive"].is_string())
+                    {
+                         std::string CaseValue = SearchObj["case_sensitive"].get<std::string>();
+                         std::transform(CaseValue.begin(), CaseValue.end(), CaseValue.begin(),
+                                        [](unsigned char C)
+                                        {
+                                             return static_cast<char>(std::tolower(C));
+                                        });
+                         SearchQueryObj.CaseSensitive = (CaseValue == "true" || CaseValue == "1" || CaseValue == "yes" || CaseValue == "on");
+                    }
+               }
 
                if (SearchObj.contains("query_by"))
                {
@@ -269,6 +496,8 @@ std::vector<std::pair<std::string, ComprehensiveSearchQuery>> SearchAPI::ParseMu
                          SearchQueryObj.TypoTokensThreshold = 2;
                     }
                }
+
+               ApplyInlineQuerySyntax(SearchQueryObj);
 
                SearchRequests.push_back({Collection, SearchQueryObj});
           }
@@ -702,8 +931,6 @@ ComprehensiveSearchQuery SearchAPI::ParseComprehensiveSearchQuery(const std::uno
           QueryObj.CaseSensitive = ParseBool(Params.at("case_sensitive"), false);
      }
 
-     ApplyInlineQueryDirectives(QueryObj.Q, QueryObj.CaseSensitive);
-
      if (Params.count("query_by"))
      {
           std::string QueryByValue = Params.at("query_by");
@@ -1036,6 +1263,8 @@ ComprehensiveSearchQuery SearchAPI::ParseComprehensiveSearchQuery(const std::uno
      {
           QueryObj.Embedding = Params.at("embedding");
      }
+
+     ApplyInlineQuerySyntax(QueryObj);
 
      return QueryObj;
 }

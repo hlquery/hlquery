@@ -1837,7 +1837,7 @@ HttpResponse SearchAPI::HandleSearch(const HttpRequest &Request)
 
      /* maybe suggestions are injected only when the result count is below the caller threshold. */
 
-     if (MaybeSettings.Enabled && SearchResultObj.Found >= 0 && SearchResultObj.Found < MaybeSettings.MinResults && !SearchQueryObj.Q.empty())
+     if (MaybeSettings.Enabled && !SearchQueryObj.CaseSensitive && SearchResultObj.Found >= 0 && SearchResultObj.Found < MaybeSettings.MinResults && !SearchQueryObj.Q.empty())
      {
           HttpRequest MaybeRequest = Request;
 

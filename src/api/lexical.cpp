@@ -597,10 +597,10 @@ static ParsedQueryExpression ParseStructuredQueryExpression(const std::string &q
 
           ParsedQueryClause clause;
 
-          while (!token.empty() && (token.front() == '+' || token.front() == '-'))
+          while (!token.empty() && (token.front() == '+' || token.front() == '-' || token.front() == '!'))
           {
                expression.UsesStructuredSemantics = true;
-               if (token.front() == '-')
+               if (token.front() == '-' || token.front() == '!')
                {
                     clause.Prohibited = true;
                }
@@ -1316,6 +1316,41 @@ static double CalculateRequestedFieldExactMatchBoost(const Document &doc,
      return match_boost;
 }
 
+static double CalculateInlineTermBoost(const Document &doc,
+                                       const std::vector<std::string> &query_by,
+                                       const std::map<std::string, double> &term_boosts,
+                                       bool case_sensitive = false)
+{
+     if (term_boosts.empty())
+     {
+          return 1.0;
+     }
+
+     std::vector<std::pair<std::string, std::string>> field_values;
+     AppendRequestedFieldValues(doc, query_by, field_values, case_sensitive);
+
+     double multiplier = 1.0;
+     for (const auto &Boost : term_boosts)
+     {
+          bool matched = false;
+          for (const auto &field_val : field_values)
+          {
+               if (FieldMatchesTermSimple(field_val.second, Boost.first, false, 0, case_sensitive))
+               {
+                    matched = true;
+                    break;
+               }
+          }
+
+          if (matched)
+          {
+               multiplier *= std::max(0.1, Boost.second);
+          }
+     }
+
+     return multiplier;
+}
+
 /* ProcessLexicalSearch performs a lexical search. */
 
 /*
@@ -1459,8 +1494,15 @@ std::vector<SearchHit> SearchAPI::ProcessLexicalSearch(const std::string &Collec
           const std::vector<std::string> RelaxedVariants = BuildRelaxedQueryVariants(SearchQueryVal, Query.DropTokensThreshold, Query.CaseSensitive);
           for (const auto &VariantSeed : RelaxedVariants)
           {
-               auto ExpandedVariants = BuildExpandedQueriesFromSynonyms(VariantSeed, Collection);
-               QueryVariants.insert(QueryVariants.end(), ExpandedVariants.begin(), ExpandedVariants.end());
+               if (Query.CaseSensitive)
+               {
+                    QueryVariants.push_back(VariantSeed);
+               }
+               else
+               {
+                    auto ExpandedVariants = BuildExpandedQueriesFromSynonyms(VariantSeed, Collection);
+                    QueryVariants.insert(QueryVariants.end(), ExpandedVariants.begin(), ExpandedVariants.end());
+               }
           }
      }
      std::sort(QueryVariants.begin(), QueryVariants.end());
@@ -1535,7 +1577,7 @@ std::vector<SearchHit> SearchAPI::ProcessLexicalSearch(const std::string &Collec
 
      const bool needs_typo_scan_fallback = (Query.NumTyposExplicit &&
                                             effective_max_typos > 0 &&
-                                            Postings.empty() &&
+                                            (Postings.empty() || Query.InlineFuzzy) &&
                                             !query_variant_terms_list.empty());
 
      if ((Query.AllowScanFallback || force_structured_scan || needs_typo_scan_fallback) &&
@@ -1650,6 +1692,15 @@ std::vector<SearchHit> SearchAPI::ProcessLexicalSearch(const std::string &Collec
                               score = static_cast<float>(score * match_boost);
                          }
 
+                         const double inline_term_boost = CalculateInlineTermBoost(doc,
+                                                                                    restrict_to_query_fields ? Query.QueryBy : std::vector<std::string>{},
+                                                                                    Query.TermBoosts,
+                                                                                    Query.CaseSensitive);
+                         if (inline_term_boost != 1.0)
+                         {
+                              score = static_cast<float>(score * inline_term_boost);
+                         }
+
                          HitObj.TextMatch = score;
                          if (Query.Highlight)
                          {
@@ -1759,6 +1810,15 @@ std::vector<SearchHit> SearchAPI::ProcessLexicalSearch(const std::string &Collec
                     {
                          HitObj.TextMatch = static_cast<float>(HitObj.TextMatch * match_boost);
                     }
+               }
+
+               const double inline_term_boost = CalculateInlineTermBoost(StorageDoc,
+                                                                          restrict_to_query_fields ? Query.QueryBy : std::vector<std::string>{},
+                                                                          Query.TermBoosts,
+                                                                          Query.CaseSensitive);
+               if (inline_term_boost != 1.0)
+               {
+                    HitObj.TextMatch = static_cast<float>(HitObj.TextMatch * inline_term_boost);
                }
 
                HitObj.Weight = CalculateWeight(HitObj);

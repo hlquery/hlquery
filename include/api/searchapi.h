@@ -192,6 +192,7 @@ struct ComprehensiveSearchQuery
      int DropTokensThreshold = 0;
      int TypoTokensThreshold = 2;
      bool Prefix = false;
+     bool InlineFuzzy = false;
 
      /* Grouping. */
 
@@ -204,6 +205,7 @@ struct ComprehensiveSearchQuery
      bool ExhaustiveSearch = false;
      bool AllowScanFallback = true;
      bool CaseSensitive = false;
+     std::map<std::string, double> TermBoosts;
 
      /* Vector search. */
 
