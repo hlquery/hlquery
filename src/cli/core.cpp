@@ -22,6 +22,9 @@
 #include <mutex>
 #include <netdb.h>
 #include <netinet/in.h>
+
+#include "core/config.h"
+
 #ifdef HLQUERY_HAS_OPENSSL
 #include <openssl/err.h>
 #include <openssl/ssl.h>
@@ -34,7 +37,6 @@
 #include <vector>
 #include <vendor/json/json.hpp>
 
-#include "core/config.h"
 #include "core/typedefs.h"
 #include "cli/cliutils.h"
 #include "app.h"
