@@ -29,9 +29,7 @@
 #include "search/sam.h"
 #include "vendor/json/json.hpp"
 
-namespace
-{
-std::string TrimCopy(const std::string& Value)
+static std::string TrimCopy(const std::string& Value)
 {
      const size_t Start = Value.find_first_not_of(" \t\r\n");
 
@@ -44,7 +42,7 @@ std::string TrimCopy(const std::string& Value)
      return Value.substr(Start, End - Start + 1);
 }
 
-std::string ToLowerCopy(std::string Value)
+static std::string ToLowerCopy(std::string Value)
 {
      std::transform(Value.begin(), Value.end(), Value.begin(),
                     [](unsigned char C)
@@ -54,7 +52,7 @@ std::string ToLowerCopy(std::string Value)
      return Value;
 }
 
-std::string NormalizeTerm(const std::string& Value)
+static std::string NormalizeTerm(const std::string& Value)
 {
      std::string Normalized;
      Normalized.reserve(Value.size());
@@ -80,7 +78,7 @@ std::string NormalizeTerm(const std::string& Value)
      return TrimCopy(Normalized);
 }
 
-std::vector<std::string> TokenizeNormalized(const std::string& Value)
+static std::vector<std::string> TokenizeNormalized(const std::string& Value)
 {
      std::vector<std::string> Tokens;
      std::istringstream Input(Value);
@@ -94,7 +92,7 @@ std::vector<std::string> TokenizeNormalized(const std::string& Value)
      return Tokens;
 }
 
-std::string SingularizeToken(const std::string& Token)
+static std::string SingularizeToken(const std::string& Token)
 {
      if (Token.size() <= 3)
      {
@@ -130,7 +128,7 @@ std::string SingularizeToken(const std::string& Token)
      return Token;
 }
 
-std::string JoinTokens(const std::vector<std::string>& Tokens)
+static std::string JoinTokens(const std::vector<std::string>& Tokens)
 {
      std::string Result;
 
@@ -147,18 +145,16 @@ std::string JoinTokens(const std::vector<std::string>& Tokens)
      return Result;
 }
 
-bool IsWeakSamToken(const std::string& Value)
+static bool IsWeakSamToken(const std::string& Value)
 {
      static const std::unordered_set<std::string> WeakTokens = {
           "article", "articles", "page", "pages", "document", "documents", "content",
-          "collection", "collections", "id", "official", "profile", "artist profile",
-          "biography", "discography", "benchmark", "fake", "recognized", "music",
-          "catalog", "blends", "blend", "drove", "transformed", "this", "that",
+          "collection", "collections", "id", "official", "this", "that",
           "these", "those", "their", "there", "here", "brief", "guide"};
      return WeakTokens.find(Value) != WeakTokens.end();
 }
 
-bool IsSamStopword(const std::string& Value)
+static bool IsSamStopword(const std::string& Value)
 {
      static const std::unordered_set<std::string> Stopwords = {
           "a", "an", "the",
@@ -169,7 +165,7 @@ bool IsSamStopword(const std::string& Value)
      return Stopwords.find(Value) != Stopwords.end();
 }
 
-double ClampSAMScore(double Value)
+static double ClampSAMScore(double Value)
 {
      if (Value < 0.0)
      {
@@ -184,7 +180,7 @@ double ClampSAMScore(double Value)
      return Value;
 }
 
-bool IsBadSamTerm(const std::string& Value)
+static bool IsBadSamTerm(const std::string& Value)
 {
      if (Value.empty() || Value.size() < 3 || Value.size() > 96)
      {
@@ -192,11 +188,7 @@ bool IsBadSamTerm(const std::string& Value)
      }
 
      if (Value.find("document id") != std::string::npos ||
-         Value.find("collection ") != std::string::npos ||
-         Value.find("artist profile") != std::string::npos ||
-         Value.find(" biography and discography") != std::string::npos ||
-         Value.find(" benchmark") != std::string::npos ||
-         Value.find(" fake") != std::string::npos)
+         Value.find("collection ") != std::string::npos)
      {
           return true;
      }
@@ -204,15 +196,14 @@ bool IsBadSamTerm(const std::string& Value)
      return false;
 }
 
-bool LooksLikeWeakLLMSuffix(const std::string& Value)
+static bool IsWeakLLMSuffix(const std::string& Value)
 {
      static const std::unordered_set<std::string> WeakSuffixes = {
-          "artist", "artists", "music", "songs", "career", "careers", "industry",
-          "performance", "performances", "profile", "profiles", "official"};
+          "official"};
      return WeakSuffixes.find(Value) != WeakSuffixes.end();
 }
 
-bool HasDuplicateTokens(const std::string& Value)
+static bool HasDuplicateTokens(const std::string& Value)
 {
      std::unordered_map<std::string, size_t> Counts;
 
@@ -227,22 +218,19 @@ bool HasDuplicateTokens(const std::string& Value)
      return false;
 }
 
-bool IsGenericDescriptorToken(const std::string& Token)
+static bool IsGenericDescriptorToken(const std::string& Token)
 {
      static const std::unordered_set<std::string> GenericTokens = {
-          "art", "feature", "focused", "focus", "example", "examples", "note", "notes",
-          "team", "teams", "installation", "installations", "curator", "curators",
-          "painter", "painters", "artist", "artists", "collector", "collectors",
-          "museum", "museums", "gallery", "galleries", "public", "modern"};
+          "feature", "focused", "focus", "example", "examples", "note", "notes"};
      return GenericTokens.find(Token) != GenericTokens.end();
 }
 
-bool IsStrongPhraseToken(const std::string& Token)
+static bool IsStrongPhraseToken(const std::string& Token)
 {
      return !(Token.empty() || IsSamStopword(Token) || IsWeakSamToken(Token) || IsGenericDescriptorToken(Token));
 }
 
-bool IsLowIntentGenericPhrase(const std::string& Value, const std::string& Subject)
+static bool IsLowIntentGenericPhrase(const std::string& Value, const std::string& Subject)
 {
      const std::vector<std::string> Tokens = TokenizeNormalized(Value);
 
@@ -287,7 +275,7 @@ bool IsLowIntentGenericPhrase(const std::string& Value, const std::string& Subje
      return false;
 }
 
-bool IsWeakLLMTerm(const std::string& Value, const std::string& Subject)
+static bool IsWeakLLMTerm(const std::string& Value, const std::string& Subject)
 {
      const std::vector<std::string> Tokens = TokenizeNormalized(Value);
 
@@ -331,7 +319,7 @@ bool IsWeakLLMTerm(const std::string& Value, const std::string& Subject)
                return true;
           }
 
-          if (SuffixTokens.size() == 1 && LooksLikeWeakLLMSuffix(SuffixTokens.front()))
+          if (SuffixTokens.size() == 1 && IsWeakLLMSuffix(SuffixTokens.front()))
           {
                return true;
           }
@@ -345,10 +333,9 @@ bool IsWeakLLMTerm(const std::string& Value, const std::string& Subject)
      return false;
 }
 
-std::string ResolveSubjectTitle(const Document& Doc)
+static std::string ResolveSubjectTitle(const Document& Doc)
 {
      std::string Title = TrimCopy(Doc.Title.empty() ? Doc.ID : Doc.Title);
-     const std::string LowerTitle = ToLowerCopy(Title);
      const size_t ColonPos = Title.find(':');
 
      if (ColonPos != std::string::npos)
@@ -356,23 +343,16 @@ std::string ResolveSubjectTitle(const Document& Doc)
           const std::string Prefix = ToLowerCopy(TrimCopy(Title.substr(0, ColonPos)));
           const std::string Suffix = TrimCopy(Title.substr(ColonPos + 1));
 
-          if ((Prefix == "artist profile" || Prefix == "album review" || Prefix == "book profile" ||
-               Prefix == "book spotlight" || Prefix == "movie profile" || Prefix == "profile") &&
-              !Suffix.empty())
+          if (!Suffix.empty() && IsLowIntentGenericPhrase(Prefix, ""))
           {
                return Suffix;
           }
      }
 
-     if (LowerTitle.rfind("music_artist_profile_", 0) == 0)
-     {
-          return TrimCopy(Title.substr(std::string("music_artist_profile_").size()));
-     }
-
      return Title;
 }
 
-std::string WriteJSONPayloadTempFile(const nlohmann::json& Payload)
+static std::string WriteJSONPayloadTempFile(const nlohmann::json& Payload)
 {
      std::filesystem::path TempTemplate =
           std::filesystem::temp_directory_path() / "hlquery-sam-XXXXXX.json";
@@ -415,13 +395,13 @@ std::string WriteJSONPayloadTempFile(const nlohmann::json& Payload)
      return TempPath;
 }
 
-void AppendScoredTerm(std::vector<SAM::TermEntry>& Target,
-                      std::unordered_map<std::string, size_t>& IndexByTerm,
-                      const std::string& Value,
-                      const std::string& Kind,
-                      double Score,
-                      const std::string& Source,
-                      double Signal)
+static void AppendScoredTerm(std::vector<SAM::TermEntry>& Target,
+                             std::unordered_map<std::string, size_t>& IndexByTerm,
+                             const std::string& Value,
+                             const std::string& Kind,
+                             double Score,
+                             const std::string& Source,
+                             double Signal)
 {
      const std::string Normalized = NormalizeTerm(Value);
 
@@ -457,7 +437,7 @@ void AppendScoredTerm(std::vector<SAM::TermEntry>& Target,
      Target.push_back(std::move(Entry));
 }
 
-std::vector<std::string> ExtractArrayishValues(const std::string& Raw)
+static std::vector<std::string> ExtractArrayishValues(const std::string& Raw)
 {
      std::vector<std::string> Values;
      const std::string Trimmed = TrimCopy(Raw);
@@ -517,7 +497,7 @@ std::vector<std::string> ExtractArrayishValues(const std::string& Raw)
      return Values;
 }
 
-std::string ClassifyLLMTermKind(const std::string& Value, const std::string& Subject)
+static std::string ClassifyLLMTermKind(const std::string& Value, const std::string& Subject)
 {
      const std::string NormalizedSubject = NormalizeTerm(Subject);
 
@@ -529,12 +509,12 @@ std::string ClassifyLLMTermKind(const std::string& Value, const std::string& Sub
      return "descriptor";
 }
 
-double ClassifyLLMTermScore(const std::string& Kind)
+static double ClassifyLLMTermScore(const std::string& Kind)
 {
      return Kind == "synonym" ? 0.82 : 0.67;
 }
 
-std::string TruncateForContextWindows(const std::string& Value, size_t MaxChars = 360)
+static std::string TruncateForContextWindows(const std::string& Value, size_t MaxChars = 360)
 {
      if (Value.size() <= MaxChars)
      {
@@ -559,13 +539,13 @@ std::string TruncateForContextWindows(const std::string& Value, size_t MaxChars 
      return Prefix;
 }
 
-void AppendStructuredPhraseWindows(std::vector<SAM::TermEntry>& Terms,
-                                   std::unordered_map<std::string, size_t>& IndexByTerm,
-                                   const std::string& RawText,
-                                   const std::string& Source,
-                                   double BaseScore,
-                                   double BaseSignal,
-                                   size_t MaxWindow = 4)
+static void AppendStructuredPhraseWindows(std::vector<SAM::TermEntry>& Terms,
+                                          std::unordered_map<std::string, size_t>& IndexByTerm,
+                                          const std::string& RawText,
+                                          const std::string& Source,
+                                          double BaseScore,
+                                          double BaseSignal,
+                                          size_t MaxWindow = 4)
 {
      std::vector<std::string> Tokens = TokenizeNormalized(RawText);
 
@@ -630,9 +610,9 @@ void AppendStructuredPhraseWindows(std::vector<SAM::TermEntry>& Terms,
      }
 }
 
-void AppendReorderedAliases(std::vector<SAM::TermEntry>& Terms,
-                            std::unordered_map<std::string, size_t>& IndexByTerm,
-                            const std::string& Collection)
+static void AppendReorderedAliases(std::vector<SAM::TermEntry>& Terms,
+                                   std::unordered_map<std::string, size_t>& IndexByTerm,
+                                   const std::string& Collection)
 {
      const std::string NormalizedCollection = NormalizeTerm(Collection);
      const size_t OriginalSize = Terms.size();
@@ -666,8 +646,8 @@ void AppendReorderedAliases(std::vector<SAM::TermEntry>& Terms,
      }
 }
 
-void AppendCompressedStopwordVariants(std::vector<SAM::TermEntry>& Terms,
-                                      std::unordered_map<std::string, size_t>& IndexByTerm)
+static void AppendCompressedStopwordVariants(std::vector<SAM::TermEntry>& Terms,
+                                             std::unordered_map<std::string, size_t>& IndexByTerm)
 {
      const size_t OriginalSize = Terms.size();
 
@@ -700,132 +680,118 @@ void AppendCompressedStopwordVariants(std::vector<SAM::TermEntry>& Terms,
      }
 }
 
-std::vector<std::string> GetFieldValues(const Document& Doc, const std::vector<std::string>& FieldNames)
+static void AppendUniqueFact(std::vector<std::string>& Values,
+                             std::unordered_set<std::string>& Seen,
+                             const std::string& Raw,
+                             size_t MaxTokens = 4);
+
+static bool IsContextFieldName(const std::string& FieldName)
 {
-     std::vector<std::string> Values;
+     const std::string Lower = ToLowerCopy(FieldName);
 
-     for (const auto& FieldName : FieldNames)
+     static const std::unordered_set<std::string> IgnoredFields = {
+          "id", "name", "title", "content", "description", "text", "body", "summary",
+          "created_at", "updated_at", "timestamp", "date"};
+
+     if (IgnoredFields.find(Lower) != IgnoredFields.end())
      {
-          const auto It = Doc.Fields.find(FieldName);
-
-          if (It == Doc.Fields.end() || It->second.empty())
-          {
-               continue;
-          }
-
-          const std::vector<std::string> Parsed = ExtractArrayishValues(It->second);
-          Values.insert(Values.end(), Parsed.begin(), Parsed.end());
+          return false;
      }
 
-     return Values;
+     return true;
 }
 
-bool ContainsAnyToken(const std::string& Haystack, const std::unordered_set<std::string>& Tokens)
+static std::vector<std::string> CollectDynamicFieldFacts(const Document& Doc,
+                                                         size_t MaxFacts,
+                                                         size_t MaxTokens = 4)
 {
-     for (const auto& Token : TokenizeNormalized(Haystack))
-     {
-          if (Tokens.find(Token) != Tokens.end())
-          {
-               return true;
-          }
-     }
-
-     return false;
-}
-
-std::string InferGenderHint(const Document& Doc)
-{
-     const std::string Combined = ToLowerCopy(Doc.Title + " " + Doc.Content + " " +
-                                              (Doc.Fields.count("description") ? Doc.Fields.at("description") : ""));
-     const std::vector<std::string> GenderValues = GetFieldValues(Doc, {"gender", "sex", "pronouns"});
-
-     for (const auto& Value : GenderValues)
-     {
-          const std::string Lower = ToLowerCopy(Value);
-
-          if (Lower.find("female") != std::string::npos || Lower.find("woman") != std::string::npos || Lower.find("she") != std::string::npos)
-          {
-               return "female";
-          }
-
-          if (Lower.find("male") != std::string::npos || Lower.find("man") != std::string::npos || Lower.find("he") != std::string::npos)
-          {
-               return "male";
-          }
-     }
-
-     if (Combined.find(" she ") != std::string::npos || Combined.find(" her ") != std::string::npos ||
-         Combined.find(" actress") != std::string::npos || Combined.find(" female ") != std::string::npos)
-     {
-          return "female";
-     }
-
-     if (Combined.find(" he ") != std::string::npos || Combined.find(" his ") != std::string::npos ||
-         Combined.find(" actor") != std::string::npos || Combined.find(" male ") != std::string::npos)
-     {
-          return "male";
-     }
-
-     return "";
-}
-
-bool LooksLikeMusicDocument(const std::string& Collection, const Document& Doc)
-{
-     static const std::unordered_set<std::string> MusicTokens = {
-          "music", "artist", "singer", "songwriter", "rapper", "band", "album",
-          "song", "songs", "discography", "pop", "rock", "hip", "hop", "dance",
-          "tour", "single", "record", "recording", "musician", "musical"};
-
-     std::string Corpus = Collection + " " + Doc.Title + " " + Doc.Content;
-
-     for (const auto& Value : GetFieldValues(Doc, {"labels", "genres", "genre", "style", "styles", "tags", "category", "categories"}))
-     {
-          Corpus.append(" ");
-          Corpus.append(Value);
-     }
-
-     return ContainsAnyToken(NormalizeTerm(Corpus), MusicTokens);
-}
-
-std::vector<std::string> CollectGenreHints(const Document& Doc)
-{
-     std::vector<std::string> Genres;
+     std::vector<std::string> Facts;
      std::unordered_set<std::string> Seen;
 
-     for (const auto& Value : GetFieldValues(Doc, {"genres", "genre", "style", "styles", "labels", "tags"}))
+     for (const auto& Pair : Doc.Fields)
      {
-          const std::string Normalized = NormalizeTerm(Value);
-
-          if (Normalized.empty() || IsLowIntentGenericPhrase(Normalized, ""))
+          if (!IsContextFieldName(Pair.first))
           {
                continue;
           }
 
-          if (TokenizeNormalized(Normalized).size() > 3)
+          for (const auto& Value : ExtractArrayishValues(Pair.second))
           {
-               continue;
-          }
+               AppendUniqueFact(Facts, Seen, Value, MaxTokens);
 
-          if (Seen.insert(Normalized).second)
-          {
-               Genres.push_back(Normalized);
+               if (Facts.size() >= MaxFacts)
+               {
+                    return Facts;
+               }
           }
      }
 
-     return Genres;
+     return Facts;
 }
 
-void AppendTemplateQuery(std::vector<SAM::TermEntry>& Terms,
-                         std::unordered_map<std::string, size_t>& IndexByTerm,
-                         const std::string& Subject,
-                         const std::string& Phrase,
-                         double Score,
-                         double Signal);
+static std::vector<std::string> CollectDynamicContextHints(const Document& Doc,
+                                                           size_t MaxHints,
+                                                           size_t MaxTokens = 4)
+{
+     std::vector<std::string> Hints;
+     std::unordered_set<std::string> Seen;
 
-void AppendUniqueFact(std::vector<std::string>& Values,
-                      std::unordered_set<std::string>& Seen,
-                      const std::string& Raw,
-                      size_t MaxTokens = 4)
+     for (const auto& Value : CollectDynamicFieldFacts(Doc, MaxHints, MaxTokens))
+     {
+          AppendUniqueFact(Hints, Seen, Value, MaxTokens);
+     }
+
+     if (Hints.size() >= MaxHints)
+     {
+          return Hints;
+     }
+
+     const std::string ContextText = Doc.Title + " " +
+                                     (Doc.Fields.count("description") ? Doc.Fields.at("description") : "") +
+                                     " " + TruncateForContextWindows(Doc.Content, 240);
+     const std::vector<std::string> Tokens = TokenizeNormalized(ContextText);
+
+     for (size_t Start = 0; Start < Tokens.size() && Hints.size() < MaxHints; ++Start)
+     {
+          for (size_t Width = 2; Width <= MaxTokens && Start + Width <= Tokens.size(); ++Width)
+          {
+               std::vector<std::string> Slice(Tokens.begin() + static_cast<long>(Start),
+                                              Tokens.begin() + static_cast<long>(Start + Width));
+
+               while (!Slice.empty() && (IsSamStopword(Slice.front()) || IsWeakSamToken(Slice.front())))
+               {
+                    Slice.erase(Slice.begin());
+               }
+
+               while (!Slice.empty() && (IsSamStopword(Slice.back()) || IsWeakSamToken(Slice.back())))
+               {
+                    Slice.pop_back();
+               }
+
+               const std::string Candidate = JoinTokens(Slice);
+               AppendUniqueFact(Hints, Seen, Candidate, MaxTokens);
+
+               if (Hints.size() >= MaxHints)
+               {
+                    break;
+               }
+          }
+     }
+
+     return Hints;
+}
+
+static void AppendTemplateQuery(std::vector<SAM::TermEntry>& Terms,
+                                std::unordered_map<std::string, size_t>& IndexByTerm,
+                                const std::string& Subject,
+                                const std::string& Phrase,
+                                double Score,
+                                double Signal);
+
+static void AppendUniqueFact(std::vector<std::string>& Values,
+                             std::unordered_set<std::string>& Seen,
+                             const std::string& Raw,
+                             size_t MaxTokens)
 {
      const std::string Normalized = NormalizeTerm(Raw);
 
@@ -847,28 +813,7 @@ void AppendUniqueFact(std::vector<std::string>& Values,
      }
 }
 
-std::vector<std::string> CollectFieldFacts(const Document& Doc,
-                                           const std::vector<std::string>& FieldNames,
-                                           size_t MaxFacts,
-                                           size_t MaxTokens = 4)
-{
-     std::vector<std::string> Facts;
-     std::unordered_set<std::string> Seen;
-
-     for (const auto& Value : GetFieldValues(Doc, FieldNames))
-     {
-          AppendUniqueFact(Facts, Seen, Value, MaxTokens);
-
-          if (Facts.size() >= MaxFacts)
-          {
-               break;
-          }
-     }
-
-     return Facts;
-}
-
-std::vector<std::string> CollectYearHints(const Document& Doc, size_t MaxYears = 3)
+static std::vector<std::string> CollectYearHints(const Document& Doc, size_t MaxYears = 3)
 {
      std::vector<std::string> Years;
      std::unordered_set<std::string> Seen;
@@ -921,7 +866,7 @@ std::vector<std::string> CollectYearHints(const Document& Doc, size_t MaxYears =
      return Years;
 }
 
-bool LooksAmbiguousSubject(const std::string& Subject)
+static bool LooksAmbiguousSubject(const std::string& Subject)
 {
      const std::vector<std::string> Tokens = TokenizeNormalized(Subject);
 
@@ -938,34 +883,14 @@ bool LooksAmbiguousSubject(const std::string& Subject)
      return Tokens.size() == 2 && Tokens.front() == Tokens.back();
 }
 
-std::vector<std::string> CollectDisambiguationFacts(const std::string& Collection, const Document& Doc)
+static std::vector<std::string> CollectDisambiguationFacts(const Document& Doc)
 {
      std::vector<std::string> Facts;
      std::unordered_set<std::string> Seen;
 
-     AppendUniqueFact(Facts, Seen, Collection, 3);
-
-     for (const auto& Value : CollectFieldFacts(
-               Doc, {"role", "roles", "occupation", "occupations", "profession", "professions", "type"}, 2, 3))
-     {
-          AppendUniqueFact(Facts, Seen, Value, 3);
-     }
-
-     for (const auto& Value : CollectFieldFacts(
-               Doc, {"location", "locations", "country", "countries", "city", "cities", "origin", "nationality"}, 2, 3))
-     {
-          AppendUniqueFact(Facts, Seen, Value, 3);
-     }
-
-     for (const auto& Value : CollectFieldFacts(
-               Doc, {"organization", "organizations", "company", "companies", "publisher", "publishers", "label", "labels"}, 2, 4))
+     for (const auto& Value : CollectDynamicContextHints(Doc, 6, 4))
      {
           AppendUniqueFact(Facts, Seen, Value, 4);
-     }
-
-     for (const auto& Value : CollectGenreHints(Doc))
-     {
-          AppendUniqueFact(Facts, Seen, Value, 3);
 
           if (Facts.size() >= 6)
           {
@@ -981,10 +906,9 @@ std::vector<std::string> CollectDisambiguationFacts(const std::string& Collectio
      return Facts;
 }
 
-void AppendCanonicalSnippetQueries(std::vector<SAM::TermEntry>& Terms,
-                                   std::unordered_map<std::string, size_t>& IndexByTerm,
-                                   const std::string& Collection,
-                                   const Document& Doc)
+static void AppendCanonicalSnippetQueries(std::vector<SAM::TermEntry>& Terms,
+                                          std::unordered_map<std::string, size_t>& IndexByTerm,
+                                          const Document& Doc)
 {
      const std::string Subject = NormalizeTerm(ResolveSubjectTitle(Doc));
 
@@ -993,52 +917,23 @@ void AppendCanonicalSnippetQueries(std::vector<SAM::TermEntry>& Terms,
           return;
      }
 
-     const std::vector<std::string> Roles = CollectFieldFacts(
-          Doc, {"role", "roles", "occupation", "occupations", "profession", "professions", "type"}, 3, 3);
-     const std::vector<std::string> Genres = CollectGenreHints(Doc);
-     const std::vector<std::string> Organizations = CollectFieldFacts(
-          Doc, {"organization", "organizations", "company", "companies", "publisher", "publishers", "label", "labels"}, 2, 4);
+     const std::vector<std::string> Hints = CollectDynamicContextHints(Doc, 6, 4);
      const std::vector<std::string> Years = CollectYearHints(Doc, 2);
 
-     if (!Roles.empty())
+     for (const auto& Hint : Hints)
      {
-          AppendTemplateQuery(Terms, IndexByTerm, Subject, Roles.front(), 0.80, 0.83);
-          AppendTemplateQuery(Terms, IndexByTerm, Subject, Roles.front() + " biography", 0.78, 0.81);
-          AppendTemplateQuery(Terms, IndexByTerm, Subject, "official " + Roles.front(), 0.74, 0.78);
-     }
-
-     if (!Organizations.empty())
-     {
-          AppendTemplateQuery(Terms, IndexByTerm, Subject, Organizations.front() + " official site", 0.75, 0.79);
-     }
-
-     for (const auto& Genre : Genres)
-     {
-          AppendTemplateQuery(Terms, IndexByTerm, Subject, Genre + " biography", 0.75, 0.79);
-
-          if (!Roles.empty())
-          {
-               AppendTemplateQuery(Terms, IndexByTerm, Subject, Genre + " " + Roles.front() + " biography", 0.82, 0.85);
-          }
-     }
-
-     if (LooksLikeMusicDocument(Collection, Doc))
-     {
-          AppendTemplateQuery(Terms, IndexByTerm, Subject, "official site", 0.70, 0.73);
-          AppendTemplateQuery(Terms, IndexByTerm, Subject, "discography", 0.76, 0.79);
-          AppendTemplateQuery(Terms, IndexByTerm, Subject, "songs", 0.70, 0.73);
+          AppendTemplateQuery(Terms, IndexByTerm, Subject, Hint, 0.78, 0.82);
      }
 
      for (const auto& Year : Years)
      {
-          AppendTemplateQuery(Terms, IndexByTerm, Subject, "biography " + Year, 0.72, 0.75);
+          AppendTemplateQuery(Terms, IndexByTerm, Subject, Year, 0.68, 0.72);
      }
 }
 
-void AppendDisambiguationQueries(std::vector<SAM::TermEntry>& Terms,
-                                 std::unordered_map<std::string, size_t>& IndexByTerm,
-                                 const std::string& Collection,
-                                 const Document& Doc)
+static void AppendDisambiguationQueries(std::vector<SAM::TermEntry>& Terms,
+                                        std::unordered_map<std::string, size_t>& IndexByTerm,
+                                        const Document& Doc)
 {
      const std::string Subject = NormalizeTerm(ResolveSubjectTitle(Doc));
 
@@ -1047,7 +942,7 @@ void AppendDisambiguationQueries(std::vector<SAM::TermEntry>& Terms,
           return;
      }
 
-     const std::vector<std::string> Facts = CollectDisambiguationFacts(Collection, Doc);
+     const std::vector<std::string> Facts = CollectDisambiguationFacts(Doc);
 
      for (const auto& Fact : Facts)
      {
@@ -1060,10 +955,9 @@ void AppendDisambiguationQueries(std::vector<SAM::TermEntry>& Terms,
      }
 }
 
-void AppendFactDrivenQueries(std::vector<SAM::TermEntry>& Terms,
-                             std::unordered_map<std::string, size_t>& IndexByTerm,
-                             const std::string& Collection,
-                             const Document& Doc)
+static void AppendFactDrivenQueries(std::vector<SAM::TermEntry>& Terms,
+                                    std::unordered_map<std::string, size_t>& IndexByTerm,
+                                    const Document& Doc)
 {
      const std::string Subject = NormalizeTerm(ResolveSubjectTitle(Doc));
 
@@ -1072,69 +966,21 @@ void AppendFactDrivenQueries(std::vector<SAM::TermEntry>& Terms,
           return;
      }
 
-     const std::vector<std::string> Roles = CollectFieldFacts(
-          Doc, {"role", "roles", "occupation", "occupations", "profession", "professions", "type"}, 4, 3);
-     const std::vector<std::string> Genres = CollectGenreHints(Doc);
-     const std::vector<std::string> Organizations = CollectFieldFacts(
-          Doc, {"organization", "organizations", "company", "companies", "publisher", "publishers", "label", "labels"}, 3, 4);
-     const std::vector<std::string> Locations = CollectFieldFacts(
-          Doc, {"location", "locations", "country", "countries", "city", "cities", "origin", "nationality"}, 3, 3);
-     const std::vector<std::string> NotableWorks = CollectFieldFacts(
-          Doc, {"works", "notable_works", "notableWorks", "albums", "songs", "books", "films", "movies", "projects"}, 4, 5);
+     const std::vector<std::string> Hints = CollectDynamicContextHints(Doc, 10, 5);
      const std::vector<std::string> Years = CollectYearHints(Doc, 2);
-     const bool IsMusic = LooksLikeMusicDocument(Collection, Doc);
 
-     for (const auto& Role : Roles)
+     for (const auto& Hint : Hints)
      {
-          AppendTemplateQuery(Terms, IndexByTerm, Subject, Role, 0.74, 0.78);
-     }
-
-     for (const auto& Genre : Genres)
-     {
-          AppendTemplateQuery(Terms, IndexByTerm, Subject, Genre, 0.72, 0.75);
-
-          if (!Roles.empty())
-          {
-               AppendTemplateQuery(Terms, IndexByTerm, Subject, Genre + " " + Roles.front(), 0.79, 0.82);
-          }
-          else if (IsMusic)
-          {
-               AppendTemplateQuery(Terms, IndexByTerm, Subject, Genre + " singer", 0.77, 0.81);
-          }
-     }
-
-     for (const auto& Organization : Organizations)
-     {
-          AppendTemplateQuery(Terms, IndexByTerm, Subject, Organization, 0.70, 0.73);
-     }
-
-     for (const auto& Location : Locations)
-     {
-          AppendTemplateQuery(Terms, IndexByTerm, Subject, Location, 0.69, 0.72);
-
-          if (!Roles.empty())
-          {
-               AppendTemplateQuery(Terms, IndexByTerm, Subject, Location + " " + Roles.front(), 0.74, 0.77);
-          }
-     }
-
-     for (const auto& Work : NotableWorks)
-     {
-          AppendTemplateQuery(Terms, IndexByTerm, Subject, Work, 0.78, 0.82);
+          AppendTemplateQuery(Terms, IndexByTerm, Subject, Hint, 0.74, 0.78);
      }
 
      for (const auto& Year : Years)
      {
           AppendTemplateQuery(Terms, IndexByTerm, Subject, Year, 0.66, 0.70);
-
-          if (!Roles.empty())
-          {
-               AppendTemplateQuery(Terms, IndexByTerm, Subject, Roles.front() + " " + Year, 0.72, 0.75);
-          }
      }
 }
 
-bool IsLikelySeoStyleTerm(const std::string& Value)
+static bool IsLikelySeoStyleTerm(const std::string& Value)
 {
      static const std::unordered_set<std::string> SeoTokens = {
           "best", "top", "ultimate", "complete", "guide", "guidebook", "explained",
@@ -1151,7 +997,7 @@ bool IsLikelySeoStyleTerm(const std::string& Value)
      return false;
 }
 
-double ComputeWebQueryIntentBoost(const SAM::TermEntry& Term, const std::string& Subject)
+static double ComputeWebQueryIntentBoost(const SAM::TermEntry& Term, const std::string& Subject)
 {
      const std::vector<std::string> Tokens = TokenizeNormalized(Term.Text);
      const std::string NormalizedSubject = NormalizeTerm(Subject);
@@ -1196,13 +1042,6 @@ double ComputeWebQueryIntentBoost(const SAM::TermEntry& Term, const std::string&
           Boost -= 0.07;
      }
 
-     if (Term.Text.find("official site") != std::string::npos ||
-         Term.Text.find("biography") != std::string::npos ||
-         Term.Text.find("discography") != std::string::npos)
-     {
-          Boost += 0.04;
-     }
-
      if (IsLowIntentGenericPhrase(Term.Text, Subject))
      {
           Boost -= 0.08;
@@ -1211,7 +1050,7 @@ double ComputeWebQueryIntentBoost(const SAM::TermEntry& Term, const std::string&
      return Boost;
 }
 
-void ApplyWebQueryIntentRerank(std::vector<SAM::TermEntry>& Terms, const std::string& Subject)
+static void ApplyWebQueryIntentRerank(std::vector<SAM::TermEntry>& Terms, const std::string& Subject)
 {
      for (auto& Term : Terms)
      {
@@ -1221,12 +1060,12 @@ void ApplyWebQueryIntentRerank(std::vector<SAM::TermEntry>& Terms, const std::st
      }
 }
 
-void AppendTemplateQuery(std::vector<SAM::TermEntry>& Terms,
-                         std::unordered_map<std::string, size_t>& IndexByTerm,
-                         const std::string& Subject,
-                         const std::string& Phrase,
-                         double Score,
-                         double Signal)
+static void AppendTemplateQuery(std::vector<SAM::TermEntry>& Terms,
+                                std::unordered_map<std::string, size_t>& IndexByTerm,
+                                const std::string& Subject,
+                                const std::string& Phrase,
+                                double Score,
+                                double Signal)
 {
      if (Subject.empty() || Phrase.empty())
      {
@@ -1236,10 +1075,9 @@ void AppendTemplateQuery(std::vector<SAM::TermEntry>& Terms,
      AppendScoredTerm(Terms, IndexByTerm, Subject + " " + Phrase, "query", Score, "context_template", Signal);
 }
 
-void AppendSearchContextTemplates(std::vector<SAM::TermEntry>& Terms,
-                                  std::unordered_map<std::string, size_t>& IndexByTerm,
-                                  const std::string& Collection,
-                                  const Document& Doc)
+static void AppendSearchContextTemplates(std::vector<SAM::TermEntry>& Terms,
+                                         std::unordered_map<std::string, size_t>& IndexByTerm,
+                                         const Document& Doc)
 {
      const std::string Subject = NormalizeTerm(ResolveSubjectTitle(Doc));
 
@@ -1248,59 +1086,19 @@ void AppendSearchContextTemplates(std::vector<SAM::TermEntry>& Terms,
           return;
      }
 
-     AppendTemplateQuery(Terms, IndexByTerm, Subject, "biography", 0.60, 0.62);
-     AppendTemplateQuery(Terms, IndexByTerm, Subject, "profile", 0.58, 0.60);
-     AppendTemplateQuery(Terms, IndexByTerm, Subject, "overview", 0.56, 0.58);
-     AppendTemplateQuery(Terms, IndexByTerm, Subject, "official site", 0.55, 0.58);
-
-     if (!LooksLikeMusicDocument(Collection, Doc))
+     for (const auto& Hint : CollectDynamicContextHints(Doc, 8, 4))
      {
-          return;
-     }
-
-     AppendTemplateQuery(Terms, IndexByTerm, Subject, "songs", 0.66, 0.68);
-     AppendTemplateQuery(Terms, IndexByTerm, Subject, "albums", 0.66, 0.68);
-     AppendTemplateQuery(Terms, IndexByTerm, Subject, "discography", 0.72, 0.75);
-     AppendTemplateQuery(Terms, IndexByTerm, Subject, "music", 0.64, 0.67);
-     AppendTemplateQuery(Terms, IndexByTerm, Subject, "pop singer", 0.60, 0.63);
-     AppendTemplateQuery(Terms, IndexByTerm, Subject, "music artist", 0.60, 0.63);
-
-     const std::vector<std::string> Genres = CollectGenreHints(Doc);
-
-     for (const auto& Genre : Genres)
-     {
-          AppendTemplateQuery(Terms, IndexByTerm, Subject, Genre + " singer", 0.68, 0.72);
-          AppendTemplateQuery(Terms, IndexByTerm, Subject, Genre + " artist", 0.67, 0.71);
-          AppendTemplateQuery(Terms, IndexByTerm, Subject, Genre + " music", 0.64, 0.68);
-     }
-
-     const std::string GenderHint = InferGenderHint(Doc);
-
-     for (const auto& Genre : Genres)
-     {
-          if (GenderHint == "female")
-          {
-               AppendScoredTerm(Terms, IndexByTerm, "queen of " + Genre, "descriptor", 0.76, "context_role", 0.80);
-               AppendScoredTerm(Terms, IndexByTerm, Genre + " queen", "descriptor", 0.71, "context_role", 0.75);
-          }
-          else if (GenderHint == "male")
-          {
-               AppendScoredTerm(Terms, IndexByTerm, "king of " + Genre, "descriptor", 0.76, "context_role", 0.80);
-               AppendScoredTerm(Terms, IndexByTerm, Genre + " king", "descriptor", 0.71, "context_role", 0.75);
-          }
-
-          AppendScoredTerm(Terms, IndexByTerm, Genre + " icon", "descriptor", 0.67, "context_role", 0.70);
-          AppendScoredTerm(Terms, IndexByTerm, Genre + " legend", "descriptor", 0.65, "context_role", 0.68);
+          AppendTemplateQuery(Terms, IndexByTerm, Subject, Hint, 0.68, 0.72);
      }
 }
 
-std::string BucketValueOrUnknown(const std::string& Value)
+static std::string BucketValueOrUnknown(const std::string& Value)
 {
      return Value.empty() ? "unknown" : Value;
 }
 
-std::vector<SAM::TermEntry> SelectDiversifiedTerms(const std::vector<SAM::TermEntry>& SortedTerms,
-                                                   size_t MaxIdeas)
+static std::vector<SAM::TermEntry> SelectDiversifiedTerms(const std::vector<SAM::TermEntry>& SortedTerms,
+                                                          size_t MaxIdeas)
 {
      if (SortedTerms.size() <= MaxIdeas)
      {
@@ -1370,7 +1168,6 @@ std::vector<SAM::TermEntry> SelectDiversifiedTerms(const std::vector<SAM::TermEn
 
      return Selected;
 }
-} // namespace
 
 std::vector<SAM::TermEntry> SAM::GenerateLLMTerms(const std::string& Collection,
                                                   const Document& Doc,
@@ -1451,6 +1248,8 @@ std::vector<SAM::TermEntry> SAM::GenerateLLMTerms(const std::string& Collection,
      Payload["title"] = Doc.Title;
      Payload["content"] = Doc.Content;
      Payload["fields"] = Doc.Fields;
+     Payload["instruction"] =
+          "Infer the document's domain from its title, content, and fields. Generate concise, multilingual-friendly lookup phrases a user might search to find this exact document. Use important field values, aliases, roles, places, dates, identifiers, and distinctive wording when present. Do not assume any collection-specific domain, gender, language, or topic unless it is supported by the document itself.";
      const int MaxIdeas = (Instance && Instance->Config)
           ? std::max(1, Instance->Config->GetSamLLMMaxIdeas())
           : 6;
@@ -1613,10 +1412,7 @@ std::vector<SAM::TermEntry> SAM::ExpandDocumentTerms(const std::string& Collecti
           const std::string NormalizedSubject = NormalizeTerm(Subject);
           AppendScoredTerm(Terms, IndexByTerm, NormalizedSubject, "subject", 0.88, "title", 0.90);
 
-          if (!IsWeakLLMTerm(NormalizedSubject + " biography", Subject))
-          {
-               AppendScoredTerm(Terms, IndexByTerm, NormalizedSubject + " biography", "query", 0.61, "context_template", 0.64);
-          }
+          AppendStructuredPhraseWindows(Terms, IndexByTerm, NormalizedSubject, "subject_window", 0.76, 0.80, 4);
      }
 
      if (!Doc.Title.empty())
@@ -1654,10 +1450,10 @@ std::vector<SAM::TermEntry> SAM::ExpandDocumentTerms(const std::string& Collecti
           }
      }
 
-     AppendSearchContextTemplates(Terms, IndexByTerm, Collection, Doc);
-     AppendCanonicalSnippetQueries(Terms, IndexByTerm, Collection, Doc);
-     AppendFactDrivenQueries(Terms, IndexByTerm, Collection, Doc);
-     AppendDisambiguationQueries(Terms, IndexByTerm, Collection, Doc);
+     AppendSearchContextTemplates(Terms, IndexByTerm, Doc);
+     AppendCanonicalSnippetQueries(Terms, IndexByTerm, Doc);
+     AppendFactDrivenQueries(Terms, IndexByTerm, Doc);
+     AppendDisambiguationQueries(Terms, IndexByTerm, Doc);
      AppendCompressedStopwordVariants(Terms, IndexByTerm);
      AppendReorderedAliases(Terms, IndexByTerm, Collection);
      ApplyWebQueryIntentRerank(Terms, Subject);

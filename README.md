@@ -137,7 +137,7 @@ $ hlquery-cli create products title content price
 Collection 'products' created successfully
 ```
 
-**using the PHP API:**
+**Using the PHP API:**
 
 ```php
 <?php
@@ -169,7 +169,7 @@ $ hlquery-cli add products product1 "Laptop Computer" "High-performance laptop w
 Document 'product1' added to collection 'products'
 ```
 
-**using the Node API:**
+**Using the Node API:**
 
 ```js
 await client.documents().add('products', {
@@ -193,7 +193,7 @@ Found 1 document(s) (showing 1-1 of 1)
 +---+-------------+----------+-----------------+---------------------------------------+----------+
 ```
 
-**using the C++ API:**
+**Using the C++ API:**
 
 ```cpp
 hlquery::Client client("http://localhost:9200");

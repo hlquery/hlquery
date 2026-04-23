@@ -176,71 +176,29 @@ std::vector<llm::ContextSuggestion> llm::BuildDocumentContext(const std::string&
      }
 
      const std::string Title = TrimCopy(Doc.Title.empty() ? Doc.ID : Doc.Title);
-     const std::string LowerTitle = ToLowerCopy(Title);
-     std::string Category;
-     std::vector<std::string> Labels;
-     std::vector<std::string> Genres;
+
+     AppendSuggestion(Suggestions, Seen, Title, "title", Limit);
 
      for (const auto& Pair : Doc.Fields)
      {
           const std::string LowerKey = ToLowerCopy(Pair.first);
 
-          if (LowerKey == "category" && Category.empty())
+          if (LowerKey == "id" || LowerKey == "name" || LowerKey == "title" ||
+              LowerKey == "content" || LowerKey == "description" || LowerKey == "text" ||
+              LowerKey == "body" || LowerKey == "summary")
           {
-               Category = Pair.second;
+               continue;
           }
-          else if (LowerKey == "labels" || LowerKey == "tags" || LowerKey == "keywords")
+
+          for (const auto& Value : ExtractArrayishValues(Pair.second))
           {
-               auto Values = ExtractArrayishValues(Pair.second);
-               Labels.insert(Labels.end(), Values.begin(), Values.end());
+               AppendSuggestion(Suggestions, Seen, Title + " " + Value, "field", Limit);
+
+               if (Suggestions.size() >= Limit)
+               {
+                    break;
+               }
           }
-          else if (LowerKey == "genre" || LowerKey == "genres" || LowerKey == "style")
-          {
-               auto Values = ExtractArrayishValues(Pair.second);
-               Genres.insert(Genres.end(), Values.begin(), Values.end());
-          }
-     }
-
-     AppendSuggestion(Suggestions, Seen, Title, "title", Limit);
-
-     if (!Collection.empty())
-     {
-          AppendSuggestion(Suggestions, Seen, Title + " " + Collection, "collection", Limit);
-     }
-
-     if (!Category.empty())
-     {
-          AppendSuggestion(Suggestions, Seen, Title + " " + Category, "category", Limit);
-     }
-
-     for (const auto& Genre : Genres)
-     {
-          AppendSuggestion(Suggestions, Seen, Title + " " + Genre, "genre", Limit);
-     }
-
-     for (const auto& Label : Labels)
-     {
-          AppendSuggestion(Suggestions, Seen, Title + " " + Label, "label", Limit);
-     }
-
-     const std::string CombinedContext = ToLowerCopy(Collection + " " + Category + " " + Doc.Content);
-
-     if (CombinedContext.find("music") != std::string::npos ||
-         CombinedContext.find("song") != std::string::npos ||
-         CombinedContext.find("singer") != std::string::npos ||
-         CombinedContext.find("album") != std::string::npos)
-     {
-          AppendSuggestion(Suggestions, Seen, Title + " music", "music", Limit);
-          AppendSuggestion(Suggestions, Seen, Title + " songs", "music", Limit);
-          AppendSuggestion(Suggestions, Seen, "music by " + Title, "music", Limit);
-     }
-
-     if (CombinedContext.find("article") != std::string::npos ||
-         CombinedContext.find("essay") != std::string::npos ||
-         CombinedContext.find("report") != std::string::npos)
-     {
-          AppendSuggestion(Suggestions, Seen, Title + " article", "article", Limit);
-          AppendSuggestion(Suggestions, Seen, Title + " report", "article", Limit);
      }
 
      if (Configured() && !InferenceCommand.empty() && Suggestions.size() < Limit)
