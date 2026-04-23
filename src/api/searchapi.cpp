@@ -1722,6 +1722,68 @@ bool SearchAPI::ParseDocumentFromJSON(const nlohmann::json &DocJSON, Document &D
                     continue;
                }
 
+               if (Key == "fields" && Value.is_object())
+               {
+                    for (const auto &[NestedKey, NestedValue] : Value.items())
+                    {
+                         std::string NestedFieldNameError;
+
+                         if (!ValidateFieldName(NestedKey, &NestedFieldNameError))
+                         {
+                              if (ErrorMsg)
+                              {
+                                   *ErrorMsg = "Invalid field name '" + NestedKey + "': " + NestedFieldNameError;
+                              }
+
+                              return false;
+                         }
+
+                         if (NestedValue.is_null())
+                         {
+                              continue;
+                         }
+
+                         std::string NestedFieldValue;
+
+                         if (NestedValue.is_string())
+                         {
+                              NestedFieldValue = NestedValue.get<std::string>();
+                         }
+                         else if (NestedValue.is_number_integer())
+                         {
+                              NestedFieldValue = std::to_string(NestedValue.get<int64_t>());
+                         }
+                         else if (NestedValue.is_number_float())
+                         {
+                              NestedFieldValue = std::to_string(NestedValue.get<double>());
+                         }
+                         else if (NestedValue.is_boolean())
+                         {
+                              NestedFieldValue = NestedValue.get<bool>() ? "true" : "false";
+                         }
+                         else
+                         {
+                              NestedFieldValue = NestedValue.dump();
+                         }
+
+                         std::string NestedFieldValueError;
+
+                         if (!ValidateFieldValue(NestedFieldValue, &NestedFieldValueError, NestedKey))
+                         {
+                              if (ErrorMsg)
+                              {
+                                   *ErrorMsg = "Invalid field value for '" + NestedKey + "': " + NestedFieldValueError;
+                              }
+
+                              return false;
+                         }
+
+                         DocumentObj.Fields[NestedKey] = std::move(NestedFieldValue);
+                    }
+
+                    continue;
+               }
+
                std::string FieldNameError;
 
                if (!ValidateFieldName(Key, &FieldNameError))

@@ -197,16 +197,6 @@ hlquery::Client client("http://localhost:9200");
 auto result = client.search("products", {{"q", "laptop"}});
 ```
 
-When using the bundled C++ client, include headers from `etc/api/cpp/include`
-and link against the built client library:
-
-```bash
-g++ -std=c++17 app.cpp \
-  -Ietc/api/cpp/include \
-  -Letc/api/cpp/build -lhlqueryclient \
-  -lcurl -lssl -lcrypto
-```
-
 ### Example Queries
 
 ```bash

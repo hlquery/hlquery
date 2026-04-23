@@ -17,8 +17,6 @@
 #include "core/modules.h"
 #include "utils/protocol.h"
 
-namespace
-{
 /* Build a standard deny response for demo mode. */
 
 ModulePreCheckResult MakeDeniedResult(const std::string &Operation, const std::string &Message)
@@ -32,7 +30,6 @@ ModulePreCheckResult MakeDeniedResult(const std::string &Operation, const std::s
      Result.Details = Message + " " + Operation + " is disabled.";
 
      return Result;
-}
 }
 
 /* Runtime module that enforces demo mode restrictions. */

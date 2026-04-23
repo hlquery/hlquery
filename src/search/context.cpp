@@ -29,6 +29,8 @@
 #include "search/sam.h"
 #include "vendor/json/json.hpp"
 
+static std::string TruncateForContextWindows(const std::string& Value, size_t MaxChars = 360);
+
 static std::string TrimCopy(const std::string& Value)
 {
      const size_t Start = Value.find_first_not_of(" \t\r\n");
@@ -228,6 +230,228 @@ static bool IsGenericDescriptorToken(const std::string& Token)
 static bool IsStrongPhraseToken(const std::string& Token)
 {
      return !(Token.empty() || IsSamStopword(Token) || IsWeakSamToken(Token) || IsGenericDescriptorToken(Token));
+}
+
+struct CollectionProfileCandidate
+{
+     std::string Text;
+     size_t DocFrequency = 0;
+     size_t TermFrequency = 0;
+};
+
+struct CollectionProfile
+{
+     std::vector<std::string> Terms;
+};
+
+static bool IsCollectionProfilePhrase(const std::string& Value)
+{
+     const std::vector<std::string> Tokens = TokenizeNormalized(Value);
+
+     if (Tokens.empty() || Tokens.size() > 3)
+     {
+          return false;
+     }
+
+     size_t StrongCount = 0;
+
+     for (const auto& Token : Tokens)
+     {
+          if (Token.size() < 3)
+          {
+               return false;
+          }
+
+          if (IsStrongPhraseToken(Token))
+          {
+               ++StrongCount;
+          }
+     }
+
+     return StrongCount == Tokens.size();
+}
+
+static void AccumulateCollectionProfileText(const std::string& Text,
+                                           std::unordered_map<std::string, CollectionProfileCandidate>& Ranked,
+                                           std::unordered_set<std::string>& SeenInDoc)
+{
+     const std::vector<std::string> Tokens = TokenizeNormalized(NormalizeTerm(Text));
+
+     if (Tokens.empty())
+     {
+          return;
+     }
+
+     auto AddCandidate = [&](const std::string& Candidate)
+     {
+          if (!IsCollectionProfilePhrase(Candidate))
+          {
+               return;
+          }
+
+          CollectionProfileCandidate& Entry = Ranked[Candidate];
+          Entry.Text = Candidate;
+          ++Entry.TermFrequency;
+
+          if (SeenInDoc.insert(Candidate).second)
+          {
+               ++Entry.DocFrequency;
+          }
+     };
+
+     for (size_t Index = 0; Index < Tokens.size(); ++Index)
+     {
+          if (!IsStrongPhraseToken(Tokens[Index]))
+          {
+               continue;
+          }
+
+          AddCandidate(Tokens[Index]);
+
+          if (Index + 1 < Tokens.size() &&
+              IsStrongPhraseToken(Tokens[Index + 1]))
+          {
+               AddCandidate(Tokens[Index] + " " + Tokens[Index + 1]);
+          }
+
+          if (Index + 2 < Tokens.size() &&
+              IsStrongPhraseToken(Tokens[Index + 1]) &&
+              IsStrongPhraseToken(Tokens[Index + 2]))
+          {
+               AddCandidate(Tokens[Index] + " " + Tokens[Index + 1] + " " + Tokens[Index + 2]);
+          }
+     }
+}
+
+static std::string BuildDocumentProfileEvidence(const Document& Doc)
+{
+     std::string Evidence = Doc.Title;
+
+     if (!Doc.Content.empty())
+     {
+          if (!Evidence.empty())
+          {
+               Evidence.push_back(' ');
+          }
+
+          Evidence += TruncateForContextWindows(Doc.Content, 720);
+     }
+
+     for (const auto& Field : Doc.Fields)
+     {
+          if (Field.second.empty())
+          {
+               continue;
+          }
+
+          if (!Evidence.empty())
+          {
+               Evidence.push_back(' ');
+          }
+
+          Evidence += Field.second;
+     }
+
+     return NormalizeTerm(Evidence);
+}
+
+static CollectionProfile BuildCollectionProfile(const std::string& Collection,
+                                                const std::string& CurrentDocumentID)
+{
+     CollectionProfile Profile;
+     std::unordered_map<std::string, CollectionProfileCandidate> Ranked;
+     const size_t DocumentCount = HybridStorageManager::GetInstance().GetCollectionDocumentCount(Collection);
+     const int SampleSize = static_cast<int>(std::min<size_t>(24, std::max<size_t>(6, DocumentCount)));
+
+     if (SampleSize <= 0)
+     {
+          return Profile;
+     }
+
+     const std::vector<Document> Docs = HybridStorageManager::GetInstance().ListDocuments(Collection, SampleSize, 0);
+
+     for (const auto& SampleDoc : Docs)
+     {
+          if (!CurrentDocumentID.empty() && SampleDoc.ID == CurrentDocumentID)
+          {
+               continue;
+          }
+
+          std::unordered_set<std::string> SeenInDoc;
+          AccumulateCollectionProfileText(SampleDoc.Title, Ranked, SeenInDoc);
+          AccumulateCollectionProfileText(TruncateForContextWindows(SampleDoc.Content, 520), Ranked, SeenInDoc);
+
+          for (const auto& Field : SampleDoc.Fields)
+          {
+               AccumulateCollectionProfileText(Field.second, Ranked, SeenInDoc);
+          }
+     }
+
+     std::vector<CollectionProfileCandidate> Candidates;
+     Candidates.reserve(Ranked.size());
+
+     for (const auto& Pair : Ranked)
+     {
+          const CollectionProfileCandidate& Candidate = Pair.second;
+
+          if (Candidate.DocFrequency < 2)
+          {
+               continue;
+          }
+
+          Candidates.push_back(Candidate);
+     }
+
+     std::sort(Candidates.begin(), Candidates.end(),
+               [](const CollectionProfileCandidate& A, const CollectionProfileCandidate& B)
+               {
+                    if (A.DocFrequency != B.DocFrequency)
+                    {
+                         return A.DocFrequency > B.DocFrequency;
+                    }
+
+                    if (A.TermFrequency != B.TermFrequency)
+                    {
+                         return A.TermFrequency > B.TermFrequency;
+                    }
+
+                    if (A.Text.size() != B.Text.size())
+                    {
+                         return A.Text.size() < B.Text.size();
+                    }
+
+                    return A.Text < B.Text;
+               });
+
+     for (const auto& Candidate : Candidates)
+     {
+          bool Covered = false;
+
+          for (const auto& Existing : Profile.Terms)
+          {
+               if (Existing == Candidate.Text ||
+                   Existing.find(Candidate.Text) != std::string::npos ||
+                   Candidate.Text.find(Existing) != std::string::npos)
+               {
+                    Covered = true;
+                    break;
+               }
+          }
+
+          if (Covered)
+          {
+               continue;
+          }
+
+          Profile.Terms.push_back(Candidate.Text);
+
+          if (Profile.Terms.size() >= 8)
+          {
+               break;
+          }
+     }
+
+     return Profile;
 }
 
 static bool IsLowIntentGenericPhrase(const std::string& Value, const std::string& Subject)
@@ -514,7 +738,7 @@ static double ClassifyLLMTermScore(const std::string& Kind)
      return Kind == "synonym" ? 0.82 : 0.67;
 }
 
-static std::string TruncateForContextWindows(const std::string& Value, size_t MaxChars = 360)
+static std::string TruncateForContextWindows(const std::string& Value, size_t MaxChars)
 {
      if (Value.size() <= MaxChars)
      {
@@ -1174,6 +1398,7 @@ std::vector<SAM::TermEntry> SAM::GenerateLLMTerms(const std::string& Collection,
                                                   std::string* ErrorMessage) const
 {
      std::vector<TermEntry> Terms;
+     const CollectionProfile Profile = BuildCollectionProfile(Collection, Doc.ID);
 
      if (ErrorMessage)
      {
@@ -1248,8 +1473,9 @@ std::vector<SAM::TermEntry> SAM::GenerateLLMTerms(const std::string& Collection,
      Payload["title"] = Doc.Title;
      Payload["content"] = Doc.Content;
      Payload["fields"] = Doc.Fields;
+     Payload["collection_profile"] = Profile.Terms;
      Payload["instruction"] =
-          "Infer the document's domain from its title, content, and fields. Generate concise, multilingual-friendly lookup phrases a user might search to find this exact document. Use important field values, aliases, roles, places, dates, identifiers, and distinctive wording when present. Do not assume any collection-specific domain, gender, language, or topic unless it is supported by the document itself.";
+          "Infer the document's domain from its title, content, fields, and the sampled collection_profile learned from neighboring documents in the same collection. Generate concise, multilingual-friendly lookup phrases a user might search to find this exact document. Use important field values, aliases, roles, places, dates, identifiers, and distinctive wording when present. Treat collection_profile as weak evidence only and do not parrot it unless this document supports it.";
      const int MaxIdeas = (Instance && Instance->Config)
           ? std::max(1, Instance->Config->GetSamLLMMaxIdeas())
           : 6;
@@ -1398,6 +1624,7 @@ std::vector<SAM::TermEntry> SAM::ExpandDocumentTerms(const std::string& Collecti
                                                      std::string* ErrorMessage) const
 {
      std::vector<TermEntry> Terms = GenerateLLMTerms(Collection, Doc, ErrorMessage);
+     const CollectionProfile Profile = BuildCollectionProfile(Collection, Doc.ID);
      std::unordered_map<std::string, size_t> IndexByTerm;
 
      for (size_t Index = 0; Index < Terms.size(); ++Index)
@@ -1430,6 +1657,21 @@ std::vector<SAM::TermEntry> SAM::ExpandDocumentTerms(const std::string& Collecti
      if (!Doc.Content.empty())
      {
           AppendStructuredPhraseWindows(Terms, IndexByTerm, TruncateForContextWindows(Doc.Content), "content_window", 0.60, 0.64, 4);
+     }
+
+     const std::string DocumentEvidence = BuildDocumentProfileEvidence(Doc);
+
+     for (const auto& ProfileTerm : Profile.Terms)
+     {
+          const std::string Needle = " " + NormalizeTerm(ProfileTerm) + " ";
+          const std::string Haystack = " " + DocumentEvidence + " ";
+
+          if (Needle.size() <= 2 || Haystack.find(Needle) == std::string::npos)
+          {
+               continue;
+          }
+
+          AppendScoredTerm(Terms, IndexByTerm, ProfileTerm, "collection_context", 0.61, "collection_profile", 0.66);
      }
 
      const auto LabelsIt = Doc.Fields.find("labels");
