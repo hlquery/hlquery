@@ -661,7 +661,14 @@ HLQueryCLI::HTTPResponse HLQueryCLI::MakeRequest(const std::string &method, cons
           SSL_set_fd(SSLObj, sock);
           if (!Host.empty())
           {
+#if defined(__GNUC__) || defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wold-style-cast"
+#endif
                SSL_set_tlsext_host_name(SSLObj, Host.c_str());
+#if defined(__GNUC__) || defined(__clang__)
+#pragma GCC diagnostic pop
+#endif
           }
 
           if (SSL_connect(SSLObj) != 1)

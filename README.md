@@ -137,24 +137,29 @@ Collection 'products' created successfully
 ```php
 <?php
 
-require_once __DIR__ . '/vendor/autoload.php';
+require_once __DIR__ . '/vendor/autoload.php'; // Load Composer-installed hlquery classes.
 
-use Hlquery\Client;
+use Hlquery\Client; // Import the main client entry point.
 
-$client = new Client('http://localhost:9200');
+$client = new Client(
+    getenv('HLQ_BASE_URL') ?: (getenv('HLQUERY_BASE_URL') ?: 'http://localhost:9200') // Prefer env config when deploying.
+); // Point the client at your local or remote hlquery server.
 
-$collections = $client->collections();
+$collections = $client->collections(); // Get the collections service from the client.
 
-$schema = [
-    'fields' => [
-        ['name' => 'id', 'type' => 'string'],
-        ['name' => 'title', 'type' => 'string'],
-        ['name' => 'content', 'type' => 'string'],
-        ['name' => 'price', 'type' => 'float'],
-    ],
-];
+$schema = [ // Build the schema payload sent to hlquery.
+    'fields' => [ // Define the collection schema hlquery should create.
+        ['name' => 'id', 'type' => 'string'], // Store the document id as a string field.
+        ['name' => 'title', 'type' => 'string'], // Keep the main product title searchable.
+        ['name' => 'content', 'type' => 'string'], // Index the longer product description text.
+        ['name' => 'price', 'type' => 'float'], // Save a numeric price for filters and sorts.
+    ], // Finish the field list.
+]; // Finish the schema array.
 
-$collections->create('products', $schema);
+$response = $collections->create('products', $schema); // Send POST /collections for the products index.
+$body = $response->getBody(); // Read the parsed JSON response body.
+
+echo "Created collection: " . ($body['name'] ?? 'products') . PHP_EOL; // Print the created collection name.
 ```
 
 ### Index Documents
@@ -167,11 +172,22 @@ Document 'product1' added to collection 'products'
 **Using the Node API:**
 
 ```js
-await client.documents().add('products', {
-  id: 'product1',
-  title: 'Laptop Computer',
-  content: 'High-performance laptop with 16GB RAM'
-});
+const Client = require('./etc/api/node/lib/Client'); // Load the official hlquery Node client.
+
+const client = new Client(
+  process.env.HLQ_BASE_URL || process.env.HLQUERY_BASE_URL || 'http://localhost:9200' // Prefer env config outside local dev.
+); // Connect to the local server unless an env var overrides it.
+
+const documents = client.documents(); // Use the documents service for document writes.
+
+const response = await documents.add('products', {
+  id: 'product1', // Primary document id used by later reads and updates.
+  title: 'Laptop Computer', // Searchable title field.
+  content: 'High-performance laptop with 16GB RAM', // Main body text to index.
+  price: 1299.99 // Numeric field for filtering and sorting.
+}); // Send POST /collections/products/documents with the product payload.
+
+console.log(response.getBody()); // Inspect the JSON body returned by the API.
 ```
 
 ### Search

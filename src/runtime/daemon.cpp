@@ -344,7 +344,7 @@ std::atomic<int> DaemonHandler::LastEventCount(0);
 
 std::atomic<uint64_t> DaemonHandler::LazyProcessingCounter(0);
 
-std::atomic<int> DaemonHandler::BatchSize(1000);
+std::atomic<int> DaemonHandler::BatchSize(10000);
 
 /* Handles HLQuery-style adaptive sleep and high-throughput optimization logic */
 
