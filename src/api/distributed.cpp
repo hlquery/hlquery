@@ -2444,6 +2444,7 @@ void SearchAPI::MarkSlaveDirty(const std::string &Endpoint) const
           LastReplicationErrorTimestampMS = NowMS;
      }
      PersistReplicationSlaveState(Endpoint);
+     ReplicationMonitorCV.notify_one();
 }
 
 void SearchAPI::MarkSlaveReachable(const std::string &Endpoint) const
@@ -2454,6 +2455,7 @@ void SearchAPI::MarkSlaveReachable(const std::string &Endpoint) const
           ReplicationLastReachableTimestampMS[Endpoint] = NowMS;
      }
      PersistReplicationSlaveState(Endpoint);
+     ReplicationMonitorCV.notify_one();
 }
 
 void SearchAPI::MarkSlaveResynced(const std::string &Endpoint) const
@@ -2466,6 +2468,7 @@ void SearchAPI::MarkSlaveResynced(const std::string &Endpoint) const
           ReplicationLastResyncTimestampMS[Endpoint] = NowMS;
      }
      PersistReplicationSlaveState(Endpoint);
+     ReplicationMonitorCV.notify_one();
 }
 
 bool SearchAPI::IsSlaveResyncActive(const std::string &Endpoint) const
@@ -2730,7 +2733,12 @@ bool SearchAPI::ReplicateWriteRequest(const HttpRequest &Request,
 
           for (const auto &Node : RemoteSlaves)
           {
-               if (IsSlaveResyncActive(Node.Endpoint))
+               uint64_t LastReachableMS = 0;
+               bool IsDirty = false;
+               bool ResyncInProgress = false;
+               (void)GetReplicationNodeState(Node.Endpoint, &LastReachableMS, nullptr, &IsDirty, &ResyncInProgress);
+
+               if (IsDirty || ResyncInProgress)
                {
                     std::string QueueError;
                     if (!QueuePendingReplication(Node.Endpoint, ReplicationRequest, false, &QueueError))
@@ -2739,8 +2747,20 @@ bool SearchAPI::ReplicateWriteRequest(const HttpRequest &Request,
                     }
                     else
                     {
-                         Errors.push_back(Node.Endpoint + ": deferred while full resync is in progress");
+                         if (ResyncInProgress)
+                         {
+                              Errors.push_back(Node.Endpoint + ": deferred while full resync is in progress");
+                         }
+                         else if (LastReachableMS > 0)
+                         {
+                              Errors.push_back(Node.Endpoint + ": deferred while replica is marked dirty/offline until monitor reconnects and resyncs it");
+                         }
+                         else
+                         {
+                              Errors.push_back(Node.Endpoint + ": deferred while replica is marked unavailable and awaiting first successful monitor probe");
+                         }
                     }
+                    ReplicationMonitorCV.notify_one();
                     continue;
                }
 

@@ -1114,9 +1114,7 @@ bool hlquery::WritePID()
           struct FdGuard
           {
                int FDValue;
-
                bool Released;
-
                bool LockAcquired;
 
                FdGuard(int fd) : FDValue(fd), Released(false), LockAcquired(false)
