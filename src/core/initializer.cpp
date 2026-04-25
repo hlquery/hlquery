@@ -1125,13 +1125,9 @@ void hlquery::WaitForMetadataScan()
                                               }
 
                                               const int MaxWaitSecondsCount = METADATA_SCAN_MAX_WAIT_SECONDS;
-
                                               const int SleepMSValueCount = METADATA_SCAN_SLEEP_MS;
-
                                               int WaitedMSValueCount = 0;
-
                                               int LogIntervalMSCount = 5000;
-
                                               int LastLoggedMSValueCount = 0;
 
                                               if (Instance && Instance->Logs)

@@ -4,7 +4,7 @@
 
 <div align="center">
 
-**A high-performance search engine built for modern applications.**
+**A modular, high-performance search engine built for modern applications.**
 
 [![Follow hlquery](https://img.shields.io/badge/Follow-%40hlquery-blue?logo=x&logoColor=white)](https://x.com/hlquery)
 [![Linux Build](https://github.com/hlquery/hlquery/workflows/Linux%20build/badge.svg)](https://github.com/hlquery/hlquery/actions)
