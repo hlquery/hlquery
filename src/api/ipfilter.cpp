@@ -672,15 +672,10 @@ void IPFilter::FlushDNSCache()
           std::lock_guard<std::mutex> CacheLock(CacheMutex);
 
           DNSCount = DNSCache.size();
-
           ReverseCount = ReverseDNSCache.size();
-
           DNSCache.clear();
-
           ReverseDNSCache.clear();
-
           DNSCacheOrder.clear();
-
           ReverseDNSCacheOrder.clear();
      }
 
@@ -777,7 +772,6 @@ void IPFilter::FlushDNSCache()
      if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
      {
           bool ReResolved = (HasHostnames && !RegularHostnames.empty()) || (HasDenyHostnames && !DeniedRegularHostnames.empty());
-
           Instance->Logs->Debug("ip_allow", "DNS cache flushed: " + std::to_string(DNSCount) + " forward, " + std::to_string(ReverseCount) + " reverse entries cleared" + (ReResolved ? " (hostnames re-resolved)" : "") + ".");
      }
 }

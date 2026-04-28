@@ -64,14 +64,14 @@ $ ./configure
 On Linux:
 
 ```
-$ make -j10
+$ make -j4
 $ make install
 ```
 
 On FreeBSD, use GNU make for the build and install steps:
 
 ```bash
-$ gmake -j10
+$ gmake -j4
 $ gmake install
 ```
 
@@ -125,7 +125,7 @@ For complete API documentation, visit [docs.hlquery.com](https://docs.hlquery.co
 
 ## Getting Started
 
-### Create a Collection
+## Create a Collection
 
 ```bash
 $ hlquery-cli create products title content price
@@ -163,7 +163,7 @@ $body = $response->getBody();
 echo "Created collection: " . ($body['name'] ?? 'products') . PHP_EOL; 
 ```
 
-### Index Documents
+## Index Documents
 
 ```bash
 $ hlquery-cli add products product1 "Laptop Computer" "High-performance laptop with 16GB RAM"
@@ -194,7 +194,7 @@ console.log(response.getBody());
 
 ```
 
-### Search
+## Search
 
 ```text
 $ hlquery-cli search products "laptop"
@@ -214,10 +214,10 @@ Found 1 document(s) (showing 1-1 of 1)
 #include "hlquery/client.h"
 
 hlquery::Client client("http://localhost:9200");
-auto result = client.search("products", {{"q", "laptop"}});
+auto result = client.searchApi()->search("products", {{"like", "laptop"}});
 ```
 
-### Example Queries
+## Example Queries
 
 ```bash
 # Field-specific search

@@ -35,8 +35,6 @@
 #include "utils/protocol.h"
 #include "vendor/json/json.hpp"
 
-namespace
-{
 /* Stores the maybe-suggestion policy for a document search response. */
 
 struct DocumentMaybeSettings
@@ -1496,8 +1494,6 @@ static void ApplySQLDistinct(ComprehensiveSearchResult &SearchResultObj, const S
      SearchResultObj.Hits = std::move(DistinctHits);
      SearchResultObj.Found = static_cast<int>(SearchResultObj.Hits.size());
      SearchResultObj.OutOf = static_cast<int>(SearchResultObj.Hits.size());
-}
-
 }
 
 /* HandleSearch main search endpoint. */

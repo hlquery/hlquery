@@ -50,8 +50,6 @@
 #include "utils/wildcard.h"
 #include "vendor/json/json.hpp"
 
-namespace
-{
 static nlohmann::json BuildDocumentJSON(const Document &Doc)
 {
      nlohmann::json J;
@@ -174,8 +172,6 @@ static bool ExtractSAMDocumentPathParts(const std::string &Path,
      Collection = Remainder.substr(0, SlashPos);
      DocumentID = Remainder.substr(SlashPos + 1);
      return !Collection.empty() && !DocumentID.empty();
-}
-
 }
 
 /* HandleListDocuments lists documents in a collection with pagination and sorting. */

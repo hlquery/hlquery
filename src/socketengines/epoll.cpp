@@ -567,10 +567,10 @@ void SocketEngine::DelFD(EventHandler *EH)
           UnregisterPendingWrite(EH);
 
           /*
-         * IMPROVEMENT: Synchronize properly when closing sockets from outside the event loop thread
-         * to prevent a race condition where epoll still has a dangling reference to a closed file descriptor
-         * Use mutex if called from different thread (currently single-threaded, but prepare for future)
-         */
+           * IMPROVEMENT: Synchronize properly when closing sockets from outside the event loop thread
+           * to prevent a race condition where epoll still has a dangling reference to a closed file descriptor
+           * Use mutex if called from different thread (currently single-threaded, but prepare for future)
+           */
 
           /* Only decrement if fd was actually registered (epoll_ctl succeeds) */
 
@@ -591,7 +591,7 @@ void SocketEngine::DelFD(EventHandler *EH)
 
                ActiveConnections.fetch_sub(1, std::memory_order_relaxed);
 
-               /*
+            /*
              * Ensure socket is closed properly - EventHandler destructor should handle this,
              * but we verify the FD is removed from epoll first to prevent use-after-free
              */
