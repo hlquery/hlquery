@@ -710,7 +710,37 @@ void ServerConfig::ApplyConfiguration()
 
     if (!SamDataDirectory.empty())
     {
-         SamDataDirectory = ResolveRelativePath(std::filesystem::path(SamDataDirectory)).string();
+         std::filesystem::path SamPath(SamDataDirectory);
+
+         if (!SamPath.empty() && !SamPath.is_absolute())
+         {
+              const auto SamIt = SamPath.begin();
+              const bool HasFirstComponent = (SamIt != SamPath.end());
+              const std::string FirstComponent = HasFirstComponent ? SamIt->generic_string() : "";
+              const bool LooksConfigRelative = (FirstComponent == "." || FirstComponent == ".." || FirstComponent == "run");
+
+              if (!LooksConfigRelative)
+              {
+                   const std::filesystem::path RuntimeDataDir = RuntimePaths::ResolveRuntimeDataDir(this);
+
+                   if (!RuntimeDataDir.empty())
+                   {
+                        SamDataDirectory = std::filesystem::absolute(RuntimeDataDir / SamPath).string();
+                   }
+                   else
+                   {
+                        SamDataDirectory = ResolveRelativePath(SamPath).string();
+                   }
+              }
+              else
+              {
+                   SamDataDirectory = ResolveRelativePath(SamPath).string();
+              }
+         }
+         else
+         {
+              SamDataDirectory = ResolveRelativePath(SamPath).string();
+         }
     }
 
     const bool HasExplicitLLMConfig = (AITag != nullptr) || (LLMTag != nullptr);

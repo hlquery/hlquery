@@ -102,6 +102,64 @@ static std::string TrimCopy(const std::string &Value)
      return Value.substr(Start, End - Start + 1);
 }
 
+static int CompareNaturalString(const std::string &A, const std::string &B)
+{
+     size_t I = 0;
+     size_t J = 0;
+
+     while (I < A.length() && J < B.length())
+     {
+          if (std::isdigit(static_cast<unsigned char>(A[I])) && std::isdigit(static_cast<unsigned char>(B[J])))
+          {
+               size_t NumStartA = I;
+               size_t NumStartB = J;
+
+               while (I < A.length() && std::isdigit(static_cast<unsigned char>(A[I])))
+               {
+                    I++;
+               }
+
+               while (J < B.length() && std::isdigit(static_cast<unsigned char>(B[J])))
+               {
+                    J++;
+               }
+
+               const long long NumA = std::stoll(A.substr(NumStartA, I - NumStartA));
+               const long long NumB = std::stoll(B.substr(NumStartB, J - NumStartB));
+
+               if (NumA != NumB)
+               {
+                    return (NumA < NumB) ? -1 : 1;
+               }
+          }
+          else
+          {
+               const char CharA = std::tolower(static_cast<unsigned char>(A[I]));
+               const char CharB = std::tolower(static_cast<unsigned char>(B[J]));
+
+               if (CharA != CharB)
+               {
+                    return (CharA < CharB) ? -1 : 1;
+               }
+
+               I++;
+               J++;
+          }
+     }
+
+     if (I < A.length())
+     {
+          return 1;
+     }
+
+     if (J < B.length())
+     {
+          return -1;
+     }
+
+     return 0;
+}
+
 static bool ParseNonNegativeIntParam(const std::map<std::string, std::string> &Params,
                                      const std::string &Key,
                                      int DefaultValue,
@@ -431,7 +489,13 @@ HttpResponse SearchAPI::HandleListDocuments(const HttpRequest &Request)
                                    return DescendingVal ? ATimestamp > BTimestamp : ATimestamp < BTimestamp;
                               }
 
-                              return false;
+                              int IDCmp = CompareNaturalString(A.ID, B.ID);
+                              if (IDCmp != 0)
+                              {
+                                   return IDCmp < 0;
+                              }
+
+                              return CompareNaturalString(A.Title, B.Title) < 0;
                          }
                          else
                          {
@@ -493,15 +557,28 @@ HttpResponse SearchAPI::HandleListDocuments(const HttpRequest &Request)
                                    double ANum = std::stod(AValue);
                                    double BNum = std::stod(BValue);
 
-                                   return DescendingVal ? ANum > BNum : ANum < BNum;
+                                   if (ANum != BNum)
+                                   {
+                                        return DescendingVal ? ANum > BNum : ANum < BNum;
+                                   }
                               }
                               catch (...)
                               {
-                                   return DescendingVal ? AValue > BValue : AValue < BValue;
+                                   int Cmp = CompareNaturalString(AValue, BValue);
+                                   if (Cmp != 0)
+                                   {
+                                        return DescendingVal ? (Cmp > 0) : (Cmp < 0);
+                                   }
                               }
                          }
 
-                         return false;
+                         int IDCmp = CompareNaturalString(A.ID, B.ID);
+                         if (IDCmp != 0)
+                         {
+                              return IDCmp < 0;
+                         }
+
+                         return CompareNaturalString(A.Title, B.Title) < 0;
                     });
 
           if (OffsetVal > 0 || static_cast<int>(Documents.size()) > LimitVal)
