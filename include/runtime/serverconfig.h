@@ -611,6 +611,16 @@ class ServerConfig
           return SamContextMaxIdeas;
      }
 
+     bool GetSamLogContext() const
+     {
+          return SamLogContext;
+     }
+
+     int GetSamLLMTimeoutMs() const
+     {
+          return SamLLMTimeoutMs;
+     }
+
      const std::string& GetSamLLMCreativityMode() const
      {
           return SamLLMCreativityMode;
@@ -2025,10 +2035,12 @@ class ServerConfig
     double Sam25LongQueryPhraseBoost = 0.85;
     double Sam25SourcePhraseBoostTitle = 1.25;
     double Sam25SourcePhraseBoostLabelPair = 1.15;
-    double Sam25SourcePhraseBoostLabel = 1.00;
-    double Sam25SourcePhraseBoostLlm = 0.85;
+     double Sam25SourcePhraseBoostLabel = 1.00;
+     double Sam25SourcePhraseBoostLlm = 0.85;
      int SamLLMMaxIdeas = 6;
      int SamContextMaxIdeas = 20;
+     bool SamLogContext = false;
+     int SamLLMTimeoutMs = 20000;
      std::string SamLLMCreativityMode = "balanced";
     bool Sam25EnableIdf = true;
     double Sam25IdfFloor = 0.10;

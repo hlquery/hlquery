@@ -39,7 +39,7 @@
 #include "core/socketengine.h"
 #include "core/typedefs.h"
 #include "search/cstore.h"
-#include "search/sam.h"
+#include "search/sam/sam.h"
 #include "search/storageengine.h"
 #include "utils/consolewriter.h"
 #include "utils/infos.h"

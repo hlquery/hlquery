@@ -27,7 +27,7 @@
 #include <unordered_set>
 
 #include "core/hlquery.h"
-#include "search/sam.h"
+#include "search/sam/sam.h"
 #include "search/storageengine.h"
 #include "utils/tools.h"
 #include "vendor/json/json.hpp"
@@ -207,6 +207,14 @@ struct SAMQueryTokenViews
      std::vector<std::string> FullTokens;
      std::vector<std::string> CoreTokens;
 };
+
+bool IsSingleTokenSAMIntent(const SAMQueryTokenViews& QueryViews)
+{
+     const size_t TokenCount = QueryViews.CoreTokens.empty()
+          ? QueryViews.FullTokens.size()
+          : QueryViews.CoreTokens.size();
+     return TokenCount <= 1;
+}
 
 struct SAMTokenMatchResult
 {
@@ -619,6 +627,39 @@ double ComputeManifestSeedStrength(const SAMQueryTokenViews& QueryViews,
      return ClampSAMScore(Base);
 }
 
+double ComputeSingleTokenLiteralBias(const SAMQueryTokenViews& QueryViews,
+                                     const std::vector<std::string>& CandidateTokens)
+{
+     if (!IsSingleTokenSAMIntent(QueryViews) || QueryViews.CoreTokens.empty() || CandidateTokens.empty())
+     {
+          return 0.0;
+     }
+
+     const std::string& QueryToken = QueryViews.CoreTokens.front();
+     bool ExactTokenPresent = false;
+
+     for (const auto& Token : CandidateTokens)
+     {
+          if (Token == QueryToken)
+          {
+               ExactTokenPresent = true;
+               break;
+          }
+     }
+
+     if (!ExactTokenPresent)
+     {
+          return 0.0;
+     }
+
+     if (CandidateTokens.size() == 1)
+     {
+          return 0.18;
+     }
+
+     return -std::min(0.12, 0.04 * static_cast<double>(CandidateTokens.size() - 1));
+}
+
 std::vector<std::string> BuildCollectionLearnedVariants(rocksdb::DB* Database,
                                                         const std::string& Collection,
                                                         const std::string& Query,
@@ -627,7 +668,8 @@ std::vector<std::string> BuildCollectionLearnedVariants(rocksdb::DB* Database,
 {
      std::vector<std::string> Variants;
 
-     if (!Database || Collection.empty() || QueryViews.CoreTokens.empty() || MaxVariants == 0)
+     if (!Database || Collection.empty() || QueryViews.CoreTokens.empty() || MaxVariants == 0 ||
+         IsSingleTokenSAMIntent(QueryViews))
      {
           return Variants;
      }
@@ -1246,6 +1288,8 @@ struct SAMAggregatedHit
 {
      SAM::LookupHit BestHit;
      size_t EvidenceCount = 0;
+     std::unordered_set<std::string> DistinctTerms;
+     std::unordered_set<std::string> DistinctSources;
 };
 
 struct SAM25ScoreDebug
@@ -1509,7 +1553,7 @@ double ComputeSAM25SourceFieldScore(const SAMQueryTokenViews& QueryViews,
           (0.04 * SynonymBoost) +
           (0.08 * WeightedPhraseBoost);
 
-     Score = ClampSAMScore(Score);
+     Score = ClampSAMScore(Score + ComputeSingleTokenLiteralBias(QueryViews, FieldTokens));
      Score *= FieldWeight;
 
      if (DebugOut)
@@ -1644,6 +1688,14 @@ void AccumulateSAMHit(std::unordered_map<std::string, SAMAggregatedHit>& Aggrega
      }
 
      ++Aggregate.EvidenceCount;
+     if (!Hit.MatchedTerm.empty())
+     {
+          Aggregate.DistinctTerms.insert(Hit.MatchedTerm);
+     }
+     if (!Hit.MatchedSource.empty())
+     {
+          Aggregate.DistinctSources.insert(Hit.MatchedSource);
+     }
 }
 
 std::vector<SAMLearnedVariant> BuildSeededCollectionVariants(rocksdb::DB* Database,
@@ -1654,7 +1706,8 @@ std::vector<SAMLearnedVariant> BuildSeededCollectionVariants(rocksdb::DB* Databa
 {
      std::vector<SAMLearnedVariant> Variants;
 
-     if (!Database || Collection.empty() || AggregatedHits.empty() || QueryViews.CoreTokens.empty() || MaxVariants == 0)
+     if (!Database || Collection.empty() || AggregatedHits.empty() || QueryViews.CoreTokens.empty() || MaxVariants == 0 ||
+         IsSingleTokenSAMIntent(QueryViews))
      {
           return Variants;
      }
@@ -1882,9 +1935,13 @@ void FinalizeSAMAggregatedHits(std::vector<SAM::LookupHit>& Hits,
      for (const auto& Entry : AggregatedHits)
      {
           SAM::LookupHit FinalHit = Entry.second.BestHit;
-          const double EvidenceBonus = std::min(0.12, 0.03 * static_cast<double>(Entry.second.EvidenceCount > 0
-               ? Entry.second.EvidenceCount - 1
-               : 0));
+          const size_t ExtraEvidence = Entry.second.EvidenceCount > 0 ? Entry.second.EvidenceCount - 1 : 0;
+          const size_t ExtraTerms = Entry.second.DistinctTerms.size() > 0 ? Entry.second.DistinctTerms.size() - 1 : 0;
+          const size_t ExtraSources = Entry.second.DistinctSources.size() > 0 ? Entry.second.DistinctSources.size() - 1 : 0;
+          const double EvidenceBonus = std::min(0.18,
+               (0.02 * static_cast<double>(ExtraEvidence)) +
+               (0.04 * static_cast<double>(ExtraTerms)) +
+               (0.02 * static_cast<double>(ExtraSources)));
           const double DocPrior = GetSAM25DocumentPriorScore(FinalHit);
           const SAM25SourceDocMatch SourceMatch = ComputeSAM25SourceDocumentMatch(FinalHit.Collection,
                FinalHit.DocumentID, QueryViews);
@@ -2082,7 +2139,7 @@ double ComputeSAM25TermScore(rocksdb::DB* Database,
           (0.02 * SynonymBoost) +
           (0.05 * WeightedPhraseBoost);
 
-     Score = ClampSAMScore(Score);
+     Score = ClampSAMScore(Score + ComputeSingleTokenLiteralBias(QueryViews, TermTokens));
      const double NoisePenalty = GetSAM25NoisePenalty(Term);
      Score = ClampSAMScore(Score - NoisePenalty);
      const double SourceWeight = GetSAMSourceWeight(Term.Source);
@@ -2706,7 +2763,8 @@ std::vector<std::string> BuildPersistedCollectionProfileVariants(rocksdb::DB* Da
 {
      std::vector<std::string> Variants;
 
-     if (!Database || Collection.empty() || QueryViews.CoreTokens.empty() || MaxVariants == 0)
+     if (!Database || Collection.empty() || QueryViews.CoreTokens.empty() || MaxVariants == 0 ||
+         IsSingleTokenSAMIntent(QueryViews))
      {
           return Variants;
      }
@@ -3808,16 +3866,6 @@ bool SAM::RemoveExistingDocumentTermsLocked(const std::string& Collection,
 
 bool SAM::IndexDocumentLocked(const std::string& Collection, const Document& Doc, std::string* ErrorMessage)
 {
-     if (!Database)
-     {
-          if (ErrorMessage)
-          {
-               *ErrorMessage = "SAM database is not open.";
-          }
-
-          return false;
-     }
-
      if (Collection.empty() || Doc.ID.empty())
      {
           if (ErrorMessage)
@@ -3825,11 +3873,6 @@ bool SAM::IndexDocumentLocked(const std::string& Collection, const Document& Doc
                *ErrorMessage = "Collection or document ID is empty.";
           }
 
-          return false;
-     }
-
-     if (!RemoveExistingDocumentTermsLocked(Collection, Doc.ID, ErrorMessage))
-     {
           return false;
      }
 
@@ -3869,6 +3912,24 @@ bool SAM::IndexDocumentLocked(const std::string& Collection, const Document& Doc
                            "indexed " + Doc.ID + " with " + std::to_string(Terms.size()) +
                                 " term(s): " + Preview.str());
      }
+
+     std::lock_guard<std::mutex> Lock(DBMutex);
+
+     if (!Database)
+     {
+          if (ErrorMessage)
+          {
+               *ErrorMessage = "SAM database is not open.";
+          }
+
+          return false;
+     }
+
+     if (!RemoveExistingDocumentTermsLocked(Collection, Doc.ID, ErrorMessage))
+     {
+          return false;
+     }
+
      rocksdb::WriteBatch Batch;
      nlohmann::json Manifest;
      Manifest["collection"] = Collection;
@@ -3917,7 +3978,6 @@ bool SAM::IndexDocumentLocked(const std::string& Collection, const Document& Doc
 
 bool SAM::IndexDocument(const std::string& Collection, const Document& Doc, std::string* ErrorMessage)
 {
-     std::lock_guard<std::mutex> Lock(DBMutex);
      return IndexDocumentLocked(Collection, Doc, ErrorMessage);
 }
 

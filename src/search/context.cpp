@@ -16,8 +16,12 @@
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
+#include <cerrno>
 #include <filesystem>
+#include <fcntl.h>
 #include <fstream>
+#include <poll.h>
+#include <signal.h>
 #include <sstream>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -26,10 +30,257 @@
 #include <vector>
 
 #include "core/hlquery.h"
-#include "search/sam.h"
+#include "search/sam/sam.h"
 #include "vendor/json/json.hpp"
 
 static std::string TruncateForContextWindows(const std::string& Value, size_t MaxChars = 360);
+static std::vector<std::string> ExtractArrayishValues(const std::string& Raw);
+static bool IsContextFieldName(const std::string& FieldName);
+static bool IsLowIntentGenericPhrase(const std::string& Value, const std::string& Subject);
+static void AppendScoredTerm(std::vector<SAM::TermEntry>& Target,
+                             std::unordered_map<std::string, size_t>& IndexByTerm,
+                             const std::string& Value,
+                             const std::string& Kind,
+                             double Score,
+                             const std::string& Source,
+                             double Signal);
+static void AppendStructuredPhraseWindows(std::vector<SAM::TermEntry>& Terms,
+                                          std::unordered_map<std::string, size_t>& IndexByTerm,
+                                          const std::string& RawText,
+                                          const std::string& Source,
+                                          double BaseScore,
+                                          double BaseSignal,
+                                          size_t MaxWindow);
+
+static bool ShouldLogSAMContext()
+{
+     return Instance && Instance->Config && Instance->Config->GetSamLogContext() &&
+            Instance->Logs;
+}
+
+static void LogSAMContext(const std::string& Collection,
+                          const std::string& DocumentID,
+                          const std::string& Message)
+{
+     if (!ShouldLogSAMContext())
+     {
+          return;
+     }
+
+     Instance->Logs->Debug("sam",
+                           "context [" + Collection + "/" + DocumentID + "] " + Message);
+}
+
+static std::string FormatSAMTermsForLog(const std::vector<SAM::TermEntry>& Terms)
+{
+     nlohmann::json Root = nlohmann::json::array();
+
+     for (const auto& Term : Terms)
+     {
+          Root.push_back({
+               {"text", Term.Text},
+               {"kind", Term.Kind},
+               {"source", Term.Source},
+               {"score", Term.Score},
+               {"signal", Term.Signal}
+          });
+     }
+
+     return Root.dump();
+}
+
+struct SAMCommandResult
+{
+     bool Started = false;
+     bool TimedOut = false;
+     int ExitStatus = -1;
+     std::vector<std::string> Lines;
+     std::string ErrorMessage;
+};
+
+struct SAMStructuredIdea
+{
+     std::string Text;
+     double Weight = 0.0;
+};
+
+struct SAMStructuredLLMResponse
+{
+     std::vector<std::string> Languages;
+     std::string DocumentType;
+     std::vector<SAMStructuredIdea> DistinctiveEntities;
+     std::vector<SAMStructuredIdea> OutsideInQueries;
+     std::vector<SAMStructuredIdea> SearchQueries;
+};
+
+static SAMCommandResult RunSAMCommandWithTimeout(const std::string& Command,
+                                                 int TimeoutMs)
+{
+     SAMCommandResult Result;
+
+     if (Command.empty())
+     {
+          Result.ErrorMessage = "Command is empty.";
+          return Result;
+     }
+
+     int PipeFDs[2];
+
+     if (pipe(PipeFDs) != 0)
+     {
+          Result.ErrorMessage = "Failed to create pipe.";
+          return Result;
+     }
+
+     pid_t ChildPID = fork();
+
+     if (ChildPID == -1)
+     {
+          close(PipeFDs[0]);
+          close(PipeFDs[1]);
+          Result.ErrorMessage = "Failed to fork inference process.";
+          return Result;
+     }
+
+     if (ChildPID == 0)
+     {
+          setpgid(0, 0);
+          dup2(PipeFDs[1], STDOUT_FILENO);
+          dup2(PipeFDs[1], STDERR_FILENO);
+          close(PipeFDs[0]);
+          close(PipeFDs[1]);
+          execl("/bin/sh", "sh", "-c", Command.c_str(), static_cast<char*>(nullptr));
+          _exit(127);
+     }
+
+     Result.Started = true;
+     setpgid(ChildPID, ChildPID);
+     close(PipeFDs[1]);
+
+     const int CurrentFlags = fcntl(PipeFDs[0], F_GETFL, 0);
+     if (CurrentFlags != -1)
+     {
+          fcntl(PipeFDs[0], F_SETFL, CurrentFlags | O_NONBLOCK);
+     }
+
+     std::string Pending;
+     std::array<char, 1024> Buffer{};
+     const auto StartedAt = std::chrono::steady_clock::now();
+     bool ReadEOF = false;
+
+     while (true)
+     {
+          struct pollfd PollFD;
+          PollFD.fd = PipeFDs[0];
+          PollFD.events = POLLIN;
+          PollFD.revents = 0;
+
+          const auto Now = std::chrono::steady_clock::now();
+          const long long ElapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(Now - StartedAt).count();
+
+          if (TimeoutMs > 0 && ElapsedMs >= TimeoutMs)
+          {
+               Result.TimedOut = true;
+               kill(-ChildPID, SIGKILL);
+               kill(ChildPID, SIGKILL);
+               waitpid(ChildPID, &Result.ExitStatus, 0);
+               Result.ErrorMessage = "Inference command timed out after " + std::to_string(TimeoutMs) + " ms.";
+               break;
+          }
+
+          const int RemainingMs = TimeoutMs > 0
+               ? std::max(1, TimeoutMs - static_cast<int>(ElapsedMs))
+               : 250;
+          const int PollTimeoutMs = std::min(250, RemainingMs);
+          const int PollResult = poll(&PollFD, 1, PollTimeoutMs);
+
+          if (PollResult > 0 && (PollFD.revents & (POLLIN | POLLHUP)))
+          {
+               while (true)
+               {
+                    const ssize_t BytesRead = read(PipeFDs[0], Buffer.data(), Buffer.size());
+
+                    if (BytesRead > 0)
+                    {
+                         Pending.append(Buffer.data(), static_cast<size_t>(BytesRead));
+
+                         size_t NewlinePos = std::string::npos;
+                         while ((NewlinePos = Pending.find('\n')) != std::string::npos)
+                         {
+                              std::string Line = Pending.substr(0, NewlinePos);
+
+                              if (!Line.empty() && Line.back() == '\r')
+                              {
+                                   Line.pop_back();
+                              }
+
+                              Result.Lines.push_back(std::move(Line));
+                              Pending.erase(0, NewlinePos + 1);
+                         }
+
+                         continue;
+                    }
+
+                    if (BytesRead == 0)
+                    {
+                         ReadEOF = true;
+                         break;
+                    }
+
+                    if (errno == EAGAIN || (EWOULDBLOCK != EAGAIN && errno == EWOULDBLOCK))
+                    {
+                         break;
+                    }
+
+                    Result.ErrorMessage = "Failed to read inference command output.";
+                    ReadEOF = true;
+                    break;
+               }
+          }
+
+          int WaitStatus = 0;
+          const pid_t WaitResult = waitpid(ChildPID, &WaitStatus, WNOHANG);
+
+          if (WaitResult == ChildPID)
+          {
+               Result.ExitStatus = WaitStatus;
+
+               if (ReadEOF)
+               {
+                    break;
+               }
+          }
+          else if (WaitResult == -1)
+          {
+               Result.ErrorMessage = "Failed to wait for inference command.";
+               break;
+          }
+
+          if (ReadEOF && WaitResult == ChildPID)
+          {
+               break;
+          }
+     }
+
+     close(PipeFDs[0]);
+
+     if (!Pending.empty())
+     {
+          if (!Pending.empty() && Pending.back() == '\r')
+          {
+               Pending.pop_back();
+          }
+
+          Result.Lines.push_back(std::move(Pending));
+     }
+
+     if (!Result.TimedOut && Result.ExitStatus == -1)
+     {
+          waitpid(ChildPID, &Result.ExitStatus, 0);
+     }
+
+     return Result;
+}
 
 static std::string TrimCopy(const std::string& Value)
 {
@@ -78,6 +329,36 @@ static std::string NormalizeTerm(const std::string& Value)
      }
 
      return TrimCopy(Normalized);
+}
+
+static std::string JoinCommandLines(const std::vector<std::string>& Lines)
+{
+     std::string Joined;
+
+     for (size_t Index = 0; Index < Lines.size(); ++Index)
+     {
+          if (Index > 0)
+          {
+               Joined.push_back('\n');
+          }
+
+          Joined += Lines[Index];
+     }
+
+     return Joined;
+}
+
+static std::string ExtractJSONObject(const std::string& Raw)
+{
+     const size_t Start = Raw.find('{');
+     const size_t End = Raw.rfind('}');
+
+     if (Start == std::string::npos || End == std::string::npos || End < Start)
+     {
+          return "";
+     }
+
+     return Raw.substr(Start, End - Start + 1);
 }
 
 static std::vector<std::string> TokenizeNormalized(const std::string& Value)
@@ -152,7 +433,8 @@ static bool IsWeakSamToken(const std::string& Value)
      static const std::unordered_set<std::string> WeakTokens = {
           "article", "articles", "page", "pages", "document", "documents", "content",
           "collection", "collections", "id", "official", "this", "that",
-          "these", "those", "their", "there", "here", "brief", "guide"};
+          "these", "those", "their", "there", "here", "brief", "guide",
+          "benchmark", "fake", "dummy", "sample", "placeholder", "mock", "test"};
      return WeakTokens.find(Value) != WeakTokens.end();
 }
 
@@ -205,6 +487,115 @@ static bool IsWeakLLMSuffix(const std::string& Value)
      return WeakSuffixes.find(Value) != WeakSuffixes.end();
 }
 
+static bool ParseWeightedIdeas(const nlohmann::json& Value,
+                               std::vector<SAMStructuredIdea>& Output,
+                               size_t MaxIdeas)
+{
+     if (!Value.is_array())
+     {
+          return false;
+     }
+
+     for (const auto& Item : Value)
+     {
+          SAMStructuredIdea Idea;
+
+          if (Item.is_string())
+          {
+               Idea.Text = NormalizeTerm(Item.get<std::string>());
+               Idea.Weight = 0.70;
+          }
+          else if (Item.is_object())
+          {
+               Idea.Text = NormalizeTerm(Item.value("text", ""));
+               Idea.Weight = ClampSAMScore(Item.value("weight", 0.70));
+          }
+
+          if (Idea.Text.empty() || IsBadSamTerm(Idea.Text))
+          {
+               continue;
+          }
+
+          Output.push_back(std::move(Idea));
+
+          if (Output.size() >= MaxIdeas)
+          {
+               break;
+          }
+     }
+
+     return true;
+}
+
+static bool ParseStructuredLLMResponse(const std::string& Raw,
+                                       SAMStructuredLLMResponse& Output)
+{
+     try
+     {
+          const std::string Candidate = ExtractJSONObject(Raw);
+
+          if (Candidate.empty())
+          {
+               return false;
+          }
+
+          const nlohmann::json Root = nlohmann::json::parse(Candidate);
+
+          if (!Root.is_object())
+          {
+               return false;
+          }
+
+          if (Root.contains("language") && Root["language"].is_array())
+          {
+               for (const auto& Item : Root["language"])
+               {
+                    if (!Item.is_string())
+                    {
+                         continue;
+                    }
+
+                    const std::string Value = NormalizeTerm(Item.get<std::string>());
+
+                    if (!Value.empty())
+                    {
+                         Output.Languages.push_back(Value);
+                    }
+
+                    if (Output.Languages.size() >= 3)
+                    {
+                         break;
+                    }
+               }
+          }
+
+          if (Root.contains("document_type") && Root["document_type"].is_string())
+          {
+               Output.DocumentType = NormalizeTerm(Root["document_type"].get<std::string>());
+          }
+
+          ParseWeightedIdeas(Root.value("distinctive_entities", nlohmann::json::array()),
+                             Output.DistinctiveEntities,
+                             16);
+          ParseWeightedIdeas(Root.value("outside_in_queries", nlohmann::json::array()),
+                             Output.OutsideInQueries,
+                             16);
+          ParseWeightedIdeas(Root.value("search_queries", nlohmann::json::array()),
+                             Output.SearchQueries,
+                             16);
+
+          return !Output.DistinctiveEntities.empty() ||
+                 !Output.OutsideInQueries.empty() ||
+                 !Output.SearchQueries.empty() ||
+                 !Output.DocumentType.empty() ||
+                 !Output.Languages.empty();
+     }
+     catch (...)
+     {
+          return false;
+     }
+}
+
 static bool HasDuplicateTokens(const std::string& Value)
 {
      std::unordered_map<std::string, size_t> Counts;
@@ -227,9 +618,60 @@ static bool IsGenericDescriptorToken(const std::string& Token)
      return GenericTokens.find(Token) != GenericTokens.end();
 }
 
+static bool IsNarrativeDriftToken(const std::string& Token)
+{
+     static const std::unordered_set<std::string> DriftTokens = {
+          "additional", "commentary", "follow", "follows",
+          "flow", "finished", "how", "look", "looks", "material",
+          "move", "moves", "moving", "piece", "related", "shape", "tradeoff",
+          "tradeoffs", "understanding", "working", "writing"};
+     return DriftTokens.find(Token) != DriftTokens.end();
+}
+
 static bool IsStrongPhraseToken(const std::string& Token)
 {
      return !(Token.empty() || IsSamStopword(Token) || IsWeakSamToken(Token) || IsGenericDescriptorToken(Token));
+}
+
+static bool IsPhraseWindowCandidate(const std::vector<std::string>& Tokens)
+{
+     if (Tokens.size() < 2)
+     {
+          return false;
+     }
+
+     size_t AnchorCount = 0;
+     size_t DriftCount = 0;
+
+     for (const auto& Token : Tokens)
+     {
+          if (IsStrongPhraseToken(Token) && !IsNarrativeDriftToken(Token))
+          {
+               ++AnchorCount;
+          }
+
+          if (IsNarrativeDriftToken(Token))
+          {
+               ++DriftCount;
+          }
+     }
+
+     if (AnchorCount < 2)
+     {
+          return false;
+     }
+
+     if (DriftCount >= Tokens.size() / 2 + 1)
+     {
+          return false;
+     }
+
+     if (IsNarrativeDriftToken(Tokens.front()) || IsNarrativeDriftToken(Tokens.back()))
+     {
+          return false;
+     }
+
+     return true;
 }
 
 struct CollectionProfileCandidate
@@ -353,6 +795,32 @@ static std::string BuildDocumentProfileEvidence(const Document& Doc)
      }
 
      return NormalizeTerm(Evidence);
+}
+
+static void AppendFieldFactTerms(std::vector<SAM::TermEntry>& Terms,
+                                 std::unordered_map<std::string, size_t>& IndexByTerm,
+                                 const Document& Doc)
+{
+     for (const auto& Pair : Doc.Fields)
+     {
+          if (!IsContextFieldName(Pair.first))
+          {
+               continue;
+          }
+
+          for (const auto& Value : ExtractArrayishValues(Pair.second))
+          {
+               const std::string NormalizedValue = NormalizeTerm(Value);
+
+               if (IsLowIntentGenericPhrase(NormalizedValue, ""))
+               {
+                    continue;
+               }
+
+               AppendScoredTerm(Terms, IndexByTerm, NormalizedValue, "descriptor", 0.74, "field", 0.78);
+               AppendStructuredPhraseWindows(Terms, IndexByTerm, Value, "field_window", 0.72, 0.76, 5);
+          }
+     }
 }
 
 static CollectionProfile BuildCollectionProfile(const std::string& Collection,
@@ -485,6 +953,21 @@ static bool IsLowIntentGenericPhrase(const std::string& Value, const std::string
      }
 
      if (Tokens.size() <= 2 && GenericCount == Tokens.size())
+     {
+          return true;
+     }
+
+     size_t DriftCount = 0;
+
+     for (const auto& Token : Tokens)
+     {
+          if (IsNarrativeDriftToken(Token))
+          {
+               ++DriftCount;
+          }
+     }
+
+     if (DriftCount >= Tokens.size() / 2 + 1)
      {
           return true;
      }
@@ -738,6 +1221,67 @@ static double ClassifyLLMTermScore(const std::string& Kind)
      return Kind == "synonym" ? 0.82 : 0.67;
 }
 
+static void AppendStructuredLLMTerms(std::vector<SAM::TermEntry>& Terms,
+                                     std::unordered_map<std::string, size_t>& IndexByTerm,
+                                     const std::string& Subject,
+                                     const SAMStructuredLLMResponse& Response,
+                                     int MaxIdeas)
+{
+     auto AppendIdeas = [&](const std::vector<SAMStructuredIdea>& Ideas,
+                            const std::string& Kind,
+                            const std::string& Source,
+                            double BaseScore,
+                            double BaseSignal)
+     {
+          for (const auto& Idea : Ideas)
+          {
+               if (static_cast<int>(Terms.size()) >= MaxIdeas)
+               {
+                    return;
+               }
+
+               if (IsWeakLLMTerm(Idea.Text, Subject))
+               {
+                    continue;
+               }
+
+               const double Weight = ClampSAMScore(Idea.Weight);
+               const double Score = ClampSAMScore(BaseScore + (Weight * 0.22));
+               const double Signal = ClampSAMScore(BaseSignal + (Weight * 0.18));
+               AppendScoredTerm(Terms, IndexByTerm, Idea.Text, Kind, Score, Source, Signal);
+          }
+     };
+
+     AppendIdeas(Response.SearchQueries, "query", "llm_query", 0.74, 0.78);
+     AppendIdeas(Response.OutsideInQueries, "query", "llm_outside_in", 0.70, 0.74);
+
+     for (const auto& Idea : Response.DistinctiveEntities)
+     {
+          if (static_cast<int>(Terms.size()) >= MaxIdeas)
+          {
+               break;
+          }
+
+          if (IsWeakLLMTerm(Idea.Text, Subject))
+          {
+               continue;
+          }
+
+          const std::string Kind = ClassifyLLMTermKind(Idea.Text, Subject);
+          const double Weight = ClampSAMScore(Idea.Weight);
+          const double Score = ClampSAMScore(ClassifyLLMTermScore(Kind) + (Weight * 0.18));
+          const double Signal = ClampSAMScore(0.70 + (Weight * 0.16));
+          AppendScoredTerm(Terms, IndexByTerm, Idea.Text, Kind, Score, "llm_entity", Signal);
+     }
+
+     if (!Response.DocumentType.empty() &&
+         !IsWeakLLMTerm(Response.DocumentType, Subject) &&
+         static_cast<int>(Terms.size()) < MaxIdeas)
+     {
+          AppendScoredTerm(Terms, IndexByTerm, Response.DocumentType, "descriptor", 0.64, "llm_doc_type", 0.68);
+     }
+}
+
 static std::string TruncateForContextWindows(const std::string& Value, size_t MaxChars)
 {
      if (Value.size() <= MaxChars)
@@ -816,6 +1360,11 @@ static void AppendStructuredPhraseWindows(std::vector<SAM::TermEntry>& Terms,
                }
 
                if (StrongCount < 2)
+               {
+                    continue;
+               }
+
+               if (!IsPhraseWindowCandidate(Slice))
                {
                     continue;
                }
@@ -1011,6 +1560,16 @@ static void AppendTemplateQuery(std::vector<SAM::TermEntry>& Terms,
                                 const std::string& Phrase,
                                 double Score,
                                 double Signal);
+
+static bool TokenLooksNumericLike(const std::string& Token)
+{
+     return !Token.empty() &&
+            std::all_of(Token.begin(), Token.end(),
+                        [](unsigned char C)
+                        {
+                             return std::isdigit(C) != 0;
+                        });
+}
 
 static void AppendUniqueFact(std::vector<std::string>& Values,
                              std::unordered_set<std::string>& Seen,
@@ -1296,7 +1855,112 @@ static void AppendTemplateQuery(std::vector<SAM::TermEntry>& Terms,
           return;
      }
 
-     AppendScoredTerm(Terms, IndexByTerm, Subject + " " + Phrase, "query", Score, "context_template", Signal);
+     const std::vector<std::string> SubjectTokens = TokenizeNormalized(Subject);
+     const std::vector<std::string> PhraseTokens = TokenizeNormalized(Phrase);
+
+     if (PhraseTokens.empty())
+     {
+          return;
+     }
+
+     std::unordered_set<std::string> SubjectTokenSet(SubjectTokens.begin(), SubjectTokens.end());
+     std::vector<std::string> NewTokens;
+
+     for (const auto& Token : PhraseTokens)
+     {
+          if (SubjectTokenSet.find(Token) == SubjectTokenSet.end())
+          {
+               NewTokens.push_back(Token);
+          }
+     }
+
+     size_t StrongNewTokens = 0;
+     bool HasNumericAnchor = false;
+
+     for (const auto& Token : NewTokens)
+     {
+          if (IsStrongPhraseToken(Token))
+          {
+               ++StrongNewTokens;
+          }
+
+          if (TokenLooksNumericLike(Token))
+          {
+               HasNumericAnchor = true;
+          }
+     }
+
+     if (StrongNewTokens == 0 && !HasNumericAnchor)
+     {
+          return;
+     }
+
+     if (StrongNewTokens < 2 && !HasNumericAnchor)
+     {
+          return;
+     }
+
+     const std::string Combined = Subject + " " + Phrase;
+
+     if (HasDuplicateTokens(Combined) || IsLowIntentGenericPhrase(Combined, Subject))
+     {
+          return;
+     }
+
+     AppendScoredTerm(Terms, IndexByTerm, Combined, "query", Score, "context_template", Signal);
+}
+
+static void PruneRedundantSAMTerms(std::vector<SAM::TermEntry>& Terms)
+{
+     if (Terms.empty())
+     {
+          return;
+     }
+
+     std::vector<SAM::TermEntry> Pruned;
+     Pruned.reserve(Terms.size());
+
+     for (const auto& Term : Terms)
+     {
+          bool Redundant = false;
+          const std::vector<std::string> CandidateTokens = TokenizeNormalized(Term.Text);
+
+          for (const auto& Kept : Pruned)
+          {
+               const std::vector<std::string> KeptTokens = TokenizeNormalized(Kept.Text);
+               size_t Shared = 0;
+
+               for (const auto& Token : CandidateTokens)
+               {
+                    if (std::find(KeptTokens.begin(), KeptTokens.end(), Token) != KeptTokens.end())
+                    {
+                         ++Shared;
+                    }
+               }
+
+               const bool SamePhraseFamily =
+                    !CandidateTokens.empty() &&
+                    Shared >= CandidateTokens.size() &&
+                    Kept.Score >= Term.Score;
+               const bool TemplateShadowed =
+                    Term.Source == "context_template" &&
+                    Shared >= std::min(CandidateTokens.size(), KeptTokens.size()) &&
+                    Kept.Score >= (Term.Score - 0.03);
+
+               if (SamePhraseFamily || TemplateShadowed)
+               {
+                    Redundant = true;
+                    break;
+               }
+          }
+
+          if (!Redundant)
+          {
+               Pruned.push_back(Term);
+          }
+     }
+
+     Terms.swap(Pruned);
 }
 
 static void AppendSearchContextTemplates(std::vector<SAM::TermEntry>& Terms,
@@ -1393,12 +2057,12 @@ static std::vector<SAM::TermEntry> SelectDiversifiedTerms(const std::vector<SAM:
      return Selected;
 }
 
-std::vector<SAM::TermEntry> SAM::GenerateLLMTerms(const std::string& Collection,
-                                                  const Document& Doc,
-                                                  std::string* ErrorMessage) const
+std::vector<SAM::TermEntry> SAM::GenerateLLMTermsFromProfile(const std::string& Collection,
+                                                             const Document& Doc,
+                                                             const std::vector<std::string>& ProfileTerms,
+                                                             std::string* ErrorMessage) const
 {
      std::vector<TermEntry> Terms;
-     const CollectionProfile Profile = BuildCollectionProfile(Collection, Doc.ID);
 
      if (ErrorMessage)
      {
@@ -1473,15 +2137,27 @@ std::vector<SAM::TermEntry> SAM::GenerateLLMTerms(const std::string& Collection,
      Payload["title"] = Doc.Title;
      Payload["content"] = Doc.Content;
      Payload["fields"] = Doc.Fields;
-     Payload["collection_profile"] = Profile.Terms;
+     Payload["collection_profile"] = ProfileTerms;
      Payload["instruction"] =
-          "Infer the document's domain from its title, content, fields, and the sampled collection_profile learned from neighboring documents in the same collection. Generate concise, multilingual-friendly lookup phrases a user might search to find this exact document. Use important field values, aliases, roles, places, dates, identifiers, and distinctive wording when present. Treat collection_profile as weak evidence only and do not parrot it unless this document supports it.";
+          "Infer the document's domain from its title, content, fields, and the sampled collection_profile learned from neighboring documents in the same collection. Generate concise, multilingual-friendly lookup phrases a user might search to find this exact document. Prioritize exact entities, aliases, roles, locations, dates, labels, identifiers, and distinctive combinations over generic topic words. Favor retrieval-ready phrases with high precision and recall. Treat collection_profile as weak evidence only and do not parrot it unless this document supports it.";
      const int MaxIdeas = (Instance && Instance->Config)
           ? std::max(1, Instance->Config->GetSamLLMMaxIdeas())
           : 6;
+     const int TimeoutMs = (Instance && Instance->Config)
+          ? std::max(1000, Instance->Config->GetSamLLMTimeoutMs())
+          : 20000;
      const std::string CreativityMode = (Instance && Instance->Config)
           ? Instance->Config->GetSamLLMCreativityMode()
           : "balanced";
+
+     if (ShouldLogSAMContext())
+     {
+          nlohmann::json LogPayload = Payload;
+          LogPayload["sam_llm_max_ideas"] = MaxIdeas;
+          LogPayload["sam_llm_creativity_mode"] = CreativityMode;
+          LogPayload["inference_command"] = Command;
+          LogSAMContext(Collection, Doc.ID, "qwen_request=" + LogPayload.dump());
+     }
 
      const auto StartedAt = std::chrono::steady_clock::now();
      std::lock_guard<std::mutex> Lock(InferenceMutex);
@@ -1503,10 +2179,11 @@ std::vector<SAM::TermEntry> SAM::GenerateLLMTerms(const std::string& Collection,
      setenv("HLQUERY_SAM_DOC_JSON_FILE", PayloadPath.c_str(), 1);
      setenv("HLQUERY_SAM_TERM_LIMIT", std::to_string(MaxIdeas).c_str(), 1);
      setenv("HLQUERY_SAM_CREATIVITY_MODE", CreativityMode.c_str(), 1);
+     setenv("HLQUERY_SAM_TIMEOUT_MS", std::to_string(TimeoutMs).c_str(), 1);
 
-     FILE* Pipe = popen(Command.c_str(), "r");
+     const SAMCommandResult CommandResult = RunSAMCommandWithTimeout(Command, TimeoutMs);
 
-     if (!Pipe)
+     if (!CommandResult.Started)
      {
           if (ErrorMessage)
           {
@@ -1524,6 +2201,7 @@ std::vector<SAM::TermEntry> SAM::GenerateLLMTerms(const std::string& Collection,
           unsetenv("HLQUERY_SAM_DOC_JSON_FILE");
           unsetenv("HLQUERY_SAM_TERM_LIMIT");
           unsetenv("HLQUERY_SAM_CREATIVITY_MODE");
+          unsetenv("HLQUERY_SAM_TIMEOUT_MS");
           std::error_code IgnoreError;
           std::filesystem::remove(PayloadPath, IgnoreError);
           RecordDebugEvent(Collection, "failed to start LLM command for " + Doc.ID);
@@ -1531,39 +2209,58 @@ std::vector<SAM::TermEntry> SAM::GenerateLLMTerms(const std::string& Collection,
      }
 
      std::unordered_map<std::string, size_t> IndexByTerm;
-     std::array<char, 512> Buffer{};
      const std::string Subject = ResolveSubjectTitle(Doc);
 
-     while (fgets(Buffer.data(), static_cast<int>(Buffer.size()), Pipe))
+     const std::string RawOutput = JoinCommandLines(CommandResult.Lines);
+     SAMStructuredLLMResponse StructuredResponse;
+     const bool ParsedStructured = ParseStructuredLLMResponse(RawOutput, StructuredResponse);
+
+     if (ShouldLogSAMContext() && !RawOutput.empty())
      {
-          const std::string Normalized = NormalizeTerm(Buffer.data());
-
-          if (IsWeakLLMTerm(Normalized, Subject))
-          {
-               continue;
-          }
-
-          const std::string Kind = ClassifyLLMTermKind(Normalized, Subject);
-          AppendScoredTerm(Terms, IndexByTerm, Normalized, Kind, ClassifyLLMTermScore(Kind), "llm", 0.72);
-
-          if (static_cast<int>(Terms.size()) >= MaxIdeas)
-          {
-               break;
-          }
+          LogSAMContext(Collection, Doc.ID, "qwen_raw_response=" + RawOutput);
      }
 
-     const int PipeStatus = pclose(Pipe);
+     if (ParsedStructured)
+     {
+          if (ShouldLogSAMContext())
+          {
+               LogSAMContext(Collection, Doc.ID, "qwen_parsed_response=" + ExtractJSONObject(RawOutput));
+          }
+
+          AppendStructuredLLMTerms(Terms, IndexByTerm, Subject, StructuredResponse, MaxIdeas);
+     }
+     else
+     {
+          for (const auto& RawLine : CommandResult.Lines)
+          {
+               const std::string Normalized = NormalizeTerm(RawLine);
+
+               if (IsWeakLLMTerm(Normalized, Subject))
+               {
+                    continue;
+               }
+
+               const std::string Kind = ClassifyLLMTermKind(Normalized, Subject);
+               AppendScoredTerm(Terms, IndexByTerm, Normalized, Kind, ClassifyLLMTermScore(Kind), "llm", 0.72);
+
+               if (static_cast<int>(Terms.size()) >= MaxIdeas)
+               {
+                    break;
+               }
+          }
+     }
      unsetenv("HLQUERY_LLM_MODEL");
      unsetenv("HLQUERY_SAM_DOC_JSON_FILE");
      unsetenv("HLQUERY_SAM_TERM_LIMIT");
      unsetenv("HLQUERY_SAM_CREATIVITY_MODE");
+     unsetenv("HLQUERY_SAM_TIMEOUT_MS");
      std::error_code IgnoreError;
      std::filesystem::remove(PayloadPath, IgnoreError);
 
      const auto ElapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(
           std::chrono::steady_clock::now() - StartedAt).count();
 
-     if (PipeStatus == -1)
+     if (CommandResult.ExitStatus == -1)
      {
           if (ErrorMessage)
           {
@@ -1577,26 +2274,47 @@ std::vector<SAM::TermEntry> SAM::GenerateLLMTerms(const std::string& Collection,
                                            Collection + "/" + Doc.ID + "' after " +
                                            std::to_string(ElapsedMs) + " ms.");
           }
+          LogSAMContext(Collection, Doc.ID, "qwen_error=close_failed");
           RecordDebugEvent(Collection, "LLM close failed for " + Doc.ID);
      }
-     else if (WIFEXITED(PipeStatus) && WEXITSTATUS(PipeStatus) != 0)
+     else if (CommandResult.TimedOut)
+     {
+          if (ErrorMessage)
+          {
+               *ErrorMessage = CommandResult.ErrorMessage;
+          }
+
+          if (Instance && Instance->Logs)
+          {
+               Instance->Logs->Normal("sam",
+                                      "GenerateLLMTerms: inference command timed out for '" +
+                                           Collection + "/" + Doc.ID + "' after " +
+                                           std::to_string(ElapsedMs) + " ms.");
+          }
+          LogSAMContext(Collection, Doc.ID, "qwen_error=" + CommandResult.ErrorMessage);
+          RecordDebugEvent(Collection, "LLM timeout for " + Doc.ID + " after " + std::to_string(ElapsedMs) + " ms");
+     }
+     else if (WIFEXITED(CommandResult.ExitStatus) && WEXITSTATUS(CommandResult.ExitStatus) != 0)
      {
           if (ErrorMessage)
           {
                *ErrorMessage = "Inference command exited with status " +
-                               std::to_string(WEXITSTATUS(PipeStatus)) + ": " + Command;
+                               std::to_string(WEXITSTATUS(CommandResult.ExitStatus)) + ": " + Command;
           }
 
           if (Instance && Instance->Logs)
           {
                Instance->Logs->Normal("sam",
                                       "GenerateLLMTerms: inference command exited with status " +
-                                           std::to_string(WEXITSTATUS(PipeStatus)) + " for '" +
+                                           std::to_string(WEXITSTATUS(CommandResult.ExitStatus)) + " for '" +
                                            Collection + "/" + Doc.ID + "' after " +
                                            std::to_string(ElapsedMs) + " ms.");
           }
+          LogSAMContext(Collection,
+                        Doc.ID,
+                        "qwen_error=exit_status_" + std::to_string(WEXITSTATUS(CommandResult.ExitStatus)));
           RecordDebugEvent(Collection,
-                           "LLM exited with status " + std::to_string(WEXITSTATUS(PipeStatus)) +
+                           "LLM exited with status " + std::to_string(WEXITSTATUS(CommandResult.ExitStatus)) +
                                 " for " + Doc.ID);
      }
      else if (Instance && Instance->Logs)
@@ -1612,6 +2330,33 @@ std::vector<SAM::TermEntry> SAM::GenerateLLMTerms(const std::string& Collection,
           *ErrorMessage = "Inference produced no usable SAM terms.";
      }
 
+     if (ParsedStructured && ShouldLogSAMContext())
+     {
+          nlohmann::json ReasoningSummary;
+          ReasoningSummary["language"] = StructuredResponse.Languages;
+          ReasoningSummary["document_type"] = StructuredResponse.DocumentType;
+          ReasoningSummary["distinctive_entities"] = nlohmann::json::array();
+          ReasoningSummary["outside_in_queries"] = nlohmann::json::array();
+          ReasoningSummary["search_queries"] = nlohmann::json::array();
+
+          auto PushIdeas = [](nlohmann::json& Target, const std::vector<SAMStructuredIdea>& Ideas)
+          {
+               for (const auto& Idea : Ideas)
+               {
+                    Target.push_back({
+                         {"text", Idea.Text},
+                         {"weight", Idea.Weight}
+                    });
+               }
+          };
+
+          PushIdeas(ReasoningSummary["distinctive_entities"], StructuredResponse.DistinctiveEntities);
+          PushIdeas(ReasoningSummary["outside_in_queries"], StructuredResponse.OutsideInQueries);
+          PushIdeas(ReasoningSummary["search_queries"], StructuredResponse.SearchQueries);
+          LogSAMContext(Collection, Doc.ID, "qwen_weighted_queries=" + ReasoningSummary.dump());
+     }
+
+     LogSAMContext(Collection, Doc.ID, "llm_terms=" + FormatSAMTermsForLog(Terms));
      RecordDebugEvent(Collection,
                       "LLM produced " + std::to_string(Terms.size()) + " term(s) for " + Doc.ID +
                            " in " + std::to_string(ElapsedMs) + " ms");
@@ -1619,12 +2364,33 @@ std::vector<SAM::TermEntry> SAM::GenerateLLMTerms(const std::string& Collection,
      return Terms;
 }
 
+std::vector<SAM::TermEntry> SAM::GenerateLLMTerms(const std::string& Collection,
+                                                  const Document& Doc,
+                                                  std::string* ErrorMessage) const
+{
+     const CollectionProfile Profile = BuildCollectionProfile(Collection, Doc.ID);
+     return GenerateLLMTermsFromProfile(Collection, Doc, Profile.Terms, ErrorMessage);
+}
+
 std::vector<SAM::TermEntry> SAM::ExpandDocumentTerms(const std::string& Collection,
                                                      const Document& Doc,
                                                      std::string* ErrorMessage) const
 {
-     std::vector<TermEntry> Terms = GenerateLLMTerms(Collection, Doc, ErrorMessage);
      const CollectionProfile Profile = BuildCollectionProfile(Collection, Doc.ID);
+     std::vector<TermEntry> Terms = GenerateLLMTermsFromProfile(Collection, Doc, Profile.Terms, ErrorMessage);
+
+     if (ShouldLogSAMContext())
+     {
+          nlohmann::json DocContext;
+          DocContext["collection"] = Collection;
+          DocContext["id"] = Doc.ID;
+          DocContext["title"] = Doc.Title;
+          DocContext["content"] = Doc.Content;
+          DocContext["fields"] = Doc.Fields;
+          DocContext["collection_profile"] = Profile.Terms;
+          LogSAMContext(Collection, Doc.ID, "document_context=" + DocContext.dump());
+     }
+
      std::unordered_map<std::string, size_t> IndexByTerm;
 
      for (size_t Index = 0; Index < Terms.size(); ++Index)
@@ -1658,6 +2424,8 @@ std::vector<SAM::TermEntry> SAM::ExpandDocumentTerms(const std::string& Collecti
      {
           AppendStructuredPhraseWindows(Terms, IndexByTerm, TruncateForContextWindows(Doc.Content), "content_window", 0.60, 0.64, 4);
      }
+
+     AppendFieldFactTerms(Terms, IndexByTerm, Doc);
 
      const std::string DocumentEvidence = BuildDocumentProfileEvidence(Doc);
 
@@ -1699,6 +2467,7 @@ std::vector<SAM::TermEntry> SAM::ExpandDocumentTerms(const std::string& Collecti
      AppendCompressedStopwordVariants(Terms, IndexByTerm);
      AppendReorderedAliases(Terms, IndexByTerm, Collection);
      ApplyWebQueryIntentRerank(Terms, Subject);
+     PruneRedundantSAMTerms(Terms);
 
      std::sort(Terms.begin(), Terms.end(),
                [](const TermEntry& A, const TermEntry& B)
@@ -1721,5 +2490,7 @@ std::vector<SAM::TermEntry> SAM::ExpandDocumentTerms(const std::string& Collecti
           : static_cast<size_t>(20);
 
      // Preserve score ordering, but reserve space for distinct term families first.
-     return SelectDiversifiedTerms(Terms, MaxIdeas);
+     std::vector<TermEntry> SelectedTerms = SelectDiversifiedTerms(Terms, MaxIdeas);
+     LogSAMContext(Collection, Doc.ID, "expanded_terms=" + FormatSAMTermsForLog(SelectedTerms));
+     return SelectedTerms;
 }

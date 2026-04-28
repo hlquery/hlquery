@@ -44,7 +44,7 @@
 #include "search/rfusion.h"
 #include "search/cstore.h"
 #include "search/lindex.h"
-#include "search/sam.h"
+#include "search/sam/sam.h"
 #include "utils/consolewriter.h"
 #include "utils/protocol.h"
 #include "utils/wildcard.h"
@@ -2489,6 +2489,16 @@ HttpResponse SearchAPI::HandleSAMGetDocument(const HttpRequest &Request)
 
      if (!Instance->Sam->GetDocumentEntry(CollectionName, DocumentID, Entry, &ErrorMessage))
      {
+          const Document SourceDoc = HybridStorageManagerInstance().GetDocument(CollectionName, DocumentID);
+
+          if (HasJobStatus && JobStatus.Running && !SourceDoc.ID.empty())
+          {
+               return BuildErrorResponse(Status::CONFLICT,
+                                         Code::SEARCH_INVALID_PARAMETER,
+                                         "SAM document currently indexing",
+                                         "Background SAM indexing is still running for this collection. Try again in a moment.");
+          }
+
           return BuildErrorResponse(Status::NOT_FOUND,
                                     Code::DOCUMENT_NOT_FOUND,
                                     "SAM document not found",

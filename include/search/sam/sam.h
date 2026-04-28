@@ -117,6 +117,11 @@ class SAM
                                              const Document& Doc,
                                              std::string* ErrorMessage = nullptr) const;
 
+     std::vector<TermEntry> GenerateLLMTermsFromProfile(const std::string& Collection,
+                                                        const Document& Doc,
+                                                        const std::vector<std::string>& ProfileTerms,
+                                                        std::string* ErrorMessage = nullptr) const;
+
      /* Append a debug event to the in-memory SAM debug log. */
 
      void RecordDebugEvent(const std::string& Collection, const std::string& Message) const;

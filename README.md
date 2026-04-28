@@ -51,7 +51,7 @@ Homebrew provides CMake and OpenSSL.
 $ sudo pkg install git gmake cmake openssl
 ```
 
-> **Note**: This project uses GNU make features. On FreeBSD, run `gmake` instead of `make`.
+> **Note**: This project uses gmake features. On FreeBSD, run `gmake` instead of `make`.
 
 ### Installation
 
@@ -243,6 +243,22 @@ $ hlquery-cli search products "!apple"
 
 # Combined queries
 $ hlquery-cli search products "title:laptop AND price:[100 TO 500]"
+```
+
+**SQL example:**
+
+```text
+localhost:9200> sql: select title from music where content like 'madonna%' or content like 'nirvana%';
+
+SQL rows for `select title from music where content like 'madonna%' or content like 'nirvana%';`:
++-------------------------+
+| title                   |
++-------------------------+
+| Artist Profile: Madonna |
+| Artist Profile: Nirvana |
++-------------------------+
+2 results shown.
+Search completed in 19 ms.
 ```
 
 ## GitHub Repositories & Development Workflow

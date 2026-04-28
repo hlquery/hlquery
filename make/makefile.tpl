@@ -319,6 +319,7 @@ SRCS_TOP += $(API_SRCS)
 
 # Search storage source files
 SEARCH_SRCS := $(wildcard $(SRC_DIR)/search/*.cpp)
+SEARCH_SRCS += $(wildcard $(SRC_DIR)/search/sam/*.cpp)
 SRCS_TOP += $(SEARCH_SRCS)
 
 SQL_SRCS := $(wildcard $(SRC_DIR)/sql/*.cpp)

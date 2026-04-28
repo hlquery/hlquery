@@ -3612,14 +3612,19 @@ bool ExecuteTalkCommand(const std::string &line,
                     return true;
                }
 
-               if (IsUnsignedInteger(document_id) && !state.LastListedSAMDocumentIds.empty())
+               if (IsUnsignedInteger(document_id) &&
+                   (!state.LastListedSAMDocumentIds.empty() || !state.LastListedDocumentIds.empty()))
                {
                     std::string resolved_document_id;
+                    const std::vector<std::string> &document_ids =
+                         !state.LastListedSAMDocumentIds.empty()
+                              ? state.LastListedSAMDocumentIds
+                              : state.LastListedDocumentIds;
 
                     if (!ResolveCollectionDocumentReference(cli,
                                                             resolved_collection,
                                                             document_id,
-                                                            state.LastListedSAMDocumentIds,
+                                                            document_ids,
                                                             resolved_document_id,
                                                             error_message))
                     {
