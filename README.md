@@ -174,9 +174,7 @@ Document 'product1' added to collection 'products'
 
 ```js
 const Client = require('./etc/api/node/lib/Client'); // Load the official hlquery Node client.
-
 const client = new Client('http://localhost:9200'); 
-
 const documents = client.documents(); // Use the documents service for document writes.
 
 /* Send POST /collections/products/documents with the product payload. */
