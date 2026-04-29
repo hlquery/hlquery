@@ -69,11 +69,15 @@ class SAM
      mutable std::mutex DebugMutex;
      mutable std::mutex QueueMutex;
      std::condition_variable QueueCV;
+     std::condition_variable JobStateCV;
      std::map<std::string, CollectionJobStatus> CollectionJobs;
      mutable std::deque<DebugEvent> DebugEvents;
      mutable uint64_t NextDebugSequence = 1;
      std::deque<PendingIndexJob> PendingIndexJobs;
      std::unordered_set<std::string> PendingIndexKeys;
+     std::unordered_map<std::string, size_t> ActiveCollectionTasks;
+     std::unordered_set<std::string> CancelledCollections;
+     bool CancelAllRequested = false;
      bool ShuttingDown = false;
      std::vector<std::thread> WorkerThreads;
 
@@ -126,6 +130,10 @@ class SAM
 
      void RecordDebugEvent(const std::string& Collection, const std::string& Message) const;
 
+     /* Return whether destructive cancellation is currently blocking this collection. */
+
+     bool IsCollectionCancelledLocked(const std::string& Collection) const;
+
    public:
 
      struct LookupHit
@@ -174,6 +182,12 @@ class SAM
           std::string Title;
           std::string Lang;
           std::string Label;
+          std::string Format;
+          std::string Subject;
+          std::string Summary;
+          std::vector<std::string> Aliases;
+          std::vector<std::string> Descriptors;
+          std::vector<std::string> Queries;
           std::vector<TermEntry> Terms;
      };
 
@@ -243,6 +257,14 @@ class SAM
      /* Remove one document and its SAM terms from the database. */
 
      bool DeleteDocument(const std::string& Collection, const std::string& DocumentID, std::string* ErrorMessage = nullptr);
+
+     /* Cancel all queued and in-flight SAM work for one collection and wait for quiescence. */
+
+     bool CancelCollectionWork(const std::string& Collection, std::string* ErrorMessage = nullptr);
+
+     /* Cancel all queued and in-flight SAM work globally and wait for quiescence. */
+
+     bool CancelAllWork(std::string* ErrorMessage = nullptr);
 
      /* Search SAM across all collections. */
 

@@ -239,6 +239,24 @@ void ServerConfig::ApplyConfiguration()
 
      auto ModuleTags = ConfigReaderValue.GetTags("module");
 
+     auto AddModuleIfMissing = [&](const std::string &ModuleName)
+     {
+          const auto ExistingIt = std::find_if(ModuleLoads.begin(), ModuleLoads.end(),
+                                               [&](const ModuleLoadEntry &Existing)
+                                               {
+                                                    return Existing.Name == ModuleName;
+                                               });
+
+          if (ExistingIt != ModuleLoads.end())
+          {
+               return;
+          }
+
+          ModuleLoadEntry Entry;
+          Entry.Name = ModuleName;
+          ModuleLoads.push_back(std::move(Entry));
+     };
+
      for (const auto &ModuleTag : ModuleTags)
      {
           std::string ModuleName = ModuleTag->GetStringNonEmpty("name", "");
@@ -263,29 +281,11 @@ void ServerConfig::ApplyConfiguration()
           ModuleLoads.push_back(Entry);
      }
 
-    static const std::vector<std::string> CoreModuleNames = {"core_timers"};
+     static const std::vector<std::string> CoreModuleNames = {"core_timers"};
 
      for (const auto &CoreName : CoreModuleNames)
      {
-          bool AlreadyLoaded = false;
-
-          for (const auto &Existing : ModuleLoads)
-          {
-               if (Existing.Name == CoreName)
-               {
-                    AlreadyLoaded = true;
-                    break;
-               }
-          }
-
-          if (AlreadyLoaded)
-          {
-               continue;
-          }
-
-          ModuleLoadEntry CoreEntry;
-          CoreEntry.Name = CoreName;
-          ModuleLoads.push_back(CoreEntry);
+          AddModuleIfMissing(CoreName);
      }
 
      std::filesystem::path ConfigDirectory;
@@ -422,6 +422,11 @@ void ServerConfig::ApplyConfiguration()
           {
                SamDataDirectory = SAMTag->GetString("sam_data_dir", SamDataDirectory);
           }
+     }
+
+     if (SamEnabled)
+     {
+          AddModuleIfMissing("core_sam");
      }
 
      AIModelCatalog.clear();

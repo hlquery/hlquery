@@ -214,6 +214,16 @@ std::string TrimLowerCopy(const std::string& Value)
      return ToLowerASCII(TrimCopy(Value));
 }
 
+std::string TruncateSAMDocumentText(const std::string& Value, size_t MaxChars)
+{
+     if (Value.size() <= MaxChars)
+     {
+          return Value;
+     }
+
+     return Value.substr(0, MaxChars);
+}
+
 bool LooksLikeLanguageCode(const std::string& Value)
 {
      if (Value.size() != 2)
@@ -490,6 +500,119 @@ std::string DetectSAMDocumentLabel(const Document& Doc)
      }
 
      return "article";
+}
+
+std::string DetectSAMDocumentFormat(const Document& Doc)
+{
+     std::string Combined = Doc.Title;
+
+     if (!Doc.Content.empty())
+     {
+          if (!Combined.empty())
+          {
+               Combined.push_back('\n');
+          }
+
+          Combined += TruncateSAMDocumentText(Doc.Content, 2000);
+     }
+
+     for (const auto& Entry : Doc.Fields)
+     {
+          if (Entry.second.empty())
+          {
+               continue;
+          }
+
+          if (!Combined.empty())
+          {
+               Combined.push_back('\n');
+          }
+
+          Combined += Entry.second;
+     }
+
+     const std::string Trimmed = TrimCopy(Combined);
+     const std::string Lower = ToLowerASCII(Trimmed);
+
+     if (Trimmed.empty())
+     {
+          return "text";
+     }
+
+     if ((Lower.find("<html") != std::string::npos ||
+          Lower.find("<body") != std::string::npos ||
+          Lower.find("<div") != std::string::npos ||
+          Lower.find("<p>") != std::string::npos ||
+          Lower.find("<a ") != std::string::npos) &&
+         Lower.find('>') != std::string::npos)
+     {
+          return "html";
+     }
+
+     if ((Lower.find("<?xml") != std::string::npos ||
+          Lower.find("<rss") != std::string::npos ||
+          Lower.find("<feed") != std::string::npos) &&
+         Lower.find('>') != std::string::npos)
+     {
+          return "xml";
+     }
+
+     if ((!Trimmed.empty() && (Trimmed.front() == '{' || Trimmed.front() == '[')) ||
+         Lower.find("\"id\"") != std::string::npos ||
+         Lower.find("\":") != std::string::npos)
+     {
+          return "json";
+     }
+
+     if (Lower.find("```") != std::string::npos ||
+         Lower.find("#include") != std::string::npos ||
+         Lower.find("function ") != std::string::npos ||
+         Lower.find("class ") != std::string::npos)
+     {
+          return "code";
+     }
+
+     if (Lower.find("# ") != std::string::npos ||
+         Lower.find("## ") != std::string::npos ||
+         Lower.find("- ") != std::string::npos ||
+         Lower.find("* ") != std::string::npos ||
+         (Lower.find("[") != std::string::npos && Lower.find("](") != std::string::npos))
+     {
+          return "markdown";
+     }
+
+     size_t ListLineCount = 0;
+     size_t TotalLineCount = 0;
+     std::istringstream Lines(Trimmed);
+     std::string Line;
+
+     while (std::getline(Lines, Line))
+     {
+          const std::string TrimmedLine = TrimCopy(Line);
+
+          if (TrimmedLine.empty())
+          {
+               continue;
+          }
+
+          ++TotalLineCount;
+
+          if (TrimmedLine.rfind("- ", 0) == 0 ||
+              TrimmedLine.rfind("* ", 0) == 0 ||
+              TrimmedLine.rfind("1. ", 0) == 0 ||
+              TrimmedLine.rfind("2. ", 0) == 0 ||
+              TrimmedLine.rfind("3. ", 0) == 0)
+          {
+               ++ListLineCount;
+          }
+     }
+
+     if (ListLineCount >= 2 && ListLineCount + 1 >= TotalLineCount)
+     {
+          return "list";
+     }
+
+     return "text";
 }
 
 bool IsSamStopword(const std::string& Value);
@@ -4022,11 +4145,18 @@ bool ParseManifestValue(const std::string& RawValue, SAM::DocumentEntry& Entry)
      try
      {
           const nlohmann::json Root = nlohmann::json::parse(RawValue);
+          SAMSemanticProfile SemanticProfile;
           Entry.Collection = Root.value("collection", "");
           Entry.DocumentID = Root.value("id", "");
           Entry.Title = Root.value("title", "");
           Entry.Lang = Root.value("lang", "und");
           Entry.Label = Root.value("label", "article");
+          Entry.Format = Root.value("format", "text");
+          Entry.Subject.clear();
+          Entry.Summary.clear();
+          Entry.Aliases.clear();
+          Entry.Descriptors.clear();
+          Entry.Queries.clear();
           Entry.Terms.clear();
 
           if (Root.contains("terms") && Root["terms"].is_array())
@@ -4074,6 +4204,15 @@ bool ParseManifestValue(const std::string& RawValue, SAM::DocumentEntry& Entry)
                          return A.Text < B.Text;
                     });
 
+          if (ParseSemanticProfileJSON(Root, SemanticProfile))
+          {
+               Entry.Subject = SemanticProfile.Subject;
+               Entry.Summary = SemanticProfile.Summary;
+               Entry.Aliases = std::move(SemanticProfile.Aliases);
+               Entry.Descriptors = std::move(SemanticProfile.Descriptors);
+               Entry.Queries = std::move(SemanticProfile.Queries);
+          }
+
           return !Entry.Collection.empty() && !Entry.DocumentID.empty();
      }
      catch (...)
@@ -4109,6 +4248,11 @@ void SAM::RecordDebugEvent(const std::string& Collection, const std::string& Mes
      {
           DebugEvents.pop_front();
      }
+}
+
+bool SAM::IsCollectionCancelledLocked(const std::string& Collection) const
+{
+     return CancelAllRequested || CancelledCollections.find(Collection) != CancelledCollections.end();
 }
 
 bool SAM::Initialize()
@@ -4237,6 +4381,68 @@ void SAM::RunIndexWorker()
                PendingIndexKeys.erase(BuildPendingIndexKey(Job.Collection, Job.Doc.ID));
           }
 
+          {
+               std::lock_guard<std::mutex> JobLock(JobMutex);
+               ++ActiveCollectionTasks[Job.Collection];
+          }
+
+          auto FinishTask = [this, &Job]()
+          {
+               std::lock_guard<std::mutex> JobLock(JobMutex);
+               auto ActiveIt = ActiveCollectionTasks.find(Job.Collection);
+
+               if (ActiveIt != ActiveCollectionTasks.end())
+               {
+                    if (ActiveIt->second > 0)
+                    {
+                         --ActiveIt->second;
+                    }
+
+                    if (ActiveIt->second == 0)
+                    {
+                         ActiveCollectionTasks.erase(ActiveIt);
+                    }
+               }
+
+               JobStateCV.notify_all();
+          };
+
+          {
+               bool Cancelled = false;
+               {
+                    std::lock_guard<std::mutex> JobLock(JobMutex);
+
+                    if (IsCollectionCancelledLocked(Job.Collection))
+                    {
+                         CollectionJobStatus& Status = CollectionJobs[Job.Collection];
+
+                         if (Status.PendingDocuments > 0)
+                         {
+                              --Status.PendingDocuments;
+                         }
+
+                         if (Status.Running && Status.PendingDocuments == 0)
+                         {
+                              Status.Running = false;
+                              Status.Completed = false;
+                              if (Status.ErrorMessage.empty())
+                              {
+                                   Status.ErrorMessage = "Cancelled.";
+                              }
+                         }
+
+                         RecordDebugEvent(Job.Collection, "skipped queued background index for " + Job.Doc.ID + " because collection work was cancelled");
+                         Cancelled = true;
+                    }
+               }
+
+               if (Cancelled)
+               {
+                    FinishTask();
+                    continue;
+               }
+          }
+
           std::string ErrorMessage;
           const bool Success = IndexDocument(Job.Collection, Job.Doc, &ErrorMessage);
 
@@ -4299,6 +4505,8 @@ void SAM::RunIndexWorker()
                     }
                }
           }
+
+          FinishTask();
 
           if (Success)
           {
@@ -4640,6 +4848,16 @@ bool SAM::StartRecreateCollectionAsync(const std::string& Collection,
           std::lock_guard<std::mutex> Lock(JobMutex);
           const auto ExistingIt = CollectionJobs.find(Collection);
 
+          if (IsCollectionCancelledLocked(Collection))
+          {
+               if (ErrorMessage)
+               {
+                    *ErrorMessage = "Collection SAM work is being cancelled.";
+               }
+
+               return false;
+          }
+
           if (ExistingIt != CollectionJobs.end() && ExistingIt->second.Running)
           {
                if (AlreadyRunning)
@@ -4655,6 +4873,7 @@ bool SAM::StartRecreateCollectionAsync(const std::string& Collection,
           JobStatus.Running = true;
           JobStatus.Completed = false;
           JobStatus.ErrorMessage.clear();
+          CancelledCollections.erase(Collection);
      }
 
      RecordDebugEvent(Collection,
@@ -4662,6 +4881,32 @@ bool SAM::StartRecreateCollectionAsync(const std::string& Collection,
 
      std::thread([this, Collection]()
      {
+          {
+               std::lock_guard<std::mutex> Lock(JobMutex);
+               ++ActiveCollectionTasks[Collection];
+          }
+
+          auto FinishTask = [this, &Collection]()
+          {
+               std::lock_guard<std::mutex> Lock(JobMutex);
+               auto ActiveIt = ActiveCollectionTasks.find(Collection);
+
+               if (ActiveIt != ActiveCollectionTasks.end())
+               {
+                    if (ActiveIt->second > 0)
+                    {
+                         --ActiveIt->second;
+                    }
+
+                    if (ActiveIt->second == 0)
+                    {
+                         ActiveCollectionTasks.erase(ActiveIt);
+                    }
+               }
+
+               JobStateCV.notify_all();
+          };
+
           std::vector<std::string> ExistingDocumentIDs;
           {
                std::lock_guard<std::mutex> Lock(DBMutex);
@@ -4683,6 +4928,30 @@ bool SAM::StartRecreateCollectionAsync(const std::string& Collection,
 
           for (const auto& DocumentID : ExistingDocumentIDs)
           {
+               bool Cancelled = false;
+               {
+                    std::lock_guard<std::mutex> Lock(JobMutex);
+
+                    if (IsCollectionCancelledLocked(Collection))
+                    {
+                         CollectionJobStatus& JobStatus = CollectionJobs[Collection];
+                         JobStatus.Running = false;
+                         JobStatus.Completed = false;
+                         if (JobStatus.ErrorMessage.empty())
+                         {
+                              JobStatus.ErrorMessage = "Cancelled.";
+                         }
+                         RecordDebugEvent(Collection, "cancelled rebuild setup while removing existing SAM terms");
+                         Cancelled = true;
+                    }
+               }
+
+               if (Cancelled)
+               {
+                    FinishTask();
+                    return;
+               }
+
                std::string RemoveError;
 
                if (!DeleteDocument(Collection, DocumentID, &RemoveError))
@@ -4719,10 +4988,31 @@ bool SAM::StartRecreateCollectionAsync(const std::string& Collection,
           }
 
           {
-               std::lock_guard<std::mutex> Lock(JobMutex);
-               CollectionJobStatus& JobStatus = CollectionJobs[Collection];
-               JobStatus.PendingDocuments = DocumentsToQueue.size();
-               JobStatus.TotalDocuments = DocumentsToQueue.size();
+               bool Cancelled = false;
+               {
+                    std::lock_guard<std::mutex> Lock(JobMutex);
+                    CollectionJobStatus& JobStatus = CollectionJobs[Collection];
+                    JobStatus.PendingDocuments = DocumentsToQueue.size();
+                    JobStatus.TotalDocuments = DocumentsToQueue.size();
+
+                    if (IsCollectionCancelledLocked(Collection))
+                    {
+                         JobStatus.Running = false;
+                         JobStatus.Completed = false;
+                         if (JobStatus.ErrorMessage.empty())
+                         {
+                              JobStatus.ErrorMessage = "Cancelled.";
+                         }
+                         RecordDebugEvent(Collection, "cancelled rebuild setup before queueing documents");
+                         Cancelled = true;
+                    }
+               }
+
+               if (Cancelled)
+               {
+                    FinishTask();
+                    return;
+               }
           }
 
           RecordDebugEvent(Collection,
@@ -4730,6 +5020,31 @@ bool SAM::StartRecreateCollectionAsync(const std::string& Collection,
 
           for (const auto& Doc : DocumentsToQueue)
           {
+               bool Cancelled = false;
+               {
+                    std::lock_guard<std::mutex> Lock(JobMutex);
+
+                    if (IsCollectionCancelledLocked(Collection))
+                    {
+                         CollectionJobStatus& JobStatus = CollectionJobs[Collection];
+                         JobStatus.Running = false;
+                         JobStatus.Completed = false;
+                         JobStatus.PendingDocuments = 0;
+                         if (JobStatus.ErrorMessage.empty())
+                         {
+                              JobStatus.ErrorMessage = "Cancelled.";
+                         }
+                         RecordDebugEvent(Collection, "cancelled rebuild setup while queueing documents");
+                         Cancelled = true;
+                    }
+               }
+
+               if (Cancelled)
+               {
+                    FinishTask();
+                    return;
+               }
+
                std::string QueueError;
 
                if (!EnqueueIndexDocument(Collection, Doc, &QueueError))
@@ -4766,6 +5081,8 @@ bool SAM::StartRecreateCollectionAsync(const std::string& Collection,
                JobStatus.Completed = true;
                RecordDebugEvent(Collection, "rebuild complete: indexed 0, failed 0");
           }
+
+          FinishTask();
      }).detach();
 
      return true;
@@ -4773,6 +5090,20 @@ bool SAM::StartRecreateCollectionAsync(const std::string& Collection,
 
 bool SAM::EnqueueIndexDocument(const std::string& Collection, const Document& Doc, std::string* ErrorMessage)
 {
+     {
+          std::lock_guard<std::mutex> Lock(JobMutex);
+
+          if (IsCollectionCancelledLocked(Collection))
+          {
+               if (ErrorMessage)
+               {
+                    *ErrorMessage = "Collection SAM work is being cancelled.";
+               }
+
+               return false;
+          }
+     }
+
      {
           std::lock_guard<std::mutex> Lock(DBMutex);
 
@@ -4973,6 +5304,7 @@ bool SAM::IndexDocumentLocked(const std::string& Collection, const Document& Doc
      Manifest["title"] = Doc.Title;
      Manifest["lang"] = DetectSAMDocumentLanguage(Collection, Doc);
      Manifest["label"] = DetectSAMDocumentLabel(Doc);
+     Manifest["format"] = DetectSAMDocumentFormat(Doc);
      Manifest["terms"] = nlohmann::json::array();
      const SAMSemanticProfile SemanticProfile = BuildSemanticProfile(Doc.Title.empty() ? Doc.ID : Doc.Title, Terms);
 
@@ -5049,6 +5381,95 @@ bool SAM::DeleteDocument(const std::string& Collection, const std::string& Docum
      }
 
      return RemoveExistingDocumentTermsLocked(Collection, DocumentID, ErrorMessage);
+}
+
+bool SAM::CancelCollectionWork(const std::string& Collection, std::string* ErrorMessage)
+{
+     if (Collection.empty())
+     {
+          if (ErrorMessage)
+          {
+               *ErrorMessage = "Collection name is required.";
+          }
+
+          return false;
+     }
+
+     {
+          std::lock_guard<std::mutex> QueueLock(QueueMutex);
+          PendingIndexJobs.erase(
+               std::remove_if(PendingIndexJobs.begin(), PendingIndexJobs.end(),
+                              [&](const PendingIndexJob& Job)
+                              {
+                                   return Job.Collection == Collection;
+                              }),
+               PendingIndexJobs.end());
+
+          for (auto It = PendingIndexKeys.begin(); It != PendingIndexKeys.end(); )
+          {
+               if (It->rfind(Collection + "\n", 0) == 0)
+               {
+                    It = PendingIndexKeys.erase(It);
+               }
+               else
+               {
+                    ++It;
+               }
+          }
+     }
+
+     std::unique_lock<std::mutex> Lock(JobMutex);
+     CancelledCollections.insert(Collection);
+     CollectionJobStatus& Status = CollectionJobs[Collection];
+     Status.Running = false;
+     Status.Completed = false;
+     Status.PendingDocuments = 0;
+     if (Status.ErrorMessage.empty())
+     {
+          Status.ErrorMessage = "Cancelled.";
+     }
+
+     JobStateCV.wait(Lock, [&]()
+     {
+          return ActiveCollectionTasks.find(Collection) == ActiveCollectionTasks.end();
+     });
+
+     CancelledCollections.erase(Collection);
+     return true;
+}
+
+bool SAM::CancelAllWork(std::string* ErrorMessage)
+{
+     (void)ErrorMessage;
+
+     {
+          std::lock_guard<std::mutex> QueueLock(QueueMutex);
+          PendingIndexJobs.clear();
+          PendingIndexKeys.clear();
+     }
+
+     std::unique_lock<std::mutex> Lock(JobMutex);
+     CancelAllRequested = true;
+
+     for (auto& Entry : CollectionJobs)
+     {
+          Entry.second.Running = false;
+          Entry.second.Completed = false;
+          Entry.second.PendingDocuments = 0;
+          if (Entry.second.ErrorMessage.empty())
+          {
+               Entry.second.ErrorMessage = "Cancelled.";
+          }
+     }
+
+     JobStateCV.wait(Lock, [&]()
+     {
+          return ActiveCollectionTasks.empty();
+     });
+
+     CancelledCollections.clear();
+     CancelAllRequested = false;
+     return true;
 }
 
 std::vector<SAM::LookupHit> SAM::Lookup(const std::string& Query, size_t Limit) const

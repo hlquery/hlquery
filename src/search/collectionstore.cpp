@@ -25,6 +25,7 @@
 #include "search/storageengine.h"
 #include "search/cstore.h"
 #include "search/lindex.h"
+#include "search/sam/sam.h"
 #include "search/writeaheadlogvalidator.h"
 #include "utils/consolewriter.h"
 
@@ -907,6 +908,19 @@ bool HybridStorageManager::CreateCollection(const std::string &name, const Colle
 
 bool HybridStorageManager::DeleteCollection(const std::string &name)
 {
+     if (Instance && Instance->Sam && Instance->Sam->IsOpen())
+     {
+          std::string SAMCancelError;
+
+          if (!Instance->Sam->CancelCollectionWork(name, &SAMCancelError) &&
+              Instance->Logs && !SAMCancelError.empty())
+          {
+               Instance->Logs->Normal("hybrid_storage",
+                                      "DeleteCollection: Failed to cancel SAM work for '" + name +
+                                           "': " + SAMCancelError + ".");
+          }
+     }
+
      /*
       * Check if collection exists first (before acquiring lock to avoid deadlock).
       * Use a non-locking check by directly checking the in-memory map.
@@ -3611,6 +3625,19 @@ bool HybridStorageManager::FlushAll()
      if (Instance && Instance->Logs)
      {
           Instance->Logs->Normal("hybrid_storage", "FlushAll: Starting complete flush - removing all data, indexes, caches, and mmap files.");
+     }
+
+     if (Instance->Sam && Instance->Sam->IsOpen())
+     {
+          std::string SAMCancelError;
+
+          if (!Instance->Sam->CancelAllWork(&SAMCancelError) &&
+              Instance->Logs && !SAMCancelError.empty())
+          {
+               Instance->Logs->Normal("hybrid_storage",
+                                      "FlushAll: Failed to cancel SAM work before destructive flush: " +
+                                           SAMCancelError + ".");
+          }
      }
 
      /*

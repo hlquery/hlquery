@@ -29,6 +29,23 @@
 
 namespace
 {
+std::string JoinDocumentStrings(const std::vector<std::string> &values, const std::string &separator)
+{
+     std::string joined;
+
+     for (size_t index = 0; index < values.size(); ++index)
+     {
+          if (index > 0)
+          {
+               joined += separator;
+          }
+
+          joined += values[index];
+     }
+
+     return joined;
+}
+
 /* Parse a CLI value as JSON when it looks like a literal, otherwise keep it as a string. */
 
 nlohmann::json ParseUpdateFieldValue(const std::string &field_value)
@@ -2036,6 +2053,9 @@ void HLQueryCLI::OpenSAMDocument(const std::string &collection_name, const std::
      metadata_rows.push_back({"collection", root.value("collection", "")});
      metadata_rows.push_back({"id", root.value("id", "")});
      metadata_rows.push_back({"title", root.value("title", "")});
+     metadata_rows.push_back({"language", root.value("lang", "")});
+     metadata_rows.push_back({"label", root.value("label", "")});
+     metadata_rows.push_back({"format", root.value("format", "")});
      metadata_rows.push_back({"term_count", root.contains("terms") && root["terms"].is_array()
                                                ? std::to_string(root["terms"].size())
                                                : "0"});
@@ -2048,6 +2068,55 @@ void HLQueryCLI::OpenSAMDocument(const std::string &collection_name, const std::
      }
 
      PrintTable({"Field", "Value"}, metadata_rows);
+
+     if (root.contains("analysis") && root["analysis"].is_object())
+     {
+          const nlohmann::json &analysis = root["analysis"];
+          std::vector<std::vector<std::string>> analysis_rows;
+
+          if (!analysis.value("subject", "").empty())
+          {
+               analysis_rows.push_back({"subject", analysis.value("subject", "")});
+          }
+
+          if (!analysis.value("summary", "").empty())
+          {
+               analysis_rows.push_back({"about", analysis.value("summary", "")});
+          }
+
+          auto AppendAnalysisList = [&](const char *field_name, const char *label)
+          {
+               if (!analysis.contains(field_name) || !analysis[field_name].is_array() || analysis[field_name].empty())
+               {
+                    return;
+               }
+
+               std::vector<std::string> values;
+
+               for (const auto &item : analysis[field_name])
+               {
+                    if (item.is_string() && !item.get<std::string>().empty())
+                    {
+                         values.push_back(item.get<std::string>());
+                    }
+               }
+
+               if (!values.empty())
+               {
+                    analysis_rows.push_back({label, JoinDocumentStrings(values, ", ")});
+               }
+          };
+
+          AppendAnalysisList("aliases", "aliases");
+          AppendAnalysisList("descriptors", "descriptors");
+          AppendAnalysisList("queries", "queries");
+
+          if (!analysis_rows.empty())
+          {
+               std::cout << "Analysis:\n";
+               PrintTable({"Field", "Value"}, analysis_rows);
+          }
+     }
 
      if (root.contains("terms") && root["terms"].is_array() && !root["terms"].empty())
      {

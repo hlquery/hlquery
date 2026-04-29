@@ -16,15 +16,8 @@
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
-#include <cerrno>
-#include <filesystem>
-#include <fcntl.h>
 #include <fstream>
-#include <poll.h>
-#include <signal.h>
 #include <sstream>
-#include <sys/wait.h>
-#include <unistd.h>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -89,199 +82,6 @@ static std::string FormatSAMTermsForLog(const std::vector<SAM::TermEntry>& Terms
      return Root.dump();
 }
 
-struct SAMCommandResult
-{
-     bool Started = false;
-     bool TimedOut = false;
-     int ExitStatus = -1;
-     std::vector<std::string> Lines;
-     std::string ErrorMessage;
-};
-
-struct SAMStructuredIdea
-{
-     std::string Text;
-     double Weight = 0.0;
-};
-
-struct SAMStructuredLLMResponse
-{
-     std::vector<std::string> Languages;
-     std::string DocumentType;
-     std::vector<SAMStructuredIdea> DistinctiveEntities;
-     std::vector<SAMStructuredIdea> OutsideInQueries;
-     std::vector<SAMStructuredIdea> SearchQueries;
-};
-
-static SAMCommandResult RunSAMCommandWithTimeout(const std::string& Command,
-                                                 int TimeoutMs)
-{
-     SAMCommandResult Result;
-
-     if (Command.empty())
-     {
-          Result.ErrorMessage = "Command is empty.";
-          return Result;
-     }
-
-     int PipeFDs[2];
-
-     if (pipe(PipeFDs) != 0)
-     {
-          Result.ErrorMessage = "Failed to create pipe.";
-          return Result;
-     }
-
-     pid_t ChildPID = fork();
-
-     if (ChildPID == -1)
-     {
-          close(PipeFDs[0]);
-          close(PipeFDs[1]);
-          Result.ErrorMessage = "Failed to fork inference process.";
-          return Result;
-     }
-
-     if (ChildPID == 0)
-     {
-          setpgid(0, 0);
-          dup2(PipeFDs[1], STDOUT_FILENO);
-          dup2(PipeFDs[1], STDERR_FILENO);
-          close(PipeFDs[0]);
-          close(PipeFDs[1]);
-          execl("/bin/sh", "sh", "-c", Command.c_str(), static_cast<char*>(nullptr));
-          _exit(127);
-     }
-
-     Result.Started = true;
-     setpgid(ChildPID, ChildPID);
-     close(PipeFDs[1]);
-
-     const int CurrentFlags = fcntl(PipeFDs[0], F_GETFL, 0);
-     if (CurrentFlags != -1)
-     {
-          fcntl(PipeFDs[0], F_SETFL, CurrentFlags | O_NONBLOCK);
-     }
-
-     std::string Pending;
-     std::array<char, 1024> Buffer{};
-     const auto StartedAt = std::chrono::steady_clock::now();
-     bool ReadEOF = false;
-
-     while (true)
-     {
-          struct pollfd PollFD;
-          PollFD.fd = PipeFDs[0];
-          PollFD.events = POLLIN;
-          PollFD.revents = 0;
-
-          const auto Now = std::chrono::steady_clock::now();
-          const long long ElapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(Now - StartedAt).count();
-
-          if (TimeoutMs > 0 && ElapsedMs >= TimeoutMs)
-          {
-               Result.TimedOut = true;
-               kill(-ChildPID, SIGKILL);
-               kill(ChildPID, SIGKILL);
-               waitpid(ChildPID, &Result.ExitStatus, 0);
-               Result.ErrorMessage = "Inference command timed out after " + std::to_string(TimeoutMs) + " ms.";
-               break;
-          }
-
-          const int RemainingMs = TimeoutMs > 0
-               ? std::max(1, TimeoutMs - static_cast<int>(ElapsedMs))
-               : 250;
-          const int PollTimeoutMs = std::min(250, RemainingMs);
-          const int PollResult = poll(&PollFD, 1, PollTimeoutMs);
-
-          if (PollResult > 0 && (PollFD.revents & (POLLIN | POLLHUP)))
-          {
-               while (true)
-               {
-                    const ssize_t BytesRead = read(PipeFDs[0], Buffer.data(), Buffer.size());
-
-                    if (BytesRead > 0)
-                    {
-                         Pending.append(Buffer.data(), static_cast<size_t>(BytesRead));
-
-                         size_t NewlinePos = std::string::npos;
-                         while ((NewlinePos = Pending.find('\n')) != std::string::npos)
-                         {
-                              std::string Line = Pending.substr(0, NewlinePos);
-
-                              if (!Line.empty() && Line.back() == '\r')
-                              {
-                                   Line.pop_back();
-                              }
-
-                              Result.Lines.push_back(std::move(Line));
-                              Pending.erase(0, NewlinePos + 1);
-                         }
-
-                         continue;
-                    }
-
-                    if (BytesRead == 0)
-                    {
-                         ReadEOF = true;
-                         break;
-                    }
-
-                    if (errno == EAGAIN || (EWOULDBLOCK != EAGAIN && errno == EWOULDBLOCK))
-                    {
-                         break;
-                    }
-
-                    Result.ErrorMessage = "Failed to read inference command output.";
-                    ReadEOF = true;
-                    break;
-               }
-          }
-
-          int WaitStatus = 0;
-          const pid_t WaitResult = waitpid(ChildPID, &WaitStatus, WNOHANG);
-
-          if (WaitResult == ChildPID)
-          {
-               Result.ExitStatus = WaitStatus;
-
-               if (ReadEOF)
-               {
-                    break;
-               }
-          }
-          else if (WaitResult == -1)
-          {
-               Result.ErrorMessage = "Failed to wait for inference command.";
-               break;
-          }
-
-          if (ReadEOF && WaitResult == ChildPID)
-          {
-               break;
-          }
-     }
-
-     close(PipeFDs[0]);
-
-     if (!Pending.empty())
-     {
-          if (!Pending.empty() && Pending.back() == '\r')
-          {
-               Pending.pop_back();
-          }
-
-          Result.Lines.push_back(std::move(Pending));
-     }
-
-     if (!Result.TimedOut && Result.ExitStatus == -1)
-     {
-          waitpid(ChildPID, &Result.ExitStatus, 0);
-     }
-
-     return Result;
-}
-
 static std::string TrimCopy(const std::string& Value)
 {
      const size_t Start = Value.find_first_not_of(" \t\r\n");
@@ -329,36 +129,6 @@ static std::string NormalizeTerm(const std::string& Value)
      }
 
      return TrimCopy(Normalized);
-}
-
-static std::string JoinCommandLines(const std::vector<std::string>& Lines)
-{
-     std::string Joined;
-
-     for (size_t Index = 0; Index < Lines.size(); ++Index)
-     {
-          if (Index > 0)
-          {
-               Joined.push_back('\n');
-          }
-
-          Joined += Lines[Index];
-     }
-
-     return Joined;
-}
-
-static std::string ExtractJSONObject(const std::string& Raw)
-{
-     const size_t Start = Raw.find('{');
-     const size_t End = Raw.rfind('}');
-
-     if (Start == std::string::npos || End == std::string::npos || End < Start)
-     {
-          return "";
-     }
-
-     return Raw.substr(Start, End - Start + 1);
 }
 
 static std::vector<std::string> TokenizeNormalized(const std::string& Value)
@@ -478,122 +248,6 @@ static bool IsBadSamTerm(const std::string& Value)
      }
 
      return false;
-}
-
-static bool IsWeakLLMSuffix(const std::string& Value)
-{
-     static const std::unordered_set<std::string> WeakSuffixes = {
-          "official"};
-     return WeakSuffixes.find(Value) != WeakSuffixes.end();
-}
-
-static bool ParseWeightedIdeas(const nlohmann::json& Value,
-                               std::vector<SAMStructuredIdea>& Output,
-                               size_t MaxIdeas)
-{
-     if (!Value.is_array())
-     {
-          return false;
-     }
-
-     for (const auto& Item : Value)
-     {
-          SAMStructuredIdea Idea;
-
-          if (Item.is_string())
-          {
-               Idea.Text = NormalizeTerm(Item.get<std::string>());
-               Idea.Weight = 0.70;
-          }
-          else if (Item.is_object())
-          {
-               Idea.Text = NormalizeTerm(Item.value("text", ""));
-               Idea.Weight = ClampSAMScore(Item.value("weight", 0.70));
-          }
-
-          if (Idea.Text.empty() || IsBadSamTerm(Idea.Text))
-          {
-               continue;
-          }
-
-          Output.push_back(std::move(Idea));
-
-          if (Output.size() >= MaxIdeas)
-          {
-               break;
-          }
-     }
-
-     return true;
-}
-
-static bool ParseStructuredLLMResponse(const std::string& Raw,
-                                       SAMStructuredLLMResponse& Output)
-{
-     try
-     {
-          const std::string Candidate = ExtractJSONObject(Raw);
-
-          if (Candidate.empty())
-          {
-               return false;
-          }
-
-          const nlohmann::json Root = nlohmann::json::parse(Candidate);
-
-          if (!Root.is_object())
-          {
-               return false;
-          }
-
-          if (Root.contains("language") && Root["language"].is_array())
-          {
-               for (const auto& Item : Root["language"])
-               {
-                    if (!Item.is_string())
-                    {
-                         continue;
-                    }
-
-                    const std::string Value = NormalizeTerm(Item.get<std::string>());
-
-                    if (!Value.empty())
-                    {
-                         Output.Languages.push_back(Value);
-                    }
-
-                    if (Output.Languages.size() >= 3)
-                    {
-                         break;
-                    }
-               }
-          }
-
-          if (Root.contains("document_type") && Root["document_type"].is_string())
-          {
-               Output.DocumentType = NormalizeTerm(Root["document_type"].get<std::string>());
-          }
-
-          ParseWeightedIdeas(Root.value("distinctive_entities", nlohmann::json::array()),
-                             Output.DistinctiveEntities,
-                             16);
-          ParseWeightedIdeas(Root.value("outside_in_queries", nlohmann::json::array()),
-                             Output.OutsideInQueries,
-                             16);
-          ParseWeightedIdeas(Root.value("search_queries", nlohmann::json::array()),
-                             Output.SearchQueries,
-                             16);
-
-          return !Output.DistinctiveEntities.empty() ||
-                 !Output.OutsideInQueries.empty() ||
-                 !Output.SearchQueries.empty() ||
-                 !Output.DocumentType.empty() ||
-                 !Output.Languages.empty();
-     }
-     catch (...)
-     {
-          return false;
-     }
 }
 
 static bool HasDuplicateTokens(const std::string& Value)
@@ -982,64 +636,6 @@ static bool IsLowIntentGenericPhrase(const std::string& Value, const std::string
      return false;
 }
 
-static bool IsWeakLLMTerm(const std::string& Value, const std::string& Subject)
-{
-     const std::vector<std::string> Tokens = TokenizeNormalized(Value);
-
-     if (Tokens.empty() || Tokens.size() > 5)
-     {
-          return true;
-     }
-
-     if (HasDuplicateTokens(Value))
-     {
-          return true;
-     }
-
-     const std::string NormalizedSubject = NormalizeTerm(Subject);
-
-     if (Value == NormalizedSubject)
-     {
-          return true;
-     }
-
-     for (const auto& Token : Tokens)
-     {
-          if (IsWeakSamToken(Token))
-          {
-               return true;
-          }
-     }
-
-     if (!NormalizedSubject.empty() && Value.rfind(NormalizedSubject + " ", 0) == 0)
-     {
-          const std::string Suffix = TrimCopy(Value.substr(NormalizedSubject.size()));
-          const std::vector<std::string> SuffixTokens = TokenizeNormalized(Suffix);
-
-          if (SuffixTokens.empty())
-          {
-               return true;
-          }
-
-          if (SuffixTokens.size() > 2)
-          {
-               return true;
-          }
-
-          if (SuffixTokens.size() == 1 && IsWeakLLMSuffix(SuffixTokens.front()))
-          {
-               return true;
-          }
-     }
-
-     if (IsLowIntentGenericPhrase(Value, Subject))
-     {
-          return true;
-     }
-
-     return false;
-}
-
 static std::string ResolveSubjectTitle(const Document& Doc)
 {
      std::string Title = TrimCopy(Doc.Title.empty() ? Doc.ID : Doc.Title);
@@ -1057,49 +653,6 @@ static std::string ResolveSubjectTitle(const Document& Doc)
      }
 
      return Title;
-}
-
-static std::string WriteJSONPayloadTempFile(const nlohmann::json& Payload)
-{
-     std::filesystem::path TempTemplate =
-          std::filesystem::temp_directory_path() / "hlquery-sam-XXXXXX.json";
-     std::string TempPath = TempTemplate.string();
-
-     if (TempPath.size() < 6)
-     {
-          return "";
-     }
-
-     const size_t SuffixLength = 5;
-     int FD = mkstemps(TempPath.data(), static_cast<int>(SuffixLength));
-
-     if (FD == -1)
-     {
-          return "";
-     }
-
-     close(FD);
-
-     std::ofstream Output(TempPath, std::ios::out | std::ios::trunc | std::ios::binary);
-
-     if (!Output)
-     {
-          std::error_code IgnoreError;
-          std::filesystem::remove(TempPath, IgnoreError);
-          return "";
-     }
-
-     Output << Payload.dump();
-     Output.close();
-
-     if (!Output)
-     {
-          std::error_code IgnoreError;
-          std::filesystem::remove(TempPath, IgnoreError);
-          return "";
-     }
-
-     return TempPath;
 }
 
 static void AppendScoredTerm(std::vector<SAM::TermEntry>& Target,
@@ -1202,84 +755,6 @@ static std::vector<std::string> ExtractArrayishValues(const std::string& Raw)
      }
 
      return Values;
-}
-
-static std::string ClassifyLLMTermKind(const std::string& Value, const std::string& Subject)
-{
-     const std::string NormalizedSubject = NormalizeTerm(Subject);
-
-     if (!NormalizedSubject.empty() && Value.rfind(NormalizedSubject + " ", 0) == 0)
-     {
-          return "synonym";
-     }
-
-     return "descriptor";
-}
-
-static double ClassifyLLMTermScore(const std::string& Kind)
-{
-     return Kind == "synonym" ? 0.82 : 0.67;
-}
-
-static void AppendStructuredLLMTerms(std::vector<SAM::TermEntry>& Terms,
-                                     std::unordered_map<std::string, size_t>& IndexByTerm,
-                                     const std::string& Subject,
-                                     const SAMStructuredLLMResponse& Response,
-                                     int MaxIdeas)
-{
-     auto AppendIdeas = [&](const std::vector<SAMStructuredIdea>& Ideas,
-                            const std::string& Kind,
-                            const std::string& Source,
-                            double BaseScore,
-                            double BaseSignal)
-     {
-          for (const auto& Idea : Ideas)
-          {
-               if (static_cast<int>(Terms.size()) >= MaxIdeas)
-               {
-                    return;
-               }
-
-               if (IsWeakLLMTerm(Idea.Text, Subject))
-               {
-                    continue;
-               }
-
-               const double Weight = ClampSAMScore(Idea.Weight);
-               const double Score = ClampSAMScore(BaseScore + (Weight * 0.22));
-               const double Signal = ClampSAMScore(BaseSignal + (Weight * 0.18));
-               AppendScoredTerm(Terms, IndexByTerm, Idea.Text, Kind, Score, Source, Signal);
-          }
-     };
-
-     AppendIdeas(Response.SearchQueries, "query", "llm_query", 0.74, 0.78);
-     AppendIdeas(Response.OutsideInQueries, "query", "llm_outside_in", 0.70, 0.74);
-
-     for (const auto& Idea : Response.DistinctiveEntities)
-     {
-          if (static_cast<int>(Terms.size()) >= MaxIdeas)
-          {
-               break;
-          }
-
-          if (IsWeakLLMTerm(Idea.Text, Subject))
-          {
-               continue;
-          }
-
-          const std::string Kind = ClassifyLLMTermKind(Idea.Text, Subject);
-          const double Weight = ClampSAMScore(Idea.Weight);
-          const double Score = ClampSAMScore(ClassifyLLMTermScore(Kind) + (Weight * 0.18));
-          const double Signal = ClampSAMScore(0.70 + (Weight * 0.16));
-          AppendScoredTerm(Terms, IndexByTerm, Idea.Text, Kind, Score, "llm_entity", Signal);
-     }
-
-     if (!Response.DocumentType.empty() &&
-         !IsWeakLLMTerm(Response.DocumentType, Subject) &&
-         static_cast<int>(Terms.size()) < MaxIdeas)
-     {
-          AppendScoredTerm(Terms, IndexByTerm, Response.DocumentType, "descriptor", 0.64, "llm_doc_type", 0.68);
-     }
 }
 
 static std::string TruncateForContextWindows(const std::string& Value, size_t MaxChars)
@@ -1963,6 +1438,168 @@ static void PruneRedundantSAMTerms(std::vector<SAM::TermEntry>& Terms)
      Terms.swap(Pruned);
 }
 
+static std::unordered_set<std::string> BuildTokenSet(const std::string& Value)
+{
+     std::unordered_set<std::string> Tokens;
+
+     for (const auto& Token : TokenizeNormalized(Value))
+     {
+          if (!Token.empty())
+          {
+               Tokens.insert(Token);
+          }
+     }
+
+     return Tokens;
+}
+
+static double ComputeCandidateEvidenceSupport(const SAM::TermEntry& Term,
+                                             const std::unordered_set<std::string>& EvidenceTokens,
+                                             const std::unordered_set<std::string>& ProfileTokens,
+                                             const std::string& Subject)
+{
+     const std::vector<std::string> CandidateTokens = TokenizeNormalized(Term.Text);
+
+     if (CandidateTokens.empty())
+     {
+          return -0.18;
+     }
+
+     size_t EvidenceMatches = 0;
+     size_t ProfileMatches = 0;
+     size_t StrongTokens = 0;
+     bool HasNumericAnchor = false;
+
+     for (const auto& Token : CandidateTokens)
+     {
+          if (EvidenceTokens.find(Token) != EvidenceTokens.end())
+          {
+               ++EvidenceMatches;
+          }
+
+          if (ProfileTokens.find(Token) != ProfileTokens.end())
+          {
+               ++ProfileMatches;
+          }
+
+          if (IsStrongPhraseToken(Token))
+          {
+               ++StrongTokens;
+          }
+
+          if (TokenLooksNumericLike(Token))
+          {
+               HasNumericAnchor = true;
+          }
+     }
+
+     double Support = 0.0;
+     Support += std::min(0.22, static_cast<double>(EvidenceMatches) * 0.06);
+     Support += std::min(0.10, static_cast<double>(ProfileMatches) * 0.03);
+
+     if (Term.Kind == "query")
+     {
+          Support += 0.03;
+     }
+
+     if (Term.Kind == "subject" || Term.Kind == "synonym" || Term.Kind == "alias")
+     {
+          Support += 0.04;
+     }
+
+     if (StrongTokens == 0 && !HasNumericAnchor)
+     {
+          Support -= 0.16;
+     }
+     else if (StrongTokens == 1 && CandidateTokens.size() >= 3 && !HasNumericAnchor)
+     {
+          Support -= 0.08;
+     }
+
+     if (CandidateTokens.size() >= 6)
+     {
+          Support -= 0.05;
+     }
+
+     if (IsLowIntentGenericPhrase(Term.Text, Subject))
+     {
+          Support -= 0.12;
+     }
+
+     return Support;
+}
+
+static std::vector<std::string> BuildInternalImprovementQuestions(const Document& Doc,
+                                                                  const std::string& Subject,
+                                                                  const std::vector<std::string>& ProfileTerms)
+{
+     std::vector<std::string> Questions;
+     Questions.push_back("Are the current descriptors too close to the title or description wording?");
+     Questions.push_back("Which outside-in discovery phrases would help someone find this document without knowing its title?");
+
+     const auto LabelsIt = Doc.Fields.find("labels");
+     if (LabelsIt != Doc.Fields.end() && !LabelsIt->second.empty())
+     {
+          Questions.push_back("Did we use the strongest non-generic labels and ignore synthetic benchmark-like labels?");
+     }
+     else
+     {
+          Questions.push_back("Which field facts or structured metadata are still underused?");
+     }
+
+     if (!Subject.empty() && LooksAmbiguousSubject(NormalizeTerm(Subject)))
+     {
+          Questions.push_back("Is the subject ambiguous enough that we should add stronger disambiguation facts?");
+     }
+     else if (!ProfileTerms.empty())
+     {
+          Questions.push_back("Which collection-supported terms are genuinely backed by this document and worth keeping?");
+     }
+
+     return Questions;
+}
+
+static void RefineInternalSAMTerms(std::vector<SAM::TermEntry>& Terms,
+                                   const std::string& DocumentEvidence,
+                                   const std::vector<std::string>& ProfileTerms,
+                                   const std::string& Subject)
+{
+     const std::unordered_set<std::string> EvidenceTokens = BuildTokenSet(DocumentEvidence);
+     std::unordered_set<std::string> ProfileTokens;
+
+     for (const auto& Term : ProfileTerms)
+     {
+          const std::vector<std::string> Tokens = TokenizeNormalized(Term);
+          ProfileTokens.insert(Tokens.begin(), Tokens.end());
+     }
+
+     for (auto& Term : Terms)
+     {
+          const double Support = ComputeCandidateEvidenceSupport(Term, EvidenceTokens, ProfileTokens, Subject);
+          Term.Score = ClampSAMScore(Term.Score + Support);
+          Term.Signal = ClampSAMScore(Term.Signal + (Support * 0.85));
+     }
+
+     Terms.erase(std::remove_if(Terms.begin(), Terms.end(),
+                                [&](const SAM::TermEntry& Term)
+                                {
+                                     if (Term.Score < 0.40 || Term.Signal < 0.38)
+                                     {
+                                          return true;
+                                     }
+
+                                     if (Term.Kind == "descriptor" &&
+                                         IsLowIntentGenericPhrase(Term.Text, Subject) &&
+                                         Term.Score < 0.62)
+                                     {
+                                          return true;
+                                     }
+
+                                     return false;
+                                }),
+                 Terms.end());
+}
+
 static void AppendSearchContextTemplates(std::vector<SAM::TermEntry>& Terms,
                                          std::unordered_map<std::string, size_t>& IndexByTerm,
                                          const Document& Doc)
@@ -2069,297 +1706,127 @@ std::vector<SAM::TermEntry> SAM::GenerateLLMTermsFromProfile(const std::string& 
           ErrorMessage->clear();
      }
 
-     if (!Instance || !Instance->LLM || !Instance->LLM->Configured())
-     {
-          if (ErrorMessage)
-          {
-               *ErrorMessage = "LLM is not configured for SAM indexing.";
-          }
-
-          if (Instance && Instance->Logs)
-          {
-               Instance->Logs->Debug("sam",
-                                     "GenerateLLMTerms: skipped for '" + Collection + "/" + Doc.ID +
-                                          "' because LLM is not configured.");
-          }
-
-          return Terms;
-     }
-
-     const std::string& Command = Instance->LLM->GetInferenceCommand();
-
-     if (Command.empty())
-     {
-          if (ErrorMessage)
-          {
-               *ErrorMessage = "LLM inference command is empty.";
-          }
-
-          if (Instance && Instance->Logs)
-          {
-               Instance->Logs->Debug("sam",
-                                     "GenerateLLMTerms: skipped for '" + Collection + "/" + Doc.ID +
-                                          "' because inference_command is empty.");
-          }
-
-          return Terms;
-     }
-
-     const std::string& ModelPath = Instance->LLM->GetModelPath();
-
-     if (ModelPath.empty())
-     {
-          if (ErrorMessage)
-          {
-               *ErrorMessage = "LLM model path is empty.";
-          }
-
-          RecordDebugEvent(Collection, "LLM model path is empty for " + Doc.ID);
-          return Terms;
-     }
-
-     std::error_code ModelPathError;
-
-     if (!std::filesystem::exists(ModelPath, ModelPathError))
-     {
-          if (ErrorMessage)
-          {
-               *ErrorMessage = "LLM model file not found: " + ModelPath;
-          }
-
-          RecordDebugEvent(Collection, "LLM model file not found for " + Doc.ID + ": " + ModelPath);
-          return Terms;
-     }
-
-     nlohmann::json Payload;
-     Payload["collection"] = Collection;
-     Payload["id"] = Doc.ID;
-     Payload["title"] = Doc.Title;
-     Payload["content"] = Doc.Content;
-     Payload["fields"] = Doc.Fields;
-     Payload["collection_profile"] = ProfileTerms;
-     Payload["instruction"] =
-          "Infer the document's domain from its title, content, fields, and the sampled collection_profile learned from neighboring documents in the same collection. Generate concise, multilingual-friendly lookup phrases a user might search to find this exact document. Prioritize exact entities, aliases, roles, locations, dates, labels, identifiers, and distinctive combinations over generic topic words. Favor retrieval-ready phrases with high precision and recall. Treat collection_profile as weak evidence only and do not parrot it unless this document supports it.";
      const int MaxIdeas = (Instance && Instance->Config)
-          ? std::max(1, Instance->Config->GetSamLLMMaxIdeas())
-          : 6;
-     const int TimeoutMs = (Instance && Instance->Config)
-          ? std::max(1000, Instance->Config->GetSamLLMTimeoutMs())
-          : 20000;
-     const std::string CreativityMode = (Instance && Instance->Config)
-          ? Instance->Config->GetSamLLMCreativityMode()
-          : "balanced";
+          ? std::max(4, Instance->Config->GetSamLLMMaxIdeas())
+          : 8;
+     const auto StartedAt = std::chrono::steady_clock::now();
+     std::unordered_map<std::string, size_t> IndexByTerm;
+     const std::string Subject = ResolveSubjectTitle(Doc);
+     const std::string DocumentEvidence = BuildDocumentProfileEvidence(Doc);
 
      if (ShouldLogSAMContext())
      {
-          nlohmann::json LogPayload = Payload;
-          LogPayload["sam_llm_max_ideas"] = MaxIdeas;
-          LogPayload["sam_llm_creativity_mode"] = CreativityMode;
-          LogPayload["inference_command"] = Command;
-          LogSAMContext(Collection, Doc.ID, "qwen_request=" + LogPayload.dump());
+          nlohmann::json ContextSummary;
+          ContextSummary["collection"] = Collection;
+          ContextSummary["id"] = Doc.ID;
+          ContextSummary["title"] = Doc.Title;
+          ContextSummary["collection_profile"] = ProfileTerms;
+          LogSAMContext(Collection, Doc.ID, "internal_reasoning_context=" + ContextSummary.dump());
      }
 
-     const auto StartedAt = std::chrono::steady_clock::now();
-     std::lock_guard<std::mutex> Lock(InferenceMutex);
-     RecordDebugEvent(Collection, "running LLM for " + Doc.ID);
-     const std::string PayloadPath = WriteJSONPayloadTempFile(Payload);
+     const std::vector<std::string> ImprovementQuestions =
+          BuildInternalImprovementQuestions(Doc, Subject, ProfileTerms);
 
-     if (PayloadPath.empty())
+     if (!Subject.empty())
      {
-          if (ErrorMessage)
-          {
-               *ErrorMessage = "Failed to create temporary LLM payload file.";
-          }
-
-          RecordDebugEvent(Collection, "failed to create LLM payload file for " + Doc.ID);
-          return Terms;
+          AppendScoredTerm(Terms, IndexByTerm, NormalizeTerm(Subject), "subject", 0.84, "internal_subject", 0.88);
+          AppendStructuredPhraseWindows(Terms, IndexByTerm, Subject, "internal_subject_window", 0.76, 0.80, 4);
      }
 
-     setenv("HLQUERY_LLM_MODEL", ModelPath.c_str(), 1);
-     setenv("HLQUERY_SAM_DOC_JSON_FILE", PayloadPath.c_str(), 1);
-     setenv("HLQUERY_SAM_TERM_LIMIT", std::to_string(MaxIdeas).c_str(), 1);
-     setenv("HLQUERY_SAM_CREATIVITY_MODE", CreativityMode.c_str(), 1);
-     setenv("HLQUERY_SAM_TIMEOUT_MS", std::to_string(TimeoutMs).c_str(), 1);
-
-     const SAMCommandResult CommandResult = RunSAMCommandWithTimeout(Command, TimeoutMs);
-
-     if (!CommandResult.Started)
+     if (!Doc.Title.empty())
      {
-          if (ErrorMessage)
-          {
-               *ErrorMessage = "Failed to start inference command: " + Command;
-          }
-
-          if (Instance && Instance->Logs)
-          {
-               Instance->Logs->Normal("sam",
-                                      "GenerateLLMTerms: failed to start inference command for '" +
-                                           Collection + "/" + Doc.ID + "': " + Command + ".");
-          }
-
-          unsetenv("HLQUERY_LLM_MODEL");
-          unsetenv("HLQUERY_SAM_DOC_JSON_FILE");
-          unsetenv("HLQUERY_SAM_TERM_LIMIT");
-          unsetenv("HLQUERY_SAM_CREATIVITY_MODE");
-          unsetenv("HLQUERY_SAM_TIMEOUT_MS");
-          std::error_code IgnoreError;
-          std::filesystem::remove(PayloadPath, IgnoreError);
-          RecordDebugEvent(Collection, "failed to start LLM command for " + Doc.ID);
-          return Terms;
+          AppendStructuredPhraseWindows(Terms, IndexByTerm, Doc.Title, "internal_title_window", 0.74, 0.78, 4);
      }
 
-     std::unordered_map<std::string, size_t> IndexByTerm;
-     const std::string Subject = ResolveSubjectTitle(Doc);
+     const auto DescriptionIt = Doc.Fields.find("description");
 
-     const std::string RawOutput = JoinCommandLines(CommandResult.Lines);
-     SAMStructuredLLMResponse StructuredResponse;
-     const bool ParsedStructured = ParseStructuredLLMResponse(RawOutput, StructuredResponse);
-
-     if (ShouldLogSAMContext() && !RawOutput.empty())
+     if (DescriptionIt != Doc.Fields.end() && !DescriptionIt->second.empty())
      {
-          LogSAMContext(Collection, Doc.ID, "qwen_raw_response=" + RawOutput);
+          AppendStructuredPhraseWindows(Terms, IndexByTerm, DescriptionIt->second, "internal_description_window", 0.68, 0.72, 4);
      }
 
-     if (ParsedStructured)
-     {
-          if (ShouldLogSAMContext())
-          {
-               LogSAMContext(Collection, Doc.ID, "qwen_parsed_response=" + ExtractJSONObject(RawOutput));
-          }
+     const auto LabelsIt = Doc.Fields.find("labels");
 
-          AppendStructuredLLMTerms(Terms, IndexByTerm, Subject, StructuredResponse, MaxIdeas);
-     }
-     else
+     if (LabelsIt != Doc.Fields.end() && !LabelsIt->second.empty())
      {
-          for (const auto& RawLine : CommandResult.Lines)
+          for (const auto& Label : ExtractArrayishValues(LabelsIt->second))
           {
-               const std::string Normalized = NormalizeTerm(RawLine);
+               const std::string NormalizedLabel = NormalizeTerm(Label);
 
-               if (IsWeakLLMTerm(Normalized, Subject))
+               if (IsLowIntentGenericPhrase(NormalizedLabel, Subject))
                {
                     continue;
                }
 
-               const std::string Kind = ClassifyLLMTermKind(Normalized, Subject);
-               AppendScoredTerm(Terms, IndexByTerm, Normalized, Kind, ClassifyLLMTermScore(Kind), "llm", 0.72);
-
-               if (static_cast<int>(Terms.size()) >= MaxIdeas)
-               {
-                    break;
-               }
+               AppendScoredTerm(Terms, IndexByTerm, NormalizedLabel, "descriptor", 0.74, "internal_label", 0.78);
+               AppendStructuredPhraseWindows(Terms, IndexByTerm, Label, "internal_label_window", 0.70, 0.74, 3);
           }
      }
-     unsetenv("HLQUERY_LLM_MODEL");
-     unsetenv("HLQUERY_SAM_DOC_JSON_FILE");
-     unsetenv("HLQUERY_SAM_TERM_LIMIT");
-     unsetenv("HLQUERY_SAM_CREATIVITY_MODE");
-     unsetenv("HLQUERY_SAM_TIMEOUT_MS");
-     std::error_code IgnoreError;
-     std::filesystem::remove(PayloadPath, IgnoreError);
+
+     for (const auto& ProfileTerm : ProfileTerms)
+     {
+          const std::string NormalizedProfileTerm = NormalizeTerm(ProfileTerm);
+          const std::string Needle = " " + NormalizedProfileTerm + " ";
+          const std::string Haystack = " " + DocumentEvidence + " ";
+
+          if (NormalizedProfileTerm.empty() || Needle.size() <= 2 || Haystack.find(Needle) == std::string::npos)
+          {
+               continue;
+          }
+
+          AppendScoredTerm(Terms, IndexByTerm, NormalizedProfileTerm, "collection_context", 0.66, "internal_collection_profile", 0.70);
+     }
+
+     AppendFieldFactTerms(Terms, IndexByTerm, Doc);
+     AppendSearchContextTemplates(Terms, IndexByTerm, Doc);
+     AppendCanonicalSnippetQueries(Terms, IndexByTerm, Doc);
+     AppendFactDrivenQueries(Terms, IndexByTerm, Doc);
+     AppendDisambiguationQueries(Terms, IndexByTerm, Doc);
+     RefineInternalSAMTerms(Terms, DocumentEvidence, ProfileTerms, Subject);
+
+     if (Terms.size() < static_cast<size_t>(std::max(3, MaxIdeas / 2)))
+     {
+          AppendSearchContextTemplates(Terms, IndexByTerm, Doc);
+          AppendFactDrivenQueries(Terms, IndexByTerm, Doc);
+          AppendCanonicalSnippetQueries(Terms, IndexByTerm, Doc);
+          RefineInternalSAMTerms(Terms, DocumentEvidence, ProfileTerms, Subject);
+     }
+
+     PruneRedundantSAMTerms(Terms);
+
+     std::sort(Terms.begin(), Terms.end(),
+               [](const TermEntry& A, const TermEntry& B)
+               {
+                    if (A.Score != B.Score)
+                    {
+                         return A.Score > B.Score;
+                    }
+
+                    if (A.Signal != B.Signal)
+                    {
+                         return A.Signal > B.Signal;
+                    }
+
+                    return A.Text < B.Text;
+               });
+
+     Terms = SelectDiversifiedTerms(Terms, static_cast<size_t>(MaxIdeas));
 
      const auto ElapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(
           std::chrono::steady_clock::now() - StartedAt).count();
 
-     if (CommandResult.ExitStatus == -1)
-     {
-          if (ErrorMessage)
-          {
-               *ErrorMessage = "Inference command close failed: " + Command;
-          }
-
-          if (Instance && Instance->Logs)
-          {
-               Instance->Logs->Normal("sam",
-                                      "GenerateLLMTerms: inference command close failed for '" +
-                                           Collection + "/" + Doc.ID + "' after " +
-                                           std::to_string(ElapsedMs) + " ms.");
-          }
-          LogSAMContext(Collection, Doc.ID, "qwen_error=close_failed");
-          RecordDebugEvent(Collection, "LLM close failed for " + Doc.ID);
-     }
-     else if (CommandResult.TimedOut)
-     {
-          if (ErrorMessage)
-          {
-               *ErrorMessage = CommandResult.ErrorMessage;
-          }
-
-          if (Instance && Instance->Logs)
-          {
-               Instance->Logs->Normal("sam",
-                                      "GenerateLLMTerms: inference command timed out for '" +
-                                           Collection + "/" + Doc.ID + "' after " +
-                                           std::to_string(ElapsedMs) + " ms.");
-          }
-          LogSAMContext(Collection, Doc.ID, "qwen_error=" + CommandResult.ErrorMessage);
-          RecordDebugEvent(Collection, "LLM timeout for " + Doc.ID + " after " + std::to_string(ElapsedMs) + " ms");
-     }
-     else if (WIFEXITED(CommandResult.ExitStatus) && WEXITSTATUS(CommandResult.ExitStatus) != 0)
-     {
-          if (ErrorMessage)
-          {
-               *ErrorMessage = "Inference command exited with status " +
-                               std::to_string(WEXITSTATUS(CommandResult.ExitStatus)) + ": " + Command;
-          }
-
-          if (Instance && Instance->Logs)
-          {
-               Instance->Logs->Normal("sam",
-                                      "GenerateLLMTerms: inference command exited with status " +
-                                           std::to_string(WEXITSTATUS(CommandResult.ExitStatus)) + " for '" +
-                                           Collection + "/" + Doc.ID + "' after " +
-                                           std::to_string(ElapsedMs) + " ms.");
-          }
-          LogSAMContext(Collection,
-                        Doc.ID,
-                        "qwen_error=exit_status_" + std::to_string(WEXITSTATUS(CommandResult.ExitStatus)));
-          RecordDebugEvent(Collection,
-                           "LLM exited with status " + std::to_string(WEXITSTATUS(CommandResult.ExitStatus)) +
-                                " for " + Doc.ID);
-     }
-     else if (Instance && Instance->Logs)
-     {
-          Instance->Logs->Debug("sam",
-                                "GenerateLLMTerms: produced " + std::to_string(Terms.size()) +
-                                     " term(s) for '" + Collection + "/" + Doc.ID + "' in " +
-                                     std::to_string(ElapsedMs) + " ms.");
-     }
-
-     if (Terms.empty() && ErrorMessage && ErrorMessage->empty())
-     {
-          *ErrorMessage = "Inference produced no usable SAM terms.";
-     }
-
-     if (ParsedStructured && ShouldLogSAMContext())
+     if (ShouldLogSAMContext())
      {
           nlohmann::json ReasoningSummary;
-          ReasoningSummary["language"] = StructuredResponse.Languages;
-          ReasoningSummary["document_type"] = StructuredResponse.DocumentType;
-          ReasoningSummary["distinctive_entities"] = nlohmann::json::array();
-          ReasoningSummary["outside_in_queries"] = nlohmann::json::array();
-          ReasoningSummary["search_queries"] = nlohmann::json::array();
-
-          auto PushIdeas = [](nlohmann::json& Target, const std::vector<SAMStructuredIdea>& Ideas)
-          {
-               for (const auto& Idea : Ideas)
-               {
-                    Target.push_back({
-                         {"text", Idea.Text},
-                         {"weight", Idea.Weight}
-                    });
-               }
-          };
-
-          PushIdeas(ReasoningSummary["distinctive_entities"], StructuredResponse.DistinctiveEntities);
-          PushIdeas(ReasoningSummary["outside_in_queries"], StructuredResponse.OutsideInQueries);
-          PushIdeas(ReasoningSummary["search_queries"], StructuredResponse.SearchQueries);
-          LogSAMContext(Collection, Doc.ID, "qwen_weighted_queries=" + ReasoningSummary.dump());
+          ReasoningSummary["mode"] = "internal";
+          ReasoningSummary["improvement_questions"] = ImprovementQuestions;
+          LogSAMContext(Collection, Doc.ID, "internal_reasoning=" + ReasoningSummary.dump());
      }
 
-     LogSAMContext(Collection, Doc.ID, "llm_terms=" + FormatSAMTermsForLog(Terms));
+     LogSAMContext(Collection, Doc.ID, "internal_terms=" + FormatSAMTermsForLog(Terms));
      RecordDebugEvent(Collection,
-                      "LLM produced " + std::to_string(Terms.size()) + " term(s) for " + Doc.ID +
-                           " in " + std::to_string(ElapsedMs) + " ms");
+                      "Internal SAM reasoning produced " + std::to_string(Terms.size()) +
+                           " term(s) for " + Doc.ID + " in " + std::to_string(ElapsedMs) + " ms");
 
      return Terms;
 }

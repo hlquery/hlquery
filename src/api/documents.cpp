@@ -2515,6 +2515,14 @@ HttpResponse SearchAPI::HandleSAMGetDocument(const HttpRequest &Request)
      Root["title"] = Entry.Title;
      Root["lang"] = Entry.Lang;
      Root["label"] = Entry.Label;
+     Root["format"] = Entry.Format;
+     Root["analysis"] = {
+          {"subject", Entry.Subject},
+          {"summary", Entry.Summary},
+          {"aliases", Entry.Aliases},
+          {"descriptors", Entry.Descriptors},
+          {"queries", Entry.Queries}
+     };
      Root["terms"] = nlohmann::json::array();
 
      for (const auto &Term : Entry.Terms)

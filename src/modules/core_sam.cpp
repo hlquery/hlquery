@@ -11,7 +11,9 @@
  */
 
 #include <cstdint>
+#include <mutex>
 #include <map>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -23,7 +25,11 @@
 
 namespace
 {
-     void TriggerSAMAutoIndex(const std::string &LogSource)
+     std::mutex StartupSweepMutex;
+     bool StartupSweepActive = false;
+     std::set<std::string> StartupSweepStartedCollections;
+
+     void TriggerSAMAutoIndex(const std::string &LogSource, bool ForceStartupSweep)
      {
           if (!Instance || !Instance->Config || !Instance->Config->GetSamEnabled() ||
               !Instance->Config->GetSamIndexAll() || !Instance->Sam || !Instance->Sam->IsOpen() ||
@@ -45,6 +51,88 @@ namespace
 
           const std::vector<std::string> Collections =
                HybridStorageManager::GetInstance().ListCollections();
+
+          if (ForceStartupSweep)
+          {
+               std::lock_guard<std::mutex> Lock(StartupSweepMutex);
+               StartupSweepActive = true;
+          }
+
+          bool ContinueStartupSweep = false;
+          std::string StartupSweepCollection;
+
+          {
+               std::lock_guard<std::mutex> Lock(StartupSweepMutex);
+
+               if (StartupSweepActive)
+               {
+                    for (const auto &Collection : Collections)
+                    {
+                         if (StartupSweepStartedCollections.count(Collection) > 0)
+                         {
+                              continue;
+                         }
+
+                         if (HybridStorageManager::GetInstance().GetCollectionDocumentCount(Collection) == 0)
+                         {
+                              StartupSweepStartedCollections.insert(Collection);
+                              continue;
+                         }
+
+                         StartupSweepCollection = Collection;
+                         break;
+                    }
+
+                    if (!StartupSweepCollection.empty())
+                    {
+                         ContinueStartupSweep = true;
+                    }
+                    else
+                    {
+                         StartupSweepActive = false;
+                         StartupSweepStartedCollections.clear();
+                    }
+               }
+          }
+
+          if (ContinueStartupSweep)
+          {
+               bool AlreadyRunning = false;
+               std::string ErrorMessage;
+
+               if (!Instance->Sam->StartRecreateCollectionAsync(StartupSweepCollection, &AlreadyRunning, &ErrorMessage))
+               {
+                    if (Instance->Logs && !ErrorMessage.empty())
+                    {
+                         Instance->Logs->Normal(LogSource,
+                                                "Failed to queue SAM startup sweep for collection '" +
+                                                     StartupSweepCollection + "': " + ErrorMessage + ".");
+                    }
+
+                    std::lock_guard<std::mutex> Lock(StartupSweepMutex);
+                    StartupSweepStartedCollections.insert(StartupSweepCollection);
+                    return;
+               }
+
+               if (AlreadyRunning)
+               {
+                    return;
+               }
+
+               {
+                    std::lock_guard<std::mutex> Lock(StartupSweepMutex);
+                    StartupSweepStartedCollections.insert(StartupSweepCollection);
+               }
+
+               if (Instance->Logs)
+               {
+                    Instance->Logs->Debug(LogSource,
+                                          "Queued SAM startup sweep for collection '" +
+                                               StartupSweepCollection + "'.");
+               }
+
+               return;
+          }
 
           for (const auto &Collection : Collections)
           {
@@ -120,12 +208,12 @@ class CoreSAMModule final : public AutoRuntimeModule<CoreSAMModule>
 
      void OnStartup() override
      {
-          TriggerSAMAutoIndex("core_sam");
+          TriggerSAMAutoIndex("core_sam", true);
      }
 
      void OnEveryOneMinute() override
      {
-          TriggerSAMAutoIndex("core_sam");
+          TriggerSAMAutoIndex("core_sam", false);
      }
 };
 
