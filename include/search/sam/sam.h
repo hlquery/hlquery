@@ -172,6 +172,8 @@ class SAM
           std::string Collection;
           std::string DocumentID;
           std::string Title;
+          std::string Lang;
+          std::string Label;
           std::vector<TermEntry> Terms;
      };
 

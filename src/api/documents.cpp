@@ -2439,6 +2439,8 @@ HttpResponse SearchAPI::HandleSAMListDocuments(const HttpRequest &Request)
                {"collection", Entry.Collection},
                {"id", Entry.DocumentID},
                {"title", Entry.Title},
+               {"lang", Entry.Lang},
+               {"label", Entry.Label},
                {"terms", TermsJSON}
           });
      }
@@ -2511,6 +2513,8 @@ HttpResponse SearchAPI::HandleSAMGetDocument(const HttpRequest &Request)
      Root["collection"] = Entry.Collection;
      Root["id"] = Entry.DocumentID;
      Root["title"] = Entry.Title;
+     Root["lang"] = Entry.Lang;
+     Root["label"] = Entry.Label;
      Root["terms"] = nlohmann::json::array();
 
      for (const auto &Term : Entry.Terms)

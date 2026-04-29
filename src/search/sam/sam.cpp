@@ -199,6 +199,299 @@ std::string JoinTokens(const std::vector<std::string>& Tokens)
      return Result;
 }
 
+std::string ToLowerASCII(std::string Value)
+{
+     std::transform(Value.begin(), Value.end(), Value.begin(),
+                    [](unsigned char C)
+                    {
+                         return static_cast<char>(std::tolower(C));
+                    });
+     return Value;
+}
+
+std::string TrimLowerCopy(const std::string& Value)
+{
+     return ToLowerASCII(TrimCopy(Value));
+}
+
+bool LooksLikeLanguageCode(const std::string& Value)
+{
+     if (Value.size() != 2)
+     {
+          return false;
+     }
+
+     return std::all_of(Value.begin(), Value.end(),
+                        [](unsigned char C)
+                        {
+                             return std::isalpha(C);
+                        });
+}
+
+std::vector<std::pair<std::string, std::string>> CollectDocumentTextFields(const Document& Doc)
+{
+     std::vector<std::pair<std::string, std::string>> Fields;
+
+     if (!Doc.Title.empty())
+     {
+          Fields.push_back({"title", Doc.Title});
+     }
+
+     if (!Doc.Content.empty())
+     {
+          Fields.push_back({"content", Doc.Content});
+     }
+
+     for (const auto& Entry : Doc.Fields)
+     {
+          if (Entry.second.empty())
+          {
+               continue;
+          }
+
+          Fields.push_back({TrimLowerCopy(Entry.first), Entry.second});
+     }
+
+     return Fields;
+}
+
+std::string ResolveSAMDocumentLanguageOverride(const std::string& Collection, const Document& Doc)
+{
+     static const std::array<std::string, 4> LanguageFieldNames = {"lang", "language", "_lang", "locale"};
+
+     for (const auto& Entry : Doc.Fields)
+     {
+          const std::string Key = TrimLowerCopy(Entry.first);
+
+          if (std::find(LanguageFieldNames.begin(), LanguageFieldNames.end(), Key) == LanguageFieldNames.end())
+          {
+               continue;
+          }
+
+          const std::string Candidate = TrimLowerCopy(Entry.second);
+
+          if (LooksLikeLanguageCode(Candidate))
+          {
+               return Candidate;
+          }
+     }
+
+     CollectionConfig Config;
+
+     if (HybridStorageManagerInstance().GetCollectionConfig(Collection, Config))
+     {
+          const auto MetadataIt = Config.Metadata.find("_lang");
+
+          if (MetadataIt != Config.Metadata.end())
+          {
+               const std::string Candidate = TrimLowerCopy(MetadataIt->second);
+
+               if (LooksLikeLanguageCode(Candidate))
+               {
+                    return Candidate;
+               }
+          }
+     }
+
+     return "";
+}
+
+std::string DetectSAMDocumentLanguage(const std::string& Collection, const Document& Doc)
+{
+     const std::string ExplicitLanguage = ResolveSAMDocumentLanguageOverride(Collection, Doc);
+
+     if (!ExplicitLanguage.empty())
+     {
+          return ExplicitLanguage;
+     }
+
+     const std::vector<std::pair<std::string, std::string>> TextFields = CollectDocumentTextFields(Doc);
+     std::string Combined;
+
+     for (const auto& Entry : TextFields)
+     {
+          if (!Combined.empty())
+          {
+               Combined.push_back(' ');
+          }
+
+          Combined += Entry.second;
+
+          if (Combined.size() >= 4096)
+          {
+               Combined.resize(4096);
+               break;
+          }
+     }
+
+     const std::string Lower = ToLowerASCII(Combined);
+
+     if (Lower.empty())
+     {
+          return "und";
+     }
+
+     int SpanishScore = 0;
+     int EnglishScore = 0;
+
+     auto CountNeedles = [&Lower](const std::vector<std::string>& Needles)
+     {
+          int Score = 0;
+
+          for (const auto& Needle : Needles)
+          {
+               size_t Position = Lower.find(Needle);
+
+               while (Position != std::string::npos)
+               {
+                    ++Score;
+                    Position = Lower.find(Needle, Position + Needle.size());
+               }
+          }
+
+          return Score;
+     };
+
+     SpanishScore += CountNeedles({" el ", " la ", " los ", " las ", " un ", " una ",
+                                   " de ", " del ", " para ", " con ", " por ", " que ",
+                                   " como ", " este ", " esta ", " desde ", " sobre "});
+     EnglishScore += CountNeedles({" the ", " and ", " for ", " with ", " from ", " this ",
+                                   " that ", " into ", " about ", " guide ", " overview ",
+                                   " article ", " profile ", " summary "});
+
+     SpanishScore += CountNeedles({"cion", "ciones", "mente", " para ", " años", " está", " será"});
+     EnglishScore += CountNeedles({"ing ", "tion", "ions", "ly ", "ed ", "ing\n"});
+
+     if (Combined.find("á") != std::string::npos || Combined.find("é") != std::string::npos ||
+         Combined.find("í") != std::string::npos || Combined.find("ó") != std::string::npos ||
+         Combined.find("ú") != std::string::npos || Combined.find("ñ") != std::string::npos ||
+         Combined.find("¿") != std::string::npos || Combined.find("¡") != std::string::npos)
+     {
+          SpanishScore += 6;
+     }
+
+     if (SpanishScore == 0 && EnglishScore == 0)
+     {
+          return "und";
+     }
+
+     if (SpanishScore >= EnglishScore + 2)
+     {
+          return "es";
+     }
+
+     if (EnglishScore >= SpanishScore + 1)
+     {
+          return "en";
+     }
+
+     return SpanishScore > EnglishScore ? "es" : "en";
+}
+
+std::string DetectSAMDocumentLabel(const Document& Doc)
+{
+     const std::vector<std::pair<std::string, std::string>> TextFields = CollectDocumentTextFields(Doc);
+     std::string Combined;
+     size_t NonEmptyFieldCount = 0;
+     size_t ShortFieldCount = 0;
+     bool HasProfileSignals = false;
+     bool HasReferenceSignals = false;
+     bool HasListingSignals = false;
+
+     for (const auto& Entry : TextFields)
+     {
+          if (Entry.second.empty())
+          {
+               continue;
+          }
+
+          ++NonEmptyFieldCount;
+
+          if (Entry.second.size() <= 80)
+          {
+               ++ShortFieldCount;
+          }
+
+          if (!Combined.empty())
+          {
+               Combined.push_back(' ');
+          }
+
+          Combined += Entry.first;
+          Combined.push_back(' ');
+          Combined += Entry.second;
+
+          if (Combined.size() >= 4096)
+          {
+               Combined.resize(4096);
+               break;
+          }
+     }
+
+     const std::string Lower = ToLowerASCII(Combined);
+
+     for (const auto& Entry : Doc.Fields)
+     {
+          const std::string Key = TrimLowerCopy(Entry.first);
+          const std::string Value = TrimLowerCopy(Entry.second);
+
+          if (Key == "author" || Key == "role" || Key == "occupation" || Key == "bio" ||
+              Key == "biography" || Key == "artist" || Key == "person")
+          {
+               HasProfileSignals = true;
+          }
+
+          if (Key == "sku" || Key == "isbn" || Key == "version" || Key == "api" ||
+              Key == "endpoint" || Key == "spec" || Key == "reference")
+          {
+               HasReferenceSignals = true;
+          }
+
+          if (Key == "tags" || Key == "labels" || Key == "category" || Key == "categories")
+          {
+               HasListingSignals = HasListingSignals || Value.find(',') != std::string::npos;
+          }
+     }
+
+     if (Lower.find(" biography ") != std::string::npos || Lower.find(" profile ") != std::string::npos ||
+         Lower.find(" born ") != std::string::npos || Lower.find(" founded ") != std::string::npos ||
+         Lower.find(" nacido ") != std::string::npos || Lower.find(" biografia ") != std::string::npos)
+     {
+          HasProfileSignals = true;
+     }
+
+     if (Lower.find(" reference ") != std::string::npos || Lower.find(" specification ") != std::string::npos ||
+         Lower.find(" api ") != std::string::npos || Lower.find(" endpoint ") != std::string::npos ||
+         Lower.find(" schema ") != std::string::npos || Lower.find(" manual ") != std::string::npos)
+     {
+          HasReferenceSignals = true;
+     }
+
+     if (Lower.find(" list of ") != std::string::npos || Lower.find(" top ") != std::string::npos ||
+         Lower.find(" collection ") != std::string::npos || Lower.find(" catalog ") != std::string::npos ||
+         Lower.find(" listado ") != std::string::npos || Lower.find(" lista de ") != std::string::npos)
+     {
+          HasListingSignals = true;
+     }
+
+     if (HasProfileSignals)
+     {
+          return "profile";
+     }
+
+     if (HasReferenceSignals)
+     {
+          return "reference";
+     }
+
+     if (HasListingSignals || (NonEmptyFieldCount >= 5 && ShortFieldCount + 1 >= NonEmptyFieldCount))
+     {
+          return "listing";
+     }
+
+     return "article";
+}
+
 bool IsSamStopword(const std::string& Value);
 std::string SingularizeToken(const std::string& Token);
 double ClampSAMScore(double Value);
@@ -3732,6 +4025,8 @@ bool ParseManifestValue(const std::string& RawValue, SAM::DocumentEntry& Entry)
           Entry.Collection = Root.value("collection", "");
           Entry.DocumentID = Root.value("id", "");
           Entry.Title = Root.value("title", "");
+          Entry.Lang = Root.value("lang", "und");
+          Entry.Label = Root.value("label", "article");
           Entry.Terms.clear();
 
           if (Root.contains("terms") && Root["terms"].is_array())
@@ -4676,6 +4971,8 @@ bool SAM::IndexDocumentLocked(const std::string& Collection, const Document& Doc
      Manifest["collection"] = Collection;
      Manifest["id"] = Doc.ID;
      Manifest["title"] = Doc.Title;
+     Manifest["lang"] = DetectSAMDocumentLanguage(Collection, Doc);
+     Manifest["label"] = DetectSAMDocumentLabel(Doc);
      Manifest["terms"] = nlohmann::json::array();
      const SAMSemanticProfile SemanticProfile = BuildSemanticProfile(Doc.Title.empty() ? Doc.ID : Doc.Title, Terms);
 
