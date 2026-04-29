@@ -809,7 +809,7 @@ bool hlquery::InitializeNoForkMode()
           return false;
      }
 
-     NOTIFY_MODULES(OnThreadPoolsReady);
+     FOREACH_MOD(OnThreadPoolsReady);
 
      /* Synchronize with background metadata scan before finishing setup */
 

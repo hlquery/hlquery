@@ -1068,7 +1068,7 @@ HttpResponse SearchAPI::HandleCreateCollection(const HttpRequest &Request)
 
      Response.Body = "{\"message\":\"Collection created successfully\",\"name\":\"" + EscapeJSONString(ConfigVal.Name) + "\"}";
      BumpCollectionMutationVersion(ConfigVal.Name);
-     NOTIFY_MODULES(OnCreateCollection, ConfigVal.Name, Request.RemoteAddress, Request.APIKeyID, !Request.APIKeyID.empty());
+     FOREACH_MOD(OnCreateCollection, ConfigVal.Name, Request.RemoteAddress, Request.APIKeyID, !Request.APIKeyID.empty());
 
      std::string ReplicationError;
      if (!ReplicateWriteRequest(Request, "create_collection", &ReplicationError))
@@ -1159,7 +1159,7 @@ HttpResponse SearchAPI::HandleDeleteCollection(const HttpRequest &Request)
      HttpResponse Response(Status::OK, StatusText(Status::OK), "application/json");
 
      Response.Body = "{\"message\":\"Collection deleted successfully\"}";
-     NOTIFY_MODULES(OnDeleteCollection, CollectionName, Request.RemoteAddress, Request.APIKeyID, !Request.APIKeyID.empty());
+     FOREACH_MOD(OnDeleteCollection, CollectionName, Request.RemoteAddress, Request.APIKeyID, !Request.APIKeyID.empty());
      BumpCollectionMutationVersion(CollectionName);
 
      std::string ReplicationError;
@@ -1264,7 +1264,7 @@ HttpResponse SearchAPI::HandleFlush(const HttpRequest &Request)
      HttpResponse Response(Status::OK, StatusText(Status::OK), "application/json");
 
      Response.Body = ResponseJSON.dump();
-     NOTIFY_MODULES(OnFlush, static_cast<uint64_t>(CollectionsCount), Request.RemoteAddress, Request.APIKeyID, !Request.APIKeyID.empty());
+     FOREACH_MOD(OnFlush, static_cast<uint64_t>(CollectionsCount), Request.RemoteAddress, Request.APIKeyID, !Request.APIKeyID.empty());
      ResetCollectionMutationVersions();
      BumpCollectionMutationVersion("*");
 
@@ -2327,7 +2327,7 @@ HttpResponse SearchAPI::HandleUpdateCollection(const HttpRequest &Request)
      HttpResponse Response(Status::OK, StatusText(Status::OK), "application/json");
 
      Response.Body = "{\"message\":\"Collection updated successfully\",\"name\":\"" + EscapeJSONString(CollectionName) + "\"}";
-     NOTIFY_MODULES(OnUpdateCollection, CollectionName, Request.RemoteAddress, Request.APIKeyID, !Request.APIKeyID.empty());
+     FOREACH_MOD(OnUpdateCollection, CollectionName, Request.RemoteAddress, Request.APIKeyID, !Request.APIKeyID.empty());
      BumpCollectionMutationVersion(CollectionName);
 
      std::string ReplicationError;

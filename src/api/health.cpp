@@ -1346,7 +1346,7 @@ HttpResponse SearchAPI::HandleLinksConnect(const HttpRequest &Request)
           return BuildLinksErrorResponse(Status::BAD_REQUEST, "Failed to add link", AddError);
      }
 
-     NOTIFY_MODULES(OnLinksConnect, Endpoint, Request.RemoteAddress, Request.APIKeyID, !Request.APIKeyID.empty());
+     FOREACH_MOD(OnLinksConnect, Endpoint, Request.RemoteAddress, Request.APIKeyID, !Request.APIKeyID.empty());
 
      return HandleLinksList(Request);
 }
@@ -1383,7 +1383,7 @@ HttpResponse SearchAPI::HandleLinksDisconnect(const HttpRequest &Request)
           return BuildLinksErrorResponse(Status::BAD_REQUEST, "Failed to remove link", RemoveError);
      }
 
-     NOTIFY_MODULES(OnLinksDisconnect, Endpoint, Request.RemoteAddress, Request.APIKeyID, !Request.APIKeyID.empty());
+     FOREACH_MOD(OnLinksDisconnect, Endpoint, Request.RemoteAddress, Request.APIKeyID, !Request.APIKeyID.empty());
 
      return HandleLinksList(Request);
 }
@@ -1653,7 +1653,7 @@ HttpResponse SearchAPI::HandleRepair(const HttpRequest &Request)
 
      if (report.Success)
      {
-          NOTIFY_MODULES(OnRepair, Request.RemoteAddress, Request.APIKeyID, !Request.APIKeyID.empty());
+          FOREACH_MOD(OnRepair, Request.RemoteAddress, Request.APIKeyID, !Request.APIKeyID.empty());
      }
 
      return Response;

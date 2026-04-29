@@ -437,7 +437,7 @@ void hlquery::Run()
           ExitManager::Exit(1);
      }
 
-     NOTIFY_MODULES(OnStartup);
+     FOREACH_MOD(OnStartup);
 
      /* Enter the primary server processing loop */
 
@@ -476,7 +476,7 @@ void hlquery::Run()
           if (Instance && Instance->Modules && CurrentMinute >= 0 && CurrentMinute != LastMinuteRun)
           {
                LastMinuteRun = CurrentMinute;
-               NOTIFY_MODULES(OnEveryOneMinute);
+               FOREACH_MOD(OnEveryOneMinute);
           }
 
           /* Handle signals received during loop execution */
@@ -544,7 +544,7 @@ void hlquery::Run()
 
           if (Instance && Instance->Modules)
           {
-               NOTIFY_MODULES(OnIdleTick, NowTimeVal);
+               FOREACH_MOD(OnIdleTick, NowTimeVal);
           }
 
           if (ShouldExitLoop())

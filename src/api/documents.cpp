@@ -1085,7 +1085,7 @@ HttpResponse SearchAPI::HandleAddDocument(const HttpRequest &Request)
           return JournalResponse;
      }
 
-     NOTIFY_MODULES(OnAddDocument, CollectionName, DocumentObj.ID, Request.RemoteAddress, Request.APIKeyID, !Request.APIKeyID.empty());
+     FOREACH_MOD(OnAddDocument, CollectionName, DocumentObj.ID, Request.RemoteAddress, Request.APIKeyID, !Request.APIKeyID.empty());
      BumpCollectionMutationVersion(CollectionName);
 
      std::string ReplicationError;
@@ -1410,7 +1410,7 @@ HttpResponse SearchAPI::HandleUpdateDocument(const HttpRequest &Request)
      HttpResponse Response(Status::OK, StatusText(Status::OK), "application/json");
 
      Response.Body = "{\"message\":\"Document updated successfully\",\"id\":\"" + EscapeJSONString(DocumentID) + "\"}";
-     NOTIFY_MODULES(OnUpdateDocument, CollectionName, DocumentID, Request.RemoteAddress, Request.APIKeyID, !Request.APIKeyID.empty());
+     FOREACH_MOD(OnUpdateDocument, CollectionName, DocumentID, Request.RemoteAddress, Request.APIKeyID, !Request.APIKeyID.empty());
      BumpCollectionMutationVersion(CollectionName);
 
      std::string ReplicationError;
@@ -1515,7 +1515,7 @@ HttpResponse SearchAPI::HandleDeleteDocument(const HttpRequest &Request)
      HttpResponse Response(Status::OK, StatusText(Status::OK), "application/json");
 
      Response.Body = "{\"message\":\"Document deleted successfully\",\"id\":\"" + EscapeJSONString(DocumentID) + "\"}";
-     NOTIFY_MODULES(OnDeleteDocument, CollectionName, DocumentID, Request.RemoteAddress, Request.APIKeyID, !Request.APIKeyID.empty());
+     FOREACH_MOD(OnDeleteDocument, CollectionName, DocumentID, Request.RemoteAddress, Request.APIKeyID, !Request.APIKeyID.empty());
      BumpCollectionMutationVersion(CollectionName);
 
      std::string ReplicationError;
@@ -1659,7 +1659,7 @@ HttpResponse SearchAPI::HandleDeleteDocumentsByFilter(const HttpRequest &Request
                return JournalResponse;
           }
 
-          NOTIFY_MODULES(OnDeleteDocuments, CollectionName, static_cast<uint64_t>(DeletedVal), Request.RemoteAddress, Request.APIKeyID, !Request.APIKeyID.empty());
+          FOREACH_MOD(OnDeleteDocuments, CollectionName, static_cast<uint64_t>(DeletedVal), Request.RemoteAddress, Request.APIKeyID, !Request.APIKeyID.empty());
           BumpCollectionMutationVersion(CollectionName);
 
           std::string ReplicationError;
@@ -2961,7 +2961,7 @@ HttpResponse SearchAPI::HandleBulkImportDocuments(const HttpRequest &Request)
                return JournalResponse;
           }
 
-          NOTIFY_MODULES(OnBulkImportDocuments, CollectionName, static_cast<uint64_t>(ImportedCount), Request.RemoteAddress, Request.APIKeyID, !Request.APIKeyID.empty());
+          FOREACH_MOD(OnBulkImportDocuments, CollectionName, static_cast<uint64_t>(ImportedCount), Request.RemoteAddress, Request.APIKeyID, !Request.APIKeyID.empty());
           BumpCollectionMutationVersion(CollectionName);
 
           std::string ReplicationError;
@@ -3010,7 +3010,7 @@ HttpResponse SearchAPI::HandleUpdateByQuery(const HttpRequest &Request)
 
      Response.Body = "{\"message\":\"Update by query completed\",\"updated\":0}";
 
-     NOTIFY_MODULES(OnUpdateByQuery, CollectionName, static_cast<uint64_t>(0), Request.RemoteAddress, Request.APIKeyID, !Request.APIKeyID.empty());
+     FOREACH_MOD(OnUpdateByQuery, CollectionName, static_cast<uint64_t>(0), Request.RemoteAddress, Request.APIKeyID, !Request.APIKeyID.empty());
 
      return Response;
 }
@@ -3047,7 +3047,7 @@ HttpResponse SearchAPI::HandleDeleteByQuery(const HttpRequest &Request)
 
      Response.Body = "{\"message\":\"Delete by query completed\",\"deleted\":0}";
 
-     NOTIFY_MODULES(OnDeleteByQuery, CollectionName, static_cast<uint64_t>(0), Request.RemoteAddress, Request.APIKeyID, !Request.APIKeyID.empty());
+     FOREACH_MOD(OnDeleteByQuery, CollectionName, static_cast<uint64_t>(0), Request.RemoteAddress, Request.APIKeyID, !Request.APIKeyID.empty());
 
      return Response;
 }

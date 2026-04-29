@@ -207,7 +207,7 @@ HttpResponse SearchAPI::HandleCreateOrUpdateOverride(const HttpRequest &Request)
           HttpResponse Response(Status::OK, StatusText(Status::OK), "application/json");
 
           Response.Body = "{\"message\":\"Override created/updated\",\"id\":\"" + EscapeJSONString(OverrideID) + "\",\"collection\":\"" + EscapeJSONString(CollectionName) + "\"}";
-          NOTIFY_MODULES(OnUpsertOverride, CollectionName, OverrideID, Request.RemoteAddress, Request.APIKeyID, !Request.APIKeyID.empty());
+          FOREACH_MOD(OnUpsertOverride, CollectionName, OverrideID, Request.RemoteAddress, Request.APIKeyID, !Request.APIKeyID.empty());
 
           return Response;
      }
@@ -326,7 +326,7 @@ HttpResponse SearchAPI::HandleDeleteOverride(const HttpRequest &Request)
      HttpResponse Response(Status::OK, StatusText(Status::OK), "application/json");
 
      Response.Body = "{\"message\":\"Override deleted\",\"id\":\"" + EscapeJSONString(OverrideID) + "\",\"collection\":\"" + EscapeJSONString(CollectionName) + "\"}";
-     NOTIFY_MODULES(OnDeleteOverride, CollectionName, OverrideID, Request.RemoteAddress, Request.APIKeyID, !Request.APIKeyID.empty());
+     FOREACH_MOD(OnDeleteOverride, CollectionName, OverrideID, Request.RemoteAddress, Request.APIKeyID, !Request.APIKeyID.empty());
 
      return Response;
 }

@@ -171,11 +171,11 @@ static void RecordAnalyticsForResponse(const HttpRequest &Request, const HttpRes
 {
      const RouteAction ActionVal = ResolveRouteWithFallback(Request);
 
-     NOTIFY_MODULES(OnRequestAnalytics, Request, Response, ActionVal);
+     FOREACH_MOD(OnRequestAnalytics, Request, Response, ActionVal);
 
      if (Request.Authenticated)
      {
-          NOTIFY_MODULES(OnAuthenticatedRequest, Request, ActionVal);
+          FOREACH_MOD(OnAuthenticatedRequest, Request, ActionVal);
      }
 }
 

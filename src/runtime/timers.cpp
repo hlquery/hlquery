@@ -98,7 +98,7 @@ void TimerManager::Add(std::function<void()> callback, std::chrono::milliseconds
      {
           try
           {
-               NOTIFY_MODULES(OnNewTimer, static_cast<uint64_t>(std::max<int64_t>(0, delay.count())), repeating, total_timers);
+               FOREACH_MOD(OnNewTimer, static_cast<uint64_t>(std::max<int64_t>(0, delay.count())), repeating, total_timers);
           }
           catch (...)
           {

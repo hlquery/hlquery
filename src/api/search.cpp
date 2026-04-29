@@ -1761,7 +1761,7 @@ HttpResponse SearchAPI::HandleSearch(const HttpRequest &Request)
                          Authenticated,
                          true);
 
-                    NOTIFY_MODULES(OnSearchDocument, DocumentEvent);
+                    FOREACH_MOD(OnSearchDocument, DocumentEvent);
                }
                return Response;
           }
@@ -1887,7 +1887,7 @@ HttpResponse SearchAPI::HandleSearch(const HttpRequest &Request)
                Authenticated,
                false);
 
-          NOTIFY_MODULES(OnSearchDocument, DocumentEvent);
+          FOREACH_MOD(OnSearchDocument, DocumentEvent);
      }
 
      return Response;
@@ -2324,7 +2324,7 @@ HttpResponse SearchAPI::HandleGlobalSearch(const HttpRequest &Request)
                Authenticated,
                Distributed);
 
-          NOTIFY_MODULES(OnSearchCollection, CollectionEvent);
+          FOREACH_MOD(OnSearchCollection, CollectionEvent);
      }
 
      return Response;
@@ -2533,7 +2533,7 @@ HttpResponse SearchAPI::HandleMultiSearch(const HttpRequest &Request)
                     Authenticated,
                     UsedDistributed);
 
-               NOTIFY_MODULES(OnSearchCollection, CollectionEvent);
+               FOREACH_MOD(OnSearchCollection, CollectionEvent);
           }
 
           Results.push_back(result_json);
