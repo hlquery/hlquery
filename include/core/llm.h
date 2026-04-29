@@ -42,7 +42,8 @@ class CoreExport llm
      llm() = default;
 
      explicit llm(const ServerConfig& ConfigValue)
-         : ModelsDirectory(ConfigValue.GetAIModelsDirectory()),
+         : Enabled(ConfigValue.GetAIEnabled()),
+           ModelsDirectory(ConfigValue.GetAIModelsDirectory()),
            ModelName(ConfigValue.GetAIModelName()),
            ModelPath(ConfigValue.GetAIModelPath()),
            InferenceCommand(ConfigValue.GetAIInferenceCommand())
@@ -57,7 +58,12 @@ class CoreExport llm
 
      bool Configured() const
      {
-          return !ModelPath.empty();
+          return Enabled && !ModelPath.empty();
+     }
+
+     bool IsEnabled() const
+     {
+          return Enabled;
      }
 
      const std::string& GetModelsDirectory() const
@@ -116,6 +122,7 @@ class CoreExport llm
 
      static std::string BuildContextKey(const std::string& Collection, const std::string& DocumentID);
 
+     bool Enabled = true;
      std::string ModelsDirectory;
      std::string ModelName;
      std::string ModelPath;

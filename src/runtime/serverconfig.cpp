@@ -323,6 +323,7 @@ void ServerConfig::ApplyConfiguration()
 
      if (AITag)
      {
+          AIEnabled = AITag->GetBool("enabled", AIEnabled);
           AIModelsDirectory = AITag->GetString("models_dir", AIModelsDirectory);
           AIModelName = ReadModelName(AITag, AIModelName);
           ModelPathOverride = AITag->GetString("model_path", "");
@@ -334,6 +335,7 @@ void ServerConfig::ApplyConfiguration()
 
      if (LLMTag)
      {
+          AIEnabled = LLMTag->GetBool("enabled", AIEnabled);
           AIModelsDirectory = LLMTag->GetString("models_dir", AIModelsDirectory);
           AIModelName = ReadModelName(LLMTag, AIModelName);
 
@@ -355,6 +357,7 @@ void ServerConfig::ApplyConfiguration()
      {
           SamEnabled = SAMTag->GetBool("enabled", SamEnabled);
           SamDataDirectory = SAMTag->GetString("data_dir", SamDataDirectory);
+          SamIndexAll = SAMTag->GetBool("index_all", SamIndexAll);
           Sam25DynamicQueryWeight = SAMTag->GetBool("sam25_dynamic_query_weight", Sam25DynamicQueryWeight);
           Sam25ShortQueryPhraseBoost = SAMTag->GetDoubleRange("sam25_short_query_phrase_boost", Sam25ShortQueryPhraseBoost, 0.1, 5.0);
           Sam25LongQueryPhraseBoost = SAMTag->GetDoubleRange("sam25_long_query_phrase_boost", Sam25LongQueryPhraseBoost, 0.1, 5.0);
@@ -682,7 +685,7 @@ void ServerConfig::ApplyConfiguration()
          AIModelPath.clear();
     }
 
-    if (!AIInferenceCommand.empty())
+    if (AIEnabled && !AIInferenceCommand.empty())
     {
          AIInferenceCommand = ResolveRelativePath(std::filesystem::path(AIInferenceCommand)).string();
 
@@ -700,7 +703,7 @@ void ServerConfig::ApplyConfiguration()
               }
          }
     }
-    else
+    else if (AIEnabled)
     {
          const std::string BundledCommand = ResolveBundledInferenceCommand();
 
@@ -708,6 +711,10 @@ void ServerConfig::ApplyConfiguration()
          {
               AIInferenceCommand = BundledCommand;
          }
+    }
+    else
+    {
+         AIInferenceCommand.clear();
     }
 
     if (!SamDataDirectory.empty())
@@ -747,7 +754,7 @@ void ServerConfig::ApplyConfiguration()
 
     const bool HasExplicitLLMConfig = (AITag != nullptr) || (LLMTag != nullptr);
 
-    if (HasExplicitLLMConfig)
+    if (HasExplicitLLMConfig && AIEnabled)
     {
          if (AIModelPath.empty())
          {

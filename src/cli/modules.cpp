@@ -658,6 +658,7 @@ void HLQueryCLI::ShowLLMInfo()
           const nlohmann::json root = nlohmann::json::parse(response.Body);
           std::vector<std::vector<std::string>> rows;
 
+          rows.push_back({"Enabled", root.value("enabled", false) ? "yes" : "no"});
           rows.push_back({"Configured", root.value("configured", false) ? "yes" : "no"});
           rows.push_back({"Model Name", root.value("model_name", std::string("")).empty() ? "-" : root.value("model_name", std::string(""))});
           rows.push_back({"Model Path", root.value("model_path", std::string("")).empty() ? "-" : root.value("model_path", std::string(""))});

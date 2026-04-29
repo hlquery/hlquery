@@ -267,6 +267,7 @@ enum class ModuleHook : size_t
 {
      /* Startup and periodic lifecycle hooks. */
 
+     OnStartup,
      OnThreadPoolsReady,
      OnEveryOneMinute,
      OnIdleTick,
@@ -348,6 +349,7 @@ enum class ModuleHook : size_t
 };
 
 #define HLQUERY_MODULE_HOOK_METHODS(X)                                                                                 \
+     X(OnStartup)                                                                                                       \
      X(OnThreadPoolsReady)                                                                                              \
      X(OnEveryOneMinute)                                                                                                \
      X(OnIdleTick)                                                                                                      \
@@ -550,6 +552,13 @@ class RuntimeModule
      /* Called once before module shutdown/unload begins. */
 
      virtual void OnUnloadModule()
+     {
+
+     }
+
+     /* Called once after initialization completes and before the main loop starts. */
+
+     virtual void OnStartup()
      {
 
      }

@@ -640,6 +640,7 @@ clean:
 	@find $(VENDOR_DIR) -name "CMakeCache.txt" -exec chmod u+w {} \; -delete 2>/dev/null || true
 	@find $(VENDOR_DIR) -name "CMakeFiles" -type d -exec sh -c 'chmod -R u+w "{}" 2>/dev/null || true; chown -R $$(id -u):$$(id -g) "{}" 2>/dev/null || true; rm -rf "{}"' \; 2>/dev/null || true
 	@find $(VENDOR_DIR) -name "Makefile" -not -path "*/\.*" -exec chmod u+w {} \; -delete 2>/dev/null || true
+	@rm -f ./Makefile 2>/dev/null || true
 
 clean-all: clean
 	@echo "$(YELLOW)Cleaning all generated files...$(NC)"

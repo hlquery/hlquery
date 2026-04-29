@@ -1423,6 +1423,7 @@ HttpResponse SearchAPI::HandleLLM(const HttpRequest &Request)
 
      nlohmann::json LLMJSON;
      LLMJSON["status"] = "ok";
+     LLMJSON["enabled"] = false;
      LLMJSON["configured"] = false;
      LLMJSON["models_dir"] = "";
      LLMJSON["model_name"] = "";
@@ -1442,6 +1443,7 @@ HttpResponse SearchAPI::HandleLLM(const HttpRequest &Request)
 
           if (Instance->LLM)
           {
+               LLMJSON["enabled"] = Instance->LLM->IsEnabled();
                LLMJSON["configured"] = Instance->LLM->Configured();
                LLMJSON["models_dir"] = Instance->LLM->GetModelsDirectory();
                LLMJSON["model_name"] = Instance->LLM->GetModelName();

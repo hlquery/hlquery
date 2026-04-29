@@ -1803,13 +1803,46 @@ void HLQueryCLI::ShowSAMStatus(const std::string &collection_name, bool json_out
                          running ? "yes" : "no",
                          entry.value("completed", false) ? "yes" : "no",
                          std::to_string(entry.value("indexed", static_cast<size_t>(0))),
-                         std::to_string(entry.value("failed", static_cast<size_t>(0)))
+                         std::to_string(entry.value("failed", static_cast<size_t>(0))),
+                         std::to_string(entry.value("pending", static_cast<size_t>(0))),
+                         std::to_string(entry.value("total", static_cast<size_t>(0)))
                     });
                }
 
-               PrintTable({"Collection", "Running", "Completed", "Indexed", "Failed"}, rows);
+               PrintTable({"Collection", "Running", "Completed", "Indexed", "Failed", "Pending", "Total"}, rows);
 
-               if (!any_running)
+               const nlohmann::json &running_collections = root["running_collections"];
+
+               if (running_collections.is_array() && !running_collections.empty())
+               {
+                    std::vector<std::string> names;
+
+                    for (const auto &entry : running_collections)
+                    {
+                         if (entry.is_string() && !entry.get<std::string>().empty())
+                         {
+                              names.push_back(entry.get<std::string>());
+                         }
+                    }
+
+                    if (!names.empty())
+                    {
+                         std::ostringstream stream;
+
+                         for (size_t index = 0; index < names.size(); ++index)
+                         {
+                              if (index > 0)
+                              {
+                                   stream << ", ";
+                              }
+
+                              stream << names[index];
+                         }
+
+                         std::cout << "Currently indexing: " << stream.str() << "\n";
+                    }
+               }
+               else if (!any_running)
                {
                     std::cout << root.value("message", "No SAM collections are currently indexing.") << "\n";
                }

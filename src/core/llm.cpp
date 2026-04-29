@@ -170,7 +170,7 @@ std::vector<llm::ContextSuggestion> llm::BuildDocumentContext(const std::string&
      std::vector<ContextSuggestion> Suggestions;
      std::unordered_set<std::string> Seen;
 
-     if (Limit == 0)
+     if (!Enabled || Limit == 0)
      {
           return Suggestions;
      }
@@ -250,7 +250,7 @@ std::vector<llm::ContextSuggestion> llm::BuildDocumentContext(const std::string&
 
 void llm::EnqueueContextualization(const std::string& Collection, const Document& Doc)
 {
-     if (Collection.empty() || Doc.ID.empty())
+     if (!Enabled || Collection.empty() || Doc.ID.empty())
      {
           return;
      }
@@ -268,6 +268,11 @@ void llm::EnqueueContextualization(const std::string& Collection, const Document
 
 size_t llm::ProcessPendingContextJobs(size_t MaxJobs)
 {
+     if (!Enabled)
+     {
+          return 0;
+     }
+
      size_t Processed = 0;
 
      const bool DebugEnabled = (Instance && Instance->Logs && Instance->Logs->GetDebugMode());

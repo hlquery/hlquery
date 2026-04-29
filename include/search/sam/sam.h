@@ -134,8 +134,11 @@ class SAM
           {
                double TermScore = 0.0;
                double SourceDocScore = 0.0;
+               double SemanticScore = 0.0;
+               double SemanticVectorScore = 0.0;
                double EvidenceBonus = 0.0;
                double DocPrior = 0.0;
+               double SemanticBonus = 0.0;
                double SourceDocBonus = 0.0;
                double FinalScore = 0.0;
           };
@@ -258,6 +261,10 @@ class SAM
      /* Return background job status for every tracked collection. */
 
      std::map<std::string, CollectionJobStatus> GetAllCollectionJobStatuses() const;
+
+     /* Return the last source collection mutation version captured by a completed SAM rebuild. */
+
+     bool GetCollectionIndexedMutationVersion(const std::string& Collection, uint64_t& Version) const;
 
      /* Load one indexed SAM document entry. */
 

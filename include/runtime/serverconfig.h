@@ -546,6 +546,11 @@ class ServerConfig
          return AIInferenceCommand;
     }
 
+    bool GetAIEnabled() const
+    {
+         return AIEnabled;
+    }
+
     const std::vector<AIModelDescriptor>& GetAIModelCatalog() const
     {
          return AIModelCatalog;
@@ -564,6 +569,11 @@ class ServerConfig
     const std::string& GetSamDataDirectory() const
     {
          return SamDataDirectory;
+    }
+
+    bool GetSamIndexAll() const
+    {
+         return SamIndexAll;
     }
 
     bool GetSam25DynamicQueryWeight() const
@@ -2028,8 +2038,10 @@ class ServerConfig
     std::string AIModelPath;
     std::string AIInferenceCommand;
     std::vector<AIModelDescriptor> AIModelCatalog;
+    bool AIEnabled = true;
     bool SamEnabled = false;
     std::string SamDataDirectory = HLQUERY_SAM_DATA_DIR;
+    bool SamIndexAll = false;
     bool Sam25DynamicQueryWeight = true;
     double Sam25ShortQueryPhraseBoost = 1.20;
     double Sam25LongQueryPhraseBoost = 0.85;

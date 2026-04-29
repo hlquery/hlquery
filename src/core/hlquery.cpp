@@ -437,6 +437,8 @@ void hlquery::Run()
           ExitManager::Exit(1);
      }
 
+     NOTIFY_MODULES(OnStartup);
+
      /* Enter the primary server processing loop */
 
      while (true)
