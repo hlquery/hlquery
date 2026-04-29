@@ -247,7 +247,6 @@ $ hlquery-cli search products "title:laptop AND price:[100 TO 500]"
 
 ```text
 localhost:9200> sql: select title from music where content like 'madonna%' or content like 'nirvana%';
-
 SQL rows for `select title from music where content like 'madonna%' or content like 'nirvana%';`:
 +-------------------------+
 | title                   |
