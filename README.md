@@ -258,7 +258,7 @@ SQL rows for `select title from music where content like 'madonna%' or content l
 Search completed in 19 ms.
 ```
 
-## GitHub Repositories & Development Workflow
+### GitHub Repositories & Development Workflow
 
 hlquery is actively developed across multiple GitHub repositories. We maintain a structured development workflow to ensure stability and continuous improvement.
 
@@ -281,7 +281,7 @@ We're committed to **active, continuous development** of hlquery and all related
 
 Subscribe to repository notifications to never miss an update!
 
-## Contributing
+### Contributing
 
 We welcome contributions from the community! All contributions must be released under the BSD 3-Clause license.
 
@@ -293,13 +293,13 @@ We welcome contributions from the community! All contributions must be released 
 - Improve documentation
 - Join our [Discord community](https://discord.hlquery.com)
 
-## Community
+### Community
 
 - 📖 [Documentation](https://docs.hlquery.com)
 - 💬 [Discord](https://discord.hlquery.com)
 - 🐦 [X (Twitter)](https://x.com/hlquery)
 - 📦 [GitHub](https://github.com/hlquery/hlquery)
 
-## License
+### License
 
 hlquery is licensed under the [BSD 3-Clause License](https://opensource.org/licenses/BSD-3-Clause).
