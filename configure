@@ -25,13 +25,13 @@ use FindBin qw($RealDir);
 use Getopt::Long qw(GetOptions);
 use POSIX qw(getgid getuid);
 use lib $RealDir;
-use make::configure::Annotations qw(collect_module_annotations);
-use make::configure::Extras qw(
+use make::configure::annotations qw(collect_module_annotations);
+use make::configure::extras qw(
     list_known_extra_module_names
     parse_enabled_extras
     sync_enabled_extra_module_links
 );
-use make::configure::System qw(
+use make::configure::system qw(
     apply_install_layout
     default_cxx
     get_cpu_count

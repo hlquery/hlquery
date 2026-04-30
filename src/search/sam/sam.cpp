@@ -27,6 +27,7 @@
 #include <unordered_set>
 
 #include "core/hlquery.h"
+#include "common/cryptoutils.h"
 #include "search/sam/sam.h"
 #include "search/storageengine.h"
 #include "utils/tools.h"
@@ -263,6 +264,67 @@ std::vector<std::pair<std::string, std::string>> CollectDocumentTextFields(const
      }
 
      return Fields;
+}
+
+std::string BuildSAMSourceDocumentFingerprint(const Document& Doc)
+{
+     nlohmann::json Root;
+     Root["id"] = Doc.ID;
+     Root["title"] = Doc.Title;
+     Root["content"] = Doc.Content;
+     Root["score"] = Doc.Score;
+     Root["timestamp"] = Doc.Timestamp;
+
+     nlohmann::json Fields = nlohmann::json::object();
+
+     for (const auto& Entry : Doc.Fields)
+     {
+          Fields[Entry.first] = Entry.second;
+     }
+
+     Root["fields"] = std::move(Fields);
+     const std::string Serialized = Root.dump();
+     return Hex(SHA256(Serialized.data(), Serialized.size()));
+}
+
+bool IsSAMDocumentEntryCurrent(const SAM::DocumentEntry& Entry,
+                               std::unordered_map<std::string, bool>* Cache = nullptr)
+{
+     if (Entry.Collection.empty() || Entry.DocumentID.empty())
+     {
+          return false;
+     }
+
+     const std::string CacheKey = Entry.Collection + "\n" + Entry.DocumentID + "\n" + Entry.SourceFingerprint;
+
+     if (Cache)
+     {
+          auto It = Cache->find(CacheKey);
+
+          if (It != Cache->end())
+          {
+               return It->second;
+          }
+     }
+
+     const Document SourceDoc = HybridStorageManagerInstance().GetDocument(Entry.Collection, Entry.DocumentID);
+     bool Current = !SourceDoc.ID.empty();
+
+     if (Current && !Entry.SourceFingerprint.empty())
+     {
+          Current = (BuildSAMSourceDocumentFingerprint(SourceDoc) == Entry.SourceFingerprint);
+     }
+     else if (Current && Entry.SourceTimestamp != 0)
+     {
+          Current = (SourceDoc.Timestamp == Entry.SourceTimestamp);
+     }
+
+     if (Cache)
+     {
+          (*Cache)[CacheKey] = Current;
+     }
+
+     return Current;
 }
 
 std::string ResolveSAMDocumentLanguageOverride(const std::string& Collection, const Document& Doc)
@@ -1572,7 +1634,9 @@ std::vector<std::string> BuildCollectionLearnedVariants(rocksdb::DB* Database,
      {
           SAM::DocumentEntry Entry;
 
-          if (!ParseManifestValue(Iterator->value().ToString(), Entry) || Entry.Terms.empty())
+          if (!ParseManifestValue(Iterator->value().ToString(), Entry) ||
+              !IsSAMDocumentEntryCurrent(Entry) ||
+              Entry.Terms.empty())
           {
                continue;
           }
@@ -2643,7 +2707,8 @@ std::vector<SAMLearnedVariant> BuildSeededCollectionVariants(rocksdb::DB* Databa
 
           SAM::DocumentEntry Entry;
 
-          if (!ParseManifestValue(ManifestValue, Entry))
+          if (!ParseManifestValue(ManifestValue, Entry) ||
+              !IsSAMDocumentEntryCurrent(Entry))
           {
                continue;
           }
@@ -2744,7 +2809,8 @@ void AppendCollectionLearnedHits(std::unordered_map<std::string, SAMAggregatedHi
      {
           SAM::DocumentEntry Entry;
 
-          if (!ParseManifestValue(Iterator->value().ToString(), Entry))
+          if (!ParseManifestValue(Iterator->value().ToString(), Entry) ||
+              !IsSAMDocumentEntryCurrent(Entry))
           {
                continue;
           }
@@ -2966,7 +3032,8 @@ void AppendSearchIdeaHits(std::unordered_map<std::string, SAMAggregatedHit>& Agg
 
                SAM::DocumentEntry Entry;
 
-               if (!ParseManifestValue(ManifestValue, Entry))
+               if (!ParseManifestValue(ManifestValue, Entry) ||
+                   !IsSAMDocumentEntryCurrent(Entry))
                {
                     continue;
                }
@@ -3071,17 +3138,18 @@ void AppendSemanticProfileHits(std::unordered_map<std::string, SAMAggregatedHit>
           try
           {
                const nlohmann::json Root = nlohmann::json::parse(Iterator->value().ToString());
+               SAM::DocumentEntry Entry;
+
+               if (!ParseManifestValue(Iterator->value().ToString(), Entry) ||
+                   !IsSAMDocumentEntryCurrent(Entry))
+               {
+                    continue;
+               }
+
                SAMSemanticProfile Profile;
 
                if (!ParseSemanticProfileJSON(Root, Profile))
                {
-                    SAM::DocumentEntry Entry;
-
-                    if (!ParseManifestValue(Iterator->value().ToString(), Entry))
-                    {
-                         continue;
-                    }
-
                     Profile = BuildSemanticProfile(Entry.Title.empty() ? Entry.DocumentID : Entry.Title,
                                                    Entry.Terms);
                }
@@ -3097,7 +3165,7 @@ void AppendSemanticProfileHits(std::unordered_map<std::string, SAMAggregatedHit>
                SAM::LookupHit Hit;
                Hit.Collection = Root.value("collection", "");
                Hit.DocumentID = Root.value("id", "");
-               Hit.Title = Root.value("title", "");
+               Hit.Title = Entry.Title.empty() ? Root.value("title", "") : Entry.Title;
                Hit.MatchedTerm = Match.MatchedText.empty() ? Profile.Subject : Match.MatchedText;
                Hit.MatchedKind = "semantic";
                Hit.MatchedSource = Match.MatchedSource.empty() ? "semantic_vector" : Match.MatchedSource;
@@ -3445,7 +3513,8 @@ void AppendFuzzyFallbackHits(std::unordered_map<std::string, SAMAggregatedHit>& 
      {
           SAM::DocumentEntry Entry;
 
-          if (!ParseManifestValue(Iterator->value().ToString(), Entry))
+          if (!ParseManifestValue(Iterator->value().ToString(), Entry) ||
+              !IsSAMDocumentEntryCurrent(Entry))
           {
                continue;
           }
@@ -4907,6 +4976,8 @@ bool ParseManifestValue(const std::string& RawValue, SAM::DocumentEntry& Entry)
           Entry.Collection = Root.value("collection", "");
           Entry.DocumentID = Root.value("id", "");
           Entry.Title = Root.value("title", "");
+          Entry.SourceTimestamp = Root.value("source_timestamp", 0ULL);
+          Entry.SourceFingerprint = Root.value("source_fingerprint", "");
           Entry.Lang = Root.value("lang", "und");
           Entry.Label = Root.value("label", "article");
           Entry.Format = Root.value("format", "text");
@@ -6172,6 +6243,8 @@ bool SAM::IndexDocumentLocked(const std::string& Collection,
      Manifest["collection"] = Collection;
      Manifest["id"] = Doc.ID;
      Manifest["title"] = Doc.Title;
+     Manifest["source_timestamp"] = Doc.Timestamp;
+     Manifest["source_fingerprint"] = BuildSAMSourceDocumentFingerprint(Doc);
      Manifest["lang"] = DetectSAMDocumentLanguage(Collection, Doc);
      Manifest["label"] = DetectSAMDocumentLabel(Doc);
      Manifest["format"] = DetectSAMDocumentFormat(Doc);
@@ -6268,6 +6341,115 @@ bool SAM::DeleteDocument(const std::string& Collection, const std::string& Docum
      }
 
      return RemoveExistingDocumentTermsLocked(Collection, DocumentID, ErrorMessage);
+}
+
+bool SAM::DeleteCollection(const std::string& Collection, std::string* ErrorMessage)
+{
+     if (Collection.empty())
+     {
+          if (ErrorMessage)
+          {
+               *ErrorMessage = "Collection name is required.";
+          }
+
+          return false;
+     }
+
+     {
+          std::lock_guard<std::mutex> QueueLock(QueueMutex);
+          PendingIndexJobs.erase(
+               std::remove_if(PendingIndexJobs.begin(), PendingIndexJobs.end(),
+                              [&](const PendingIndexJob& Job)
+                              {
+                                   return Job.Collection == Collection;
+                              }),
+               PendingIndexJobs.end());
+
+          for (auto It = PendingIndexKeys.begin(); It != PendingIndexKeys.end(); )
+          {
+               if (It->rfind(Collection + "\n", 0) == 0)
+               {
+                    It = PendingIndexKeys.erase(It);
+               }
+               else
+               {
+                    ++It;
+               }
+          }
+     }
+
+     {
+          std::lock_guard<std::mutex> Lock(DBMutex);
+
+          if (!Database)
+          {
+               if (ErrorMessage)
+               {
+                    *ErrorMessage = "SAM database is not open.";
+               }
+
+               return false;
+          }
+
+          std::vector<std::string> ExistingDocumentIDs;
+          const std::string ManifestPrefix = "sam:doc:" + Collection + ":";
+          std::unique_ptr<rocksdb::Iterator> ManifestIterator(Database->NewIterator(rocksdb::ReadOptions()));
+
+          for (ManifestIterator->Seek(ManifestPrefix);
+               ManifestIterator->Valid() && ManifestIterator->key().starts_with(ManifestPrefix);
+               ManifestIterator->Next())
+          {
+               const std::string Key = ManifestIterator->key().ToString();
+
+               if (Key.size() > ManifestPrefix.size())
+               {
+                    ExistingDocumentIDs.push_back(Key.substr(ManifestPrefix.size()));
+               }
+          }
+
+          for (const auto& DocumentID : ExistingDocumentIDs)
+          {
+               if (!RemoveExistingDocumentTermsLocked(Collection, DocumentID, ErrorMessage))
+               {
+                    return false;
+               }
+          }
+
+          rocksdb::WriteBatch Batch;
+          Batch.Delete(BuildCollectionProfileKey(Collection));
+          Batch.Delete(BuildCollectionStateKey(Collection));
+
+          const std::string IdeaPrefix = BuildSearchIdeaPrefix(Collection);
+          std::unique_ptr<rocksdb::Iterator> IdeaIterator(Database->NewIterator(rocksdb::ReadOptions()));
+
+          for (IdeaIterator->Seek(IdeaPrefix);
+               IdeaIterator->Valid() && IdeaIterator->key().starts_with(IdeaPrefix);
+               IdeaIterator->Next())
+          {
+               Batch.Delete(IdeaIterator->key());
+          }
+
+          const rocksdb::Status Status = Database->Write(rocksdb::WriteOptions(), &Batch);
+
+          if (!Status.ok())
+          {
+               if (ErrorMessage)
+               {
+                    *ErrorMessage = Status.ToString();
+               }
+
+               return false;
+          }
+     }
+
+     {
+          std::lock_guard<std::mutex> Lock(JobMutex);
+          CollectionJobs.erase(Collection);
+          ActiveCollectionTasks.erase(Collection);
+          CancelledCollections.erase(Collection);
+     }
+
+     return true;
 }
 
 bool SAM::RecordSearchIdea(const std::string& Collection,
@@ -6733,7 +6915,8 @@ std::vector<SAM::LookupHit> SAM::Lookup(const std::string& Query, size_t Limit) 
           return Hits;
      }
 
-     std::unordered_map<std::string, SAMAggregatedHit> AggregatedHits;
+    std::unordered_map<std::string, SAMAggregatedHit> AggregatedHits;
+    std::unordered_map<std::string, bool> FreshnessCache;
 
      for (const auto& Variant : Variants)
      {
@@ -6769,6 +6952,26 @@ std::vector<SAM::LookupHit> SAM::Lookup(const std::string& Query, size_t Limit) 
 
                     if (!Hit.Collection.empty() && !Hit.DocumentID.empty())
                     {
+                         std::string ManifestValue;
+                         const rocksdb::Status ManifestStatus =
+                              Database->Get(rocksdb::ReadOptions(),
+                                            BuildDocManifestKey(Hit.Collection, Hit.DocumentID),
+                                            &ManifestValue);
+
+                         if (!ManifestStatus.ok())
+                         {
+                              continue;
+                         }
+
+                         DocumentEntry Entry;
+
+                         if (!ParseManifestValue(ManifestValue, Entry) ||
+                             !IsSAMDocumentEntryCurrent(Entry, &FreshnessCache))
+                         {
+                              continue;
+                         }
+
+                         Hit.Title = Entry.Title.empty() ? Hit.Title : Entry.Title;
                          AccumulateSAMHit(AggregatedHits, Hit);
                     }
                }
@@ -6858,6 +7061,7 @@ std::vector<SAM::LookupHit> SAM::Lookup(const std::string& Collection, const std
      }
 
      std::unordered_map<std::string, SAMAggregatedHit> AggregatedHits;
+     std::unordered_map<std::string, bool> FreshnessCache;
 
      for (const auto& Variant : Variants)
      {
@@ -6898,6 +7102,26 @@ std::vector<SAM::LookupHit> SAM::Lookup(const std::string& Collection, const std
 
                     if (!Hit.DocumentID.empty())
                     {
+                         std::string ManifestValue;
+                         const rocksdb::Status ManifestStatus =
+                              Database->Get(rocksdb::ReadOptions(),
+                                            BuildDocManifestKey(Hit.Collection, Hit.DocumentID),
+                                            &ManifestValue);
+
+                         if (!ManifestStatus.ok())
+                         {
+                              continue;
+                         }
+
+                         DocumentEntry Entry;
+
+                         if (!ParseManifestValue(ManifestValue, Entry) ||
+                             !IsSAMDocumentEntryCurrent(Entry, &FreshnessCache))
+                         {
+                              continue;
+                         }
+
+                         Hit.Title = Entry.Title.empty() ? Hit.Title : Entry.Title;
                          AccumulateSAMHit(AggregatedHits, Hit);
                     }
                }
@@ -6944,17 +7168,20 @@ std::vector<SAM::DocumentEntry> SAM::ListDocuments(const std::string& Collection
 
      for (Iterator->Seek(Prefix); Iterator->Valid() && Iterator->key().starts_with(Prefix); Iterator->Next())
      {
+          DocumentEntry Entry;
+
+          if (!ParseManifestValue(Iterator->value().ToString(), Entry) ||
+              !IsSAMDocumentEntryCurrent(Entry))
+          {
+               continue;
+          }
+
           if (Seen++ < Offset)
           {
                continue;
           }
 
-          DocumentEntry Entry;
-
-          if (ParseManifestValue(Iterator->value().ToString(), Entry))
-          {
-               Entries.push_back(std::move(Entry));
-          }
+          Entries.push_back(std::move(Entry));
 
           if (Entries.size() >= Limit)
           {
@@ -7082,6 +7309,18 @@ bool SAM::GetDocumentEntry(const std::string& Collection,
           if (ErrorMessage)
           {
                *ErrorMessage = "Failed to parse SAM document entry.";
+          }
+
+          return false;
+     }
+
+     if (!IsSAMDocumentEntryCurrent(Entry))
+     {
+          Entry = DocumentEntry{};
+
+          if (ErrorMessage)
+          {
+               *ErrorMessage = "SAM document is stale relative to the source table.";
           }
 
           return false;

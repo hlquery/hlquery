@@ -1,4 +1,4 @@
-package make::configure::System;
+package make::configure::system;
 
 use v5.26.0;
 use strict;

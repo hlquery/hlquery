@@ -9,7 +9,7 @@
 # under the terms of the BSD License.
 # For more details, please visit: https://docs.hlquery.com
 
-package make::configure::Console;
+package make::configure::console;
 
 use v5.26.0;
 use strict;

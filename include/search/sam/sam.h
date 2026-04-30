@@ -225,6 +225,8 @@ class SAM
           std::string Collection;
           std::string DocumentID;
           std::string Title;
+          uint64_t SourceTimestamp = 0;
+          std::string SourceFingerprint;
           std::string Lang;
           std::string Label;
           std::string Format;
@@ -311,6 +313,10 @@ class SAM
      /* Remove one document and its SAM terms from the database. */
 
      bool DeleteDocument(const std::string& Collection, const std::string& DocumentID, std::string* ErrorMessage = nullptr);
+
+     /* Remove one collection and all of its SAM state from the database. */
+
+     bool DeleteCollection(const std::string& Collection, std::string* ErrorMessage = nullptr);
 
      bool RecordSearchIdea(const std::string& Collection,
                            const std::string& Query,

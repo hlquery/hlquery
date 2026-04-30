@@ -1346,6 +1346,20 @@ bool HybridStorageManager::DeleteCollection(const std::string &name)
           }
      }
 
+     if (Instance && Instance->Sam && Instance->Sam->IsOpen())
+     {
+          std::string SAMDeleteError;
+
+          if (!Instance->Sam->DeleteCollection(name, &SAMDeleteError) &&
+              Instance->Logs)
+          {
+               Instance->Logs->Normal("hybrid_storage",
+                                      "DeleteCollection: Failed to purge SAM state for '" + name +
+                                           "': " +
+                                           (SAMDeleteError.empty() ? std::string("unknown error") : SAMDeleteError) + ".");
+          }
+     }
+
      /* Remove from in-memory map */
 
      Collections.erase(name);

@@ -1,4 +1,4 @@
-package make::configure::Annotations;
+package make::configure::annotations;
 
 use v5.26.0;
 use strict;
@@ -6,7 +6,7 @@ use warnings FATAL => qw(all);
 
 use Exporter qw(import);
 use File::Spec::Functions qw(abs2rel catfile catdir);
-use make::configure::System qw(system_pattern_matches);
+use make::configure::system qw(system_pattern_matches);
 
 our @EXPORT_OK = qw(collect_module_annotations);
 

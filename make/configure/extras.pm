@@ -1,4 +1,4 @@
-package make::configure::Extras;
+package make::configure::extras;
 
 use v5.26.0;
 use strict;
