@@ -2555,6 +2555,10 @@ void HttpConnection::ProcessSingleRequest(const std::string &RequestStr)
      {
           Response = API.HandleSAMDebug(Request);
      }
+     else if (NormalizedPath == "/sam/history" && Request.Method == "GET")
+     {
+          Response = API.HandleSAMHistory(Request);
+     }
      else if (NormalizedPath == "/sam/documents" && Request.Method == "GET")
      {
           Response = API.HandleSAMListDocuments(Request);
@@ -4673,6 +4677,7 @@ APIKeyAction MapRouteToKeyAction(RouteAction ActionVal)
           case RouteAction::SamSearch:
           case RouteAction::SamStatus:
           case RouteAction::SamDebug:
+          case RouteAction::SamHistory:
           case RouteAction::SamListDocuments:
           case RouteAction::SamGetDocument:
           case RouteAction::FacetCounts:
@@ -5253,6 +5258,9 @@ HttpResponse ProcessRequestWithAPI(SearchAPI &API, const HttpRequest &Request)
 
                case RouteAction::SamDebug:
                     return API.HandleSAMDebug(Request);
+
+               case RouteAction::SamHistory:
+                    return API.HandleSAMHistory(Request);
 
                case RouteAction::SamListDocuments:
                     return API.HandleSAMListDocuments(Request);

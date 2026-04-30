@@ -172,6 +172,10 @@ class HLQueryCLI
 
      void ShowSAMStatus(const std::string &collection_name, bool json_output = false);
 
+     /* Shows recently recorded SAM search history entries. */
+
+     void ShowSAMHistory(const std::string &collection_name, int limit = 100, bool json_output = false);
+
      /* Lists SAM-indexed documents for one collection. */
 
      void ListSAMDocuments(const std::string &collection_name, int offset = 0, int limit = 20, bool json_output = false);

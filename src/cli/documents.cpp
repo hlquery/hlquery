@@ -1869,6 +1869,38 @@ void HLQueryCLI::ShowSAMStatus(const std::string &collection_name, bool json_out
                std::cout << root.value("message", "No SAM collections are currently indexing.") << "\n";
           }
 
+          const nlohmann::json &active_searches = root["active_searches"];
+
+          if (active_searches.is_array() && !active_searches.empty())
+          {
+               std::vector<std::vector<std::string>> rows;
+
+               for (const auto &entry : active_searches)
+               {
+                    rows.push_back({
+                         entry.value("collection", ""),
+                         entry.value("query", ""),
+                         std::to_string(entry.value("started_ms", static_cast<uint64_t>(0))),
+                         entry.value("running", false) ? "yes" : "no"
+                    });
+               }
+
+               std::cout << "Active SAM searches:\n";
+               PrintTable({"Collection", "Query", "StartedMS", "Running"}, rows);
+          }
+
+          if (root.contains("latest_search") && root["latest_search"].is_object())
+          {
+               const nlohmann::json &latest = root["latest_search"];
+               std::cout << "Latest SAM search: "
+                         << latest.value("collection", "")
+                         << " -> "
+                         << latest.value("query", "")
+                         << " (results="
+                         << latest.value("result_count", static_cast<size_t>(0))
+                         << ").\n";
+          }
+
           return;
      }
 
@@ -1879,6 +1911,8 @@ void HLQueryCLI::ShowSAMStatus(const std::string &collection_name, bool json_out
      rows.push_back({"completed", root.value("completed", false) ? "yes" : "no"});
      rows.push_back({"indexed", std::to_string(root.value("indexed", static_cast<size_t>(0)))});
      rows.push_back({"failed", std::to_string(root.value("failed", static_cast<size_t>(0)))});
+     rows.push_back({"search_running", root.value("search_running", false) ? "yes" : "no"});
+     rows.push_back({"active_search_count", std::to_string(root.value("active_search_count", static_cast<size_t>(0)))});
 
      const std::string error_value = root.value("error", "");
 
@@ -1891,6 +1925,141 @@ void HLQueryCLI::ShowSAMStatus(const std::string &collection_name, bool json_out
 
      std::cout << "SAM status for collection '" << collection_name << "':.\n";
      PrintTable({"Field", "Value"}, rows);
+
+     const nlohmann::json &active_searches = root["active_searches"];
+
+     if (active_searches.is_array() && !active_searches.empty())
+     {
+          std::vector<std::vector<std::string>> search_rows;
+
+          for (const auto &entry : active_searches)
+          {
+               search_rows.push_back({
+                    entry.value("query", ""),
+                    std::to_string(entry.value("started_ms", static_cast<uint64_t>(0))),
+                    entry.value("running", false) ? "yes" : "no"
+               });
+          }
+
+          std::cout << "Active SAM searches:\n";
+          PrintTable({"Query", "StartedMS", "Running"}, search_rows);
+     }
+
+     if (root.contains("latest_search") && root["latest_search"].is_object())
+     {
+          const nlohmann::json &latest = root["latest_search"];
+          std::cout << "Latest SAM search: "
+                    << latest.value("query", "")
+                    << " (results="
+                    << latest.value("result_count", static_cast<size_t>(0))
+                    << ").\n";
+     }
+}
+
+void HLQueryCLI::ShowSAMHistory(const std::string &collection_name, int limit, bool json_output)
+{
+     if (limit <= 0)
+     {
+          limit = 100;
+     }
+
+     std::string path = "/sam/history?limit=" + std::to_string(limit);
+
+     if (!collection_name.empty())
+     {
+          path += "&collection=" + hlquery_cli::UrlEncode(collection_name);
+     }
+
+     HLQueryCLI::HTTPResponse response = MakeRequest("GET", path, "", std::max(60, DefaultTimeoutSeconds));
+
+     if (CheckRequestFailed(response))
+     {
+          return;
+     }
+
+     nlohmann::json root;
+
+     try
+     {
+          root = nlohmann::json::parse(response.Body);
+     }
+     catch (const std::exception &)
+     {
+          PrintError("Failed to parse SAM history response");
+          return;
+     }
+
+     if (json_output || RawMode)
+     {
+          std::cout << root.dump(2) << "\n";
+          return;
+     }
+
+     const nlohmann::json &history = root["history"];
+     std::cout << "SAM recent search history";
+
+     if (!collection_name.empty())
+     {
+          std::cout << " for collection '" << collection_name << "'";
+     }
+
+     std::cout << ":.\n";
+
+     if (!history.is_array() || history.empty())
+     {
+          std::cout << "No SAM search history found.\n";
+          return;
+     }
+
+     std::vector<std::vector<std::string>> rows;
+     size_t index = 1;
+
+     for (const auto &entry : history)
+     {
+          std::string best_match;
+          std::string llm_intent = entry.value("resolved_interpretation", "");
+          std::string conclusion = entry.value("resolved_conclusion", "");
+
+          if (conclusion.empty())
+          {
+               conclusion = entry.value("conclusion", "");
+          }
+
+          if (entry.contains("best_match") && entry["best_match"].is_object())
+          {
+               const nlohmann::json &best = entry["best_match"];
+               best_match = best.value("title", "");
+
+               if (best_match.empty())
+               {
+                    best_match = best.value("id", "");
+               }
+          }
+
+          if (best_match.empty() && entry.contains("suggestions") && entry["suggestions"].is_array())
+          {
+               for (const auto &suggestion : entry["suggestions"])
+               {
+                    if (suggestion.is_string() && !suggestion.get<std::string>().empty())
+                    {
+                         best_match = suggestion.get<std::string>();
+                         break;
+                    }
+               }
+          }
+
+          rows.push_back({
+               std::to_string(index++),
+               entry.value("collection", ""),
+               entry.value("query", ""),
+               std::to_string(entry.value("uses", static_cast<uint64_t>(0))),
+               llm_intent,
+               best_match,
+               conclusion
+          });
+     }
+
+     PrintTable({"#", "Collection", "Query", "Uses", "LLM Intent", "Best Match", "Conclusion"}, rows);
 }
 
 void HLQueryCLI::ListSAMDocuments(const std::string &collection_name, int offset, int limit, bool json_output)

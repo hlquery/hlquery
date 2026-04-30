@@ -262,7 +262,6 @@ void ListenManager::OnEventHandlerRead()
           if (ConnectionsProcessed >= MAX_CONNECTIONS_PER_TICK)
           {
                LimitReached = true;
-
                int TestFD = accept(GetFD(), reinterpret_cast<struct sockaddr *>(&ClientAddr), &ClientLen);
 
                if (TestFD < 0)

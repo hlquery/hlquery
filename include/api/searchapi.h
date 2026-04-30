@@ -851,6 +851,10 @@ class SearchAPI
 
      HttpResponse HandleSAMDebug(const HttpRequest& Request);
 
+     /* HandleSAMHistory returns recently recorded SAM search history entries. */
+
+     HttpResponse HandleSAMHistory(const HttpRequest& Request);
+
      /* HandleSAMListDocuments lists SAM-indexed documents for one collection. */
 
      HttpResponse HandleSAMListDocuments(const HttpRequest& Request);

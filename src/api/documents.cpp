@@ -2206,8 +2206,10 @@ HttpResponse SearchAPI::HandleSAMStatus(const HttpRequest &Request)
      Root["ok"] = true;
      Root["collections"] = nlohmann::json::array();
      Root["running_collections"] = nlohmann::json::array();
+     Root["active_searches"] = nlohmann::json::array();
 
      const std::map<std::string, SAM::CollectionJobStatus> AllStatuses = Instance->Sam->GetAllCollectionJobStatuses();
+     const std::vector<SAM::SearchActivityEntry> ActiveSearches = Instance->Sam->GetActiveSearchActivities(CollectionName);
      size_t RunningCount = 0;
 
      for (const auto &Entry : AllStatuses)
@@ -2251,6 +2253,20 @@ HttpResponse SearchAPI::HandleSAMStatus(const HttpRequest &Request)
           }
      }
 
+     for (const auto &Activity : ActiveSearches)
+     {
+          Root["active_searches"].push_back({
+               {"sequence", Activity.Sequence},
+               {"collection", Activity.Collection},
+               {"query", Activity.Query},
+               {"normalized_query", Activity.NormalizedQuery},
+               {"started_ms", Activity.StartedMS},
+               {"completed_ms", Activity.CompletedMS},
+               {"result_count", Activity.ResultCount},
+               {"running", Activity.Running}
+          });
+     }
+
      if (!CollectionName.empty() && AllStatuses.find(CollectionName) == AllStatuses.end())
      {
           if (!HybridStorageManagerInstance().CollectionExists(CollectionName))
@@ -2270,11 +2286,15 @@ HttpResponse SearchAPI::HandleSAMStatus(const HttpRequest &Request)
           Root["pending"] = 0;
           Root["total"] = 0;
           Root["error"] = std::string();
+          Root["active_search_count"] = ActiveSearches.size();
+          Root["search_running"] = !ActiveSearches.empty();
           Root["message"] = "No SAM rebuild has been recorded for this collection.";
      }
      else if (!CollectionName.empty())
      {
           const SAM::CollectionJobStatus &JobStatus = AllStatuses.at(CollectionName);
+          SAM::SearchActivityEntry LatestSearch;
+          const bool HasLatestSearch = Instance->Sam->GetLatestSearchActivity(CollectionName, LatestSearch);
           Root["collection"] = CollectionName;
           Root["known"] = true;
           Root["running"] = JobStatus.Running;
@@ -2284,16 +2304,182 @@ HttpResponse SearchAPI::HandleSAMStatus(const HttpRequest &Request)
           Root["pending"] = JobStatus.PendingDocuments;
           Root["total"] = JobStatus.TotalDocuments;
           Root["error"] = JobStatus.ErrorMessage;
+          Root["active_search_count"] = ActiveSearches.size();
+          Root["search_running"] = !ActiveSearches.empty();
+
+          if (HasLatestSearch)
+          {
+               Root["latest_search"] = {
+                    {"sequence", LatestSearch.Sequence},
+                    {"collection", LatestSearch.Collection},
+                    {"query", LatestSearch.Query},
+                    {"normalized_query", LatestSearch.NormalizedQuery},
+                    {"started_ms", LatestSearch.StartedMS},
+                    {"completed_ms", LatestSearch.CompletedMS},
+                    {"result_count", LatestSearch.ResultCount},
+                    {"running", LatestSearch.Running}
+               };
+          }
+
           Root["message"] = JobStatus.Running ? "SAM indexing is running."
-                                              : (JobStatus.Completed ? "SAM indexing is idle."
-                                                                     : "SAM indexing has not started.");
+                                              : (!ActiveSearches.empty() ? "SAM is analyzing recent searches."
+                                                                         : (JobStatus.Completed ? "SAM indexing is idle."
+                                                                                                : "SAM indexing has not started."));
      }
      else
      {
+          SAM::SearchActivityEntry LatestSearch;
+          const bool HasLatestSearch = Instance->Sam->GetLatestSearchActivity("", LatestSearch);
           Root["running_count"] = RunningCount;
           Root["known_count"] = AllStatuses.size();
+          Root["active_search_count"] = ActiveSearches.size();
+          Root["search_running"] = !ActiveSearches.empty();
+
+          if (HasLatestSearch)
+          {
+               Root["latest_search"] = {
+                    {"sequence", LatestSearch.Sequence},
+                    {"collection", LatestSearch.Collection},
+                    {"query", LatestSearch.Query},
+                    {"normalized_query", LatestSearch.NormalizedQuery},
+                    {"started_ms", LatestSearch.StartedMS},
+                    {"completed_ms", LatestSearch.CompletedMS},
+                    {"result_count", LatestSearch.ResultCount},
+                    {"running", LatestSearch.Running}
+               };
+          }
+
           Root["message"] = RunningCount > 0 ? "SAM indexing is running in the background."
-                                             : "No SAM collections are currently indexing.";
+                                             : (!ActiveSearches.empty() ? "SAM is analyzing recent searches."
+                                                                        : "No SAM collections are currently indexing.");
+     }
+
+     HttpResponse Response(Status::OK, StatusText(Status::OK), "application/json");
+     Response.Body = Root.dump();
+     return Response;
+}
+
+HttpResponse SearchAPI::HandleSAMHistory(const HttpRequest &Request)
+{
+     if (Request.Method != "GET")
+     {
+          return HttpResponse(Status::METHOD_NOT_ALLOWED, StatusText(Status::METHOD_NOT_ALLOWED), "application/json");
+     }
+
+     if (!Instance || !Instance->Sam || !Instance->Sam->IsOpen())
+     {
+          return BuildErrorResponse(Status::SERVICE_UNAVAILABLE,
+                                    Code::SEARCH_INVALID_PARAMETER,
+                                    "SAM unavailable",
+                                    "Secondary Assistant Manager is not initialized.");
+     }
+
+     const auto CollectionIt = Request.QueryParams.find("collection");
+     const std::string CollectionName = (CollectionIt != Request.QueryParams.end()) ? TrimCopy(CollectionIt->second) : "";
+
+     if (!CollectionName.empty() && !HybridStorageManagerInstance().CollectionExists(CollectionName))
+     {
+          return BuildErrorResponse(Status::NOT_FOUND,
+                                    Code::COLLECTION_NOT_FOUND,
+                                    "Collection not found",
+                                    "The specified collection does not exist.");
+     }
+
+     int LimitVal = 100;
+
+     if (!ParseNonNegativeIntParam(Request.QueryParams, "limit", 100, LimitVal) || LimitVal <= 0)
+     {
+          return BuildErrorResponse(Status::BAD_REQUEST,
+                                    Code::SEARCH_INVALID_PARAMETER,
+                                    "Invalid limit",
+                                    "Query parameter 'limit' must be a positive integer.");
+     }
+
+     const std::vector<SAM::SearchIdeaEntry> History =
+          Instance->Sam->GetSearchIdeaHistory(CollectionName, static_cast<size_t>(LimitVal));
+
+     nlohmann::json Root;
+     Root["ok"] = true;
+     Root["collection"] = CollectionName;
+     Root["limit"] = LimitVal;
+     Root["kept_limit"] = 100;
+     Root["count"] = History.size();
+     Root["history"] = nlohmann::json::array();
+
+     for (const auto &Entry : History)
+     {
+          nlohmann::json BestMatch = nlohmann::json::object();
+          std::string Conclusion = Entry.ResolvedConclusion;
+
+          if (!Entry.Documents.empty())
+          {
+               const auto &TopDocument = Entry.Documents.front();
+               BestMatch = {
+                    {"id", TopDocument.DocumentID},
+                    {"title", TopDocument.Title},
+                    {"score", TopDocument.Score}
+               };
+
+               if (Conclusion.empty() && !TopDocument.Title.empty())
+               {
+                    Conclusion = "Most indicated result: " + TopDocument.Title;
+               }
+               else if (Conclusion.empty() && !TopDocument.DocumentID.empty())
+               {
+                    Conclusion = "Most indicated result: " + TopDocument.DocumentID;
+               }
+          }
+
+          nlohmann::json HistoryJson = {
+               {"collection", Entry.Collection},
+               {"query", Entry.Query},
+               {"normalized_query", Entry.NormalizedQuery},
+               {"first_seen_ms", Entry.FirstSeenMS},
+               {"last_seen_ms", Entry.LastSeenMS},
+               {"uses", Entry.Uses},
+               {"resolved_interpretation", Entry.ResolvedInterpretation},
+               {"resolved_conclusion", Entry.ResolvedConclusion},
+               {"resolved_at_ms", Entry.ResolvedAtMS},
+               {"resolved_uses", Entry.ResolvedUses},
+               {"best_match", BestMatch},
+               {"conclusion", Conclusion},
+               {"documents", nlohmann::json::array()},
+               {"suggestions", nlohmann::json::array()},
+               {"resolved_candidates", nlohmann::json::array()},
+               {"resolved_ranked_terms", nlohmann::json::array()}
+          };
+
+          for (const auto &Document : Entry.Documents)
+          {
+               HistoryJson["documents"].push_back({
+                    {"id", Document.DocumentID},
+                    {"title", Document.Title},
+                    {"score", Document.Score}
+               });
+
+               if (!Document.Title.empty())
+               {
+                    HistoryJson["suggestions"].push_back(Document.Title);
+               }
+          }
+
+          for (const auto &Candidate : Entry.ResolvedCandidates)
+          {
+               HistoryJson["resolved_candidates"].push_back({
+                    {"text", Candidate.Text},
+                    {"weight", Candidate.Weight}
+               });
+          }
+
+          for (const auto &RankedTerm : Entry.ResolvedRankedTerms)
+          {
+               HistoryJson["resolved_ranked_terms"].push_back({
+                    {"text", RankedTerm.Text},
+                    {"weight", RankedTerm.Weight}
+               });
+          }
+
+          Root["history"].push_back(std::move(HistoryJson));
      }
 
      HttpResponse Response(Status::OK, StatusText(Status::OK), "application/json");

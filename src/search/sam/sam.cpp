@@ -200,6 +200,24 @@ std::string JoinTokens(const std::vector<std::string>& Tokens)
      return Result;
 }
 
+std::string JoinValues(const std::vector<std::string>& Values,
+                       const std::string& Separator)
+{
+     std::string Result;
+
+     for (size_t Index = 0; Index < Values.size(); ++Index)
+     {
+          if (Index > 0)
+          {
+               Result += Separator;
+          }
+
+          Result += Values[Index];
+     }
+
+     return Result;
+}
+
 std::string ToLowerASCII(std::string Value)
 {
      std::transform(Value.begin(), Value.end(), Value.begin(),
@@ -865,6 +883,8 @@ bool IsUsefulLearnedVariant(const std::string& Value,
                             const std::unordered_set<std::string>& QueryTokens);
 double ComputeManifestSeedStrength(const SAMQueryTokenViews& QueryViews,
                                    const SAM::TermEntry& Term);
+bool SearchIntentCandidateWeightGreater(const llm::SearchIntentCandidate& Left,
+                                        const llm::SearchIntentCandidate& Right);
 
 bool IsSubjectLikeTermKind(const std::string& Kind)
 {
@@ -3706,12 +3726,12 @@ uint64_t GetSAMCurrentTimeMS()
 
 bool ShouldTrackSAMSearchIdeas(const std::string& Collection)
 {
-     if (!Instance || !Instance->Config || Collection.empty())
+     if (Collection.empty())
      {
           return false;
      }
 
-     return TrimLowerCopy(Instance->Config->GetSamSearchIdeasCollection()) == TrimLowerCopy(Collection);
+     return true;
 }
 
 double GetSAMIdeaFreshness(uint64_t LastSeenMS, uint64_t NowMS)
@@ -3736,6 +3756,12 @@ nlohmann::json SerializeSearchIdeaEntry(const SAM::SearchIdeaEntry& Entry)
      Root["uses"] = Entry.Uses;
      Root["vector"] = nlohmann::json::array();
      Root["documents"] = nlohmann::json::array();
+     Root["resolved_interpretation"] = Entry.ResolvedInterpretation;
+     Root["resolved_conclusion"] = Entry.ResolvedConclusion;
+     Root["resolved_at_ms"] = Entry.ResolvedAtMS;
+     Root["resolved_uses"] = Entry.ResolvedUses;
+     Root["resolved_candidates"] = nlohmann::json::array();
+     Root["resolved_ranked_terms"] = nlohmann::json::array();
 
      for (float Value : Entry.Vector)
      {
@@ -3748,6 +3774,22 @@ nlohmann::json SerializeSearchIdeaEntry(const SAM::SearchIdeaEntry& Entry)
                {"id", Document.DocumentID},
                {"title", Document.Title},
                {"score", Document.Score}
+          });
+     }
+
+     for (const auto& Candidate : Entry.ResolvedCandidates)
+     {
+          Root["resolved_candidates"].push_back({
+               {"text", Candidate.Text},
+               {"weight", Candidate.Weight}
+          });
+     }
+
+     for (const auto& RankedTerm : Entry.ResolvedRankedTerms)
+     {
+          Root["resolved_ranked_terms"].push_back({
+               {"text", RankedTerm.Text},
+               {"weight", RankedTerm.Weight}
           });
      }
 
@@ -3766,6 +3808,10 @@ bool ParseSearchIdeaEntry(const std::string& RawValue, SAM::SearchIdeaEntry& Ent
           Entry.FirstSeenMS = Root.value("first_seen_ms", static_cast<uint64_t>(0));
           Entry.LastSeenMS = Root.value("last_seen_ms", static_cast<uint64_t>(0));
           Entry.Uses = Root.value("uses", static_cast<uint64_t>(0));
+          Entry.ResolvedInterpretation = TrimCopy(Root.value("resolved_interpretation", ""));
+          Entry.ResolvedConclusion = TrimCopy(Root.value("resolved_conclusion", ""));
+          Entry.ResolvedAtMS = Root.value("resolved_at_ms", static_cast<uint64_t>(0));
+          Entry.ResolvedUses = Root.value("resolved_uses", static_cast<uint64_t>(0));
 
           if (Root.contains("vector") && Root["vector"].is_array())
           {
@@ -3792,6 +3838,46 @@ bool ParseSearchIdeaEntry(const std::string& RawValue, SAM::SearchIdeaEntry& Ent
                     if (!Document.DocumentID.empty())
                     {
                          Entry.Documents.push_back(std::move(Document));
+                    }
+               }
+          }
+
+          if (Root.contains("resolved_candidates") && Root["resolved_candidates"].is_array())
+          {
+               for (const auto& Item : Root["resolved_candidates"])
+               {
+                    if (!Item.is_object())
+                    {
+                         continue;
+                    }
+
+                    llm::SearchIntentCandidate Candidate;
+                    Candidate.Text = NormalizeTerm(Item.value("text", ""));
+                    Candidate.Weight = ClampSAMScore(Item.value("weight", 0.0));
+
+                    if (!Candidate.Text.empty())
+                    {
+                         Entry.ResolvedCandidates.push_back(std::move(Candidate));
+                    }
+               }
+          }
+
+          if (Root.contains("resolved_ranked_terms") && Root["resolved_ranked_terms"].is_array())
+          {
+               for (const auto& Item : Root["resolved_ranked_terms"])
+               {
+                    if (!Item.is_object())
+                    {
+                         continue;
+                    }
+
+                    llm::SearchIntentCandidate RankedTerm;
+                    RankedTerm.Text = NormalizeTerm(Item.value("text", ""));
+                    RankedTerm.Weight = ClampSAMScore(Item.value("weight", 0.0));
+
+                    if (!RankedTerm.Text.empty())
+                    {
+                         Entry.ResolvedRankedTerms.push_back(std::move(RankedTerm));
                     }
                }
           }
@@ -3885,6 +3971,17 @@ double ComputeSearchIdeaProfilePromotionScore(const SAM::SearchIdeaEntry& Entry,
      const double Freshness = GetSAMIdeaFreshness(Entry.LastSeenMS, NowMS);
      const double DocConsensus = ClampSAMScore(static_cast<double>(std::min<size_t>(Entry.Documents.size(), 3)) / 3.0);
      return ClampSAMScore((Popularity * 0.46) + (Freshness * 0.34) + (DocConsensus * 0.20));
+}
+
+bool SearchIntentCandidateWeightGreater(const llm::SearchIntentCandidate& Left,
+                                        const llm::SearchIntentCandidate& Right)
+{
+     if (Left.Weight != Right.Weight)
+     {
+          return Left.Weight > Right.Weight;
+     }
+
+     return Left.Text < Right.Text;
 }
 
 uint64_t GetLatestRecentSearchIdeaTimestampLocked(rocksdb::DB* Database,
@@ -4171,7 +4268,35 @@ void MergeRecentSearchIdeasIntoCollectionProfileLocked(
           Ranked.Score += 0.22 + (Idea.Score * 0.34);
           Ranked.Support += static_cast<size_t>(std::min<uint64_t>(Idea.Entry.Uses, 4));
 
+          for (const auto& RankedTerm : Idea.Entry.ResolvedRankedTerms)
+          {
+               if (RankedTerm.Text.empty() || !IsCollectionProfileCandidate(RankedTerm.Text))
+               {
+                    continue;
+               }
+
+               SAMProfileEntry& ResolvedRanked = LearnedRankedTerms[RankedTerm.Text];
+               ResolvedRanked.Text = RankedTerm.Text;
+               ResolvedRanked.Score += 0.28 + (Idea.Score * 0.30) + (ClampSAMScore(RankedTerm.Weight) * 0.34);
+               ResolvedRanked.Support += static_cast<size_t>(std::min<uint64_t>(Idea.Entry.Uses, 5));
+          }
+
           std::unordered_set<std::string> SeenSubjects;
+
+          for (const auto& Candidate : Idea.Entry.ResolvedCandidates)
+          {
+               if (Candidate.Text.empty())
+               {
+                    continue;
+               }
+
+               SAMProfileFamily& CandidateFamily = LearnedFamilies[Candidate.Text];
+               CandidateFamily.Subject = Candidate.Text;
+               CandidateFamily.Score += 0.20 + (Idea.Score * 0.16) + (ClampSAMScore(Candidate.Weight) * 0.24);
+               CandidateFamily.Support += static_cast<size_t>(std::min<uint64_t>(Idea.Entry.Uses, 4));
+               LearnedFamilyQueryCounts[Candidate.Text][Idea.QueryPhrase] +=
+                    static_cast<size_t>(std::min<uint64_t>(Idea.Entry.Uses, 4));
+          }
 
           for (const auto& DocumentRef : Idea.Entry.Documents)
           {
@@ -6705,6 +6830,450 @@ bool SAM::TrimSearchIdeasLocked(const std::string& Collection, std::string* Erro
      return true;
 }
 
+double ComputeSearchIntentTokenOverlap(const std::vector<std::string>& LeftTokens,
+                                       const std::vector<std::string>& RightTokens)
+{
+     if (LeftTokens.empty() || RightTokens.empty())
+     {
+          return 0.0;
+     }
+
+     std::unordered_set<std::string> RightSet(RightTokens.begin(), RightTokens.end());
+     size_t Matched = 0;
+
+     for (const auto& Token : LeftTokens)
+     {
+          if (RightSet.find(Token) != RightSet.end())
+          {
+               ++Matched;
+          }
+     }
+
+     return ClampSAMScore(static_cast<double>(Matched) / static_cast<double>(LeftTokens.size()));
+}
+
+std::vector<std::string> BuildSearchIntentDocumentPhrases(const SAM::DocumentEntry& Entry)
+{
+     std::vector<std::string> Phrases;
+
+     if (!Entry.Title.empty())
+     {
+          Phrases.push_back(NormalizeTerm(Entry.Title));
+     }
+
+     if (!Entry.Subject.empty())
+     {
+          Phrases.push_back(NormalizeTerm(Entry.Subject));
+     }
+
+     if (!Entry.Summary.empty())
+     {
+          Phrases.push_back(NormalizeTerm(Entry.Summary));
+     }
+
+     for (const auto& Alias : Entry.Aliases)
+     {
+          Phrases.push_back(NormalizeTerm(Alias));
+     }
+
+     for (const auto& Descriptor : Entry.Descriptors)
+     {
+          Phrases.push_back(NormalizeTerm(Descriptor));
+     }
+
+     for (const auto& Query : Entry.Queries)
+     {
+          Phrases.push_back(NormalizeTerm(Query));
+     }
+
+     for (const auto& Term : Entry.Terms)
+     {
+          Phrases.push_back(NormalizeTerm(Term.Text));
+
+          if (Phrases.size() >= 32)
+          {
+               break;
+          }
+     }
+
+     Phrases.erase(std::remove_if(Phrases.begin(), Phrases.end(),
+                                  [](const std::string& Value)
+                                  {
+                                       return Value.empty();
+                                  }),
+                   Phrases.end());
+     return Phrases;
+}
+
+double ScoreSearchIntentDocumentMatch(const SAM::DocumentEntry& Entry,
+                                      const std::vector<llm::SearchIntentCandidate>& Candidates,
+                                      const std::vector<llm::SearchIntentCandidate>& RankedTerms)
+{
+     const std::vector<std::string> Phrases = BuildSearchIntentDocumentPhrases(Entry);
+
+     if (Phrases.empty())
+     {
+          return 0.0;
+     }
+
+     const std::string Title = NormalizeTerm(Entry.Title);
+     const std::string Subject = NormalizeTerm(Entry.Subject);
+     double BestScore = 0.0;
+
+     const auto ScoreOne = [&](const llm::SearchIntentCandidate& Candidate,
+                               double BaseWeight) -> double
+     {
+          const std::string Text = NormalizeTerm(Candidate.Text);
+
+          if (Text.empty())
+          {
+               return 0.0;
+          }
+
+          const std::vector<std::string> CandidateTokens = TokenizeNormalized(Text);
+          double Score = 0.0;
+
+          if (!Title.empty() && Title == Text)
+          {
+               Score = std::max(Score, BaseWeight * 1.45);
+          }
+
+          if (!Subject.empty() && Subject == Text)
+          {
+               Score = std::max(Score, BaseWeight * 1.55);
+          }
+
+          for (const auto& Phrase : Phrases)
+          {
+               if (Phrase == Text)
+               {
+                    Score = std::max(Score, BaseWeight * 1.30);
+                    continue;
+               }
+
+               if (Phrase.find(Text) != std::string::npos || Text.find(Phrase) != std::string::npos)
+               {
+                    Score = std::max(Score, BaseWeight * 1.08);
+               }
+
+               const double Overlap = ComputeSearchIntentTokenOverlap(CandidateTokens, TokenizeNormalized(Phrase));
+
+               if (Overlap > 0.0)
+               {
+                    Score = std::max(Score, BaseWeight * (0.70 + (Overlap * 0.45)));
+               }
+          }
+
+          return Score;
+     };
+
+     for (const auto& Candidate : Candidates)
+     {
+          BestScore = std::max(BestScore, ScoreOne(Candidate, 0.85 + ClampSAMScore(Candidate.Weight)));
+     }
+
+     for (const auto& RankedTerm : RankedTerms)
+     {
+          BestScore = std::max(BestScore, ScoreOne(RankedTerm, 0.60 + ClampSAMScore(RankedTerm.Weight)));
+     }
+
+     return BestScore;
+}
+
+Document BuildSearchIntentCandidateDocument(const SAM::DocumentEntry& Entry)
+{
+     Document Candidate;
+     Candidate.ID = Entry.DocumentID;
+     Candidate.Title = Entry.Title;
+     Candidate.Content = Entry.Summary;
+
+     if (!Entry.Subject.empty())
+     {
+          Candidate.Fields["subject"] = Entry.Subject;
+     }
+
+     if (!Entry.Aliases.empty())
+     {
+          Candidate.Fields["aliases"] = JoinValues(Entry.Aliases, ", ");
+     }
+
+     if (!Entry.Descriptors.empty())
+     {
+          Candidate.Fields["descriptors"] = JoinValues(Entry.Descriptors, ", ");
+     }
+
+     if (!Entry.Queries.empty())
+     {
+          Candidate.Fields["queries"] = JoinValues(Entry.Queries, ", ");
+     }
+
+     std::vector<std::string> RankedTerms;
+
+     for (const auto& Term : Entry.Terms)
+     {
+          RankedTerms.push_back(Term.Text);
+
+          if (RankedTerms.size() >= 10)
+          {
+               break;
+          }
+     }
+
+     if (!RankedTerms.empty())
+     {
+          Candidate.Fields["terms"] = JoinValues(RankedTerms, ", ");
+     }
+
+     return Candidate;
+}
+
+bool SAM::OptimizeSearchIdeaIntentLocked(const std::string& Collection,
+                                         const std::string& NormalizedQuery,
+                                         bool* Updated,
+                                         std::string* ErrorMessage)
+{
+     if (Updated)
+     {
+          *Updated = false;
+     }
+
+     if (Collection.empty() || NormalizedQuery.empty())
+     {
+          if (ErrorMessage)
+          {
+               *ErrorMessage = "Collection and normalized query are required.";
+          }
+
+          return false;
+     }
+
+     if (!Instance || !Instance->LLM || !Instance->LLM->Configured())
+     {
+          return true;
+     }
+
+     SearchIdeaEntry Entry;
+     std::vector<Document> CandidateDocuments;
+
+     {
+          std::lock_guard<std::mutex> Lock(DBMutex);
+
+          if (!Database)
+          {
+               if (ErrorMessage)
+               {
+                    *ErrorMessage = "SAM database is not open.";
+               }
+
+               return false;
+          }
+
+          std::string RawValue;
+          const rocksdb::Status ReadStatus =
+               Database->Get(rocksdb::ReadOptions(),
+                             BuildSearchIdeaKey(Collection, NormalizedQuery),
+                             &RawValue);
+
+          if (!ReadStatus.ok())
+          {
+               if (!ReadStatus.IsNotFound() && ErrorMessage)
+               {
+                    *ErrorMessage = ReadStatus.ToString();
+               }
+
+               return ReadStatus.IsNotFound();
+          }
+
+          if (!ParseSearchIdeaEntry(RawValue, Entry))
+          {
+               if (ErrorMessage)
+               {
+                    *ErrorMessage = "Failed to parse stored search idea.";
+               }
+
+               return false;
+          }
+
+          for (const auto& DocumentRef : Entry.Documents)
+          {
+               if (DocumentRef.DocumentID.empty())
+               {
+                    continue;
+               }
+
+               std::string ManifestValue;
+               const rocksdb::Status ManifestStatus =
+                    Database->Get(rocksdb::ReadOptions(),
+                                  BuildDocManifestKey(Collection, DocumentRef.DocumentID),
+                                  &ManifestValue);
+
+               if (!ManifestStatus.ok())
+               {
+                    continue;
+               }
+
+               SAM::DocumentEntry ManifestEntry;
+
+               if (!ParseManifestValue(ManifestValue, ManifestEntry) || !IsSAMDocumentEntryCurrent(ManifestEntry))
+               {
+                    continue;
+               }
+
+               CandidateDocuments.push_back(BuildSearchIntentCandidateDocument(ManifestEntry));
+          }
+     }
+
+     if (CandidateDocuments.empty())
+     {
+          return true;
+     }
+
+     const size_t IntentLimit = Instance && Instance->Config
+          ? static_cast<size_t>(std::max(1, Instance->Config->GetSamLLMMaxIdeas()))
+          : 6;
+     const llm::SearchIntentResolution Resolution =
+          Instance->LLM->ResolveSearchIntent(Collection, Entry.Query, CandidateDocuments, IntentLimit);
+
+     if (Resolution.Candidates.empty() && Resolution.RankedTerms.empty() &&
+         Resolution.Interpretation.empty() && Resolution.Conclusion.empty())
+     {
+          return true;
+     }
+
+     {
+          std::lock_guard<std::mutex> Lock(DBMutex);
+
+          if (!Database)
+          {
+               if (ErrorMessage)
+               {
+                    *ErrorMessage = "SAM database is not open.";
+               }
+
+               return false;
+          }
+
+          std::string RawValue;
+          const rocksdb::Status ReadStatus =
+               Database->Get(rocksdb::ReadOptions(),
+                             BuildSearchIdeaKey(Collection, NormalizedQuery),
+                             &RawValue);
+
+          if (!ReadStatus.ok())
+          {
+               if (!ReadStatus.IsNotFound() && ErrorMessage)
+               {
+                    *ErrorMessage = ReadStatus.ToString();
+               }
+
+               return ReadStatus.IsNotFound();
+          }
+
+          if (!ParseSearchIdeaEntry(RawValue, Entry))
+          {
+               if (ErrorMessage)
+               {
+                    *ErrorMessage = "Failed to parse stored search idea.";
+               }
+
+               return false;
+          }
+
+          Entry.ResolvedInterpretation = Resolution.Interpretation;
+          Entry.ResolvedConclusion = Resolution.Conclusion;
+          Entry.ResolvedAtMS = GetSAMCurrentTimeMS();
+          Entry.ResolvedUses = Entry.Uses;
+          Entry.ResolvedCandidates = Resolution.Candidates;
+          Entry.ResolvedRankedTerms = Resolution.RankedTerms;
+
+          std::unordered_map<std::string, SearchIdeaDocumentRef> RankedDocuments;
+
+          for (const auto& Existing : Entry.Documents)
+          {
+               if (!Existing.DocumentID.empty())
+               {
+                    RankedDocuments[Existing.DocumentID] = Existing;
+               }
+          }
+
+          const std::string ManifestPrefix = "sam:doc:" + Collection + ":";
+          std::unique_ptr<rocksdb::Iterator> Iterator(Database->NewIterator(rocksdb::ReadOptions()));
+
+          for (Iterator->Seek(ManifestPrefix);
+               Iterator->Valid() && Iterator->key().starts_with(ManifestPrefix);
+               Iterator->Next())
+          {
+               SAM::DocumentEntry ManifestEntry;
+
+               if (!ParseManifestValue(Iterator->value().ToString(), ManifestEntry) ||
+                   !IsSAMDocumentEntryCurrent(ManifestEntry))
+               {
+                    continue;
+               }
+
+               const double MatchScore =
+                    ScoreSearchIntentDocumentMatch(ManifestEntry,
+                                                  Entry.ResolvedCandidates,
+                                                  Entry.ResolvedRankedTerms);
+
+               if (MatchScore < 0.65)
+               {
+                    continue;
+               }
+
+               SearchIdeaDocumentRef& RankedDocument = RankedDocuments[ManifestEntry.DocumentID];
+               RankedDocument.DocumentID = ManifestEntry.DocumentID;
+               RankedDocument.Title = ManifestEntry.Title;
+               RankedDocument.Score = std::max(RankedDocument.Score, MatchScore);
+          }
+
+          Entry.Documents.clear();
+
+          for (const auto& Pair : RankedDocuments)
+          {
+               Entry.Documents.push_back(Pair.second);
+          }
+
+          std::sort(Entry.Documents.begin(), Entry.Documents.end(),
+                    [](const SearchIdeaDocumentRef& Left, const SearchIdeaDocumentRef& Right)
+                    {
+                         if (Left.Score != Right.Score)
+                         {
+                              return Left.Score > Right.Score;
+                         }
+
+                         return Left.Title < Right.Title;
+                    });
+
+          if (Entry.Documents.size() > kSAMSearchIdeaMaxDocs)
+          {
+               Entry.Documents.resize(kSAMSearchIdeaMaxDocs);
+          }
+
+          const rocksdb::Status WriteStatus =
+               Database->Put(rocksdb::WriteOptions(),
+                             BuildSearchIdeaKey(Collection, NormalizedQuery),
+                             SerializeSearchIdeaEntry(Entry).dump());
+
+          if (!WriteStatus.ok())
+          {
+               if (ErrorMessage)
+               {
+                    *ErrorMessage = WriteStatus.ToString();
+               }
+
+               return false;
+          }
+     }
+
+     if (Updated)
+     {
+          *Updated = true;
+     }
+
+     return true;
+}
+
 bool SAM::RefreshCollectionProfileFromSearchIdeas(const std::string& Collection,
                                                   bool* Updated,
                                                   std::string* ErrorMessage)
@@ -6798,6 +7367,137 @@ bool SAM::RefreshCollectionProfileFromSearchIdeas(const std::string& Collection,
      return true;
 }
 
+size_t SAM::ProcessPendingSearchIntentOptimizations(size_t MaxCollections)
+{
+     if (MaxCollections == 0 || !Instance || !Instance->LLM || !Instance->LLM->Configured())
+     {
+          return 0;
+     }
+
+     std::vector<std::pair<std::string, std::string>> PendingIdeas;
+     std::vector<SearchIdeaEntry> RankedIdeas;
+
+     {
+          std::lock_guard<std::mutex> Lock(DBMutex);
+
+          if (!Database)
+          {
+               return 0;
+          }
+
+          std::unique_ptr<rocksdb::Iterator> Iterator(Database->NewIterator(rocksdb::ReadOptions()));
+          std::unordered_set<std::string> SeenCollections;
+
+          for (Iterator->Seek("sam:idea:");
+               Iterator->Valid() && Iterator->key().starts_with("sam:idea:");
+               Iterator->Next())
+          {
+               SearchIdeaEntry Entry;
+
+               if (!ParseSearchIdeaEntry(Iterator->value().ToString(), Entry))
+               {
+                    continue;
+               }
+
+               if (Entry.Collection.empty() || Entry.NormalizedQuery.empty() || Entry.Documents.empty())
+               {
+                    continue;
+               }
+
+               if (Entry.ResolvedUses >= Entry.Uses && Entry.ResolvedAtMS >= Entry.LastSeenMS &&
+                   !Entry.ResolvedCandidates.empty())
+               {
+                    continue;
+               }
+
+               if (!SeenCollections.insert(Entry.Collection).second)
+               {
+                    continue;
+               }
+
+               RankedIdeas.push_back(std::move(Entry));
+          }
+     }
+
+     std::sort(RankedIdeas.begin(), RankedIdeas.end(),
+               [](const SearchIdeaEntry& Left, const SearchIdeaEntry& Right)
+               {
+                    if (Left.LastSeenMS != Right.LastSeenMS)
+                    {
+                         return Left.LastSeenMS > Right.LastSeenMS;
+                    }
+
+                    if (Left.Uses != Right.Uses)
+                    {
+                         return Left.Uses > Right.Uses;
+                    }
+
+                    return Left.Query < Right.Query;
+               });
+
+     for (const auto& Entry : RankedIdeas)
+     {
+          PendingIdeas.push_back({Entry.Collection, Entry.NormalizedQuery});
+
+          if (PendingIdeas.size() >= MaxCollections)
+          {
+               break;
+          }
+     }
+
+     size_t Processed = 0;
+
+     for (const auto& PendingIdea : PendingIdeas)
+     {
+          bool Updated = false;
+          std::string ErrorMessage;
+
+          if (!OptimizeSearchIdeaIntentLocked(PendingIdea.first, PendingIdea.second, &Updated, &ErrorMessage))
+          {
+               if (Instance->Logs && !ErrorMessage.empty())
+               {
+                    Instance->Logs->Normal("sam",
+                                           "Failed to optimize SAM search intent for collection '" +
+                                                PendingIdea.first + "' and query '" + PendingIdea.second +
+                                                "': " + ErrorMessage + ".");
+               }
+
+               continue;
+          }
+
+          if (!Updated)
+          {
+               continue;
+          }
+
+          bool ProfileUpdated = false;
+          ErrorMessage.clear();
+          RefreshCollectionProfileFromSearchIdeas(PendingIdea.first, &ProfileUpdated, &ErrorMessage);
+
+          if (Instance->Logs)
+          {
+               if (!ErrorMessage.empty())
+               {
+                    Instance->Logs->Normal("sam",
+                                           "Optimized SAM search intent for collection '" +
+                                                PendingIdea.first +
+                                                "' but failed to refresh its profile: " +
+                                                ErrorMessage + ".");
+               }
+               else
+               {
+                    Instance->Logs->Debug("sam",
+                                          "Optimized SAM search intent for collection '" +
+                                               PendingIdea.first + "' and refreshed learned terms.");
+               }
+          }
+
+          ++Processed;
+     }
+
+     return Processed;
+}
+
 bool SAM::CancelCollectionWork(const std::string& Collection, std::string* ErrorMessage)
 {
      if (Collection.empty())
@@ -6887,15 +7587,69 @@ bool SAM::CancelAllWork(std::string* ErrorMessage)
      return true;
 }
 
+uint64_t SAM::BeginLookupActivity(const std::string& Collection,
+                                  const std::string& Query) const
+{
+     const std::string NormalizedQuery = NormalizeTerm(Query);
+
+     if (NormalizedQuery.empty())
+     {
+          return 0;
+     }
+
+     std::lock_guard<std::mutex> Lock(SearchActivityMutex);
+     SearchActivityEntry Entry;
+     Entry.Sequence = NextSearchActivitySequence++;
+     Entry.Collection = Collection;
+     Entry.Query = TrimCopy(Query);
+     Entry.NormalizedQuery = NormalizedQuery;
+     Entry.StartedMS = GetSAMCurrentTimeMS();
+     Entry.Running = true;
+     ActiveSearchActivities[Entry.Sequence] = Entry;
+     return Entry.Sequence;
+}
+
+void SAM::FinishLookupActivity(uint64_t Sequence,
+                               size_t ResultCount) const
+{
+     if (Sequence == 0)
+     {
+          return;
+     }
+
+     std::lock_guard<std::mutex> Lock(SearchActivityMutex);
+     const auto It = ActiveSearchActivities.find(Sequence);
+
+     if (It == ActiveSearchActivities.end())
+     {
+          return;
+     }
+
+     SearchActivityEntry Entry = It->second;
+     Entry.CompletedMS = GetSAMCurrentTimeMS();
+     Entry.ResultCount = ResultCount;
+     Entry.Running = false;
+     LatestSearchActivityByCollection["*"] = Entry;
+
+     if (!Entry.Collection.empty())
+     {
+          LatestSearchActivityByCollection[Entry.Collection] = Entry;
+     }
+
+     ActiveSearchActivities.erase(It);
+}
+
 std::vector<SAM::LookupHit> SAM::Lookup(const std::string& Query, size_t Limit) const
 {
      std::vector<LookupHit> Hits;
      const SAMQueryTokenViews QueryViews = NormalizeSAMQueryTokenViews(Query);
+     const uint64_t ActivitySequence = BeginLookupActivity("", Query);
 
      std::lock_guard<std::mutex> Lock(DBMutex);
 
      if (!Database)
      {
+          FinishLookupActivity(ActivitySequence, 0);
           return Hits;
      }
 
@@ -6912,6 +7666,7 @@ std::vector<SAM::LookupHit> SAM::Lookup(const std::string& Query, size_t Limit) 
 
      if (Variants.empty())
      {
+          FinishLookupActivity(ActivitySequence, 0);
           return Hits;
      }
 
@@ -6988,6 +7743,7 @@ std::vector<SAM::LookupHit> SAM::Lookup(const std::string& Query, size_t Limit) 
      FinalizeSAMAggregatedHits(Hits, AggregatedHits, QueryViews, Limit);
 
      EmitSAM25DebugLog(Query, Hits);
+     FinishLookupActivity(ActivitySequence, Hits.size());
      return Hits;
 }
 
@@ -7001,10 +7757,13 @@ std::vector<SAM::LookupHit> SAM::Lookup(const std::string& Collection, const std
           return Lookup(Query, Limit);
      }
 
+     const uint64_t ActivitySequence = BeginLookupActivity(Collection, Query);
+
      std::lock_guard<std::mutex> Lock(DBMutex);
 
      if (!Database)
      {
+          FinishLookupActivity(ActivitySequence, 0);
           return Hits;
      }
 
@@ -7057,6 +7816,7 @@ std::vector<SAM::LookupHit> SAM::Lookup(const std::string& Collection, const std
 
      if (Variants.empty())
      {
+          FinishLookupActivity(ActivitySequence, 0);
           return Hits;
      }
 
@@ -7143,7 +7903,117 @@ std::vector<SAM::LookupHit> SAM::Lookup(const std::string& Collection, const std
      FinalizeSAMAggregatedHits(Hits, AggregatedHits, QueryViews, Limit);
 
      EmitSAM25DebugLog(Query, Hits);
+     FinishLookupActivity(ActivitySequence, Hits.size());
      return Hits;
+}
+
+std::vector<SAM::SearchIdeaEntry> SAM::GetSearchIdeaHistory(const std::string& Collection,
+                                                            size_t Limit) const
+{
+     std::vector<SearchIdeaEntry> Entries;
+
+     if (Limit == 0)
+     {
+          return Entries;
+     }
+
+     std::lock_guard<std::mutex> Lock(DBMutex);
+
+     if (!Database)
+     {
+          return Entries;
+     }
+
+     const std::string Prefix = Collection.empty() ? "sam:idea:" : BuildSearchIdeaPrefix(Collection);
+     std::unique_ptr<rocksdb::Iterator> Iterator(Database->NewIterator(rocksdb::ReadOptions()));
+
+     for (Iterator->Seek(Prefix);
+          Iterator->Valid() && Iterator->key().starts_with(Prefix);
+          Iterator->Next())
+     {
+          SearchIdeaEntry Entry;
+
+          if (!ParseSearchIdeaEntry(Iterator->value().ToString(), Entry))
+          {
+               continue;
+          }
+
+          if (!Collection.empty() && Entry.Collection != Collection)
+          {
+               continue;
+          }
+
+          Entries.push_back(std::move(Entry));
+     }
+
+     std::sort(Entries.begin(), Entries.end(),
+               [](const SearchIdeaEntry& Left, const SearchIdeaEntry& Right)
+               {
+                    if (Left.LastSeenMS != Right.LastSeenMS)
+                    {
+                         return Left.LastSeenMS > Right.LastSeenMS;
+                    }
+
+                    if (Left.Uses != Right.Uses)
+                    {
+                         return Left.Uses > Right.Uses;
+                    }
+
+                    return Left.Query < Right.Query;
+               });
+
+     if (Entries.size() > Limit)
+     {
+          Entries.resize(Limit);
+     }
+
+     return Entries;
+}
+
+std::vector<SAM::SearchActivityEntry> SAM::GetActiveSearchActivities(const std::string& Collection) const
+{
+     std::vector<SearchActivityEntry> Entries;
+     std::lock_guard<std::mutex> Lock(SearchActivityMutex);
+
+     for (const auto& Pair : ActiveSearchActivities)
+     {
+          if (!Collection.empty() && Pair.second.Collection != Collection)
+          {
+               continue;
+          }
+
+          Entries.push_back(Pair.second);
+     }
+
+     std::sort(Entries.begin(), Entries.end(),
+               [](const SearchActivityEntry& Left, const SearchActivityEntry& Right)
+               {
+                    if (Left.StartedMS != Right.StartedMS)
+                    {
+                         return Left.StartedMS > Right.StartedMS;
+                    }
+
+                    return Left.Sequence > Right.Sequence;
+               });
+
+     return Entries;
+}
+
+bool SAM::GetLatestSearchActivity(const std::string& Collection,
+                                  SearchActivityEntry& Entry) const
+{
+     Entry = SearchActivityEntry{};
+     const std::string ActivityKey = Collection.empty() ? "*" : Collection;
+     std::lock_guard<std::mutex> Lock(SearchActivityMutex);
+     const auto It = LatestSearchActivityByCollection.find(ActivityKey);
+
+     if (It == LatestSearchActivityByCollection.end())
+     {
+          return false;
+     }
+
+     Entry = It->second;
+     return true;
 }
 
 std::vector<SAM::DocumentEntry> SAM::ListDocuments(const std::string& Collection, size_t Limit, size_t Offset) const

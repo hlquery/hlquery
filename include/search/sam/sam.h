@@ -28,6 +28,7 @@
 #include <unordered_set>
 #include <vector>
 
+#include "core/llm.h"
 #include "search/cstore.h"
 
 /*
@@ -68,6 +69,24 @@ class SAM
           uint64_t Uses = 0;
           std::vector<float> Vector;
           std::vector<SearchIdeaDocumentRef> Documents;
+          std::string ResolvedInterpretation;
+          std::string ResolvedConclusion;
+          uint64_t ResolvedAtMS = 0;
+          uint64_t ResolvedUses = 0;
+          std::vector<llm::SearchIntentCandidate> ResolvedCandidates;
+          std::vector<llm::SearchIntentCandidate> ResolvedRankedTerms;
+     };
+
+     struct SearchActivityEntry
+     {
+          uint64_t Sequence = 0;
+          std::string Collection;
+          std::string Query;
+          std::string NormalizedQuery;
+          uint64_t StartedMS = 0;
+          uint64_t CompletedMS = 0;
+          size_t ResultCount = 0;
+          bool Running = false;
      };
 
    private:
@@ -89,12 +108,16 @@ class SAM
      mutable std::mutex InferenceMutex;
      mutable std::mutex JobMutex;
      mutable std::mutex DebugMutex;
+     mutable std::mutex SearchActivityMutex;
      mutable std::mutex QueueMutex;
      std::condition_variable QueueCV;
      std::condition_variable JobStateCV;
      std::map<std::string, CollectionJobStatus> CollectionJobs;
      mutable std::deque<DebugEvent> DebugEvents;
      mutable uint64_t NextDebugSequence = 1;
+     mutable uint64_t NextSearchActivitySequence = 1;
+     mutable std::map<uint64_t, SearchActivityEntry> ActiveSearchActivities;
+     mutable std::unordered_map<std::string, SearchActivityEntry> LatestSearchActivityByCollection;
      std::deque<PendingIndexJob> PendingIndexJobs;
      std::unordered_set<std::string> PendingIndexKeys;
      std::unordered_map<std::string, size_t> ActiveCollectionTasks;
@@ -178,6 +201,17 @@ class SAM
 
      bool TrimSearchIdeasLocked(const std::string& Collection,
                                 std::string* ErrorMessage = nullptr);
+
+     bool OptimizeSearchIdeaIntentLocked(const std::string& Collection,
+                                         const std::string& NormalizedQuery,
+                                         bool* Updated = nullptr,
+                                         std::string* ErrorMessage = nullptr);
+
+     uint64_t BeginLookupActivity(const std::string& Collection,
+                                  const std::string& Query) const;
+
+     void FinishLookupActivity(uint64_t Sequence,
+                               size_t ResultCount) const;
 
    public:
 
@@ -327,6 +361,8 @@ class SAM
                                                   bool* Updated = nullptr,
                                                   std::string* ErrorMessage = nullptr);
 
+     size_t ProcessPendingSearchIntentOptimizations(size_t MaxCollections = 1);
+
      /* Cancel all queued and in-flight SAM work for one collection and wait for quiescence. */
 
      bool CancelCollectionWork(const std::string& Collection, std::string* ErrorMessage = nullptr);
@@ -342,6 +378,14 @@ class SAM
      /* Search SAM within one collection. */
 
      std::vector<LookupHit> Lookup(const std::string& Collection, const std::string& Query, size_t Limit = 20) const;
+
+     std::vector<SearchIdeaEntry> GetSearchIdeaHistory(const std::string& Collection = "",
+                                                       size_t Limit = 100) const;
+
+     std::vector<SearchActivityEntry> GetActiveSearchActivities(const std::string& Collection = "") const;
+
+     bool GetLatestSearchActivity(const std::string& Collection,
+                                  SearchActivityEntry& Entry) const;
 
      /* List indexed SAM documents for one collection. */
 

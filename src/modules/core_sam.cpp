@@ -224,6 +224,23 @@ namespace
 
           RefreshSAMSearchIdeaProfile(LogSource);
      }
+
+     void OptimizeSAMSearchIntent(const std::string &LogSource)
+     {
+          if (!Instance || !Instance->Sam || !Instance->Sam->IsOpen() || !Instance->LLM || !Instance->LLM->Configured())
+          {
+               return;
+          }
+
+          const size_t Processed = Instance->Sam->ProcessPendingSearchIntentOptimizations(1);
+
+          if (Processed > 0 && Instance->Logs)
+          {
+               Instance->Logs->Debug(LogSource,
+                                     "Processed " + std::to_string(Processed) +
+                                          " pending SAM search-intent optimization job(s).");
+          }
+     }
 }
 
 class CoreSAMModule final : public AutoRuntimeModule<CoreSAMModule>
@@ -243,11 +260,13 @@ class CoreSAMModule final : public AutoRuntimeModule<CoreSAMModule>
      void OnStartup() override
      {
           TriggerSAMAutoIndex("core_sam", true);
+          OptimizeSAMSearchIntent("core_sam");
      }
 
      void OnEveryOneMinute() override
      {
           TriggerSAMAutoIndex("core_sam", false);
+          OptimizeSAMSearchIntent("core_sam");
      }
 };
 

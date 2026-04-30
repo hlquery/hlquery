@@ -39,6 +39,20 @@ class CoreExport llm
           std::string Kind;
      };
 
+     struct SearchIntentCandidate
+     {
+          std::string Text;
+          double Weight = 0.0;
+     };
+
+     struct SearchIntentResolution
+     {
+          std::string Interpretation;
+          std::string Conclusion;
+          std::vector<SearchIntentCandidate> Candidates;
+          std::vector<SearchIntentCandidate> RankedTerms;
+     };
+
      llm() = default;
 
      explicit llm(const ServerConfig& ConfigValue)
@@ -89,6 +103,11 @@ class CoreExport llm
      std::vector<ContextSuggestion> BuildDocumentContext(const std::string& Collection,
                                                          const Document& Doc,
                                                          size_t Limit = 5) const;
+
+     SearchIntentResolution ResolveSearchIntent(const std::string& Collection,
+                                               const std::string& Query,
+                                               const std::vector<Document>& CandidateDocuments,
+                                               size_t Limit = 5) const;
 
      void EnqueueContextualization(const std::string& Collection, const Document& Doc);
 
