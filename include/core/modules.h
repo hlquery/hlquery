@@ -541,7 +541,12 @@ class RuntimeModule
 
      /* Starts the module after configuration has been loaded. */
 
-     virtual bool Start(const ServerConfig& Config, std::string& ErrorMessage) = 0;
+     virtual bool Start(const ServerConfig& Config, std::string& ErrorMessage)
+     {
+          (void)Config;
+          (void)ErrorMessage;
+          return true;
+     }
 
      /* Stops the module before it is unloaded. */
 

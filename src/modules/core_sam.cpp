@@ -235,11 +235,6 @@ class CoreSAMModule final : public AutoRuntimeModule<CoreSAMModule>
 
      }
 
-     bool Start(const ServerConfig &, std::string &) override
-     {
-          return true;
-     }
-
      void Stop() override
      {
 

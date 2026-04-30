@@ -1790,6 +1790,20 @@ bool HybridStorageManager::AddDocument(const std::string &collection, const Docu
                     Instance->Logs->Debug("hybrid_storage", "AddDocument: Failed to index document '" + doc.ID + "': " + e.what() + ".");
                }
           }
+
+          if (Instance && Instance->Sam && Instance->Sam->IsOpen())
+          {
+               std::string sam_error;
+
+               if (!Instance->Sam->EnqueueIndexDocument(collection, doc, &sam_error) &&
+                   Instance->Logs)
+               {
+                    Instance->Logs->Normal("sam",
+                                           "Failed to queue incremental SAM index for '" +
+                                                collection + "/" + doc.ID + "': " +
+                                                (sam_error.empty() ? std::string("unknown error") : sam_error) + ".");
+               }
+          }
      }
 
      /* Document write complete */
@@ -2380,6 +2394,20 @@ bool HybridStorageManager::DeleteDocument(const std::string &collection, const s
                }
           }
 
+          if (Instance && Instance->Sam && Instance->Sam->IsOpen())
+          {
+               std::string sam_error;
+
+               if (!Instance->Sam->DeleteDocument(collection, document_id, &sam_error) &&
+                   Instance->Logs)
+               {
+                    Instance->Logs->Normal("sam",
+                                           "Failed to remove SAM terms for '" + collection + "/" +
+                                                document_id + "': " +
+                                                (sam_error.empty() ? std::string("unknown error") : sam_error) + ".");
+               }
+          }
+
           /*
                 * Update collection metadata counter after delete to ensure accuracy.
                 * Use collection mutex to prevent race conditions.
@@ -2584,6 +2612,20 @@ bool HybridStorageManager::UpdateDocument(const std::string &collection, const D
      if (index_success && Instance && Instance->Logs)
      {
           Instance->Logs->Debug("hybrid_storage", "[UPDATE_SUCCESS] Updated document '" + new_doc.ID + "' in collection '" + collection + "'.");
+     }
+
+     if (index_success && Instance && Instance->Sam && Instance->Sam->IsOpen())
+     {
+          std::string sam_error;
+
+          if (!Instance->Sam->EnqueueIndexDocument(collection, new_doc, &sam_error) &&
+              Instance->Logs)
+          {
+               Instance->Logs->Normal("sam",
+                                      "Failed to queue incremental SAM update for '" +
+                                           collection + "/" + new_doc.ID + "': " +
+                                           (sam_error.empty() ? std::string("unknown error") : sam_error) + ".");
+          }
      }
 
      /*
