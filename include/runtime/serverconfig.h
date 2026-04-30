@@ -571,6 +571,11 @@ class ServerConfig
          return SamDataDirectory;
     }
 
+    const std::string& GetSamSearchIdeasCollection() const
+    {
+         return SamSearchIdeasCollection;
+    }
+
     bool GetSamIndexAll() const
     {
          return SamIndexAll;
@@ -2041,6 +2046,7 @@ class ServerConfig
     bool AIEnabled = true;
     bool SamEnabled = false;
     std::string SamDataDirectory = HLQUERY_SAM_DATA_DIR;
+    std::string SamSearchIdeasCollection;
     bool SamIndexAll = false;
     bool Sam25DynamicQueryWeight = true;
     double Sam25ShortQueryPhraseBoost = 1.20;

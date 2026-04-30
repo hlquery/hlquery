@@ -31,6 +31,7 @@
 #include "api/common.h"
 #include "core/hlquery.h"
 #include "core/modulemanager.h"
+#include "search/sam/sam.h"
 #include "sql/sql.h"
 #include "utils/protocol.h"
 #include "vendor/json/json.hpp"
@@ -78,6 +79,42 @@ static float ScoreForMergedHit(const SearchHit &Hit)
      const float base_score = Hit.HybridScore > 0.0f ? Hit.HybridScore : (Hit.VectorScore > 0.0f ? Hit.VectorScore : Hit.TextMatch);
      const float weight = (std::isfinite(Hit.Weight) && Hit.Weight > 0.0f) ? Hit.Weight : 1.0f;
      return base_score * weight;
+}
+
+static std::vector<SAM::SearchIdeaDocumentRef> BuildSAMSearchIdeaDocuments(const std::vector<SearchHit> &Hits,
+                                                                           size_t MaxDocuments = 6)
+{
+     std::vector<SAM::SearchIdeaDocumentRef> Documents;
+     std::unordered_set<std::string> Seen;
+
+     for (const auto &Hit : Hits)
+     {
+          auto IDIt = Hit.Document.find("id");
+
+          if (IDIt == Hit.Document.end() || IDIt->second.empty() || !Seen.insert(IDIt->second).second)
+          {
+               continue;
+          }
+
+          SAM::SearchIdeaDocumentRef Document;
+          Document.DocumentID = IDIt->second;
+
+          auto TitleIt = Hit.Document.find("title");
+          if (TitleIt != Hit.Document.end())
+          {
+               Document.Title = TitleIt->second;
+          }
+
+          Document.Score = std::max(0.05f, ScoreForMergedHit(Hit));
+          Documents.push_back(std::move(Document));
+
+          if (Documents.size() >= MaxDocuments)
+          {
+               break;
+          }
+     }
+
+     return Documents;
 }
 
 /* Parses an optional integer parameter used by maybe-suggestion settings. */
@@ -1739,6 +1776,13 @@ HttpResponse SearchAPI::HandleSearch(const HttpRequest &Request)
                ApplySQLDistinct(SearchResultObj, SQLApplyResult.Translation);
                Response.Body = GenerateComprehensiveSearchResponse(SearchResultObj, SearchQueryObj);
 
+               if (!SearchQueryObj.Q.empty() && SearchQueryObj.Q != "*" &&
+                   Instance && Instance->Sam && Instance->Sam->IsOpen())
+               {
+                    const auto IdeaDocuments = BuildSAMSearchIdeaDocuments(SearchResultObj.Hits);
+                    Instance->Sam->RecordSearchIdea(CollectionName, SearchQueryObj.Q, IdeaDocuments);
+               }
+
                /* Analytics fire for the final distributed response the same as local results. */
 
                if (SearchQueryObj.EnableAnalytics)
@@ -1866,6 +1910,13 @@ HttpResponse SearchAPI::HandleSearch(const HttpRequest &Request)
      }
 
      /* Analytics are emitted after the response body is finalized so counts match the payload. */
+
+     if (!SearchQueryObj.Q.empty() && SearchQueryObj.Q != "*" &&
+         Instance && Instance->Sam && Instance->Sam->IsOpen())
+     {
+          const auto IdeaDocuments = BuildSAMSearchIdeaDocuments(SearchResultObj.Hits);
+          Instance->Sam->RecordSearchIdea(CollectionName, SearchQueryObj.Q, IdeaDocuments);
+     }
 
      if (SearchQueryObj.EnableAnalytics)
      {

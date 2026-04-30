@@ -655,12 +655,12 @@ clean-all: clean
 
 # INSTALLATION
 
-PREFIX ?= /usr/local
-CONFDIR ?= /home/cferry/work/hlquery/run/conf
-LOGDIR ?= /home/cferry/work/hlquery/run/logs
-DATADIR ?= /home/cferry/work/hlquery/run/data
-RUNDIR ?= /home/cferry/work/hlquery/run/pid
-BINDIR ?= /home/cferry/work/hlquery/run/bin
+PREFIX ?= ${PREFIX}
+CONFDIR ?= ${CONFDIR}
+LOGDIR ?= ${LOGDIR}
+DATADIR ?= ${DATADIR}
+RUNDIR ?= ${RUNDIR}
+BINDIR ?= ${BINDIR}
 INSTALL ?= install
 STAGED_RUN_DIR := $(if $(strip $(DESTDIR)),$(DESTDIR)/$(RUN_DIR),$(RUN_DIR))
 
@@ -949,6 +949,10 @@ install-system: all
 	@if [ -d "run/conf" ]; then \
 		$(INSTALL) -d "$(DESTDIR)$(CONFDIR)"; \
 		cp -r run/conf/* "$(DESTDIR)$(CONFDIR)/"; \
+	fi
+	@if [ -f "etc/package-builder/hlquery.service" ]; then \
+		$(INSTALL) -d "$(DESTDIR)$(PREFIX)/lib/systemd/system"; \
+		$(INSTALL) -m 0644 "etc/package-builder/hlquery.service" "$(DESTDIR)$(PREFIX)/lib/systemd/system/hlquery.service"; \
 	fi
 	@$(INSTALL) -d "$(DESTDIR)$(LOGDIR)"
 	@$(INSTALL) -d "$(DESTDIR)$(DATADIR)"

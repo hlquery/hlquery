@@ -24,6 +24,7 @@
 #include <deque>
 #include <string>
 #include <thread>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -50,12 +51,33 @@ class SAM
           std::string Message;
      };
 
+     struct SearchIdeaDocumentRef
+     {
+          std::string DocumentID;
+          std::string Title;
+          double Score = 0.0;
+     };
+
+     struct SearchIdeaEntry
+     {
+          std::string Collection;
+          std::string Query;
+          std::string NormalizedQuery;
+          uint64_t FirstSeenMS = 0;
+          uint64_t LastSeenMS = 0;
+          uint64_t Uses = 0;
+          std::vector<float> Vector;
+          std::vector<SearchIdeaDocumentRef> Documents;
+     };
+
    private:
 
      struct PendingIndexJob
      {
           std::string Collection;
           Document Doc;
+          bool HasExpectedMutationVersion = false;
+          uint64_t ExpectedMutationVersion = 0;
      };
 
      std::unique_ptr<rocksdb::DB> Database;
@@ -107,7 +129,11 @@ class SAM
 
      /* Index one document into SAM while holding the database lock. */
 
-     bool IndexDocumentLocked(const std::string& Collection, const Document& Doc, std::string* ErrorMessage = nullptr);
+     bool IndexDocumentLocked(const std::string& Collection,
+                              const Document& Doc,
+                              std::string* ErrorMessage = nullptr,
+                              bool HasExpectedMutationVersion = false,
+                              uint64_t ExpectedMutationVersion = 0);
 
      /* Build the expanded term set for one document before persistence. */
 
@@ -133,6 +159,25 @@ class SAM
      /* Return whether destructive cancellation is currently blocking this collection. */
 
      bool IsCollectionCancelledLocked(const std::string& Collection) const;
+
+     /* Return the current source mutation version for one collection. */
+
+     uint64_t GetCurrentCollectionMutationVersion(const std::string& Collection) const;
+
+     /* Report whether a queued indexing job is stale against the current collection mutation version. */
+
+     bool ValidateExpectedMutationVersion(const std::string& Collection,
+                                          bool HasExpectedMutationVersion,
+                                          uint64_t ExpectedMutationVersion,
+                                          std::string* ErrorMessage = nullptr) const;
+
+     bool RecordSearchIdeaLocked(const std::string& Collection,
+                                 const std::string& Query,
+                                 const std::vector<SearchIdeaDocumentRef>& Documents,
+                                 std::string* ErrorMessage = nullptr);
+
+     bool TrimSearchIdeasLocked(const std::string& Collection,
+                                std::string* ErrorMessage = nullptr);
 
    public:
 
@@ -195,6 +240,7 @@ class SAM
      {
           bool Running = false;
           bool Completed = false;
+          bool NeedsRetry = false;
           size_t IndexedDocuments = 0;
           size_t FailedDocuments = 0;
           size_t PendingDocuments = 0;
@@ -248,15 +294,32 @@ class SAM
 
      /* Queue one document for background indexing. */
 
-     bool EnqueueIndexDocument(const std::string& Collection, const Document& Doc, std::string* ErrorMessage = nullptr);
+     bool EnqueueIndexDocument(const std::string& Collection,
+                               const Document& Doc,
+                               std::string* ErrorMessage = nullptr,
+                               bool HasExpectedMutationVersion = false,
+                               uint64_t ExpectedMutationVersion = 0);
 
      /* Index one document immediately into SAM. */
 
-     bool IndexDocument(const std::string& Collection, const Document& Doc, std::string* ErrorMessage = nullptr);
+     bool IndexDocument(const std::string& Collection,
+                        const Document& Doc,
+                        std::string* ErrorMessage = nullptr,
+                        bool HasExpectedMutationVersion = false,
+                        uint64_t ExpectedMutationVersion = 0);
 
      /* Remove one document and its SAM terms from the database. */
 
      bool DeleteDocument(const std::string& Collection, const std::string& DocumentID, std::string* ErrorMessage = nullptr);
+
+     bool RecordSearchIdea(const std::string& Collection,
+                           const std::string& Query,
+                           const std::vector<SearchIdeaDocumentRef>& Documents,
+                           std::string* ErrorMessage = nullptr);
+
+     bool RefreshCollectionProfileFromSearchIdeas(const std::string& Collection,
+                                                  bool* Updated = nullptr,
+                                                  std::string* ErrorMessage = nullptr);
 
      /* Cancel all queued and in-flight SAM work for one collection and wait for quiescence. */
 

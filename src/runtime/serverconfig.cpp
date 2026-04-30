@@ -357,6 +357,7 @@ void ServerConfig::ApplyConfiguration()
      {
           SamEnabled = SAMTag->GetBool("enabled", SamEnabled);
           SamDataDirectory = SAMTag->GetString("data_dir", SamDataDirectory);
+          SamSearchIdeasCollection = SAMTag->GetString("sam_search_ideas", SamSearchIdeasCollection);
           SamIndexAll = SAMTag->GetBool("index_all", SamIndexAll);
           Sam25DynamicQueryWeight = SAMTag->GetBool("sam25_dynamic_query_weight", Sam25DynamicQueryWeight);
           Sam25ShortQueryPhraseBoost = SAMTag->GetDoubleRange("sam25_short_query_phrase_boost", Sam25ShortQueryPhraseBoost, 0.1, 5.0);
@@ -421,6 +422,11 @@ void ServerConfig::ApplyConfiguration()
           if (SAMTag->HasAttribute("sam_data_dir"))
           {
                SamDataDirectory = SAMTag->GetString("sam_data_dir", SamDataDirectory);
+          }
+
+          if (SAMTag->HasAttribute("SAMID"))
+          {
+               SamSearchIdeasCollection = SAMTag->GetString("SAMID", SamSearchIdeasCollection);
           }
      }
 

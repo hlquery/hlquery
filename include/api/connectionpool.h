@@ -726,7 +726,6 @@ class AdvancedConnectionPool : public std::enable_shared_from_this<AdvancedConne
           int Flags = fcntl(Sock, F_GETFL, 0);
 
           fcntl(Sock, F_SETFL, Flags | O_NONBLOCK);
-
           auto Conn = std::make_shared<PooledConnection>(Sock, Host, Port);
 
           std::lock_guard<std::mutex> Lock(PoolMutex);

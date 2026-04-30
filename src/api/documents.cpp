@@ -50,6 +50,30 @@
 #include "utils/wildcard.h"
 #include "vendor/json/json.hpp"
 
+static std::vector<SAM::SearchIdeaDocumentRef> BuildSAMIdeaDocumentsFromLookupHits(const std::vector<SAM::LookupHit> &Hits,
+                                                                                   size_t MaxDocuments = 6)
+{
+     std::vector<SAM::SearchIdeaDocumentRef> Documents;
+     std::unordered_set<std::string> Seen;
+
+     for (const auto &Hit : Hits)
+     {
+          if (Hit.DocumentID.empty() || !Seen.insert(Hit.DocumentID).second)
+          {
+               continue;
+          }
+
+          Documents.push_back({Hit.DocumentID, Hit.Title, std::max(0.05, Hit.Breakdown.FinalScore > 0.0 ? Hit.Breakdown.FinalScore : Hit.MatchedScore)});
+
+          if (Documents.size() >= MaxDocuments)
+          {
+               break;
+          }
+     }
+
+     return Documents;
+}
+
 static nlohmann::json BuildDocumentJSON(const Document &Doc)
 {
      nlohmann::json J;
@@ -2109,6 +2133,13 @@ HttpResponse SearchAPI::HandleSAMSearch(const HttpRequest &Request)
      }
 
      const std::vector<SAM::LookupHit> Hits = Instance->Sam->Lookup(CollectionName, Query, static_cast<size_t>(LimitVal));
+
+     if (Instance->Sam->IsOpen())
+     {
+          const auto IdeaDocuments = BuildSAMIdeaDocumentsFromLookupHits(Hits);
+          Instance->Sam->RecordSearchIdea(CollectionName, Query, IdeaDocuments);
+     }
+
      nlohmann::json Root;
      Root["ok"] = true;
      Root["collection"] = CollectionName;

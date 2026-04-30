@@ -29,6 +29,43 @@ namespace
      bool StartupSweepActive = false;
      std::set<std::string> StartupSweepStartedCollections;
 
+     void RefreshSAMSearchIdeaProfile(const std::string &LogSource)
+     {
+          if (!Instance || !Instance->Config || !Instance->Sam || !Instance->Sam->IsOpen())
+          {
+               return;
+          }
+
+          const std::string Collection = Instance->Config->GetSamSearchIdeasCollection();
+
+          if (Collection.empty() || !HybridStorageManager::GetInstance().CollectionExists(Collection))
+          {
+               return;
+          }
+
+          bool Updated = false;
+          std::string ErrorMessage;
+
+          if (!Instance->Sam->RefreshCollectionProfileFromSearchIdeas(Collection, &Updated, &ErrorMessage))
+          {
+               if (Instance->Logs && !ErrorMessage.empty())
+               {
+                    Instance->Logs->Normal(LogSource,
+                                           "Failed to refresh SAM search-idea profile for collection '" +
+                                                Collection + "': " + ErrorMessage + ".");
+               }
+
+               return;
+          }
+
+          if (Updated && Instance->Logs)
+          {
+               Instance->Logs->Debug(LogSource,
+                                     "Refreshed SAM learned search-idea profile for collection '" +
+                                          Collection + "'.");
+          }
+     }
+
      void TriggerSAMAutoIndex(const std::string &LogSource, bool ForceStartupSweep)
      {
           if (!Instance || !Instance->Config || !Instance->Config->GetSamEnabled() ||
@@ -184,6 +221,8 @@ namespace
 
                return;
           }
+
+          RefreshSAMSearchIdeaProfile(LogSource);
      }
 }
 
