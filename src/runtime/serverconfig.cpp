@@ -548,6 +548,11 @@ void ServerConfig::ApplyConfiguration()
                         const std::filesystem::path RepoRootCandidate =
                              std::filesystem::absolute(RepoRootDir / RawPath, Ec);
 
+                        if (!RunDir.empty() && RawPath.begin() != RawPath.end() && *RawPath.begin() == "data" && !Ec)
+                        {
+                             return std::filesystem::absolute(RunDir / RawPath, Ec);
+                        }
+
                         /* Paths like run/data/... in run/conf/hlquery.conf are project-root-relative,
                          * not relative to run/conf. Resolve them to <repo>/run/... even before the
                          * target exists so runtime directories do not get created under run/conf/run/. */
