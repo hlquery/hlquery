@@ -11,7 +11,7 @@
 [![macOS Build](https://github.com/hlquery/hlquery/workflows/macOS%20Build/badge.svg)](https://github.com/hlquery/hlquery/actions)
 [![FreeBSD Build](https://github.com/hlquery/hlquery/workflows/FreeBSD%20Build/badge.svg)](https://github.com/hlquery/hlquery/actions)
 [![Commit Activity](https://img.shields.io/github/commit-activity/m/hlquery/hlquery)](https://github.com/hlquery/hlquery/pulse)
-[![hlquery](https://img.shields.io/badge/GitHub-hlquery-181717?logo=github&logoColor=white)](https://github.com/hlquery/hlquery/stargazers)
+[![GitHub](https://img.shields.io/badge/GitHub-hlquery-blue?logo=github&logoColor=white)](https://github.com/hlquery/hlquery/stargazers)
 [![License](https://img.shields.io/badge/License-BSD%203--Clause-blue.svg)](https://opensource.org/licenses/BSD-3-Clause)
 
 </div>
@@ -115,7 +115,7 @@ localhost:9200|art> uptime
 Server up for 3 days, 1h 0m 31s
 ```
 
-## Client Libraries
+### Client Libraries
 
 Official client libraries are available for popular programming languages:
 
@@ -131,9 +131,9 @@ Official client libraries are available for popular programming languages:
 
 For complete API documentation, visit [docs.hlquery.com](https://docs.hlquery.com/).
 
-## Getting Started
+### Getting Started
 
-## Create a Collection
+### Create a Collection
 
 ```bash
 $ hlquery-cli create products title content price
@@ -171,7 +171,7 @@ $body = $response->getBody();
 echo "Created collection: " . ($body['name'] ?? 'products') . PHP_EOL; 
 ```
 
-## Index Documents
+### Index Documents
 
 ```bash
 $ hlquery-cli add products product1 "Laptop Computer" "High-performance laptop with 16GB RAM"
@@ -200,7 +200,7 @@ console.log(response.getBody());
 
 ```
 
-## Search
+### Search
 
 ```text
 $ hlquery-cli search products "laptop"
@@ -224,7 +224,7 @@ auto collections = client.collections();
 auto result = collections->search("products", {{"like", "laptop"}});
 ```
 
-## Example Queries
+### Example Queries
 
 ```bash
 # Field-specific search
@@ -255,6 +255,7 @@ $ hlquery-cli search products "title:laptop AND price:[100 TO 500]"
 **SQL example:**
 
 ```text
+$ ./run/bin/hlquery-talk
 localhost:9200> sql: select title from music where content like 'madonna%' or content like 'nirvana%';
 SQL rows for `select title from music where content like 'madonna%' or content like 'nirvana%';`:
 +-------------------------+

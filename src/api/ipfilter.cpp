@@ -559,7 +559,6 @@ std::vector<std::string> IPFilter::GetAllowedIPs() const
 std::vector<std::string> IPFilter::GetOriginalEntries() const
 {
      std::lock_guard<std::mutex> Lock(MutexValue);
-
      return OriginalEntries;
 }
 
@@ -792,14 +791,12 @@ void IPFilter::SetDNSCacheMaxSize(size_t MaxSize)
      if (DNSCache.size() > DNSCacheMaxSize)
      {
           DNSCache.clear();
-
           DNSCacheOrder.clear();
      }
 
      if (ReverseDNSCache.size() > DNSCacheMaxSize)
      {
           ReverseDNSCache.clear();
-
           ReverseDNSCacheOrder.clear();
      }
 }
