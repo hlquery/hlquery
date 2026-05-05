@@ -39,7 +39,7 @@
 #include "core/socketengine.h"
 #include "core/typedefs.h"
 #include "search/cstore.h"
-#include "search/sam/sam.h"
+#include "sam/sam.h"
 #include "search/storageengine.h"
 #include "utils/consolewriter.h"
 #include "utils/infos.h"
@@ -1555,7 +1555,6 @@ void hlquery::CompleteDaemonSetup()
 bool hlquery::Daemonize()
 {
      DaemonSyncPipe[0] = -1;
-
      DaemonSyncPipe[1] = -1;
 
      try

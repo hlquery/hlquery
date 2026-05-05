@@ -1460,12 +1460,12 @@ std::vector<SearchHit> SearchAPI::ProcessLexicalSearch(const std::string &Collec
 
      if (!has_in_memory_index && collection_docs > 0 && storage.IsCollectionIndexing(Collection))
      {
-          auto start = std::chrono::steady_clock::now();
+          auto start = Now();
           const auto max_wait = std::chrono::milliseconds(800);
           const auto bailout_after = std::chrono::milliseconds(200);
-          const auto deadline = std::chrono::steady_clock::now() + max_wait;
+          const auto deadline = Now() + max_wait;
 
-          while (!has_in_memory_index && std::chrono::steady_clock::now() < deadline)
+          while (!has_in_memory_index && Now() < deadline)
           {
                std::this_thread::sleep_for(std::chrono::milliseconds(50));
                has_in_memory_index = Instance->SearchIndex->HasInMemoryIndex(Collection);
@@ -1474,7 +1474,7 @@ std::vector<SearchHit> SearchAPI::ProcessLexicalSearch(const std::string &Collec
                     break;
                }
 
-               if (std::chrono::steady_clock::now() - start >= bailout_after)
+               if (Now() - start >= bailout_after)
                {
                     break;
                }
@@ -1596,7 +1596,7 @@ std::vector<SearchHit> SearchAPI::ProcessLexicalSearch(const std::string &Collec
                                                 ? std::min<size_t>(collection_docs, Query.ExhaustiveSearch ? 50000 : 10000)
                                                 : (Query.ExhaustiveSearch ? 50000 : 10000);
                const auto scan_deadline =
-                    std::chrono::steady_clock::now() +
+                    Now() +
                     (Query.ExhaustiveSearch
                          ? std::chrono::milliseconds(2500)
                          : (collection_docs > 2000 ? std::chrono::milliseconds(1200) : std::chrono::milliseconds(800)));
@@ -1610,7 +1610,7 @@ std::vector<SearchHit> SearchAPI::ProcessLexicalSearch(const std::string &Collec
                          break;
                     }
 
-                    if (std::chrono::steady_clock::now() >= scan_deadline)
+                    if (Now() >= scan_deadline)
                     {
                          break;
                     }

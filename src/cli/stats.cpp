@@ -27,6 +27,7 @@
 
 #include "cli/cliutils.h"
 #include "app.h"
+#include "runtime/clock.h"
 #include "utils/consolewriter.h"
 
 namespace
@@ -114,9 +115,9 @@ void HLQueryCLI::ShowStatus()
           has_error = true;
      }
 
-     auto stats_start = std::chrono::steady_clock::now();
+     auto stats_start = Now();
      HLQueryCLI::HTTPResponse stats_response = MakeRequest("GET", "/stats");
-     auto stats_end = std::chrono::steady_clock::now();
+     auto stats_end = Now();
      auto ping_ms = std::chrono::duration_cast<std::chrono::milliseconds>(stats_end - stats_start).count();
 
      /* Pull the rest of the server statistics. */
@@ -1261,11 +1262,11 @@ void HLQueryCLI::ShowLSM()
 
 void HLQueryCLI::ShowPing()
 {
-     auto start_time_val = std::chrono::steady_clock::now();
+     auto start_time_val = Now();
 
      HLQueryCLI::HTTPResponse response = MakeRequest("GET", "/ping");
 
-     auto end_time_val = std::chrono::steady_clock::now();
+     auto end_time_val = Now();
 
      auto duration_val = std::chrono::duration_cast<std::chrono::milliseconds>(end_time_val - start_time_val);
 

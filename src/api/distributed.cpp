@@ -740,7 +740,7 @@ static bool SendHttpRequest(const std::string &Host,
                return PoolAcquireStatus::Busy;
           }
           PoolEntry = AcquirePersistentPeerSocket(PoolKey);
-          auto Now = std::chrono::steady_clock::now();
+          auto Now = ::Now();
           std::lock_guard<std::mutex> Guard(PoolEntry->Mutex);
           if (PoolEntry->InUse)
           {
@@ -782,7 +782,7 @@ static bool SendHttpRequest(const std::string &Host,
           PoolEntry->ConsecutiveFailures++;
           if (ReconnectMS > 0)
           {
-               PoolEntry->NextReconnectAt = std::chrono::steady_clock::now() + std::chrono::milliseconds(ReconnectMS);
+               PoolEntry->NextReconnectAt = ::Now() + std::chrono::milliseconds(ReconnectMS);
           }
           ClosePersistentPeerSocket(*PoolEntry);
           PoolEntry->InUse = false;
@@ -1759,7 +1759,7 @@ bool SearchAPI::TryDistributedSearch(const HttpRequest &Request,
                continue;
           }
 
-          const auto RequestStart = std::chrono::steady_clock::now();
+          const auto RequestStart = ::Now();
           HttpRequest FanoutRequest = Request;
           FanoutRequest.QueryParams["page"] = "1";
           FanoutRequest.QueryParams["per_page"] = std::to_string(FanoutPerPage);
@@ -1771,7 +1771,7 @@ bool SearchAPI::TryDistributedSearch(const HttpRequest &Request,
                Diagnostic["node"] = BuildDistributedNodeLabel(Node);
                Diagnostic["status"] = "transport_error";
                Diagnostic["merge_reason"] = "request_failed";
-               Diagnostic["latency_ms"] = DurationToMillisecondsString(std::chrono::steady_clock::now() - RequestStart);
+               Diagnostic["latency_ms"] = DurationToMillisecondsString(::Now() - RequestStart);
                Diagnostic["retry_policy"] = "standard_peer_fallback";
                Diagnostic["attempts"] = std::to_string(PeerResult.Attempts);
                Diagnostic["used_secondary_token"] = PeerResult.UsedSecondaryToken ? "true" : "false";
@@ -1801,7 +1801,7 @@ bool SearchAPI::TryDistributedSearch(const HttpRequest &Request,
                Diagnostic["node"] = BuildDistributedNodeLabel(Node);
                Diagnostic["status"] = "http_error";
                Diagnostic["merge_reason"] = "status_rejected";
-               Diagnostic["latency_ms"] = DurationToMillisecondsString(std::chrono::steady_clock::now() - RequestStart);
+               Diagnostic["latency_ms"] = DurationToMillisecondsString(::Now() - RequestStart);
                Diagnostic["status_code"] = std::to_string(PeerResult.StatusCode);
                Diagnostic["retry_policy"] = "standard_peer_fallback";
                Diagnostic["attempts"] = std::to_string(PeerResult.Attempts);
@@ -1833,7 +1833,7 @@ bool SearchAPI::TryDistributedSearch(const HttpRequest &Request,
                Diagnostic["node"] = BuildDistributedNodeLabel(Node);
                Diagnostic["status"] = "invalid_json";
                Diagnostic["merge_reason"] = "parse_failed";
-               Diagnostic["latency_ms"] = DurationToMillisecondsString(std::chrono::steady_clock::now() - RequestStart);
+               Diagnostic["latency_ms"] = DurationToMillisecondsString(::Now() - RequestStart);
                Diagnostic["status_code"] = std::to_string(PeerResult.StatusCode);
                Diagnostic["retry_policy"] = "standard_peer_fallback";
                Diagnostic["attempts"] = std::to_string(PeerResult.Attempts);
@@ -1879,7 +1879,7 @@ bool SearchAPI::TryDistributedSearch(const HttpRequest &Request,
           Diagnostic["node"] = BuildDistributedNodeLabel(Node);
           Diagnostic["status"] = "ok";
           Diagnostic["merge_reason"] = "merged";
-          Diagnostic["latency_ms"] = DurationToMillisecondsString(std::chrono::steady_clock::now() - RequestStart);
+          Diagnostic["latency_ms"] = DurationToMillisecondsString(::Now() - RequestStart);
           Diagnostic["status_code"] = std::to_string(PeerResult.StatusCode);
           Diagnostic["hits_added"] = std::to_string(ResponseJSON.value("hits", nlohmann::json::array()).size());
           Diagnostic["found"] = std::to_string(ResponseJSON.value("found", 0));

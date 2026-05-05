@@ -41,10 +41,15 @@ class SAM
 {
    public:
 
+     /* Forward declarations for the core SAM record types. */
+
      struct LookupHit;
      struct TermEntry;
      struct DocumentEntry;
      struct CollectionJobStatus;
+
+     /* One debug event emitted by SAM for in-memory inspection. */
+
      struct DebugEvent
      {
           uint64_t Sequence = 0;
@@ -52,12 +57,16 @@ class SAM
           std::string Message;
      };
 
+     /* One document reference attached to a recorded search idea. */
+
      struct SearchIdeaDocumentRef
      {
           std::string DocumentID;
           std::string Title;
           double Score = 0.0;
      };
+
+     /* One normalized search idea and its learned intent state. */
 
      struct SearchIdeaEntry
      {
@@ -77,6 +86,8 @@ class SAM
           std::vector<llm::SearchIntentCandidate> ResolvedRankedTerms;
      };
 
+     /* One active or recently completed SAM lookup activity snapshot. */
+
      struct SearchActivityEntry
      {
           uint64_t Sequence = 0;
@@ -90,6 +101,8 @@ class SAM
      };
 
    private:
+
+     /* One queued background indexing job for a source document. */
 
      struct PendingIndexJob
      {
@@ -170,6 +183,8 @@ class SAM
                                              const Document& Doc,
                                              std::string* ErrorMessage = nullptr) const;
 
+     /* Generate LLM-derived lookup terms by using a learned profile term set. */
+
      std::vector<TermEntry> GenerateLLMTermsFromProfile(const std::string& Collection,
                                                         const Document& Doc,
                                                         const std::vector<std::string>& ProfileTerms,
@@ -194,29 +209,43 @@ class SAM
                                           uint64_t ExpectedMutationVersion,
                                           std::string* ErrorMessage = nullptr) const;
 
+     /* Persist one observed search idea while holding the database lock. */
+
      bool RecordSearchIdeaLocked(const std::string& Collection,
                                  const std::string& Query,
                                  const std::vector<SearchIdeaDocumentRef>& Documents,
                                  std::string* ErrorMessage = nullptr);
 
+     /* Trim stored search ideas to the configured history budget. */
+
      bool TrimSearchIdeasLocked(const std::string& Collection,
                                 std::string* ErrorMessage = nullptr);
+
+     /* Refresh one stored search idea with optimized intent data. */
 
      bool OptimizeSearchIdeaIntentLocked(const std::string& Collection,
                                          const std::string& NormalizedQuery,
                                          bool* Updated = nullptr,
                                          std::string* ErrorMessage = nullptr);
 
+     /* Begin tracking one lookup execution for status and introspection. */
+
      uint64_t BeginLookupActivity(const std::string& Collection,
                                   const std::string& Query) const;
+
+     /* Mark one tracked lookup execution as completed. */
 
      void FinishLookupActivity(uint64_t Sequence,
                                size_t ResultCount) const;
 
    public:
 
+     /* One ranked SAM lookup hit with its scoring explanation. */
+
      struct LookupHit
      {
+          /* Component scores used to produce the final ranking value. */
+
           struct ScoreBreakdown
           {
                double TermScore = 0.0;
@@ -245,6 +274,8 @@ class SAM
           std::string Explain;
      };
 
+     /* One lookup term extracted or synthesized for a document. */
+
      struct TermEntry
      {
           std::string Text;
@@ -253,6 +284,8 @@ class SAM
           double Score = 0.0;
           double Signal = 0.0;
      };
+
+     /* One stored SAM document projection and its expanded terms. */
 
      struct DocumentEntry
      {
@@ -271,6 +304,8 @@ class SAM
           std::vector<std::string> Queries;
           std::vector<TermEntry> Terms;
      };
+
+     /* One collection-level background indexing status snapshot. */
 
      struct CollectionJobStatus
      {
@@ -352,14 +387,20 @@ class SAM
 
      bool DeleteCollection(const std::string& Collection, std::string* ErrorMessage = nullptr);
 
+     /* Record one user query and the matching documents that satisfied it. */
+
      bool RecordSearchIdea(const std::string& Collection,
                            const std::string& Query,
                            const std::vector<SearchIdeaDocumentRef>& Documents,
                            std::string* ErrorMessage = nullptr);
 
+     /* Recompute one collection profile from accumulated search ideas. */
+
      bool RefreshCollectionProfileFromSearchIdeas(const std::string& Collection,
                                                   bool* Updated = nullptr,
                                                   std::string* ErrorMessage = nullptr);
+
+     /* Process a bounded batch of pending search-intent optimization work. */
 
      size_t ProcessPendingSearchIntentOptimizations(size_t MaxCollections = 1);
 
@@ -379,10 +420,16 @@ class SAM
 
      std::vector<LookupHit> Lookup(const std::string& Collection, const std::string& Query, size_t Limit = 20) const;
 
+     /* Return recorded search-idea history, optionally filtered by collection. */
+
      std::vector<SearchIdeaEntry> GetSearchIdeaHistory(const std::string& Collection = "",
                                                        size_t Limit = 100) const;
 
+     /* Return active or latest visible lookup activities. */
+
      std::vector<SearchActivityEntry> GetActiveSearchActivities(const std::string& Collection = "") const;
+
+     /* Load the latest lookup activity snapshot for one collection. */
 
      bool GetLatestSearchActivity(const std::string& Collection,
                                   SearchActivityEntry& Entry) const;

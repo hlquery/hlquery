@@ -28,7 +28,7 @@
 
 #include "core/hlquery.h"
 #include "common/cryptoutils.h"
-#include "search/sam/sam.h"
+#include "sam/sam.h"
 #include "search/storageengine.h"
 #include "utils/tools.h"
 #include "vendor/json/json.hpp"
@@ -3720,8 +3720,7 @@ constexpr size_t kSAMSearchIdeaProfileForceSyncMinDelta = 4;
 
 uint64_t GetSAMCurrentTimeMS()
 {
-     return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
-          std::chrono::system_clock::now().time_since_epoch()).count());
+     return static_cast<uint64_t>(NowMs());
 }
 
 bool ShouldTrackSAMSearchIdeas(const std::string& Collection)

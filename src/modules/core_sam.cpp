@@ -21,7 +21,7 @@
 #include "core/hlquery.h"
 #include "core/modules.h"
 #include "search/cstore.h"
-#include "search/sam/sam.h"
+#include "sam/sam.h"
 
 namespace
 {

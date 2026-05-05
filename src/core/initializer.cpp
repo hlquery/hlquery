@@ -858,7 +858,7 @@ void hlquery::WaitForMetadataScan()
      {
           std::lock_guard<std::mutex> Lock(StatsVal.StartupStateMutex);
 
-          StatsVal.StartupStateInfo.MetadataScanStart = Instance ? Instance->Now() : std::chrono::steady_clock::now();
+          StatsVal.StartupStateInfo.MetadataScanStart = Instance ? Instance->Now() : Now();
      }
 
      /* Inspect and apply strict startup configuration flags */
@@ -929,7 +929,7 @@ void hlquery::WaitForMetadataScan()
           {
                std::lock_guard<std::mutex> Lock(StatsVal.StartupStateMutex);
 
-               StatsVal.StartupStateInfo.MetadataScanEnd = Instance ? Instance->Now() : std::chrono::steady_clock::now();
+               StatsVal.StartupStateInfo.MetadataScanEnd = Instance ? Instance->Now() : Now();
 
                StatsVal.StartupStateInfo.MetadataScanComplete = true;
           }
@@ -944,7 +944,7 @@ void hlquery::WaitForMetadataScan()
           {
                std::lock_guard<std::mutex> Lock(StatsVal.StartupStateMutex);
 
-               StatsVal.StartupStateInfo.CollectionLoadStart = Instance ? Instance->Now() : std::chrono::steady_clock::now();
+               StatsVal.StartupStateInfo.CollectionLoadStart = Instance ? Instance->Now() : Now();
           }
 
           try
@@ -973,7 +973,7 @@ void hlquery::WaitForMetadataScan()
                {
                     std::lock_guard<std::mutex> Lock(StatsVal.StartupStateMutex);
 
-                    StatsVal.StartupStateInfo.CollectionLoadEnd = Instance ? Instance->Now() : std::chrono::steady_clock::now();
+                    StatsVal.StartupStateInfo.CollectionLoadEnd = Instance ? Instance->Now() : Now();
 
                     StatsVal.StartupStateInfo.CollectionsLoaded = CollectionsLoadedFlagFinal;
 
@@ -1013,7 +1013,7 @@ void hlquery::WaitForMetadataScan()
                {
                     std::lock_guard<std::mutex> Lock(StatsVal.StartupStateMutex);
 
-                    StatsVal.StartupStateInfo.CollectionLoadEnd = Instance ? Instance->Now() : std::chrono::steady_clock::now();
+                    StatsVal.StartupStateInfo.CollectionLoadEnd = Instance ? Instance->Now() : Now();
 
                     StatsVal.StartupStateInfo.CollectionsLoadFailed = true;
 
@@ -1036,7 +1036,7 @@ void hlquery::WaitForMetadataScan()
                {
                     std::lock_guard<std::mutex> Lock(StatsVal.StartupStateMutex);
 
-                    StatsVal.StartupStateInfo.CollectionLoadEnd = Instance ? Instance->Now() : std::chrono::steady_clock::now();
+                    StatsVal.StartupStateInfo.CollectionLoadEnd = Instance ? Instance->Now() : Now();
 
                     StatsVal.StartupStateInfo.CollectionsLoadFailed = true;
 
@@ -1096,7 +1096,7 @@ void hlquery::WaitForMetadataScan()
           {
                std::lock_guard<std::mutex> Lock(StatsVal.StartupStateMutex);
 
-               StatsVal.StartupStateInfo.ReadyTime = Instance ? Instance->Now() : std::chrono::steady_clock::now();
+               StatsVal.StartupStateInfo.ReadyTime = Instance ? Instance->Now() : Now();
           }
 
           return;

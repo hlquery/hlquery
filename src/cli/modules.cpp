@@ -19,6 +19,7 @@
 
 #include "cli/cliutils.h"
 #include "app.h"
+#include "runtime/clock.h"
 #include "vendor/json/json.hpp"
 
 namespace
@@ -805,9 +806,9 @@ void HLQueryCLI::RunModuleCommand(const std::string &module_name, const std::str
           std::string job_id;
           if (TryParseQueuedLlamaJobID(response.Body, job_id))
           {
-               const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(std::max(1, request_timeout_seconds));
+               const auto deadline = Now() + std::chrono::seconds(std::max(1, request_timeout_seconds));
 
-               while (std::chrono::steady_clock::now() < deadline)
+               while (Now() < deadline)
                {
                     nlohmann::json poll_body = nlohmann::json::object();
                     poll_body["parameters"] = nlohmann::json::array({job_id});

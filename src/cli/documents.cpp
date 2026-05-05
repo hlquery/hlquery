@@ -26,6 +26,7 @@
 #include "core/typedefs.h"
 #include "cli/cliutils.h"
 #include "app.h"
+#include "runtime/clock.h"
 
 namespace
 {
@@ -824,7 +825,7 @@ void HLQueryCLI::SearchDocuments(const std::string &collection_name, const std::
           return;
      }
 
-     auto search_start = std::chrono::steady_clock::now();
+     auto search_start = Now();
 
      const int PAGE_SIZE_VAL = 100;
 
@@ -1128,7 +1129,7 @@ void HLQueryCLI::SearchDocuments(const std::string &collection_name, const std::
      if (json_output || RawMode)
      {
           nlohmann::json output = first_root.is_object() ? first_root : (last_root.is_object() ? last_root : nlohmann::json::object());
-          auto search_end = std::chrono::steady_clock::now();
+          auto search_end = Now();
           auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(search_end - search_start).count();
 
           output["hits"] = aggregated_hits;
@@ -1185,7 +1186,7 @@ void HLQueryCLI::SearchDocuments(const std::string &collection_name, const std::
           PrintMaybeSuggestions(maybe_root, query, collection_name);
      }
 
-     auto search_end = std::chrono::steady_clock::now();
+     auto search_end = Now();
      auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(search_end - search_start).count();
      std::cout << "Search completed in " << duration_ms << " ms.\n";
 }
@@ -1204,7 +1205,7 @@ void HLQueryCLI::SearchSQL(const std::string &sql, const std::string &collection
           return;
      }
 
-     auto search_start = std::chrono::steady_clock::now();
+     auto search_start = Now();
      const std::string path = "/sql";
      const std::string query_string = "sql=" + hlquery_cli::UrlEncode(sql);
      HLQueryCLI::HTTPResponse response = MakeRequest("GET", path + "?" + query_string);
@@ -1242,7 +1243,7 @@ void HLQueryCLI::SearchSQL(const std::string &sql, const std::string &collection
      if (json_output || RawMode)
      {
           nlohmann::json output = root;
-          auto search_end = std::chrono::steady_clock::now();
+          auto search_end = Now();
           auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(search_end - search_start).count();
 
           output["cli"] = {
@@ -1281,7 +1282,7 @@ void HLQueryCLI::SearchSQL(const std::string &sql, const std::string &collection
                std::cout << "Updated: " << root["updated"].dump() << "\n";
           }
 
-          auto search_end = std::chrono::steady_clock::now();
+          auto search_end = Now();
           auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(search_end - search_start).count();
           std::cout << "Search completed in " << duration_ms << " ms.\n";
           return;
@@ -1302,7 +1303,7 @@ void HLQueryCLI::SearchSQL(const std::string &sql, const std::string &collection
           PrintSQLRowsTable(*this, root["rows"]);
           std::cout << root["rows"].size() << " result" << (root["rows"].size() == 1 ? "" : "s") << " shown.\n";
 
-          auto search_end = std::chrono::steady_clock::now();
+          auto search_end = Now();
           auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(search_end - search_start).count();
           std::cout << "Search completed in " << duration_ms << " ms.\n";
           return;
@@ -1322,7 +1323,7 @@ void HLQueryCLI::SearchSQL(const std::string &sql, const std::string &collection
 
           if (aggregate_sql)
           {
-               auto search_end = std::chrono::steady_clock::now();
+               auto search_end = Now();
                auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(search_end - search_start).count();
                std::cout << "Search completed in " << duration_ms << " ms.\n";
                return;
@@ -1464,7 +1465,7 @@ void HLQueryCLI::SearchSQL(const std::string &sql, const std::string &collection
           PrintInfo("No documents found for SQL query");
      }
 
-     auto search_end = std::chrono::steady_clock::now();
+     auto search_end = Now();
      auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(search_end - search_start).count();
      std::cout << "Search completed in " << duration_ms << " ms.\n";
 }
@@ -2352,7 +2353,7 @@ void HLQueryCLI::SearchAcrossCollections(const std::string &query, const std::ve
           return;
      }
 
-     auto search_start = std::chrono::steady_clock::now();
+     auto search_start = Now();
 
      const int PAGE_SIZE_VAL = 100;
 
@@ -2677,7 +2678,7 @@ void HLQueryCLI::SearchAcrossCollections(const std::string &query, const std::ve
      if (json_output || RawMode)
      {
           nlohmann::json output = first_root.is_object() ? first_root : (last_root.is_object() ? last_root : nlohmann::json::object());
-          auto search_end = std::chrono::steady_clock::now();
+          auto search_end = Now();
           auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(search_end - search_start).count();
 
           output["hits"] = aggregated_hits;
@@ -2732,7 +2733,7 @@ void HLQueryCLI::SearchAcrossCollections(const std::string &query, const std::ve
           PrintInfo("No documents found matching your search across " + collections_desc);
      }
 
-     auto search_end = std::chrono::steady_clock::now();
+     auto search_end = Now();
      auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(search_end - search_start).count();
      std::cout << "Search completed in " << duration_ms << " ms.\n";
 }

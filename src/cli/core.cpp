@@ -40,6 +40,7 @@
 #include "core/typedefs.h"
 #include "cli/cliutils.h"
 #include "app.h"
+#include "runtime/clock.h"
 #include "utils/consolewriter.h"
 
 /* HLQueryCLI constructor. */
@@ -96,10 +97,8 @@ std::string HLQueryCLI::GetCurrentTimestamp()
 {
      /* Capture the current time and derive milliseconds. */
 
-     auto now = std::chrono::system_clock::now();
-     auto time_t_val = std::chrono::system_clock::to_time_t(now);
-
-     auto ms_since_epoch = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count();
+     long long ms_since_epoch = NowMs();
+     auto time_t_val = static_cast<time_t>(ms_since_epoch / 1000);
 
      long long ms_val = ms_since_epoch % 1000;
 

@@ -25,7 +25,7 @@
 #include "search/storageengine.h"
 #include "search/cstore.h"
 #include "search/lindex.h"
-#include "search/sam/sam.h"
+#include "sam/sam.h"
 #include "search/writeaheadlogvalidator.h"
 #include "utils/consolewriter.h"
 
@@ -1670,12 +1670,7 @@ bool HybridStorageManager::AddDocument(const std::string &collection, const Docu
           }
           else
           {
-               auto now = std::chrono::system_clock::now();
-
-               timestamp_to_store = std::chrono::duration_cast<std::chrono::milliseconds>(
-                                         now.time_since_epoch())
-
-                                         .count();
+               timestamp_to_store = NowMs();
           }
      }
 
@@ -1885,12 +1880,8 @@ size_t HybridStorageManager::AddDocumentsBatch(const std::string &collection, co
                }
                else
                {
-                    auto now = std::chrono::steady_clock::now();
-
-                    timestamp_to_store = std::chrono::duration_cast<std::chrono::milliseconds>(
-                                              now.time_since_epoch())
-
-                                              .count();
+                    timestamp_to_store = static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
+                         Now().time_since_epoch()).count());
                }
           }
 
@@ -2245,12 +2236,7 @@ Document HybridStorageManager::GetDocument(const std::string &collection, const 
                }
                else
                {
-                    auto now = std::chrono::system_clock::now();
-
-                    doc.Timestamp = std::chrono::duration_cast<std::chrono::milliseconds>(
-                                         now.time_since_epoch())
-
-                                         .count();
+                    doc.Timestamp = NowMs();
                }
 
                /* Re-serialize document with new timestamp */
@@ -2545,12 +2531,7 @@ bool HybridStorageManager::UpdateDocument(const std::string &collection, const D
                }
                else
                {
-                    auto now = std::chrono::system_clock::now();
-
-                    timestamp_to_store = std::chrono::duration_cast<std::chrono::milliseconds>(
-                                              now.time_since_epoch())
-
-                                              .count();
+                    timestamp_to_store = NowMs();
                }
           }
      }
@@ -2607,12 +2588,7 @@ bool HybridStorageManager::UpdateDocument(const std::string &collection, const D
                }
                else
                {
-                    auto now = std::chrono::system_clock::now();
-
-                    old_timestamp = std::chrono::duration_cast<std::chrono::milliseconds>(
-                                         now.time_since_epoch())
-
-                                         .count();
+                    old_timestamp = NowMs();
                }
           }
 

@@ -23,7 +23,7 @@
 #include <vector>
 
 #include "core/hlquery.h"
-#include "search/sam/sam.h"
+#include "sam/sam.h"
 #include "vendor/json/json.hpp"
 
 static std::string TruncateForContextWindows(const std::string& Value, size_t MaxChars = 360);
@@ -1709,7 +1709,7 @@ std::vector<SAM::TermEntry> SAM::GenerateLLMTermsFromProfile(const std::string& 
      const int MaxIdeas = (Instance && Instance->Config)
           ? std::max(4, Instance->Config->GetSamLLMMaxIdeas())
           : 8;
-     const auto StartedAt = std::chrono::steady_clock::now();
+     const auto StartedAt = Now();
      std::unordered_map<std::string, size_t> IndexByTerm;
      const std::string Subject = ResolveSubjectTitle(Doc);
      const std::string DocumentEvidence = BuildDocumentProfileEvidence(Doc);
@@ -1813,7 +1813,7 @@ std::vector<SAM::TermEntry> SAM::GenerateLLMTermsFromProfile(const std::string& 
      Terms = SelectDiversifiedTerms(Terms, static_cast<size_t>(MaxIdeas));
 
      const auto ElapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(
-          std::chrono::steady_clock::now() - StartedAt).count();
+          Now() - StartedAt).count();
 
      if (ShouldLogSAMContext())
      {

@@ -31,7 +31,7 @@
 #include "api/common.h"
 #include "core/hlquery.h"
 #include "core/modulemanager.h"
-#include "search/sam/sam.h"
+#include "sam/sam.h"
 #include "sql/sql.h"
 #include "utils/protocol.h"
 #include "vendor/json/json.hpp"

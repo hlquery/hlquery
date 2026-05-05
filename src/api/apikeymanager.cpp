@@ -231,7 +231,7 @@ void APIKeyManager::UpdateLastUsed(const std::string &KeyID)
           }
           else
           {
-               It->second.LastUsedAt = std::chrono::system_clock::now();
+               It->second.LastUsedAt = std::chrono::system_clock::time_point(std::chrono::milliseconds(NowMs()));
           }
 
           It->second.UseCount++;
@@ -257,7 +257,7 @@ bool APIKeyManager::CheckRateLimit(const std::string &KeyID)
 
      std::lock_guard<std::mutex> RateLock(RateLimitMutex);
 
-     auto Now = std::chrono::system_clock::now();
+     auto Now = std::chrono::system_clock::time_point(std::chrono::milliseconds(NowMs()));
      auto &Tracker = RateLimits[KeyID];
 
      if (std::chrono::duration_cast<std::chrono::minutes>(Now - Tracker.WindowStart).count() >= 1)

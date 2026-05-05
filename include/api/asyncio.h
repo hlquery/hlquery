@@ -84,7 +84,7 @@ struct IORequest
 
      IORequest(int F, IOOperation Op, void* Buf, size_t SZ, IOCompletionCallback CB)
          : FD(F), Operation(Op), Buffer(Buf), Size(SZ), Offset(0), Callback(CB),
-           SubmitTime(Instance ? Instance->Now() : std::chrono::steady_clock::now()), RequestID(0), HighPriority(false)
+           SubmitTime(Instance ? Instance->Now() : Now()), RequestID(0), HighPriority(false)
      {
      }
 };
@@ -102,9 +102,9 @@ struct ConnectionState
      std::atomic<uint64_t> LastActivity{0};
      std::chrono::steady_clock::time_point CreatedTime;
 
-     ConnectionState(int SocketFD) : FD(SocketFD), CreatedTime(Instance ? Instance->Now() : std::chrono::steady_clock::now())
+     ConnectionState(int SocketFD) : FD(SocketFD), CreatedTime(Instance ? Instance->Now() : Now())
      {
-          auto NowVal = Instance ? Instance->Now() : std::chrono::steady_clock::now();
+          auto NowVal = Instance ? Instance->Now() : Now();
 
           LastActivity = std::chrono::duration_cast<std::chrono::milliseconds>(NowVal.time_since_epoch()).count();
      }
@@ -582,7 +582,7 @@ class UltraAsyncIO
                RemoveConnection(FDVal);
           }
 
-          Conn->LastActivity = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+          Conn->LastActivity = std::chrono::duration_cast<std::chrono::milliseconds>(Now().time_since_epoch()).count();
      }
 
      void ProcessReadEvent(int FDVal)
@@ -649,7 +649,7 @@ class UltraAsyncIO
 
      void ProcessRequest(const IORequest& Request)
      {
-          auto StartTime = std::chrono::high_resolution_clock::now();
+          auto StartTime = Now();
 
           Stats.TotalRequests++;
 
@@ -670,7 +670,7 @@ class UltraAsyncIO
                     break;
           }
 
-          auto EndTime = std::chrono::high_resolution_clock::now();
+          auto EndTime = Now();
           auto DurationVal = std::chrono::duration_cast<std::chrono::nanoseconds>(EndTime - StartTime);
 
           /* Update statistics. */
@@ -776,7 +776,7 @@ struct IORequest
 
      IORequest(int F, IOOperation Op, void* Buf, size_t SZ, IOCompletionCallback CB)
          : FD(F), Operation(Op), Buffer(Buf), Size(SZ), Offset(0), Callback(CB),
-           SubmitTime(std::chrono::steady_clock::now()), RequestID(0), HighPriority(false)
+           SubmitTime(Now()), RequestID(0), HighPriority(false)
      {
 
      }
@@ -793,7 +793,7 @@ struct ConnectionState
      std::atomic<uint64_t> LastActivity{0};
      std::chrono::steady_clock::time_point CreatedTime;
 
-     ConnectionState(int SocketFD) : FD(SocketFD), CreatedTime(std::chrono::steady_clock::now())
+     ConnectionState(int SocketFD) : FD(SocketFD), CreatedTime(Now())
      {
 
      }

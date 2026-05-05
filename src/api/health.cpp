@@ -524,7 +524,7 @@ static bool HealthSendPingRequest(const std::string &Host,
           return false;
      }
 
-     auto Start = std::chrono::steady_clock::now();
+     auto Start = Now();
      std::ostringstream Req;
      Req << "GET /health HTTP/1.1\r\n";
      Req << "Host: " << Host << ":" << Port << "\r\n";
@@ -563,7 +563,7 @@ static bool HealthSendPingRequest(const std::string &Host,
      }
 
      close(Sock);
-     auto End = std::chrono::steady_clock::now();
+     auto End = Now();
      if (OutLatencyMS)
      {
           *OutLatencyMS = std::chrono::duration<double, std::milli>(End - Start).count();

@@ -44,7 +44,7 @@
 #include "search/rfusion.h"
 #include "search/cstore.h"
 #include "search/lindex.h"
-#include "search/sam/sam.h"
+#include "sam/sam.h"
 #include "utils/consolewriter.h"
 #include "utils/protocol.h"
 #include "utils/wildcard.h"
@@ -858,7 +858,7 @@ HttpResponse SearchAPI::HandleAddDocument(const HttpRequest &Request)
                                                                  return Inst->NowMs();
                                                             }
 
-                                                            return static_cast<int64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count());
+                                                            return static_cast<int64_t>(NowMs());
                                                        }()) +
                                "_" + std::to_string(rand() % 1000000);
 
@@ -1050,9 +1050,7 @@ HttpResponse SearchAPI::HandleAddDocument(const HttpRequest &Request)
                }
                else
                {
-                    auto NowVal = std::chrono::system_clock::now();
-
-                    StorageDoc.Timestamp = std::chrono::duration_cast<std::chrono::milliseconds>(NowVal.time_since_epoch()).count();
+                    StorageDoc.Timestamp = NowMs();
                }
           }
           else

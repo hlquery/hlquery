@@ -249,13 +249,13 @@ void ListenManager::OnEventHandlerRead()
      bool LimitReached = false;
 
      /*
-     * Accept connections until queue is drained or limit is reached
-     * With edge-triggered epoll, we must drain the accept queue fully
-     * or re-arm the event, otherwise remaining connections won't trigger new events.
-     * We continue accepting until accept() returns EAGAIN/EWOULDBLOCK.
-     */
-     /* NOTE: ListenManager is for custom binary protocols, NOT HTTP */
-     /* HTTP connections are handled by HttpServer */
+      * Accept connections until queue is drained or limit is reached
+      * With edge-triggered epoll, we must drain the accept queue fully
+      * or re-arm the event, otherwise remaining connections won't trigger new events.
+      * We continue accepting until accept() returns EAGAIN/EWOULDBLOCK.
+      */
+ 
+      /* HTTP connections are handled by HttpServer */
 
      while (true)
      {

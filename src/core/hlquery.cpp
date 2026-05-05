@@ -45,7 +45,7 @@
 #include "runtime/threadlimit.h"
 #include "core/typedefs.h"
 #include "search/storageengine.h"
-#include "search/sam/sam.h"
+#include "sam/sam.h"
 #include "search/cstore.h"
 #include "search/lindex.h"
 #include "utils/consolewriter.h"

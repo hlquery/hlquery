@@ -47,8 +47,6 @@
 #include "utils/wildcard.h"
 #include "vendor/json/json.hpp"
 
-namespace
-{
 static const char *kGlobalSynonymsCollection = "__global__";
 
 static bool IsGlobalSynonymsPath(const std::string &Path)
@@ -125,7 +123,7 @@ static std::string NormalizeSynonymTerm(const std::string &Value)
 
      return Result;
 }
-}
+
 /* List all synonyms for a collection. */
 
 /*

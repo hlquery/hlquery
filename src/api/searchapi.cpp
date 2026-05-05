@@ -43,7 +43,7 @@
 #include "runtime/threadlimit.h"
 #include "search/rfusion.h"
 #include "search/cstore.h"
-#include "search/sam/sam.h"
+#include "sam/sam.h"
 #include "search/storageengine.h"
 #include "search/lindex.h"
 #include "utils/consolewriter.h"
@@ -2415,9 +2415,7 @@ std::string SearchAPI::GetCurrentTimestamp()
      }
      else
      {
-          auto Now = std::chrono::system_clock::now();
-
-          MSSinceEpoch = std::chrono::duration_cast<std::chrono::milliseconds>(Now.time_since_epoch()).count();
+          MSSinceEpoch = NowMs();
      }
 
      time_t TimeTVal = static_cast<time_t>(MSSinceEpoch / 1000);
