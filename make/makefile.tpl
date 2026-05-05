@@ -39,6 +39,8 @@ endif
 # Set default target to 'all' (build everything)
 .DEFAULT_GOAL := all
 
+CONFIGURE_COMMAND := ${CONFIGURE_COMMAND}
+
 # BUILD CONFIGURATION
 
 # Build mode: release (default), debug, profile, sanitize
@@ -572,8 +574,8 @@ $(BIN_DIR):
 	@mkdir -p $(BIN_DIR)
 
 $(CONFIG_HEADER): configure make/config.h.tpl
-	@echo "$(CYAN)Regenerating $(CONFIG_HEADER) via ./configure...$(NC)"
-	@./configure >/dev/null
+	@echo "$(CYAN)Regenerating $(CONFIG_HEADER) via ${CONFIGURE_COMMAND}...$(NC)"
+	@${CONFIGURE_COMMAND} >/dev/null
 
 # Special rules for vendor C files (SHA2 and MD5)
 # Use less strict warnings for vendor code to avoid noise from third-party code

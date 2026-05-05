@@ -543,11 +543,33 @@ void hlquery::ParseArgs()
 
           int OptionIndex = 0;
 
+          auto PrintHelp = [&]()
+          {
+               std::cout << "Usage: " << ArgvList[0] << " [options]" << std::endl;
+               newline();
+               std::cout << "Options:" << std::endl;
+               std::cout << "  -t, --test          Run in test mode" << std::endl;
+               std::cout << "  -n, --nofork        Run in foreground (prevents daemonization)" << std::endl;
+               std::cout << "  -p, --nopid         Do not create or remove a PID file" << std::endl;
+               std::cout << "  -d, --debug         Enable debug logging to log files only (not terminal)" << std::endl;
+               std::cout << "  -v, --verbose       Print debug/verbose messages to terminal AND log to files" << std::endl;
+               std::cout << "  -c, --config FILE   Use specified config file" << std::endl;
+               std::cout << "  -s, --skip-auth     Skip password authentication (dev/testing only)" << std::endl;
+               std::cout << "  -f, --forcestop     Force stop running daemon and remove PID file" << std::endl;
+               std::cout << "  -h, --help          Show this help message" << std::endl;
+               newline();
+               std::cout << "Note: --debug and --verbose are separate options:" << std::endl;
+               std::cout << "  --debug:   logs debug messages to log files only (no terminal output)" << std::endl;
+               std::cout << "  --verbose: logs debug messages to files AND prints them to terminal (both)" << std::endl;
+               std::cout << "  They can be used independently or together." << std::endl;
+               newline();
+          };
+
           optind = 1;
 
           optopt = 0;
 
-          opterr = 1;
+          opterr = 0;
 
           /* getopt_long advances through both short and long options in a single loop. */
 
@@ -611,29 +633,13 @@ void hlquery::ParseArgs()
 
                     case 'h':
                     {
-                         std::cout << "Usage: " << ArgvList[0] << " [options]" << std::endl;
-                         newline();
-                         std::cout << "Options:" << std::endl;
-                         std::cout << "  -t, --test          Run in test mode" << std::endl;
-                         std::cout << "  -n, --nofork        Run in foreground (prevents daemonization)" << std::endl;
-                         std::cout << "  -p, --nopid         Do not create or remove a PID file" << std::endl;
-                         std::cout << "  -d, --debug         Enable debug logging to log files only (not terminal)" << std::endl;
-                         std::cout << "  -v, --verbose       Print debug/verbose messages to terminal AND log to files" << std::endl;
-                         std::cout << "  -c, --config FILE   Use specified config file" << std::endl;
-                         std::cout << "  -s, --skip-auth     Skip password authentication (dev/testing only)" << std::endl;
-                         std::cout << "  -f, --forcestop     Force stop running daemon and remove PID file" << std::endl;
-                         std::cout << "  -h, --help          Show this help message" << std::endl;
-                         newline();
-                         std::cout << "Note: --debug and --verbose are separate options:" << std::endl;
-                         std::cout << "  --debug:   logs debug messages to log files only (no terminal output)" << std::endl;
-                         std::cout << "  --verbose: logs debug messages to files AND prints them to terminal (both)" << std::endl;
-                         std::cout << "  They can be used independently or together." << std::endl;
-                         newline();
+                         PrintHelp();
                          ExitManager::Exit(0);
                     }
 
                     case '?':
                     {
+                         PrintHelp();
                          ExitManager::Exit(1);
                     }
 

@@ -7867,7 +7867,7 @@ std::vector<SAM::LookupHit> SAM::Lookup(const std::string& Collection, const std
 
      for (const auto& Variant : Variants)
      {
-         const std::string Prefix = "sam:term:" + Variant + ":";
+         const std::string Prefix = "sam:term:" + Variant + ":" + Collection + ":";
          std::unique_ptr<rocksdb::Iterator> Iterator(DatabaseHandle->NewIterator(rocksdb::ReadOptions()));
 
           for (Iterator->Seek(Prefix); Iterator->Valid() && Iterator->key().starts_with(Prefix); Iterator->Next())
@@ -7895,11 +7895,6 @@ std::vector<SAM::LookupHit> SAM::Lookup(const std::string& Collection, const std
                                 << " signal=" << Hit.MatchedSignal
                                 << " source=" << Hit.MatchedSource;
                          Hit.Explain = Stream.str();
-                    }
-
-                    if (Hit.Collection != Collection)
-                    {
-                         continue;
                     }
 
                     if (!Hit.DocumentID.empty())
@@ -8123,12 +8118,7 @@ bool SAM::GetCollectionJobStatus(const std::string& Collection, CollectionJobSta
           return false;
      }
 
-     std::unique_lock<std::mutex> Lock(JobMutex, std::try_to_lock);
-
-     if (!Lock.owns_lock())
-     {
-          return false;
-     }
+     std::lock_guard<std::mutex> Lock(JobMutex);
 
      const auto It = CollectionJobs.find(Collection);
 
@@ -8143,12 +8133,7 @@ bool SAM::GetCollectionJobStatus(const std::string& Collection, CollectionJobSta
 
 std::map<std::string, SAM::CollectionJobStatus> SAM::GetAllCollectionJobStatuses() const
 {
-     std::unique_lock<std::mutex> Lock(JobMutex, std::try_to_lock);
-
-     if (!Lock.owns_lock())
-     {
-          return {};
-     }
+     std::lock_guard<std::mutex> Lock(JobMutex);
 
      return CollectionJobs;
 }

@@ -1360,6 +1360,44 @@ bool RunSanitySearch(BenchmarkClient &client, const std::string &collection, con
      return false;
 }
 
+static void PrintBenchmarkHelp(const char *program_name)
+{
+     std::cout << "Usage: " << program_name << " [options]\n"
+               << "Options:\n"
+               << "  --url URL          Server URL (default: http://localhost:9200)\n"
+               << "  --host HOST        Server host (default: localhost)\n"
+               << "  --port PORT        Server port (default: 9200)\n"
+               << "  --auth TOKEN      Authentication token\n"
+               << "  --ssl-auth        Over HTTPS, send token as both Authorization and X-API-Key\n"
+               << "  --collections N   Number of collections to create (default: 2)\n"
+               << "  --documents N     Total number of documents to insert (default: 50000 per collection)\n"
+               << "  --threads N        Number of threads (default: 8)\n"
+               << "  --batch-size N     Documents per bulk insert batch (default: 2000)\n"
+               << "  --advanced [FILE]  Output detailed JSON metrics (default: adv.json)\n"
+               << "  --detailed [FILE] Run comprehensive benchmark testing ALL routes\n"
+               << "                    and functionalities (includes --advanced)\n"
+               << "  --Search           Run search benchmark on previously inserted data\n"
+               << "  --dump             Dump all collections and their documents\n"
+               << "  --fake             Insert realistic sample data (food, music, science, etc.) for testing\n"
+               << "  --flood            Flood server with continuous random data generation for stress testing\n"
+               << "                    (runs until stopped with Ctrl+C, randomly creates collections and documents)\n"
+               << "  --id ID            Run UUID/ID for correlation (default: auto-generated)\n"
+               << "  --seed SEED        Seed for deterministic runs\n"
+               << "  --no-fake-collections  Disable fake helper collections (food, music, sports, etc.)\n"
+               << "  --verify-after-restart   Verify counts after server restart\n"
+               << "  --check-consistency      Check consistency of /status, /stats, /metrics, /doctotal\n"
+               << "  --dry-run          Generate collections/docs in memory but don't send to server\n"
+               << "  --cleanup          Delete all benchmark-tagged collections at end\n"
+               << "  --prefix PREFIX    Custom prefix for benchmark collections (default: bench_collection_)\n"
+               << "  --durability-config PATH  Load durability settings from config (e.g., run/conf/database.conf)\n"
+               << "  --reuse-collections Reuse existing collections instead of deleting/recreating them\n"
+               << "  --skip-auth-check  Skip authentication requirement check (useful when auth is disabled)\n"
+               << "  --unorganized      Create an 'unorganized' collection with non-standard schema for testing\n"
+               << "  --log-file FILE    Structured log file (JSON lines format)\n"
+               << "  --verbose, -v      Show detailed progress information\n"
+               << "  --help, -h         Show this help message\n";
+}
+
 /* Main entry point for the benchmark tool. */
 
 int main(int argc, char *argv[])
@@ -1431,55 +1469,67 @@ int main(int argc, char *argv[])
 
           std::string durability_config_path = "";
 
+          auto RequireNextValue = [&](int &index, const std::string &option) -> std::string
+          {
+               if (index + 1 >= argc)
+               {
+                    std::cerr << "Error: Missing value for " << option << ".\n\n";
+                    PrintBenchmarkHelp(argv[0]);
+                    throw std::runtime_error("__benchmark_help_shown__");
+               }
+
+               return argv[++index];
+          };
+
           /* Parse CLI flags and override defaults. */
 
           for (int i = 1; i < argc; i++)
           {
                std::string arg = argv[i];
 
-               if (arg == "--url" && i + 1 < argc)
+               if (arg == "--url")
                {
-                    base_url = argv[++i];
+                    base_url = RequireNextValue(i, arg);
                }
-               else if (arg == "--host" && i + 1 < argc)
+               else if (arg == "--host")
                {
-                    host = argv[++i];
+                    host = RequireNextValue(i, arg);
                     host_set = true;
                }
-               else if (arg == "--port" && i + 1 < argc)
+               else if (arg == "--port")
                {
-                    port = std::stoi(argv[++i]);
+                    port = std::stoi(RequireNextValue(i, arg));
                     port_set = true;
                }
-               else if (arg == "--auth" && i + 1 < argc)
+               else if (arg == "--auth")
                {
-                    auth_token = argv[++i];
+                    auth_token = RequireNextValue(i, arg);
                }
                else if (arg == "--ssl-auth")
                {
                     ssl_auth_mode = true;
                }
-               else if (arg == "--prefix" && i + 1 < argc)
+               else if (arg == "--prefix")
                {
-                    custom_prefix_val = argv[++i];
+                    custom_prefix_val = RequireNextValue(i, arg);
                     g_collection_prefix = custom_prefix_val;
                }
-               else if (arg == "--collections" && i + 1 < argc)
+               else if (arg == "--collections")
                {
-                    num_collections = std::stoi(argv[++i]);
+                    num_collections = std::stoi(RequireNextValue(i, arg));
                }
-               else if (arg == "--documents" && i + 1 < argc)
+               else if (arg == "--documents")
                {
-                    num_documents = std::stoi(argv[++i]);
+                    num_documents = std::stoi(RequireNextValue(i, arg));
                     documents_explicitly_set = true;
                }
-               else if (arg == "--threads" && i + 1 < argc)
+               else if (arg == "--threads")
                {
-                    num_threads = std::stoi(argv[++i]);
+                    num_threads = std::stoi(RequireNextValue(i, arg));
                }
-               else if (arg == "--batch-size" && i + 1 < argc)
+               else if (arg == "--batch-size")
                {
-                    batch_size = std::stoi(argv[++i]);
+                    batch_size = std::stoi(RequireNextValue(i, arg));
                }
                else if (arg == "--advanced")
                {
@@ -1524,13 +1574,13 @@ int main(int argc, char *argv[])
                {
                     flood_mode = true;
                }
-               else if (arg == "--id" && i + 1 < argc)
+               else if (arg == "--id")
                {
-                    run_id_val = argv[++i];
+                    run_id_val = RequireNextValue(i, arg);
                }
-               else if (arg == "--seed" && i + 1 < argc)
+               else if (arg == "--seed")
                {
-                    run_seed_val = argv[++i];
+                    run_seed_val = RequireNextValue(i, arg);
                }
                else if (arg == "--no-fake-collections")
                {
@@ -1556,13 +1606,13 @@ int main(int argc, char *argv[])
                {
                     reuse_collections = true;
                }
-               else if (arg == "--log-file" && i + 1 < argc)
+               else if (arg == "--log-file")
                {
-                    log_file_val = argv[++i];
+                    log_file_val = RequireNextValue(i, arg);
                }
-               else if (arg == "--durability-config" && i + 1 < argc)
+               else if (arg == "--durability-config")
                {
-                    durability_config_path = argv[++i];
+                    durability_config_path = RequireNextValue(i, arg);
                }
                else if (arg == "--skip-auth-check")
                {
@@ -1574,42 +1624,15 @@ int main(int argc, char *argv[])
                }
                else if (arg == "--help" || arg == "-h")
                {
-                    std::cout << "Usage: " << argv[0] << " [options]\n"
-                              << "Options:\n"
-                              << "  --url URL          Server URL (default: http://localhost:9200)\n"
-                              << "  --host HOST        Server host (default: localhost)\n"
-                              << "  --port PORT        Server port (default: 9200)\n"
-                              << "  --auth TOKEN      Authentication token\n"
-                              << "  --ssl-auth        Over HTTPS, send token as both Authorization and X-API-Key\n"
-                              << "  --collections N   Number of collections to create (default: 2)\n"
-                              << "  --documents N     Total number of documents to insert (default: 50000 per collection)\n"
-                              << "  --threads N        Number of threads (default: 8)\n"
-                              << "  --batch-size N     Documents per bulk insert batch (default: 2000)\n"
-                              << "  --advanced [FILE]  Output detailed JSON metrics (default: adv.json)\n"
-                              << "  --detailed [FILE] Run comprehensive benchmark testing ALL routes\n"
-                              << "                    and functionalities (includes --advanced)\n"
-                              << "  --Search           Run search benchmark on previously inserted data\n"
-                              << "  --dump             Dump all collections and their documents\n"
-                              << "  --fake             Insert realistic sample data (food, music, science, etc.) for testing\n"
-                              << "  --flood            Flood server with continuous random data generation for stress testing\n"
-                              << "                    (runs until stopped with Ctrl+C, randomly creates collections and documents)\n"
-                              << "  --id ID            Run UUID/ID for correlation (default: auto-generated)\n"
-                              << "  --seed SEED        Seed for deterministic runs\n"
-                              << "  --no-fake-collections  Disable fake helper collections (food, music, sports, etc.)\n"
-                              << "  --verify-after-restart   Verify counts after server restart\n"
-                              << "  --check-consistency      Check consistency of /status, /stats, /metrics, /doctotal\n"
-                              << "  --dry-run          Generate collections/docs in memory but don't send to server\n"
-                              << "  --cleanup          Delete all benchmark-tagged collections at end\n"
-                              << "  --prefix PREFIX    Custom prefix for benchmark collections (default: bench_collection_)\n"
-                              << "  --durability-config PATH  Load durability settings from config (e.g., run/conf/database.conf)\n"
-                              << "  --reuse-collections Reuse existing collections instead of deleting/recreating them\n"
-                              << "  --skip-auth-check  Skip authentication requirement check (useful when auth is disabled)\n"
-                              << "  --unorganized      Create an 'unorganized' collection with non-standard schema for testing\n"
-                              << "  --log-file FILE    Structured log file (JSON lines format)\n"
-                              << "  --verbose, -v      Show detailed progress information\n"
-                              << "  --help, -h         Show this help message\n";
+                    PrintBenchmarkHelp(argv[0]);
 
                     return 0;
+               }
+               else
+               {
+                    std::cerr << "Error: Unknown argument: " << arg << ".\n\n";
+                    PrintBenchmarkHelp(argv[0]);
+                    return 1;
                }
           }
 
@@ -2871,6 +2894,11 @@ int main(int argc, char *argv[])
      }
      catch (const std::exception &e)
      {
+          if (std::string(e.what()) == "__benchmark_help_shown__")
+          {
+               return 1;
+          }
+
           std::cerr << "\n[FATAL] Benchmark crashed with exception: " << e.what() << ".\n";
 
           return 1;

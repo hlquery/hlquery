@@ -1182,12 +1182,21 @@ HttpResponse SearchAPI::HandleStatus(const HttpRequest &Request)
      (void)Request;
 
      nlohmann::json StatusJSON;
-     nlohmann::json StatusStatsJSON;
 
      StatusJSON["status"] = "ok";
      StatusJSON["timestamp"] = GetCurrentTimestamp();
-     StatusStatsJSON["io"] = BuildSocketIOStatsJSON();
-     StatusJSON["stats"] = StatusStatsJSON;
+
+     try
+     {
+          HttpResponse StatsResponse = HandleStats(Request);
+          StatusJSON["stats"] = nlohmann::json::parse(StatsResponse.Body);
+     }
+     catch (...)
+     {
+          nlohmann::json FallbackStatsJSON;
+          FallbackStatsJSON["io"] = BuildSocketIOStatsJSON();
+          StatusJSON["stats"] = FallbackStatsJSON;
+     }
 
      if (Instance && Instance->Config)
      {

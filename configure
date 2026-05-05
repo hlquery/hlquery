@@ -91,6 +91,18 @@ use constant {
     CONFIG_FILE     => 'config.h',
 };
 
+sub shell_quote_arg {
+    my ($value) = @_;
+    $value //= '';
+    $value =~ s/'/'"'"'/g;
+    return "'$value'";
+}
+
+sub shell_quote_args {
+    my (@values) = @_;
+    return join(' ', map { shell_quote_arg($_) } @values);
+}
+
 # Global variables
 # Use script directory, not current working directory
 # This ensures configure works correctly even when run from a different directory
@@ -883,7 +895,7 @@ sub generate_config_h {
 }
 
 sub generate_makefile {
-    my ($enabled_extras) = @_;
+    my ($enabled_extras, $reconfigure_command) = @_;
     my $makefile_template = catfile($base_path, 'make', 'makefile.tpl');
     my $makefile_path = catfile($base_path, 'Makefile');
     my $module_annotations = collect_module_annotations(
@@ -929,6 +941,7 @@ sub generate_makefile {
     $template_content =~ s/\$\{DATADIR\}/$config{DATADIR}/g;
     $template_content =~ s/\$\{RUNDIR\}/$config{RUNDIR}/g;
     $template_content =~ s/\$\{BINDIR\}/$config{BINDIR}/g;
+    $template_content =~ s/\$\{CONFIGURE_COMMAND\}/$reconfigure_command/g;
     
     # SSL support - auto-detected
     my $with_ssl = $config{SSL_ENABLED} ? '1' : '0';
@@ -1276,6 +1289,8 @@ sub compile_and_test {
 
 # Main configuration routine
 sub main {
+    my @original_argv = @ARGV;
+
     # Parse command line arguments using proper getopt-style parsing
     my $skip_tests = 0;
     my $show_help = 0;
@@ -1476,6 +1491,12 @@ sub main {
         enabled_extras => $enabled_extras,
     );
 
+    my $reconfigure_command = './configure';
+
+    if (@original_argv) {
+        $reconfigure_command .= ' ' . shell_quote_args(@original_argv);
+    }
+
     # Env overrides only when corresponding CLI path flag is not explicitly set.
     $config{CONFDIR} = $ENV{HLQUERY_CONFIG_DIR} if $ENV{HLQUERY_CONFIG_DIR} && !$path_set{confdir};
     $config{LOGDIR}  = $ENV{HLQUERY_LOG_DIR}    if $ENV{HLQUERY_LOG_DIR} && !$path_set{logdir};
@@ -1589,7 +1610,7 @@ sub main {
     
     # Call generate_makefile with error handling
     eval {
-        generate_makefile($enabled_extras);
+        generate_makefile($enabled_extras, $reconfigure_command);
     };
     if ($@) {
         print_error("Makefile generation failed: $@");
