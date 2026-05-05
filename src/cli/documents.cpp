@@ -1890,18 +1890,6 @@ void HLQueryCLI::ShowSAMStatus(const std::string &collection_name, bool json_out
                PrintTable({"Collection", "Query", "StartedMS", "Running"}, rows);
           }
 
-          if (root.contains("latest_search") && root["latest_search"].is_object())
-          {
-               const nlohmann::json &latest = root["latest_search"];
-               std::cout << "Latest SAM search: "
-                         << latest.value("collection", "")
-                         << " -> "
-                         << latest.value("query", "")
-                         << " (results="
-                         << latest.value("result_count", static_cast<size_t>(0))
-                         << ").\n";
-          }
-
           return;
      }
 
@@ -1946,15 +1934,6 @@ void HLQueryCLI::ShowSAMStatus(const std::string &collection_name, bool json_out
           PrintTable({"Query", "StartedMS", "Running"}, search_rows);
      }
 
-     if (root.contains("latest_search") && root["latest_search"].is_object())
-     {
-          const nlohmann::json &latest = root["latest_search"];
-          std::cout << "Latest SAM search: "
-                    << latest.value("query", "")
-                    << " (results="
-                    << latest.value("result_count", static_cast<size_t>(0))
-                    << ").\n";
-     }
 }
 
 void HLQueryCLI::ShowSAMHistory(const std::string &collection_name, int limit, bool json_output)

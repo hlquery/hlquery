@@ -2326,26 +2326,10 @@ HttpResponse SearchAPI::HandleSAMStatus(const HttpRequest &Request)
      }
      else
      {
-          SAM::SearchActivityEntry LatestSearch;
-          const bool HasLatestSearch = Instance->Sam->GetLatestSearchActivity("", LatestSearch);
           Root["running_count"] = RunningCount;
           Root["known_count"] = AllStatuses.size();
           Root["active_search_count"] = ActiveSearches.size();
           Root["search_running"] = !ActiveSearches.empty();
-
-          if (HasLatestSearch)
-          {
-               Root["latest_search"] = {
-                    {"sequence", LatestSearch.Sequence},
-                    {"collection", LatestSearch.Collection},
-                    {"query", LatestSearch.Query},
-                    {"normalized_query", LatestSearch.NormalizedQuery},
-                    {"started_ms", LatestSearch.StartedMS},
-                    {"completed_ms", LatestSearch.CompletedMS},
-                    {"result_count", LatestSearch.ResultCount},
-                    {"running", LatestSearch.Running}
-               };
-          }
 
           Root["message"] = RunningCount > 0 ? "SAM indexing is running in the background."
                                              : (!ActiveSearches.empty() ? "SAM is analyzing recent searches."
