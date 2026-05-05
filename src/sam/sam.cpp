@@ -5247,7 +5247,7 @@ bool SAM::Initialize()
                return false;
           }
 
-          Database = std::move(RawDB);
+          Database = std::shared_ptr<rocksdb::DB>(RawDB.release());
           DatabaseOpen.store(true, std::memory_order_release);
 
           if (Instance && Instance->Logs)
@@ -5264,6 +5264,7 @@ bool SAM::Initialize()
 void SAM::Shutdown()
 {
      std::vector<std::thread> ThreadsToJoin;
+     std::shared_ptr<rocksdb::DB> DatabaseToRelease;
 
      {
           std::lock_guard<std::mutex> Lock(QueueMutex);
@@ -5285,9 +5286,11 @@ void SAM::Shutdown()
           }
      }
 
-     std::lock_guard<std::mutex> Lock(DBMutex);
-     Database.reset();
-     DatabaseOpen.store(false, std::memory_order_release);
+     {
+          std::lock_guard<std::mutex> Lock(DBMutex);
+          DatabaseOpen.store(false, std::memory_order_release);
+          DatabaseToRelease = std::move(Database);
+     }
 }
 
 std::string SAM::BuildPendingIndexKey(const std::string& Collection, const std::string& DocumentID)
@@ -5590,21 +5593,23 @@ bool SAM::ClearAll(std::string* ErrorMessage)
 
 bool SAM::Recreate(std::string* ErrorMessage)
 {
-     std::lock_guard<std::mutex> Lock(DBMutex);
-
-     if (!Database)
      {
-          if (ErrorMessage)
+          std::lock_guard<std::mutex> Lock(DBMutex);
+
+          if (!Database)
           {
-               *ErrorMessage = "SAM database is not open.";
+               if (ErrorMessage)
+               {
+                    *ErrorMessage = "SAM database is not open.";
+               }
+
+               return false;
           }
 
-          return false;
-     }
-
-     if (!ClearAll(ErrorMessage))
-     {
-          return false;
+          if (!ClearAll(ErrorMessage))
+          {
+               return false;
+          }
      }
 
      size_t IndexedDocuments = 0;
@@ -5638,7 +5643,7 @@ bool SAM::Recreate(std::string* ErrorMessage)
 
                std::string IndexError;
 
-               if (IndexDocumentLocked(Collection, Doc, &IndexError))
+               if (IndexDocument(Collection, Doc, &IndexError))
                {
                     IndexedDocuments++;
                }
@@ -5732,8 +5737,18 @@ bool SAM::RecreateCollection(const std::string& Collection,
      for (const auto& DocumentID : ExistingDocumentIDs)
      {
           std::string RemoveError;
+          bool Removed = false;
 
-          if (!RemoveExistingDocumentTermsLocked(Collection, DocumentID, &RemoveError) && ErrorMessage && ErrorMessage->empty())
+          {
+               std::lock_guard<std::mutex> Lock(DBMutex);
+
+               if (Database)
+               {
+                    Removed = RemoveExistingDocumentTermsLocked(Collection, DocumentID, &RemoveError);
+               }
+          }
+
+          if (!Removed && ErrorMessage && ErrorMessage->empty())
           {
                *ErrorMessage = RemoveError;
           }
@@ -5790,8 +5805,18 @@ bool SAM::RecreateCollection(const std::string& Collection,
      }
 
      std::string ProfileError;
+     bool RebuiltProfile = false;
 
-     if (!RebuildCollectionProfileLocked(Database.get(), Collection, &ProfileError))
+     {
+          std::lock_guard<std::mutex> Lock(DBMutex);
+
+          if (Database)
+          {
+               RebuiltProfile = RebuildCollectionProfileLocked(Database.get(), Collection, &ProfileError);
+          }
+     }
+
+     if (!RebuiltProfile)
      {
           if (Instance && Instance->Logs)
           {
@@ -6581,7 +6606,17 @@ bool SAM::RecordSearchIdea(const std::string& Collection,
                            const std::vector<SearchIdeaDocumentRef>& Documents,
                            std::string* ErrorMessage)
 {
-     std::lock_guard<std::mutex> Lock(DBMutex);
+     std::unique_lock<std::mutex> Lock(DBMutex, std::try_to_lock);
+
+     if (!Lock.owns_lock())
+     {
+          if (ErrorMessage)
+          {
+               *ErrorMessage = "SAM history recording skipped because the database is busy.";
+          }
+
+          return false;
+     }
 
      if (!Database)
      {
@@ -7643,17 +7678,21 @@ std::vector<SAM::LookupHit> SAM::Lookup(const std::string& Query, size_t Limit) 
      std::vector<LookupHit> Hits;
      const SAMQueryTokenViews QueryViews = NormalizeSAMQueryTokenViews(Query);
      const uint64_t ActivitySequence = BeginLookupActivity("", Query);
+     std::shared_ptr<rocksdb::DB> DatabaseHandle;
 
-     std::lock_guard<std::mutex> Lock(DBMutex);
+     {
+          std::lock_guard<std::mutex> Lock(DBMutex);
+          DatabaseHandle = Database;
+     }
 
-     if (!Database)
+     if (!DatabaseHandle)
      {
           FinishLookupActivity(ActivitySequence, 0);
           return Hits;
      }
 
      std::vector<std::string> Variants = BuildQueryVariants(Query);
-     const SAMSemanticQuery SemanticPlan = BuildSemanticQueryPlan(Database.get(), "", Query, QueryViews);
+     const SAMSemanticQuery SemanticPlan = BuildSemanticQueryPlan(DatabaseHandle.get(), "", Query, QueryViews);
 
      for (const auto& Candidate : SemanticPlan.Rewrites)
      {
@@ -7675,7 +7714,7 @@ std::vector<SAM::LookupHit> SAM::Lookup(const std::string& Query, size_t Limit) 
      for (const auto& Variant : Variants)
      {
          const std::string Prefix = "sam:term:" + Variant + ":";
-         std::unique_ptr<rocksdb::Iterator> Iterator(Database->NewIterator(rocksdb::ReadOptions()));
+         std::unique_ptr<rocksdb::Iterator> Iterator(DatabaseHandle->NewIterator(rocksdb::ReadOptions()));
 
           for (Iterator->Seek(Prefix); Iterator->Valid() && Iterator->key().starts_with(Prefix); Iterator->Next())
           {
@@ -7708,9 +7747,9 @@ std::vector<SAM::LookupHit> SAM::Lookup(const std::string& Query, size_t Limit) 
                     {
                          std::string ManifestValue;
                          const rocksdb::Status ManifestStatus =
-                              Database->Get(rocksdb::ReadOptions(),
-                                            BuildDocManifestKey(Hit.Collection, Hit.DocumentID),
-                                            &ManifestValue);
+                              DatabaseHandle->Get(rocksdb::ReadOptions(),
+                                                  BuildDocManifestKey(Hit.Collection, Hit.DocumentID),
+                                                  &ManifestValue);
 
                          if (!ManifestStatus.ok())
                          {
@@ -7735,8 +7774,8 @@ std::vector<SAM::LookupHit> SAM::Lookup(const std::string& Query, size_t Limit) 
           }
      }
 
-     AppendFuzzyFallbackHits(AggregatedHits, Database.get(), "", Query, Limit);
-     AppendSemanticProfileHits(AggregatedHits, Database.get(), "", SemanticPlan,
+     AppendFuzzyFallbackHits(AggregatedHits, DatabaseHandle.get(), "", Query, Limit);
+     AppendSemanticProfileHits(AggregatedHits, DatabaseHandle.get(), "", SemanticPlan,
                                std::max<size_t>(256, Limit * 24));
 
      FinalizeSAMAggregatedHits(Hits, AggregatedHits, QueryViews, Limit);
@@ -7757,25 +7796,29 @@ std::vector<SAM::LookupHit> SAM::Lookup(const std::string& Collection, const std
      }
 
      const uint64_t ActivitySequence = BeginLookupActivity(Collection, Query);
+     std::shared_ptr<rocksdb::DB> DatabaseHandle;
 
-     std::lock_guard<std::mutex> Lock(DBMutex);
+     {
+          std::lock_guard<std::mutex> Lock(DBMutex);
+          DatabaseHandle = Database;
+     }
 
-     if (!Database)
+     if (!DatabaseHandle)
      {
           FinishLookupActivity(ActivitySequence, 0);
           return Hits;
      }
 
      std::vector<std::string> Variants = BuildQueryVariants(Query);
-     const SAMSemanticQuery SemanticPlan = BuildSemanticQueryPlan(Database.get(), Collection, Query, QueryViews);
+     const SAMSemanticQuery SemanticPlan = BuildSemanticQueryPlan(DatabaseHandle.get(), Collection, Query, QueryViews);
      const std::vector<std::string> PersistedProfileVariants =
-          BuildPersistedCollectionProfileVariants(Database.get(), Collection, QueryViews,
+          BuildPersistedCollectionProfileVariants(DatabaseHandle.get(), Collection, QueryViews,
                                                  std::max<size_t>(8, std::min<size_t>(Limit * 3, 16)));
      const std::vector<std::string> LearnedVariants =
-          BuildCollectionLearnedVariants(Database.get(), Collection, Query, QueryViews,
+          BuildCollectionLearnedVariants(DatabaseHandle.get(), Collection, Query, QueryViews,
                                          std::max<size_t>(8, std::min<size_t>(Limit * 3, 16)));
      const std::vector<SAMMatchedSearchIdea> SearchIdeas =
-          BuildMatchedSearchIdeas(Database.get(), Collection, Query, QueryViews,
+          BuildMatchedSearchIdeas(DatabaseHandle.get(), Collection, Query, QueryViews,
                                   std::max<size_t>(6, std::min<size_t>(Limit * 2, 10)));
      const std::vector<std::string> SearchIdeaVariants =
           BuildSearchIdeaVariants(SearchIdeas, QueryViews,
@@ -7825,7 +7868,7 @@ std::vector<SAM::LookupHit> SAM::Lookup(const std::string& Collection, const std
      for (const auto& Variant : Variants)
      {
          const std::string Prefix = "sam:term:" + Variant + ":";
-         std::unique_ptr<rocksdb::Iterator> Iterator(Database->NewIterator(rocksdb::ReadOptions()));
+         std::unique_ptr<rocksdb::Iterator> Iterator(DatabaseHandle->NewIterator(rocksdb::ReadOptions()));
 
           for (Iterator->Seek(Prefix); Iterator->Valid() && Iterator->key().starts_with(Prefix); Iterator->Next())
           {
@@ -7863,9 +7906,9 @@ std::vector<SAM::LookupHit> SAM::Lookup(const std::string& Collection, const std
                     {
                          std::string ManifestValue;
                          const rocksdb::Status ManifestStatus =
-                              Database->Get(rocksdb::ReadOptions(),
-                                            BuildDocManifestKey(Hit.Collection, Hit.DocumentID),
-                                            &ManifestValue);
+                              DatabaseHandle->Get(rocksdb::ReadOptions(),
+                                                  BuildDocManifestKey(Hit.Collection, Hit.DocumentID),
+                                                  &ManifestValue);
 
                          if (!ManifestStatus.ok())
                          {
@@ -7890,14 +7933,14 @@ std::vector<SAM::LookupHit> SAM::Lookup(const std::string& Collection, const std
           }
      }
 
-     AppendFuzzyFallbackHits(AggregatedHits, Database.get(), Collection, Query, Limit);
-     AppendSemanticProfileHits(AggregatedHits, Database.get(), Collection, SemanticPlan,
+     AppendFuzzyFallbackHits(AggregatedHits, DatabaseHandle.get(), Collection, Query, Limit);
+     AppendSemanticProfileHits(AggregatedHits, DatabaseHandle.get(), Collection, SemanticPlan,
                                std::max<size_t>(256, Limit * 24));
-     AppendSearchIdeaHits(AggregatedHits, Database.get(), Collection, SearchIdeas);
+     AppendSearchIdeaHits(AggregatedHits, DatabaseHandle.get(), Collection, SearchIdeas);
      const std::vector<SAMLearnedVariant> SeededVariants =
-          BuildSeededCollectionVariants(Database.get(), Collection, QueryViews, AggregatedHits,
+          BuildSeededCollectionVariants(DatabaseHandle.get(), Collection, QueryViews, AggregatedHits,
                                         std::max<size_t>(6, std::min<size_t>(Limit * 3, 12)));
-     AppendCollectionLearnedHits(AggregatedHits, Database.get(), Collection, SeededVariants);
+     AppendCollectionLearnedHits(AggregatedHits, DatabaseHandle.get(), Collection, SeededVariants);
 
      FinalizeSAMAggregatedHits(Hits, AggregatedHits, QueryViews, Limit);
 
@@ -7916,15 +7959,20 @@ std::vector<SAM::SearchIdeaEntry> SAM::GetSearchIdeaHistory(const std::string& C
           return Entries;
      }
 
-     std::lock_guard<std::mutex> Lock(DBMutex);
+     std::shared_ptr<rocksdb::DB> DatabaseHandle;
 
-     if (!Database)
+     {
+          std::lock_guard<std::mutex> Lock(DBMutex);
+          DatabaseHandle = Database;
+     }
+
+     if (!DatabaseHandle)
      {
           return Entries;
      }
 
      const std::string Prefix = Collection.empty() ? "sam:idea:" : BuildSearchIdeaPrefix(Collection);
-     std::unique_ptr<rocksdb::Iterator> Iterator(Database->NewIterator(rocksdb::ReadOptions()));
+     std::unique_ptr<rocksdb::Iterator> Iterator(DatabaseHandle->NewIterator(rocksdb::ReadOptions()));
 
      for (Iterator->Seek(Prefix);
           Iterator->Valid() && Iterator->key().starts_with(Prefix);
@@ -8024,15 +8072,20 @@ std::vector<SAM::DocumentEntry> SAM::ListDocuments(const std::string& Collection
           return Entries;
      }
 
-     std::lock_guard<std::mutex> Lock(DBMutex);
+     std::shared_ptr<rocksdb::DB> DatabaseHandle;
 
-     if (!Database)
+     {
+          std::lock_guard<std::mutex> Lock(DBMutex);
+          DatabaseHandle = Database;
+     }
+
+     if (!DatabaseHandle)
      {
           return Entries;
      }
 
      const std::string Prefix = "sam:doc:" + Collection + ":";
-     std::unique_ptr<rocksdb::Iterator> Iterator(Database->NewIterator(rocksdb::ReadOptions()));
+     std::unique_ptr<rocksdb::Iterator> Iterator(DatabaseHandle->NewIterator(rocksdb::ReadOptions()));
      size_t Seen = 0;
 
      for (Iterator->Seek(Prefix); Iterator->Valid() && Iterator->key().starts_with(Prefix); Iterator->Next())
@@ -8109,14 +8162,19 @@ bool SAM::GetCollectionIndexedMutationVersion(const std::string& Collection, uin
           return false;
      }
 
-     std::lock_guard<std::mutex> Lock(DBMutex);
+     std::shared_ptr<rocksdb::DB> DatabaseHandle;
 
-     if (!Database)
+     {
+          std::lock_guard<std::mutex> Lock(DBMutex);
+          DatabaseHandle = Database;
+     }
+
+     if (!DatabaseHandle)
      {
           return false;
      }
 
-     return ReadCollectionIndexedMutationVersionLocked(Database.get(), Collection, Version);
+     return ReadCollectionIndexedMutationVersionLocked(DatabaseHandle.get(), Collection, Version);
 }
 
 bool SAM::GetDocumentEntry(const std::string& Collection,
@@ -8136,9 +8194,14 @@ bool SAM::GetDocumentEntry(const std::string& Collection,
           return false;
      }
 
-     std::lock_guard<std::mutex> Lock(DBMutex);
+     std::shared_ptr<rocksdb::DB> DatabaseHandle;
 
-     if (!Database)
+     {
+          std::lock_guard<std::mutex> Lock(DBMutex);
+          DatabaseHandle = Database;
+     }
+
+     if (!DatabaseHandle)
      {
           if (ErrorMessage)
           {
@@ -8149,9 +8212,9 @@ bool SAM::GetDocumentEntry(const std::string& Collection,
      }
 
      std::string Value;
-     const rocksdb::Status Status = Database->Get(rocksdb::ReadOptions(),
-                                                  BuildDocManifestKey(Collection, DocumentID),
-                                                  &Value);
+     const rocksdb::Status Status = DatabaseHandle->Get(rocksdb::ReadOptions(),
+                                                        BuildDocManifestKey(Collection, DocumentID),
+                                                        &Value);
 
      if (Status.IsNotFound())
      {

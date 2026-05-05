@@ -17,6 +17,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
+#include <regex>
 #include <sstream>
 #include <unordered_map>
 #include <unordered_set>
@@ -44,6 +45,12 @@ static void AppendStructuredPhraseWindows(std::vector<SAM::TermEntry>& Terms,
                                           double BaseScore,
                                           double BaseSignal,
                                           size_t MaxWindow);
+static void AppendTemplateQuery(std::vector<SAM::TermEntry>& Terms,
+                                std::unordered_map<std::string, size_t>& IndexByTerm,
+                                const std::string& Subject,
+                                const std::string& Phrase,
+                                double Score,
+                                double Signal);
 
 static bool ShouldLogSAMContext()
 {
@@ -928,6 +935,251 @@ static void AppendCompressedStopwordVariants(std::vector<SAM::TermEntry>& Terms,
      }
 }
 
+static std::string TrimAliasCandidate(const std::string& Value)
+{
+     std::string Candidate = TrimCopy(Value);
+
+     while (!Candidate.empty())
+     {
+          const char Last = Candidate.back();
+
+          if (Last == ',' || Last == '.' || Last == ';' || Last == ':' ||
+              Last == '!' || Last == '?' || Last == ')' || Last == ']' ||
+              Last == '"' || Last == '\'')
+          {
+               Candidate.pop_back();
+               continue;
+          }
+
+          break;
+     }
+
+     while (!Candidate.empty())
+     {
+          const char First = Candidate.front();
+
+          if (First == '"' || First == '\'' || First == '(' || First == '[')
+          {
+               Candidate.erase(Candidate.begin());
+               continue;
+          }
+
+          break;
+     }
+
+     Candidate = TrimCopy(Candidate);
+     return Candidate;
+}
+
+static bool IsLikelySAMAliasPhrase(const std::string& Phrase,
+                                   const std::string& Subject)
+{
+     const std::string NormalizedPhrase = NormalizeTerm(Phrase);
+     const std::string NormalizedSubject = NormalizeTerm(Subject);
+
+     if (NormalizedPhrase.empty() || NormalizedPhrase == NormalizedSubject)
+     {
+          return false;
+     }
+
+     if (IsLowIntentGenericPhrase(NormalizedPhrase, Subject))
+     {
+          return false;
+     }
+
+     const std::vector<std::string> Tokens = TokenizeNormalized(NormalizedPhrase);
+
+     if (Tokens.size() < 2 || Tokens.size() > 6)
+     {
+          return false;
+     }
+
+     size_t StrongCount = 0;
+
+     for (const auto& Token : Tokens)
+     {
+          if (IsStrongPhraseToken(Token))
+          {
+               ++StrongCount;
+          }
+     }
+
+     return StrongCount >= 2;
+}
+
+static void AppendSAMAliasCandidate(std::vector<SAM::TermEntry>& Terms,
+                                    std::unordered_map<std::string, size_t>& IndexByTerm,
+                                    const std::string& Subject,
+                                    const std::string& Candidate,
+                                    const std::string& Source,
+                                    double Score,
+                                    double Signal)
+{
+     if (!IsLikelySAMAliasPhrase(Candidate, Subject))
+     {
+          return;
+     }
+
+     const std::string NormalizedCandidate = NormalizeTerm(Candidate);
+
+     AppendScoredTerm(Terms, IndexByTerm, NormalizedCandidate, "alias",
+                      Score, Source, Signal);
+
+     AppendStructuredPhraseWindows(Terms, IndexByTerm, Candidate,
+                                   Source + "_window",
+                                   ClampSAMScore(Score - 0.06),
+                                   ClampSAMScore(Signal - 0.06),
+                                   4);
+
+     AppendTemplateQuery(Terms, IndexByTerm, NormalizeTerm(Subject),
+                         Candidate,
+                         ClampSAMScore(Score + 0.02),
+                         ClampSAMScore(Signal + 0.02));
+}
+
+static void ExtractSAMQuotedPhrases(std::vector<std::string>& Output,
+                                    std::unordered_set<std::string>& Seen,
+                                    const std::string& RawText,
+                                    const std::string& Subject)
+{
+     static const std::regex QuotedPhraseRegex(R"(["']([^"']{3,64})["'])");
+     std::sregex_iterator It(RawText.begin(), RawText.end(), QuotedPhraseRegex);
+     const std::sregex_iterator End;
+
+     for (; It != End; ++It)
+     {
+          const std::string Candidate = TrimAliasCandidate((*It)[1].str());
+          const std::string NormalizedCandidate = NormalizeTerm(Candidate);
+
+          if (!IsLikelySAMAliasPhrase(Candidate, Subject))
+          {
+               continue;
+          }
+
+          if (Seen.insert(NormalizedCandidate).second)
+          {
+               Output.push_back(Candidate);
+          }
+     }
+}
+
+static void ExtractSAMEpithetPhrases(std::vector<std::string>& Output,
+                                     std::unordered_set<std::string>& Seen,
+                                     const std::string& RawText,
+                                     const std::string& Subject)
+{
+     static const std::array<std::regex, 3> AliasPatterns = {
+          std::regex(R"((?:known as|widely known as|best known as|often called|sometimes called|commonly called|nicknamed|dubbed|hailed as|described as|referred to as)\s+(?:the\s+)?([A-Za-z][A-Za-z0-9' -]{2,64}))", std::regex_constants::icase),
+          std::regex(R"((?:earned|gained)\s+(?:the\s+)?nickname\s+(?:of\s+)?([A-Za-z][A-Za-z0-9' -]{2,64}))", std::regex_constants::icase),
+          std::regex(R"((?:the\s+)?([A-Za-z][A-Za-z0-9' -]{2,48})\s+(?:moniker|nickname|title))", std::regex_constants::icase)
+     };
+
+     for (const auto& Pattern : AliasPatterns)
+     {
+          std::sregex_iterator It(RawText.begin(), RawText.end(), Pattern);
+          const std::sregex_iterator End;
+
+          for (; It != End; ++It)
+          {
+               std::string Candidate = TrimAliasCandidate((*It)[1].str());
+               const std::string LowerCandidate = ToLowerCopy(Candidate);
+               const size_t ClauseBreak = LowerCandidate.find(" and ");
+               const size_t CommaBreak = Candidate.find(',');
+               const size_t BreakAt = std::min(ClauseBreak, CommaBreak);
+
+               if (BreakAt != std::string::npos)
+               {
+                    Candidate = TrimAliasCandidate(Candidate.substr(0, BreakAt));
+               }
+
+               const std::string NormalizedCandidate = NormalizeTerm(Candidate);
+
+               if (!IsLikelySAMAliasPhrase(Candidate, Subject))
+               {
+                    continue;
+               }
+
+               if (Seen.insert(NormalizedCandidate).second)
+               {
+                    Output.push_back(Candidate);
+               }
+          }
+     }
+}
+
+static std::vector<std::string> CollectExtractedAliasPhrases(const Document& Doc,
+                                                             size_t MaxPhrases)
+{
+     std::vector<std::string> Phrases;
+     std::unordered_set<std::string> Seen;
+     const std::string Subject = ResolveSubjectTitle(Doc);
+     const auto DescriptionIt = Doc.Fields.find("description");
+     std::vector<std::string> RawSegments;
+
+     if (!Doc.Title.empty())
+     {
+          RawSegments.push_back(Doc.Title);
+     }
+
+     if (DescriptionIt != Doc.Fields.end() && !DescriptionIt->second.empty())
+     {
+          RawSegments.push_back(DescriptionIt->second);
+     }
+
+     if (!Doc.Content.empty())
+     {
+          RawSegments.push_back(TruncateForContextWindows(Doc.Content, 720));
+     }
+
+     const auto LabelsIt = Doc.Fields.find("labels");
+
+     if (LabelsIt != Doc.Fields.end() && !LabelsIt->second.empty())
+     {
+          for (const auto& Label : ExtractArrayishValues(LabelsIt->second))
+          {
+               RawSegments.push_back(Label);
+          }
+     }
+
+     for (const auto& Segment : RawSegments)
+     {
+          ExtractSAMQuotedPhrases(Phrases, Seen, Segment, Subject);
+          ExtractSAMEpithetPhrases(Phrases, Seen, Segment, Subject);
+
+          if (Phrases.size() >= MaxPhrases)
+          {
+               break;
+          }
+     }
+
+     if (Phrases.size() > MaxPhrases)
+     {
+          Phrases.resize(MaxPhrases);
+     }
+
+     return Phrases;
+}
+
+static void AppendExtractedAliasTerms(std::vector<SAM::TermEntry>& Terms,
+                                      std::unordered_map<std::string, size_t>& IndexByTerm,
+                                      const Document& Doc,
+                                      const std::string& Source,
+                                      double Score,
+                                      double Signal)
+{
+     const std::string Subject = ResolveSubjectTitle(Doc);
+
+     if (Subject.empty())
+     {
+          return;
+     }
+
+     for (const auto& Phrase : CollectExtractedAliasPhrases(Doc, 6))
+     {
+          AppendSAMAliasCandidate(Terms, IndexByTerm, Subject, Phrase, Source, Score, Signal);
+     }
+}
+
 static void AppendUniqueFact(std::vector<std::string>& Values,
                              std::unordered_set<std::string>& Seen,
                              const std::string& Raw,
@@ -1183,6 +1435,11 @@ static void AppendCanonicalSnippetQueries(std::vector<SAM::TermEntry>& Terms,
           AppendTemplateQuery(Terms, IndexByTerm, Subject, Hint, 0.78, 0.82);
      }
 
+     for (const auto& Alias : CollectExtractedAliasPhrases(Doc, 4))
+     {
+          AppendTemplateQuery(Terms, IndexByTerm, Subject, Alias, 0.90, 0.94);
+     }
+
      for (const auto& Year : Years)
      {
           AppendTemplateQuery(Terms, IndexByTerm, Subject, Year, 0.68, 0.72);
@@ -1230,6 +1487,11 @@ static void AppendFactDrivenQueries(std::vector<SAM::TermEntry>& Terms,
      for (const auto& Hint : Hints)
      {
           AppendTemplateQuery(Terms, IndexByTerm, Subject, Hint, 0.74, 0.78);
+     }
+
+     for (const auto& Alias : CollectExtractedAliasPhrases(Doc, 5))
+     {
+          AppendTemplateQuery(Terms, IndexByTerm, Subject, Alias, 0.86, 0.90);
      }
 
      for (const auto& Year : Years)
@@ -1615,6 +1877,11 @@ static void AppendSearchContextTemplates(std::vector<SAM::TermEntry>& Terms,
      {
           AppendTemplateQuery(Terms, IndexByTerm, Subject, Hint, 0.68, 0.72);
      }
+
+     for (const auto& Alias : CollectExtractedAliasPhrases(Doc, 5))
+     {
+          AppendTemplateQuery(Terms, IndexByTerm, Subject, Alias, 0.84, 0.88);
+     }
 }
 
 static std::string BucketValueOrUnknown(const std::string& Value)
@@ -1744,6 +2011,8 @@ std::vector<SAM::TermEntry> SAM::GenerateLLMTermsFromProfile(const std::string& 
      {
           AppendStructuredPhraseWindows(Terms, IndexByTerm, DescriptionIt->second, "internal_description_window", 0.68, 0.72, 4);
      }
+
+     AppendExtractedAliasTerms(Terms, IndexByTerm, Doc, "internal_extracted_alias", 0.88, 0.92);
 
      const auto LabelsIt = Doc.Fields.find("labels");
 
@@ -1891,6 +2160,8 @@ std::vector<SAM::TermEntry> SAM::ExpandDocumentTerms(const std::string& Collecti
      {
           AppendStructuredPhraseWindows(Terms, IndexByTerm, TruncateForContextWindows(Doc.Content), "content_window", 0.60, 0.64, 4);
      }
+
+     AppendExtractedAliasTerms(Terms, IndexByTerm, Doc, "extracted_alias", 0.90, 0.94);
 
      AppendFieldFactTerms(Terms, IndexByTerm, Doc);
 

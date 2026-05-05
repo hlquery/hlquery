@@ -1465,6 +1465,53 @@ bool FetchDocumentIdAtPosition(HLQueryCLI &cli,
      }
 }
 
+bool FetchSAMDocumentIdAtPosition(HLQueryCLI &cli,
+                                  const std::string &collection_name,
+                                  size_t document_index,
+                                  std::string &document_id)
+{
+     document_id.clear();
+
+     if (collection_name.empty())
+     {
+          return false;
+     }
+
+     std::string path = "/sam/documents?collection=" + hlquery_cli::UrlEncode(collection_name);
+     path += "&offset=" + std::to_string(document_index) + "&limit=1";
+
+     HLQueryCLI::HTTPResponse response = cli.MakeRequest("GET", path);
+
+     if (response.StatusCode != 200)
+     {
+          return false;
+     }
+
+     try
+     {
+          nlohmann::json root = nlohmann::json::parse(response.Body);
+
+          if (!root.contains("documents") || !root["documents"].is_array() || root["documents"].empty())
+          {
+               return false;
+          }
+
+          const nlohmann::json &document = root["documents"][0];
+
+          if (!document.contains("id") || !document["id"].is_string())
+          {
+               return false;
+          }
+
+          document_id = document["id"].get<std::string>();
+          return true;
+     }
+     catch (...)
+     {
+          return false;
+     }
+}
+
 /* Fetch collection names to support numeric selection in the REPL. */
 
 std::vector<std::string> FetchCollectionNames(HLQueryCLI &cli, int offset = 0, int limit = 1000)
@@ -1708,7 +1755,7 @@ void DeleteLocalDocument(HLQueryCLI &cli, const std::string &collection_name, co
 bool ResolveCollectionDocumentReference(HLQueryCLI &cli,
                                         const std::string &collection_name,
                                         const std::string &value,
-                                        const std::vector<std::string> & /* listed_document_ids */,
+                                        const std::vector<std::string> &listed_document_ids,
                                         std::string &document_id,
                                         std::string &error_message)
 {
@@ -1728,12 +1775,56 @@ bool ResolveCollectionDocumentReference(HLQueryCLI &cli,
           return false;
      }
 
+     if (document_index <= listed_document_ids.size())
+     {
+          document_id = listed_document_ids[document_index - 1];
+          return true;
+     }
+
      if (FetchDocumentIdAtPosition(cli, collection_name, document_index - 1, document_id))
      {
           return true;
      }
 
      error_message = "Document number out of range for collection '" + collection_name + "'";
+     return false;
+}
+
+bool ResolveSAMDocumentReference(HLQueryCLI &cli,
+                                 const std::string &collection_name,
+                                 const std::string &value,
+                                 const std::vector<std::string> &listed_document_ids,
+                                 std::string &document_id,
+                                 std::string &error_message)
+{
+     document_id = value;
+     error_message.clear();
+
+     if (!IsUnsignedInteger(value))
+     {
+          return true;
+     }
+
+     const size_t document_index = static_cast<size_t>(std::stoul(value));
+
+     if (document_index == 0)
+     {
+          error_message = "Document number must be greater than 0";
+          return false;
+     }
+
+     if (document_index <= listed_document_ids.size())
+     {
+          document_id = listed_document_ids[document_index - 1];
+          return true;
+     }
+
+     if (FetchSAMDocumentIdAtPosition(cli, collection_name, document_index - 1, document_id))
+     {
+          return true;
+     }
+
+     error_message = "SAM document number out of range for collection '" + collection_name + "'";
      return false;
 }
 
@@ -1745,6 +1836,11 @@ bool ResolveSAMCollectionReference(const TalkState &state,
 {
      collection_name = value;
      error_message.clear();
+
+     if (!state.CurrentCollection.empty() && value == state.CurrentCollection)
+     {
+          return true;
+     }
 
      if (cli.CollectionExists(value))
      {
@@ -3715,12 +3811,12 @@ bool ExecuteTalkCommand(const std::string &line,
                               ? state.LastListedSAMDocumentIds
                               : state.LastListedDocumentIds;
 
-                    if (!ResolveCollectionDocumentReference(cli,
-                                                            resolved_collection,
-                                                            document_id,
-                                                            document_ids,
-                                                            resolved_document_id,
-                                                            error_message))
+                    if (!ResolveSAMDocumentReference(cli,
+                                                     resolved_collection,
+                                                     document_id,
+                                                     document_ids,
+                                                     resolved_document_id,
+                                                     error_message))
                     {
                          TalkPrintError(error_message);
                          return true;

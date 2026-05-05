@@ -20,6 +20,7 @@
 #include <condition_variable>
 #include <mutex>
 #include <map>
+#include <memory>
 #include <rocksdb/db.h>
 #include <deque>
 #include <string>
@@ -112,7 +113,7 @@ class SAM
           uint64_t ExpectedMutationVersion = 0;
      };
 
-     std::unique_ptr<rocksdb::DB> Database;
+     std::shared_ptr<rocksdb::DB> Database;
      rocksdb::Options OptionsValue;
      std::string DBPath;
      std::atomic<bool> DatabaseOpen{false};
