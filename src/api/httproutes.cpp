@@ -16,8 +16,6 @@
 #include "core/hlquery.h"
 #include "utils/consolewriter.h"
 
-namespace
-{
 static bool MatchesAnyPath(const std::string &Path, std::initializer_list<const char *> Candidates)
 {
      for (const char *Candidate : Candidates)
@@ -173,7 +171,6 @@ static CollectionRouteInfo BuildCollectionRouteInfo(const std::string &Normalize
      Info.IsVectorSearchAlias = Info.IsCollectionPath && Info.Segments.size() == 3 && Info.SegmentEquals(2, "search");
 
      return Info;
-}
 }
 
 RouteAction ResolveHttpRoute(const HttpRequest &Request)

@@ -320,7 +320,7 @@ API_SRCS := $(filter-out $(SRC_DIR)/api/httpserver.cpp $(SRC_DIR)/api/searchapi.
 SRCS_TOP += $(API_SRCS)
 
 # Search storage source files
-SEARCH_SRCS := $(wildcard $(SRC_DIR)/search/*.cpp)
+SEARCH_SRCS := $(filter-out $(SRC_DIR)/search/context.cpp,$(wildcard $(SRC_DIR)/search/*.cpp))
 SEARCH_SRCS += $(wildcard $(SRC_DIR)/sam/*.cpp)
 SRCS_TOP += $(SEARCH_SRCS)
 

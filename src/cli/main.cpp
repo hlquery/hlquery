@@ -216,6 +216,7 @@ struct SearchCLIOptions
      bool Highlight = false;
      bool All = false;
      bool JsonOutput = false;
+     bool Skip = false;
      std::string HighlightFields;
      std::string Distributed;
      std::vector<std::string> Collections;
@@ -368,6 +369,12 @@ static void ParseSearchCLIOptions(const std::vector<std::string> &args, size_t s
           if (arg == "--json")
           {
                options.JsonOutput = true;
+               continue;
+          }
+
+          if (arg == "--skip")
+          {
+               options.Skip = true;
                continue;
           }
 
@@ -1267,6 +1274,58 @@ int main(int argc, char *argv[])
                else
                {
                     cli_instance.ShowLinks(false);
+               }
+          }
+          else if (command_str == "sam")
+          {
+               if (args_vec.size() >= 2 && args_vec[1] == "search")
+               {
+                    SearchCLIOptions opts;
+                    std::string collection_str;
+                    std::string query_str;
+
+                    if (args_vec.size() >= 3 && args_vec[2] == "--all")
+                    {
+                         if (args_vec.size() < 4)
+                         {
+                              ConsoleWriter::WriteError("Error: 'sam search --all' requires a query.", true);
+                              ConsoleWriter::WriteError("Usage: " + program_name + " sam search --all <query> [limit] [--collections=col1,col2] [--distributed=on|off] [--route=local|host[:port]] [--skip] [--json].", true);
+                              return 1;
+                         }
+
+                         query_str = args_vec[3];
+                         ParseSearchCLIOptions(args_vec, 4, opts);
+                         opts.All = true;
+                    }
+                    else
+                    {
+                         if (args_vec.size() < 4)
+                         {
+                              ConsoleWriter::WriteError("Error: 'sam search' requires collection and query.", true);
+                              ConsoleWriter::WriteError("Usage: " + program_name + " sam search <collection> <query> [limit] [--all] [--distributed=on|off] [--route=local|host[:port]] [--skip] [--json].", true);
+                              return 1;
+                         }
+
+                         collection_str = args_vec[2];
+                         query_str = args_vec[3];
+                         ParseSearchCLIOptions(args_vec, 4, opts);
+                    }
+
+                    cli_instance.SearchSAM(collection_str,
+                                           query_str,
+                                           opts.Limit,
+                                           opts.JsonOutput,
+                                           opts.All,
+                                           opts.Collections,
+                                           opts.Distributed,
+                                           opts.Route,
+                                           opts.Skip);
+               }
+               else
+               {
+                    ConsoleWriter::WriteError("Usage: " + program_name + " sam search <collection> <query> [limit] [--all] [--collections=col1,col2] [--distributed=on|off] [--route=local|host[:port]] [--skip] [--json].", true);
+                    ConsoleWriter::WriteError("   or: " + program_name + " sam search --all <query> [limit] [--collections=col1,col2] [--distributed=on|off] [--route=local|host[:port]] [--skip] [--json].", true);
+                    return 1;
                }
           }
           else if (command_str == "uptime")

@@ -131,6 +131,8 @@ Official client libraries are available for popular programming languages:
 
 For complete API documentation, visit [docs.hlquery.com](https://docs.hlquery.com/).
 
+The bundled `etc/api/java` and `etc/api/cpp` clients also include basic SAM helpers now, so you can call `/sam/search` for collection-scoped or `all=true` heuristic lookup without dropping to raw requests.
+
 ### Getting Started
 
 ### Create a Collection
