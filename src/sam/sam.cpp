@@ -684,6 +684,11 @@ struct SAMLearnedVariant
      size_t Support = 0;
 };
 
+struct SAMCollectionProfileHints
+{
+     std::unordered_set<std::string> StrongTokens;
+};
+
 struct SAMProfileEntry
 {
      std::string Text;
@@ -726,7 +731,10 @@ double GetSAMIdeaFreshness(uint64_t LastSeenMS, uint64_t NowMS);
 bool ParseSearchIdeaEntry(const std::string& RawValue, SAM::SearchIdeaEntry& Entry);
 std::string BuildStrongSearchIdeaPhrase(const std::string& Value, size_t MaxTokens = 4);
 bool IsUsefulLearnedVariant(const std::string& Value,
-                            const std::unordered_set<std::string>& QueryTokens);
+                            const std::unordered_set<std::string>& QueryTokens,
+                            const std::unordered_set<std::string>* StrongTokens = nullptr);
+SAMCollectionProfileHints LoadCollectionProfileHints(rocksdb::DB* Database,
+                                                     const std::string& Collection);
 double ComputeManifestSeedStrength(const SAMQueryTokenViews& QueryViews,
                                    const SAM::TermEntry& Term);
 bool SearchIntentCandidateWeightGreater(const llm::SearchIntentCandidate& Left,
@@ -1188,7 +1196,8 @@ std::string NormalizeSAMLikePattern(const std::string& Query)
      return TrimCopy(Converted);
 }
 
-std::vector<std::string> BuildQueryVariants(const std::string& Query)
+std::vector<std::string> BuildQueryVariants(const std::string& Query,
+                                            const std::unordered_set<std::string>* StrongTokens = nullptr)
 {
      std::vector<std::string> Variants;
      std::unordered_set<std::string> Seen;
@@ -1223,6 +1232,12 @@ std::vector<std::string> BuildQueryVariants(const std::string& Query)
      for (const auto& Token : Tokens)
      {
           if (IsSamStopword(Token))
+          {
+               continue;
+          }
+
+          if (IsWeakSamToken(Token) &&
+              (!StrongTokens || StrongTokens->find(SingularizeToken(Token)) == StrongTokens->end()))
           {
                continue;
           }
@@ -1454,13 +1469,25 @@ SAMSemanticQuery BuildSemanticQueryPlan(rocksdb::DB* Database,
      return Plan;
 }
 
-bool IsStrongSAMVariantToken(const std::string& Token)
+bool IsStrongSAMVariantToken(const std::string& Token,
+                             const std::unordered_set<std::string>* StrongTokens = nullptr)
 {
-     return !(Token.empty() || IsSamStopword(Token) || IsWeakSamToken(Token));
+     if (Token.empty() || IsSamStopword(Token))
+     {
+          return false;
+     }
+
+     if (StrongTokens && StrongTokens->find(Token) != StrongTokens->end())
+     {
+          return true;
+     }
+
+     return !IsWeakSamToken(Token);
 }
 
 bool IsUsefulLearnedVariant(const std::string& Value,
-                            const std::unordered_set<std::string>& QueryTokens)
+                            const std::unordered_set<std::string>& QueryTokens,
+                            const std::unordered_set<std::string>* StrongTokens)
 {
      const std::vector<std::string> Tokens = NormalizeSAMTokens(Value, true);
 
@@ -1474,7 +1501,7 @@ bool IsUsefulLearnedVariant(const std::string& Value,
 
      for (const auto& Token : Tokens)
      {
-          if (!IsStrongSAMVariantToken(Token))
+          if (!IsStrongSAMVariantToken(Token, StrongTokens))
           {
                return false;
           }
@@ -1488,6 +1515,127 @@ bool IsUsefulLearnedVariant(const std::string& Value,
      }
 
      return StrongCount > 0 && NewTokenCount > 0;
+}
+
+SAMCollectionProfileHints LoadCollectionProfileHints(rocksdb::DB* Database,
+                                                     const std::string& Collection)
+{
+     SAMCollectionProfileHints Hints;
+
+     if (!Database || Collection.empty())
+     {
+          return Hints;
+     }
+
+     std::string RawProfile;
+     const rocksdb::Status Status =
+          Database->Get(rocksdb::ReadOptions(), BuildCollectionProfileKey(Collection), &RawProfile);
+
+     if (!Status.ok() || RawProfile.empty())
+     {
+          return Hints;
+     }
+
+     try
+     {
+          const nlohmann::json Root = nlohmann::json::parse(RawProfile);
+
+          auto AddStrongTokens = [&](const std::string& Value)
+          {
+               for (const auto& Token : NormalizeSAMTokens(Value, true))
+               {
+                    if (!Token.empty() && !IsSamStopword(Token) && Token.size() >= 3)
+                    {
+                         Hints.StrongTokens.insert(Token);
+                    }
+               }
+          };
+
+          auto ProcessTermArray = [&](const nlohmann::json& TermsArray, size_t MinSupport, double MinScore)
+          {
+               if (!TermsArray.is_array())
+               {
+                    return;
+               }
+
+               for (const auto& Item : TermsArray)
+               {
+                    if (!Item.is_object())
+                    {
+                         continue;
+                    }
+
+                    const std::string Text = NormalizeTerm(Item.value("text", ""));
+                    const size_t Support =
+                         static_cast<size_t>(std::max<int64_t>(0, Item.value("support", 0)));
+                    const double Score = ClampSAMScore(Item.value("score", 0.0));
+
+                    if (Text.empty() || Support < MinSupport || Score < MinScore)
+                    {
+                         continue;
+                    }
+
+                    AddStrongTokens(Text);
+               }
+          };
+
+          auto ProcessFamilyArray = [&](const nlohmann::json& FamiliesArray, size_t MinSupport, double MinScore)
+          {
+               if (!FamiliesArray.is_array())
+               {
+                    return;
+               }
+
+               for (const auto& Item : FamiliesArray)
+               {
+                    if (!Item.is_object())
+                    {
+                         continue;
+                    }
+
+                    const size_t Support =
+                         static_cast<size_t>(std::max<int64_t>(0, Item.value("support", 0)));
+                    const double Score = ClampSAMScore(Item.value("score", 0.0));
+
+                    if (Support < MinSupport || Score < MinScore)
+                    {
+                         continue;
+                    }
+
+                    AddStrongTokens(Item.value("subject", ""));
+
+                    auto ProcessStringArray = [&](const nlohmann::json& Values)
+                    {
+                         if (!Values.is_array())
+                         {
+                              return;
+                         }
+
+                         for (const auto& Value : Values)
+                         {
+                              if (Value.is_string())
+                              {
+                                   AddStrongTokens(Value.get<std::string>());
+                              }
+                         }
+                    };
+
+                    ProcessStringArray(Item.value("aliases", nlohmann::json::array()));
+                    ProcessStringArray(Item.value("descriptors", nlohmann::json::array()));
+                    ProcessStringArray(Item.value("queries", nlohmann::json::array()));
+               }
+          };
+
+          ProcessTermArray(Root.value("terms", nlohmann::json::array()), 2, 0.54);
+          ProcessTermArray(Root.value("learned_terms", nlohmann::json::array()), 1, 0.60);
+          ProcessFamilyArray(Root.value("families", nlohmann::json::array()), 2, 0.54);
+          ProcessFamilyArray(Root.value("learned_families", nlohmann::json::array()), 1, 0.60);
+     }
+     catch (...)
+     {
+     }
+
+     return Hints;
 }
 
 double ComputeManifestSeedStrength(const SAMQueryTokenViews& QueryViews,
@@ -1588,6 +1736,7 @@ std::vector<std::string> BuildCollectionLearnedVariants(rocksdb::DB* Database,
                                                         const std::string& Collection,
                                                         const std::string& Query,
                                                         const SAMQueryTokenViews& QueryViews,
+                                                        const std::unordered_set<std::string>* StrongTokens = nullptr,
                                                         size_t MaxVariants = 12)
 {
      std::vector<std::string> Variants;
@@ -1642,7 +1791,7 @@ std::vector<std::string> BuildCollectionLearnedVariants(rocksdb::DB* Database,
                     continue;
                }
 
-               if (!IsUsefulLearnedVariant(Candidate, QueryTokenSet))
+               if (!IsUsefulLearnedVariant(Candidate, QueryTokenSet, StrongTokens))
                {
                     continue;
                }
@@ -2714,6 +2863,7 @@ std::vector<SAMLearnedVariant> BuildSeededCollectionVariants(rocksdb::DB* Databa
                                                              const std::string& Collection,
                                                              const SAMQueryTokenViews& QueryViews,
                                                              const std::unordered_map<std::string, SAMAggregatedHit>& AggregatedHits,
+                                                             const std::unordered_set<std::string>* StrongTokens = nullptr,
                                                              size_t MaxVariants = 10)
 {
      std::vector<SAMLearnedVariant> Variants;
@@ -2785,7 +2935,7 @@ std::vector<SAMLearnedVariant> BuildSeededCollectionVariants(rocksdb::DB* Databa
                     continue;
                }
 
-               if (!IsUsefulLearnedVariant(Candidate, QueryTokenSet))
+               if (!IsUsefulLearnedVariant(Candidate, QueryTokenSet, StrongTokens))
                {
                     continue;
                }
@@ -3021,6 +3171,7 @@ std::vector<SAMMatchedSearchIdea> BuildMatchedSearchIdeas(rocksdb::DB* Database,
 
 std::vector<std::string> BuildSearchIdeaVariants(const std::vector<SAMMatchedSearchIdea>& Ideas,
                                                  const SAMQueryTokenViews& QueryViews,
+                                                 const std::unordered_set<std::string>* StrongTokens,
                                                  size_t MaxVariants)
 {
      std::vector<std::string> Variants;
@@ -3045,7 +3196,7 @@ std::vector<std::string> BuildSearchIdeaVariants(const std::vector<SAMMatchedSea
                continue;
           }
 
-          if (!IsUsefulLearnedVariant(Candidate, QueryTokenSet) || !Seen.insert(Candidate).second)
+          if (!IsUsefulLearnedVariant(Candidate, QueryTokenSet, StrongTokens) || !Seen.insert(Candidate).second)
           {
                continue;
           }
@@ -4923,6 +5074,7 @@ bool RebuildCollectionProfileLocked(rocksdb::DB* Database,
 std::vector<std::string> BuildPersistedCollectionProfileVariants(rocksdb::DB* Database,
                                                                  const std::string& Collection,
                                                                  const SAMQueryTokenViews& QueryViews,
+                                                                 const std::unordered_set<std::string>* StrongTokens = nullptr,
                                                                  size_t MaxVariants = 12)
 {
      std::vector<std::string> Variants;
@@ -4978,7 +5130,7 @@ std::vector<std::string> BuildPersistedCollectionProfileVariants(rocksdb::DB* Da
                     const double EntryScore = ClampSAMScore(Item.value("score", 0.0) * LayerWeight);
                     const size_t Support = static_cast<size_t>(std::max<int64_t>(0, Item.value("support", 0)));
                     const double MatchStrength =
-                         IsUsefulLearnedVariant(Text, QueryTokens) ? 0.0 :
+                         IsUsefulLearnedVariant(Text, QueryTokens, StrongTokens) ? 0.0 :
                          std::max(ComputeManifestSeedStrength(
                                        QueryViews,
                                        SAM::TermEntry{Text, "collection_profile", "profile", EntryScore, EntryScore}),
@@ -5000,7 +5152,7 @@ std::vector<std::string> BuildPersistedCollectionProfileVariants(rocksdb::DB* Da
 
                               const std::string Candidate = NormalizeTerm(RelatedItem.get<std::string>());
 
-                              if (!IsUsefulLearnedVariant(Candidate, QueryTokens))
+                              if (!IsUsefulLearnedVariant(Candidate, QueryTokens, StrongTokens))
                               {
                                    continue;
                               }
@@ -5086,7 +5238,7 @@ std::vector<std::string> BuildPersistedCollectionProfileVariants(rocksdb::DB* Da
                     {
                          const std::string Candidate = NormalizeTerm(CandidateText);
 
-                         if (!IsUsefulLearnedVariant(Candidate, QueryTokens))
+                         if (!IsUsefulLearnedVariant(Candidate, QueryTokens, StrongTokens))
                          {
                               return;
                          }
@@ -8144,19 +8296,22 @@ std::vector<SAM::LookupHit> SAM::Lookup(const std::string& Collection, const std
           return Hits;
      }
 
-     std::vector<std::string> Variants = BuildQueryVariants(Query);
+     const SAMCollectionProfileHints ProfileHints = LoadCollectionProfileHints(DatabaseHandle.get(), Collection);
+     std::vector<std::string> Variants = BuildQueryVariants(Query, &ProfileHints.StrongTokens);
      const SAMSemanticQuery SemanticPlan = BuildSemanticQueryPlan(DatabaseHandle.get(), Collection, Query, QueryViews);
      const std::vector<std::string> PersistedProfileVariants =
           BuildPersistedCollectionProfileVariants(DatabaseHandle.get(), Collection, QueryViews,
+                                                 &ProfileHints.StrongTokens,
                                                  std::max<size_t>(8, std::min<size_t>(Limit * 3, 16)));
      const std::vector<std::string> LearnedVariants =
           BuildCollectionLearnedVariants(DatabaseHandle.get(), Collection, Query, QueryViews,
+                                         &ProfileHints.StrongTokens,
                                          std::max<size_t>(8, std::min<size_t>(Limit * 3, 16)));
      const std::vector<SAMMatchedSearchIdea> SearchIdeas =
           BuildMatchedSearchIdeas(DatabaseHandle.get(), Collection, Query, QueryViews,
                                   std::max<size_t>(6, std::min<size_t>(Limit * 2, 10)));
      const std::vector<std::string> SearchIdeaVariants =
-          BuildSearchIdeaVariants(SearchIdeas, QueryViews,
+          BuildSearchIdeaVariants(SearchIdeas, QueryViews, &ProfileHints.StrongTokens,
                                   std::max<size_t>(6, std::min<size_t>(Limit * 2, 10)));
 
      for (const auto& Candidate : PersistedProfileVariants)
@@ -8270,6 +8425,7 @@ std::vector<SAM::LookupHit> SAM::Lookup(const std::string& Collection, const std
      AppendSearchIdeaHits(AggregatedHits, DatabaseHandle.get(), Collection, SearchIdeas);
      const std::vector<SAMLearnedVariant> SeededVariants =
           BuildSeededCollectionVariants(DatabaseHandle.get(), Collection, QueryViews, AggregatedHits,
+                                        &ProfileHints.StrongTokens,
                                         std::max<size_t>(6, std::min<size_t>(Limit * 3, 12)));
      AppendCollectionLearnedHits(AggregatedHits, DatabaseHandle.get(), Collection, SeededVariants);
 

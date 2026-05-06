@@ -138,6 +138,7 @@ class SAM
      std::unordered_set<std::string> CancelledCollections;
      bool CancelAllRequested = false;
      bool ShuttingDown = false;
+     size_t BackgroundWorkerCount = 1;
      std::vector<std::thread> WorkerThreads;
 
      /* Resolve the filesystem path used by the SAM database. */
@@ -151,6 +152,10 @@ class SAM
      /* Start the background workers that process queued index jobs. */
 
      void StartIndexWorker();
+
+     /* Return the desired number of concurrent SAM background workers. */
+
+     size_t ResolveBackgroundWorkerCount() const;
 
      /* Run the background loop that drains queued index jobs. */
 
