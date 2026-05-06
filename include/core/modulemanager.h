@@ -211,7 +211,7 @@ class ModuleManager
      /*
       *  Dispatches an event callback to the modules contained in a snapshot.
       * Snapshot dispatch isolates iteration from concurrent registry updates.
-     */
+      */
 
      static void DispatchModuleEvent(const ModuleSnapshot& Modules,
                                      const char* EventName,

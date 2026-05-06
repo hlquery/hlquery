@@ -22,10 +22,12 @@ HLQueryMetrics::MetricHistory::MetricHistory()
     : LastStorageTime(std::chrono::system_clock::time_point(std::chrono::milliseconds(NowMs()))),
       LastRetentionCheck(std::chrono::system_clock::time_point(std::chrono::milliseconds(NowMs())))
 {
+
 }
 
 HLQueryMetrics::MetricHistory::~MetricHistory()
 {
+
 }
 
 std::chrono::system_clock::time_point HLQueryMetrics::MetricHistory::GetCurrentTime() const

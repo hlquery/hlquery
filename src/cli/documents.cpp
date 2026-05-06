@@ -1675,11 +1675,12 @@ void HLQueryCLI::SearchSAM(const std::string &collection_name,
                            bool all_collections,
                            const std::vector<std::string> &collections,
                            const std::string &distributed,
-                           const std::string &route)
+                           const std::string &route,
+                           bool skip_record)
 {
      if ((!all_collections && collection_name.empty()) || query.empty())
      {
-          PrintError("Collection and query are required", "Usage: sam search <collection> <query> [limit] [--all] [--collections=col1,col2] [--distributed=on|off] [--route=local|host[:port]]");
+          PrintError("Collection and query are required", "Usage: sam search <collection> <query> [limit] [--all] [--collections=col1,col2] [--distributed=on|off] [--route=local|host[:port]] [--skip]");
           return;
      }
 
@@ -1725,6 +1726,11 @@ void HLQueryCLI::SearchSAM(const std::string &collection_name,
      if (!route.empty())
      {
           path += "&route=" + hlquery_cli::UrlEncode(route);
+     }
+
+     if (skip_record)
+     {
+          path += "&skip=true";
      }
 
      HLQueryCLI::HTTPResponse response = MakeRequest("GET", path);

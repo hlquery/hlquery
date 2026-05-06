@@ -216,6 +216,7 @@ struct SearchCLIOptions
      bool Highlight = false;
      bool All = false;
      bool JsonOutput = false;
+     bool Skip = false;
      std::string HighlightFields;
      std::string Distributed;
      std::vector<std::string> Collections;
@@ -368,6 +369,12 @@ static void ParseSearchCLIOptions(const std::vector<std::string> &args, size_t s
           if (arg == "--json")
           {
                options.JsonOutput = true;
+               continue;
+          }
+
+          if (arg == "--skip")
+          {
+               options.Skip = true;
                continue;
           }
 
@@ -1282,7 +1289,7 @@ int main(int argc, char *argv[])
                          if (args_vec.size() < 4)
                          {
                               ConsoleWriter::WriteError("Error: 'sam search --all' requires a query.", true);
-                              ConsoleWriter::WriteError("Usage: " + program_name + " sam search --all <query> [limit] [--collections=col1,col2] [--distributed=on|off] [--route=local|host[:port]] [--json].", true);
+                              ConsoleWriter::WriteError("Usage: " + program_name + " sam search --all <query> [limit] [--collections=col1,col2] [--distributed=on|off] [--route=local|host[:port]] [--skip] [--json].", true);
                               return 1;
                          }
 
@@ -1295,7 +1302,7 @@ int main(int argc, char *argv[])
                          if (args_vec.size() < 4)
                          {
                               ConsoleWriter::WriteError("Error: 'sam search' requires collection and query.", true);
-                              ConsoleWriter::WriteError("Usage: " + program_name + " sam search <collection> <query> [limit] [--all] [--distributed=on|off] [--route=local|host[:port]] [--json].", true);
+                              ConsoleWriter::WriteError("Usage: " + program_name + " sam search <collection> <query> [limit] [--all] [--distributed=on|off] [--route=local|host[:port]] [--skip] [--json].", true);
                               return 1;
                          }
 
@@ -1311,12 +1318,13 @@ int main(int argc, char *argv[])
                                            opts.All,
                                            opts.Collections,
                                            opts.Distributed,
-                                           opts.Route);
+                                           opts.Route,
+                                           opts.Skip);
                }
                else
                {
-                    ConsoleWriter::WriteError("Usage: " + program_name + " sam search <collection> <query> [limit] [--all] [--collections=col1,col2] [--distributed=on|off] [--route=local|host[:port]] [--json].", true);
-                    ConsoleWriter::WriteError("   or: " + program_name + " sam search --all <query> [limit] [--collections=col1,col2] [--distributed=on|off] [--route=local|host[:port]] [--json].", true);
+                    ConsoleWriter::WriteError("Usage: " + program_name + " sam search <collection> <query> [limit] [--all] [--collections=col1,col2] [--distributed=on|off] [--route=local|host[:port]] [--skip] [--json].", true);
+                    ConsoleWriter::WriteError("   or: " + program_name + " sam search --all <query> [limit] [--collections=col1,col2] [--distributed=on|off] [--route=local|host[:port]] [--skip] [--json].", true);
                     return 1;
                }
           }

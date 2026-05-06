@@ -2532,6 +2532,8 @@ HttpResponse SearchAPI::HandleSAMSearch(const HttpRequest &Request)
 
      auto RouteIt = Request.QueryParams.find("route");
      const bool HasRoute = (RouteIt != Request.QueryParams.end() && !TrimCopy(RouteIt->second).empty());
+     const auto SkipIt = Request.QueryParams.find("skip");
+     const bool SkipRecord = (SkipIt != Request.QueryParams.end() && IsTruthyToken(SkipIt->second));
      bool RouteIsLocal = false;
      std::string RoutedHost;
      int RoutedPort = 0;
@@ -2571,7 +2573,7 @@ HttpResponse SearchAPI::HandleSAMSearch(const HttpRequest &Request)
           const std::vector<SAM::LookupHit> LocalHits = Instance->Sam->Lookup(CollectionName, Query, static_cast<size_t>(LimitVal));
           AggregateHits.insert(AggregateHits.end(), LocalHits.begin(), LocalHits.end());
 
-          if (Instance->Sam->IsOpen())
+          if (Instance->Sam->IsOpen() && !SkipRecord)
           {
                const auto IdeaDocuments = BuildSAMIdeaDocumentsFromLookupHits(LocalHits);
                Instance->Sam->RecordSearchIdea(CollectionName, Query, IdeaDocuments);
