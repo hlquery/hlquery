@@ -28,9 +28,12 @@
 
 #include "core/hlquery.h"
 #include "common/cryptoutils.h"
+#include "sam/lang.h"
 #include "sam/sam.h"
+#include "sam/sam_internal.h"
 #include "search/storageengine.h"
 #include "utils/tools.h"
+#include "utils/wildcard.h"
 #include "vendor/json/json.hpp"
 
 bool ParseManifestValue(const std::string& RawValue, SAM::DocumentEntry& Entry);
@@ -243,20 +246,6 @@ std::string TruncateSAMDocumentText(const std::string& Value, size_t MaxChars)
      return Value.substr(0, MaxChars);
 }
 
-bool LooksLikeLanguageCode(const std::string& Value)
-{
-     if (Value.size() != 2)
-     {
-          return false;
-     }
-
-     return std::all_of(Value.begin(), Value.end(),
-                        [](unsigned char C)
-                        {
-                             return std::isalpha(C);
-                        });
-}
-
 std::vector<std::pair<std::string, std::string>> CollectDocumentTextFields(const Document& Doc)
 {
      std::vector<std::pair<std::string, std::string>> Fields;
@@ -343,139 +332,6 @@ bool IsSAMDocumentEntryCurrent(const SAM::DocumentEntry& Entry,
      }
 
      return Current;
-}
-
-std::string ResolveSAMDocumentLanguageOverride(const std::string& Collection, const Document& Doc)
-{
-     static const std::array<std::string, 4> LanguageFieldNames = {"lang", "language", "_lang", "locale"};
-
-     for (const auto& Entry : Doc.Fields)
-     {
-          const std::string Key = TrimLowerCopy(Entry.first);
-
-          if (std::find(LanguageFieldNames.begin(), LanguageFieldNames.end(), Key) == LanguageFieldNames.end())
-          {
-               continue;
-          }
-
-          const std::string Candidate = TrimLowerCopy(Entry.second);
-
-          if (LooksLikeLanguageCode(Candidate))
-          {
-               return Candidate;
-          }
-     }
-
-     CollectionConfig Config;
-
-     if (HybridStorageManagerInstance().GetCollectionConfig(Collection, Config))
-     {
-          const auto MetadataIt = Config.Metadata.find("_lang");
-
-          if (MetadataIt != Config.Metadata.end())
-          {
-               const std::string Candidate = TrimLowerCopy(MetadataIt->second);
-
-               if (LooksLikeLanguageCode(Candidate))
-               {
-                    return Candidate;
-               }
-          }
-     }
-
-     return "";
-}
-
-std::string DetectSAMDocumentLanguage(const std::string& Collection, const Document& Doc)
-{
-     const std::string ExplicitLanguage = ResolveSAMDocumentLanguageOverride(Collection, Doc);
-
-     if (!ExplicitLanguage.empty())
-     {
-          return ExplicitLanguage;
-     }
-
-     const std::vector<std::pair<std::string, std::string>> TextFields = CollectDocumentTextFields(Doc);
-     std::string Combined;
-
-     for (const auto& Entry : TextFields)
-     {
-          if (!Combined.empty())
-          {
-               Combined.push_back(' ');
-          }
-
-          Combined += Entry.second;
-
-          if (Combined.size() >= 4096)
-          {
-               Combined.resize(4096);
-               break;
-          }
-     }
-
-     const std::string Lower = ToLowerASCII(Combined);
-
-     if (Lower.empty())
-     {
-          return "und";
-     }
-
-     int SpanishScore = 0;
-     int EnglishScore = 0;
-
-     auto CountNeedles = [&Lower](const std::vector<std::string>& Needles)
-     {
-          int Score = 0;
-
-          for (const auto& Needle : Needles)
-          {
-               size_t Position = Lower.find(Needle);
-
-               while (Position != std::string::npos)
-               {
-                    ++Score;
-                    Position = Lower.find(Needle, Position + Needle.size());
-               }
-          }
-
-          return Score;
-     };
-
-     SpanishScore += CountNeedles({" el ", " la ", " los ", " las ", " un ", " una ",
-                                   " de ", " del ", " para ", " con ", " por ", " que ",
-                                   " como ", " este ", " esta ", " desde ", " sobre "});
-     EnglishScore += CountNeedles({" the ", " and ", " for ", " with ", " from ", " this ",
-                                   " that ", " into ", " about ", " guide ", " overview ",
-                                   " article ", " profile ", " summary "});
-
-     SpanishScore += CountNeedles({"cion", "ciones", "mente", " para ", " años", " está", " será"});
-     EnglishScore += CountNeedles({"ing ", "tion", "ions", "ly ", "ed ", "ing\n"});
-
-     if (Combined.find("á") != std::string::npos || Combined.find("é") != std::string::npos ||
-         Combined.find("í") != std::string::npos || Combined.find("ó") != std::string::npos ||
-         Combined.find("ú") != std::string::npos || Combined.find("ñ") != std::string::npos ||
-         Combined.find("¿") != std::string::npos || Combined.find("¡") != std::string::npos)
-     {
-          SpanishScore += 6;
-     }
-
-     if (SpanishScore == 0 && EnglishScore == 0)
-     {
-          return "und";
-     }
-
-     if (SpanishScore >= EnglishScore + 2)
-     {
-          return "es";
-     }
-
-     if (EnglishScore >= SpanishScore + 1)
-     {
-          return "en";
-     }
-
-     return SpanishScore > EnglishScore ? "es" : "en";
 }
 
 std::string DetectSAMDocumentLabel(const Document& Doc)
@@ -844,16 +700,6 @@ struct SAMProfileFamily
      std::vector<std::string> Aliases;
      std::vector<std::string> Descriptors;
      std::vector<std::string> Queries;
-};
-
-struct SAMSemanticProfile
-{
-     std::string Subject;
-     std::string Summary;
-     std::vector<std::string> Aliases;
-     std::vector<std::string> Descriptors;
-     std::vector<std::string> Queries;
-     std::vector<float> Vector;
 };
 
 struct SAMSemanticQuery
@@ -1228,6 +1074,118 @@ SAMQueryTokenViews NormalizeSAMQueryTokenViews(const std::string& Query)
      Views.FullTokens = NormalizeSAMTokens(StripSAMQueryQuotes(Query), false);
      Views.CoreTokens = NormalizeSAMTokens(StripSAMQueryQuotes(Query), true);
      return Views;
+}
+
+bool QueryUsesSAMLikePattern(const std::string& Query)
+{
+     bool EscapeNext = false;
+
+     for (unsigned char C : Query)
+     {
+          if (EscapeNext)
+          {
+               EscapeNext = false;
+               continue;
+          }
+
+          if (C == '\\')
+          {
+               EscapeNext = true;
+               continue;
+          }
+
+          if (C == '%' || C == '_')
+          {
+               return true;
+          }
+     }
+
+     return false;
+}
+
+std::string NormalizeSAMLikePattern(const std::string& Query)
+{
+     const std::string Raw = StripSAMQueryQuotes(Query);
+     std::string Pattern;
+     Pattern.reserve(Raw.size());
+     bool LastWasSpace = false;
+     bool EscapeNext = false;
+
+     for (unsigned char C : Raw)
+     {
+          if (EscapeNext)
+          {
+               if (std::isalnum(C))
+               {
+                    Pattern.push_back(static_cast<char>(std::tolower(C)));
+                    LastWasSpace = false;
+               }
+               else if (C == '%' || C == '_')
+               {
+                    Pattern.push_back(static_cast<char>(C));
+                    LastWasSpace = false;
+               }
+               else if (std::isspace(C) || C == '-' || C == '/' || C == '.')
+               {
+                    if (!Pattern.empty() && !LastWasSpace)
+                    {
+                         Pattern.push_back(' ');
+                         LastWasSpace = true;
+                    }
+               }
+
+               EscapeNext = false;
+               continue;
+          }
+
+          if (C == '\\')
+          {
+               EscapeNext = true;
+               continue;
+          }
+
+          if (std::isalnum(C))
+          {
+               Pattern.push_back(static_cast<char>(std::tolower(C)));
+               LastWasSpace = false;
+          }
+          else if (C == '%' || C == '_')
+          {
+               Pattern.push_back(static_cast<char>(C));
+               LastWasSpace = false;
+          }
+          else if (std::isspace(C) || C == '-' || C == '/' || C == '.')
+          {
+               if (!Pattern.empty() && !LastWasSpace)
+               {
+                    Pattern.push_back(' ');
+                    LastWasSpace = true;
+               }
+          }
+     }
+
+     std::string Converted;
+     Converted.reserve(Pattern.size());
+     bool LastWasStar = false;
+
+     for (char C : TrimCopy(Pattern))
+     {
+          if (C == '%')
+          {
+               if (!LastWasStar)
+               {
+                    Converted.push_back('*');
+                    LastWasStar = true;
+               }
+
+               continue;
+          }
+
+          LastWasStar = false;
+          Converted.push_back(C == '_' ? '?' : C);
+     }
+
+     return TrimCopy(Converted);
 }
 
 std::vector<std::string> BuildQueryVariants(const std::string& Query)
@@ -2001,9 +1959,19 @@ double GetSAMSourceWeight(const std::string& Source)
           return 1.12;
      }
 
+     if (Source == "field_title" || Source == "title_window")
+     {
+          return 1.10;
+     }
+
      if (Source == "label_pair")
      {
           return 1.10;
+     }
+
+     if (Source == "subject_alias" || Source == "subject_descriptor" || Source == "iterative_pair")
+     {
+          return 1.08;
      }
 
      if (Source == "label" || Source == "topic")
@@ -2011,9 +1979,33 @@ double GetSAMSourceWeight(const std::string& Source)
           return 1.00;
      }
 
+     if (Source == "taxonomy_field" || Source == "taxonomy_window" ||
+         Source == "alias_field" || Source == "alias_window" ||
+         Source == "field_pair" || Source == "query_pair" ||
+         Source == "query_field" || Source == "query_window" ||
+         Source == "seed_query" || Source == "context_pair" ||
+         Source == "profile_pair")
+     {
+          return 1.02;
+     }
+
      if (Source == "label_reduced" || Source == "topic_join" || Source == "category")
      {
           return 0.96;
+     }
+
+     if (Source == "summary_field" || Source == "summary_window" ||
+         Source == "body_window" || Source == "body_query" ||
+         Source == "query_refine" || Source == "query_expand" ||
+         Source == "iterative_refine" || Source == "profile_context" ||
+         Source == "context_field")
+     {
+          return 0.98;
+     }
+
+     if (Source == "llm_context" || Source == "llm_pair")
+     {
+          return 0.94;
      }
 
      if (Source == "llm")
@@ -2071,14 +2063,48 @@ double GetSAM25PhraseSourceWeight(const std::string& Source)
           return Instance->Config->GetSam25SourcePhraseBoostTitle();
      }
 
+     if (Source == "field_title" || Source == "title_window")
+     {
+          return Instance->Config->GetSam25SourcePhraseBoostTitle() * 0.98;
+     }
+
      if (Source == "label_pair")
      {
           return Instance->Config->GetSam25SourcePhraseBoostLabelPair();
      }
 
+     if (Source == "subject_alias" || Source == "subject_descriptor" || Source == "iterative_pair")
+     {
+          return Instance->Config->GetSam25SourcePhraseBoostLabelPair() * 0.98;
+     }
+
      if (Source == "label" || Source == "label_reduced")
      {
           return Instance->Config->GetSam25SourcePhraseBoostLabel();
+     }
+
+     if (Source == "taxonomy_field" || Source == "taxonomy_window" ||
+         Source == "alias_field" || Source == "alias_window" ||
+         Source == "field_pair" || Source == "query_pair" ||
+         Source == "query_field" || Source == "query_window" ||
+         Source == "seed_query" || Source == "context_pair" ||
+         Source == "profile_pair")
+     {
+          return 1.02;
+     }
+
+     if (Source == "summary_field" || Source == "summary_window" ||
+         Source == "body_window" || Source == "body_query" ||
+         Source == "query_refine" || Source == "query_expand" ||
+         Source == "iterative_refine" || Source == "profile_context" ||
+         Source == "context_field")
+     {
+          return 0.99;
+     }
+
+     if (Source == "llm_context" || Source == "llm_pair")
+     {
+          return std::max(0.92, Instance->Config->GetSam25SourcePhraseBoostLlm() * 0.96);
      }
 
      if (Source == "llm")
@@ -3217,6 +3243,75 @@ void AppendSemanticProfileHits(std::unordered_map<std::string, SAMAggregatedHit>
      }
 }
 
+void AppendSAMLikePatternHits(std::unordered_map<std::string, SAMAggregatedHit>& AggregatedHits,
+                              rocksdb::DB* Database,
+                              const std::string& Collection,
+                              const std::string& Query)
+{
+     if (!Database || !QueryUsesSAMLikePattern(Query))
+     {
+          return;
+     }
+
+     const std::string Pattern = NormalizeSAMLikePattern(Query);
+
+     if (Pattern.empty())
+     {
+          return;
+     }
+
+     const std::string Prefix = Collection.empty() ? "sam:doc:" : "sam:doc:" + Collection + ":";
+     std::unique_ptr<rocksdb::Iterator> Iterator(Database->NewIterator(rocksdb::ReadOptions()));
+
+     for (Iterator->Seek(Prefix); Iterator->Valid() && Iterator->key().starts_with(Prefix); Iterator->Next())
+     {
+          SAM::DocumentEntry Entry;
+
+          if (!ParseManifestValue(Iterator->value().ToString(), Entry) || !IsSAMDocumentEntryCurrent(Entry))
+          {
+               continue;
+          }
+
+          for (const auto& Term : Entry.Terms)
+          {
+               const std::string NormalizedTerm = NormalizeTerm(Term.Text);
+
+               if (NormalizedTerm.empty() || !Wildcard::Match(NormalizedTerm, Pattern))
+               {
+                    continue;
+               }
+
+               SAM::LookupHit Hit;
+               Hit.Collection = Entry.Collection;
+               Hit.DocumentID = Entry.DocumentID;
+               Hit.Title = Entry.Title;
+               Hit.MatchedTerm = Term.Text;
+               Hit.MatchedKind = Term.Kind;
+               Hit.MatchedSource = Term.Source;
+               Hit.TermOrigin = Term.Source;
+               Hit.MatchedPath = "sam_like";
+               Hit.MatchedScore = ClampSAMScore((ClampSAMScore(Term.Score) * 0.82) +
+                                                (ClampSAMScore(Term.Signal) * 0.18) +
+                                                0.12);
+               Hit.MatchedSignal = std::max(ClampSAMScore(Term.Signal), 0.60);
+               Hit.Breakdown.TermScore = Hit.MatchedScore;
+               Hit.Breakdown.FinalScore = Hit.MatchedScore;
+
+               if (IsSAM25DebugExplainEnabled())
+               {
+                    std::ostringstream Stream;
+                    Stream << "sam25+ like pattern=" << Pattern
+                           << " term=" << NormalizedTerm
+                           << " source=" << Hit.MatchedSource
+                           << " score=" << Hit.MatchedScore;
+                    Hit.Explain = Stream.str();
+               }
+
+               AccumulateSAMHit(AggregatedHits, Hit);
+          }
+     }
+}
+
 std::string ClassifySAMMatchedPath(const SAM::LookupHit& Hit)
 {
      const bool HasTermEvidence = Hit.Breakdown.TermScore > 0.0;
@@ -4120,7 +4215,7 @@ bool ReadCollectionIndexedMutationVersionLocked(rocksdb::DB* Database,
 bool WriteCollectionIndexedMutationVersionLocked(rocksdb::DB* Database,
                                                  const std::string& Collection,
                                                  uint64_t Version,
-                                                 std::string* ErrorMessage = nullptr)
+                                                 std::string* ErrorMessage)
 {
      if (!Database || Collection.empty())
      {
@@ -4365,7 +4460,7 @@ void MergeRecentSearchIdeasIntoCollectionProfileLocked(
 
 bool RebuildCollectionProfileLocked(rocksdb::DB* Database,
                                     const std::string& Collection,
-                                    std::string* ErrorMessage = nullptr)
+                                    std::string* ErrorMessage)
 {
      if (!Database || Collection.empty())
      {
@@ -5173,1432 +5268,1088 @@ bool ParseManifestValue(const std::string& RawValue, SAM::DocumentEntry& Entry)
           return false;
      }
 }
-SAM::SAM()
+
+namespace
 {
-     OptionsValue.create_if_missing = true;
-     OptionsValue.error_if_exists = false;
-     OptionsValue.max_open_files = 128;
+bool IsNumericLikeSAMToken(const std::string& Token)
+{
+     return !Token.empty() &&
+            std::all_of(Token.begin(), Token.end(),
+                        [](unsigned char C)
+                        {
+                             return std::isdigit(C);
+                        });
 }
 
-SAM::~SAM()
+bool IsIdentifierLikeSAMValue(const std::string& Value)
 {
-     Shutdown();
-}
-
-void SAM::RecordDebugEvent(const std::string& Collection, const std::string& Message) const
-{
-     std::lock_guard<std::mutex> Lock(DebugMutex);
-
-     DebugEvent Event;
-     Event.Sequence = NextDebugSequence++;
-     Event.Collection = Collection;
-     Event.Message = Message;
-     DebugEvents.push_back(std::move(Event));
-
-     constexpr size_t MaxDebugEvents = 512;
-
-     while (DebugEvents.size() > MaxDebugEvents)
-     {
-          DebugEvents.pop_front();
-     }
-}
-
-bool SAM::IsCollectionCancelledLocked(const std::string& Collection) const
-{
-     return CancelAllRequested || CancelledCollections.find(Collection) != CancelledCollections.end();
-}
-
-bool SAM::Initialize()
-{
-     {
-          std::lock_guard<std::mutex> Lock(DBMutex);
-
-          if (Database)
-          {
-               return true;
-          }
-
-          DBPath = ResolveDBPath();
-
-          try
-          {
-               std::filesystem::create_directories(DBPath);
-          }
-          catch (const std::exception& E)
-          {
-               if (Instance && Instance->Logs)
-               {
-                    Instance->Logs->Normal("sam", "Failed to create SAM directory '" + DBPath + "': " + E.what() + ".");
-               }
-
-               return false;
-          }
-
-          std::unique_ptr<rocksdb::DB> RawDB;
-          const rocksdb::Status Status = rocksdb::DB::Open(OptionsValue, DBPath, &RawDB);
-
-          if (!Status.ok())
-          {
-               if (Instance && Instance->Logs)
-               {
-                    Instance->Logs->Normal("sam", "Failed to open SAM database at '" + DBPath + "': " + Status.ToString() + ".");
-               }
-
-               return false;
-          }
-
-          Database = std::shared_ptr<rocksdb::DB>(RawDB.release());
-          DatabaseOpen.store(true, std::memory_order_release);
-
-          if (Instance && Instance->Logs)
-          {
-               Instance->Logs->Normal("sam", "Secondary Assistant Manager opened at " + DBPath + ".");
-          }
-     }
-
-     StartIndexWorker();
-
-     return true;
-}
-
-void SAM::Shutdown()
-{
-     std::vector<std::thread> ThreadsToJoin;
-     std::shared_ptr<rocksdb::DB> DatabaseToRelease;
-
-     {
-          std::lock_guard<std::mutex> Lock(QueueMutex);
-          ShuttingDown = true;
-     }
-
-     QueueCV.notify_all();
-
-     {
-          std::lock_guard<std::mutex> Lock(JobMutex);
-          ThreadsToJoin.swap(WorkerThreads);
-     }
-
-     for (auto& Worker : ThreadsToJoin)
-     {
-          if (Worker.joinable())
-          {
-               Worker.join();
-          }
-     }
-
-     {
-          std::lock_guard<std::mutex> Lock(DBMutex);
-          DatabaseOpen.store(false, std::memory_order_release);
-          DatabaseToRelease = std::move(Database);
-     }
-}
-
-std::string SAM::BuildPendingIndexKey(const std::string& Collection, const std::string& DocumentID)
-{
-     return Collection + "\n" + DocumentID;
-}
-
-uint64_t SAM::GetCurrentCollectionMutationVersion(const std::string& Collection) const
-{
-     if (Collection.empty() || !Instance || !Instance->API)
-     {
-          return 0;
-     }
-
-     return Instance->API->GetCollectionMutationVersion(Collection);
-}
-
-bool SAM::ValidateExpectedMutationVersion(const std::string& Collection,
-                                          bool HasExpectedMutationVersion,
-                                          uint64_t ExpectedMutationVersion,
-                                          std::string* ErrorMessage) const
-{
-     if (!HasExpectedMutationVersion)
+     if (Value.empty())
      {
           return true;
      }
 
-     const uint64_t CurrentMutationVersion = GetCurrentCollectionMutationVersion(Collection);
+     size_t AlphaCount = 0;
+     size_t DigitCount = 0;
+     size_t SeparatorCount = 0;
 
-     if (CurrentMutationVersion == ExpectedMutationVersion)
+     for (unsigned char C : Value)
+     {
+          if (std::isalpha(C))
+          {
+               ++AlphaCount;
+          }
+          else if (std::isdigit(C))
+          {
+               ++DigitCount;
+          }
+          else if (C == '-' || C == '_' || C == '/' || C == '.' || C == ':')
+          {
+               ++SeparatorCount;
+          }
+     }
+
+     if (Value.find("://") != std::string::npos)
      {
           return true;
      }
 
-     if (ErrorMessage)
+     if (Value.find('@') != std::string::npos)
      {
-          *ErrorMessage = "Source collection changed during SAM indexing; queued mutation version " +
-                          std::to_string(ExpectedMutationVersion) + ", current mutation version " +
-                          std::to_string(CurrentMutationVersion) + ".";
+          return true;
+     }
+
+     if (Value.find(' ') == std::string::npos &&
+         DigitCount > 0 &&
+         SeparatorCount > 0 &&
+         AlphaCount <= DigitCount + 2)
+     {
+          return true;
      }
 
      return false;
 }
 
-void SAM::StartIndexWorker()
+bool IsTitleLikeSAMField(const std::string& LowerKey)
 {
-     std::lock_guard<std::mutex> Lock(JobMutex);
-     ShuttingDown = false;
-
-     if (!WorkerThreads.empty())
-     {
-          return;
-     }
-
-     WorkerThreads.emplace_back([this]()
-     {
-          RunIndexWorker();
-     });
+     return LowerKey == "title" || LowerKey == "name" || LowerKey == "headline" ||
+            LowerKey == "subject" || LowerKey == "heading";
 }
 
-void SAM::RunIndexWorker()
+bool IsSummaryLikeSAMField(const std::string& LowerKey)
 {
-     while (true)
+     return LowerKey == "summary" || LowerKey == "description" || LowerKey == "excerpt" ||
+            LowerKey == "overview" || LowerKey == "abstract" || LowerKey == "subtitle";
+}
+
+bool IsBodyLikeSAMField(const std::string& LowerKey)
+{
+     return LowerKey == "content" || LowerKey == "body" || LowerKey == "text" ||
+            LowerKey == "article" || LowerKey == "markdown" || LowerKey == "notes";
+}
+
+bool IsAliasLikeSAMField(const std::string& LowerKey)
+{
+     return LowerKey == "alias" || LowerKey == "aliases" || LowerKey == "slug" ||
+            LowerKey == "handle" || LowerKey == "username" || LowerKey == "short_name" ||
+            LowerKey == "nickname";
+}
+
+bool IsTaxonomyLikeSAMField(const std::string& LowerKey)
+{
+     return LowerKey == "tag" || LowerKey == "tags" || LowerKey == "label" ||
+            LowerKey == "labels" || LowerKey == "category" || LowerKey == "categories" ||
+            LowerKey == "topic" || LowerKey == "topics" || LowerKey == "genre" ||
+            LowerKey == "genres" || LowerKey == "brand" || LowerKey == "brands" ||
+            LowerKey == "author" || LowerKey == "authors" || LowerKey == "type";
+}
+
+bool IsQueryLikeSAMField(const std::string& LowerKey)
+{
+     return LowerKey == "query" || LowerKey == "queries" || LowerKey == "keywords" ||
+            LowerKey == "search_terms";
+}
+
+std::vector<std::string> ExtractArrayishSAMValues(const std::string& RawValue,
+                                                  size_t MaxValues = 16)
+{
+     std::vector<std::string> Values;
+     const std::string Trimmed = TrimCopy(RawValue);
+
+     if (Trimmed.empty())
      {
-          PendingIndexJob Job;
+          return Values;
+     }
 
+     try
+     {
+          if (!Trimmed.empty() && Trimmed.front() == '[')
           {
-               std::unique_lock<std::mutex> Lock(QueueMutex);
-               QueueCV.wait(Lock, [this]()
+               const nlohmann::json Parsed = nlohmann::json::parse(Trimmed);
+
+               if (Parsed.is_array())
                {
-                    return ShuttingDown || !PendingIndexJobs.empty();
-               });
-
-               if (ShuttingDown && PendingIndexJobs.empty())
-               {
-                    return;
-               }
-
-               Job = std::move(PendingIndexJobs.front());
-               PendingIndexJobs.pop_front();
-               PendingIndexKeys.erase(BuildPendingIndexKey(Job.Collection, Job.Doc.ID));
-          }
-
-          {
-               std::lock_guard<std::mutex> JobLock(JobMutex);
-               ++ActiveCollectionTasks[Job.Collection];
-          }
-
-          auto FinishTask = [this, &Job]()
-          {
-               std::lock_guard<std::mutex> JobLock(JobMutex);
-               auto ActiveIt = ActiveCollectionTasks.find(Job.Collection);
-
-               if (ActiveIt != ActiveCollectionTasks.end())
-               {
-                    if (ActiveIt->second > 0)
+                    for (const auto& Entry : Parsed)
                     {
-                         --ActiveIt->second;
-                    }
-
-                    if (ActiveIt->second == 0)
-                    {
-                         ActiveCollectionTasks.erase(ActiveIt);
-                    }
-               }
-
-               JobStateCV.notify_all();
-          };
-
-          {
-               bool Cancelled = false;
-               {
-                    std::lock_guard<std::mutex> JobLock(JobMutex);
-
-                    if (IsCollectionCancelledLocked(Job.Collection))
-                    {
-                         CollectionJobStatus& Status = CollectionJobs[Job.Collection];
-
-                         if (Status.PendingDocuments > 0)
+                         if (!Entry.is_string())
                          {
-                              --Status.PendingDocuments;
+                              continue;
                          }
 
-                         if (Status.Running && Status.PendingDocuments == 0)
+                         const std::string Candidate = TrimCopy(Entry.get<std::string>());
+
+                         if (!Candidate.empty())
                          {
-                              Status.Running = false;
-                              Status.Completed = false;
-                              if (Status.ErrorMessage.empty())
-                              {
-                                   Status.ErrorMessage = "Cancelled.";
-                              }
+                              Values.push_back(Candidate);
                          }
 
-                         RecordDebugEvent(Job.Collection, "skipped queued background index for " + Job.Doc.ID + " because collection work was cancelled");
-                         Cancelled = true;
-                    }
-               }
-
-               if (Cancelled)
-               {
-                    FinishTask();
-                    continue;
-               }
-          }
-
-          std::string ErrorMessage;
-          const bool Success = IndexDocument(Job.Collection,
-                                             Job.Doc,
-                                             &ErrorMessage,
-                                             Job.HasExpectedMutationVersion,
-                                             Job.ExpectedMutationVersion);
-
-          {
-               std::lock_guard<std::mutex> JobLock(JobMutex);
-               CollectionJobStatus& Status = CollectionJobs[Job.Collection];
-
-               if (Status.PendingDocuments > 0)
-               {
-                    --Status.PendingDocuments;
-               }
-
-               if (Success)
-               {
-                    ++Status.IndexedDocuments;
-               }
-               else
-               {
-                    ++Status.FailedDocuments;
-                    if (!ErrorMessage.empty())
-                    {
-                         Status.ErrorMessage = ErrorMessage;
-                    }
-
-                    if (Job.HasExpectedMutationVersion &&
-                        ErrorMessage.find("Source collection changed during SAM indexing;") == 0)
-                    {
-                         Status.NeedsRetry = true;
-                    }
-               }
-
-               if (Status.Running && Status.PendingDocuments == 0)
-               {
-                    std::string ProfileError;
-                    bool WroteIndexedMutationVersion = false;
-
-                    if (!Status.NeedsRetry)
-                    {
-                         std::lock_guard<std::mutex> DBLock(DBMutex);
-                         (void)RebuildCollectionProfileLocked(Database.get(), Job.Collection, &ProfileError);
-                         std::string StateError;
-                         const uint64_t MutationVersion = GetCurrentCollectionMutationVersion(Job.Collection);
-                         WroteIndexedMutationVersion =
-                              WriteCollectionIndexedMutationVersionLocked(Database.get(),
-                                                                          Job.Collection,
-                                                                          MutationVersion,
-                                                                          &StateError);
-                         if (!WroteIndexedMutationVersion && Status.ErrorMessage.empty() && !StateError.empty())
+                         if (Values.size() >= MaxValues)
                          {
-                              Status.ErrorMessage = StateError;
+                              break;
                          }
                     }
-
-                    Status.Running = false;
-                    Status.Completed = !Status.NeedsRetry && WroteIndexedMutationVersion;
-
-                    if (Status.NeedsRetry)
-                    {
-                         if (Status.ErrorMessage.empty())
-                         {
-                              Status.ErrorMessage = "Source collection changed during SAM indexing; retry required.";
-                         }
-
-                         RecordDebugEvent(Job.Collection,
-                                          "rebuild invalidated by concurrent source mutation: indexed " +
-                                               std::to_string(Status.IndexedDocuments) + ", failed " +
-                                               std::to_string(Status.FailedDocuments));
-                    }
-                    else if (Success)
-                    {
-                         RecordDebugEvent(Job.Collection,
-                                          "rebuild complete: indexed " + std::to_string(Status.IndexedDocuments) +
-                                               ", failed " + std::to_string(Status.FailedDocuments) +
-                                               (ProfileError.empty() ? "" : ", profile error: " + ProfileError));
-                    }
-                    else
-                    {
-                         RecordDebugEvent(Job.Collection,
-                                          "rebuild complete with failures: indexed " + std::to_string(Status.IndexedDocuments) +
-                                               ", failed " + std::to_string(Status.FailedDocuments) +
-                                               (ProfileError.empty() ? "" : ", profile error: " + ProfileError));
-                    }
                }
-          }
 
-          FinishTask();
-
-          if (Success)
-          {
-               RecordDebugEvent(Job.Collection, "background indexed " + Job.Doc.ID);
-               continue;
-          }
-
-          RecordDebugEvent(Job.Collection,
-                           "background indexing failed for " + Job.Doc.ID + ": " +
-                                (ErrorMessage.empty() ? std::string("unknown error") : ErrorMessage));
-
-          if (Instance && Instance->Logs)
-          {
-               Instance->Logs->Normal("sam",
-                                      "Failed to background index '" + Job.Collection + "/" + Job.Doc.ID +
-                                           "': " + (ErrorMessage.empty() ? std::string("unknown error") : ErrorMessage) + ".");
+               return Values;
           }
      }
-}
-
-bool SAM::IsOpen() const
-{
-     return DatabaseOpen.load(std::memory_order_acquire);
-}
-
-std::string SAM::ResolveDBPath() const
-{
-     return ResolveSamDataDir();
-}
-
-bool SAM::ClearAll(std::string* ErrorMessage)
-{
-     if (!Database)
+     catch (...)
      {
-          if (ErrorMessage)
-          {
-               *ErrorMessage = "SAM database is not open.";
-          }
-
-          return false;
      }
 
-     rocksdb::WriteBatch Batch;
-     std::unique_ptr<rocksdb::Iterator> Iterator(Database->NewIterator(rocksdb::ReadOptions()));
+     std::string Token;
+     std::istringstream Input(Trimmed);
 
-     for (Iterator->SeekToFirst(); Iterator->Valid(); Iterator->Next())
+     while (std::getline(Input, Token, ','))
      {
-          Batch.Delete(Iterator->key());
-     }
+          size_t Start = 0;
 
-     const rocksdb::Status Status = Database->Write(rocksdb::WriteOptions(), &Batch);
-
-     if (!Status.ok())
-     {
-          if (ErrorMessage)
+          while (Start < Token.size())
           {
-               *ErrorMessage = Status.ToString();
-          }
+               size_t End = Token.find_first_of(";\n|", Start);
+               std::string Candidate = TrimCopy(Token.substr(Start, End == std::string::npos ? std::string::npos : End - Start));
 
-          return false;
-     }
-
-     return true;
-}
-
-bool SAM::Recreate(std::string* ErrorMessage)
-{
-     {
-          std::lock_guard<std::mutex> Lock(DBMutex);
-
-          if (!Database)
-          {
-               if (ErrorMessage)
+               if (!Candidate.empty())
                {
-                    *ErrorMessage = "SAM database is not open.";
+                    Values.push_back(Candidate);
                }
 
-               return false;
+               if (Values.size() >= MaxValues || End == std::string::npos)
+               {
+                    break;
+               }
+
+               Start = End + 1;
           }
 
-          if (!ClearAll(ErrorMessage))
-          {
-               return false;
-          }
-     }
-
-     size_t IndexedDocuments = 0;
-     size_t FailedDocuments = 0;
-
-     for (const std::string& Collection : HybridStorageManager::GetInstance().ListCollections())
-     {
-          if (!Instance || !Instance->Database)
+          if (Values.size() >= MaxValues)
           {
                break;
           }
+     }
 
-          const std::vector<std::string> DocKeys = Instance->Database->Keys("doc:" + Collection + ":*");
+     if (Values.empty())
+     {
+          Values.push_back(Trimmed);
+     }
 
-          for (const auto& DocKey : DocKeys)
+     return Values;
+}
+
+std::vector<std::string> BuildSAMSentenceSamples(const std::string& RawValue,
+                                                 size_t MaxSamples = 10)
+{
+     std::vector<std::string> Samples;
+     std::string Current;
+
+     for (unsigned char C : RawValue)
+     {
+          if (C == '\r')
           {
-               const size_t LastColon = DocKey.find_last_of(':');
+               continue;
+          }
 
-               if (LastColon == std::string::npos || LastColon + 1 >= DocKey.size())
+          if (C == '\n' || C == '.' || C == '!' || C == '?' || C == ';')
+          {
+               const std::string Candidate = TrimCopy(Current);
+
+               if (!Candidate.empty())
+               {
+                    Samples.push_back(Candidate);
+               }
+
+               Current.clear();
+
+               if (Samples.size() >= MaxSamples)
+               {
+                    break;
+               }
+
+               continue;
+          }
+
+          Current.push_back(static_cast<char>(C));
+     }
+
+     if (Samples.size() < MaxSamples)
+     {
+          const std::string Candidate = TrimCopy(Current);
+
+          if (!Candidate.empty())
+          {
+               Samples.push_back(Candidate);
+          }
+     }
+
+     return Samples;
+}
+
+size_t CountStrongSAMTokens(const std::vector<std::string>& Tokens)
+{
+     size_t Count = 0;
+
+     for (const auto& Token : Tokens)
+     {
+          if (!Token.empty() && !IsSamStopword(Token) && !IsWeakSamToken(Token) && !IsNumericLikeSAMToken(Token))
+          {
+               ++Count;
+          }
+     }
+
+     return Count;
+}
+
+bool IsUsefulSAMDocumentPhrase(const std::string& Value)
+{
+     const std::string Normalized = NormalizeTerm(Value);
+
+     if (Normalized.empty() || Normalized.size() < 2 || Normalized.size() > 96)
+     {
+          return false;
+     }
+
+     const std::vector<std::string> Tokens = TokenizeNormalized(Normalized);
+
+     if (Tokens.empty() || Tokens.size() > 7)
+     {
+          return false;
+     }
+
+     const size_t StrongCount = CountStrongSAMTokens(Tokens);
+
+     if (StrongCount == 0)
+     {
+          return false;
+     }
+
+     if (Tokens.size() == 1)
+     {
+          return StrongCount == 1 && Tokens.front().size() >= 3;
+     }
+
+     if (StrongCount == 1 && Tokens.size() >= 4)
+     {
+          return false;
+     }
+
+     return !IsIdentifierLikeSAMValue(Value);
+}
+
+std::string JoinSAMTokenRange(const std::vector<std::string>& Tokens,
+                              size_t Start,
+                              size_t End)
+{
+     std::string Result;
+
+     for (size_t Index = Start; Index < End; ++Index)
+     {
+          if (!Result.empty())
+          {
+               Result.push_back(' ');
+          }
+
+          Result += Tokens[Index];
+     }
+
+     return Result;
+}
+
+std::vector<std::string> BuildSAMPhraseWindows(const std::string& Value,
+                                               size_t MinTokens,
+                                               size_t MaxTokens,
+                                               size_t MaxPhrases)
+{
+     std::vector<std::string> Result;
+     std::unordered_set<std::string> Seen;
+     const std::vector<std::string> Tokens = TokenizeNormalized(NormalizeTerm(Value));
+
+     if (Tokens.empty())
+     {
+          return Result;
+     }
+
+     for (size_t Window = MinTokens; Window <= MaxTokens; ++Window)
+     {
+          if (Window == 0 || Window > Tokens.size())
+          {
+               continue;
+          }
+
+          for (size_t Start = 0; Start + Window <= Tokens.size(); ++Start)
+          {
+               const std::string Candidate = JoinSAMTokenRange(Tokens, Start, Start + Window);
+
+               if (!IsUsefulSAMDocumentPhrase(Candidate) || !Seen.insert(Candidate).second)
                {
                     continue;
                }
 
-               const std::string DocumentID = DocKey.substr(LastColon + 1);
-               const Document Doc = HybridStorageManager::GetInstance().GetDocument(Collection, DocumentID);
+               const std::vector<std::string> CandidateTokens = TokenizeNormalized(Candidate);
+               const size_t StrongCount = CountStrongSAMTokens(CandidateTokens);
 
-               if (Doc.ID.empty())
+               if (Window >= 3 && StrongCount < 2)
                {
                     continue;
                }
 
-               std::string IndexError;
+               Result.push_back(Candidate);
 
-               if (IndexDocument(Collection, Doc, &IndexError))
+               if (Result.size() >= MaxPhrases)
                {
-                    IndexedDocuments++;
+                    return Result;
                }
-               else
-               {
-                    FailedDocuments++;
+          }
+     }
 
-                    if (Instance && Instance->Logs && !IndexError.empty())
+     return Result;
+}
+
+std::vector<std::string> BuildSAMReducedTitleVariants(const std::string& Title)
+{
+     std::vector<std::string> Variants;
+     const std::vector<std::string> Tokens = TokenizeNormalized(NormalizeTerm(Title));
+
+     if (Tokens.size() < 2)
+     {
+          return Variants;
+     }
+
+     std::vector<std::string> Reduced = Tokens;
+
+     while (!Reduced.empty() &&
+            (IsSamStopword(Reduced.back()) || IsWeakSamToken(Reduced.back())))
+     {
+          Reduced.pop_back();
+     }
+
+     if (Reduced.size() >= 2 && Reduced.size() < Tokens.size())
+     {
+          Variants.push_back(JoinTokens(Reduced));
+     }
+
+     Reduced = Tokens;
+
+     while (!Reduced.empty() &&
+            (IsSamStopword(Reduced.front()) || IsWeakSamToken(Reduced.front())))
+     {
+          Reduced.erase(Reduced.begin());
+     }
+
+     if (Reduced.size() >= 2 && Reduced.size() < Tokens.size())
+     {
+          Variants.push_back(JoinTokens(Reduced));
+     }
+
+     if (Tokens.size() >= 3)
+     {
+          Variants.push_back(JoinSAMTokenRange(Tokens, 0, Tokens.size() - 1));
+          Variants.push_back(JoinSAMTokenRange(Tokens, 1, Tokens.size()));
+     }
+
+     return UniqueNormalizedPhrases(Variants, 8);
+}
+
+std::vector<std::string> BuildSAMSeedQueries(const std::vector<std::string>& Subjects,
+                                             const std::vector<std::string>& Descriptors)
+{
+     std::vector<std::string> Queries;
+     std::unordered_set<std::string> Seen;
+
+     auto Append = [&](const std::string& Value)
+     {
+          const std::string Candidate = NormalizeTerm(Value);
+
+          if (!IsUsefulSAMDocumentPhrase(Candidate) || !Seen.insert(Candidate).second)
+          {
+               return;
+          }
+
+          Queries.push_back(Candidate);
+     };
+
+     for (const auto& Subject : Subjects)
+     {
+          Append(Subject);
+          Append(Subject + " guide");
+          Append(Subject + " overview");
+     }
+
+     for (const auto& Subject : Subjects)
+     {
+          for (const auto& Descriptor : Descriptors)
+          {
+               Append(Subject + " " + Descriptor);
+               Append(Descriptor + " " + Subject);
+
+               if (Queries.size() >= 24)
+               {
+                    return Queries;
+               }
+          }
+     }
+
+     return Queries;
+}
+
+struct SAMTermCollector
+{
+     std::unordered_map<std::string, SAM::TermEntry> Entries;
+     std::unordered_map<std::string, size_t> Support;
+
+     void Add(const std::string& Text,
+              const std::string& Kind,
+              const std::string& Source,
+              double Score,
+              double Signal)
+     {
+          const std::string Normalized = NormalizeTerm(Text);
+
+          if (!IsUsefulSAMDocumentPhrase(Normalized))
+          {
+               return;
+          }
+
+          SAM::TermEntry& Entry = Entries[Normalized];
+          size_t& EntrySupport = Support[Normalized];
+          ++EntrySupport;
+
+          if (Entry.Text.empty() ||
+              Score > Entry.Score ||
+              (Score == Entry.Score && Signal > Entry.Signal))
+          {
+               Entry.Text = Normalized;
+               Entry.Kind = Kind;
+               Entry.Source = Source;
+          }
+
+          Entry.Score = std::max(Entry.Score, ClampSAMScore(Score));
+          Entry.Signal = std::max(Entry.Signal,
+                                  ClampSAMScore(Signal + std::min(0.16, 0.03 * static_cast<double>(EntrySupport - 1))));
+     }
+
+     std::vector<SAM::TermEntry> Finalize(size_t Limit = 96) const
+     {
+          std::vector<SAM::TermEntry> Terms;
+          Terms.reserve(Entries.size());
+
+          for (const auto& Pair : Entries)
+          {
+               Terms.push_back(Pair.second);
+          }
+
+          std::sort(Terms.begin(), Terms.end(),
+                    [](const SAM::TermEntry& Left, const SAM::TermEntry& Right)
                     {
-                         Instance->Logs->Normal("sam", "Failed to index '" + Collection + "/" + DocumentID + "' during recreate: " + IndexError + ".");
+                         if (Left.Score != Right.Score)
+                         {
+                              return Left.Score > Right.Score;
+                         }
+
+                         if (Left.Signal != Right.Signal)
+                         {
+                              return Left.Signal > Right.Signal;
+                         }
+
+                         if (Left.Text.size() != Right.Text.size())
+                         {
+                              return Left.Text.size() < Right.Text.size();
+                         }
+
+                         return Left.Text < Right.Text;
+                    });
+
+          if (Terms.size() > Limit)
+          {
+               Terms.resize(Limit);
+          }
+
+          return Terms;
+     }
+};
+}
+
+std::vector<SAM::TermEntry> SAM::GenerateLLMTerms(const std::string& Collection,
+                                                  const Document& Doc,
+                                                  std::string* ErrorMessage) const
+{
+     std::vector<TermEntry> Terms;
+
+     if (!(Instance && Instance->LLM))
+     {
+          return Terms;
+     }
+
+     try
+     {
+          const std::vector<llm::ContextSuggestion> Suggestions =
+               Instance->LLM->BuildDocumentContext(Collection, Doc, 8);
+          const std::string Subject = NormalizeTerm(Doc.Title.empty() ? Doc.ID : Doc.Title);
+
+          for (const auto& Suggestion : Suggestions)
+          {
+               const std::string Candidate = NormalizeTerm(Suggestion.Text);
+
+               if (!IsUsefulSAMDocumentPhrase(Candidate))
+               {
+                    continue;
+               }
+
+               const bool IsSubjectSuggestion = !Subject.empty() &&
+                    (Candidate == Subject ||
+                     Candidate.find(Subject) != std::string::npos ||
+                     Subject.find(Candidate) != std::string::npos);
+
+               Terms.push_back(TermEntry{
+                    Candidate,
+                    IsSubjectSuggestion ? "alias" : (Suggestion.Kind == "llm" ? "query" : "descriptor"),
+                    Suggestion.Kind == "llm" ? "llm_context" : "context_field",
+                    Suggestion.Kind == "llm" ? 0.78 : 0.70,
+                    Suggestion.Kind == "llm" ? 0.82 : 0.72
+               });
+
+               if (!Subject.empty() && Candidate != Subject)
+               {
+                    Terms.push_back(TermEntry{
+                         Subject + " " + Candidate,
+                         "query",
+                         Suggestion.Kind == "llm" ? "llm_pair" : "context_pair",
+                         Suggestion.Kind == "llm" ? 0.74 : 0.68,
+                         Suggestion.Kind == "llm" ? 0.78 : 0.70
+                    });
+               }
+          }
+     }
+     catch (const std::exception& E)
+     {
+          if (ErrorMessage && ErrorMessage->empty())
+          {
+               *ErrorMessage = E.what();
+          }
+     }
+
+     return Terms;
+}
+
+std::vector<SAM::TermEntry> SAM::GenerateLLMTermsFromProfile(const std::string& Collection,
+                                                             const Document& Doc,
+                                                             const std::vector<std::string>& ProfileTerms,
+                                                             std::string* ErrorMessage) const
+{
+     (void)Collection;
+     std::vector<TermEntry> Terms;
+
+     if (ProfileTerms.empty())
+     {
+          return Terms;
+     }
+
+     try
+     {
+          const std::string Subject = NormalizeTerm(Doc.Title.empty() ? Doc.ID : Doc.Title);
+          std::unordered_set<std::string> DocumentTokens;
+
+          for (const auto& Field : CollectDocumentTextFields(Doc))
+          {
+               const std::vector<std::string> Tokens = NormalizeSAMTokens(Field.second, true);
+
+               for (const auto& Token : Tokens)
+               {
+                    if (!Token.empty())
+                    {
+                         DocumentTokens.insert(Token);
+                    }
+               }
+          }
+
+          for (const auto& ProfileTerm : ProfileTerms)
+          {
+               const std::string Candidate = NormalizeTerm(ProfileTerm);
+
+               if (!IsUsefulSAMDocumentPhrase(Candidate))
+               {
+                    continue;
+               }
+
+               const std::vector<std::string> CandidateTokens = NormalizeSAMTokens(Candidate, true);
+               size_t Overlap = 0;
+
+               for (const auto& Token : CandidateTokens)
+               {
+                    if (DocumentTokens.find(Token) != DocumentTokens.end())
+                    {
+                         ++Overlap;
+                    }
+               }
+
+               if (Overlap == 0 && !Subject.empty() && Candidate.find(Subject) == std::string::npos)
+               {
+                    continue;
+               }
+
+               const double OverlapBoost = std::min(0.18, 0.05 * static_cast<double>(Overlap));
+
+               Terms.push_back(TermEntry{
+                    Candidate,
+                    Overlap >= 2 ? "alias" : "descriptor",
+                    "profile_context",
+                    0.72 + OverlapBoost,
+                    0.74 + OverlapBoost
+               });
+
+               if (!Subject.empty() && Candidate != Subject)
+               {
+                    Terms.push_back(TermEntry{
+                         Subject + " " + Candidate,
+                         "query",
+                         "profile_pair",
+                         0.70 + OverlapBoost,
+                         0.76 + OverlapBoost
+                    });
+               }
+          }
+     }
+     catch (const std::exception& E)
+     {
+          if (ErrorMessage && ErrorMessage->empty())
+          {
+               *ErrorMessage = E.what();
+          }
+     }
+
+     return Terms;
+}
+
+std::vector<SAM::TermEntry> SAM::ExpandDocumentTerms(const std::string& Collection,
+                                                     const Document& Doc,
+                                                     std::string* ErrorMessage) const
+{
+     if (Collection.empty() || Doc.ID.empty())
+     {
+          if (ErrorMessage)
+          {
+               *ErrorMessage = "Collection and document ID are required.";
+          }
+
+          return {};
+     }
+
+     SAMTermCollector Collector;
+     std::vector<std::string> SubjectSeeds;
+     std::vector<std::string> DescriptorSeeds;
+     std::vector<std::string> QuerySeeds;
+     std::unordered_set<std::string> SubjectSeen;
+     std::unordered_set<std::string> DescriptorSeen;
+     std::unordered_set<std::string> QuerySeen;
+
+     auto RememberSeed = [](std::vector<std::string>& Output,
+                            std::unordered_set<std::string>& Seen,
+                            const std::string& Value,
+                            size_t Limit)
+     {
+          const std::string Candidate = NormalizeTerm(Value);
+
+          if (Candidate.empty() || !Seen.insert(Candidate).second)
+          {
+               return;
+          }
+
+          Output.push_back(Candidate);
+
+          if (Output.size() > Limit)
+          {
+               Output.resize(Limit);
+          }
+     };
+
+     auto AddTerm = [&](const std::string& Text,
+                        const std::string& Kind,
+                        const std::string& Source,
+                        double Score,
+                        double Signal)
+     {
+          Collector.Add(Text, Kind, Source, Score, Signal);
+
+          if (Kind == "subject" || Kind == "alias" || Kind == "synonym")
+          {
+               RememberSeed(SubjectSeeds, SubjectSeen, Text, 16);
+          }
+          else if (Kind == "descriptor")
+          {
+               RememberSeed(DescriptorSeeds, DescriptorSeen, Text, 20);
+          }
+          else if (Kind == "query")
+          {
+               RememberSeed(QuerySeeds, QuerySeen, Text, 20);
+          }
+     };
+
+     const std::string RawTitle = TrimCopy(Doc.Title.empty() ? Doc.ID : Doc.Title);
+     const std::string Subject = NormalizeTerm(RawTitle);
+
+     if (!Subject.empty())
+     {
+          AddTerm(Subject, "subject", "title", 0.99, 0.99);
+
+          for (const auto& Variant : BuildSAMReducedTitleVariants(RawTitle))
+          {
+               AddTerm(Variant, "alias", "title_reduced", 0.93, 0.93);
+          }
+
+          for (const auto& Window : BuildSAMPhraseWindows(RawTitle, 1, 4, 12))
+          {
+               AddTerm(Window,
+                       Window == Subject ? "subject" : "alias",
+                       Window == Subject ? "title" : "title_window",
+                       Window == Subject ? 0.97 : 0.88,
+                       Window == Subject ? 0.97 : 0.88);
+          }
+     }
+
+     std::string CombinedNarrative;
+
+     for (const auto& Field : CollectDocumentTextFields(Doc))
+     {
+          const std::string& LowerKey = Field.first;
+          const std::string& RawValue = Field.second;
+
+          if (RawValue.empty())
+          {
+               continue;
+          }
+
+          const bool TitleLike = IsTitleLikeSAMField(LowerKey);
+          const bool SummaryLike = IsSummaryLikeSAMField(LowerKey);
+          const bool BodyLike = IsBodyLikeSAMField(LowerKey);
+          const bool AliasLike = IsAliasLikeSAMField(LowerKey);
+          const bool TaxonomyLike = IsTaxonomyLikeSAMField(LowerKey);
+          const bool QueryLike = IsQueryLikeSAMField(LowerKey);
+
+          if ((SummaryLike || BodyLike) && CombinedNarrative.size() < 4000)
+          {
+               if (!CombinedNarrative.empty())
+               {
+                    CombinedNarrative.push_back(' ');
+               }
+
+               CombinedNarrative += TruncateSAMDocumentText(RawValue, 1800);
+          }
+
+          const std::vector<std::string> Values =
+               ExtractArrayishSAMValues(RawValue,
+                                        TaxonomyLike || AliasLike || QueryLike ? 12 : 4);
+
+          for (const auto& Value : Values)
+          {
+               if (Value.empty() || IsIdentifierLikeSAMValue(Value))
+               {
+                    continue;
+               }
+
+               if (TitleLike)
+               {
+                    AddTerm(Value, "alias", "field_title", 0.91, 0.92);
+               }
+               else if (AliasLike)
+               {
+                    AddTerm(Value, "alias", "alias_field", 0.89, 0.90);
+               }
+               else if (TaxonomyLike)
+               {
+                    AddTerm(Value, "descriptor", "taxonomy_field", 0.84, 0.86);
+               }
+               else if (QueryLike)
+               {
+                    AddTerm(Value, "query", "query_field", 0.82, 0.84);
+               }
+               else if (SummaryLike)
+               {
+                    AddTerm(Value, "descriptor", "summary_field", 0.76, 0.78);
+               }
+
+               const size_t MinWindow = (TaxonomyLike || AliasLike || QueryLike) ? 1 : 2;
+               const size_t MaxWindow = (TaxonomyLike || AliasLike || QueryLike) ? 3 : 4;
+               const size_t WindowLimit = (TaxonomyLike || AliasLike || QueryLike) ? 8 : 5;
+
+               for (const auto& Window : BuildSAMPhraseWindows(Value, MinWindow, MaxWindow, WindowLimit))
+               {
+                    const std::string Kind =
+                         AliasLike ? "alias" :
+                         QueryLike ? "query" :
+                         (TaxonomyLike || SummaryLike ? "descriptor" : "alias");
+                    const std::string Source =
+                         AliasLike ? "alias_window" :
+                         QueryLike ? "query_window" :
+                         TaxonomyLike ? "taxonomy_window" :
+                         SummaryLike ? "summary_window" : "field_window";
+                    const double BaseScore =
+                         AliasLike ? 0.83 :
+                         QueryLike ? 0.80 :
+                         TaxonomyLike ? 0.78 :
+                         SummaryLike ? 0.74 : 0.72;
+
+                    AddTerm(Window, Kind, Source, BaseScore, BaseScore);
+               }
+
+               if (!Subject.empty() && NormalizeTerm(Value) != Subject)
+               {
+                    const std::string LoweredValue = NormalizeTerm(Value);
+                    const std::string Kind =
+                         QueryLike ? "query" :
+                         TaxonomyLike ? "query" :
+                         AliasLike ? "alias" : "descriptor";
+                    const std::string Source =
+                         QueryLike ? "query_pair" :
+                         TaxonomyLike ? "subject_descriptor" :
+                         AliasLike ? "subject_alias" : "field_pair";
+                    AddTerm(Subject + " " + LoweredValue, Kind, Source, 0.86, 0.87);
+
+                    if (TaxonomyLike || AliasLike)
+                    {
+                         AddTerm(LoweredValue + " " + Subject, Kind, Source, 0.82, 0.84);
+                    }
+               }
+          }
+
+          if (SummaryLike || BodyLike)
+          {
+               const std::vector<std::string> Samples =
+                    BuildSAMSentenceSamples(RawValue, SummaryLike ? 6 : 10);
+
+               for (const auto& Sample : Samples)
+               {
+                    for (const auto& Window : BuildSAMPhraseWindows(Sample, 2, 5, SummaryLike ? 6 : 8))
+                    {
+                         const std::vector<std::string> WindowTokens = NormalizeSAMTokens(Window, true);
+                         const size_t StrongCount = CountStrongSAMTokens(WindowTokens);
+
+                         if (StrongCount < 2)
+                         {
+                              continue;
+                         }
+
+                         AddTerm(Window,
+                                 StrongCount >= 3 ? "query" : "descriptor",
+                                 SummaryLike ? "summary_window" : "body_window",
+                                 SummaryLike ? 0.76 : 0.70,
+                                 SummaryLike ? 0.78 : 0.72);
                     }
                }
           }
      }
 
-     if (Instance && Instance->Logs)
+     if (!CombinedNarrative.empty())
      {
-          Instance->Logs->Normal("sam",
-                                 "SAM recreate complete: indexed " + std::to_string(IndexedDocuments) +
-                                      " documents, failed " + std::to_string(FailedDocuments) + ".");
-     }
-
-     return true;
-}
-
-bool SAM::RecreateCollection(const std::string& Collection,
-                             size_t* IndexedDocuments,
-                             size_t* FailedDocuments,
-                             std::string* ErrorMessage)
-{
-     if (IndexedDocuments)
-     {
-          *IndexedDocuments = 0;
-     }
-
-     if (FailedDocuments)
-     {
-          *FailedDocuments = 0;
-     }
-
-     if (Collection.empty())
-     {
-          if (ErrorMessage)
+          for (const auto& Window : BuildSAMPhraseWindows(CombinedNarrative, 2, 5, 16))
           {
-               *ErrorMessage = "Collection name is required.";
-          }
+               const std::vector<std::string> Tokens = NormalizeSAMTokens(Window, true);
 
-          return false;
-     }
-
-     if (!HybridStorageManager::GetInstance().CollectionExists(Collection))
-     {
-          if (ErrorMessage)
-          {
-               *ErrorMessage = "Collection not found.";
-          }
-
-          return false;
-     }
-
-     std::vector<std::string> ExistingDocumentIDs;
-     {
-          std::lock_guard<std::mutex> Lock(DBMutex);
-
-          if (!Database)
-          {
-               if (ErrorMessage)
+               if (CountStrongSAMTokens(Tokens) < 2)
                {
-                    *ErrorMessage = "SAM database is not open.";
+                    continue;
                }
 
-               return false;
-          }
-
-          const std::string ManifestPrefix = "sam:doc:" + Collection + ":";
-          std::unique_ptr<rocksdb::Iterator> ManifestIterator(Database->NewIterator(rocksdb::ReadOptions()));
-
-          for (ManifestIterator->Seek(ManifestPrefix);
-               ManifestIterator->Valid() && ManifestIterator->key().starts_with(ManifestPrefix);
-               ManifestIterator->Next())
-          {
-               const std::string Key = ManifestIterator->key().ToString();
-
-               if (Key.size() > ManifestPrefix.size())
-               {
-                    ExistingDocumentIDs.push_back(Key.substr(ManifestPrefix.size()));
-               }
+               AddTerm(Window, "query", "body_query", 0.68, 0.72);
           }
      }
 
-     for (const auto& DocumentID : ExistingDocumentIDs)
+     const std::vector<std::string> SeedQueries = BuildSAMSeedQueries(SubjectSeeds, DescriptorSeeds);
+
+     for (const auto& Query : SeedQueries)
      {
-          std::string RemoveError;
-          bool Removed = false;
-
-          {
-               std::lock_guard<std::mutex> Lock(DBMutex);
-
-               if (Database)
-               {
-                    Removed = RemoveExistingDocumentTermsLocked(Collection, DocumentID, &RemoveError);
-               }
-          }
-
-          if (!Removed && ErrorMessage && ErrorMessage->empty())
-          {
-               *ErrorMessage = RemoveError;
-          }
+          AddTerm(Query, "query", "seed_query", 0.79, 0.82);
      }
 
-     size_t IndexedCount = 0;
-     size_t FailedCount = 0;
-     const std::vector<std::string> DocKeys = Instance->Database->Keys("doc:" + Collection + ":*");
-
-     for (const auto& DocKey : DocKeys)
-     {
-          const size_t LastColon = DocKey.find_last_of(':');
-
-          if (LastColon == std::string::npos || LastColon + 1 >= DocKey.size())
-          {
-               continue;
-          }
-
-          const std::string DocumentID = DocKey.substr(LastColon + 1);
-          const Document Doc = HybridStorageManager::GetInstance().GetDocument(Collection, DocumentID);
-
-          if (Doc.ID.empty())
-          {
-               continue;
-          }
-
-          std::string IndexError;
-
-          if (IndexDocumentLocked(Collection, Doc, &IndexError))
-          {
-               IndexedCount++;
-          }
-          else
-          {
-               FailedCount++;
-
-               if (Instance && Instance->Logs && !IndexError.empty())
-               {
-                    Instance->Logs->Normal("sam",
-                                           "Failed to index '" + Collection + "/" + DocumentID +
-                                                "' during collection rebuild: " + IndexError + ".");
-               }
-          }
-     }
-
-     if (IndexedDocuments)
-     {
-          *IndexedDocuments = IndexedCount;
-     }
-
-     if (FailedDocuments)
-     {
-          *FailedDocuments = FailedCount;
-     }
-
-     std::string ProfileError;
-     bool RebuiltProfile = false;
+     std::vector<std::string> ProfileTerms;
 
      {
           std::lock_guard<std::mutex> Lock(DBMutex);
 
           if (Database)
           {
-               RebuiltProfile = RebuildCollectionProfileLocked(Database.get(), Collection, &ProfileError);
-          }
-     }
+               std::string RawProfile;
+               const rocksdb::Status Status =
+                    Database->Get(rocksdb::ReadOptions(), BuildCollectionProfileKey(Collection), &RawProfile);
 
-     if (!RebuiltProfile)
-     {
-          if (Instance && Instance->Logs)
-          {
-               Instance->Logs->Normal("sam",
-                                      "Failed to rebuild SAM collection profile for '" + Collection +
-                                           "': " + ProfileError + ".");
-          }
-
-          if (ErrorMessage && ErrorMessage->empty())
-          {
-               *ErrorMessage = ProfileError;
-          }
-     }
-
-     if (Instance && Instance->Logs)
-     {
-          Instance->Logs->Normal("sam",
-                                 "SAM rebuild for collection '" + Collection + "' complete: indexed " +
-                                      std::to_string(IndexedCount) + " documents, failed " +
-                                      std::to_string(FailedCount) + ".");
-     }
-
-     return true;
-}
-
-bool SAM::StartRecreateCollectionAsync(const std::string& Collection,
-                                       bool* AlreadyRunning,
-                                       std::string* ErrorMessage)
-{
-     if (AlreadyRunning)
-     {
-          *AlreadyRunning = false;
-     }
-
-     if (Collection.empty())
-     {
-          if (ErrorMessage)
-          {
-               *ErrorMessage = "Collection name is required.";
-          }
-
-          return false;
-     }
-
-     {
-          std::lock_guard<std::mutex> Lock(DBMutex);
-
-          if (!Database)
-          {
-               if (ErrorMessage)
+               if (Status.ok() && !RawProfile.empty())
                {
-                    *ErrorMessage = "SAM database is not open.";
-               }
-
-               return false;
-          }
-     }
-
-     if (!HybridStorageManager::GetInstance().CollectionExists(Collection))
-     {
-          if (ErrorMessage)
-          {
-               *ErrorMessage = "Collection not found.";
-          }
-
-          return false;
-     }
-
-     {
-          std::lock_guard<std::mutex> Lock(JobMutex);
-          const auto ExistingIt = CollectionJobs.find(Collection);
-
-          if (IsCollectionCancelledLocked(Collection))
-          {
-               if (ErrorMessage)
-               {
-                    *ErrorMessage = "Collection SAM work is being cancelled.";
-               }
-
-               return false;
-          }
-
-          if (ExistingIt != CollectionJobs.end() && ExistingIt->second.Running)
-          {
-               if (AlreadyRunning)
-               {
-                    *AlreadyRunning = true;
-               }
-
-               return true;
-          }
-
-          CollectionJobStatus& JobStatus = CollectionJobs[Collection];
-          JobStatus = CollectionJobStatus{};
-          JobStatus.Running = true;
-          JobStatus.Completed = false;
-          JobStatus.ErrorMessage.clear();
-          CancelledCollections.erase(Collection);
-     }
-
-     RecordDebugEvent(Collection,
-                      "queued background rebuild setup");
-
-     const bool HasExpectedMutationVersion = Instance && Instance->API;
-     const uint64_t ExpectedMutationVersion =
-          HasExpectedMutationVersion ? GetCurrentCollectionMutationVersion(Collection) : 0;
-
-     std::thread([this, Collection, HasExpectedMutationVersion, ExpectedMutationVersion]()
-     {
-          {
-               std::lock_guard<std::mutex> Lock(JobMutex);
-               ++ActiveCollectionTasks[Collection];
-          }
-
-          auto FinishTask = [this, &Collection]()
-          {
-               std::lock_guard<std::mutex> Lock(JobMutex);
-               auto ActiveIt = ActiveCollectionTasks.find(Collection);
-
-               if (ActiveIt != ActiveCollectionTasks.end())
-               {
-                    if (ActiveIt->second > 0)
+                    try
                     {
-                         --ActiveIt->second;
+                        const nlohmann::json Root = nlohmann::json::parse(RawProfile);
+
+                        auto AppendProfileTerms = [&](const nlohmann::json& Array, const char* Field)
+                        {
+                             if (!Array.is_array())
+                             {
+                                  return;
+                             }
+
+                             for (const auto& Item : Array)
+                             {
+                                  if (!Item.is_object())
+                                  {
+                                       continue;
+                                  }
+
+                                  if (Field != nullptr)
+                                  {
+                                       const std::string Text = NormalizeTerm(Item.value(Field, ""));
+
+                                       if (!Text.empty())
+                                       {
+                                            ProfileTerms.push_back(Text);
+                                       }
+                                  }
+
+                                  for (const auto& NestedKey : {"aliases", "descriptors", "queries", "related"})
+                                  {
+                                       if (!Item.contains(NestedKey) || !Item[NestedKey].is_array())
+                                       {
+                                            continue;
+                                       }
+
+                                       for (const auto& Nested : Item[NestedKey])
+                                       {
+                                            if (Nested.is_string())
+                                            {
+                                                 const std::string Text = NormalizeTerm(Nested.get<std::string>());
+
+                                                 if (!Text.empty())
+                                                 {
+                                                      ProfileTerms.push_back(Text);
+                                                 }
+                                            }
+                                       }
+                                  }
+                             }
+                        };
+
+                        AppendProfileTerms(Root.value("terms", nlohmann::json::array()), "text");
+                        AppendProfileTerms(Root.value("learned_terms", nlohmann::json::array()), "text");
+                        AppendProfileTerms(Root.value("families", nlohmann::json::array()), "subject");
+                        AppendProfileTerms(Root.value("learned_families", nlohmann::json::array()), "subject");
                     }
-
-                    if (ActiveIt->second == 0)
+                    catch (...)
                     {
-                         ActiveCollectionTasks.erase(ActiveIt);
-                    }
-               }
-
-               JobStateCV.notify_all();
-          };
-
-          std::vector<std::string> ExistingDocumentIDs;
-          {
-               std::lock_guard<std::mutex> Lock(DBMutex);
-               const std::string ManifestPrefix = "sam:doc:" + Collection + ":";
-               std::unique_ptr<rocksdb::Iterator> ManifestIterator(Database->NewIterator(rocksdb::ReadOptions()));
-
-               for (ManifestIterator->Seek(ManifestPrefix);
-                    ManifestIterator->Valid() && ManifestIterator->key().starts_with(ManifestPrefix);
-                    ManifestIterator->Next())
-               {
-                    const std::string Key = ManifestIterator->key().ToString();
-
-                    if (Key.size() > ManifestPrefix.size())
-                    {
-                         ExistingDocumentIDs.push_back(Key.substr(ManifestPrefix.size()));
                     }
                }
           }
+     }
 
-          for (const auto& DocumentID : ExistingDocumentIDs)
+     ProfileTerms = UniqueNormalizedPhrases(ProfileTerms, 18);
+
+     std::string ContextError;
+
+     for (const auto& Term : GenerateLLMTerms(Collection, Doc, &ContextError))
+     {
+          AddTerm(Term.Text, Term.Kind, Term.Source, Term.Score, Term.Signal);
+     }
+
+     for (const auto& Term : GenerateLLMTermsFromProfile(Collection, Doc, ProfileTerms, &ContextError))
+     {
+          AddTerm(Term.Text, Term.Kind, Term.Source, Term.Score, Term.Signal);
+     }
+
+     for (size_t Iteration = 0; Iteration < 2; ++Iteration)
+     {
+          const std::vector<std::string> CurrentSubjects = SubjectSeeds;
+          const std::vector<std::string> CurrentDescriptors = DescriptorSeeds;
+          const std::vector<std::string> CurrentQueries = QuerySeeds;
+
+          for (const auto& SubjectSeed : CurrentSubjects)
           {
-               bool Cancelled = false;
-               {
-                    std::lock_guard<std::mutex> Lock(JobMutex);
+               const std::vector<std::string> SubjectTokens = NormalizeSAMTokens(SubjectSeed, true);
 
-                    if (IsCollectionCancelledLocked(Collection))
-                    {
-                         CollectionJobStatus& JobStatus = CollectionJobs[Collection];
-                         JobStatus.Running = false;
-                         JobStatus.Completed = false;
-                         if (JobStatus.ErrorMessage.empty())
-                         {
-                              JobStatus.ErrorMessage = "Cancelled.";
-                         }
-                         RecordDebugEvent(Collection, "cancelled rebuild setup while removing existing SAM terms");
-                         Cancelled = true;
-                    }
-               }
-
-               if (Cancelled)
-               {
-                    FinishTask();
-                    return;
-               }
-
-               std::string RemoveError;
-
-               if (!DeleteDocument(Collection, DocumentID, &RemoveError))
-               {
-                    std::lock_guard<std::mutex> Lock(JobMutex);
-                    CollectionJobStatus& JobStatus = CollectionJobs[Collection];
-                    if (JobStatus.ErrorMessage.empty())
-                    {
-                         JobStatus.ErrorMessage = RemoveError;
-                    }
-               }
-          }
-
-          const std::vector<std::string> DocKeys = Instance->Database->Keys("doc:" + Collection + ":*");
-          std::vector<Document> DocumentsToQueue;
-          DocumentsToQueue.reserve(DocKeys.size());
-
-          for (const auto& DocKey : DocKeys)
-          {
-               const size_t LastColon = DocKey.find_last_of(':');
-
-               if (LastColon == std::string::npos || LastColon + 1 >= DocKey.size())
+               if (SubjectTokens.empty())
                {
                     continue;
                }
 
-               const std::string DocumentID = DocKey.substr(LastColon + 1);
-               const Document Doc = HybridStorageManager::GetInstance().GetDocument(Collection, DocumentID);
-
-               if (!Doc.ID.empty())
+               for (const auto& DescriptorSeed : CurrentDescriptors)
                {
-                    DocumentsToQueue.push_back(Doc);
-               }
-          }
+                    const std::vector<std::string> DescriptorTokens = NormalizeSAMTokens(DescriptorSeed, true);
 
-          {
-               bool Cancelled = false;
-               {
-                    std::lock_guard<std::mutex> Lock(JobMutex);
-                    CollectionJobStatus& JobStatus = CollectionJobs[Collection];
-                    JobStatus.PendingDocuments = DocumentsToQueue.size();
-                    JobStatus.TotalDocuments = DocumentsToQueue.size();
-
-                    if (IsCollectionCancelledLocked(Collection))
+                    if (DescriptorTokens.empty())
                     {
-                         JobStatus.Running = false;
-                         JobStatus.Completed = false;
-                         if (JobStatus.ErrorMessage.empty())
+                         continue;
+                    }
+
+                    size_t Shared = 0;
+
+                    for (const auto& Token : DescriptorTokens)
+                    {
+                         if (std::find(SubjectTokens.begin(), SubjectTokens.end(), Token) != SubjectTokens.end())
                          {
-                              JobStatus.ErrorMessage = "Cancelled.";
-                         }
-                         RecordDebugEvent(Collection, "cancelled rebuild setup before queueing documents");
-                         Cancelled = true;
-                    }
-               }
-
-               if (Cancelled)
-               {
-                    FinishTask();
-                    return;
-               }
-          }
-
-          RecordDebugEvent(Collection,
-                           "queued background rebuild with " + std::to_string(DocumentsToQueue.size()) + " document(s)");
-
-          for (const auto& Doc : DocumentsToQueue)
-          {
-               bool Cancelled = false;
-               {
-                    std::lock_guard<std::mutex> Lock(JobMutex);
-
-                    if (IsCollectionCancelledLocked(Collection))
-                    {
-                         CollectionJobStatus& JobStatus = CollectionJobs[Collection];
-                         JobStatus.Running = false;
-                         JobStatus.Completed = false;
-                         JobStatus.PendingDocuments = 0;
-                         if (JobStatus.ErrorMessage.empty())
-                         {
-                              JobStatus.ErrorMessage = "Cancelled.";
-                         }
-                         RecordDebugEvent(Collection, "cancelled rebuild setup while queueing documents");
-                         Cancelled = true;
-                    }
-               }
-
-               if (Cancelled)
-               {
-                    FinishTask();
-                    return;
-               }
-
-               std::string QueueError;
-
-               if (!EnqueueIndexDocument(Collection,
-                                         Doc,
-                                         &QueueError,
-                                         HasExpectedMutationVersion,
-                                         ExpectedMutationVersion))
-               {
-                    std::lock_guard<std::mutex> Lock(JobMutex);
-                    CollectionJobStatus& JobStatus = CollectionJobs[Collection];
-                    if (JobStatus.PendingDocuments > 0)
-                    {
-                         --JobStatus.PendingDocuments;
-                    }
-                    ++JobStatus.FailedDocuments;
-                    JobStatus.ErrorMessage = QueueError;
-                    if (HasExpectedMutationVersion &&
-                        QueueError.find("Source collection changed during SAM indexing;") == 0)
-                    {
-                         JobStatus.NeedsRetry = true;
-                    }
-               }
-          }
-
-          if (DocumentsToQueue.empty())
-          {
-               std::lock_guard<std::mutex> Lock(JobMutex);
-               CollectionJobStatus& JobStatus = CollectionJobs[Collection];
-               JobStatus.Running = false;
-               std::string StateError;
-               if (!ValidateExpectedMutationVersion(Collection,
-                                                    HasExpectedMutationVersion,
-                                                    ExpectedMutationVersion,
-                                                    &StateError))
-               {
-                    JobStatus.NeedsRetry = true;
-                    JobStatus.Completed = false;
-                    JobStatus.ErrorMessage = StateError;
-                    RecordDebugEvent(Collection, "rebuild invalidated before completion: " + StateError);
-               }
-               else
-               {
-                    bool WroteIndexedMutationVersion = false;
-                    {
-                         std::lock_guard<std::mutex> DBLock(DBMutex);
-                         WroteIndexedMutationVersion =
-                              WriteCollectionIndexedMutationVersionLocked(Database.get(),
-                                                                          Collection,
-                                                                          ExpectedMutationVersion,
-                                                                          &StateError);
-                    }
-                    JobStatus.Completed = WroteIndexedMutationVersion;
-                    if (!WroteIndexedMutationVersion && !StateError.empty())
-                    {
-                         JobStatus.ErrorMessage = StateError;
-                    }
-                    RecordDebugEvent(Collection, "rebuild complete: indexed 0, failed 0");
-               }
-          }
-
-          FinishTask();
-     }).detach();
-
-     return true;
-}
-
-bool SAM::EnqueueIndexDocument(const std::string& Collection,
-                               const Document& Doc,
-                               std::string* ErrorMessage,
-                               bool HasExpectedMutationVersion,
-                               uint64_t ExpectedMutationVersion)
-{
-     {
-          std::lock_guard<std::mutex> Lock(JobMutex);
-
-          if (IsCollectionCancelledLocked(Collection))
-          {
-               if (ErrorMessage)
-               {
-                    *ErrorMessage = "Collection SAM work is being cancelled.";
-               }
-
-               return false;
-          }
-     }
-
-     {
-          std::lock_guard<std::mutex> Lock(DBMutex);
-
-          if (!Database)
-          {
-               if (ErrorMessage)
-               {
-                    *ErrorMessage = "SAM database is not open.";
-               }
-
-               return false;
-          }
-     }
-
-     if (Collection.empty() || Doc.ID.empty())
-     {
-          if (ErrorMessage)
-          {
-               *ErrorMessage = "Collection or document ID is empty.";
-          }
-
-          return false;
-     }
-
-     const std::string PendingKey = BuildPendingIndexKey(Collection, Doc.ID);
-
-     {
-          std::lock_guard<std::mutex> Lock(QueueMutex);
-
-          if (!PendingIndexKeys.insert(PendingKey).second)
-          {
-               for (auto& ExistingJob : PendingIndexJobs)
-               {
-                    if (ExistingJob.Collection == Collection && ExistingJob.Doc.ID == Doc.ID)
-                    {
-                         ExistingJob.Doc = Doc;
-                         ExistingJob.HasExpectedMutationVersion = HasExpectedMutationVersion;
-                         ExistingJob.ExpectedMutationVersion = ExpectedMutationVersion;
-                         break;
-                    }
-               }
-
-               return true;
-          }
-
-          PendingIndexJobs.push_back(PendingIndexJob{Collection,
-                                                     Doc,
-                                                     HasExpectedMutationVersion,
-                                                     ExpectedMutationVersion});
-     }
-
-     RecordDebugEvent(Collection, "queued background index for " + Doc.ID);
-     QueueCV.notify_one();
-     return true;
-}
-
-bool SAM::RemoveExistingDocumentTermsLocked(const std::string& Collection,
-                                            const std::string& DocumentID,
-                                            std::string* ErrorMessage)
-{
-     const std::string ManifestKey = BuildDocManifestKey(Collection, DocumentID);
-     std::string ExistingValue;
-     const rocksdb::Status GetStatus = Database->Get(rocksdb::ReadOptions(), ManifestKey, &ExistingValue);
-
-     if (GetStatus.IsNotFound())
-     {
-          return true;
-     }
-
-     if (!GetStatus.ok())
-     {
-          if (ErrorMessage)
-          {
-               *ErrorMessage = GetStatus.ToString();
-          }
-
-          return false;
-     }
-
-     rocksdb::WriteBatch Batch;
-
-     try
-     {
-          nlohmann::json Root = nlohmann::json::parse(ExistingValue);
-
-          if (Root.contains("terms") && Root["terms"].is_array())
-          {
-               for (const auto& Entry : Root["terms"])
-               {
-                    if (Entry.is_string())
-                    {
-                         Batch.Delete(BuildTermKey(Entry.get<std::string>(), Collection, DocumentID));
-                    }
-                    else if (Entry.is_object())
-                    {
-                         const std::string Text = Entry.value("text", "");
-
-                         if (!Text.empty())
-                         {
-                              Batch.Delete(BuildTermKey(Text, Collection, DocumentID));
+                              ++Shared;
                          }
                     }
+
+                    if (Shared >= SubjectTokens.size() && Shared >= DescriptorTokens.size())
+                    {
+                         continue;
+                    }
+
+                    AddTerm(SubjectSeed + " " + DescriptorSeed,
+                            "query",
+                            Iteration == 0 ? "iterative_pair" : "iterative_refine",
+                            Iteration == 0 ? 0.80 : 0.76,
+                            Iteration == 0 ? 0.84 : 0.80);
+               }
+
+               for (const auto& QuerySeed : CurrentQueries)
+               {
+                    if (QuerySeed == SubjectSeed)
+                    {
+                         continue;
+                    }
+
+                    AddTerm(QuerySeed + " " + SubjectSeed,
+                            "query",
+                            Iteration == 0 ? "query_refine" : "query_expand",
+                            Iteration == 0 ? 0.72 : 0.68,
+                            Iteration == 0 ? 0.76 : 0.72);
                }
           }
      }
-     catch (const std::exception& E)
-     {
-          if (ErrorMessage)
-          {
-               *ErrorMessage = E.what();
-          }
 
-          return false;
-     }
+     std::vector<TermEntry> Terms = Collector.Finalize(96);
 
-     Batch.Delete(ManifestKey);
-
-     const rocksdb::Status WriteStatus = Database->Write(rocksdb::WriteOptions(), &Batch);
-
-     if (!WriteStatus.ok())
-     {
-          if (ErrorMessage)
-          {
-               *ErrorMessage = WriteStatus.ToString();
-          }
-
-          return false;
-     }
-
-     return true;
-}
-
-bool SAM::IndexDocumentLocked(const std::string& Collection,
-                              const Document& Doc,
-                              std::string* ErrorMessage,
-                              bool HasExpectedMutationVersion,
-                              uint64_t ExpectedMutationVersion)
-{
-     if (Collection.empty() || Doc.ID.empty())
-     {
-          if (ErrorMessage)
-          {
-               *ErrorMessage = "Collection or document ID is empty.";
-          }
-
-          return false;
-     }
-
-     std::string TermsError;
-     const std::vector<TermEntry> Terms = ExpandDocumentTerms(Collection, Doc, &TermsError);
      if (Terms.empty())
      {
-          const std::string FailureMessage = TermsError.empty()
-               ? std::string("SAM indexing produced no usable terms.")
-               : TermsError;
-
-          RecordDebugEvent(Collection, "failed to index " + Doc.ID + ": " + FailureMessage);
-
-          if (ErrorMessage)
+          if (!Subject.empty())
           {
-               *ErrorMessage = FailureMessage;
+               Terms.push_back(TermEntry{Subject, "subject", "title", 0.95, 0.95});
           }
-
-          return false;
-     }
-     else
-     {
-          std::ostringstream Preview;
-          const size_t PreviewCount = std::min<size_t>(Terms.size(), 3);
-
-          for (size_t Index = 0; Index < PreviewCount; ++Index)
+          else if (ErrorMessage)
           {
-               if (Index > 0)
-               {
-                    Preview << ", ";
-               }
-
-               Preview << Terms[Index].Text;
-          }
-
-          RecordDebugEvent(Collection,
-                           "indexed " + Doc.ID + " with " + std::to_string(Terms.size()) +
-                                " term(s): " + Preview.str());
-     }
-
-     std::lock_guard<std::mutex> Lock(DBMutex);
-
-     if (!Database)
-     {
-          if (ErrorMessage)
-          {
-               *ErrorMessage = "SAM database is not open.";
-          }
-
-          return false;
-     }
-
-     if (!ValidateExpectedMutationVersion(Collection,
-                                          HasExpectedMutationVersion,
-                                          ExpectedMutationVersion,
-                                          ErrorMessage))
-     {
-          RecordDebugEvent(Collection, "discarded stale SAM job for " + Doc.ID);
-          return false;
-     }
-
-     if (!RemoveExistingDocumentTermsLocked(Collection, Doc.ID, ErrorMessage))
-     {
-          return false;
-     }
-
-     rocksdb::WriteBatch Batch;
-     nlohmann::json Manifest;
-     Manifest["collection"] = Collection;
-     Manifest["id"] = Doc.ID;
-     Manifest["title"] = Doc.Title;
-     Manifest["source_timestamp"] = Doc.Timestamp;
-     Manifest["source_fingerprint"] = BuildSAMSourceDocumentFingerprint(Doc);
-     Manifest["lang"] = DetectSAMDocumentLanguage(Collection, Doc);
-     Manifest["label"] = DetectSAMDocumentLabel(Doc);
-     Manifest["format"] = DetectSAMDocumentFormat(Doc);
-     Manifest["terms"] = nlohmann::json::array();
-     const SAMSemanticProfile SemanticProfile = BuildSemanticProfile(Doc.Title.empty() ? Doc.ID : Doc.Title, Terms);
-
-     for (const auto& Term : Terms)
-     {
-          Manifest["terms"].push_back({
-               {"text", Term.Text},
-               {"kind", Term.Kind},
-               {"source", Term.Source},
-               {"score", Term.Score},
-               {"signal", Term.Signal}
-          });
-
-          nlohmann::json Payload;
-          Payload["collection"] = Collection;
-          Payload["id"] = Doc.ID;
-          Payload["title"] = Doc.Title;
-          Payload["term"] = Term.Text;
-          Payload["kind"] = Term.Kind;
-          Payload["source"] = Term.Source;
-          Payload["score"] = Term.Score;
-          Payload["signal"] = Term.Signal;
-          Batch.Put(BuildTermKey(Term.Text, Collection, Doc.ID), Payload.dump());
-     }
-
-     StoreSemanticProfileJSON(Manifest, SemanticProfile);
-
-     Batch.Put(BuildDocManifestKey(Collection, Doc.ID), Manifest.dump());
-
-     if (!ValidateExpectedMutationVersion(Collection,
-                                          HasExpectedMutationVersion,
-                                          ExpectedMutationVersion,
-                                          ErrorMessage))
-     {
-          RecordDebugEvent(Collection, "discarded stale SAM job before commit for " + Doc.ID);
-          return false;
-     }
-
-     const rocksdb::Status Status = Database->Write(rocksdb::WriteOptions(), &Batch);
-
-     if (!Status.ok())
-     {
-          if (ErrorMessage)
-          {
-               *ErrorMessage = Status.ToString();
-          }
-
-          return false;
-     }
-
-     return true;
-}
-
-bool SAM::IndexDocument(const std::string& Collection,
-                        const Document& Doc,
-                        std::string* ErrorMessage,
-                        bool HasExpectedMutationVersion,
-                        uint64_t ExpectedMutationVersion)
-{
-     return IndexDocumentLocked(Collection,
-                                Doc,
-                                ErrorMessage,
-                                HasExpectedMutationVersion,
-                                ExpectedMutationVersion);
-}
-
-bool SAM::DeleteDocument(const std::string& Collection, const std::string& DocumentID, std::string* ErrorMessage)
-{
-     {
-          std::lock_guard<std::mutex> QueueLock(QueueMutex);
-          PendingIndexKeys.erase(BuildPendingIndexKey(Collection, DocumentID));
-          PendingIndexJobs.erase(
-               std::remove_if(PendingIndexJobs.begin(), PendingIndexJobs.end(),
-                              [&](const PendingIndexJob& Job)
-                              {
-                                   return Job.Collection == Collection && Job.Doc.ID == DocumentID;
-                              }),
-               PendingIndexJobs.end());
-     }
-
-     std::lock_guard<std::mutex> Lock(DBMutex);
-
-     if (!Database)
-     {
-          if (ErrorMessage)
-          {
-               *ErrorMessage = "SAM database is not open.";
-          }
-
-          return false;
-     }
-
-     return RemoveExistingDocumentTermsLocked(Collection, DocumentID, ErrorMessage);
-}
-
-bool SAM::DeleteCollection(const std::string& Collection, std::string* ErrorMessage)
-{
-     if (Collection.empty())
-     {
-          if (ErrorMessage)
-          {
-               *ErrorMessage = "Collection name is required.";
-          }
-
-          return false;
-     }
-
-     {
-          std::lock_guard<std::mutex> QueueLock(QueueMutex);
-          PendingIndexJobs.erase(
-               std::remove_if(PendingIndexJobs.begin(), PendingIndexJobs.end(),
-                              [&](const PendingIndexJob& Job)
-                              {
-                                   return Job.Collection == Collection;
-                              }),
-               PendingIndexJobs.end());
-
-          for (auto It = PendingIndexKeys.begin(); It != PendingIndexKeys.end(); )
-          {
-               if (It->rfind(Collection + "\n", 0) == 0)
-               {
-                    It = PendingIndexKeys.erase(It);
-               }
-               else
-               {
-                    ++It;
-               }
+               *ErrorMessage = "No useful document terms could be derived.";
           }
      }
 
+     if (!ContextError.empty() && ErrorMessage && ErrorMessage->empty())
      {
-          std::lock_guard<std::mutex> Lock(DBMutex);
-
-          if (!Database)
-          {
-               if (ErrorMessage)
-               {
-                    *ErrorMessage = "SAM database is not open.";
-               }
-
-               return false;
-          }
-
-          std::vector<std::string> ExistingDocumentIDs;
-          const std::string ManifestPrefix = "sam:doc:" + Collection + ":";
-          std::unique_ptr<rocksdb::Iterator> ManifestIterator(Database->NewIterator(rocksdb::ReadOptions()));
-
-          for (ManifestIterator->Seek(ManifestPrefix);
-               ManifestIterator->Valid() && ManifestIterator->key().starts_with(ManifestPrefix);
-               ManifestIterator->Next())
-          {
-               const std::string Key = ManifestIterator->key().ToString();
-
-               if (Key.size() > ManifestPrefix.size())
-               {
-                    ExistingDocumentIDs.push_back(Key.substr(ManifestPrefix.size()));
-               }
-          }
-
-          for (const auto& DocumentID : ExistingDocumentIDs)
-          {
-               if (!RemoveExistingDocumentTermsLocked(Collection, DocumentID, ErrorMessage))
-               {
-                    return false;
-               }
-          }
-
-          rocksdb::WriteBatch Batch;
-          Batch.Delete(BuildCollectionProfileKey(Collection));
-          Batch.Delete(BuildCollectionStateKey(Collection));
-
-          const std::string IdeaPrefix = BuildSearchIdeaPrefix(Collection);
-          std::unique_ptr<rocksdb::Iterator> IdeaIterator(Database->NewIterator(rocksdb::ReadOptions()));
-
-          for (IdeaIterator->Seek(IdeaPrefix);
-               IdeaIterator->Valid() && IdeaIterator->key().starts_with(IdeaPrefix);
-               IdeaIterator->Next())
-          {
-               Batch.Delete(IdeaIterator->key());
-          }
-
-          const rocksdb::Status Status = Database->Write(rocksdb::WriteOptions(), &Batch);
-
-          if (!Status.ok())
-          {
-               if (ErrorMessage)
-               {
-                    *ErrorMessage = Status.ToString();
-               }
-
-               return false;
-          }
+          *ErrorMessage = ContextError;
      }
 
-     {
-          std::lock_guard<std::mutex> Lock(JobMutex);
-          CollectionJobs.erase(Collection);
-          ActiveCollectionTasks.erase(Collection);
-          CancelledCollections.erase(Collection);
-     }
-
-     return true;
+     return Terms;
 }
 
 bool SAM::RecordSearchIdea(const std::string& Collection,
@@ -7775,6 +7526,7 @@ std::vector<SAM::LookupHit> SAM::Lookup(const std::string& Query, size_t Limit) 
      }
 
      AppendFuzzyFallbackHits(AggregatedHits, DatabaseHandle.get(), "", Query, Limit);
+     AppendSAMLikePatternHits(AggregatedHits, DatabaseHandle.get(), "", Query);
      AppendSemanticProfileHits(AggregatedHits, DatabaseHandle.get(), "", SemanticPlan,
                                std::max<size_t>(256, Limit * 24));
 
@@ -7929,6 +7681,7 @@ std::vector<SAM::LookupHit> SAM::Lookup(const std::string& Collection, const std
      }
 
      AppendFuzzyFallbackHits(AggregatedHits, DatabaseHandle.get(), Collection, Query, Limit);
+     AppendSAMLikePatternHits(AggregatedHits, DatabaseHandle.get(), Collection, Query);
      AppendSemanticProfileHits(AggregatedHits, DatabaseHandle.get(), Collection, SemanticPlan,
                                std::max<size_t>(256, Limit * 24));
      AppendSearchIdeaHits(AggregatedHits, DatabaseHandle.get(), Collection, SearchIdeas);

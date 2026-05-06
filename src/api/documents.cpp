@@ -126,6 +126,259 @@ static std::string TrimCopy(const std::string &Value)
      return Value.substr(Start, End - Start + 1);
 }
 
+static std::string ToLowerCopy(const std::string &Value)
+{
+     std::string Out = Value;
+     std::transform(Out.begin(), Out.end(), Out.begin(),
+                    [](unsigned char C)
+                    {
+                         return static_cast<char>(std::tolower(C));
+                    });
+     return Out;
+}
+
+static bool IsTruthyToken(const std::string &Value)
+{
+     const std::string Token = ToLowerCopy(TrimCopy(Value));
+     return Token == "1" || Token == "true" || Token == "yes" || Token == "on" || Token == "all";
+}
+
+static bool IsLocalHostName(const std::string &Host)
+{
+     const std::string Lower = ToLowerCopy(Host);
+     return Lower == "localhost" || Lower == "127.0.0.1" || Lower == "::1" || Lower == "0.0.0.0";
+}
+
+static std::string NormalizeNodeEndpointKey(const std::string &RawEndpoint)
+{
+     std::string Host;
+     int Port = 0;
+     std::string Scheme;
+
+     if (!ParseSharedNodeEndpoint(RawEndpoint, Host, Port, &Scheme))
+     {
+          return ToLowerCopy(TrimCopy(RawEndpoint));
+     }
+
+     std::ostringstream Key;
+     Key << ToLowerCopy(Host) << ":" << Port;
+     return Key.str();
+}
+
+struct SAMDistributedNode
+{
+     std::string Raw;
+     std::string Host;
+     int Port = 0;
+     bool IsLocal = false;
+};
+
+static std::vector<std::string> ParseCommaSeparatedSAMValues(const std::string &Input)
+{
+     std::vector<std::string> Values;
+     std::stringstream Stream(Input);
+     std::string Token;
+
+     while (std::getline(Stream, Token, ','))
+     {
+          Token = TrimCopy(Token);
+
+          if (!Token.empty())
+          {
+               Values.push_back(Token);
+          }
+     }
+
+     return Values;
+}
+
+static bool BuildSAMDistributedNodes(std::vector<SAMDistributedNode> &OutNodes)
+{
+     OutNodes.clear();
+
+     if (!(Instance && Instance->Config))
+     {
+          return false;
+     }
+
+     const std::vector<std::string> ClusterNodes = Instance->Config->GetClusterNodes();
+     const std::vector<std::string> SlaveNodes = Instance->Config->GetSlaveNodes();
+     std::unordered_set<std::string> ReplicaEndpoints;
+
+     for (const auto &Replica : SlaveNodes)
+     {
+          ReplicaEndpoints.insert(NormalizeNodeEndpointKey(Replica));
+     }
+
+     std::unordered_set<std::string> Seen;
+
+     for (const auto &Node : ClusterNodes)
+     {
+          const std::string EndpointKey = NormalizeNodeEndpointKey(Node);
+
+          if (EndpointKey.empty() || ReplicaEndpoints.find(EndpointKey) != ReplicaEndpoints.end() ||
+              !Seen.insert(EndpointKey).second)
+          {
+               continue;
+          }
+
+          SAMDistributedNode Entry;
+          std::string Scheme;
+
+          if (!ParseSharedNodeEndpoint(Node, Entry.Host, Entry.Port, &Scheme))
+          {
+               continue;
+          }
+
+          Entry.Raw = Node;
+          Entry.IsLocal = IsLocalHostName(Entry.Host);
+          OutNodes.push_back(std::move(Entry));
+     }
+
+     return !OutNodes.empty();
+}
+
+static double GetSAMHitSortScore(const SAM::LookupHit &Hit)
+{
+     return Hit.Breakdown.FinalScore > 0.0 ? Hit.Breakdown.FinalScore : Hit.MatchedScore;
+}
+
+static std::vector<SAM::LookupHit> MergeDistributedSAMHits(const std::vector<SAM::LookupHit> &Hits,
+                                                           size_t Limit)
+{
+     std::unordered_map<std::string, SAM::LookupHit> BestHits;
+
+     for (const auto &Hit : Hits)
+     {
+          const std::string Key = Hit.Collection + "\n" + Hit.DocumentID;
+          auto Existing = BestHits.find(Key);
+
+          if (Existing == BestHits.end())
+          {
+               BestHits.emplace(Key, Hit);
+               continue;
+          }
+
+          const double ExistingScore = GetSAMHitSortScore(Existing->second);
+          const double CandidateScore = GetSAMHitSortScore(Hit);
+
+          if (CandidateScore > ExistingScore)
+          {
+               Existing->second = Hit;
+               continue;
+          }
+
+          Existing->second.EvidenceCount = std::max(Existing->second.EvidenceCount, Hit.EvidenceCount);
+     }
+
+     std::vector<SAM::LookupHit> Merged;
+     Merged.reserve(BestHits.size());
+
+     for (auto &Pair : BestHits)
+     {
+          Merged.push_back(std::move(Pair.second));
+     }
+
+     std::sort(Merged.begin(), Merged.end(),
+               [](const SAM::LookupHit &Left, const SAM::LookupHit &Right)
+               {
+                    const double LeftScore = GetSAMHitSortScore(Left);
+                    const double RightScore = GetSAMHitSortScore(Right);
+
+                    if (LeftScore != RightScore)
+                    {
+                         return LeftScore > RightScore;
+                    }
+
+                    if (Left.EvidenceCount != Right.EvidenceCount)
+                    {
+                         return Left.EvidenceCount > Right.EvidenceCount;
+                    }
+
+                    if (Left.Collection != Right.Collection)
+                    {
+                         return Left.Collection < Right.Collection;
+                    }
+
+                    return Left.DocumentID < Right.DocumentID;
+               });
+
+     if (Limit > 0 && Merged.size() > Limit)
+     {
+          Merged.resize(Limit);
+     }
+
+     return Merged;
+}
+
+static SAM::LookupHit ParseSAMLookupHitJSON(const nlohmann::json &HitJSON)
+{
+     SAM::LookupHit Hit;
+     Hit.Collection = HitJSON.value("collection", "");
+     Hit.DocumentID = HitJSON.value("id", "");
+     Hit.Title = HitJSON.value("title", "");
+     Hit.MatchedTerm = HitJSON.value("term", "");
+     Hit.MatchedKind = HitJSON.value("kind", "");
+     Hit.MatchedSource = HitJSON.value("source", "");
+     Hit.MatchedPath = HitJSON.value("matched_path", "");
+     Hit.TermOrigin = HitJSON.value("term_origin", "");
+     Hit.EvidenceCount = static_cast<size_t>(std::max<int64_t>(0, HitJSON.value("evidence_count", 0)));
+     Hit.MatchedScore = HitJSON.value("score", 0.0);
+     Hit.MatchedSignal = HitJSON.value("signal", 0.0);
+
+     if (HitJSON.contains("score_breakdown") && HitJSON["score_breakdown"].is_object())
+     {
+          const nlohmann::json &Breakdown = HitJSON["score_breakdown"];
+          Hit.Breakdown.TermScore = Breakdown.value("term_score", 0.0);
+          Hit.Breakdown.SourceDocScore = Breakdown.value("source_doc_score", 0.0);
+          Hit.Breakdown.SemanticScore = Breakdown.value("semantic_score", 0.0);
+          Hit.Breakdown.SemanticVectorScore = Breakdown.value("semantic_vector_score", 0.0);
+          Hit.Breakdown.EvidenceBonus = Breakdown.value("evidence_bonus", 0.0);
+          Hit.Breakdown.DocPrior = Breakdown.value("doc_prior", 0.0);
+          Hit.Breakdown.SemanticBonus = Breakdown.value("semantic_bonus", 0.0);
+          Hit.Breakdown.SourceDocBonus = Breakdown.value("source_doc_bonus", 0.0);
+          Hit.Breakdown.FinalScore = Breakdown.value("final_score", 0.0);
+     }
+
+     Hit.Explain = HitJSON.value("explain", "");
+     return Hit;
+}
+
+static nlohmann::json BuildSAMHitJSON(const SAM::LookupHit &Hit, bool IncludeExplain)
+{
+     nlohmann::json HitJSON = {
+          {"collection", Hit.Collection},
+          {"id", Hit.DocumentID},
+          {"title", Hit.Title},
+          {"term", Hit.MatchedTerm},
+          {"kind", Hit.MatchedKind},
+          {"source", Hit.MatchedSource},
+          {"matched_path", Hit.MatchedPath},
+          {"term_origin", Hit.TermOrigin},
+          {"evidence_count", Hit.EvidenceCount},
+          {"score", Hit.MatchedScore},
+          {"signal", Hit.MatchedSignal},
+          {"score_breakdown", {
+               {"term_score", Hit.Breakdown.TermScore},
+               {"source_doc_score", Hit.Breakdown.SourceDocScore},
+               {"semantic_score", Hit.Breakdown.SemanticScore},
+               {"semantic_vector_score", Hit.Breakdown.SemanticVectorScore},
+               {"evidence_bonus", Hit.Breakdown.EvidenceBonus},
+               {"doc_prior", Hit.Breakdown.DocPrior},
+               {"semantic_bonus", Hit.Breakdown.SemanticBonus},
+               {"source_doc_bonus", Hit.Breakdown.SourceDocBonus},
+               {"final_score", Hit.Breakdown.FinalScore}
+          }}
+     };
+
+     if (IncludeExplain && !Hit.Explain.empty())
+     {
+          HitJSON["explain"] = Hit.Explain;
+     }
+
+     return HitJSON;
+}
+
 static int CompareNaturalString(const std::string &A, const std::string &B)
 {
      size_t I = 0;
@@ -2095,21 +2348,20 @@ HttpResponse SearchAPI::HandleSAMSearch(const HttpRequest &Request)
      const auto QueryIt = Request.QueryParams.find("q");
      const std::string CollectionName = (CollectionIt != Request.QueryParams.end()) ? TrimCopy(CollectionIt->second) : "";
      const std::string Query = (QueryIt != Request.QueryParams.end()) ? TrimCopy(QueryIt->second) : "";
+     const auto AllIt = Request.QueryParams.find("all");
+     const auto CollectionsIt = Request.QueryParams.find("collections");
+     const bool SearchAll = (AllIt != Request.QueryParams.end() && IsTruthyToken(AllIt->second)) ||
+                            (CollectionName.empty() && CollectionsIt != Request.QueryParams.end() &&
+                             !TrimCopy(CollectionsIt->second).empty());
 
-     if (CollectionName.empty() || Query.empty())
+     if (Query.empty())
      {
           return BuildErrorResponse(Status::BAD_REQUEST,
                                     Code::SEARCH_INVALID_PARAMETER,
                                     "Missing SAM search parameters",
-                                    "Query parameters 'collection' and 'q' are required.");
-     }
-
-     if (!HybridStorageManagerInstance().CollectionExists(CollectionName))
-     {
-          return BuildErrorResponse(Status::NOT_FOUND,
-                                    Code::COLLECTION_NOT_FOUND,
-                                    "Collection not found",
-                                    "The specified collection does not exist.");
+                                    SearchAll
+                                         ? "Query parameter 'q' is required."
+                                         : "Query parameters 'collection' and 'q' are required.");
      }
 
      if (!Instance || !Instance->Sam || !Instance->Sam->IsOpen())
@@ -2122,64 +2374,297 @@ HttpResponse SearchAPI::HandleSAMSearch(const HttpRequest &Request)
 
      int LimitVal = 20;
 
-     if (!ParseNonNegativeIntParam(Request.QueryParams, "limit", 20, LimitVal) || LimitVal <= 0)
+      if (!ParseNonNegativeIntParam(Request.QueryParams, "limit", 20, LimitVal) || LimitVal <= 0)
+      {
+           return BuildErrorResponse(Status::BAD_REQUEST,
+                                     Code::SEARCH_INVALID_PARAMETER,
+                                     "Invalid limit",
+                                     "Query parameter 'limit' must be a positive integer.");
+      }
+
+     const bool Distributed = ShouldAttemptDistributedSearch(Request);
+     const bool IncludeExplain = Instance->Config && Instance->Config->GetSam25DebugExplain();
+
+     auto BuildResponse = [&](const std::string &CollectionLabel,
+                              const std::vector<SAM::LookupHit> &Hits,
+                              const std::string &ExecutionMode,
+                              const std::vector<std::string> &Collections = std::vector<std::string>())
+     {
+          nlohmann::json Root;
+          Root["ok"] = true;
+          Root["collection"] = CollectionLabel;
+          Root["query"] = Query;
+          Root["count"] = Hits.size();
+          Root["hits"] = nlohmann::json::array();
+
+          if (!Collections.empty())
+          {
+               Root["collections"] = Collections;
+          }
+
+          for (const auto &Hit : Hits)
+          {
+               Root["hits"].push_back(BuildSAMHitJSON(Hit, IncludeExplain));
+          }
+
+          HttpResponse Response(Status::OK, StatusText(Status::OK), "application/json");
+          Response.Headers["X-HLQ-Execution-Mode"] = ExecutionMode;
+          Response.Body = Root.dump();
+          return Response;
+     };
+
+     if (SearchAll)
+     {
+          std::vector<std::string> TargetCollections;
+
+          if (CollectionsIt != Request.QueryParams.end())
+          {
+               TargetCollections = ParseCommaSeparatedSAMValues(CollectionsIt->second);
+          }
+
+          std::vector<std::string> CollectionsToSearch;
+          std::unordered_set<std::string> SeenCollections;
+
+          if (Distributed)
+          {
+               HttpRequest CollectionsRequest = Request;
+               CollectionsRequest.Method = "GET";
+               CollectionsRequest.Path = "/collections/distributed";
+               CollectionsRequest.Body.clear();
+
+               HttpResponse CollectionsResponse = HandleListCollectionsDistributed(CollectionsRequest);
+
+               if (CollectionsResponse.StatusCode < 200 || CollectionsResponse.StatusCode >= 300)
+               {
+                    return BuildErrorResponse(Status::SERVICE_UNAVAILABLE,
+                                              Code::SEARCH_INVALID_PARAMETER,
+                                              "SAM distributed search unavailable",
+                                              "Unable to enumerate distributed collections for SAM search.");
+               }
+
+               try
+               {
+                    const nlohmann::json CollectionsRoot = nlohmann::json::parse(CollectionsResponse.Body);
+
+                    if (CollectionsRoot.contains("collections") && CollectionsRoot["collections"].is_array())
+                    {
+                         for (const auto &Entry : CollectionsRoot["collections"])
+                         {
+                              const std::string Name = TrimCopy(Entry.value("name", ""));
+
+                              if (!Name.empty() && SeenCollections.insert(Name).second)
+                              {
+                                   CollectionsToSearch.push_back(Name);
+                              }
+                         }
+                    }
+               }
+               catch (const std::exception &)
+               {
+                    return BuildErrorResponse(Status::SERVICE_UNAVAILABLE,
+                                              Code::SEARCH_INVALID_PARAMETER,
+                                              "SAM distributed search unavailable",
+                                              "Failed to parse distributed collection list for SAM search.");
+               }
+          }
+          else
+          {
+               for (const auto &Name : HybridStorageManagerInstance().ListCollections())
+               {
+                    if (!Name.empty() && SeenCollections.insert(Name).second)
+                    {
+                         CollectionsToSearch.push_back(Name);
+                    }
+               }
+          }
+
+          if (!TargetCollections.empty())
+          {
+               std::unordered_set<std::string> Allowed(TargetCollections.begin(), TargetCollections.end());
+               CollectionsToSearch.erase(std::remove_if(CollectionsToSearch.begin(), CollectionsToSearch.end(),
+                                                        [&](const std::string &Name)
+                                                        {
+                                                             return Allowed.find(Name) == Allowed.end();
+                                                        }),
+                                         CollectionsToSearch.end());
+          }
+
+          std::vector<SAM::LookupHit> AggregateHits;
+
+          for (const auto &Collection : CollectionsToSearch)
+          {
+               HttpRequest SubRequest = Request;
+               SubRequest.QueryParams["collection"] = Collection;
+               SubRequest.QueryParams.erase("all");
+               SubRequest.QueryParams.erase("collections");
+
+               HttpResponse SubResponse = HandleSAMSearch(SubRequest);
+
+               if (SubResponse.StatusCode < 200 || SubResponse.StatusCode >= 300)
+               {
+                    continue;
+               }
+
+               try
+               {
+                    const nlohmann::json SubRoot = nlohmann::json::parse(SubResponse.Body);
+
+                    if (!SubRoot.contains("hits") || !SubRoot["hits"].is_array())
+                    {
+                         continue;
+                    }
+
+                    for (const auto &HitJSON : SubRoot["hits"])
+                    {
+                         AggregateHits.push_back(ParseSAMLookupHitJSON(HitJSON));
+                     }
+               }
+               catch (const std::exception &)
+               {
+               }
+          }
+
+          return BuildResponse("*",
+                               MergeDistributedSAMHits(AggregateHits, static_cast<size_t>(LimitVal)),
+                               Distributed ? "distributed-global-sam" : "global-sam",
+                               CollectionsToSearch);
+     }
+
+     auto RouteIt = Request.QueryParams.find("route");
+     const bool HasRoute = (RouteIt != Request.QueryParams.end() && !TrimCopy(RouteIt->second).empty());
+     bool RouteIsLocal = false;
+     std::string RoutedHost;
+     int RoutedPort = 0;
+
+     if (HasRoute && !ResolveDistributedRoute(RouteIt->second, &RoutedHost, &RoutedPort, &RouteIsLocal))
      {
           return BuildErrorResponse(Status::BAD_REQUEST,
                                     Code::SEARCH_INVALID_PARAMETER,
-                                    "Invalid limit",
-                                    "Query parameter 'limit' must be a positive integer.");
+                                    "Invalid route",
+                                    "Use route=local or route=<host[:port]> for a configured distributed node.");
      }
 
-     const std::vector<SAM::LookupHit> Hits = Instance->Sam->Lookup(CollectionName, Query, static_cast<size_t>(LimitVal));
+     std::vector<SAM::LookupHit> AggregateHits;
+     bool LocalCollectionExists = HybridStorageManagerInstance().CollectionExists(CollectionName);
+     bool ExecutedRemote = false;
 
-     if (Instance->Sam->IsOpen())
+     const std::string DistributedMode = Instance && Instance->Config ? Instance->Config->GetDistributedSearchMode() : "disabled";
+     bool IncludeLocal = LocalCollectionExists;
+
+     if (Distributed && !RouteIsLocal && (DistributedMode == "remote_only" || DistributedMode == "strict_remote"))
      {
-          const auto IdeaDocuments = BuildSAMIdeaDocumentsFromLookupHits(Hits);
-          Instance->Sam->RecordSearchIdea(CollectionName, Query, IdeaDocuments);
+          IncludeLocal = false;
      }
 
-     nlohmann::json Root;
-     Root["ok"] = true;
-     Root["collection"] = CollectionName;
-     Root["query"] = Query;
-     Root["count"] = Hits.size();
-     Root["hits"] = nlohmann::json::array();
-
-     for (const auto &Hit : Hits)
+     if (HasRoute && !RouteIsLocal)
      {
-          nlohmann::json HitJson = {
-               {"collection", Hit.Collection},
-               {"id", Hit.DocumentID},
-               {"title", Hit.Title},
-               {"term", Hit.MatchedTerm},
-               {"kind", Hit.MatchedKind},
-               {"source", Hit.MatchedSource},
-               {"matched_path", Hit.MatchedPath},
-               {"term_origin", Hit.TermOrigin},
-               {"evidence_count", Hit.EvidenceCount},
-               {"score", Hit.MatchedScore},
-               {"signal", Hit.MatchedSignal},
-               {"score_breakdown", {
-                    {"term_score", Hit.Breakdown.TermScore},
-                    {"source_doc_score", Hit.Breakdown.SourceDocScore},
-                    {"evidence_bonus", Hit.Breakdown.EvidenceBonus},
-                    {"doc_prior", Hit.Breakdown.DocPrior},
-                    {"source_doc_bonus", Hit.Breakdown.SourceDocBonus},
-                    {"final_score", Hit.Breakdown.FinalScore}
-               }}
-          };
+          IncludeLocal = false;
+     }
 
-          if (Instance->Config && Instance->Config->GetSam25DebugExplain() && !Hit.Explain.empty())
+     if (HasRoute && RouteIsLocal)
+     {
+          IncludeLocal = true;
+     }
+
+     if (IncludeLocal)
+     {
+          const std::vector<SAM::LookupHit> LocalHits = Instance->Sam->Lookup(CollectionName, Query, static_cast<size_t>(LimitVal));
+          AggregateHits.insert(AggregateHits.end(), LocalHits.begin(), LocalHits.end());
+
+          if (Instance->Sam->IsOpen())
           {
-               HitJson["explain"] = Hit.Explain;
+               const auto IdeaDocuments = BuildSAMIdeaDocumentsFromLookupHits(LocalHits);
+               Instance->Sam->RecordSearchIdea(CollectionName, Query, IdeaDocuments);
+          }
+     }
+
+     if (Distributed && !RouteIsLocal)
+     {
+          std::vector<SAMDistributedNode> Nodes;
+          BuildSAMDistributedNodes(Nodes);
+
+          if (HasRoute)
+          {
+               Nodes.erase(std::remove_if(Nodes.begin(), Nodes.end(),
+                                          [&](const SAMDistributedNode &Node)
+                                          {
+                                               return ToLowerCopy(Node.Host) != ToLowerCopy(RoutedHost) || Node.Port != RoutedPort;
+                                          }),
+                           Nodes.end());
           }
 
-          Root["hits"].push_back(std::move(HitJson));
+          for (const auto &Node : Nodes)
+          {
+               if (Node.IsLocal)
+               {
+                    continue;
+               }
+
+               HttpRequest ProxyRequest = Request;
+               ProxyRequest.QueryParams["collection"] = CollectionName;
+               ProxyRequest.QueryParams["distributed"] = "off";
+               ProxyRequest.QueryParams.erase("all");
+               ProxyRequest.QueryParams.erase("collections");
+               ProxyRequest.QueryParams.erase("route");
+               ProxyRequest.Headers["X-HLQ-Distributed-Hop"] = "1";
+
+               HttpResponse ProxyResponse;
+               std::string ProxyError;
+
+               if (!ProxyDistributedRequest(ProxyRequest, Node.Host, Node.Port, &ProxyResponse, &ProxyError))
+               {
+                    continue;
+               }
+
+               if (ProxyResponse.StatusCode < 200 || ProxyResponse.StatusCode >= 300)
+               {
+                    continue;
+               }
+
+               ExecutedRemote = true;
+
+               try
+               {
+                    const nlohmann::json RemoteRoot = nlohmann::json::parse(ProxyResponse.Body);
+
+                    if (!RemoteRoot.contains("hits") || !RemoteRoot["hits"].is_array())
+                    {
+                         continue;
+                    }
+
+                    for (const auto &HitJSON : RemoteRoot["hits"])
+                    {
+                         AggregateHits.push_back(ParseSAMLookupHitJSON(HitJSON));
+                    }
+               }
+               catch (const std::exception &)
+               {
+               }
+          }
      }
 
-     HttpResponse Response(Status::OK, StatusText(Status::OK), "application/json");
-     Response.Body = Root.dump();
-     return Response;
+     if (AggregateHits.empty())
+     {
+          if (!LocalCollectionExists && !ExecutedRemote)
+          {
+               return BuildErrorResponse(Status::NOT_FOUND,
+                                         Code::COLLECTION_NOT_FOUND,
+                                         "Collection not found",
+                                         "The specified collection does not exist locally or on distributed search nodes.");
+          }
+
+          if (Distributed && (DistributedMode == "strict_remote") && !ExecutedRemote)
+          {
+               return BuildErrorResponse(Status::SERVICE_UNAVAILABLE,
+                                         Code::SEARCH_INVALID_PARAMETER,
+                                         "Distributed SAM search unavailable",
+                                         "No distributed search nodes available after excluding replication replicas.");
+          }
+     }
+
+     return BuildResponse(CollectionName,
+                          MergeDistributedSAMHits(AggregateHits, static_cast<size_t>(LimitVal)),
+                          Distributed ? "distributed-sam" : "sam");
 }
 
 HttpResponse SearchAPI::HandleSAMStatus(const HttpRequest &Request)

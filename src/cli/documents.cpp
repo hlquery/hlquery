@@ -1668,11 +1668,18 @@ void HLQueryCLI::RebuildSAMCollection(const std::string &collection_name, bool j
      std::cout << "SAM rebuild is already running for collection '" << collection_name << "'.\n";
 }
 
-void HLQueryCLI::SearchSAM(const std::string &collection_name, const std::string &query, int limit, bool json_output)
+void HLQueryCLI::SearchSAM(const std::string &collection_name,
+                           const std::string &query,
+                           int limit,
+                           bool json_output,
+                           bool all_collections,
+                           const std::vector<std::string> &collections,
+                           const std::string &distributed,
+                           const std::string &route)
 {
-     if (collection_name.empty() || query.empty())
+     if ((!all_collections && collection_name.empty()) || query.empty())
      {
-          PrintError("Collection and query are required", "Usage: sam search <collection> <query> [limit]");
+          PrintError("Collection and query are required", "Usage: sam search <collection> <query> [limit] [--all] [--collections=col1,col2] [--distributed=on|off] [--route=local|host[:port]]");
           return;
      }
 
@@ -1681,9 +1688,45 @@ void HLQueryCLI::SearchSAM(const std::string &collection_name, const std::string
           limit = 20;
      }
 
-     std::string path = "/sam/search?collection=" + hlquery_cli::UrlEncode(collection_name) +
-                        "&q=" + hlquery_cli::UrlEncode(query) +
+     std::string path = "/sam/search?q=" + hlquery_cli::UrlEncode(query) +
                         "&limit=" + std::to_string(limit);
+
+     if (!all_collections)
+     {
+          path += "&collection=" + hlquery_cli::UrlEncode(collection_name);
+     }
+     else
+     {
+          path += "&all=true";
+     }
+
+     if (!collections.empty())
+     {
+          std::ostringstream Joined;
+
+          for (size_t Index = 0; Index < collections.size(); ++Index)
+          {
+               if (Index > 0)
+               {
+                    Joined << ",";
+               }
+
+               Joined << collections[Index];
+          }
+
+          path += "&collections=" + hlquery_cli::UrlEncode(Joined.str());
+     }
+
+     if (!distributed.empty())
+     {
+          path += "&distributed=" + hlquery_cli::UrlEncode(distributed);
+     }
+
+     if (!route.empty())
+     {
+          path += "&route=" + hlquery_cli::UrlEncode(route);
+     }
+
      HLQueryCLI::HTTPResponse response = MakeRequest("GET", path);
 
      if (CheckRequestFailed(response))
@@ -1710,8 +1753,9 @@ void HLQueryCLI::SearchSAM(const std::string &collection_name, const std::string
      }
 
      const nlohmann::json &hits = root["hits"];
+     const std::string Label = all_collections ? "*" : collection_name;
 
-     std::cout << "SAM results for '" << query << "' in collection '" << collection_name << "':.\n";
+     std::cout << "SAM results for '" << query << "' in collection '" << Label << "':.\n";
 
      if (!hits.is_array() || hits.empty())
      {

@@ -166,7 +166,14 @@ class HLQueryCLI
 
      /* Searches one collection's SAM index. */
 
-     void SearchSAM(const std::string &collection_name, const std::string &query, int limit = 20, bool json_output = false);
+     void SearchSAM(const std::string &collection_name,
+                    const std::string &query,
+                    int limit = 20,
+                    bool json_output = false,
+                    bool all_collections = false,
+                    const std::vector<std::string> &collections = {},
+                    const std::string &distributed = "",
+                    const std::string &route = "");
 
      /* Shows SAM indexing status for one collection. */
 

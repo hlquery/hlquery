@@ -1269,6 +1269,57 @@ int main(int argc, char *argv[])
                     cli_instance.ShowLinks(false);
                }
           }
+          else if (command_str == "sam")
+          {
+               if (args_vec.size() >= 2 && args_vec[1] == "search")
+               {
+                    SearchCLIOptions opts;
+                    std::string collection_str;
+                    std::string query_str;
+
+                    if (args_vec.size() >= 3 && args_vec[2] == "--all")
+                    {
+                         if (args_vec.size() < 4)
+                         {
+                              ConsoleWriter::WriteError("Error: 'sam search --all' requires a query.", true);
+                              ConsoleWriter::WriteError("Usage: " + program_name + " sam search --all <query> [limit] [--collections=col1,col2] [--distributed=on|off] [--route=local|host[:port]] [--json].", true);
+                              return 1;
+                         }
+
+                         query_str = args_vec[3];
+                         ParseSearchCLIOptions(args_vec, 4, opts);
+                         opts.All = true;
+                    }
+                    else
+                    {
+                         if (args_vec.size() < 4)
+                         {
+                              ConsoleWriter::WriteError("Error: 'sam search' requires collection and query.", true);
+                              ConsoleWriter::WriteError("Usage: " + program_name + " sam search <collection> <query> [limit] [--all] [--distributed=on|off] [--route=local|host[:port]] [--json].", true);
+                              return 1;
+                         }
+
+                         collection_str = args_vec[2];
+                         query_str = args_vec[3];
+                         ParseSearchCLIOptions(args_vec, 4, opts);
+                    }
+
+                    cli_instance.SearchSAM(collection_str,
+                                           query_str,
+                                           opts.Limit,
+                                           opts.JsonOutput,
+                                           opts.All,
+                                           opts.Collections,
+                                           opts.Distributed,
+                                           opts.Route);
+               }
+               else
+               {
+                    ConsoleWriter::WriteError("Usage: " + program_name + " sam search <collection> <query> [limit] [--all] [--collections=col1,col2] [--distributed=on|off] [--route=local|host[:port]] [--json].", true);
+                    ConsoleWriter::WriteError("   or: " + program_name + " sam search --all <query> [limit] [--collections=col1,col2] [--distributed=on|off] [--route=local|host[:port]] [--json].", true);
+                    return 1;
+               }
+          }
           else if (command_str == "uptime")
           {
                bool days_format_flag = false;
