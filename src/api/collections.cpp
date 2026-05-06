@@ -51,8 +51,6 @@
 #include "utils/wildcard.h"
 #include "vendor/json/json.hpp"
 
-namespace
-{
 struct CollectionMaybeSettings
 {
      bool Enabled = false;
@@ -882,7 +880,6 @@ static void DistAddLocalCollections(const std::string &NodeLabel,
           Record.CreatedAt = DistGetLocalCollectionCreatedAt(Name);
           Record.HasCounts = true;
      }
-}
 }
 /* HandleCreateCollection creates a new collection with schema. */
 
