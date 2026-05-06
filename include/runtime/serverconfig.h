@@ -546,6 +546,11 @@ class ServerConfig
          return AIInferenceCommand;
     }
 
+    bool GetAIEnabled() const
+    {
+         return AIEnabled;
+    }
+
     const std::vector<AIModelDescriptor>& GetAIModelCatalog() const
     {
          return AIModelCatalog;
@@ -564,6 +569,16 @@ class ServerConfig
     const std::string& GetSamDataDirectory() const
     {
          return SamDataDirectory;
+    }
+
+    const std::string& GetSamSearchIdeasCollection() const
+    {
+         return SamSearchIdeasCollection;
+    }
+
+    bool GetSamIndexAll() const
+    {
+         return SamIndexAll;
     }
 
     bool GetSam25DynamicQueryWeight() const
@@ -609,6 +624,16 @@ class ServerConfig
      int GetSamContextMaxIdeas() const
      {
           return SamContextMaxIdeas;
+     }
+
+     bool GetSamLogContext() const
+     {
+          return SamLogContext;
+     }
+
+     int GetSamLLMTimeoutMs() const
+     {
+          return SamLLMTimeoutMs;
      }
 
      const std::string& GetSamLLMCreativityMode() const
@@ -2018,17 +2043,22 @@ class ServerConfig
     std::string AIModelPath;
     std::string AIInferenceCommand;
     std::vector<AIModelDescriptor> AIModelCatalog;
+    bool AIEnabled = true;
     bool SamEnabled = false;
     std::string SamDataDirectory = HLQUERY_SAM_DATA_DIR;
+    std::string SamSearchIdeasCollection;
+    bool SamIndexAll = false;
     bool Sam25DynamicQueryWeight = true;
     double Sam25ShortQueryPhraseBoost = 1.20;
     double Sam25LongQueryPhraseBoost = 0.85;
     double Sam25SourcePhraseBoostTitle = 1.25;
     double Sam25SourcePhraseBoostLabelPair = 1.15;
-    double Sam25SourcePhraseBoostLabel = 1.00;
-    double Sam25SourcePhraseBoostLlm = 0.85;
+     double Sam25SourcePhraseBoostLabel = 1.00;
+     double Sam25SourcePhraseBoostLlm = 0.85;
      int SamLLMMaxIdeas = 6;
      int SamContextMaxIdeas = 20;
+     bool SamLogContext = false;
+     int SamLLMTimeoutMs = 20000;
      std::string SamLLMCreativityMode = "balanced";
     bool Sam25EnableIdf = true;
     double Sam25IdfFloor = 0.10;

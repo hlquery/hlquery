@@ -39,6 +39,8 @@ endif
 # Set default target to 'all' (build everything)
 .DEFAULT_GOAL := all
 
+CONFIGURE_COMMAND := ${CONFIGURE_COMMAND}
+
 # BUILD CONFIGURATION
 
 # Build mode: release (default), debug, profile, sanitize
@@ -319,6 +321,7 @@ SRCS_TOP += $(API_SRCS)
 
 # Search storage source files
 SEARCH_SRCS := $(wildcard $(SRC_DIR)/search/*.cpp)
+SEARCH_SRCS += $(wildcard $(SRC_DIR)/sam/*.cpp)
 SRCS_TOP += $(SEARCH_SRCS)
 
 SQL_SRCS := $(wildcard $(SRC_DIR)/sql/*.cpp)
@@ -571,8 +574,8 @@ $(BIN_DIR):
 	@mkdir -p $(BIN_DIR)
 
 $(CONFIG_HEADER): configure make/config.h.tpl
-	@echo "$(CYAN)Regenerating $(CONFIG_HEADER) via ./configure...$(NC)"
-	@./configure >/dev/null
+	@echo "$(CYAN)Regenerating $(CONFIG_HEADER) via ${CONFIGURE_COMMAND}...$(NC)"
+	@${CONFIGURE_COMMAND} >/dev/null
 
 # Special rules for vendor C files (SHA2 and MD5)
 # Use less strict warnings for vendor code to avoid noise from third-party code
@@ -639,6 +642,7 @@ clean:
 	@find $(VENDOR_DIR) -name "CMakeCache.txt" -exec chmod u+w {} \; -delete 2>/dev/null || true
 	@find $(VENDOR_DIR) -name "CMakeFiles" -type d -exec sh -c 'chmod -R u+w "{}" 2>/dev/null || true; chown -R $$(id -u):$$(id -g) "{}" 2>/dev/null || true; rm -rf "{}"' \; 2>/dev/null || true
 	@find $(VENDOR_DIR) -name "Makefile" -not -path "*/\.*" -exec chmod u+w {} \; -delete 2>/dev/null || true
+	@rm -f ./Makefile 2>/dev/null || true
 
 clean-all: clean
 	@echo "$(YELLOW)Cleaning all generated files...$(NC)"
@@ -653,12 +657,12 @@ clean-all: clean
 
 # INSTALLATION
 
-PREFIX ?= /usr/local
-CONFDIR ?= /home/cferry/work/hlquery/run/conf
-LOGDIR ?= /home/cferry/work/hlquery/run/logs
-DATADIR ?= /home/cferry/work/hlquery/run/data
-RUNDIR ?= /home/cferry/work/hlquery/run/pid
-BINDIR ?= /home/cferry/work/hlquery/run/bin
+PREFIX ?= ${PREFIX}
+CONFDIR ?= ${CONFDIR}
+LOGDIR ?= ${LOGDIR}
+DATADIR ?= ${DATADIR}
+RUNDIR ?= ${RUNDIR}
+BINDIR ?= ${BINDIR}
 INSTALL ?= install
 STAGED_RUN_DIR := $(if $(strip $(DESTDIR)),$(DESTDIR)/$(RUN_DIR),$(RUN_DIR))
 
@@ -947,6 +951,10 @@ install-system: all
 	@if [ -d "run/conf" ]; then \
 		$(INSTALL) -d "$(DESTDIR)$(CONFDIR)"; \
 		cp -r run/conf/* "$(DESTDIR)$(CONFDIR)/"; \
+	fi
+	@if [ -f "etc/package-builder/hlquery.service" ]; then \
+		$(INSTALL) -d "$(DESTDIR)$(PREFIX)/lib/systemd/system"; \
+		$(INSTALL) -m 0644 "etc/package-builder/hlquery.service" "$(DESTDIR)$(PREFIX)/lib/systemd/system/hlquery.service"; \
 	fi
 	@$(INSTALL) -d "$(DESTDIR)$(LOGDIR)"
 	@$(INSTALL) -d "$(DESTDIR)$(DATADIR)"

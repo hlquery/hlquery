@@ -47,8 +47,6 @@
 #include "utils/wildcard.h"
 #include "vendor/json/json.hpp"
 
-namespace
-{
 static const char *kGlobalSynonymsCollection = "__global__";
 
 static bool IsGlobalSynonymsPath(const std::string &Path)
@@ -125,7 +123,7 @@ static std::string NormalizeSynonymTerm(const std::string &Value)
 
      return Result;
 }
-}
+
 /* List all synonyms for a collection. */
 
 /*
@@ -499,7 +497,7 @@ HttpResponse SearchAPI::HandleCreateOrUpdateSynonym(const HttpRequest &Request)
           HttpResponse Response(Status::OK, StatusText(Status::OK), "application/json");
 
           Response.Body = "{\"message\":\"Synonym created/updated\",\"id\":\"" + EscapeJSONString(SynonymID) + "\",\"collection\":\"" + EscapeJSONString(CollectionName) + "\",\"scope\":\"" + (IsGlobalScope ? "global" : "collection") + "\"}";
-          NOTIFY_MODULES(OnUpsertSynonym, CollectionName, SynonymID, IsGlobalScope, Request.RemoteAddress, Request.APIKeyID, !Request.APIKeyID.empty());
+          FOREACH_MOD(OnUpsertSynonym, CollectionName, SynonymID, IsGlobalScope, Request.RemoteAddress, Request.APIKeyID, !Request.APIKeyID.empty());
 
           return Response;
      }
@@ -809,7 +807,7 @@ HttpResponse SearchAPI::HandleDeleteSynonym(const HttpRequest &Request)
           HttpResponse Response(Status::OK, StatusText(Status::OK), "application/json");
 
           Response.Body = "{\"message\":\"Synonym deleted\",\"id\":\"" + EscapeJSONString(SynonymID) + "\",\"collection\":\"" + EscapeJSONString(CollectionName) + "\",\"scope\":\"" + (IsGlobalScope ? "global" : "collection") + "\"}";
-          NOTIFY_MODULES(OnDeleteSynonym, CollectionName, SynonymID, IsGlobalScope, Request.RemoteAddress, Request.APIKeyID, !Request.APIKeyID.empty());
+          FOREACH_MOD(OnDeleteSynonym, CollectionName, SynonymID, IsGlobalScope, Request.RemoteAddress, Request.APIKeyID, !Request.APIKeyID.empty());
 
           return Response;
      }

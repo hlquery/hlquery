@@ -20,10 +20,7 @@
 #include <iostream>
 #include <stdexcept>
 
-namespace
-{
-
-void PrintUsageAndExit()
+static void PrintUsageAndExit()
 {
      std::cout
           << "hlog - log pipeline\n"
@@ -40,7 +37,7 @@ void PrintUsageAndExit()
      std::exit(0);
 }
 
-std::string RequireValue(int argc, char** argv, int& index, const std::string& option)
+static std::string RequireValue(int argc, char** argv, int& index, const std::string& option)
 {
      if (index + 1 >= argc)
      {
@@ -49,7 +46,6 @@ std::string RequireValue(int argc, char** argv, int& index, const std::string& o
 
      ++index;
      return argv[index];
-}
 }
 
 WatchMode ParseMode(const std::string& value)

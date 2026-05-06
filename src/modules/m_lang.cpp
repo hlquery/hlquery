@@ -72,11 +72,6 @@ class LangRuntimeModule final : public AutoRuntimeModule<LangRuntimeModule>
 
      /* Start the module. */
 
-     bool Start(const ServerConfig &, std::string &) override
-     {
-          return true;
-     }
-
      /* Stop the module. */
 
      void Stop() override

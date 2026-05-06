@@ -244,7 +244,6 @@ std::unordered_map<std::string, std::string> PerformanceMonitor::GetOperationSta
 std::unordered_map<std::string, std::unordered_map<std::string, std::string>> PerformanceMonitor::GetAllStats() const
 {
      std::lock_guard<std::mutex> Lock(Mutex);
-
      std::unordered_map<std::string, std::unordered_map<std::string, std::string>> AllStats;
 
      for (const auto &Pair : OperationStatsMap)

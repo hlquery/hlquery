@@ -43,6 +43,7 @@
 #include "runtime/threadlimit.h"
 #include "search/rfusion.h"
 #include "search/cstore.h"
+#include "sam/sam.h"
 #include "search/storageengine.h"
 #include "search/lindex.h"
 #include "utils/consolewriter.h"
@@ -55,6 +56,7 @@ namespace
 static constexpr const char *kReplicationOutboxPrefix = "replication_outbox:";
 static constexpr const char *kReplicationAppliedPrefix = "replication_applied:";
 static constexpr const char *kReplicationResyncStateKey = "replication_resync:active";
+static constexpr const char *kReplicationResyncCollectionsPrefix = "replication_resync:collections:";
 static constexpr size_t kReplicationOutboxStoredBodyLimit = 64 * 1024;
 
 static std::string ToLowerCopy(const std::string &Value)
@@ -269,6 +271,187 @@ static std::string GetReplicationResyncSessionHeader(const HttpRequest &Request)
 static std::string GetReplicationResyncStageHeader(const HttpRequest &Request)
 {
      return ToLowerCopy(TrimHeaderValue(GetHeaderValueInsensitive(Request.Headers, "X-HLQ-Resync-Stage")));
+}
+
+static std::string BuildReplicationResyncCollectionsKey(const std::string &SessionID)
+{
+     return std::string(kReplicationResyncCollectionsPrefix) + SessionID;
+}
+
+static std::string ExtractResyncCollectionFromPath(const std::string &Path)
+{
+     const std::string Prefix = "/collections/";
+
+     if (Path.rfind(Prefix, 0) != 0)
+     {
+          return "";
+     }
+
+     const std::string Remainder = Path.substr(Prefix.size());
+     const std::size_t SlashPos = Remainder.find('/');
+
+     if (SlashPos == std::string::npos)
+     {
+          return Remainder;
+     }
+
+     return Remainder.substr(0, SlashPos);
+}
+
+static void TrackReplicationResyncCollection(const std::string &SessionID,
+                                             const std::string &CollectionName)
+{
+     if (!Instance || !Instance->Database || SessionID.empty() || CollectionName.empty())
+     {
+          return;
+     }
+
+     const std::string Key = BuildReplicationResyncCollectionsKey(SessionID);
+     std::vector<std::string> Collections;
+     std::unordered_set<std::string> Seen;
+     const std::string Existing = Instance->Database->Get(Key);
+
+     if (!Existing.empty())
+     {
+          try
+          {
+               const nlohmann::json Root = nlohmann::json::parse(Existing);
+
+               if (Root.is_array())
+               {
+                    for (const auto &Value : Root)
+                    {
+                         if (!Value.is_string())
+                         {
+                              continue;
+                         }
+
+                         const std::string Name = Value.get<std::string>();
+
+                         if (!Name.empty() && Seen.insert(Name).second)
+                         {
+                              Collections.push_back(Name);
+                         }
+                    }
+               }
+          }
+          catch (...)
+          {
+          }
+     }
+
+     if (Seen.insert(CollectionName).second)
+     {
+          Collections.push_back(CollectionName);
+     }
+
+     nlohmann::json Root = nlohmann::json::array();
+
+     for (const auto &Name : Collections)
+     {
+          Root.push_back(Name);
+     }
+
+     (void)Instance->Database->Set(Key, Root.dump());
+}
+
+static std::vector<std::string> LoadReplicationResyncCollections(const std::string &SessionID)
+{
+     std::vector<std::string> Collections;
+
+     if (!Instance || !Instance->Database || SessionID.empty())
+     {
+          return Collections;
+     }
+
+     const std::string Existing = Instance->Database->Get(BuildReplicationResyncCollectionsKey(SessionID));
+
+     if (Existing.empty())
+     {
+          return Collections;
+     }
+
+     try
+     {
+          const nlohmann::json Root = nlohmann::json::parse(Existing);
+          std::unordered_set<std::string> Seen;
+
+          if (Root.is_array())
+          {
+               for (const auto &Value : Root)
+               {
+                    if (!Value.is_string())
+                    {
+                         continue;
+                    }
+
+                    const std::string Name = Value.get<std::string>();
+
+                    if (!Name.empty() && Seen.insert(Name).second)
+                    {
+                         Collections.push_back(Name);
+                    }
+               }
+          }
+     }
+     catch (...)
+     {
+     }
+
+     return Collections;
+}
+
+static void ClearReplicationResyncCollections(const std::string &SessionID)
+{
+     if (!Instance || !Instance->Database || SessionID.empty())
+     {
+          return;
+     }
+
+     (void)Instance->Database->Del(BuildReplicationResyncCollectionsKey(SessionID));
+}
+
+static void QueueSAMResyncReconciliation(const std::vector<std::string> &Collections,
+                                         const std::string &SessionID)
+{
+     if (!Instance || !Instance->Sam || !Instance->Sam->IsOpen())
+     {
+          return;
+     }
+
+     for (const auto &Collection : Collections)
+     {
+          if (Collection.empty() || !HybridStorageManagerInstance().CollectionExists(Collection))
+          {
+               continue;
+          }
+
+          bool AlreadyRunning = false;
+          std::string ErrorMessage;
+
+          if (!Instance->Sam->StartRecreateCollectionAsync(Collection, &AlreadyRunning, &ErrorMessage))
+          {
+               if (Instance->Logs && !ErrorMessage.empty())
+               {
+                    Instance->Logs->Normal("sam",
+                                           "Failed to queue SAM replication reconciliation for collection '" +
+                                                Collection + "' after resync session '" + SessionID +
+                                                "': " + ErrorMessage + ".");
+               }
+
+               continue;
+          }
+
+          if (Instance->Logs)
+          {
+               Instance->Logs->Debug("sam",
+                                     AlreadyRunning
+                                          ? "SAM replication reconciliation already running for collection '" +
+                                               Collection + "' after resync session '" + SessionID + "'."
+                                          : "Queued SAM replication reconciliation for collection '" +
+                                               Collection + "' after resync session '" + SessionID + "'.");
+          }
+     }
 }
 
 static std::string GetReplicationOperationHeader(const HttpRequest &Request)
@@ -723,9 +906,24 @@ void SearchAPI::FinalizeReplicationResyncRequest(const HttpRequest &Request,
           return;
      }
 
+     const std::string CollectionName = ExtractResyncCollectionFromPath(Request.Path);
+     const bool IsBulkImportRequest =
+          (Request.Method == "POST" &&
+           Request.Path.find("/documents/import") != std::string::npos);
+
+     if (IsBulkImportRequest && !CollectionName.empty())
+     {
+          TrackReplicationResyncCollection(SessionID, CollectionName);
+     }
+
      const std::string ActiveState = Instance->Database->Get(kReplicationResyncStateKey);
      if (ActiveState.empty())
      {
+          if (GetReplicationResyncStageHeader(Request) == "complete")
+          {
+               ClearReplicationResyncCollections(SessionID);
+          }
+
           return;
      }
 
@@ -745,6 +943,9 @@ void SearchAPI::FinalizeReplicationResyncRequest(const HttpRequest &Request,
           return;
      }
 
+     const std::vector<std::string> ResyncedCollections = LoadReplicationResyncCollections(SessionID);
+     QueueSAMResyncReconciliation(ResyncedCollections, SessionID);
+     ClearReplicationResyncCollections(SessionID);
      Instance->Database->Del(kReplicationResyncStateKey);
      Instance->Database->SyncWAL();
 }
@@ -1722,6 +1923,68 @@ bool SearchAPI::ParseDocumentFromJSON(const nlohmann::json &DocJSON, Document &D
                     continue;
                }
 
+               if (Key == "fields" && Value.is_object())
+               {
+                    for (const auto &[NestedKey, NestedValue] : Value.items())
+                    {
+                         std::string NestedFieldNameError;
+
+                         if (!ValidateFieldName(NestedKey, &NestedFieldNameError))
+                         {
+                              if (ErrorMsg)
+                              {
+                                   *ErrorMsg = "Invalid field name '" + NestedKey + "': " + NestedFieldNameError;
+                              }
+
+                              return false;
+                         }
+
+                         if (NestedValue.is_null())
+                         {
+                              continue;
+                         }
+
+                         std::string NestedFieldValue;
+
+                         if (NestedValue.is_string())
+                         {
+                              NestedFieldValue = NestedValue.get<std::string>();
+                         }
+                         else if (NestedValue.is_number_integer())
+                         {
+                              NestedFieldValue = std::to_string(NestedValue.get<int64_t>());
+                         }
+                         else if (NestedValue.is_number_float())
+                         {
+                              NestedFieldValue = std::to_string(NestedValue.get<double>());
+                         }
+                         else if (NestedValue.is_boolean())
+                         {
+                              NestedFieldValue = NestedValue.get<bool>() ? "true" : "false";
+                         }
+                         else
+                         {
+                              NestedFieldValue = NestedValue.dump();
+                         }
+
+                         std::string NestedFieldValueError;
+
+                         if (!ValidateFieldValue(NestedFieldValue, &NestedFieldValueError, NestedKey))
+                         {
+                              if (ErrorMsg)
+                              {
+                                   *ErrorMsg = "Invalid field value for '" + NestedKey + "': " + NestedFieldValueError;
+                              }
+
+                              return false;
+                         }
+
+                         DocumentObj.Fields[NestedKey] = std::move(NestedFieldValue);
+                    }
+
+                    continue;
+               }
+
                std::string FieldNameError;
 
                if (!ValidateFieldName(Key, &FieldNameError))
@@ -2152,9 +2415,7 @@ std::string SearchAPI::GetCurrentTimestamp()
      }
      else
      {
-          auto Now = std::chrono::system_clock::now();
-
-          MSSinceEpoch = std::chrono::duration_cast<std::chrono::milliseconds>(Now.time_since_epoch()).count();
+          MSSinceEpoch = NowMs();
      }
 
      time_t TimeTVal = static_cast<time_t>(MSSinceEpoch / 1000);

@@ -239,6 +239,24 @@ void ServerConfig::ApplyConfiguration()
 
      auto ModuleTags = ConfigReaderValue.GetTags("module");
 
+     auto AddModuleIfMissing = [&](const std::string &ModuleName)
+     {
+          const auto ExistingIt = std::find_if(ModuleLoads.begin(), ModuleLoads.end(),
+                                               [&](const ModuleLoadEntry &Existing)
+                                               {
+                                                    return Existing.Name == ModuleName;
+                                               });
+
+          if (ExistingIt != ModuleLoads.end())
+          {
+               return;
+          }
+
+          ModuleLoadEntry Entry;
+          Entry.Name = ModuleName;
+          ModuleLoads.push_back(std::move(Entry));
+     };
+
      for (const auto &ModuleTag : ModuleTags)
      {
           std::string ModuleName = ModuleTag->GetStringNonEmpty("name", "");
@@ -263,29 +281,11 @@ void ServerConfig::ApplyConfiguration()
           ModuleLoads.push_back(Entry);
      }
 
-    static const std::vector<std::string> CoreModuleNames = {"core_timers"};
+     static const std::vector<std::string> CoreModuleNames = {"core_timers"};
 
      for (const auto &CoreName : CoreModuleNames)
      {
-          bool AlreadyLoaded = false;
-
-          for (const auto &Existing : ModuleLoads)
-          {
-               if (Existing.Name == CoreName)
-               {
-                    AlreadyLoaded = true;
-                    break;
-               }
-          }
-
-          if (AlreadyLoaded)
-          {
-               continue;
-          }
-
-          ModuleLoadEntry CoreEntry;
-          CoreEntry.Name = CoreName;
-          ModuleLoads.push_back(CoreEntry);
+          AddModuleIfMissing(CoreName);
      }
 
      std::filesystem::path ConfigDirectory;
@@ -323,6 +323,7 @@ void ServerConfig::ApplyConfiguration()
 
      if (AITag)
      {
+          AIEnabled = AITag->GetBool("enabled", AIEnabled);
           AIModelsDirectory = AITag->GetString("models_dir", AIModelsDirectory);
           AIModelName = ReadModelName(AITag, AIModelName);
           ModelPathOverride = AITag->GetString("model_path", "");
@@ -334,6 +335,7 @@ void ServerConfig::ApplyConfiguration()
 
      if (LLMTag)
      {
+          AIEnabled = LLMTag->GetBool("enabled", AIEnabled);
           AIModelsDirectory = LLMTag->GetString("models_dir", AIModelsDirectory);
           AIModelName = ReadModelName(LLMTag, AIModelName);
 
@@ -355,6 +357,8 @@ void ServerConfig::ApplyConfiguration()
      {
           SamEnabled = SAMTag->GetBool("enabled", SamEnabled);
           SamDataDirectory = SAMTag->GetString("data_dir", SamDataDirectory);
+          SamSearchIdeasCollection = SAMTag->GetString("sam_search_ideas", SamSearchIdeasCollection);
+          SamIndexAll = SAMTag->GetBool("index_all", SamIndexAll);
           Sam25DynamicQueryWeight = SAMTag->GetBool("sam25_dynamic_query_weight", Sam25DynamicQueryWeight);
           Sam25ShortQueryPhraseBoost = SAMTag->GetDoubleRange("sam25_short_query_phrase_boost", Sam25ShortQueryPhraseBoost, 0.1, 5.0);
           Sam25LongQueryPhraseBoost = SAMTag->GetDoubleRange("sam25_long_query_phrase_boost", Sam25LongQueryPhraseBoost, 0.1, 5.0);
@@ -364,6 +368,8 @@ void ServerConfig::ApplyConfiguration()
           Sam25SourcePhraseBoostLlm = SAMTag->GetDoubleRange("sam25_source_phrase_boost_llm", Sam25SourcePhraseBoostLlm, 0.1, 5.0);
           SamLLMMaxIdeas = SAMTag->GetIntRange("sam_llm_max_ideas", SamLLMMaxIdeas, 1, 64);
           SamContextMaxIdeas = SAMTag->GetIntRange("sam_context_max_ideas", SamContextMaxIdeas, 4, 128);
+          SamLogContext = SAMTag->GetBool("sam_log_context", SamLogContext);
+          SamLLMTimeoutMs = SAMTag->GetIntRange("sam_llm_timeout_ms", SamLLMTimeoutMs, 1000, 300000);
           SamLLMCreativityMode = SAMTag->GetString("sam_llm_creativity_mode", SamLLMCreativityMode);
           SamLLMCreativityMode.erase(0, SamLLMCreativityMode.find_first_not_of(" \t\r\n"));
           SamLLMCreativityMode.erase(SamLLMCreativityMode.find_last_not_of(" \t\r\n") == std::string::npos
@@ -417,6 +423,16 @@ void ServerConfig::ApplyConfiguration()
           {
                SamDataDirectory = SAMTag->GetString("sam_data_dir", SamDataDirectory);
           }
+
+          if (SAMTag->HasAttribute("SAMID"))
+          {
+               SamSearchIdeasCollection = SAMTag->GetString("SAMID", SamSearchIdeasCollection);
+          }
+     }
+
+     if (SamEnabled)
+     {
+          AddModuleIfMissing("core_sam");
      }
 
      AIModelCatalog.clear();
@@ -531,6 +547,11 @@ void ServerConfig::ApplyConfiguration()
                    {
                         const std::filesystem::path RepoRootCandidate =
                              std::filesystem::absolute(RepoRootDir / RawPath, Ec);
+
+                        if (!RunDir.empty() && RawPath.begin() != RawPath.end() && *RawPath.begin() == "data" && !Ec)
+                        {
+                             return std::filesystem::absolute(RunDir / RawPath, Ec);
+                        }
 
                         /* Paths like run/data/... in run/conf/hlquery.conf are project-root-relative,
                          * not relative to run/conf. Resolve them to <repo>/run/... even before the
@@ -680,7 +701,7 @@ void ServerConfig::ApplyConfiguration()
          AIModelPath.clear();
     }
 
-    if (!AIInferenceCommand.empty())
+    if (AIEnabled && !AIInferenceCommand.empty())
     {
          AIInferenceCommand = ResolveRelativePath(std::filesystem::path(AIInferenceCommand)).string();
 
@@ -698,7 +719,7 @@ void ServerConfig::ApplyConfiguration()
               }
          }
     }
-    else
+    else if (AIEnabled)
     {
          const std::string BundledCommand = ResolveBundledInferenceCommand();
 
@@ -707,15 +728,49 @@ void ServerConfig::ApplyConfiguration()
               AIInferenceCommand = BundledCommand;
          }
     }
+    else
+    {
+         AIInferenceCommand.clear();
+    }
 
     if (!SamDataDirectory.empty())
     {
-         SamDataDirectory = ResolveRelativePath(std::filesystem::path(SamDataDirectory)).string();
+         std::filesystem::path SamPath(SamDataDirectory);
+
+         if (!SamPath.empty() && !SamPath.is_absolute())
+         {
+              const auto SamIt = SamPath.begin();
+              const bool HasFirstComponent = (SamIt != SamPath.end());
+              const std::string FirstComponent = HasFirstComponent ? SamIt->generic_string() : "";
+              const bool LooksConfigRelative = (FirstComponent == "." || FirstComponent == ".." || FirstComponent == "run");
+
+              if (!LooksConfigRelative)
+              {
+                   const std::filesystem::path RuntimeDataDir = RuntimePaths::ResolveRuntimeDataDir(this);
+
+                   if (!RuntimeDataDir.empty())
+                   {
+                        SamDataDirectory = std::filesystem::absolute(RuntimeDataDir / SamPath).string();
+                   }
+                   else
+                   {
+                        SamDataDirectory = ResolveRelativePath(SamPath).string();
+                   }
+              }
+              else
+              {
+                   SamDataDirectory = ResolveRelativePath(SamPath).string();
+              }
+         }
+         else
+         {
+              SamDataDirectory = ResolveRelativePath(SamPath).string();
+         }
     }
 
     const bool HasExplicitLLMConfig = (AITag != nullptr) || (LLMTag != nullptr);
 
-    if (HasExplicitLLMConfig)
+    if (HasExplicitLLMConfig && AIEnabled)
     {
          if (AIModelPath.empty())
          {

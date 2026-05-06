@@ -15,6 +15,7 @@
 #include <cctype>
 #include <cstdio>
 #include <cstdlib>
+#include <cmath>
 #include <sstream>
 
 #include "core/hlquery.h"
@@ -158,6 +159,103 @@ static void AppendSuggestion(std::vector<llm::ContextSuggestion>& Suggestions,
      Entry.Kind = Kind;
      Suggestions.push_back(std::move(Entry));
 }
+
+static void AppendIntentCandidate(std::vector<llm::SearchIntentCandidate>& Candidates,
+                                  std::unordered_set<std::string>& Seen,
+                                  const std::string& Value,
+                                  double Weight,
+                                  size_t Limit)
+{
+     if (Candidates.size() >= Limit)
+     {
+          return;
+     }
+
+     const std::string Normalized = NormalizePhrase(Value);
+
+     if (Normalized.empty() || Normalized.size() < 3)
+     {
+          return;
+     }
+
+     if (!Seen.insert(Normalized).second)
+     {
+          return;
+     }
+
+     llm::SearchIntentCandidate Candidate;
+     Candidate.Text = Normalized;
+     Candidate.Weight = std::max(0.0, std::min(1.0, Weight));
+     Candidates.push_back(std::move(Candidate));
+}
+
+static void SortIntentCandidates(std::vector<llm::SearchIntentCandidate>& Candidates)
+{
+     std::sort(Candidates.begin(), Candidates.end(),
+               [](const llm::SearchIntentCandidate& Left,
+                  const llm::SearchIntentCandidate& Right)
+               {
+                    if (std::fabs(Left.Weight - Right.Weight) > 0.00001)
+                    {
+                         return Left.Weight > Right.Weight;
+                    }
+
+                    return Left.Text < Right.Text;
+               });
+}
+
+static llm::SearchIntentResolution BuildHeuristicSearchIntentResolution(const std::string& Query,
+                                                                        const std::vector<Document>& CandidateDocuments,
+                                                                        size_t Limit)
+{
+     llm::SearchIntentResolution Resolution;
+     Resolution.Interpretation = NormalizePhrase(Query);
+     std::unordered_set<std::string> CandidateSeen;
+     std::unordered_set<std::string> RankedSeen;
+
+     for (size_t Index = 0; Index < CandidateDocuments.size() && Index < Limit; ++Index)
+     {
+          const Document& CandidateDocument = CandidateDocuments[Index];
+          const std::string Title = TrimCopy(CandidateDocument.Title.empty() ? CandidateDocument.ID : CandidateDocument.Title);
+
+          if (Title.empty())
+          {
+               continue;
+          }
+
+          const double Weight = std::max(0.10, 1.0 - (static_cast<double>(Index) * 0.15));
+          AppendIntentCandidate(Resolution.Candidates, CandidateSeen, Title, Weight, Limit);
+          AppendIntentCandidate(Resolution.RankedTerms, RankedSeen, Title, Weight, Limit * 2);
+
+          for (const auto& Pair : CandidateDocument.Fields)
+          {
+               if (Resolution.RankedTerms.size() >= Limit * 2)
+               {
+                    break;
+               }
+
+               for (const auto& Value : ExtractArrayishValues(Pair.second))
+               {
+                    AppendIntentCandidate(Resolution.RankedTerms, RankedSeen, Title + " " + Value, Weight * 0.90, Limit * 2);
+
+                    if (Resolution.RankedTerms.size() >= Limit * 2)
+                    {
+                         break;
+                    }
+               }
+          }
+     }
+
+     if (!Resolution.Candidates.empty())
+     {
+          Resolution.Conclusion = "Likely intent points to " + Resolution.Candidates.front().Text;
+     }
+
+     SortIntentCandidates(Resolution.Candidates);
+     SortIntentCandidates(Resolution.RankedTerms);
+     return Resolution;
+}
+
 std::string llm::BuildContextKey(const std::string& Collection, const std::string& DocumentID)
 {
      return Collection + "\n" + DocumentID;
@@ -170,77 +268,35 @@ std::vector<llm::ContextSuggestion> llm::BuildDocumentContext(const std::string&
      std::vector<ContextSuggestion> Suggestions;
      std::unordered_set<std::string> Seen;
 
-     if (Limit == 0)
+     if (!Enabled || Limit == 0)
      {
           return Suggestions;
      }
 
      const std::string Title = TrimCopy(Doc.Title.empty() ? Doc.ID : Doc.Title);
-     const std::string LowerTitle = ToLowerCopy(Title);
-     std::string Category;
-     std::vector<std::string> Labels;
-     std::vector<std::string> Genres;
+
+     AppendSuggestion(Suggestions, Seen, Title, "title", Limit);
 
      for (const auto& Pair : Doc.Fields)
      {
           const std::string LowerKey = ToLowerCopy(Pair.first);
 
-          if (LowerKey == "category" && Category.empty())
+          if (LowerKey == "id" || LowerKey == "name" || LowerKey == "title" ||
+              LowerKey == "content" || LowerKey == "description" || LowerKey == "text" ||
+              LowerKey == "body" || LowerKey == "summary")
           {
-               Category = Pair.second;
+               continue;
           }
-          else if (LowerKey == "labels" || LowerKey == "tags" || LowerKey == "keywords")
+
+          for (const auto& Value : ExtractArrayishValues(Pair.second))
           {
-               auto Values = ExtractArrayishValues(Pair.second);
-               Labels.insert(Labels.end(), Values.begin(), Values.end());
+               AppendSuggestion(Suggestions, Seen, Title + " " + Value, "field", Limit);
+
+               if (Suggestions.size() >= Limit)
+               {
+                    break;
+               }
           }
-          else if (LowerKey == "genre" || LowerKey == "genres" || LowerKey == "style")
-          {
-               auto Values = ExtractArrayishValues(Pair.second);
-               Genres.insert(Genres.end(), Values.begin(), Values.end());
-          }
-     }
-
-     AppendSuggestion(Suggestions, Seen, Title, "title", Limit);
-
-     if (!Collection.empty())
-     {
-          AppendSuggestion(Suggestions, Seen, Title + " " + Collection, "collection", Limit);
-     }
-
-     if (!Category.empty())
-     {
-          AppendSuggestion(Suggestions, Seen, Title + " " + Category, "category", Limit);
-     }
-
-     for (const auto& Genre : Genres)
-     {
-          AppendSuggestion(Suggestions, Seen, Title + " " + Genre, "genre", Limit);
-     }
-
-     for (const auto& Label : Labels)
-     {
-          AppendSuggestion(Suggestions, Seen, Title + " " + Label, "label", Limit);
-     }
-
-     const std::string CombinedContext = ToLowerCopy(Collection + " " + Category + " " + Doc.Content);
-
-     if (CombinedContext.find("music") != std::string::npos ||
-         CombinedContext.find("song") != std::string::npos ||
-         CombinedContext.find("singer") != std::string::npos ||
-         CombinedContext.find("album") != std::string::npos)
-     {
-          AppendSuggestion(Suggestions, Seen, Title + " music", "music", Limit);
-          AppendSuggestion(Suggestions, Seen, Title + " songs", "music", Limit);
-          AppendSuggestion(Suggestions, Seen, "music by " + Title, "music", Limit);
-     }
-
-     if (CombinedContext.find("article") != std::string::npos ||
-         CombinedContext.find("essay") != std::string::npos ||
-         CombinedContext.find("report") != std::string::npos)
-     {
-          AppendSuggestion(Suggestions, Seen, Title + " article", "article", Limit);
-          AppendSuggestion(Suggestions, Seen, Title + " report", "article", Limit);
      }
 
      if (Configured() && !InferenceCommand.empty() && Suggestions.size() < Limit)
@@ -290,9 +346,146 @@ std::vector<llm::ContextSuggestion> llm::BuildDocumentContext(const std::string&
      return Suggestions;
 }
 
+llm::SearchIntentResolution llm::ResolveSearchIntent(const std::string& Collection,
+                                                     const std::string& Query,
+                                                     const std::vector<Document>& CandidateDocuments,
+                                                     size_t Limit) const
+{
+     if (!Enabled || Query.empty() || Limit == 0)
+     {
+          return {};
+     }
+
+     SearchIntentResolution Resolution =
+          BuildHeuristicSearchIntentResolution(Query, CandidateDocuments, Limit);
+
+     if (!Configured() || InferenceCommand.empty())
+     {
+          return Resolution;
+     }
+
+     nlohmann::json Payload;
+     Payload["mode"] = "search_intent";
+     Payload["collection"] = Collection;
+     Payload["query"] = Query;
+     Payload["limit"] = static_cast<unsigned long long>(Limit);
+     Payload["candidates"] = nlohmann::json::array();
+
+     for (const auto& CandidateDocument : CandidateDocuments)
+     {
+          nlohmann::json Candidate;
+          Candidate["id"] = CandidateDocument.ID;
+          Candidate["title"] = CandidateDocument.Title;
+          Candidate["content"] = CandidateDocument.Content;
+          Candidate["fields"] = CandidateDocument.Fields;
+          Payload["candidates"].push_back(std::move(Candidate));
+     }
+
+     std::lock_guard<std::mutex> Lock(InferenceMutex);
+     setenv("HLQUERY_LLM_MODEL", ModelPath.c_str(), 1);
+     setenv("HLQUERY_LLM_SEARCH_JSON", Payload.dump().c_str(), 1);
+
+     FILE* Pipe = popen(InferenceCommand.c_str(), "r");
+     std::string RawOutput;
+
+     if (Pipe)
+     {
+          std::array<char, 1024> Buffer{};
+
+          while (fgets(Buffer.data(), static_cast<int>(Buffer.size()), Pipe))
+          {
+               RawOutput += Buffer.data();
+          }
+
+          pclose(Pipe);
+     }
+
+     unsetenv("HLQUERY_LLM_MODEL");
+     unsetenv("HLQUERY_LLM_SEARCH_JSON");
+
+     const std::string TrimmedOutput = TrimCopy(RawOutput);
+
+     if (TrimmedOutput.empty())
+     {
+          return Resolution;
+     }
+
+     try
+     {
+          const nlohmann::json Root = nlohmann::json::parse(TrimmedOutput);
+          SearchIntentResolution Parsed;
+          Parsed.Interpretation = TrimCopy(Root.value("interpretation", ""));
+          Parsed.Conclusion = TrimCopy(Root.value("conclusion", ""));
+          std::unordered_set<std::string> CandidateSeen;
+          std::unordered_set<std::string> RankedSeen;
+
+          if (Root.contains("candidates") && Root["candidates"].is_array())
+          {
+               for (const auto& Item : Root["candidates"])
+               {
+                    if (!Item.is_object())
+                    {
+                         continue;
+                    }
+
+                    AppendIntentCandidate(Parsed.Candidates,
+                                          CandidateSeen,
+                                          Item.value("text", ""),
+                                          Item.value("weight", 0.0),
+                                          Limit);
+               }
+          }
+
+          if (Root.contains("ranked_terms") && Root["ranked_terms"].is_array())
+          {
+               for (const auto& Item : Root["ranked_terms"])
+               {
+                    if (!Item.is_object())
+                    {
+                         continue;
+                    }
+
+                    AppendIntentCandidate(Parsed.RankedTerms,
+                                          RankedSeen,
+                                          Item.value("text", ""),
+                                          Item.value("weight", 0.0),
+                                          Limit * 2);
+               }
+          }
+
+          if (Parsed.Interpretation.empty())
+          {
+               Parsed.Interpretation = Resolution.Interpretation;
+          }
+
+          if (Parsed.Candidates.empty())
+          {
+               Parsed.Candidates = Resolution.Candidates;
+          }
+
+          if (Parsed.RankedTerms.empty())
+          {
+               Parsed.RankedTerms = Resolution.RankedTerms;
+          }
+
+          if (Parsed.Conclusion.empty() && !Parsed.Candidates.empty())
+          {
+               Parsed.Conclusion = "Likely intent points to " + Parsed.Candidates.front().Text;
+          }
+
+          SortIntentCandidates(Parsed.Candidates);
+          SortIntentCandidates(Parsed.RankedTerms);
+          return Parsed;
+     }
+     catch (...)
+     {
+          return Resolution;
+     }
+}
+
 void llm::EnqueueContextualization(const std::string& Collection, const Document& Doc)
 {
-     if (Collection.empty() || Doc.ID.empty())
+     if (!Enabled || Collection.empty() || Doc.ID.empty())
      {
           return;
      }
@@ -310,6 +503,11 @@ void llm::EnqueueContextualization(const std::string& Collection, const Document
 
 size_t llm::ProcessPendingContextJobs(size_t MaxJobs)
 {
+     if (!Enabled)
+     {
+          return 0;
+     }
+
      size_t Processed = 0;
 
      const bool DebugEnabled = (Instance && Instance->Logs && Instance->Logs->GetDebugMode());

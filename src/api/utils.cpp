@@ -28,6 +28,7 @@
 #include "api/searchapi.h"
 #include "core/hlquery.h"
 #include "utils/wildcard.h"
+#include "vendor/json/json.hpp"
 
 namespace
 {
@@ -580,7 +581,47 @@ bool SearchAPI::EvaluateFilterCondition(const std::map<std::string, std::string>
      auto DocumentIt = Document.find(Condition.Field);
      std::string DerivedFieldValue;
 
-     if (DocumentIt == Document.end() && Condition.Field == "created_at")
+     if (DocumentIt == Document.end())
+     {
+          const auto FieldsIt = Document.find("fields");
+          if (FieldsIt != Document.end() && !FieldsIt->second.empty())
+          {
+               try
+               {
+                    const nlohmann::json FieldsJSON = nlohmann::json::parse(FieldsIt->second);
+                    if (FieldsJSON.is_object() && FieldsJSON.contains(Condition.Field) && !FieldsJSON[Condition.Field].is_null())
+                    {
+                         const auto &Value = FieldsJSON[Condition.Field];
+                         if (Value.is_string())
+                         {
+                              DerivedFieldValue = Value.get<std::string>();
+                         }
+                         else if (Value.is_number_integer())
+                         {
+                              DerivedFieldValue = std::to_string(Value.get<int64_t>());
+                         }
+                         else if (Value.is_number_float())
+                         {
+                              DerivedFieldValue = std::to_string(Value.get<double>());
+                         }
+                         else if (Value.is_boolean())
+                         {
+                              DerivedFieldValue = Value.get<bool>() ? "true" : "false";
+                         }
+                         else
+                         {
+                              DerivedFieldValue = Value.dump();
+                         }
+                    }
+               }
+               catch (...)
+               {
+                    /* Ignore malformed legacy fields payloads. */
+               }
+          }
+     }
+
+     if (DocumentIt == Document.end() && DerivedFieldValue.empty() && Condition.Field == "created_at")
      {
           const auto TimestampIt = Document.find("timestamp");
           if (TimestampIt != Document.end())

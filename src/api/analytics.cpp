@@ -41,7 +41,7 @@ HttpResponse SearchAPI::HandleAnalyticsClick(const HttpRequest &Request)
                                          "Both collection and doc_id are required.");
           }
 
-          NOTIFY_MODULES(OnAnalyticsClick, Collection, Query, DocID, Rank, Request.RemoteAddress, Request.APIKeyID, !Request.APIKeyID.empty());
+          FOREACH_MOD(OnAnalyticsClick, Collection, Query, DocID, Rank, Request.RemoteAddress, Request.APIKeyID, !Request.APIKeyID.empty());
 
           nlohmann::json ResponseJSON;
           ResponseJSON["ok"] = true;

@@ -25,6 +25,7 @@
 #include "search/storageengine.h"
 #include "search/cstore.h"
 #include "search/lindex.h"
+#include "sam/sam.h"
 #include "search/writeaheadlogvalidator.h"
 #include "utils/consolewriter.h"
 
@@ -907,6 +908,19 @@ bool HybridStorageManager::CreateCollection(const std::string &name, const Colle
 
 bool HybridStorageManager::DeleteCollection(const std::string &name)
 {
+     if (Instance && Instance->Sam && Instance->Sam->IsOpen())
+     {
+          std::string SAMCancelError;
+
+          if (!Instance->Sam->CancelCollectionWork(name, &SAMCancelError) &&
+              Instance->Logs && !SAMCancelError.empty())
+          {
+               Instance->Logs->Normal("hybrid_storage",
+                                      "DeleteCollection: Failed to cancel SAM work for '" + name +
+                                           "': " + SAMCancelError + ".");
+          }
+     }
+
      /*
       * Check if collection exists first (before acquiring lock to avoid deadlock).
       * Use a non-locking check by directly checking the in-memory map.
@@ -1332,6 +1346,20 @@ bool HybridStorageManager::DeleteCollection(const std::string &name)
           }
      }
 
+     if (Instance && Instance->Sam && Instance->Sam->IsOpen())
+     {
+          std::string SAMDeleteError;
+
+          if (!Instance->Sam->DeleteCollection(name, &SAMDeleteError) &&
+              Instance->Logs)
+          {
+               Instance->Logs->Normal("hybrid_storage",
+                                      "DeleteCollection: Failed to purge SAM state for '" + name +
+                                           "': " +
+                                           (SAMDeleteError.empty() ? std::string("unknown error") : SAMDeleteError) + ".");
+          }
+     }
+
      /* Remove from in-memory map */
 
      Collections.erase(name);
@@ -1642,12 +1670,7 @@ bool HybridStorageManager::AddDocument(const std::string &collection, const Docu
           }
           else
           {
-               auto now = std::chrono::system_clock::now();
-
-               timestamp_to_store = std::chrono::duration_cast<std::chrono::milliseconds>(
-                                         now.time_since_epoch())
-
-                                         .count();
+               timestamp_to_store = NowMs();
           }
      }
 
@@ -1776,6 +1799,20 @@ bool HybridStorageManager::AddDocument(const std::string &collection, const Docu
                     Instance->Logs->Debug("hybrid_storage", "AddDocument: Failed to index document '" + doc.ID + "': " + e.what() + ".");
                }
           }
+
+          if (Instance && Instance->Sam && Instance->Sam->IsOpen())
+          {
+               std::string sam_error;
+
+               if (!Instance->Sam->EnqueueIndexDocument(collection, doc, &sam_error) &&
+                   Instance->Logs)
+               {
+                    Instance->Logs->Normal("sam",
+                                           "Failed to queue incremental SAM index for '" +
+                                                collection + "/" + doc.ID + "': " +
+                                                (sam_error.empty() ? std::string("unknown error") : sam_error) + ".");
+               }
+          }
      }
 
      /* Document write complete */
@@ -1843,12 +1880,8 @@ size_t HybridStorageManager::AddDocumentsBatch(const std::string &collection, co
                }
                else
                {
-                    auto now = std::chrono::steady_clock::now();
-
-                    timestamp_to_store = std::chrono::duration_cast<std::chrono::milliseconds>(
-                                              now.time_since_epoch())
-
-                                              .count();
+                    timestamp_to_store = static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
+                         Now().time_since_epoch()).count());
                }
           }
 
@@ -2203,12 +2236,7 @@ Document HybridStorageManager::GetDocument(const std::string &collection, const 
                }
                else
                {
-                    auto now = std::chrono::system_clock::now();
-
-                    doc.Timestamp = std::chrono::duration_cast<std::chrono::milliseconds>(
-                                         now.time_since_epoch())
-
-                                         .count();
+                    doc.Timestamp = NowMs();
                }
 
                /* Re-serialize document with new timestamp */
@@ -2366,6 +2394,20 @@ bool HybridStorageManager::DeleteDocument(const std::string &collection, const s
                }
           }
 
+          if (Instance && Instance->Sam && Instance->Sam->IsOpen())
+          {
+               std::string sam_error;
+
+               if (!Instance->Sam->DeleteDocument(collection, document_id, &sam_error) &&
+                   Instance->Logs)
+               {
+                    Instance->Logs->Normal("sam",
+                                           "Failed to remove SAM terms for '" + collection + "/" +
+                                                document_id + "': " +
+                                                (sam_error.empty() ? std::string("unknown error") : sam_error) + ".");
+               }
+          }
+
           /*
                 * Update collection metadata counter after delete to ensure accuracy.
                 * Use collection mutex to prevent race conditions.
@@ -2489,12 +2531,7 @@ bool HybridStorageManager::UpdateDocument(const std::string &collection, const D
                }
                else
                {
-                    auto now = std::chrono::system_clock::now();
-
-                    timestamp_to_store = std::chrono::duration_cast<std::chrono::milliseconds>(
-                                              now.time_since_epoch())
-
-                                              .count();
+                    timestamp_to_store = NowMs();
                }
           }
      }
@@ -2551,12 +2588,7 @@ bool HybridStorageManager::UpdateDocument(const std::string &collection, const D
                }
                else
                {
-                    auto now = std::chrono::system_clock::now();
-
-                    old_timestamp = std::chrono::duration_cast<std::chrono::milliseconds>(
-                                         now.time_since_epoch())
-
-                                         .count();
+                    old_timestamp = NowMs();
                }
           }
 
@@ -2570,6 +2602,20 @@ bool HybridStorageManager::UpdateDocument(const std::string &collection, const D
      if (index_success && Instance && Instance->Logs)
      {
           Instance->Logs->Debug("hybrid_storage", "[UPDATE_SUCCESS] Updated document '" + new_doc.ID + "' in collection '" + collection + "'.");
+     }
+
+     if (index_success && Instance && Instance->Sam && Instance->Sam->IsOpen())
+     {
+          std::string sam_error;
+
+          if (!Instance->Sam->EnqueueIndexDocument(collection, new_doc, &sam_error) &&
+              Instance->Logs)
+          {
+               Instance->Logs->Normal("sam",
+                                      "Failed to queue incremental SAM update for '" +
+                                           collection + "/" + new_doc.ID + "': " +
+                                           (sam_error.empty() ? std::string("unknown error") : sam_error) + ".");
+          }
      }
 
      /*
@@ -3611,6 +3657,19 @@ bool HybridStorageManager::FlushAll()
      if (Instance && Instance->Logs)
      {
           Instance->Logs->Normal("hybrid_storage", "FlushAll: Starting complete flush - removing all data, indexes, caches, and mmap files.");
+     }
+
+     if (Instance->Sam && Instance->Sam->IsOpen())
+     {
+          std::string SAMCancelError;
+
+          if (!Instance->Sam->CancelAllWork(&SAMCancelError) &&
+              Instance->Logs && !SAMCancelError.empty())
+          {
+               Instance->Logs->Normal("hybrid_storage",
+                                      "FlushAll: Failed to cancel SAM work before destructive flush: " +
+                                           SAMCancelError + ".");
+          }
      }
 
      /*

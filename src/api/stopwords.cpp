@@ -458,7 +458,7 @@ HttpResponse SearchAPI::HandleCreateStopword(const HttpRequest &Request)
 
           if (AddedCount > 0)
           {
-               NOTIFY_MODULES(OnCreateStopword, CollectionName, static_cast<uint64_t>(AddedCount), IsGlobalScope, Request.RemoteAddress, Request.APIKeyID, !Request.APIKeyID.empty());
+               FOREACH_MOD(OnCreateStopword, CollectionName, static_cast<uint64_t>(AddedCount), IsGlobalScope, Request.RemoteAddress, Request.APIKeyID, !Request.APIKeyID.empty());
           }
 
           return Response;
@@ -639,7 +639,7 @@ HttpResponse SearchAPI::HandleDeleteStopword(const HttpRequest &Request)
           HttpResponse Response(Status::OK, StatusText(Status::OK), "application/json");
 
           Response.Body = "{\"message\":\"Stopword deleted\",\"word\":\"" + EscapeJSONString(WordStr) + "\",\"collection\":\"" + EscapeJSONString(CollectionName) + "\"}";
-          NOTIFY_MODULES(OnDeleteStopword, CollectionName, WordStr, IsGlobalScope, Request.RemoteAddress, Request.APIKeyID, !Request.APIKeyID.empty());
+          FOREACH_MOD(OnDeleteStopword, CollectionName, WordStr, IsGlobalScope, Request.RemoteAddress, Request.APIKeyID, !Request.APIKeyID.empty());
 
           return Response;
      }

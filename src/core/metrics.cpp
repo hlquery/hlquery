@@ -19,8 +19,8 @@
 #include "core/metrics.h"
 
 HLQueryMetrics::MetricHistory::MetricHistory()
-    : LastStorageTime(std::chrono::system_clock::now()),
-      LastRetentionCheck(std::chrono::system_clock::now())
+    : LastStorageTime(std::chrono::system_clock::time_point(std::chrono::milliseconds(NowMs()))),
+      LastRetentionCheck(std::chrono::system_clock::time_point(std::chrono::milliseconds(NowMs())))
 {
 }
 
@@ -35,7 +35,7 @@ std::chrono::system_clock::time_point HLQueryMetrics::MetricHistory::GetCurrentT
           return std::chrono::system_clock::time_point(std::chrono::milliseconds(Instance->NowMs()));
      }
 
-     return std::chrono::system_clock::now();
+     return std::chrono::system_clock::time_point(std::chrono::milliseconds(NowMs()));
 }
 
 void HLQueryMetrics::MetricHistory::AddPoint(double Value)

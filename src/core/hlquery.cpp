@@ -45,7 +45,7 @@
 #include "runtime/threadlimit.h"
 #include "core/typedefs.h"
 #include "search/storageengine.h"
-#include "search/sam.h"
+#include "sam/sam.h"
 #include "search/cstore.h"
 #include "search/lindex.h"
 #include "utils/consolewriter.h"
@@ -437,6 +437,8 @@ void hlquery::Run()
           ExitManager::Exit(1);
      }
 
+     FOREACH_MOD(OnStartup);
+
      /* Enter the primary server processing loop */
 
      while (true)
@@ -474,7 +476,7 @@ void hlquery::Run()
           if (Instance && Instance->Modules && CurrentMinute >= 0 && CurrentMinute != LastMinuteRun)
           {
                LastMinuteRun = CurrentMinute;
-               NOTIFY_MODULES(OnEveryOneMinute);
+               FOREACH_MOD(OnEveryOneMinute);
           }
 
           /* Handle signals received during loop execution */
@@ -542,7 +544,7 @@ void hlquery::Run()
 
           if (Instance && Instance->Modules)
           {
-               NOTIFY_MODULES(OnIdleTick, NowTimeVal);
+               FOREACH_MOD(OnIdleTick, NowTimeVal);
           }
 
           if (ShouldExitLoop())

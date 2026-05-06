@@ -43,6 +43,7 @@
 #include "benchmarkclient.h"
 #include "runtime/exitmanager.h"
 
+#ifndef HLQUERY_HAS_OPENSSL
 namespace
 {
 HTTPResponse MakeSSLMissingResponse()
@@ -53,6 +54,7 @@ HTTPResponse MakeSSLMissingResponse()
      return response;
 }
 }
+#endif
 
 /* Global stats forward declarations. */
 

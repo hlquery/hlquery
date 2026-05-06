@@ -4,14 +4,14 @@
 
 <div align="center">
 
-**A high-performance search engine built for modern applications.**
+**A modular, high-performance search engine built for modern applications.**
 
 [![Follow hlquery](https://img.shields.io/badge/Follow-%40hlquery-blue?logo=x&logoColor=white)](https://x.com/hlquery)
 [![Linux Build](https://github.com/hlquery/hlquery/workflows/Linux%20build/badge.svg)](https://github.com/hlquery/hlquery/actions)
 [![macOS Build](https://github.com/hlquery/hlquery/workflows/macOS%20Build/badge.svg)](https://github.com/hlquery/hlquery/actions)
 [![FreeBSD Build](https://github.com/hlquery/hlquery/workflows/FreeBSD%20Build/badge.svg)](https://github.com/hlquery/hlquery/actions)
 [![Commit Activity](https://img.shields.io/github/commit-activity/m/hlquery/hlquery)](https://github.com/hlquery/hlquery/pulse)
-[![hlquery](https://img.shields.io/badge/GitHub-hlquery-181717?logo=github&logoColor=white)](https://github.com/hlquery/hlquery/stargazers)
+[![GitHub](https://img.shields.io/badge/GitHub-hlquery-blue?logo=github&logoColor=white)](https://github.com/hlquery/hlquery/stargazers)
 [![License](https://img.shields.io/badge/License-BSD%203--Clause-blue.svg)](https://opensource.org/licenses/BSD-3-Clause)
 
 </div>
@@ -20,19 +20,18 @@
 > Demo mode is powered by [m_demo.cpp](https://github.com/hlquery/hlquery/blob/unstable/src/modules/m_demo.cpp), so insert operations are disabled.
 > The demo UI is built with [hanalyzer](https://github.com/hlquery/hanalyzer).
 
-### Overview
+### What is hlquery?
 
 hlquery is an open source search engine written in C++17 and backed by RocksDB. It is designed for applications that need fast indexing, real-time queries, and a straightforward HTTP/JSON interface without giving up advanced search features. The engine supports full-text search, hybrid ranking, vector similarity, flexible collections, and configurable runtime modules for features such as AI-assisted search.
 It exposes a REST API for indexing, querying, and administration, and includes command-line tools for local management and testing.
 
-### Quick Start
+### Why choose hlquery?
 
-Clone the repository normally:
+hlquery is built for teams that want strong search capabilities without taking on the operational weight of a larger search stack. It combines fast indexing, low-latency queries, and a simple HTTP/JSON surface area with features that are usually expected from more complex systems.
 
-```bash
-$ git clone https://github.com/hlquery/hlquery.git
-$ cd hlquery/
-```
+You can use hlquery for classic full-text search, hybrid retrieval, vector similarity, and AI-assisted search workflows while keeping deployment and integration straightforward. The project also ships with official client libraries, command-line tools, and modular runtime extensions, which makes it practical both for local development and production services.
+
+---
 
 ### Prerequisites
 
@@ -43,25 +42,29 @@ $ sudo apt-get install build-essential cmake libssl-dev
 
 **RedHat/CentOS:**
 ```bash
-$ dnf install @development-tools openssl-devel
+$ sudo dnf install @development-tools cmake openssl-devel
 ```
 
 **macOS:**
 ```bash
-$ brew install openssl
+$ xcode-select --install
+$ brew install cmake openssl
 ```
+
+On macOS, Xcode Command Line Tools provide the C/C++ compiler and `make`,
+Homebrew provides CMake and OpenSSL.
 
 **FreeBSD:**
 ```bash
 $ sudo pkg install git gmake cmake openssl
 ```
 
-> **Note**: This project uses GNU make features. On FreeBSD, run `gmake` instead of `make`.
+> **Note**: This project uses gmake features. On FreeBSD, run `gmake` instead of `make`.
 
 ### Installation
 
 ```bash
-$ git clone --branch 1.0 https://github.com/hlquery/hlquery.git
+$ wget https://github.com/hlquery/hlquery/archive/refs/heads/unstable.zip
 $ cd hlquery/
 $ ./configure
 ```
@@ -69,14 +72,14 @@ $ ./configure
 On Linux:
 
 ```
-$ make -j10
+$ make -j4
 $ make install
 ```
 
 On FreeBSD, use GNU make for the build and install steps:
 
 ```bash
-$ gmake -j10
+$ gmake -j4
 $ gmake install
 ```
 
@@ -112,7 +115,7 @@ localhost:9200|art> uptime
 Server up for 3 days, 1h 0m 31s
 ```
 
-## Client Libraries
+### Client Libraries
 
 Official client libraries are available for popular programming languages:
 
@@ -128,7 +131,7 @@ Official client libraries are available for popular programming languages:
 
 For complete API documentation, visit [docs.hlquery.com](https://docs.hlquery.com/).
 
-## Getting Started
+### Getting Started
 
 ### Create a Collection
 
@@ -137,29 +140,35 @@ $ hlquery-cli create products title content price
 Collection 'products' created successfully
 ```
 
-**using the PHP API:**
+**Using the PHP API:**
 
 ```php
 <?php
 
-require_once __DIR__ . '/vendor/autoload.php';
+require_once __DIR__ . '/vendor/autoload.php'; // Load Composer-installed hlquery classes.
+use Hlquery\Client; // Import the main client entry point.
 
-use Hlquery\Client;
+$client = new Client('http://localhost:9200'));
 
-$client = new Client('http://localhost:9200');
+/* Get the collections service from the client. */
 
 $collections = $client->collections();
 
-$schema = [
-    'fields' => [
-        ['name' => 'id', 'type' => 'string'],
-        ['name' => 'title', 'type' => 'string'],
-        ['name' => 'content', 'type' => 'string'],
-        ['name' => 'price', 'type' => 'float'],
-    ],
-];
+/* Build the schema payload sent to hlquery. */
 
-$collections->create('products', $schema);
+$schema = [ 
+    'fields' => [ 
+        ['name' => 'id', 'type' => 'string'], /* Store the document id as a string field. */
+        ['name' => 'title', 'type' => 'string'], /* Keep the main product title searchable. */
+        ['name' => 'content', 'type' => 'string'], /* Index the longer product description text. */
+        ['name' => 'price', 'type' => 'float'], /* Save a numeric price for filters and sorts. */
+    ], 
+]; 
+
+$response = $collections->create('products', $schema); 
+$body = $response->getBody(); 
+
+echo "Created collection: " . ($body['name'] ?? 'products') . PHP_EOL; 
 ```
 
 ### Index Documents
@@ -169,14 +178,26 @@ $ hlquery-cli add products product1 "Laptop Computer" "High-performance laptop w
 Document 'product1' added to collection 'products'
 ```
 
-**using the Node API:**
+**Using the Node API:**
 
 ```js
-await client.documents().add('products', {
-  id: 'product1',
-  title: 'Laptop Computer',
-  content: 'High-performance laptop with 16GB RAM'
-});
+const Client = require('./etc/api/node/lib/Client'); // Load the official hlquery Node client.
+const client = new Client('http://localhost:9200'); 
+const documents = client.documents(); // Use the documents service for document writes.
+
+/* Send POST /collections/products/documents with the product payload. */
+
+const response = await documents.add('products', {
+  id: 'product1', // Primary document id used by later reads and updates.
+  title: 'Laptop Computer', // Searchable title field.
+  content: 'High-performance laptop with 16GB RAM', // Main body text to index.
+  price: 1299.99 // Numeric field for filtering and sorting.
+}); 
+
+/* Inspect the JSON body returned by the API. */
+
+console.log(response.getBody()); 
+
 ```
 
 ### Search
@@ -193,11 +214,14 @@ Found 1 document(s) (showing 1-1 of 1)
 +---+-------------+----------+-----------------+---------------------------------------+----------+
 ```
 
-**using the C++ API:**
+**Using the C++ API:**
 
 ```cpp
+#include "hlquery/client.h"
+
 hlquery::Client client("http://localhost:9200");
-auto result = client.search("products", {{"q", "laptop"}});
+auto collections = client.collections();
+auto result = collections->search("products", {{"like", "laptop"}});
 ```
 
 ### Example Queries
@@ -228,7 +252,23 @@ $ hlquery-cli search products "!apple"
 $ hlquery-cli search products "title:laptop AND price:[100 TO 500]"
 ```
 
-## GitHub Repositories & Development Workflow
+**SQL example:**
+
+```text
+$ ./run/bin/hlquery-talk
+localhost:9200> sql: select title from music where content like 'madonna%' or content like 'nirvana%';
+SQL rows for `select title from music where content like 'madonna%' or content like 'nirvana%';`:
++-------------------------+
+| title                   |
++-------------------------+
+| Artist Profile: Madonna |
+| Artist Profile: Nirvana |
++-------------------------+
+2 results shown.
+Search completed in 19 ms.
+```
+
+### GitHub Repositories & Development Workflow
 
 hlquery is actively developed across multiple GitHub repositories. We maintain a structured development workflow to ensure stability and continuous improvement.
 
@@ -251,7 +291,7 @@ We're committed to **active, continuous development** of hlquery and all related
 
 Subscribe to repository notifications to never miss an update!
 
-## Contributing
+### Contributing
 
 We welcome contributions from the community! All contributions must be released under the BSD 3-Clause license.
 
@@ -261,15 +301,13 @@ We welcome contributions from the community! All contributions must be released 
 - Contribute to client libraries (Node.js, Go, Java, Python, PHP, Ruby, Rust, Perl, C++)
 - Test and report bugs
 - Improve documentation
-- Join our [Discord community](https://discord.hlquery.com)
 
-## Community
+### Community
 
 - 📖 [Documentation](https://docs.hlquery.com)
-- 💬 [Discord](https://discord.hlquery.com)
 - 🐦 [X (Twitter)](https://x.com/hlquery)
 - 📦 [GitHub](https://github.com/hlquery/hlquery)
 
-## License
+### License
 
 hlquery is licensed under the [BSD 3-Clause License](https://opensource.org/licenses/BSD-3-Clause).

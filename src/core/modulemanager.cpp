@@ -123,11 +123,11 @@ ModuleManager::~ModuleManager()
 
 bool ModuleManager::LoadModules(const ServerConfig &Config, LogManager *Logger, std::string &ErrorMessage)
 {
-     const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+     const auto Deadline = Now() + std::chrono::seconds(5);
 
      while (!HybridStorageManagerInstance().IsInitialized())
      {
-          if (std::chrono::steady_clock::now() >= Deadline)
+          if (Now() >= Deadline)
           {
                ErrorMessage = "Hybrid storage manager did not finish initializing before modules were loaded.";
 

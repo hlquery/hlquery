@@ -56,6 +56,7 @@ class CoreTimersModule final : public AutoRuntimeModule<CoreTimersModule>
 
      CoreTimersModule() : AutoRuntimeModule("core_timers")
      {
+
      }
 
      bool Start(const ServerConfig &, std::string &) override
@@ -99,8 +100,6 @@ class CoreTimersModule final : public AutoRuntimeModule<CoreTimersModule>
                Instance->LLM->ProcessPendingContextJobs(1);
           }
 
-          return;
-          
           if (Instance && Instance->Config && Instance->Logs && Instance->Config->GetNoForkMode())
           {
                const time_t NowTime = Instance->Time();
@@ -164,6 +163,7 @@ class CoreTimersModule final : public AutoRuntimeModule<CoreTimersModule>
                EmitDaemonHealthSnapshot(NowTime);
                LastSnapshot = NowTime;
           }
+
      }
 };
 

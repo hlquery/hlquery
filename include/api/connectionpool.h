@@ -120,8 +120,8 @@ class PooledConnection
 
      PooledConnection(int FD, const std::string& HostVal, uint16_t PortVal)
          : SocketFD(FD), Host(HostVal), Port(PortVal), StateValue(ConnectionState::IDLE),
-           CreatedTime(Instance ? Instance->Now() : std::chrono::steady_clock::now()),
-           LastUsedTime(Instance ? Instance->Now() : std::chrono::steady_clock::now())
+           CreatedTime(Instance ? Instance->Now() : Now()),
+           LastUsedTime(Instance ? Instance->Now() : Now())
      {
           Metrics.LastActivityTime = GetCurrentTime();
      }
@@ -165,7 +165,7 @@ class PooledConnection
 
           /* Check if connection is too old (1 hour). */
 
-          auto NowVal = Instance ? Instance->Now() : std::chrono::steady_clock::now();
+          auto NowVal = Instance ? Instance->Now() : Now();
 
           if (NowVal - CreatedTime > std::chrono::hours(1))
           {
@@ -188,7 +188,7 @@ class PooledConnection
 
           InUse = true;
           RefCount++;
-          LastUsedTime = Instance ? Instance->Now() : std::chrono::steady_clock::now();
+          LastUsedTime = Instance ? Instance->Now() : Now();
           Metrics.LastActivityTime = GetCurrentTime();
 
           return true;
@@ -202,7 +202,7 @@ class PooledConnection
 
           InUse = false;
           RefCount--;
-          LastUsedTime = Instance ? Instance->Now() : std::chrono::steady_clock::now();
+          LastUsedTime = Instance ? Instance->Now() : Now();
      }
 
      /* Request handling with metrics. */
@@ -211,7 +211,7 @@ class PooledConnection
      {
           /* Measure write-side latency independently from response processing. */
 
-          auto StartTime = std::chrono::high_resolution_clock::now();
+          auto StartTime = Now();
 
           Metrics.TotalRequests++;
 
@@ -235,7 +235,7 @@ class PooledConnection
           Metrics.SuccessfulRequests++;
           ConsecutiveFailures = 0;
 
-          auto EndTime = std::chrono::high_resolution_clock::now();
+          auto EndTime = Now();
           auto DurationVal = std::chrono::duration_cast<std::chrono::milliseconds>(EndTime - StartTime);
           uint64_t ResponseTime = DurationVal.count();
 
@@ -254,7 +254,7 @@ class PooledConnection
 
           /* Read-side latency is tracked separately so transport stalls are visible. */
 
-          auto StartTime = std::chrono::high_resolution_clock::now();
+          auto StartTime = Now();
 
           char Buffer[8192];
           ssize_t BytesReceivedVal = recv(SocketFD, Buffer, sizeof(Buffer), MSG_DONTWAIT);
@@ -281,7 +281,7 @@ class PooledConnection
           ResponseVal.assign(Buffer, BytesReceivedVal);
           Metrics.BytesReceived += BytesReceivedVal;
 
-          auto EndTime = std::chrono::high_resolution_clock::now();
+          auto EndTime = Now();
           auto DurationVal = std::chrono::duration_cast<std::chrono::milliseconds>(EndTime - StartTime);
           uint64_t ResponseTime = DurationVal.count();
 
@@ -368,7 +368,7 @@ class PooledConnection
                return std::chrono::duration_cast<std::chrono::milliseconds>(NowVal.time_since_epoch()).count();
           }
 
-          return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+          return std::chrono::duration_cast<std::chrono::milliseconds>(Now().time_since_epoch()).count();
      }
 };
 
@@ -726,7 +726,6 @@ class AdvancedConnectionPool : public std::enable_shared_from_this<AdvancedConne
           int Flags = fcntl(Sock, F_GETFL, 0);
 
           fcntl(Sock, F_SETFL, Flags | O_NONBLOCK);
-
           auto Conn = std::make_shared<PooledConnection>(Sock, Host, Port);
 
           std::lock_guard<std::mutex> Lock(PoolMutex);
@@ -779,7 +778,7 @@ class AdvancedConnectionPool : public std::enable_shared_from_this<AdvancedConne
      {
           std::lock_guard<std::mutex> Lock(PoolMutex);
 
-          auto NowVal = Instance ? Instance->Now() : std::chrono::steady_clock::now();
+          auto NowVal = Instance ? Instance->Now() : Now();
           auto It = Connections.begin();
 
           while (It != Connections.end())

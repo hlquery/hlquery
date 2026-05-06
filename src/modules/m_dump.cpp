@@ -30,11 +30,6 @@ class DumpModule final : public AutoRuntimeModule<DumpModule>
 
      }
 
-     bool Start(const ServerConfig &, std::string &) override
-     {
-          return true;
-     }
-
      void Stop() override
      {
      }

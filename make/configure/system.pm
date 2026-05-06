@@ -1,4 +1,15 @@
-package make::configure::System;
+#
+# hlquery - Search beyond keywords.
+# https://www.hlquery.com
+#
+# Copyright (C) 2021-2026, Carlos F. Ferry <carlos.ferry@gmail.com>
+#
+# This file is part of hlquery, released under the BSD License version 3.
+# You are free to redistribute and/or modify this software
+# under the terms of the BSD License.
+# For more details, please visit: https://docs.hlquery.com
+
+package make::configure::system;
 
 use v5.26.0;
 use strict;
@@ -175,18 +186,18 @@ sub apply_install_layout {
 
     if ($layout eq 'dev') {
         $config_ref->{PREFIX} = $base_path unless $set_ref->{prefix};
-        $config_ref->{CONFDIR} ||= catdir($base_path, $run_dir, 'conf') unless $set_ref->{confdir};
-        $config_ref->{LOGDIR}  ||= catdir($base_path, $run_dir, 'logs') unless $set_ref->{logdir};
-        $config_ref->{DATADIR} ||= catdir($base_path, $run_dir, 'data') unless $set_ref->{datadir};
-        $config_ref->{RUNDIR}  ||= catdir($base_path, $run_dir, 'pid') unless $set_ref->{rundir};
-        $config_ref->{BINDIR}  ||= catdir($base_path, $run_dir, 'bin') unless $set_ref->{bindir};
+        $config_ref->{CONFDIR} = catdir($base_path, $run_dir, 'conf') unless $set_ref->{confdir};
+        $config_ref->{LOGDIR}  = catdir($base_path, $run_dir, 'logs') unless $set_ref->{logdir};
+        $config_ref->{DATADIR} = catdir($base_path, $run_dir, 'data') unless $set_ref->{datadir};
+        $config_ref->{RUNDIR}  = catdir($base_path, $run_dir, 'pid') unless $set_ref->{rundir};
+        $config_ref->{BINDIR}  = catdir($base_path, $run_dir, 'bin') unless $set_ref->{bindir};
     } elsif ($layout eq 'system' || $layout eq 'debian' || $layout eq 'rpm') {
         $config_ref->{PREFIX} = '/usr' unless $set_ref->{prefix};
-        $config_ref->{CONFDIR} ||= '/etc/hlquery' unless $set_ref->{confdir};
-        $config_ref->{LOGDIR}  ||= '/var/log/hlquery' unless $set_ref->{logdir};
-        $config_ref->{DATADIR} ||= '/var/lib/hlquery' unless $set_ref->{datadir};
-        $config_ref->{RUNDIR}  ||= '/run/hlquery' unless $set_ref->{rundir};
-        $config_ref->{BINDIR}  ||= '/usr/bin' unless $set_ref->{bindir};
+        $config_ref->{CONFDIR} = '/etc/hlquery' unless $set_ref->{confdir};
+        $config_ref->{LOGDIR}  = '/var/log/hlquery' unless $set_ref->{logdir};
+        $config_ref->{DATADIR} = '/var/lib/hlquery' unless $set_ref->{datadir};
+        $config_ref->{RUNDIR}  = '/run/hlquery' unless $set_ref->{rundir};
+        $config_ref->{BINDIR}  = '/usr/bin' unless $set_ref->{bindir};
     } else {
         die "Invalid layout '$layout'. Valid layouts: dev, system, debian, rpm, auto\n";
     }

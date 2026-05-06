@@ -551,21 +551,21 @@ static bool ExtractSearchCLIQuery(const std::vector<std::string> &args,
 
      size_t query_token_count = positional.size();
 
-     if (query_token_count >= 3)
+     if (query_token_count >= 4 &&
+         IsUnsignedIntegerValue(positional[query_token_count - 3]) &&
+         IsUnsignedIntegerValue(positional[query_token_count - 2]))
      {
           query_token_count -= 3;
      }
-     else
+     else if (query_token_count >= 3 &&
+              IsUnsignedIntegerValue(positional[query_token_count - 2]) &&
+              IsUnsignedIntegerValue(positional[query_token_count - 1]))
      {
-          if (query_token_count >= 2 && IsUnsignedIntegerValue(positional[query_token_count - 1]))
-          {
-               --query_token_count;
-          }
-
-          if (query_token_count >= 2 && IsUnsignedIntegerValue(positional[query_token_count - 1]))
-          {
-               --query_token_count;
-          }
+          query_token_count -= 2;
+     }
+     else if (query_token_count >= 2 && IsUnsignedIntegerValue(positional[query_token_count - 1]))
+     {
+          --query_token_count;
      }
 
      if (query_token_count == 0)
@@ -576,6 +576,7 @@ static bool ExtractSearchCLIQuery(const std::vector<std::string> &args,
      std::vector<std::string> query_tokens(positional.begin(), positional.begin() + static_cast<long>(query_token_count));
      query = JoinSearchQueryTokens(query_tokens);
      phrase_query = (query_tokens.size() == 1 && query_tokens[0].find(' ') != std::string::npos);
+     options_start_index = start_index + query_token_count;
 
      return !query.empty();
 }
@@ -671,7 +672,9 @@ static std::string BuildCLIQueryForServer(const std::string &query, bool phrase_
           return trimmed;
      }
 
-     if (phrase_query || !LooksLikeStructuredSearchQuery(trimmed))
+     const bool structured_query = LooksLikeStructuredSearchQuery(trimmed);
+
+     if (!structured_query)
      {
           return "\"" + trimmed + "\"";
      }

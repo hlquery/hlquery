@@ -801,7 +801,7 @@ class AutoDeleterRuntimeModule final : public AutoRuntimeModule<AutoDeleterRunti
                if (HybridStorageManagerInstance().DeleteDocument(Collection, document_id))
                {
                     ++deleted_count;
-                    NOTIFY_MODULES(OnDeleteDocument, Collection, document_id, "127.0.0.1", "autodeleter", true);
+                    FOREACH_MOD(OnDeleteDocument, Collection, document_id, "127.0.0.1", "autodeleter", true);
                }
           }
 
@@ -832,7 +832,7 @@ class AutoDeleterRuntimeModule final : public AutoRuntimeModule<AutoDeleterRunti
                return 0;
           }
 
-          NOTIFY_MODULES(OnDeleteCollection, Collection, "127.0.0.1", "autodeleter", true);
+          FOREACH_MOD(OnDeleteCollection, Collection, "127.0.0.1", "autodeleter", true);
 
           return 1;
      }

@@ -30,7 +30,7 @@
 
 /* Calls a module manager dispatcher when modules are available. */
 
-#define NOTIFY_MODULES(Method, ...)                                        \
+#define FOREACH_MOD(Method, ...)                                            \
      do                                                                     \
      {                                                                      \
           if (Instance && Instance->Modules)                                \

@@ -231,7 +231,7 @@ HttpResponse SearchAPI::HandleCreateOrUpdateAlias(const HttpRequest &Request)
           HttpResponse Response(Status::OK, StatusText(Status::OK), "application/json");
 
           Response.Body = "{\"message\":\"Alias created/updated\",\"name\":\"" + EscapeJSONString(AliasName) + "\",\"collection_name\":\"" + EscapeJSONString(CollectionName) + "\"}";
-          NOTIFY_MODULES(OnUpsertAlias, AliasName, CollectionName, Request.RemoteAddress, Request.APIKeyID, !Request.APIKeyID.empty());
+          FOREACH_MOD(OnUpsertAlias, AliasName, CollectionName, Request.RemoteAddress, Request.APIKeyID, !Request.APIKeyID.empty());
 
           return Response;
      }
@@ -331,7 +331,7 @@ HttpResponse SearchAPI::HandleDeleteAlias(const HttpRequest &Request)
      HttpResponse Response(Status::OK, StatusText(Status::OK), "application/json");
 
      Response.Body = "{\"message\":\"Alias deleted\",\"name\":\"" + EscapeJSONString(AliasName) + "\"}";
-     NOTIFY_MODULES(OnDeleteAlias, AliasName, Request.RemoteAddress, Request.APIKeyID, !Request.APIKeyID.empty());
+     FOREACH_MOD(OnDeleteAlias, AliasName, Request.RemoteAddress, Request.APIKeyID, !Request.APIKeyID.empty());
 
      return Response;
 }

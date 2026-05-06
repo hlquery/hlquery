@@ -44,14 +44,36 @@
 #include "search/rfusion.h"
 #include "search/cstore.h"
 #include "search/lindex.h"
-#include "search/sam.h"
+#include "sam/sam.h"
 #include "utils/consolewriter.h"
 #include "utils/protocol.h"
 #include "utils/wildcard.h"
 #include "vendor/json/json.hpp"
 
-namespace
+static std::vector<SAM::SearchIdeaDocumentRef> BuildSAMIdeaDocumentsFromLookupHits(const std::vector<SAM::LookupHit> &Hits,
+                                                                                   size_t MaxDocuments = 6)
 {
+     std::vector<SAM::SearchIdeaDocumentRef> Documents;
+     std::unordered_set<std::string> Seen;
+
+     for (const auto &Hit : Hits)
+     {
+          if (Hit.DocumentID.empty() || !Seen.insert(Hit.DocumentID).second)
+          {
+               continue;
+          }
+
+          Documents.push_back({Hit.DocumentID, Hit.Title, std::max(0.05, Hit.Breakdown.FinalScore > 0.0 ? Hit.Breakdown.FinalScore : Hit.MatchedScore)});
+
+          if (Documents.size() >= MaxDocuments)
+          {
+               break;
+          }
+     }
+
+     return Documents;
+}
+
 static nlohmann::json BuildDocumentJSON(const Document &Doc)
 {
      nlohmann::json J;
@@ -102,6 +124,64 @@ static std::string TrimCopy(const std::string &Value)
 
      const size_t End = Value.find_last_not_of(" \t\r\n");
      return Value.substr(Start, End - Start + 1);
+}
+
+static int CompareNaturalString(const std::string &A, const std::string &B)
+{
+     size_t I = 0;
+     size_t J = 0;
+
+     while (I < A.length() && J < B.length())
+     {
+          if (std::isdigit(static_cast<unsigned char>(A[I])) && std::isdigit(static_cast<unsigned char>(B[J])))
+          {
+               size_t NumStartA = I;
+               size_t NumStartB = J;
+
+               while (I < A.length() && std::isdigit(static_cast<unsigned char>(A[I])))
+               {
+                    I++;
+               }
+
+               while (J < B.length() && std::isdigit(static_cast<unsigned char>(B[J])))
+               {
+                    J++;
+               }
+
+               const long long NumA = std::stoll(A.substr(NumStartA, I - NumStartA));
+               const long long NumB = std::stoll(B.substr(NumStartB, J - NumStartB));
+
+               if (NumA != NumB)
+               {
+                    return (NumA < NumB) ? -1 : 1;
+               }
+          }
+          else
+          {
+               const char CharA = std::tolower(static_cast<unsigned char>(A[I]));
+               const char CharB = std::tolower(static_cast<unsigned char>(B[J]));
+
+               if (CharA != CharB)
+               {
+                    return (CharA < CharB) ? -1 : 1;
+               }
+
+               I++;
+               J++;
+          }
+     }
+
+     if (I < A.length())
+     {
+          return 1;
+     }
+
+     if (J < B.length())
+     {
+          return -1;
+     }
+
+     return 0;
 }
 
 static bool ParseNonNegativeIntParam(const std::map<std::string, std::string> &Params,
@@ -174,8 +254,6 @@ static bool ExtractSAMDocumentPathParts(const std::string &Path,
      Collection = Remainder.substr(0, SlashPos);
      DocumentID = Remainder.substr(SlashPos + 1);
      return !Collection.empty() && !DocumentID.empty();
-}
-
 }
 
 /* HandleListDocuments lists documents in a collection with pagination and sorting. */
@@ -435,7 +513,13 @@ HttpResponse SearchAPI::HandleListDocuments(const HttpRequest &Request)
                                    return DescendingVal ? ATimestamp > BTimestamp : ATimestamp < BTimestamp;
                               }
 
-                              return false;
+                              int IDCmp = CompareNaturalString(A.ID, B.ID);
+                              if (IDCmp != 0)
+                              {
+                                   return IDCmp < 0;
+                              }
+
+                              return CompareNaturalString(A.Title, B.Title) < 0;
                          }
                          else
                          {
@@ -497,15 +581,28 @@ HttpResponse SearchAPI::HandleListDocuments(const HttpRequest &Request)
                                    double ANum = std::stod(AValue);
                                    double BNum = std::stod(BValue);
 
-                                   return DescendingVal ? ANum > BNum : ANum < BNum;
+                                   if (ANum != BNum)
+                                   {
+                                        return DescendingVal ? ANum > BNum : ANum < BNum;
+                                   }
                               }
                               catch (...)
                               {
-                                   return DescendingVal ? AValue > BValue : AValue < BValue;
+                                   int Cmp = CompareNaturalString(AValue, BValue);
+                                   if (Cmp != 0)
+                                   {
+                                        return DescendingVal ? (Cmp > 0) : (Cmp < 0);
+                                   }
                               }
                          }
 
-                         return false;
+                         int IDCmp = CompareNaturalString(A.ID, B.ID);
+                         if (IDCmp != 0)
+                         {
+                              return IDCmp < 0;
+                         }
+
+                         return CompareNaturalString(A.Title, B.Title) < 0;
                     });
 
           if (OffsetVal > 0 || static_cast<int>(Documents.size()) > LimitVal)
@@ -761,7 +858,7 @@ HttpResponse SearchAPI::HandleAddDocument(const HttpRequest &Request)
                                                                  return Inst->NowMs();
                                                             }
 
-                                                            return static_cast<int64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count());
+                                                            return static_cast<int64_t>(NowMs());
                                                        }()) +
                                "_" + std::to_string(rand() % 1000000);
 
@@ -953,9 +1050,7 @@ HttpResponse SearchAPI::HandleAddDocument(const HttpRequest &Request)
                }
                else
                {
-                    auto NowVal = std::chrono::system_clock::now();
-
-                    StorageDoc.Timestamp = std::chrono::duration_cast<std::chrono::milliseconds>(NowVal.time_since_epoch()).count();
+                    StorageDoc.Timestamp = NowMs();
                }
           }
           else
@@ -1012,7 +1107,7 @@ HttpResponse SearchAPI::HandleAddDocument(const HttpRequest &Request)
           return JournalResponse;
      }
 
-     NOTIFY_MODULES(OnAddDocument, CollectionName, DocumentObj.ID, Request.RemoteAddress, Request.APIKeyID, !Request.APIKeyID.empty());
+     FOREACH_MOD(OnAddDocument, CollectionName, DocumentObj.ID, Request.RemoteAddress, Request.APIKeyID, !Request.APIKeyID.empty());
      BumpCollectionMutationVersion(CollectionName);
 
      std::string ReplicationError;
@@ -1337,7 +1432,7 @@ HttpResponse SearchAPI::HandleUpdateDocument(const HttpRequest &Request)
      HttpResponse Response(Status::OK, StatusText(Status::OK), "application/json");
 
      Response.Body = "{\"message\":\"Document updated successfully\",\"id\":\"" + EscapeJSONString(DocumentID) + "\"}";
-     NOTIFY_MODULES(OnUpdateDocument, CollectionName, DocumentID, Request.RemoteAddress, Request.APIKeyID, !Request.APIKeyID.empty());
+     FOREACH_MOD(OnUpdateDocument, CollectionName, DocumentID, Request.RemoteAddress, Request.APIKeyID, !Request.APIKeyID.empty());
      BumpCollectionMutationVersion(CollectionName);
 
      std::string ReplicationError;
@@ -1442,7 +1537,7 @@ HttpResponse SearchAPI::HandleDeleteDocument(const HttpRequest &Request)
      HttpResponse Response(Status::OK, StatusText(Status::OK), "application/json");
 
      Response.Body = "{\"message\":\"Document deleted successfully\",\"id\":\"" + EscapeJSONString(DocumentID) + "\"}";
-     NOTIFY_MODULES(OnDeleteDocument, CollectionName, DocumentID, Request.RemoteAddress, Request.APIKeyID, !Request.APIKeyID.empty());
+     FOREACH_MOD(OnDeleteDocument, CollectionName, DocumentID, Request.RemoteAddress, Request.APIKeyID, !Request.APIKeyID.empty());
      BumpCollectionMutationVersion(CollectionName);
 
      std::string ReplicationError;
@@ -1586,7 +1681,7 @@ HttpResponse SearchAPI::HandleDeleteDocumentsByFilter(const HttpRequest &Request
                return JournalResponse;
           }
 
-          NOTIFY_MODULES(OnDeleteDocuments, CollectionName, static_cast<uint64_t>(DeletedVal), Request.RemoteAddress, Request.APIKeyID, !Request.APIKeyID.empty());
+          FOREACH_MOD(OnDeleteDocuments, CollectionName, static_cast<uint64_t>(DeletedVal), Request.RemoteAddress, Request.APIKeyID, !Request.APIKeyID.empty());
           BumpCollectionMutationVersion(CollectionName);
 
           std::string ReplicationError;
@@ -2036,6 +2131,13 @@ HttpResponse SearchAPI::HandleSAMSearch(const HttpRequest &Request)
      }
 
      const std::vector<SAM::LookupHit> Hits = Instance->Sam->Lookup(CollectionName, Query, static_cast<size_t>(LimitVal));
+
+     if (Instance->Sam->IsOpen())
+     {
+          const auto IdeaDocuments = BuildSAMIdeaDocumentsFromLookupHits(Hits);
+          Instance->Sam->RecordSearchIdea(CollectionName, Query, IdeaDocuments);
+     }
+
      nlohmann::json Root;
      Root["ok"] = true;
      Root["collection"] = CollectionName;
@@ -2102,8 +2204,10 @@ HttpResponse SearchAPI::HandleSAMStatus(const HttpRequest &Request)
      Root["ok"] = true;
      Root["collections"] = nlohmann::json::array();
      Root["running_collections"] = nlohmann::json::array();
+     Root["active_searches"] = nlohmann::json::array();
 
      const std::map<std::string, SAM::CollectionJobStatus> AllStatuses = Instance->Sam->GetAllCollectionJobStatuses();
+     const std::vector<SAM::SearchActivityEntry> ActiveSearches = Instance->Sam->GetActiveSearchActivities(CollectionName);
      size_t RunningCount = 0;
 
      for (const auto &Entry : AllStatuses)
@@ -2147,6 +2251,20 @@ HttpResponse SearchAPI::HandleSAMStatus(const HttpRequest &Request)
           }
      }
 
+     for (const auto &Activity : ActiveSearches)
+     {
+          Root["active_searches"].push_back({
+               {"sequence", Activity.Sequence},
+               {"collection", Activity.Collection},
+               {"query", Activity.Query},
+               {"normalized_query", Activity.NormalizedQuery},
+               {"started_ms", Activity.StartedMS},
+               {"completed_ms", Activity.CompletedMS},
+               {"result_count", Activity.ResultCount},
+               {"running", Activity.Running}
+          });
+     }
+
      if (!CollectionName.empty() && AllStatuses.find(CollectionName) == AllStatuses.end())
      {
           if (!HybridStorageManagerInstance().CollectionExists(CollectionName))
@@ -2166,11 +2284,15 @@ HttpResponse SearchAPI::HandleSAMStatus(const HttpRequest &Request)
           Root["pending"] = 0;
           Root["total"] = 0;
           Root["error"] = std::string();
+          Root["active_search_count"] = ActiveSearches.size();
+          Root["search_running"] = !ActiveSearches.empty();
           Root["message"] = "No SAM rebuild has been recorded for this collection.";
      }
      else if (!CollectionName.empty())
      {
           const SAM::CollectionJobStatus &JobStatus = AllStatuses.at(CollectionName);
+          SAM::SearchActivityEntry LatestSearch;
+          const bool HasLatestSearch = Instance->Sam->GetLatestSearchActivity(CollectionName, LatestSearch);
           Root["collection"] = CollectionName;
           Root["known"] = true;
           Root["running"] = JobStatus.Running;
@@ -2180,16 +2302,166 @@ HttpResponse SearchAPI::HandleSAMStatus(const HttpRequest &Request)
           Root["pending"] = JobStatus.PendingDocuments;
           Root["total"] = JobStatus.TotalDocuments;
           Root["error"] = JobStatus.ErrorMessage;
+          Root["active_search_count"] = ActiveSearches.size();
+          Root["search_running"] = !ActiveSearches.empty();
+
+          if (HasLatestSearch)
+          {
+               Root["latest_search"] = {
+                    {"sequence", LatestSearch.Sequence},
+                    {"collection", LatestSearch.Collection},
+                    {"query", LatestSearch.Query},
+                    {"normalized_query", LatestSearch.NormalizedQuery},
+                    {"started_ms", LatestSearch.StartedMS},
+                    {"completed_ms", LatestSearch.CompletedMS},
+                    {"result_count", LatestSearch.ResultCount},
+                    {"running", LatestSearch.Running}
+               };
+          }
+
           Root["message"] = JobStatus.Running ? "SAM indexing is running."
-                                              : (JobStatus.Completed ? "SAM indexing is idle."
-                                                                     : "SAM indexing has not started.");
+                                              : (!ActiveSearches.empty() ? "SAM is analyzing recent searches."
+                                                                         : (JobStatus.Completed ? "SAM indexing is idle."
+                                                                                                : "SAM indexing has not started."));
      }
      else
      {
           Root["running_count"] = RunningCount;
           Root["known_count"] = AllStatuses.size();
+          Root["active_search_count"] = ActiveSearches.size();
+          Root["search_running"] = !ActiveSearches.empty();
+
           Root["message"] = RunningCount > 0 ? "SAM indexing is running in the background."
-                                             : "No SAM collections are currently indexing.";
+                                             : (!ActiveSearches.empty() ? "SAM is analyzing recent searches."
+                                                                        : "No SAM collections are currently indexing.");
+     }
+
+     HttpResponse Response(Status::OK, StatusText(Status::OK), "application/json");
+     Response.Body = Root.dump();
+     return Response;
+}
+
+HttpResponse SearchAPI::HandleSAMHistory(const HttpRequest &Request)
+{
+     if (Request.Method != "GET")
+     {
+          return HttpResponse(Status::METHOD_NOT_ALLOWED, StatusText(Status::METHOD_NOT_ALLOWED), "application/json");
+     }
+
+     if (!Instance || !Instance->Sam || !Instance->Sam->IsOpen())
+     {
+          return BuildErrorResponse(Status::SERVICE_UNAVAILABLE,
+                                    Code::SEARCH_INVALID_PARAMETER,
+                                    "SAM unavailable",
+                                    "Secondary Assistant Manager is not initialized.");
+     }
+
+     const auto CollectionIt = Request.QueryParams.find("collection");
+     const std::string CollectionName = (CollectionIt != Request.QueryParams.end()) ? TrimCopy(CollectionIt->second) : "";
+
+     if (!CollectionName.empty() && !HybridStorageManagerInstance().CollectionExists(CollectionName))
+     {
+          return BuildErrorResponse(Status::NOT_FOUND,
+                                    Code::COLLECTION_NOT_FOUND,
+                                    "Collection not found",
+                                    "The specified collection does not exist.");
+     }
+
+     int LimitVal = 100;
+
+     if (!ParseNonNegativeIntParam(Request.QueryParams, "limit", 100, LimitVal) || LimitVal <= 0)
+     {
+          return BuildErrorResponse(Status::BAD_REQUEST,
+                                    Code::SEARCH_INVALID_PARAMETER,
+                                    "Invalid limit",
+                                    "Query parameter 'limit' must be a positive integer.");
+     }
+
+     const std::vector<SAM::SearchIdeaEntry> History =
+          Instance->Sam->GetSearchIdeaHistory(CollectionName, static_cast<size_t>(LimitVal));
+
+     nlohmann::json Root;
+     Root["ok"] = true;
+     Root["collection"] = CollectionName;
+     Root["limit"] = LimitVal;
+     Root["kept_limit"] = 100;
+     Root["count"] = History.size();
+     Root["history"] = nlohmann::json::array();
+
+     for (const auto &Entry : History)
+     {
+          nlohmann::json BestMatch = nlohmann::json::object();
+          std::string Conclusion = Entry.ResolvedConclusion;
+
+          if (!Entry.Documents.empty())
+          {
+               const auto &TopDocument = Entry.Documents.front();
+               BestMatch = {
+                    {"id", TopDocument.DocumentID},
+                    {"title", TopDocument.Title},
+                    {"score", TopDocument.Score}
+               };
+
+               if (Conclusion.empty() && !TopDocument.Title.empty())
+               {
+                    Conclusion = "Most indicated result: " + TopDocument.Title;
+               }
+               else if (Conclusion.empty() && !TopDocument.DocumentID.empty())
+               {
+                    Conclusion = "Most indicated result: " + TopDocument.DocumentID;
+               }
+          }
+
+          nlohmann::json HistoryJson = {
+               {"collection", Entry.Collection},
+               {"query", Entry.Query},
+               {"normalized_query", Entry.NormalizedQuery},
+               {"first_seen_ms", Entry.FirstSeenMS},
+               {"last_seen_ms", Entry.LastSeenMS},
+               {"uses", Entry.Uses},
+               {"resolved_interpretation", Entry.ResolvedInterpretation},
+               {"resolved_conclusion", Entry.ResolvedConclusion},
+               {"resolved_at_ms", Entry.ResolvedAtMS},
+               {"resolved_uses", Entry.ResolvedUses},
+               {"best_match", BestMatch},
+               {"conclusion", Conclusion},
+               {"documents", nlohmann::json::array()},
+               {"suggestions", nlohmann::json::array()},
+               {"resolved_candidates", nlohmann::json::array()},
+               {"resolved_ranked_terms", nlohmann::json::array()}
+          };
+
+          for (const auto &Document : Entry.Documents)
+          {
+               HistoryJson["documents"].push_back({
+                    {"id", Document.DocumentID},
+                    {"title", Document.Title},
+                    {"score", Document.Score}
+               });
+
+               if (!Document.Title.empty())
+               {
+                    HistoryJson["suggestions"].push_back(Document.Title);
+               }
+          }
+
+          for (const auto &Candidate : Entry.ResolvedCandidates)
+          {
+               HistoryJson["resolved_candidates"].push_back({
+                    {"text", Candidate.Text},
+                    {"weight", Candidate.Weight}
+               });
+          }
+
+          for (const auto &RankedTerm : Entry.ResolvedRankedTerms)
+          {
+               HistoryJson["resolved_ranked_terms"].push_back({
+                    {"text", RankedTerm.Text},
+                    {"weight", RankedTerm.Weight}
+               });
+          }
+
+          Root["history"].push_back(std::move(HistoryJson));
      }
 
      HttpResponse Response(Status::OK, StatusText(Status::OK), "application/json");
@@ -2366,6 +2638,8 @@ HttpResponse SearchAPI::HandleSAMListDocuments(const HttpRequest &Request)
                {"collection", Entry.Collection},
                {"id", Entry.DocumentID},
                {"title", Entry.Title},
+               {"lang", Entry.Lang},
+               {"label", Entry.Label},
                {"terms", TermsJSON}
           });
      }
@@ -2416,6 +2690,16 @@ HttpResponse SearchAPI::HandleSAMGetDocument(const HttpRequest &Request)
 
      if (!Instance->Sam->GetDocumentEntry(CollectionName, DocumentID, Entry, &ErrorMessage))
      {
+          const Document SourceDoc = HybridStorageManagerInstance().GetDocument(CollectionName, DocumentID);
+
+          if (HasJobStatus && JobStatus.Running && !SourceDoc.ID.empty())
+          {
+               return BuildErrorResponse(Status::CONFLICT,
+                                         Code::SEARCH_INVALID_PARAMETER,
+                                         "SAM document currently indexing",
+                                         "Background SAM indexing is still running for this collection. Try again in a moment.");
+          }
+
           return BuildErrorResponse(Status::NOT_FOUND,
                                     Code::DOCUMENT_NOT_FOUND,
                                     "SAM document not found",
@@ -2428,6 +2712,16 @@ HttpResponse SearchAPI::HandleSAMGetDocument(const HttpRequest &Request)
      Root["collection"] = Entry.Collection;
      Root["id"] = Entry.DocumentID;
      Root["title"] = Entry.Title;
+     Root["lang"] = Entry.Lang;
+     Root["label"] = Entry.Label;
+     Root["format"] = Entry.Format;
+     Root["analysis"] = {
+          {"subject", Entry.Subject},
+          {"summary", Entry.Summary},
+          {"aliases", Entry.Aliases},
+          {"descriptors", Entry.Descriptors},
+          {"queries", Entry.Queries}
+     };
      Root["terms"] = nlohmann::json::array();
 
      for (const auto &Term : Entry.Terms)
@@ -2878,7 +3172,7 @@ HttpResponse SearchAPI::HandleBulkImportDocuments(const HttpRequest &Request)
                return JournalResponse;
           }
 
-          NOTIFY_MODULES(OnBulkImportDocuments, CollectionName, static_cast<uint64_t>(ImportedCount), Request.RemoteAddress, Request.APIKeyID, !Request.APIKeyID.empty());
+          FOREACH_MOD(OnBulkImportDocuments, CollectionName, static_cast<uint64_t>(ImportedCount), Request.RemoteAddress, Request.APIKeyID, !Request.APIKeyID.empty());
           BumpCollectionMutationVersion(CollectionName);
 
           std::string ReplicationError;
@@ -2927,7 +3221,7 @@ HttpResponse SearchAPI::HandleUpdateByQuery(const HttpRequest &Request)
 
      Response.Body = "{\"message\":\"Update by query completed\",\"updated\":0}";
 
-     NOTIFY_MODULES(OnUpdateByQuery, CollectionName, static_cast<uint64_t>(0), Request.RemoteAddress, Request.APIKeyID, !Request.APIKeyID.empty());
+     FOREACH_MOD(OnUpdateByQuery, CollectionName, static_cast<uint64_t>(0), Request.RemoteAddress, Request.APIKeyID, !Request.APIKeyID.empty());
 
      return Response;
 }
@@ -2964,7 +3258,7 @@ HttpResponse SearchAPI::HandleDeleteByQuery(const HttpRequest &Request)
 
      Response.Body = "{\"message\":\"Delete by query completed\",\"deleted\":0}";
 
-     NOTIFY_MODULES(OnDeleteByQuery, CollectionName, static_cast<uint64_t>(0), Request.RemoteAddress, Request.APIKeyID, !Request.APIKeyID.empty());
+     FOREACH_MOD(OnDeleteByQuery, CollectionName, static_cast<uint64_t>(0), Request.RemoteAddress, Request.APIKeyID, !Request.APIKeyID.empty());
 
      return Response;
 }

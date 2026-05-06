@@ -85,9 +85,15 @@ struct ModuleAPIDescription
 
      unsigned int MaxParameters = 0;
 
+     /* Ordered parameter descriptions shown to API callers. */
+
      std::vector<ModuleAPIParameterSpec> Parameters;
 
+     /* Sample invocations that illustrate valid usage. */
+
      std::vector<std::string> Examples;
+
+     /* Hard runtime requirements needed before the endpoint is enabled. */
 
      uint32_t RequirementFlags = ModuleRequirementNone;
 };
@@ -121,15 +127,27 @@ struct ModuleCommandSpec
 
      std::string Route;
 
+     /* Short summary shown in shared command help output. */
+
      std::string Summary;
+
+     /* Example command syntax for quick operator reference. */
 
      std::string Syntax;
 
+     /* Minimum accepted argument count for the command. */
+
      unsigned int MinParameters = 0;
+
+     /* Maximum accepted argument count for the command. */
 
      unsigned int MaxParameters = 0;
 
+     /* Ordered parameter specifications used for docs and validation. */
+
      std::vector<ModuleCommandParameterSpec> Parameters;
+
+     /* Example command invocations for operators and tests. */
 
      std::vector<std::string> Examples;
 };
@@ -142,27 +160,51 @@ struct ModuleCommandRequest
 
      std::string Transport;
 
+     /* Route requested under the shared module command surface. */
+
      std::string Route;
+
+     /* Raw ordered parameters exactly as they were supplied. */
 
      std::vector<std::string> Parameters;
 
+     /* Positional parameters after named argument extraction. */
+
      std::vector<std::string> PositionalParameters;
+
+     /* Named key/value parameters resolved from the request. */
 
      std::map<std::string, std::string> NamedParameters;
 
+     /* Optional raw request body forwarded to the command handler. */
+
      std::string Body;
+
+     /* Whether the requester passed any accepted authentication. */
 
      bool Authenticated = false;
 
+     /* Whether the requester holds administrator privileges. */
+
      bool IsAdmin = false;
+
+     /* Whether the request authenticated with an API key. */
 
      bool IsAPIKey = false;
 
+     /* Raw bearer token or equivalent credential when available. */
+
      std::string AuthToken;
+
+     /* Resolved authenticated user name when available. */
 
      std::string RequesterUser;
 
+     /* Stable API key identifier when the request used one. */
+
      std::string APIKeyID;
+
+     /* Remote client address for auditing and policy checks. */
 
      std::string RemoteAddress;
 
@@ -179,11 +221,19 @@ struct ModuleCommandResponse
 
      bool Success = false;
 
+     /* HTTP-style status code returned to the caller. */
+
      signed int StatusCode = 200;
+
+     /* Response content type sent back to the transport layer. */
 
      std::string ContentType = "application/json";
 
+     /* Short summary message describing the command result. */
+
      std::string Message;
+
+     /* Serialized response payload returned to the caller. */
 
      std::string Body;
 };
@@ -253,10 +303,20 @@ struct ModulePreCheckResult
      /* Final decision taken by the module hook. */
 
      ModulePreCheckAction Action = ModulePreCheckAction::Pass;
+
+     /* HTTP status reported when the pre-check blocks the operation. */
+
      signed int HttpStatus = 400;
+
+     /* Protocol-specific error code returned to API clients. */
+
      signed int ProtocolCode = 24000;
 
+     /* Human-readable explanation for the denial result. */
+
      std::string Message;
+
+     /* Optional machine-readable details for clients or logs. */
 
      std::string Details;
 };
@@ -267,6 +327,7 @@ enum class ModuleHook : size_t
 {
      /* Startup and periodic lifecycle hooks. */
 
+     OnStartup,
      OnThreadPoolsReady,
      OnEveryOneMinute,
      OnIdleTick,
@@ -348,6 +409,7 @@ enum class ModuleHook : size_t
 };
 
 #define HLQUERY_MODULE_HOOK_METHODS(X)                                                                                 \
+     X(OnStartup)                                                                                                       \
      X(OnThreadPoolsReady)                                                                                              \
      X(OnEveryOneMinute)                                                                                                \
      X(OnIdleTick)                                                                                                      \
@@ -418,11 +480,6 @@ enum class ModuleHook : size_t
 
 class RuntimeModule
 {
-   protected:
-     /* Number of hook slots tracked by the module base class. */
-
-     static constexpr size_t HookCount = static_cast<size_t>(ModuleHook::OnCount);
-
    private:
 
      /* The runtime module name exposed to the loader. */
@@ -439,9 +496,15 @@ class RuntimeModule
 
      /* Marks which hooks this module explicitly handles. */
 
-     std::array<bool, HookCount> attached_hooks {};
+     std::array<bool, static_cast<size_t>(ModuleHook::OnCount)> attached_hooks {};
 
    protected:
+
+     /* Number of hook slots tracked by the module base class. */
+
+     static constexpr size_t HookCount = static_cast<size_t>(ModuleHook::OnCount);
+
+     /* Auto-detects which hooks Derived overrides relative to RuntimeModule. */
 
      template <typename Derived>
      static constexpr std::array<bool, HookCount> BuildAutomaticHookMap()
@@ -457,13 +520,15 @@ class RuntimeModule
           return Hooks;
      }
 
+     /* Populates the attached hook map using the derived module type. */
+
      template <typename Derived>
      void AutoAttachHooks()
      {
           attached_hooks = BuildAutomaticHookMap<Derived>();
      }
 
-  public:
+   public:
 
      /* Public module interface begins here. */
 
@@ -539,7 +604,12 @@ class RuntimeModule
 
      /* Starts the module after configuration has been loaded. */
 
-     virtual bool Start(const ServerConfig& Config, std::string& ErrorMessage) = 0;
+     virtual bool Start(const ServerConfig& Config, std::string& ErrorMessage)
+     {
+          (void)Config;
+          (void)ErrorMessage;
+          return true;
+     }
 
      /* Stops the module before it is unloaded. */
 
@@ -554,6 +624,13 @@ class RuntimeModule
 
      }
 
+     /* Called once after initialization completes and before the main loop starts. */
+
+     virtual void OnStartup()
+     {
+
+     }
+
      /* Called once shared thread pools are initialized and ready for use. */
 
      virtual void OnThreadPoolsReady()
@@ -561,19 +638,19 @@ class RuntimeModule
 
      }
 
-    /* Called once per wall-clock minute from the main loop. */
+     /* Called once per wall-clock minute from the main loop. */
 
-    virtual void OnEveryOneMinute()
-    {
+     virtual void OnEveryOneMinute()
+     {
 
-    }
+     }
 
-    /* Called every idle tick (main loop wakeup) with the current timestamp. */
+     /* Called every idle tick (main loop wakeup) with the current timestamp. */
 
-    virtual void OnIdleTick(time_t NowTime)
-    {
-         (void)NowTime;
-    }
+     virtual void OnIdleTick(time_t NowTime)
+     {
+          (void)NowTime;
+     }
 
      /* Called after a new timer has been added to the timer manager. */
 
@@ -614,19 +691,19 @@ class RuntimeModule
 
      /* Search observation hooks begin here. */
 
-    /* Called after a collection-level search has completed successfully. */
+     /* Called after a collection-level search has completed successfully. */
 
-    virtual void OnSearchCollection(const SearchEvent& Event)
-    {
+     virtual void OnSearchCollection(const SearchEvent& Event)
+     {
+          (void)Event;
+     }
 
-    }
+     /* Called after a document or vector search has completed successfully. */
 
-    /* Called after a document or vector search has completed successfully. */
-
-    virtual void OnSearchDocument(const SearchEvent& Event)
-    {
-
-    }
+     virtual void OnSearchDocument(const SearchEvent& Event)
+     {
+          (void)Event;
+     }
 
      /* Returns a multiplier used to adjust one hit after retrieval and before final ranking. */
 
@@ -645,7 +722,7 @@ class RuntimeModule
 
      /* Pre-check policy hooks begin here. */
 
-     /* Called after a collection has been created successfully. */
+     /* Called before a collection is created. */
 
      virtual ModulePreCheckResult OnPreCreateCollection(const std::string&, const std::string&, const std::string&, bool)
      {
@@ -861,54 +938,85 @@ class RuntimeModule
 
      virtual void OnCreateCollection(const std::string& Collection, const std::string& RequesterIP, const std::string& RequesterUser, bool Authenticated)
      {
+          (void)Collection;
+          (void)RequesterIP;
+          (void)RequesterUser;
+          (void)Authenticated;
      }
 
      /* Called after a collection has been updated successfully. */
 
      virtual void OnUpdateCollection(const std::string& Collection, const std::string& RequesterIP, const std::string& RequesterUser, bool Authenticated)
      {
+          (void)Collection;
+          (void)RequesterIP;
+          (void)RequesterUser;
+          (void)Authenticated;
      }
 
      /* Called after a collection has been deleted successfully. */
 
      virtual void OnDeleteCollection(const std::string& Collection, const std::string& RequesterIP, const std::string& RequesterUser, bool Authenticated)
      {
-
+          (void)Collection;
+          (void)RequesterIP;
+          (void)RequesterUser;
+          (void)Authenticated;
      }
 
      /* Called after a document has been added successfully. */
 
      virtual void OnAddDocument(const std::string& Collection, const std::string& DocumentID, const std::string& RequesterIP, const std::string& RequesterUser, bool Authenticated)
      {
-
+          (void)Collection;
+          (void)DocumentID;
+          (void)RequesterIP;
+          (void)RequesterUser;
+          (void)Authenticated;
      }
 
      /* Called after a document has been updated successfully. */
 
      virtual void OnUpdateDocument(const std::string& Collection, const std::string& DocumentID, const std::string& RequesterIP, const std::string& RequesterUser, bool Authenticated)
      {
-
+          (void)Collection;
+          (void)DocumentID;
+          (void)RequesterIP;
+          (void)RequesterUser;
+          (void)Authenticated;
      }
 
      /* Called after a document has been deleted successfully. */
 
      virtual void OnDeleteDocument(const std::string& Collection, const std::string& DocumentID, const std::string& RequesterIP, const std::string& RequesterUser, bool Authenticated)
      {
-
+          (void)Collection;
+          (void)DocumentID;
+          (void)RequesterIP;
+          (void)RequesterUser;
+          (void)Authenticated;
      }
 
      /* Called after multiple documents have been deleted successfully. */
 
      virtual void OnDeleteDocuments(const std::string& Collection, uint64_t Count, const std::string& RequesterIP, const std::string& RequesterUser, bool Authenticated)
      {
-
+          (void)Collection;
+          (void)Count;
+          (void)RequesterIP;
+          (void)RequesterUser;
+          (void)Authenticated;
      }
 
      /* Called after a bulk document import has completed successfully. */
 
      virtual void OnBulkImportDocuments(const std::string& Collection, uint64_t ImportedCount, const std::string& RequesterIP, const std::string& RequesterUser, bool Authenticated)
      {
-
+          (void)Collection;
+          (void)ImportedCount;
+          (void)RequesterIP;
+          (void)RequesterUser;
+          (void)Authenticated;
      }
 
      /* Called after an update-by-query operation has completed successfully. */
@@ -919,7 +1027,11 @@ class RuntimeModule
                                   const std::string& RequesterUser,
                                   bool Authenticated)
      {
-
+          (void)Collection;
+          (void)UpdatedCount;
+          (void)RequesterIP;
+          (void)RequesterUser;
+          (void)Authenticated;
      }
 
      /* Called after a delete-by-query operation has completed successfully. */
@@ -930,7 +1042,11 @@ class RuntimeModule
                                   const std::string& RequesterUser,
                                   bool Authenticated)
      {
-
+          (void)Collection;
+          (void)DeletedCount;
+          (void)RequesterIP;
+          (void)RequesterUser;
+          (void)Authenticated;
      }
 
      /* Called after a global synonym group has been created or updated successfully. */
@@ -940,7 +1056,10 @@ class RuntimeModule
                                  const std::string& RequesterUser,
                                  bool Authenticated)
      {
-
+          (void)SynonymID;
+          (void)RequesterIP;
+          (void)RequesterUser;
+          (void)Authenticated;
      }
 
      /* Called after a global synonym group has been deleted successfully. */
@@ -950,7 +1069,10 @@ class RuntimeModule
                                  const std::string& RequesterUser,
                                  bool Authenticated)
      {
-
+          (void)SynonymID;
+          (void)RequesterIP;
+          (void)RequesterUser;
+          (void)Authenticated;
      }
 
      /* Called after a synonym group has been created or updated successfully. */
@@ -962,7 +1084,12 @@ class RuntimeModule
                                   const std::string& RequesterUser,
                                   bool Authenticated)
      {
-
+          (void)Collection;
+          (void)SynonymID;
+          (void)GlobalScope;
+          (void)RequesterIP;
+          (void)RequesterUser;
+          (void)Authenticated;
      }
 
      /* Called after a synonym group has been deleted successfully. */
@@ -974,7 +1101,12 @@ class RuntimeModule
                                   const std::string& RequesterUser,
                                   bool Authenticated)
      {
-
+          (void)Collection;
+          (void)SynonymID;
+          (void)GlobalScope;
+          (void)RequesterIP;
+          (void)RequesterUser;
+          (void)Authenticated;
      }
 
      /* Called after one or more global stopwords have been added successfully. */
@@ -984,7 +1116,10 @@ class RuntimeModule
                                       const std::string& RequesterUser,
                                       bool Authenticated)
      {
-
+          (void)Count;
+          (void)RequesterIP;
+          (void)RequesterUser;
+          (void)Authenticated;
      }
 
      /* Called after one or more stopwords have been added successfully. */
@@ -996,7 +1131,12 @@ class RuntimeModule
                                    const std::string& RequesterUser,
                                    bool Authenticated)
      {
-
+          (void)Collection;
+          (void)Count;
+          (void)GlobalScope;
+          (void)RequesterIP;
+          (void)RequesterUser;
+          (void)Authenticated;
      }
 
      /* Called after a stopword has been deleted successfully. */
@@ -1008,6 +1148,12 @@ class RuntimeModule
                                    const std::string& RequesterUser,
                                    bool Authenticated)
      {
+          (void)Collection;
+          (void)Word;
+          (void)GlobalScope;
+          (void)RequesterIP;
+          (void)RequesterUser;
+          (void)Authenticated;
      }
 
      /* Called after an override has been created or updated successfully. */
@@ -1018,6 +1164,11 @@ class RuntimeModule
                                    const std::string& RequesterUser,
                                    bool Authenticated)
      {
+          (void)Collection;
+          (void)OverrideID;
+          (void)RequesterIP;
+          (void)RequesterUser;
+          (void)Authenticated;
      }
 
      /* Called after an override has been deleted successfully. */
@@ -1028,7 +1179,11 @@ class RuntimeModule
                                    const std::string& RequesterUser,
                                    bool Authenticated)
      {
-
+          (void)Collection;
+          (void)OverrideID;
+          (void)RequesterIP;
+          (void)RequesterUser;
+          (void)Authenticated;
      }
 
      /* Called after an alias has been created or updated successfully. */
@@ -1039,6 +1194,11 @@ class RuntimeModule
                                 const std::string& RequesterUser,
                                 bool Authenticated)
      {
+          (void)AliasName;
+          (void)TargetCollection;
+          (void)RequesterIP;
+          (void)RequesterUser;
+          (void)Authenticated;
      }
 
      /* Called after an alias has been deleted successfully. */
@@ -1048,14 +1208,20 @@ class RuntimeModule
                                 const std::string& RequesterUser,
                                 bool Authenticated)
      {
-
+          (void)AliasName;
+          (void)RequesterIP;
+          (void)RequesterUser;
+          (void)Authenticated;
      }
 
      /* Called after a full database flush has completed successfully. */
 
      virtual void OnFlush(uint64_t CollectionsDeleted, const std::string& RequesterIP, const std::string& RequesterUser, bool Authenticated)
      {
-
+          (void)CollectionsDeleted;
+          (void)RequesterIP;
+          (void)RequesterUser;
+          (void)Authenticated;
      }
 
      /* Called after a runtime cluster link has been added successfully. */
@@ -1065,7 +1231,10 @@ class RuntimeModule
                                  const std::string& RequesterUser,
                                  bool Authenticated)
      {
-
+          (void)Endpoint;
+          (void)RequesterIP;
+          (void)RequesterUser;
+          (void)Authenticated;
      }
 
      /* Called after a runtime cluster link has been removed successfully. */
@@ -1075,7 +1244,10 @@ class RuntimeModule
                                     const std::string& RequesterUser,
                                     bool Authenticated)
      {
-
+          (void)Endpoint;
+          (void)RequesterIP;
+          (void)RequesterUser;
+          (void)Authenticated;
      }
 
      /* Called after a repair action has completed successfully. */
@@ -1084,7 +1256,9 @@ class RuntimeModule
                            const std::string& RequesterUser,
                            bool Authenticated)
      {
-
+          (void)RequesterIP;
+          (void)RequesterUser;
+          (void)Authenticated;
      }
 
      /* Called when the analytics click endpoint records a click event. */
@@ -1097,7 +1271,13 @@ class RuntimeModule
                                    const std::string& RequesterUser,
                                    bool Authenticated)
      {
-
+          (void)Collection;
+          (void)Query;
+          (void)DocumentID;
+          (void)Rank;
+          (void)RequesterIP;
+          (void)RequesterUser;
+          (void)Authenticated;
      }
 
      /* Returns metadata for the module HTTP API surface. */
@@ -1143,6 +1323,8 @@ template <typename Derived>
 class AutoRuntimeModule : public RuntimeModule
 {
    protected:
+
+     /* Constructs a module that automatically marks overridden hooks. */
 
      explicit AutoRuntimeModule(const std::string& Name, bool EnableAPIRoute = false, uint32_t RequirementFlags = ModuleRequirementNone)
           : RuntimeModule(Name, EnableAPIRoute, RequirementFlags)

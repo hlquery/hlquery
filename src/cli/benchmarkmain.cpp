@@ -14,16 +14,13 @@
 #include <chrono>
 #include <csignal>
 #include <fstream>
-#include <iomanip>
 #include <iostream>
-#include <limits>
 #include <random>
 #include <set>
 #include <string>
 #include <thread>
 #include <unordered_map>
 #include <unordered_set>
-#include <unistd.h>
 #include <vector>
 #include <vendor/json/json.hpp>
 
@@ -105,79 +102,6 @@ struct FakeSynonymSeed
      std::string Root;
      std::vector<std::string> Synonyms;
 };
-
-struct AdaptiveBenchmarkDefaults
-{
-     int Threads;
-     int BatchSize;
-     uint64_t TotalMemoryBytes;
-     unsigned HardwareThreads;
-};
-
-static AdaptiveBenchmarkDefaults GetAdaptiveBenchmarkDefaults()
-{
-     const unsigned hardware_threads = std::max(1u, std::thread::hardware_concurrency());
-
-     long pages = sysconf(_SC_PHYS_PAGES);
-     long page_size = sysconf(_SC_PAGESIZE);
-
-     uint64_t total_memory_bytes = 0;
-
-     if (pages > 0 && page_size > 0)
-     {
-          total_memory_bytes = static_cast<uint64_t>(pages) * static_cast<uint64_t>(page_size);
-     }
-
-     int recommended_threads = 4;
-     int recommended_batch_size = 1000;
-
-     if (hardware_threads <= 2)
-     {
-          recommended_threads = 1;
-          recommended_batch_size = 250;
-     }
-     else if (hardware_threads <= 4)
-     {
-          recommended_threads = 2;
-          recommended_batch_size = 500;
-     }
-     else if (hardware_threads <= 8)
-     {
-          recommended_threads = 4;
-          recommended_batch_size = 1000;
-     }
-     else
-     {
-          recommended_threads = 6;
-          recommended_batch_size = 1500;
-     }
-
-     if (total_memory_bytes > 0)
-     {
-          static constexpr uint64_t GiB = 1024ULL * 1024ULL * 1024ULL;
-
-          if (total_memory_bytes <= 2ULL * GiB)
-          {
-               recommended_threads = 1;
-               recommended_batch_size = 100;
-          }
-          else if (total_memory_bytes <= 4ULL * GiB)
-          {
-               recommended_threads = std::min(recommended_threads, 2);
-               recommended_batch_size = std::min(recommended_batch_size, 250);
-          }
-          else if (total_memory_bytes <= 8ULL * GiB)
-          {
-               recommended_threads = std::min(recommended_threads, 4);
-               recommended_batch_size = std::min(recommended_batch_size, 500);
-          }
-     }
-
-     recommended_threads = std::max(1, recommended_threads);
-     recommended_batch_size = std::max(50, recommended_batch_size);
-
-     return AdaptiveBenchmarkDefaults{recommended_threads, recommended_batch_size, total_memory_bytes, hardware_threads};
-}
 
 static std::string Capitalize(const std::string &input)
 {
@@ -473,30 +397,139 @@ static const std::vector<FakeSynonymSeed> kFakeBenchmarkSynonymSeeds = {
      {"science", {"physics", "biology", "chemistry", "experiment"}},
      {"cake", {"pastry", "dessert", "sweet", "bakery"}}};
 
-static const std::vector<std::string> kFakeBenchmarkStopwords = {
-     "the", "and", "for", "with", "from", "into", "over", "under",
-     "before", "after", "within", "without", "between", "across", "during", "around"};
+static const std::unordered_map<std::string, std::vector<FakeSynonymSeed>> kFakeCollectionSynonymProfiles = {
+     {"art",
+      {
+           {"painting", {"canvas", "portrait", "mural", "study"}},
+           {"gallery", {"exhibit", "show", "installation", "display"}},
+           {"sculpture", {"carving", "figure", "form", "piece"}},
+      }},
+     {"books",
+      {
+           {"book", {"novel", "volume", "paperback", "title"}},
+           {"author", {"writer", "novelist", "essayist", "editor"}},
+           {"story", {"narrative", "plot", "chapter", "series"}},
+      }},
+     {"food",
+      {
+           {"food", {"dish", "meal", "plate", "course"}},
+           {"recipe", {"prep", "method", "cook", "kitchen"}},
+           {"dessert", {"pastry", "sweet", "bakery", "treat"}},
+      }},
+     {"history",
+      {
+           {"history", {"archive", "record", "chronicle", "timeline"}},
+           {"empire", {"dynasty", "kingdom", "state", "realm"}},
+           {"war", {"campaign", "battle", "conflict", "front"}},
+      }},
+     {"math",
+      {
+           {"algebra", {"equation", "variable", "expression", "identity"}},
+           {"geometry", {"angle", "shape", "theorem", "proof"}},
+           {"calculus", {"derivative", "integral", "limit", "function"}},
+      }},
+     {"movies",
+      {
+           {"movie", {"film", "feature", "picture", "release"}},
+           {"director", {"filmmaker", "producer", "editor", "screenwriter"}},
+           {"scene", {"sequence", "shot", "frame", "cut"}},
+      }},
+     {"music",
+      {
+           {"music", {"song", "melody", "track", "tune"}},
+           {"artist", {"performer", "vocalist", "band", "act"}},
+           {"album", {"record", "release", "playlist", "catalog"}},
+      }},
+     {"science",
+      {
+           {"science", {"research", "study", "analysis", "experiment"}},
+           {"physics", {"matter", "energy", "quantum", "force"}},
+           {"biology", {"genetics", "cells", "species", "organism"}},
+      }},
+     {"sports",
+      {
+           {"sports", {"athletics", "competition", "fixture", "game"}},
+           {"team", {"squad", "lineup", "club", "roster"}},
+           {"match", {"contest", "playoff", "tournament", "final"}},
+      }},
+     {"technology",
+      {
+           {"software", {"platform", "service", "application", "stack"}},
+           {"ai", {"automation", "model", "inference", "assistant"}},
+           {"security", {"auth", "hardening", "access", "network"}},
+      }},
+     {"travel",
+      {
+           {"travel", {"journey", "trip", "route", "tour"}},
+           {"itinerary", {"schedule", "plan", "stop", "leg"}},
+           {"destination", {"city", "stay", "excursion", "guide"}},
+      }},
+     {"universities",
+      {
+           {"university", {"campus", "college", "institution", "school"}},
+           {"research", {"faculty", "program", "department", "lab"}},
+           {"student", {"admission", "alumni", "degree", "cohort"}},
+      }},
+};
 
-static bool AddGlobalSynonym(BenchmarkClient &client,
-                             const std::string &synonym_id,
-                             const std::string &root_term,
-                             const std::vector<std::string> &synonyms)
+static const std::unordered_map<std::string, std::vector<std::string>> kFakeCollectionStopwordProfiles = {
+     {"art", {"art", "gallery", "studio", "canvas"}},
+     {"books", {"book", "author", "reader", "chapter"}},
+     {"food", {"food", "dish", "kitchen", "flavor"}},
+     {"history", {"history", "era", "archive", "empire"}},
+     {"math", {"math", "proof", "equation", "theorem"}},
+     {"movies", {"film", "scene", "director", "cinema"}},
+     {"music", {"music", "song", "album", "artist"}},
+     {"science", {"study", "lab", "data", "theory"}},
+     {"sports", {"team", "match", "season", "league"}},
+     {"technology", {"tech", "software", "system", "platform"}},
+     {"travel", {"travel", "trip", "route", "guide"}},
+     {"universities", {"campus", "student", "faculty", "research"}},
+};
+
+static const std::vector<FakeSynonymSeed> &GetFakeCollectionSynonyms(const std::string &collection_name)
 {
-     nlohmann::json synonym_data;
-     synonym_data["root"] = root_term;
-     synonym_data["synonyms"] = synonyms;
+     const auto it = kFakeCollectionSynonymProfiles.find(collection_name);
+     if (it != kFakeCollectionSynonymProfiles.end())
+     {
+          return it->second;
+     }
 
-     HTTPResponse response = client.MakeRequest("POST", "/synonyms/global/" + synonym_id, synonym_data.dump());
-     return response.StatusCode == 200 || response.StatusCode == 201;
+     return kFakeBenchmarkSynonymSeeds;
 }
 
-static bool AddGlobalStopword(BenchmarkClient &client, const std::string &word)
+static std::vector<std::string> GetFakeCollectionStopwords(const std::string &collection_name)
 {
-     nlohmann::json stopword_data;
-     stopword_data["word"] = word;
+     std::vector<std::string> result = {"the", "and"};
 
-     HTTPResponse response = client.MakeRequest("POST", "/stopwords/global", stopword_data.dump());
-     return response.StatusCode == 200 || response.StatusCode == 201;
+     const auto it = kFakeCollectionStopwordProfiles.find(collection_name);
+     if (it != kFakeCollectionStopwordProfiles.end())
+     {
+          result.insert(result.end(), it->second.begin(), it->second.end());
+     }
+
+     return result;
+}
+
+static std::string BuildCollectionSynonymDocHint(const std::string &collection_name, int index)
+{
+     const std::vector<FakeSynonymSeed> &synonyms = GetFakeCollectionSynonyms(collection_name);
+     if (synonyms.empty())
+     {
+          return "";
+     }
+
+     const FakeSynonymSeed &seed = synonyms[static_cast<size_t>(index) % synonyms.size()];
+     std::string hint = " Related terms: " + seed.Root;
+
+     const size_t synonym_limit = std::min<size_t>(3, seed.Synonyms.size());
+     for (size_t i = 0; i < synonym_limit; ++i)
+     {
+          hint += ", " + seed.Synonyms[i];
+     }
+
+     hint += ".";
+     return hint;
 }
 
 bool CreateFakeCollections(const std::string &base_url, const std::string &auth_token, bool reuse_collections, bool verbose)
@@ -532,7 +565,7 @@ bool CreateFakeCollections(const std::string &base_url, const std::string &auth_
                 {"Artist Profile: Queen",
                  "Queen blended rock, opera, and theatrical performance, with Freddie Mercury's vocals and songs like Bohemian Rhapsody defining their legacy."},
                 {"Artist Profile: Michael Jackson",
-                 "Michael Jackson advanced global pop performance, production, and music video storytelling, especially across albums like Thriller and Bad."},
+                 "Michael Jackson, widely known as the King of Pop, advanced global pop performance, production, and music video storytelling, especially across albums like Thriller and Bad."},
                 {"Artist Profile: Miles Davis",
                  "Miles Davis drove multiple jazz eras, from cool jazz to modal and fusion, with key works including Kind of Blue and Bitches Brew."},
                 {"Artist Profile: Bob Dylan",
@@ -540,11 +573,11 @@ bool CreateFakeCollections(const std::string &base_url, const std::string &auth_
                 {"Artist Profile: Nirvana",
                  "Nirvana brought grunge into mainstream rock in the early 1990s, led by Kurt Cobain and the album Nevermind."},
                 {"Artist Profile: Madonna",
-                 "Madonna combined pop reinvention, dance production, and visual identity across decades, shaping modern mainstream music culture."},
+                 "Madonna, widely known as the Queen of Pop, combined pop reinvention, dance production, and visual identity across decades, shaping modern mainstream music culture."},
                 {"Artist Profile: Radiohead",
                  "Radiohead moved from alternative rock into experimental electronic textures, especially through OK Computer and Kid A."},
                 {"Artist Profile: Beyonce",
-                 "Beyonce's catalog blends R&B, pop, and visual storytelling, with major cultural impact through performance and concept albums."},
+                 "Beyonce, often called Queen Bey, blends R&B, pop, and visual storytelling, with major cultural impact through performance and concept albums."},
                 {"Artist Profile: Kendrick Lamar",
                  "Kendrick Lamar is recognized for narrative lyricism, social commentary, and modern hip-hop production on albums like To Pimp a Butterfly."},
            }},
@@ -617,42 +650,6 @@ bool CreateFakeCollections(const std::string &base_url, const std::string &auth_
      {
           std::cerr << "✗ Cannot connect to server for fake collections: " << conn_error << ".\n";
           return false;
-     }
-
-     std::mt19937 rng(std::random_device{}());
-
-     std::vector<size_t> synonym_seed_order;
-     synonym_seed_order.reserve(kFakeBenchmarkSynonymSeeds.size());
-     for (size_t i = 0; i < kFakeBenchmarkSynonymSeeds.size(); ++i)
-     {
-          synonym_seed_order.push_back(i);
-     }
-     std::shuffle(synonym_seed_order.begin(), synonym_seed_order.end(), rng);
-
-     std::vector<size_t> stopword_order;
-     stopword_order.reserve(kFakeBenchmarkStopwords.size());
-     for (size_t i = 0; i < kFakeBenchmarkStopwords.size(); ++i)
-     {
-          stopword_order.push_back(i);
-     }
-     std::shuffle(stopword_order.begin(), stopword_order.end(), rng);
-
-     std::unordered_map<std::string, std::vector<size_t>> collection_synonym_assignments;
-     std::unordered_map<std::string, std::vector<size_t>> collection_stopword_assignments;
-     std::uniform_int_distribution<size_t> collection_dist(0, specs.size() - 1);
-
-     const size_t collection_synonym_count = std::min<size_t>(5, synonym_seed_order.size());
-     for (size_t i = 0; i < collection_synonym_count; ++i)
-     {
-          const std::string &collection_name = specs[collection_dist(rng)].Name;
-          collection_synonym_assignments[collection_name].push_back(synonym_seed_order[i]);
-     }
-
-     const size_t collection_stopword_count = std::min<size_t>(10, stopword_order.size());
-     for (size_t i = 0; i < collection_stopword_count; ++i)
-     {
-          const std::string &collection_name = specs[collection_dist(rng)].Name;
-          collection_stopword_assignments[collection_name].push_back(stopword_order[i]);
      }
 
      for (const auto &spec : specs)
@@ -1005,6 +1002,8 @@ bool CreateFakeCollections(const std::string &base_url, const std::string &auth_
                     content = BuildRealisticContent(spec.Name, tag, i);
                }
 
+               content += BuildCollectionSynonymDocHint(spec.Name, i);
+
                std::string doc_id = MakeMeaningfulDocId(spec.Name, title, content, i, used_ids);
                std::string safe_title = RemoveCommas(title);
                std::string safe_content = RemoveCommas(content);
@@ -1183,40 +1182,33 @@ bool CreateFakeCollections(const std::string &base_url, const std::string &auth_
           }
 
           size_t collection_synonyms_added = 0;
-          auto synonym_it = collection_synonym_assignments.find(spec.Name);
-          if (synonym_it != collection_synonym_assignments.end())
+          const std::vector<FakeSynonymSeed> &collection_synonyms = GetFakeCollectionSynonyms(spec.Name);
+          for (size_t local_index = 0; local_index < collection_synonyms.size(); ++local_index)
           {
-               for (size_t local_index = 0; local_index < synonym_it->second.size(); ++local_index)
-               {
-                    const FakeSynonymSeed &seed = kFakeBenchmarkSynonymSeeds[synonym_it->second[local_index]];
-                    const std::string synonym_id = "fake_syn_" + std::to_string(synonym_it->second[local_index]) + "_" + std::to_string(local_index + 1);
+               const FakeSynonymSeed &seed = collection_synonyms[local_index];
+               const std::string synonym_id = "fake_syn_" + spec.Name + "_" + std::to_string(local_index + 1);
 
-                    if (client.AddSynonym(spec.Name, synonym_id, seed.Root, seed.Synonyms))
-                    {
-                         collection_synonyms_added++;
-                    }
-                    else
-                    {
-                         std::cerr << "✗ Failed to add fake synonym '" << synonym_id << "' to collection '" << spec.Name << "'.\n";
-                    }
+               if (client.AddSynonym(spec.Name, synonym_id, seed.Root, seed.Synonyms))
+               {
+                    collection_synonyms_added++;
+               }
+               else
+               {
+                    std::cerr << "✗ Failed to add fake synonym '" << synonym_id << "' to collection '" << spec.Name << "'.\n";
                }
           }
 
           size_t collection_stopwords_added = 0;
-          auto stopword_it = collection_stopword_assignments.find(spec.Name);
-          if (stopword_it != collection_stopword_assignments.end())
+          const std::vector<std::string> collection_stopwords = GetFakeCollectionStopwords(spec.Name);
+          for (const auto &word : collection_stopwords)
           {
-               for (size_t stopword_index : stopword_it->second)
+               if (client.AddStopword(spec.Name, word))
                {
-                    const std::string &word = kFakeBenchmarkStopwords[stopword_index];
-                    if (client.AddStopword(spec.Name, word))
-                    {
-                         collection_stopwords_added++;
-                    }
-                    else
-                    {
-                         std::cerr << "✗ Failed to add fake stopword '" << word << "' to collection '" << spec.Name << "'.\n";
-                    }
+                    collection_stopwords_added++;
+               }
+               else
+               {
+                    std::cerr << "✗ Failed to add fake stopword '" << word << "' to collection '" << spec.Name << "'.\n";
                }
           }
 
@@ -1228,40 +1220,7 @@ bool CreateFakeCollections(const std::string &base_url, const std::string &auth_
           }
      }
 
-     size_t global_synonyms_added = 0;
-     const size_t global_synonym_count = std::min<size_t>(10, synonym_seed_order.size());
-     for (size_t i = 0; i < global_synonym_count; ++i)
-     {
-          const FakeSynonymSeed &seed = kFakeBenchmarkSynonymSeeds[synonym_seed_order[i]];
-          const std::string synonym_id = "fake_global_syn_" + std::to_string(i + 1);
-
-          if (AddGlobalSynonym(client, synonym_id, seed.Root, seed.Synonyms))
-          {
-               global_synonyms_added++;
-          }
-          else
-          {
-               std::cerr << "✗ Failed to add global fake synonym '" << synonym_id << "'.\n";
-          }
-     }
-
-     size_t global_stopwords_added = 0;
-     const size_t global_stopword_count = std::min<size_t>(10, stopword_order.size());
-     for (size_t i = 0; i < global_stopword_count; ++i)
-     {
-          const std::string &word = kFakeBenchmarkStopwords[stopword_order[i]];
-          if (AddGlobalStopword(client, word))
-          {
-               global_stopwords_added++;
-          }
-          else
-          {
-               std::cerr << "✗ Failed to add global fake stopword '" << word << "'.\n";
-          }
-     }
-
-     LogOutput("✓ Added " + std::to_string(global_synonyms_added) + " global fake synonym group(s) and " +
-               std::to_string(global_stopwords_added) + " global fake stopword(s).\n");
+     LogOutput("✓ Skipped global fake synonyms and stopwords to keep collection themes isolated.\n");
 
      return true;
 }
@@ -1372,7 +1331,6 @@ bool RunSanitySearch(BenchmarkClient &client, const std::string &collection, con
      try
      {
           nlohmann::json result = nlohmann::json::parse(resp.Body);
-
           int found = 0;
 
           if (result.contains("found"))
@@ -1400,6 +1358,44 @@ bool RunSanitySearch(BenchmarkClient &client, const std::string &collection, con
      }
 
      return false;
+}
+
+static void PrintBenchmarkHelp(const char *program_name)
+{
+     std::cout << "Usage: " << program_name << " [options]\n"
+               << "Options:\n"
+               << "  --url URL          Server URL (default: http://localhost:9200)\n"
+               << "  --host HOST        Server host (default: localhost)\n"
+               << "  --port PORT        Server port (default: 9200)\n"
+               << "  --auth TOKEN      Authentication token\n"
+               << "  --ssl-auth        Over HTTPS, send token as both Authorization and X-API-Key\n"
+               << "  --collections N   Number of collections to create (default: 2)\n"
+               << "  --documents N     Total number of documents to insert (default: 50000 per collection)\n"
+               << "  --threads N        Number of threads (default: 8)\n"
+               << "  --batch-size N     Documents per bulk insert batch (default: 2000)\n"
+               << "  --advanced [FILE]  Output detailed JSON metrics (default: adv.json)\n"
+               << "  --detailed [FILE] Run comprehensive benchmark testing ALL routes\n"
+               << "                    and functionalities (includes --advanced)\n"
+               << "  --Search           Run search benchmark on previously inserted data\n"
+               << "  --dump             Dump all collections and their documents\n"
+               << "  --fake             Insert realistic sample data (food, music, science, etc.) for testing\n"
+               << "  --flood            Flood server with continuous random data generation for stress testing\n"
+               << "                    (runs until stopped with Ctrl+C, randomly creates collections and documents)\n"
+               << "  --id ID            Run UUID/ID for correlation (default: auto-generated)\n"
+               << "  --seed SEED        Seed for deterministic runs\n"
+               << "  --no-fake-collections  Disable fake helper collections (food, music, sports, etc.)\n"
+               << "  --verify-after-restart   Verify counts after server restart\n"
+               << "  --check-consistency      Check consistency of /status, /stats, /metrics, /doctotal\n"
+               << "  --dry-run          Generate collections/docs in memory but don't send to server\n"
+               << "  --cleanup          Delete all benchmark-tagged collections at end\n"
+               << "  --prefix PREFIX    Custom prefix for benchmark collections (default: bench_collection_)\n"
+               << "  --durability-config PATH  Load durability settings from config (e.g., run/conf/database.conf)\n"
+               << "  --reuse-collections Reuse existing collections instead of deleting/recreating them\n"
+               << "  --skip-auth-check  Skip authentication requirement check (useful when auth is disabled)\n"
+               << "  --unorganized      Create an 'unorganized' collection with non-standard schema for testing\n"
+               << "  --log-file FILE    Structured log file (JSON lines format)\n"
+               << "  --verbose, -v      Show detailed progress information\n"
+               << "  --help, -h         Show this help message\n";
 }
 
 /* Main entry point for the benchmark tool. */
@@ -1434,8 +1430,6 @@ int main(int argc, char *argv[])
           int num_threads = 8;
           int batch_size = 2000;
           bool documents_explicitly_set = false;
-          bool threads_explicitly_set = false;
-          bool batch_size_explicitly_set = false;
 
           bool default_limits_applied = false;
           bool advanced_mode = false;
@@ -1475,57 +1469,67 @@ int main(int argc, char *argv[])
 
           std::string durability_config_path = "";
 
+          auto RequireNextValue = [&](int &index, const std::string &option) -> std::string
+          {
+               if (index + 1 >= argc)
+               {
+                    std::cerr << "Error: Missing value for " << option << ".\n\n";
+                    PrintBenchmarkHelp(argv[0]);
+                    throw std::runtime_error("__benchmark_help_shown__");
+               }
+
+               return argv[++index];
+          };
+
           /* Parse CLI flags and override defaults. */
 
           for (int i = 1; i < argc; i++)
           {
                std::string arg = argv[i];
 
-               if (arg == "--url" && i + 1 < argc)
+               if (arg == "--url")
                {
-                    base_url = argv[++i];
+                    base_url = RequireNextValue(i, arg);
                }
-               else if (arg == "--host" && i + 1 < argc)
+               else if (arg == "--host")
                {
-                    host = argv[++i];
+                    host = RequireNextValue(i, arg);
                     host_set = true;
                }
-               else if (arg == "--port" && i + 1 < argc)
+               else if (arg == "--port")
                {
-                    port = std::stoi(argv[++i]);
+                    port = std::stoi(RequireNextValue(i, arg));
                     port_set = true;
                }
-               else if (arg == "--auth" && i + 1 < argc)
+               else if (arg == "--auth")
                {
-                    auth_token = argv[++i];
+                    auth_token = RequireNextValue(i, arg);
                }
                else if (arg == "--ssl-auth")
                {
                     ssl_auth_mode = true;
                }
-               else if (arg == "--prefix" && i + 1 < argc)
+               else if (arg == "--prefix")
                {
-                    custom_prefix_val = argv[++i];
+                    custom_prefix_val = RequireNextValue(i, arg);
                     g_collection_prefix = custom_prefix_val;
                }
-               else if (arg == "--collections" && i + 1 < argc)
+               else if (arg == "--collections")
                {
-                    num_collections = std::stoi(argv[++i]);
+                    num_collections = std::stoi(RequireNextValue(i, arg));
                }
-               else if (arg == "--documents" && i + 1 < argc)
+               else if (arg == "--documents")
                {
-                    num_documents = std::stoi(argv[++i]);
+                    num_documents = std::stoi(RequireNextValue(i, arg));
                     documents_explicitly_set = true;
                }
-               else if (arg == "--threads" && i + 1 < argc)
+               else if (arg == "--threads")
                {
-                    num_threads = std::stoi(argv[++i]);
-                    threads_explicitly_set = true;
+                    num_threads = std::stoi(RequireNextValue(i, arg));
                }
-               else if (arg == "--batch-size" && i + 1 < argc)
+               else if (arg == "--batch-size")
                {
-                    batch_size = std::stoi(argv[++i]);
-                    batch_size_explicitly_set = true;
+                    batch_size = std::stoi(RequireNextValue(i, arg));
                }
                else if (arg == "--advanced")
                {
@@ -1570,13 +1574,13 @@ int main(int argc, char *argv[])
                {
                     flood_mode = true;
                }
-               else if (arg == "--id" && i + 1 < argc)
+               else if (arg == "--id")
                {
-                    run_id_val = argv[++i];
+                    run_id_val = RequireNextValue(i, arg);
                }
-               else if (arg == "--seed" && i + 1 < argc)
+               else if (arg == "--seed")
                {
-                    run_seed_val = argv[++i];
+                    run_seed_val = RequireNextValue(i, arg);
                }
                else if (arg == "--no-fake-collections")
                {
@@ -1602,13 +1606,13 @@ int main(int argc, char *argv[])
                {
                     reuse_collections = true;
                }
-               else if (arg == "--log-file" && i + 1 < argc)
+               else if (arg == "--log-file")
                {
-                    log_file_val = argv[++i];
+                    log_file_val = RequireNextValue(i, arg);
                }
-               else if (arg == "--durability-config" && i + 1 < argc)
+               else if (arg == "--durability-config")
                {
-                    durability_config_path = argv[++i];
+                    durability_config_path = RequireNextValue(i, arg);
                }
                else if (arg == "--skip-auth-check")
                {
@@ -1620,42 +1624,15 @@ int main(int argc, char *argv[])
                }
                else if (arg == "--help" || arg == "-h")
                {
-                    std::cout << "Usage: " << argv[0] << " [options]\n"
-                              << "Options:\n"
-                              << "  --url URL          Server URL (default: http://localhost:9200)\n"
-                              << "  --host HOST        Server host (default: localhost)\n"
-                              << "  --port PORT        Server port (default: 9200)\n"
-                              << "  --auth TOKEN      Authentication token\n"
-                              << "  --ssl-auth        Over HTTPS, send token as both Authorization and X-API-Key\n"
-                              << "  --collections N   Number of collections to create (default: 2)\n"
-                              << "  --documents N     Total number of documents to insert (default: 50000 per collection)\n"
-                              << "  --threads N        Number of threads (default: auto-tuned from CPU/RAM)\n"
-                              << "  --batch-size N     Documents per bulk insert batch (default: auto-tuned from CPU/RAM)\n"
-                              << "  --advanced [FILE]  Output detailed JSON metrics (default: adv.json)\n"
-                              << "  --detailed [FILE] Run comprehensive benchmark testing ALL routes\n"
-                              << "                    and functionalities (includes --advanced)\n"
-                              << "  --Search           Run search benchmark on previously inserted data\n"
-                              << "  --dump             Dump all collections and their documents\n"
-                              << "  --fake             Insert realistic sample data (food, music, science, etc.) for testing\n"
-                              << "  --flood            Flood server with continuous random data generation for stress testing\n"
-                              << "                    (runs until stopped with Ctrl+C, randomly creates collections and documents)\n"
-                              << "  --id ID            Run UUID/ID for correlation (default: auto-generated)\n"
-                              << "  --seed SEED        Seed for deterministic runs\n"
-                              << "  --no-fake-collections  Disable fake helper collections (food, music, sports, etc.)\n"
-                              << "  --verify-after-restart   Verify counts after server restart\n"
-                              << "  --check-consistency      Check consistency of /status, /stats, /metrics, /doctotal\n"
-                              << "  --dry-run          Generate collections/docs in memory but don't send to server\n"
-                              << "  --cleanup          Delete all benchmark-tagged collections at end\n"
-                              << "  --prefix PREFIX    Custom prefix for benchmark collections (default: bench_collection_)\n"
-                              << "  --durability-config PATH  Load durability settings from config (e.g., run/conf/database.conf)\n"
-                              << "  --reuse-collections Reuse existing collections instead of deleting/recreating them\n"
-                              << "  --skip-auth-check  Skip authentication requirement check (useful when auth is disabled)\n"
-                              << "  --unorganized      Create an 'unorganized' collection with non-standard schema for testing\n"
-                              << "  --log-file FILE    Structured log file (JSON lines format)\n"
-                              << "  --verbose, -v      Show detailed progress information\n"
-                              << "  --help, -h         Show this help message\n";
+                    PrintBenchmarkHelp(argv[0]);
 
                     return 0;
+               }
+               else
+               {
+                    std::cerr << "Error: Unknown argument: " << arg << ".\n\n";
+                    PrintBenchmarkHelp(argv[0]);
+                    return 1;
                }
           }
 
@@ -1667,18 +1644,6 @@ int main(int argc, char *argv[])
           if (!documents_explicitly_set)
           {
                num_documents = num_collections * default_docs_per_collection;
-          }
-
-          const AdaptiveBenchmarkDefaults adaptive_defaults = GetAdaptiveBenchmarkDefaults();
-
-          if (!threads_explicitly_set)
-          {
-               num_threads = adaptive_defaults.Threads;
-          }
-
-          if (!batch_size_explicitly_set)
-          {
-               batch_size = adaptive_defaults.BatchSize;
           }
 
           num_threads = std::max(1, num_threads);
@@ -2091,39 +2056,6 @@ int main(int argc, char *argv[])
           std::cout << "Documents: " << num_documents << ".\n";
           std::cout << "Threads: " << num_threads << " requested, " << active_document_threads << " ingest worker(s), " << active_collection_threads << " collection worker(s).\n";
           std::cout << "Batch size: " << batch_size << ".\n";
-
-          if (!threads_explicitly_set || !batch_size_explicitly_set)
-          {
-               std::cout << "Adaptive defaults:";
-
-               if (!threads_explicitly_set)
-               {
-                    std::cout << " threads auto-tuned for " << adaptive_defaults.HardwareThreads << " CPU thread(s)";
-               }
-               else
-               {
-                    std::cout << " threads user-set";
-               }
-
-               if (adaptive_defaults.TotalMemoryBytes > 0)
-               {
-                    const double gib = static_cast<double>(adaptive_defaults.TotalMemoryBytes) / (1024.0 * 1024.0 * 1024.0);
-                    std::cout << ", memory " << std::fixed << std::setprecision(1) << gib << " GiB";
-                    std::cout.unsetf(std::ios::floatfield);
-                    std::cout << std::setprecision(6);
-               }
-
-               if (!batch_size_explicitly_set)
-               {
-                    std::cout << ", batch size auto-tuned";
-               }
-               else
-               {
-                    std::cout << ", batch size user-set";
-               }
-
-               std::cout << ".\n";
-          }
 
           if (advanced_mode)
           {
@@ -2962,6 +2894,11 @@ int main(int argc, char *argv[])
      }
      catch (const std::exception &e)
      {
+          if (std::string(e.what()) == "__benchmark_help_shown__")
+          {
+               return 1;
+          }
+
           std::cerr << "\n[FATAL] Benchmark crashed with exception: " << e.what() << ".\n";
 
           return 1;

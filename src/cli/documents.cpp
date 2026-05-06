@@ -26,9 +26,27 @@
 #include "core/typedefs.h"
 #include "cli/cliutils.h"
 #include "app.h"
+#include "runtime/clock.h"
 
 namespace
 {
+std::string JoinDocumentStrings(const std::vector<std::string> &values, const std::string &separator)
+{
+     std::string joined;
+
+     for (size_t index = 0; index < values.size(); ++index)
+     {
+          if (index > 0)
+          {
+               joined += separator;
+          }
+
+          joined += values[index];
+     }
+
+     return joined;
+}
+
 /* Parse a CLI value as JSON when it looks like a literal, otherwise keep it as a string. */
 
 nlohmann::json ParseUpdateFieldValue(const std::string &field_value)
@@ -807,7 +825,7 @@ void HLQueryCLI::SearchDocuments(const std::string &collection_name, const std::
           return;
      }
 
-     auto search_start = std::chrono::steady_clock::now();
+     auto search_start = Now();
 
      const int PAGE_SIZE_VAL = 100;
 
@@ -1111,7 +1129,7 @@ void HLQueryCLI::SearchDocuments(const std::string &collection_name, const std::
      if (json_output || RawMode)
      {
           nlohmann::json output = first_root.is_object() ? first_root : (last_root.is_object() ? last_root : nlohmann::json::object());
-          auto search_end = std::chrono::steady_clock::now();
+          auto search_end = Now();
           auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(search_end - search_start).count();
 
           output["hits"] = aggregated_hits;
@@ -1168,7 +1186,7 @@ void HLQueryCLI::SearchDocuments(const std::string &collection_name, const std::
           PrintMaybeSuggestions(maybe_root, query, collection_name);
      }
 
-     auto search_end = std::chrono::steady_clock::now();
+     auto search_end = Now();
      auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(search_end - search_start).count();
      std::cout << "Search completed in " << duration_ms << " ms.\n";
 }
@@ -1187,7 +1205,7 @@ void HLQueryCLI::SearchSQL(const std::string &sql, const std::string &collection
           return;
      }
 
-     auto search_start = std::chrono::steady_clock::now();
+     auto search_start = Now();
      const std::string path = "/sql";
      const std::string query_string = "sql=" + hlquery_cli::UrlEncode(sql);
      HLQueryCLI::HTTPResponse response = MakeRequest("GET", path + "?" + query_string);
@@ -1225,7 +1243,7 @@ void HLQueryCLI::SearchSQL(const std::string &sql, const std::string &collection
      if (json_output || RawMode)
      {
           nlohmann::json output = root;
-          auto search_end = std::chrono::steady_clock::now();
+          auto search_end = Now();
           auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(search_end - search_start).count();
 
           output["cli"] = {
@@ -1264,7 +1282,7 @@ void HLQueryCLI::SearchSQL(const std::string &sql, const std::string &collection
                std::cout << "Updated: " << root["updated"].dump() << "\n";
           }
 
-          auto search_end = std::chrono::steady_clock::now();
+          auto search_end = Now();
           auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(search_end - search_start).count();
           std::cout << "Search completed in " << duration_ms << " ms.\n";
           return;
@@ -1285,7 +1303,7 @@ void HLQueryCLI::SearchSQL(const std::string &sql, const std::string &collection
           PrintSQLRowsTable(*this, root["rows"]);
           std::cout << root["rows"].size() << " result" << (root["rows"].size() == 1 ? "" : "s") << " shown.\n";
 
-          auto search_end = std::chrono::steady_clock::now();
+          auto search_end = Now();
           auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(search_end - search_start).count();
           std::cout << "Search completed in " << duration_ms << " ms.\n";
           return;
@@ -1305,7 +1323,7 @@ void HLQueryCLI::SearchSQL(const std::string &sql, const std::string &collection
 
           if (aggregate_sql)
           {
-               auto search_end = std::chrono::steady_clock::now();
+               auto search_end = Now();
                auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(search_end - search_start).count();
                std::cout << "Search completed in " << duration_ms << " ms.\n";
                return;
@@ -1447,7 +1465,7 @@ void HLQueryCLI::SearchSQL(const std::string &sql, const std::string &collection
           PrintInfo("No documents found for SQL query");
      }
 
-     auto search_end = std::chrono::steady_clock::now();
+     auto search_end = Now();
      auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(search_end - search_start).count();
      std::cout << "Search completed in " << duration_ms << " ms.\n";
 }
@@ -1803,13 +1821,46 @@ void HLQueryCLI::ShowSAMStatus(const std::string &collection_name, bool json_out
                          running ? "yes" : "no",
                          entry.value("completed", false) ? "yes" : "no",
                          std::to_string(entry.value("indexed", static_cast<size_t>(0))),
-                         std::to_string(entry.value("failed", static_cast<size_t>(0)))
+                         std::to_string(entry.value("failed", static_cast<size_t>(0))),
+                         std::to_string(entry.value("pending", static_cast<size_t>(0))),
+                         std::to_string(entry.value("total", static_cast<size_t>(0)))
                     });
                }
 
-               PrintTable({"Collection", "Running", "Completed", "Indexed", "Failed"}, rows);
+               PrintTable({"Collection", "Running", "Completed", "Indexed", "Failed", "Pending", "Total"}, rows);
 
-               if (!any_running)
+               const nlohmann::json &running_collections = root["running_collections"];
+
+               if (running_collections.is_array() && !running_collections.empty())
+               {
+                    std::vector<std::string> names;
+
+                    for (const auto &entry : running_collections)
+                    {
+                         if (entry.is_string() && !entry.get<std::string>().empty())
+                         {
+                              names.push_back(entry.get<std::string>());
+                         }
+                    }
+
+                    if (!names.empty())
+                    {
+                         std::ostringstream stream;
+
+                         for (size_t index = 0; index < names.size(); ++index)
+                         {
+                              if (index > 0)
+                              {
+                                   stream << ", ";
+                              }
+
+                              stream << names[index];
+                         }
+
+                         std::cout << "Currently indexing: " << stream.str() << "\n";
+                    }
+               }
+               else if (!any_running)
                {
                     std::cout << root.value("message", "No SAM collections are currently indexing.") << "\n";
                }
@@ -1817,6 +1868,26 @@ void HLQueryCLI::ShowSAMStatus(const std::string &collection_name, bool json_out
           else
           {
                std::cout << root.value("message", "No SAM collections are currently indexing.") << "\n";
+          }
+
+          const nlohmann::json &active_searches = root["active_searches"];
+
+          if (active_searches.is_array() && !active_searches.empty())
+          {
+               std::vector<std::vector<std::string>> rows;
+
+               for (const auto &entry : active_searches)
+               {
+                    rows.push_back({
+                         entry.value("collection", ""),
+                         entry.value("query", ""),
+                         std::to_string(entry.value("started_ms", static_cast<uint64_t>(0))),
+                         entry.value("running", false) ? "yes" : "no"
+                    });
+               }
+
+               std::cout << "Active SAM searches:\n";
+               PrintTable({"Collection", "Query", "StartedMS", "Running"}, rows);
           }
 
           return;
@@ -1829,6 +1900,8 @@ void HLQueryCLI::ShowSAMStatus(const std::string &collection_name, bool json_out
      rows.push_back({"completed", root.value("completed", false) ? "yes" : "no"});
      rows.push_back({"indexed", std::to_string(root.value("indexed", static_cast<size_t>(0)))});
      rows.push_back({"failed", std::to_string(root.value("failed", static_cast<size_t>(0)))});
+     rows.push_back({"search_running", root.value("search_running", false) ? "yes" : "no"});
+     rows.push_back({"active_search_count", std::to_string(root.value("active_search_count", static_cast<size_t>(0)))});
 
      const std::string error_value = root.value("error", "");
 
@@ -1841,6 +1914,132 @@ void HLQueryCLI::ShowSAMStatus(const std::string &collection_name, bool json_out
 
      std::cout << "SAM status for collection '" << collection_name << "':.\n";
      PrintTable({"Field", "Value"}, rows);
+
+     const nlohmann::json &active_searches = root["active_searches"];
+
+     if (active_searches.is_array() && !active_searches.empty())
+     {
+          std::vector<std::vector<std::string>> search_rows;
+
+          for (const auto &entry : active_searches)
+          {
+               search_rows.push_back({
+                    entry.value("query", ""),
+                    std::to_string(entry.value("started_ms", static_cast<uint64_t>(0))),
+                    entry.value("running", false) ? "yes" : "no"
+               });
+          }
+
+          std::cout << "Active SAM searches:\n";
+          PrintTable({"Query", "StartedMS", "Running"}, search_rows);
+     }
+
+}
+
+void HLQueryCLI::ShowSAMHistory(const std::string &collection_name, int limit, bool json_output)
+{
+     if (limit <= 0)
+     {
+          limit = 100;
+     }
+
+     std::string path = "/sam/history?limit=" + std::to_string(limit);
+
+     if (!collection_name.empty())
+     {
+          path += "&collection=" + hlquery_cli::UrlEncode(collection_name);
+     }
+
+     HLQueryCLI::HTTPResponse response = MakeRequest("GET", path, "", std::max(60, DefaultTimeoutSeconds));
+
+     if (CheckRequestFailed(response))
+     {
+          return;
+     }
+
+     nlohmann::json root;
+
+     try
+     {
+          root = nlohmann::json::parse(response.Body);
+     }
+     catch (const std::exception &)
+     {
+          PrintError("Failed to parse SAM history response");
+          return;
+     }
+
+     if (json_output || RawMode)
+     {
+          std::cout << root.dump(2) << "\n";
+          return;
+     }
+
+     const nlohmann::json &history = root["history"];
+     std::cout << "SAM recent search history";
+
+     if (!collection_name.empty())
+     {
+          std::cout << " for collection '" << collection_name << "'";
+     }
+
+     std::cout << ":.\n";
+
+     if (!history.is_array() || history.empty())
+     {
+          std::cout << "No SAM search history found.\n";
+          return;
+     }
+
+     std::vector<std::vector<std::string>> rows;
+     size_t index = 1;
+
+     for (const auto &entry : history)
+     {
+          std::string best_match;
+          std::string llm_intent = entry.value("resolved_interpretation", "");
+          std::string conclusion = entry.value("resolved_conclusion", "");
+
+          if (conclusion.empty())
+          {
+               conclusion = entry.value("conclusion", "");
+          }
+
+          if (entry.contains("best_match") && entry["best_match"].is_object())
+          {
+               const nlohmann::json &best = entry["best_match"];
+               best_match = best.value("title", "");
+
+               if (best_match.empty())
+               {
+                    best_match = best.value("id", "");
+               }
+          }
+
+          if (best_match.empty() && entry.contains("suggestions") && entry["suggestions"].is_array())
+          {
+               for (const auto &suggestion : entry["suggestions"])
+               {
+                    if (suggestion.is_string() && !suggestion.get<std::string>().empty())
+                    {
+                         best_match = suggestion.get<std::string>();
+                         break;
+                    }
+               }
+          }
+
+          rows.push_back({
+               std::to_string(index++),
+               entry.value("collection", ""),
+               entry.value("query", ""),
+               std::to_string(entry.value("uses", static_cast<uint64_t>(0))),
+               llm_intent,
+               best_match,
+               conclusion
+          });
+     }
+
+     PrintTable({"#", "Collection", "Query", "Uses", "LLM Intent", "Best Match", "Conclusion"}, rows);
 }
 
 void HLQueryCLI::ListSAMDocuments(const std::string &collection_name, int offset, int limit, bool json_output)
@@ -2003,6 +2202,9 @@ void HLQueryCLI::OpenSAMDocument(const std::string &collection_name, const std::
      metadata_rows.push_back({"collection", root.value("collection", "")});
      metadata_rows.push_back({"id", root.value("id", "")});
      metadata_rows.push_back({"title", root.value("title", "")});
+     metadata_rows.push_back({"language", root.value("lang", "")});
+     metadata_rows.push_back({"label", root.value("label", "")});
+     metadata_rows.push_back({"format", root.value("format", "")});
      metadata_rows.push_back({"term_count", root.contains("terms") && root["terms"].is_array()
                                                ? std::to_string(root["terms"].size())
                                                : "0"});
@@ -2015,6 +2217,55 @@ void HLQueryCLI::OpenSAMDocument(const std::string &collection_name, const std::
      }
 
      PrintTable({"Field", "Value"}, metadata_rows);
+
+     if (root.contains("analysis") && root["analysis"].is_object())
+     {
+          const nlohmann::json &analysis = root["analysis"];
+          std::vector<std::vector<std::string>> analysis_rows;
+
+          if (!analysis.value("subject", "").empty())
+          {
+               analysis_rows.push_back({"subject", analysis.value("subject", "")});
+          }
+
+          if (!analysis.value("summary", "").empty())
+          {
+               analysis_rows.push_back({"about", analysis.value("summary", "")});
+          }
+
+          auto AppendAnalysisList = [&](const char *field_name, const char *label)
+          {
+               if (!analysis.contains(field_name) || !analysis[field_name].is_array() || analysis[field_name].empty())
+               {
+                    return;
+               }
+
+               std::vector<std::string> values;
+
+               for (const auto &item : analysis[field_name])
+               {
+                    if (item.is_string() && !item.get<std::string>().empty())
+                    {
+                         values.push_back(item.get<std::string>());
+                    }
+               }
+
+               if (!values.empty())
+               {
+                    analysis_rows.push_back({label, JoinDocumentStrings(values, ", ")});
+               }
+          };
+
+          AppendAnalysisList("aliases", "aliases");
+          AppendAnalysisList("descriptors", "descriptors");
+          AppendAnalysisList("queries", "queries");
+
+          if (!analysis_rows.empty())
+          {
+               std::cout << "Analysis:\n";
+               PrintTable({"Field", "Value"}, analysis_rows);
+          }
+     }
 
      if (root.contains("terms") && root["terms"].is_array() && !root["terms"].empty())
      {
@@ -2081,7 +2332,7 @@ void HLQueryCLI::SearchAcrossCollections(const std::string &query, const std::ve
           return;
      }
 
-     auto search_start = std::chrono::steady_clock::now();
+     auto search_start = Now();
 
      const int PAGE_SIZE_VAL = 100;
 
@@ -2406,7 +2657,7 @@ void HLQueryCLI::SearchAcrossCollections(const std::string &query, const std::ve
      if (json_output || RawMode)
      {
           nlohmann::json output = first_root.is_object() ? first_root : (last_root.is_object() ? last_root : nlohmann::json::object());
-          auto search_end = std::chrono::steady_clock::now();
+          auto search_end = Now();
           auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(search_end - search_start).count();
 
           output["hits"] = aggregated_hits;
@@ -2461,7 +2712,7 @@ void HLQueryCLI::SearchAcrossCollections(const std::string &query, const std::ve
           PrintInfo("No documents found matching your search across " + collections_desc);
      }
 
-     auto search_end = std::chrono::steady_clock::now();
+     auto search_end = Now();
      auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(search_end - search_start).count();
      std::cout << "Search completed in " << duration_ms << " ms.\n";
 }

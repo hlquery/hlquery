@@ -567,10 +567,10 @@ void SocketEngine::DelFD(EventHandler *EH)
           UnregisterPendingWrite(EH);
 
           /*
-         * IMPROVEMENT: Synchronize properly when closing sockets from outside the event loop thread
-         * to prevent a race condition where epoll still has a dangling reference to a closed file descriptor
-         * Use mutex if called from different thread (currently single-threaded, but prepare for future)
-         */
+           * IMPROVEMENT: Synchronize properly when closing sockets from outside the event loop thread
+           * to prevent a race condition where epoll still has a dangling reference to a closed file descriptor
+           * Use mutex if called from different thread (currently single-threaded, but prepare for future)
+           */
 
           /* Only decrement if fd was actually registered (epoll_ctl succeeds) */
 
@@ -591,7 +591,7 @@ void SocketEngine::DelFD(EventHandler *EH)
 
                ActiveConnections.fetch_sub(1, std::memory_order_relaxed);
 
-               /*
+            /*
              * Ensure socket is closed properly - EventHandler destructor should handle this,
              * but we verify the FD is removed from epoll first to prevent use-after-free
              */
@@ -913,10 +913,10 @@ int SocketEngine::DispatchEvents()
           uint32_t ev = Events[i].events;
 
           /*
-         * IMPROVEMENT: Handle EPOLLHUP and EPOLLERR events by promptly cleaning up those connections
-         * (closing sockets and removing them from epoll) to avoid resource leakage.
-         * Handle errors/hangups first - process immediately for cleanup.
-         */
+           * IMPROVEMENT: Handle EPOLLHUP and EPOLLERR events by promptly cleaning up those connections
+           * (closing sockets and removing them from epoll) to avoid resource leakage.
+           * Handle errors/hangups first - process immediately for cleanup.
+           */
 
           if (ev & (EPOLLHUP | EPOLLRDHUP | EPOLLERR))
           {
@@ -1035,7 +1035,7 @@ int SocketEngine::DispatchEvents()
           {
                read_events++;
 
-               /*
+            /*
              * CRITICAL FIX: Only log read events in very verbose debug mode to reduce log spam.
              * Most read events are normal and don't need logging.
              */
@@ -1097,11 +1097,11 @@ int SocketEngine::DispatchEvents()
           }
 
           /*
-         * Validate fd before using it - prevent crashes from invalid pointers.
-         * File descriptors should be small positive integers (typically 0-1024).
-         * Large values like 172182496 indicate memory corruption or invalid pointer.
-         * Sanity check: fd should be reasonable.
-         */
+          * Validate fd before using it - prevent crashes from invalid pointers.
+          * File descriptors should be small positive integers (typically 0-1024).
+          * Large values like 172182496 indicate memory corruption or invalid pointer.
+          * Sanity check: fd should be reasonable.
+          */
 
           int fd = EH->GetFD();
 
@@ -1129,7 +1129,7 @@ int SocketEngine::DispatchEvents()
                     Instance->Logs->Debug("socketengine", "DispatchEvents: Processing write event #" + std::to_string(write_events) + " (fd=" + std::to_string(fd) + ").");
                }
 
-               /*
+            /*
              * Validate handler is still valid before calling methods
              * Check if fd is still valid by verifying it hasn't been closed
              */
@@ -1330,14 +1330,14 @@ void SocketEngine::DispatchTrialWrites()
           WriteCandidates.end());
 
      /*
-     * Intelligent Write Batching Algorithm
-     *
-     * Process writes in optimized batches to maximize throughput:
-     * 1. Group consecutive handlers for cache locality
-     * 2. Use MSG_MORE for TCP_CORK-like behavior
-     * 3. Handle partial writes gracefully
-     * 4. Re-register blocked writes automatically
-     */
+      * Intelligent Write Batching Algorithm
+      *
+      * Process writes in optimized batches to maximize throughput:
+      * 1. Group consecutive handlers for cache locality
+      * 2. Use MSG_MORE for TCP_CORK-like behavior
+      * 3. Handle partial writes gracefully
+      * 4. Re-register blocked writes automatically
+      */
 
      /* Optimized batch size for high-speed writes */
 

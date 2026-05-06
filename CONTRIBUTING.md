@@ -3,6 +3,7 @@
 Thanks for contributing to `hlquery`.
 
 This project is under active development. Keep changes focused, document behavior changes clearly, and validate them locally before opening a pull request.
+By participating in this project, you agree to follow the [Code of Conduct](./CODE_OF_CONDUCT.md).
 
 ### Before You Start
 
@@ -27,4 +28,3 @@ Unless a maintainer asks otherwise, target `unstable` for new contributions.
 - Keep include ordering as written unless the file already uses a different local pattern.
 - Avoid unrelated formatting-only changes in functional pull requests.
 - Do not modify vendored code under `vendor/` unless the contribution is explicitly about updating or patching that dependency.
-

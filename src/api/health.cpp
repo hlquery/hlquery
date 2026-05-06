@@ -524,7 +524,7 @@ static bool HealthSendPingRequest(const std::string &Host,
           return false;
      }
 
-     auto Start = std::chrono::steady_clock::now();
+     auto Start = Now();
      std::ostringstream Req;
      Req << "GET /health HTTP/1.1\r\n";
      Req << "Host: " << Host << ":" << Port << "\r\n";
@@ -563,7 +563,7 @@ static bool HealthSendPingRequest(const std::string &Host,
      }
 
      close(Sock);
-     auto End = std::chrono::steady_clock::now();
+     auto End = Now();
      if (OutLatencyMS)
      {
           *OutLatencyMS = std::chrono::duration<double, std::milli>(End - Start).count();
@@ -1182,12 +1182,21 @@ HttpResponse SearchAPI::HandleStatus(const HttpRequest &Request)
      (void)Request;
 
      nlohmann::json StatusJSON;
-     nlohmann::json StatusStatsJSON;
 
      StatusJSON["status"] = "ok";
      StatusJSON["timestamp"] = GetCurrentTimestamp();
-     StatusStatsJSON["io"] = BuildSocketIOStatsJSON();
-     StatusJSON["stats"] = StatusStatsJSON;
+
+     try
+     {
+          HttpResponse StatsResponse = HandleStats(Request);
+          StatusJSON["stats"] = nlohmann::json::parse(StatsResponse.Body);
+     }
+     catch (...)
+     {
+          nlohmann::json FallbackStatsJSON;
+          FallbackStatsJSON["io"] = BuildSocketIOStatsJSON();
+          StatusJSON["stats"] = FallbackStatsJSON;
+     }
 
      if (Instance && Instance->Config)
      {
@@ -1346,7 +1355,7 @@ HttpResponse SearchAPI::HandleLinksConnect(const HttpRequest &Request)
           return BuildLinksErrorResponse(Status::BAD_REQUEST, "Failed to add link", AddError);
      }
 
-     NOTIFY_MODULES(OnLinksConnect, Endpoint, Request.RemoteAddress, Request.APIKeyID, !Request.APIKeyID.empty());
+     FOREACH_MOD(OnLinksConnect, Endpoint, Request.RemoteAddress, Request.APIKeyID, !Request.APIKeyID.empty());
 
      return HandleLinksList(Request);
 }
@@ -1383,7 +1392,7 @@ HttpResponse SearchAPI::HandleLinksDisconnect(const HttpRequest &Request)
           return BuildLinksErrorResponse(Status::BAD_REQUEST, "Failed to remove link", RemoveError);
      }
 
-     NOTIFY_MODULES(OnLinksDisconnect, Endpoint, Request.RemoteAddress, Request.APIKeyID, !Request.APIKeyID.empty());
+     FOREACH_MOD(OnLinksDisconnect, Endpoint, Request.RemoteAddress, Request.APIKeyID, !Request.APIKeyID.empty());
 
      return HandleLinksList(Request);
 }
@@ -1423,6 +1432,7 @@ HttpResponse SearchAPI::HandleLLM(const HttpRequest &Request)
 
      nlohmann::json LLMJSON;
      LLMJSON["status"] = "ok";
+     LLMJSON["enabled"] = false;
      LLMJSON["configured"] = false;
      LLMJSON["models_dir"] = "";
      LLMJSON["model_name"] = "";
@@ -1442,6 +1452,7 @@ HttpResponse SearchAPI::HandleLLM(const HttpRequest &Request)
 
           if (Instance->LLM)
           {
+               LLMJSON["enabled"] = Instance->LLM->IsEnabled();
                LLMJSON["configured"] = Instance->LLM->Configured();
                LLMJSON["models_dir"] = Instance->LLM->GetModelsDirectory();
                LLMJSON["model_name"] = Instance->LLM->GetModelName();
@@ -1651,7 +1662,7 @@ HttpResponse SearchAPI::HandleRepair(const HttpRequest &Request)
 
      if (report.Success)
      {
-          NOTIFY_MODULES(OnRepair, Request.RemoteAddress, Request.APIKeyID, !Request.APIKeyID.empty());
+          FOREACH_MOD(OnRepair, Request.RemoteAddress, Request.APIKeyID, !Request.APIKeyID.empty());
      }
 
      return Response;

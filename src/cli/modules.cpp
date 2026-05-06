@@ -19,6 +19,7 @@
 
 #include "cli/cliutils.h"
 #include "app.h"
+#include "runtime/clock.h"
 #include "vendor/json/json.hpp"
 
 namespace
@@ -658,6 +659,7 @@ void HLQueryCLI::ShowLLMInfo()
           const nlohmann::json root = nlohmann::json::parse(response.Body);
           std::vector<std::vector<std::string>> rows;
 
+          rows.push_back({"Enabled", root.value("enabled", false) ? "yes" : "no"});
           rows.push_back({"Configured", root.value("configured", false) ? "yes" : "no"});
           rows.push_back({"Model Name", root.value("model_name", std::string("")).empty() ? "-" : root.value("model_name", std::string(""))});
           rows.push_back({"Model Path", root.value("model_path", std::string("")).empty() ? "-" : root.value("model_path", std::string(""))});
@@ -804,9 +806,9 @@ void HLQueryCLI::RunModuleCommand(const std::string &module_name, const std::str
           std::string job_id;
           if (TryParseQueuedLlamaJobID(response.Body, job_id))
           {
-               const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(std::max(1, request_timeout_seconds));
+               const auto deadline = Now() + std::chrono::seconds(std::max(1, request_timeout_seconds));
 
-               while (std::chrono::steady_clock::now() < deadline)
+               while (Now() < deadline)
                {
                     nlohmann::json poll_body = nlohmann::json::object();
                     poll_body["parameters"] = nlohmann::json::array({job_id});

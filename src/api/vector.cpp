@@ -1292,7 +1292,7 @@ HttpResponse SearchAPI::HandleVectorSearch(const HttpRequest &Request)
                Authenticated,
                false);
 
-          NOTIFY_MODULES(OnSearchDocument, DocumentEvent);
+          FOREACH_MOD(OnSearchDocument, DocumentEvent);
      }
 
      return Response;

@@ -192,6 +192,7 @@ struct ComprehensiveSearchQuery
      int DropTokensThreshold = 0;
      int TypoTokensThreshold = 2;
      bool Prefix = false;
+     bool InlineFuzzy = false;
 
      /* Grouping. */
 
@@ -204,6 +205,7 @@ struct ComprehensiveSearchQuery
      bool ExhaustiveSearch = false;
      bool AllowScanFallback = true;
      bool CaseSensitive = false;
+     std::map<std::string, double> TermBoosts;
 
      /* Vector search. */
 
@@ -848,6 +850,10 @@ class SearchAPI
      /* HandleSAMDebug returns recent SAM debug events. */
 
      HttpResponse HandleSAMDebug(const HttpRequest& Request);
+
+     /* HandleSAMHistory returns recently recorded SAM search history entries. */
+
+     HttpResponse HandleSAMHistory(const HttpRequest& Request);
 
      /* HandleSAMListDocuments lists SAM-indexed documents for one collection. */
 
