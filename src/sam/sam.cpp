@@ -2008,6 +2008,13 @@ double GetSAMSourceWeight(const std::string& Source)
           return 0.94;
      }
 
+     if (Source == "llm_anchor" || Source == "llm_alias" ||
+         Source == "llm_descriptor" || Source == "llm_query" ||
+         Source == "llm_anchor_pair")
+     {
+          return 0.96;
+     }
+
      if (Source == "llm")
      {
           return 0.90;
@@ -2105,6 +2112,13 @@ double GetSAM25PhraseSourceWeight(const std::string& Source)
      if (Source == "llm_context" || Source == "llm_pair")
      {
           return std::max(0.92, Instance->Config->GetSam25SourcePhraseBoostLlm() * 0.96);
+     }
+
+     if (Source == "llm_anchor" || Source == "llm_alias" ||
+         Source == "llm_descriptor" || Source == "llm_query" ||
+         Source == "llm_anchor_pair")
+     {
+          return std::max(0.94, Instance->Config->GetSam25SourcePhraseBoostLlm() * 0.98);
      }
 
      if (Source == "llm")
@@ -5710,6 +5724,259 @@ std::vector<std::string> BuildSAMSeedQueries(const std::vector<std::string>& Sub
      return Queries;
 }
 
+std::string SpellSAMEnglishUnder100(int Value)
+{
+     static const std::array<const char*, 20> Units = {
+          "zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine",
+          "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen",
+          "seventeen", "eighteen", "nineteen"
+     };
+     static const std::array<const char*, 10> Tens = {
+          "", "", "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety"
+     };
+
+     if (Value < 0 || Value >= 100)
+     {
+          return "";
+     }
+
+     if (Value < 20)
+     {
+          return Units[static_cast<size_t>(Value)];
+     }
+
+     const int TensValue = Value / 10;
+     const int UnitValue = Value % 10;
+
+     if (UnitValue == 0)
+     {
+          return Tens[static_cast<size_t>(TensValue)];
+     }
+
+     return std::string(Tens[static_cast<size_t>(TensValue)]) + " " +
+            Units[static_cast<size_t>(UnitValue)];
+}
+
+std::string SpellSAMSpanishUnder100(int Value)
+{
+     static const std::array<const char*, 30> Units = {
+          "cero", "uno", "dos", "tres", "cuatro", "cinco", "seis", "siete", "ocho", "nueve",
+          "diez", "once", "doce", "trece", "catorce", "quince", "dieciseis", "diecisiete",
+          "dieciocho", "diecinueve", "veinte", "veintiuno", "veintidos", "veintitres",
+          "veinticuatro", "veinticinco", "veintiseis", "veintisiete", "veintiocho", "veintinueve"
+     };
+     static const std::array<const char*, 10> Tens = {
+          "", "", "", "treinta", "cuarenta", "cincuenta", "sesenta", "setenta", "ochenta", "noventa"
+     };
+
+     if (Value < 0 || Value >= 100)
+     {
+          return "";
+     }
+
+     if (Value < 30)
+     {
+          return Units[static_cast<size_t>(Value)];
+     }
+
+     const int TensValue = Value / 10;
+     const int UnitValue = Value % 10;
+
+     if (UnitValue == 0)
+     {
+          return Tens[static_cast<size_t>(TensValue)];
+     }
+
+     return std::string(Tens[static_cast<size_t>(TensValue)]) + " y " +
+            Units[static_cast<size_t>(UnitValue)];
+}
+
+std::string SpellSAMEnglishNumber(int Value)
+{
+     if (Value < 0 || Value > 9999)
+     {
+          return "";
+     }
+
+     if (Value < 100)
+     {
+          return SpellSAMEnglishUnder100(Value);
+     }
+
+     if (Value < 1000)
+     {
+          const int Hundreds = Value / 100;
+          const int Remainder = Value % 100;
+          std::string Result = SpellSAMEnglishUnder100(Hundreds) + " hundred";
+
+          if (Remainder > 0)
+          {
+               Result += " " + SpellSAMEnglishUnder100(Remainder);
+          }
+
+          return Result;
+     }
+
+     const int Thousands = Value / 1000;
+     const int Remainder = Value % 1000;
+     std::string Result = SpellSAMEnglishUnder100(Thousands) + " thousand";
+
+     if (Remainder >= 100)
+     {
+          Result += " " + SpellSAMEnglishNumber(Remainder);
+     }
+     else if (Remainder > 0)
+     {
+          Result += " " + SpellSAMEnglishUnder100(Remainder);
+     }
+
+     return Result;
+}
+
+std::string SpellSAMSpanishNumber(int Value)
+{
+     if (Value < 0 || Value > 9999)
+     {
+          return "";
+     }
+
+     if (Value < 100)
+     {
+          return SpellSAMSpanishUnder100(Value);
+     }
+
+     if (Value == 100)
+     {
+          return "cien";
+     }
+
+     if (Value < 1000)
+     {
+          static const std::array<const char*, 10> Hundreds = {
+               "", "ciento", "doscientos", "trescientos", "cuatrocientos",
+               "quinientos", "seiscientos", "setecientos", "ochocientos", "novecientos"
+          };
+
+          const int HundredsValue = Value / 100;
+          const int Remainder = Value % 100;
+          std::string Result = Hundreds[static_cast<size_t>(HundredsValue)];
+
+          if (Remainder > 0)
+          {
+               Result += " " + SpellSAMSpanishUnder100(Remainder);
+          }
+
+          return Result;
+     }
+
+     const int Thousands = Value / 1000;
+     const int Remainder = Value % 1000;
+     std::string Result;
+
+     if (Thousands == 1)
+     {
+          Result = "mil";
+     }
+     else
+     {
+          Result = SpellSAMSpanishUnder100(Thousands) + " mil";
+     }
+
+     if (Remainder > 0)
+     {
+          Result += " " + SpellSAMSpanishNumber(Remainder);
+     }
+
+     return Result;
+}
+
+std::string SpellSAMNumericToken(const std::string& Token, const std::string& Lang)
+{
+     if (!IsNumericLikeSAMToken(Token) || Token.empty() || Token.size() > 4)
+     {
+          return "";
+     }
+
+     if (Token.size() > 1 && Token.front() == '0')
+     {
+          return "";
+     }
+
+     int Value = 0;
+
+     try
+     {
+          Value = std::stoi(Token);
+     }
+     catch (...)
+     {
+          return "";
+     }
+
+     if (Lang.rfind("es", 0) == 0)
+     {
+          return SpellSAMSpanishNumber(Value);
+     }
+
+     if (Lang.empty() || Lang == "und" || Lang.rfind("en", 0) == 0)
+     {
+          return SpellSAMEnglishNumber(Value);
+     }
+
+     return "";
+}
+
+std::vector<std::string> BuildSAMNumericWordVariants(const std::string& Value,
+                                                     const std::string& Lang,
+                                                     size_t MaxVariants = 3)
+{
+     std::vector<std::string> Variants;
+     const std::string Normalized = NormalizeTerm(Value);
+     const std::vector<std::string> Tokens = TokenizeNormalized(Normalized);
+
+     if (Tokens.empty() || Tokens.size() > 6)
+     {
+          return Variants;
+     }
+
+     std::vector<std::string> Rewritten = Tokens;
+     size_t NumericTokenCount = 0;
+     bool Changed = false;
+
+     for (size_t Index = 0; Index < Tokens.size(); ++Index)
+     {
+          const std::string Spelled = SpellSAMNumericToken(Tokens[Index], Lang);
+
+          if (Spelled.empty())
+          {
+               continue;
+          }
+
+          Rewritten[Index] = Spelled;
+          ++NumericTokenCount;
+          Changed = true;
+     }
+
+     if (!Changed || NumericTokenCount == 0 || NumericTokenCount > 2)
+     {
+          return Variants;
+     }
+
+     const std::string Candidate = JoinTokens(Rewritten);
+
+     if (Candidate != Normalized && IsUsefulSAMDocumentPhrase(Candidate))
+     {
+          Variants.push_back(Candidate);
+     }
+
+     if (Variants.size() > MaxVariants)
+     {
+          Variants.resize(MaxVariants);
+     }
+
+     return Variants;
+}
+
 struct SAMTermCollector
 {
      std::unordered_map<std::string, SAM::TermEntry> Entries;
@@ -5785,6 +6052,214 @@ struct SAMTermCollector
           return Terms;
      }
 };
+
+std::unordered_set<std::string> BuildSAMDocumentEvidenceTokens(const Document& Doc,
+                                                               size_t MaxTokens = 512)
+{
+     std::unordered_set<std::string> Tokens;
+
+     auto AppendTokens = [&](const std::string& Value)
+     {
+          for (const auto& Token : NormalizeSAMTokens(Value, true))
+          {
+               if (Token.empty())
+               {
+                    continue;
+               }
+
+               Tokens.insert(Token);
+
+               if (Tokens.size() >= MaxTokens)
+               {
+                    return;
+               }
+          }
+     };
+
+     AppendTokens(Doc.Title);
+     AppendTokens(Doc.Content);
+
+     for (const auto& Field : CollectDocumentTextFields(Doc))
+     {
+          if (Tokens.size() >= MaxTokens)
+          {
+               break;
+          }
+
+          AppendTokens(Field.second);
+     }
+
+     return Tokens;
+}
+
+size_t CountSAMTokenOverlap(const std::vector<std::string>& CandidateTokens,
+                            const std::unordered_set<std::string>& EvidenceTokens)
+{
+     size_t Overlap = 0;
+
+     for (const auto& Token : CandidateTokens)
+     {
+          if (EvidenceTokens.find(Token) != EvidenceTokens.end())
+          {
+               ++Overlap;
+          }
+     }
+
+     return Overlap;
+}
+
+bool HasConsistentSAMCandidateLanguage(const std::string& Collection,
+                                       const std::string& Candidate,
+                                       const std::string& DocumentLang)
+{
+     if (Candidate.empty() || DocumentLang.empty() || DocumentLang == "und")
+     {
+          return true;
+     }
+
+     Document CandidateDoc;
+     CandidateDoc.ID = Candidate;
+     CandidateDoc.Title = Candidate;
+     const std::string CandidateLang = sam::lang::DetectDocumentLanguage(Collection, CandidateDoc);
+
+     return CandidateLang == "und" || CandidateLang == DocumentLang;
+}
+
+bool ValidateSAMLLMCandidate(const std::string& Collection,
+                             const Document& Doc,
+                             const std::string& Candidate,
+                             const std::string& Subject,
+                             const std::unordered_set<std::string>& EvidenceTokens,
+                             const std::string& DocumentLang)
+{
+     if (!IsUsefulSAMDocumentPhrase(Candidate) || IsIdentifierLikeSAMValue(Candidate))
+     {
+          return false;
+     }
+
+     if (!HasConsistentSAMCandidateLanguage(Collection, Candidate, DocumentLang))
+     {
+          return false;
+     }
+
+     const std::vector<std::string> CandidateTokens = NormalizeSAMTokens(Candidate, true);
+
+     if (CandidateTokens.empty())
+     {
+          return false;
+     }
+
+     const size_t Overlap = CountSAMTokenOverlap(CandidateTokens, EvidenceTokens);
+     const bool MentionsSubject = !Subject.empty() &&
+          (Candidate == Subject ||
+           Candidate.find(Subject) != std::string::npos ||
+           Subject.find(Candidate) != std::string::npos);
+
+     if (Overlap == 0 && !MentionsSubject)
+     {
+          return false;
+     }
+
+     if (CandidateTokens.size() >= 3 && Overlap == 0)
+     {
+          return false;
+     }
+
+     if (CandidateTokens.size() >= 2 && Overlap == 1 && !MentionsSubject)
+     {
+          return false;
+     }
+
+     (void)Doc;
+     return true;
+}
+
+std::unordered_map<std::string, double> BuildSAMLLMFeedbackBoosts(rocksdb::DB* Database,
+                                                                  const std::string& Collection,
+                                                                  const Document& Doc,
+                                                                  const std::string& Subject,
+                                                                  const std::unordered_set<std::string>& EvidenceTokens,
+                                                                  const std::string& DocumentLang,
+                                                                  size_t MaxIdeas = 64)
+{
+     std::unordered_map<std::string, double> Boosts;
+
+     if (!Database || Collection.empty() || Doc.ID.empty() || MaxIdeas == 0)
+     {
+          return Boosts;
+     }
+
+     const std::string Prefix = BuildSearchIdeaPrefix(Collection);
+     std::unique_ptr<rocksdb::Iterator> Iterator(Database->NewIterator(rocksdb::ReadOptions()));
+     const uint64_t NowMS = GetSAMCurrentTimeMS();
+     size_t SeenIdeas = 0;
+
+     auto AddBoost = [&](const std::string& Value, double Boost)
+     {
+          const std::string Candidate = NormalizeTerm(Value);
+
+          if (!ValidateSAMLLMCandidate(Collection,
+                                       Doc,
+                                       Candidate,
+                                       Subject,
+                                       EvidenceTokens,
+                                       DocumentLang))
+          {
+               return;
+          }
+
+          Boosts[Candidate] = std::max(Boosts[Candidate], ClampSAMScore(Boost));
+     };
+
+     for (Iterator->Seek(Prefix);
+          Iterator->Valid() && Iterator->key().starts_with(Prefix) && SeenIdeas < MaxIdeas;
+          Iterator->Next(), ++SeenIdeas)
+     {
+          SAM::SearchIdeaEntry Entry;
+
+          if (!ParseSearchIdeaEntry(Iterator->value().ToString(), Entry) || Entry.Uses == 0)
+          {
+               continue;
+          }
+
+          bool TargetsDocument = false;
+
+          for (const auto& DocumentRef : Entry.Documents)
+          {
+               if (DocumentRef.DocumentID == Doc.ID)
+               {
+                    TargetsDocument = true;
+                    break;
+               }
+          }
+
+          if (!TargetsDocument)
+          {
+               continue;
+          }
+
+          const double Popularity = ClampSAMScore(std::log1p(static_cast<double>(Entry.Uses)) / std::log(12.0));
+          const double Freshness = GetSAMIdeaFreshness(Entry.LastSeenMS, NowMS);
+          const double Resolution = Entry.ResolvedAtMS > 0
+               ? ClampSAMScore(std::log1p(static_cast<double>(std::max<uint64_t>(Entry.ResolvedUses, 1))) / std::log(12.0))
+               : 0.0;
+          const double BaseBoost = ClampSAMScore((Popularity * 0.50) + (Freshness * 0.25) + (Resolution * 0.25));
+
+          AddBoost(Entry.Query, BaseBoost * 0.92);
+
+          for (const auto& Candidate : Entry.ResolvedCandidates)
+          {
+               AddBoost(Candidate.Text, BaseBoost * (0.84 + (ClampSAMScore(Candidate.Weight) * 0.16)));
+          }
+
+          for (const auto& RankedTerm : Entry.ResolvedRankedTerms)
+          {
+               AddBoost(RankedTerm.Text, BaseBoost * (0.88 + (ClampSAMScore(RankedTerm.Weight) * 0.20)));
+          }
+     }
+
+     return Boosts;
+}
 }
 
 std::vector<SAM::TermEntry> SAM::GenerateLLMTerms(const std::string& Collection,
@@ -5800,15 +6275,106 @@ std::vector<SAM::TermEntry> SAM::GenerateLLMTerms(const std::string& Collection,
 
      try
      {
+          const std::string DocumentLang = sam::lang::DetectDocumentLanguage(Collection, Doc);
+          const std::unordered_set<std::string> EvidenceTokens = BuildSAMDocumentEvidenceTokens(Doc);
+          std::unordered_map<std::string, double> FeedbackBoosts;
+          const std::vector<llm::AnchorSuggestion> Anchors =
+               Instance->LLM->BuildDocumentAnchors(Collection, Doc, DocumentLang, 10);
           const std::vector<llm::ContextSuggestion> Suggestions =
                Instance->LLM->BuildDocumentContext(Collection, Doc, 8);
           const std::string Subject = NormalizeTerm(Doc.Title.empty() ? Doc.ID : Doc.Title);
+
+          {
+               std::lock_guard<std::mutex> Lock(DBMutex);
+
+               if (Database)
+               {
+                    FeedbackBoosts = BuildSAMLLMFeedbackBoosts(Database.get(),
+                                                               Collection,
+                                                               Doc,
+                                                               Subject,
+                                                               EvidenceTokens,
+                                                               DocumentLang);
+               }
+          }
+
+          for (const auto& Anchor : Anchors)
+          {
+               const std::string Candidate = NormalizeTerm(Anchor.Text);
+
+               if (!ValidateSAMLLMCandidate(Collection,
+                                            Doc,
+                                            Candidate,
+                                            Subject,
+                                            EvidenceTokens,
+                                            DocumentLang))
+               {
+                    continue;
+               }
+
+               std::string Kind = "descriptor";
+               std::string Source = "llm_anchor";
+
+               if (Anchor.Kind == "query")
+               {
+                    Kind = "query";
+                    Source = "llm_query";
+               }
+               else if (Anchor.Kind == "alias")
+               {
+                    Kind = "alias";
+                    Source = "llm_alias";
+               }
+               else if (Anchor.Kind == "descriptor")
+               {
+                    Kind = "descriptor";
+                    Source = "llm_descriptor";
+               }
+               else if (Anchor.Kind == "anchor" || Anchor.Kind == "subject")
+               {
+                    Kind = (!Subject.empty() &&
+                            (Candidate == Subject ||
+                             Candidate.find(Subject) != std::string::npos ||
+                             Subject.find(Candidate) != std::string::npos))
+                         ? "alias"
+                         : "descriptor";
+                    Source = "llm_anchor";
+               }
+
+               const double FeedbackBoost = FeedbackBoosts.count(Candidate) > 0
+                    ? FeedbackBoosts[Candidate]
+                    : 0.0;
+               const double Score = ClampSAMScore(0.66 +
+                                                  (ClampSAMScore(Anchor.Confidence) * 0.20) +
+                                                  std::min(0.16, FeedbackBoost * 0.16));
+               const double Signal = ClampSAMScore(0.70 +
+                                                   (ClampSAMScore(Anchor.Confidence) * 0.18) +
+                                                   std::min(0.18, FeedbackBoost * 0.18));
+
+               Terms.push_back(TermEntry{Candidate, Kind, Source, Score, Signal});
+
+               if (!Subject.empty() && Candidate != Subject && Kind != "query")
+               {
+                    Terms.push_back(TermEntry{
+                        Subject + " " + Candidate,
+                        "query",
+                        "llm_anchor_pair",
+                         std::max(0.68, Score - 0.04),
+                         std::max(0.72, Signal - 0.04)
+                    });
+               }
+          }
 
           for (const auto& Suggestion : Suggestions)
           {
                const std::string Candidate = NormalizeTerm(Suggestion.Text);
 
-               if (!IsUsefulSAMDocumentPhrase(Candidate))
+               if (!ValidateSAMLLMCandidate(Collection,
+                                            Doc,
+                                            Candidate,
+                                            Subject,
+                                            EvidenceTokens,
+                                            DocumentLang))
                {
                     continue;
                }
@@ -5817,23 +6383,30 @@ std::vector<SAM::TermEntry> SAM::GenerateLLMTerms(const std::string& Collection,
                     (Candidate == Subject ||
                      Candidate.find(Subject) != std::string::npos ||
                      Subject.find(Candidate) != std::string::npos);
+               const double FeedbackBoost = FeedbackBoosts.count(Candidate) > 0
+                    ? FeedbackBoosts[Candidate]
+                    : 0.0;
+               const double Score = ClampSAMScore((Suggestion.Kind == "llm" ? 0.78 : 0.70) +
+                                                  std::min(0.16, FeedbackBoost * 0.16));
+               const double Signal = ClampSAMScore((Suggestion.Kind == "llm" ? 0.82 : 0.72) +
+                                                   std::min(0.18, FeedbackBoost * 0.18));
 
                Terms.push_back(TermEntry{
                     Candidate,
                     IsSubjectSuggestion ? "alias" : (Suggestion.Kind == "llm" ? "query" : "descriptor"),
                     Suggestion.Kind == "llm" ? "llm_context" : "context_field",
-                    Suggestion.Kind == "llm" ? 0.78 : 0.70,
-                    Suggestion.Kind == "llm" ? 0.82 : 0.72
+                    Score,
+                    Signal
                });
 
                if (!Subject.empty() && Candidate != Subject)
                {
                     Terms.push_back(TermEntry{
-                         Subject + " " + Candidate,
-                         "query",
-                         Suggestion.Kind == "llm" ? "llm_pair" : "context_pair",
-                         Suggestion.Kind == "llm" ? 0.74 : 0.68,
-                         Suggestion.Kind == "llm" ? 0.78 : 0.70
+                        Subject + " " + Candidate,
+                        "query",
+                        Suggestion.Kind == "llm" ? "llm_pair" : "context_pair",
+                        std::max(0.68, Score - 0.04),
+                        std::max(0.70, Signal - 0.04)
                     });
                }
           }
@@ -5959,6 +6532,7 @@ std::vector<SAM::TermEntry> SAM::ExpandDocumentTerms(const std::string& Collecti
      std::unordered_set<std::string> SubjectSeen;
      std::unordered_set<std::string> DescriptorSeen;
      std::unordered_set<std::string> QuerySeen;
+     const std::string DocumentLang = sam::lang::DetectDocumentLanguage(Collection, Doc);
 
      auto RememberSeed = [](std::vector<std::string>& Output,
                             std::unordered_set<std::string>& Seen,
@@ -5987,6 +6561,15 @@ std::vector<SAM::TermEntry> SAM::ExpandDocumentTerms(const std::string& Collecti
                         double Signal)
      {
           Collector.Add(Text, Kind, Source, Score, Signal);
+
+          for (const auto& NumericVariant : BuildSAMNumericWordVariants(Text, DocumentLang))
+          {
+               Collector.Add(NumericVariant,
+                             Kind == "subject" ? "alias" : Kind,
+                             Source,
+                             std::max(0.54, Score - 0.06),
+                             std::max(0.58, Signal - 0.04));
+          }
 
           if (Kind == "subject" || Kind == "alias" || Kind == "synonym")
           {

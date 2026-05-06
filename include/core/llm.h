@@ -45,6 +45,15 @@ class CoreExport llm
           double Weight = 0.0;
      };
 
+     struct AnchorSuggestion
+     {
+          std::string Text;
+          std::string Kind;
+          double Confidence = 0.0;
+          std::string Reason;
+          std::string Language;
+     };
+
      struct SearchIntentResolution
      {
           std::string Interpretation;
@@ -103,6 +112,11 @@ class CoreExport llm
      std::vector<ContextSuggestion> BuildDocumentContext(const std::string& Collection,
                                                          const Document& Doc,
                                                          size_t Limit = 5) const;
+
+     std::vector<AnchorSuggestion> BuildDocumentAnchors(const std::string& Collection,
+                                                        const Document& Doc,
+                                                        const std::string& Language = "",
+                                                        size_t Limit = 8) const;
 
      SearchIntentResolution ResolveSearchIntent(const std::string& Collection,
                                                const std::string& Query,

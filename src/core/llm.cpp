@@ -20,6 +20,7 @@
 
 #include "core/hlquery.h"
 #include "core/llm.h"
+#include "sam/lang.h"
 #include "vendor/json/json.hpp"
 
 static std::string TrimCopy(const std::string& Value)
@@ -131,6 +132,158 @@ static std::vector<std::string> ExtractArrayishValues(const std::string& Raw)
      return Values;
 }
 
+static std::string DetectDocumentType(const Document& Doc)
+{
+     size_t TaxonomyFields = 0;
+     size_t AliasFields = 0;
+     size_t BodyChars = Doc.Content.size();
+
+     for (const auto& Pair : Doc.Fields)
+     {
+          const std::string LowerKey = ToLowerCopy(Pair.first);
+
+          if (LowerKey == "tag" || LowerKey == "tags" || LowerKey == "label" ||
+              LowerKey == "labels" || LowerKey == "category" || LowerKey == "categories" ||
+              LowerKey == "topic" || LowerKey == "topics" || LowerKey == "brand" ||
+              LowerKey == "brands" || LowerKey == "author" || LowerKey == "authors")
+          {
+               ++TaxonomyFields;
+          }
+
+          if (LowerKey == "alias" || LowerKey == "aliases" || LowerKey == "slug" ||
+              LowerKey == "nickname" || LowerKey == "handle")
+          {
+               ++AliasFields;
+          }
+
+          if (LowerKey == "content" || LowerKey == "body" || LowerKey == "text" ||
+              LowerKey == "article" || LowerKey == "markdown" || LowerKey == "notes")
+          {
+               BodyChars += Pair.second.size();
+          }
+     }
+
+     if (TaxonomyFields >= 3)
+     {
+          return "listing";
+     }
+
+     if (AliasFields >= 2)
+     {
+          return "profile";
+     }
+
+     if (BodyChars >= 1200)
+     {
+          return "article";
+     }
+
+     return "reference";
+}
+
+static nlohmann::json BuildCollectionPromptMetadata(const std::string& Collection)
+{
+     nlohmann::json Meta;
+     Meta["name"] = Collection;
+
+     CollectionConfig Config;
+
+     if (HybridStorageManagerInstance().GetCollectionConfig(Collection, Config))
+     {
+          Meta["metadata"] = Config.Metadata;
+     }
+
+     return Meta;
+}
+
+static std::vector<std::string> BuildPromptConstraints(const std::string& Language,
+                                                       const std::string& Objective)
+{
+     std::vector<std::string> Constraints = {
+          "Do not invent entities, brands, products, or people that are not grounded in the document.",
+          "Keep phrases short, indexable, and useful as anchors.",
+          "Prefer exact or near-exact wording supported by the title, fields, or body.",
+          "Avoid ids, urls, handles, timestamps, and noisy boilerplate."
+     };
+
+     if (Objective == "anchors")
+     {
+          Constraints.push_back("Return anchor, alias, descriptor, and query candidates only when they would be natural internal-link phrases.");
+     }
+     else if (Objective == "context")
+     {
+          Constraints.push_back("Return short contextual phrases that improve retrieval recall without drifting away from the document.");
+     }
+     else if (Objective == "search_intent")
+     {
+          Constraints.push_back("Resolve likely user intent only from the query and supplied candidates.");
+     }
+
+     if (!Language.empty() && Language != "und")
+     {
+          Constraints.push_back("Use the document language `" + Language + "` for generated phrases.");
+     }
+
+     return Constraints;
+}
+
+static std::string BuildPromptInstructionText(const std::string& Objective,
+                                              const std::string& Language,
+                                              const std::string& DocumentType)
+{
+     std::string Instruction = "Objective: " + Objective + ". ";
+     Instruction += "Document type: " + DocumentType + ". ";
+
+     if (!Language.empty())
+     {
+          Instruction += "Language: " + Language + ". ";
+     }
+
+     if (Objective == "anchors")
+     {
+          Instruction += "Generate precise anchor/alias/query/descriptor suggestions for indexing.";
+     }
+     else if (Objective == "context")
+     {
+          Instruction += "Generate short context phrases that broaden retrieval safely.";
+     }
+     else if (Objective == "search_intent")
+     {
+          Instruction += "Interpret the query and rank candidate documents and terms.";
+     }
+
+     return Instruction;
+}
+
+static void AddPromptEnvelope(nlohmann::json& Payload,
+                              const std::string& Collection,
+                              const Document& Doc,
+                              const std::string& Objective,
+                              size_t Limit,
+                              const std::string& Language = "")
+{
+     const std::string EffectiveLanguage =
+          Language.empty() ? sam::lang::DetectDocumentLanguage(Collection, Doc) : Language;
+     const std::string DocumentType = DetectDocumentType(Doc);
+
+     Payload["collection_profile"] = BuildCollectionPromptMetadata(Collection);
+     Payload["language"] = EffectiveLanguage;
+     Payload["document_type"] = DocumentType;
+     Payload["objective"] = Objective;
+     Payload["limit"] = static_cast<unsigned long long>(Limit);
+     Payload["prompt"] = {
+          {"version", 1},
+          {"instruction", BuildPromptInstructionText(Objective, EffectiveLanguage, DocumentType)},
+          {"constraints", BuildPromptConstraints(EffectiveLanguage, Objective)},
+          {"output_contract",
+               Objective == "search_intent"
+                    ? "Return JSON with interpretation, conclusion, candidates[], ranked_terms[]."
+                    : (Objective == "anchors"
+                         ? "Return JSON array or {anchors:[...]} with items {text,kind,confidence,reason,language}."
+                         : "Return one short phrase per line or a JSON array of short phrases.")}
+     };
+}
+
 static void AppendSuggestion(std::vector<llm::ContextSuggestion>& Suggestions,
                              std::unordered_set<std::string>& Seen,
                              const std::string& Value,
@@ -189,6 +342,41 @@ static void AppendIntentCandidate(std::vector<llm::SearchIntentCandidate>& Candi
      Candidates.push_back(std::move(Candidate));
 }
 
+static void AppendAnchorSuggestion(std::vector<llm::AnchorSuggestion>& Suggestions,
+                                   std::unordered_set<std::string>& Seen,
+                                   const std::string& Value,
+                                   const std::string& Kind,
+                                   double Confidence,
+                                   const std::string& Reason,
+                                   const std::string& Language,
+                                   size_t Limit)
+{
+     if (Suggestions.size() >= Limit)
+     {
+          return;
+     }
+
+     const std::string Normalized = NormalizePhrase(Value);
+
+     if (Normalized.empty() || Normalized.size() < 2 || Normalized.size() > 96)
+     {
+          return;
+     }
+
+     if (!Seen.insert(Kind + "\n" + Normalized).second)
+     {
+          return;
+     }
+
+     llm::AnchorSuggestion Suggestion;
+     Suggestion.Text = Normalized;
+     Suggestion.Kind = Kind.empty() ? "anchor" : Kind;
+     Suggestion.Confidence = std::max(0.0, std::min(1.0, Confidence));
+     Suggestion.Reason = Reason;
+     Suggestion.Language = Language;
+     Suggestions.push_back(std::move(Suggestion));
+}
+
 static void SortIntentCandidates(std::vector<llm::SearchIntentCandidate>& Candidates)
 {
      std::sort(Candidates.begin(), Candidates.end(),
@@ -198,6 +386,26 @@ static void SortIntentCandidates(std::vector<llm::SearchIntentCandidate>& Candid
                     if (std::fabs(Left.Weight - Right.Weight) > 0.00001)
                     {
                          return Left.Weight > Right.Weight;
+                    }
+
+                    return Left.Text < Right.Text;
+               });
+}
+
+static void SortAnchorSuggestions(std::vector<llm::AnchorSuggestion>& Suggestions)
+{
+     std::sort(Suggestions.begin(), Suggestions.end(),
+               [](const llm::AnchorSuggestion& Left,
+                  const llm::AnchorSuggestion& Right)
+               {
+                    if (std::fabs(Left.Confidence - Right.Confidence) > 0.00001)
+                    {
+                         return Left.Confidence > Right.Confidence;
+                    }
+
+                    if (Left.Kind != Right.Kind)
+                    {
+                         return Left.Kind < Right.Kind;
                     }
 
                     return Left.Text < Right.Text;
@@ -308,7 +516,7 @@ std::vector<llm::ContextSuggestion> llm::BuildDocumentContext(const std::string&
           Payload["content"] = Doc.Content;
           Payload["fields"] = Doc.Fields;
           Payload["mode"] = "context";
-          Payload["limit"] = static_cast<unsigned long long>(Limit);
+          AddPromptEnvelope(Payload, Collection, Doc, "context", Limit);
 
           std::lock_guard<std::mutex> Lock(InferenceMutex);
 
@@ -346,6 +554,197 @@ std::vector<llm::ContextSuggestion> llm::BuildDocumentContext(const std::string&
      return Suggestions;
 }
 
+std::vector<llm::AnchorSuggestion> llm::BuildDocumentAnchors(const std::string& Collection,
+                                                             const Document& Doc,
+                                                             const std::string& Language,
+                                                             size_t Limit) const
+{
+     std::vector<AnchorSuggestion> Suggestions;
+     std::unordered_set<std::string> Seen;
+
+     if (!Enabled || Limit == 0)
+     {
+          return Suggestions;
+     }
+
+     const std::string Title = TrimCopy(Doc.Title.empty() ? Doc.ID : Doc.Title);
+
+     if (!Title.empty())
+     {
+          AppendAnchorSuggestion(Suggestions, Seen, Title, "anchor", 0.96, "title", Language, Limit);
+     }
+
+     for (const auto& Pair : Doc.Fields)
+     {
+          const std::string LowerKey = ToLowerCopy(Pair.first);
+          std::string Kind;
+          double Confidence = 0.0;
+
+          if (LowerKey == "alias" || LowerKey == "aliases" || LowerKey == "slug" ||
+              LowerKey == "nickname" || LowerKey == "handle")
+          {
+               Kind = "alias";
+               Confidence = 0.86;
+          }
+          else if (LowerKey == "query" || LowerKey == "queries" || LowerKey == "keywords" ||
+                   LowerKey == "search_terms")
+          {
+               Kind = "query";
+               Confidence = 0.82;
+          }
+          else if (LowerKey == "tag" || LowerKey == "tags" || LowerKey == "label" ||
+                   LowerKey == "labels" || LowerKey == "category" || LowerKey == "categories" ||
+                   LowerKey == "topic" || LowerKey == "topics" || LowerKey == "author" ||
+                   LowerKey == "authors" || LowerKey == "brand" || LowerKey == "brands")
+          {
+               Kind = "descriptor";
+               Confidence = 0.78;
+          }
+          else
+          {
+               continue;
+          }
+
+          for (const auto& Value : ExtractArrayishValues(Pair.second))
+          {
+               AppendAnchorSuggestion(Suggestions, Seen, Value, Kind, Confidence, LowerKey, Language, Limit);
+
+               if (!Title.empty() && Kind != "alias")
+               {
+                    AppendAnchorSuggestion(Suggestions,
+                                           Seen,
+                                           Title + " " + Value,
+                                           "query",
+                                           Confidence - 0.04,
+                                           LowerKey + "_pair",
+                                           Language,
+                                           Limit);
+               }
+
+               if (Suggestions.size() >= Limit)
+               {
+                    break;
+               }
+          }
+
+          if (Suggestions.size() >= Limit)
+          {
+               break;
+          }
+     }
+
+     if (Configured() && !InferenceCommand.empty() && Suggestions.size() < Limit)
+     {
+          nlohmann::json Payload;
+          Payload["collection"] = Collection;
+          Payload["id"] = Doc.ID;
+          Payload["title"] = Doc.Title;
+          Payload["content"] = Doc.Content;
+          Payload["fields"] = Doc.Fields;
+          Payload["mode"] = "anchors";
+          AddPromptEnvelope(Payload, Collection, Doc, "anchors", Limit, Language);
+
+          std::lock_guard<std::mutex> Lock(InferenceMutex);
+
+          setenv("HLQUERY_LLM_MODEL", ModelPath.c_str(), 1);
+          setenv("HLQUERY_LLM_ANCHOR_JSON", Payload.dump().c_str(), 1);
+
+          FILE* Pipe = popen(InferenceCommand.c_str(), "r");
+          std::string RawOutput;
+
+          if (Pipe)
+          {
+               std::array<char, 1024> Buffer{};
+
+               while (fgets(Buffer.data(), static_cast<int>(Buffer.size()), Pipe))
+               {
+                    RawOutput += Buffer.data();
+               }
+
+               pclose(Pipe);
+          }
+
+          unsetenv("HLQUERY_LLM_MODEL");
+          unsetenv("HLQUERY_LLM_ANCHOR_JSON");
+
+          const std::string TrimmedOutput = TrimCopy(RawOutput);
+
+          if (!TrimmedOutput.empty())
+          {
+               try
+               {
+                    const nlohmann::json Root = nlohmann::json::parse(TrimmedOutput);
+                    const nlohmann::json* AnchorArray = nullptr;
+
+                    if (Root.is_array())
+                    {
+                         AnchorArray = &Root;
+                    }
+                    else if (Root.is_object() && Root.contains("anchors") && Root["anchors"].is_array())
+                    {
+                         AnchorArray = &Root["anchors"];
+                    }
+
+                    if (AnchorArray)
+                    {
+                         for (const auto& Item : *AnchorArray)
+                         {
+                              if (!Item.is_object())
+                              {
+                                   continue;
+                              }
+
+                              AppendAnchorSuggestion(Suggestions,
+                                                     Seen,
+                                                     Item.value("text", ""),
+                                                     Item.value("kind", "anchor"),
+                                                     Item.value("confidence", 0.72),
+                                                     Item.value("reason", "llm"),
+                                                     Item.value("language", Language),
+                                                     Limit);
+
+                              if (Suggestions.size() >= Limit)
+                              {
+                                   break;
+                              }
+                         }
+                    }
+               }
+               catch (...)
+               {
+                    std::istringstream Input(TrimmedOutput);
+                    std::string Line;
+
+                    while (std::getline(Input, Line))
+                    {
+                         Line = TrimCopy(Line);
+
+                         if (Line.empty())
+                         {
+                              continue;
+                         }
+
+                         AppendAnchorSuggestion(Suggestions, Seen, Line, "anchor", 0.70, "llm", Language, Limit);
+
+                         if (Suggestions.size() >= Limit)
+                         {
+                              break;
+                         }
+                    }
+               }
+          }
+     }
+
+     SortAnchorSuggestions(Suggestions);
+
+     if (Suggestions.size() > Limit)
+     {
+          Suggestions.resize(Limit);
+     }
+
+     return Suggestions;
+}
+
 llm::SearchIntentResolution llm::ResolveSearchIntent(const std::string& Collection,
                                                      const std::string& Query,
                                                      const std::vector<Document>& CandidateDocuments,
@@ -368,8 +767,12 @@ llm::SearchIntentResolution llm::ResolveSearchIntent(const std::string& Collecti
      Payload["mode"] = "search_intent";
      Payload["collection"] = Collection;
      Payload["query"] = Query;
-     Payload["limit"] = static_cast<unsigned long long>(Limit);
      Payload["candidates"] = nlohmann::json::array();
+
+     Document QueryDoc;
+     QueryDoc.ID = Query;
+     QueryDoc.Title = Query;
+     AddPromptEnvelope(Payload, Collection, QueryDoc, "search_intent", Limit);
 
      for (const auto& CandidateDocument : CandidateDocuments)
      {
