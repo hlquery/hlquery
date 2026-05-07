@@ -36,6 +36,7 @@ std::string BuildDocManifestKey(const std::string& Collection, const std::string
 std::string BuildCollectionProfileKey(const std::string& Collection);
 std::string BuildSearchIdeaPrefix(const std::string& Collection);
 std::string BuildCollectionStateKey(const std::string& Collection);
+std::string BuildLexicalMirrorKey(const std::string& Kind, const std::string& Collection);
 std::string BuildTermKey(const std::string& Term, const std::string& Collection, const std::string& DocumentID);
 std::string BuildSAMSourceDocumentFingerprint(const Document& Doc);
 std::string DetectSAMDocumentLabel(const Document& Doc);

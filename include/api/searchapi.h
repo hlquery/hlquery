@@ -1079,6 +1079,17 @@ class SearchAPI
 
      HttpResponse HandleHealth(const HttpRequest& Request);
 
+     /* HandleReady handles lightweight readiness checks. */
+
+     HttpResponse HandleReady(const HttpRequest& Request);
+
+     /* AttachSearchResponseMeta injects a compact meta block into search JSON responses. */
+
+     void AttachSearchResponseMeta(HttpResponse& Response,
+                                   const ComprehensiveSearchQuery& Query,
+                                   const HttpRequest& Request,
+                                   const std::string& CollectionName = "");
+
      /* HandlePing handles ping requests. */
 
      HttpResponse HandlePing(const HttpRequest& Request);

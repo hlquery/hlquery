@@ -1464,6 +1464,8 @@ bool SAM::DeleteCollection(const std::string& Collection, std::string* ErrorMess
           rocksdb::WriteBatch Batch;
           Batch.Delete(BuildCollectionProfileKey(Collection));
           Batch.Delete(BuildCollectionStateKey(Collection));
+          Batch.Delete(BuildLexicalMirrorKey("synonyms", Collection));
+          Batch.Delete(BuildLexicalMirrorKey("stopwords", Collection));
 
           const std::string IdeaPrefix = BuildSearchIdeaPrefix(Collection);
           std::unique_ptr<rocksdb::Iterator> IdeaIterator(Database->NewIterator(rocksdb::ReadOptions()));

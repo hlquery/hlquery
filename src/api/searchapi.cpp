@@ -94,6 +94,17 @@ static std::string TrimHeaderValue(const std::string &Value)
      return Value.substr(Start, End - Start + 1);
 }
 
+static std::string GetQueryParamValue(const HttpRequest &Request, const std::string &Key)
+{
+     const auto It = Request.QueryParams.find(Key);
+     if (It == Request.QueryParams.end())
+     {
+          return "";
+     }
+
+     return TrimHeaderValue(It->second);
+}
+
 static std::string ExtractPeerAuthToken(const HttpRequest &Request)
 {
      std::string AuthHeader = TrimHeaderValue(GetHeaderValueInsensitive(Request.Headers, "Authorization"));
@@ -1014,6 +1025,46 @@ void SearchAPI::Shutdown()
 bool SearchAPI::IsInitialized() const
 {
      return HybridStorageManagerInstance().IsInitialized();
+}
+
+void SearchAPI::AttachSearchResponseMeta(HttpResponse &Response,
+                                         const ComprehensiveSearchQuery &Query,
+                                         const HttpRequest &Request,
+                                         const std::string &CollectionName)
+{
+     try
+     {
+          nlohmann::json Root = nlohmann::json::parse(Response.Body);
+          nlohmann::json Meta = nlohmann::json::object();
+
+          Meta["query"] = Query.Q;
+          Meta["exact_match"] = Query.PrioritizeExactMatch;
+          Meta["highlight"] = Query.Highlight;
+          Meta["distributed"] = ShouldAttemptDistributedSearch(Request);
+
+          const std::string Route = GetQueryParamValue(Request, "route");
+          if (!Route.empty())
+          {
+               Meta["route"] = Route;
+          }
+
+          if (!CollectionName.empty())
+          {
+               Meta["collection"] = CollectionName;
+          }
+
+          const std::string ExecutionMode = TrimHeaderValue(GetHeaderValueInsensitive(Response.Headers, "X-HLQ-Execution-Mode"));
+          if (!ExecutionMode.empty())
+          {
+               Meta["execution_mode"] = ExecutionMode;
+          }
+
+          Root["meta"] = Meta;
+          Response.Body = Root.dump();
+     }
+     catch (...)
+     {
+     }
 }
 
 uint64_t SearchAPI::GetCollectionMutationVersion(const std::string &Collection) const

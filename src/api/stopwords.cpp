@@ -445,6 +445,8 @@ HttpResponse SearchAPI::HandleCreateStopword(const HttpRequest &Request)
                return HttpResponse(Status::INTERNAL_SERVER_ERROR, StatusText(Status::INTERNAL_SERVER_ERROR), "application/json");
           }
 
+          BumpCollectionMutationVersion(IsGlobalScope ? "*" : CollectionName);
+
           HttpResponse Response(Status::OK, StatusText(Status::OK), "application/json");
 
           if (WordsToAdd.size() == 1)
@@ -635,6 +637,8 @@ HttpResponse SearchAPI::HandleDeleteStopword(const HttpRequest &Request)
           {
                return HttpResponse(Status::INTERNAL_SERVER_ERROR, StatusText(Status::INTERNAL_SERVER_ERROR), "application/json");
           }
+
+          BumpCollectionMutationVersion(IsGlobalScope ? "*" : CollectionName);
 
           HttpResponse Response(Status::OK, StatusText(Status::OK), "application/json");
 

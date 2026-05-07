@@ -25,6 +25,7 @@
 
 namespace
 {
+     constexpr const char* kSAMGlobalLexicalScope = "__global__";
      std::mutex StartupSweepMutex;
      bool StartupSweepActive = false;
      std::set<std::string> StartupSweepStartedCollections;
@@ -241,6 +242,78 @@ namespace
                                           " pending SAM search-intent optimization job(s).");
           }
      }
+
+     void SyncSAMLexicalScope(const std::string& Collection,
+                              bool GlobalScope,
+                              const std::string& LogSource)
+     {
+          if (!Instance || !Instance->Sam || !Instance->Sam->IsOpen())
+          {
+               return;
+          }
+
+          bool Updated = false;
+          std::string ErrorMessage;
+          const std::string Scope = GlobalScope ? std::string(kSAMGlobalLexicalScope) : Collection;
+
+          if (!Instance->Sam->SyncLexicalResources(Scope, &Updated, &ErrorMessage))
+          {
+               if (Instance->Logs && !ErrorMessage.empty())
+               {
+                    Instance->Logs->Normal(LogSource,
+                                           "Failed to sync SAM lexical resources for '" +
+                                                Scope + "': " + ErrorMessage + ".");
+               }
+
+               return;
+          }
+
+          if (Instance->Logs && Updated)
+          {
+               Instance->Logs->Debug(LogSource,
+                                     "Synced SAM lexical resources for '" + Scope + "'.");
+          }
+     }
+
+     void QueueSAMLexicalRefresh(const std::string& Collection,
+                                 bool GlobalScope,
+                                 const std::string& LogSource)
+     {
+          if (!Instance || !Instance->Sam || !Instance->Sam->IsOpen())
+          {
+               return;
+          }
+
+          SyncSAMLexicalScope(Collection, GlobalScope, LogSource);
+
+          std::vector<std::string> Targets;
+
+          if (GlobalScope)
+          {
+               Targets = HybridStorageManager::GetInstance().ListCollections();
+          }
+          else if (!Collection.empty())
+          {
+               Targets.push_back(Collection);
+          }
+
+          for (const auto& Target : Targets)
+          {
+               bool AlreadyRunning = false;
+               std::string ErrorMessage;
+
+               if (!Instance->Sam->StartRecreateCollectionAsync(Target, &AlreadyRunning, &ErrorMessage))
+               {
+                    if (Instance->Logs && !ErrorMessage.empty())
+                    {
+                         Instance->Logs->Normal(LogSource,
+                                                "Failed to queue SAM lexical refresh for collection '" +
+                                                     Target + "': " + ErrorMessage + ".");
+                    }
+                    continue;
+               }
+          }
+     }
 }
 
 class CoreSAMModule final : public AutoRuntimeModule<CoreSAMModule>
@@ -259,14 +332,63 @@ class CoreSAMModule final : public AutoRuntimeModule<CoreSAMModule>
 
      void OnStartup() override
      {
+          SyncSAMLexicalScope(kSAMGlobalLexicalScope, false, "core_sam");
+
+          for (const auto& Collection : HybridStorageManager::GetInstance().ListCollections())
+          {
+               SyncSAMLexicalScope(Collection, false, "core_sam");
+          }
+
           TriggerSAMAutoIndex("core_sam", true);
           OptimizeSAMSearchIntent("core_sam");
      }
 
      void OnEveryOneMinute() override
      {
+          SyncSAMLexicalScope(kSAMGlobalLexicalScope, false, "core_sam");
+
           TriggerSAMAutoIndex("core_sam", false);
           OptimizeSAMSearchIntent("core_sam");
+     }
+
+     void OnUpsertSynonym(const std::string& Collection,
+                          const std::string&,
+                          bool GlobalScope,
+                          const std::string&,
+                          const std::string&,
+                          bool) override
+     {
+          QueueSAMLexicalRefresh(Collection, GlobalScope, "core_sam");
+     }
+
+     void OnDeleteSynonym(const std::string& Collection,
+                          const std::string&,
+                          bool GlobalScope,
+                          const std::string&,
+                          const std::string&,
+                          bool) override
+     {
+          QueueSAMLexicalRefresh(Collection, GlobalScope, "core_sam");
+     }
+
+     void OnCreateStopword(const std::string& Collection,
+                           uint64_t,
+                           bool GlobalScope,
+                           const std::string&,
+                           const std::string&,
+                           bool) override
+     {
+          QueueSAMLexicalRefresh(Collection, GlobalScope, "core_sam");
+     }
+
+     void OnDeleteStopword(const std::string& Collection,
+                           const std::string&,
+                           bool GlobalScope,
+                           const std::string&,
+                           const std::string&,
+                           bool) override
+     {
+          QueueSAMLexicalRefresh(Collection, GlobalScope, "core_sam");
      }
 };
 

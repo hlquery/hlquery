@@ -881,6 +881,8 @@ int main(int argc, char *argv[])
           }
 
           int getopt_argc = static_cast<int>(getopt_argv.size());
+          bool request_dry_run = false;
+          bool request_dry_run_curl = false;
 
           static struct option long_options[] =
                {
@@ -891,6 +893,8 @@ int main(int argc, char *argv[])
                     {"ssl-auth", no_argument, 0, 0},
                     {"raw", no_argument, 0, 0},
                     {"timeout", required_argument, 0, 0},
+                    {"dry-run-request", no_argument, 0, 0},
+                    {"curl", no_argument, 0, 0},
                     {"help", no_argument, 0, 'h'},
                     {"examples", no_argument, 0, 'e'},
                     {"routes", no_argument, 0, 'r'},
@@ -942,6 +946,15 @@ int main(int argc, char *argv[])
                     else if (option_name == "raw")
                     {
                          raw_mode_val = true;
+                    }
+                    else if (option_name == "dry-run-request")
+                    {
+                         request_dry_run = true;
+                    }
+                    else if (option_name == "curl")
+                    {
+                         request_dry_run = true;
+                         request_dry_run_curl = true;
                     }
                     else if (option_name == "ssl-auth")
                     {
@@ -1035,6 +1048,7 @@ int main(int argc, char *argv[])
                std::cout << "  " << program_name << " vector-search <col> <vector> [field] [limit] [--json]    # Vector similarity search in one collection\n";
                std::cout << "  " << program_name << " maybe <query> [collection] [limit] [min_results] [--json]    # Suggest likely intended phrases only when result count is low\n";
                std::cout << "  " << program_name << " colsearch <query> [limit] [offset] [sort] [--all] [--maybe=min,limit] [--json]    # Search collection names locally by default; add --all for cluster nodes\n";
+               std::cout << "  " << program_name << " doctor                  # Run a compact readiness/health/config diagnosis\n";
                std::cout << "  " << program_name << " update <field> <col>/<doc> <value>    # Partially update one document field\n";
                std::cout << "  " << program_name << " migrate <source> <target> [--drop-old]    # Clone a collection into a new name and copy documents\n";
                std::cout << "  " << program_name << " stats                   # Check server stats\n";
@@ -1070,6 +1084,30 @@ int main(int argc, char *argv[])
 
           HLQueryCLI cli_instance(base_url, raw_mode_val, auth_token_val, program_name, ssl_auth_val);
           cli_instance.SetDefaultTimeoutSeconds(timeout_seconds_val);
+
+          std::vector<std::string> filtered_args;
+          filtered_args.reserve(args_vec.size());
+
+          for (const auto &arg : args_vec)
+          {
+               if (arg == "--dry-run-request")
+               {
+                    request_dry_run = true;
+                    continue;
+               }
+
+               if (arg == "--curl")
+               {
+                    request_dry_run = true;
+                    request_dry_run_curl = true;
+                    continue;
+               }
+
+               filtered_args.push_back(arg);
+          }
+
+          args_vec = std::move(filtered_args);
+          cli_instance.SetRequestDryRunMode(request_dry_run, request_dry_run_curl);
 
           /* The first positional argument is always the command. */
 
@@ -2024,8 +2062,13 @@ int main(int argc, char *argv[])
                          ConsoleWriter::WriteError("  /stats returned: " + std::to_string(stats_resp.StatusCode), false);
                     }
 
-                    return 2;
-               }
+                   return 2;
+              }
+          }
+          else if (command_str == "doctor")
+          {
+               cli_instance.ShowDoctor();
+               return cli_instance.GetExitCode();
           }
           else if (command_str == "verify")
           {

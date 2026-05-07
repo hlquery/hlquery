@@ -2778,6 +2778,8 @@ HttpResponse SearchAPI::HandleSAMStatus(const HttpRequest &Request)
      else if (!CollectionName.empty())
      {
           const SAM::CollectionJobStatus &JobStatus = AllStatuses.at(CollectionName);
+          SAM::LexicalSyncInfo LexicalInfo;
+          const bool HasLexicalInfo = Instance->Sam->GetLexicalSyncInfo(CollectionName, LexicalInfo);
           SAM::SearchActivityEntry LatestSearch;
           const bool HasLatestSearch = Instance->Sam->GetLatestSearchActivity(CollectionName, LatestSearch);
           Root["collection"] = CollectionName;
@@ -2791,6 +2793,24 @@ HttpResponse SearchAPI::HandleSAMStatus(const HttpRequest &Request)
           Root["error"] = JobStatus.ErrorMessage;
           Root["active_search_count"] = ActiveSearches.size();
           Root["search_running"] = !ActiveSearches.empty();
+
+          if (HasLexicalInfo)
+          {
+               Root["lexical_sync"] = {
+                    {"collection_synonyms_synced", LexicalInfo.CollectionSynonymsSynced},
+                    {"collection_synonym_groups", LexicalInfo.CollectionSynonymGroups},
+                    {"collection_synonyms_synced_at_ms", LexicalInfo.CollectionSynonymsSyncedAtMS},
+                    {"global_synonyms_synced", LexicalInfo.GlobalSynonymsSynced},
+                    {"global_synonym_groups", LexicalInfo.GlobalSynonymGroups},
+                    {"global_synonyms_synced_at_ms", LexicalInfo.GlobalSynonymsSyncedAtMS},
+                    {"collection_stopwords_synced", LexicalInfo.CollectionStopwordsSynced},
+                    {"collection_stopwords", LexicalInfo.CollectionStopwords},
+                    {"collection_stopwords_synced_at_ms", LexicalInfo.CollectionStopwordsSyncedAtMS},
+                    {"global_stopwords_synced", LexicalInfo.GlobalStopwordsSynced},
+                    {"global_stopwords", LexicalInfo.GlobalStopwords},
+                    {"global_stopwords_synced_at_ms", LexicalInfo.GlobalStopwordsSyncedAtMS}
+               };
+          }
 
           if (HasLatestSearch)
           {

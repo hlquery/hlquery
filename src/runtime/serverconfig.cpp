@@ -750,7 +750,27 @@ void ServerConfig::ApplyConfiguration()
 
                    if (!RuntimeDataDir.empty())
                    {
-                        SamDataDirectory = std::filesystem::absolute(RuntimeDataDir / SamPath).string();
+                        /* Accept both "sam" and "data/sam" as runtime-relative inputs.
+                         * The config ships with "data/sam", which should resolve to
+                         * <runtime>/data/sam instead of <runtime>/data/data/sam. */
+                        std::filesystem::path RelativeSamPath = SamPath;
+
+                        if (HasFirstComponent && FirstComponent == "data")
+                        {
+                             RelativeSamPath.clear();
+
+                             for (auto It = std::next(SamIt); It != SamPath.end(); ++It)
+                             {
+                                  RelativeSamPath /= *It;
+                             }
+                        }
+
+                        if (RelativeSamPath.empty())
+                        {
+                             RelativeSamPath = "sam";
+                        }
+
+                        SamDataDirectory = std::filesystem::absolute(RuntimeDataDir / RelativeSamPath).string();
                    }
                    else
                    {

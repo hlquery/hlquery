@@ -494,6 +494,8 @@ HttpResponse SearchAPI::HandleCreateOrUpdateSynonym(const HttpRequest &Request)
                return HttpResponse(Status::INTERNAL_SERVER_ERROR, StatusText(Status::INTERNAL_SERVER_ERROR), "application/json");
           }
 
+          BumpCollectionMutationVersion(IsGlobalScope ? "*" : CollectionName);
+
           HttpResponse Response(Status::OK, StatusText(Status::OK), "application/json");
 
           Response.Body = "{\"message\":\"Synonym created/updated\",\"id\":\"" + EscapeJSONString(SynonymID) + "\",\"collection\":\"" + EscapeJSONString(CollectionName) + "\",\"scope\":\"" + (IsGlobalScope ? "global" : "collection") + "\"}";
@@ -803,6 +805,8 @@ HttpResponse SearchAPI::HandleDeleteSynonym(const HttpRequest &Request)
           {
                return HttpResponse(Status::INTERNAL_SERVER_ERROR, StatusText(Status::INTERNAL_SERVER_ERROR), "application/json");
           }
+
+          BumpCollectionMutationVersion(IsGlobalScope ? "*" : CollectionName);
 
           HttpResponse Response(Status::OK, StatusText(Status::OK), "application/json");
 
