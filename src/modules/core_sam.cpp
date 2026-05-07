@@ -10,6 +10,7 @@
  * For more details, please visit: https://docs.hlquery.com
  */
 
+#include <algorithm>
 #include <cstdint>
 #include <mutex>
 #include <map>
@@ -76,15 +77,18 @@ namespace
                return;
           }
 
-          const std::map<std::string, SAM::CollectionJobStatus> AllStatuses =
-               Instance->Sam->GetAllCollectionJobStatuses();
+          const size_t MaxParallelJobs =
+               std::max<size_t>(1, Instance->Sam->GetBackgroundWorkerCount());
+          size_t AvailableSlots = MaxParallelJobs;
+          const size_t RunningJobs = Instance->Sam->GetRunningCollectionJobCount();
 
-          for (const auto &Entry : AllStatuses)
+          if (RunningJobs >= MaxParallelJobs)
           {
-               if (Entry.second.Running)
-               {
-                    return;
-               }
+               AvailableSlots = 0;
+          }
+          else
+          {
+               AvailableSlots = MaxParallelJobs - RunningJobs;
           }
 
           const std::vector<std::string> Collections =
@@ -96,13 +100,12 @@ namespace
                StartupSweepActive = true;
           }
 
-          bool ContinueStartupSweep = false;
-          std::string StartupSweepCollection;
+          std::vector<std::string> StartupSweepCollections;
 
           {
                std::lock_guard<std::mutex> Lock(StartupSweepMutex);
 
-               if (StartupSweepActive)
+               if (StartupSweepActive && AvailableSlots > 0)
                {
                     for (const auto &Collection : Collections)
                     {
@@ -117,15 +120,15 @@ namespace
                               continue;
                          }
 
-                         StartupSweepCollection = Collection;
-                         break;
+                         StartupSweepCollections.push_back(Collection);
+
+                         if (StartupSweepCollections.size() >= AvailableSlots)
+                         {
+                              break;
+                         }
                     }
 
-                    if (!StartupSweepCollection.empty())
-                    {
-                         ContinueStartupSweep = true;
-                    }
-                    else
+                    if (StartupSweepCollections.empty())
                     {
                          StartupSweepActive = false;
                          StartupSweepStartedCollections.clear();
@@ -133,44 +136,65 @@ namespace
                }
           }
 
-          if (ContinueStartupSweep)
+          if (!StartupSweepCollections.empty())
           {
-               bool AlreadyRunning = false;
-               std::string ErrorMessage;
+               size_t QueuedCount = 0;
 
-               if (!Instance->Sam->StartRecreateCollectionAsync(StartupSweepCollection, &AlreadyRunning, &ErrorMessage))
+               for (const auto& StartupSweepCollection : StartupSweepCollections)
                {
-                    if (Instance->Logs && !ErrorMessage.empty())
+                    bool AlreadyRunning = false;
+                    std::string ErrorMessage;
+
+                    if (!Instance->Sam->StartRecreateCollectionAsync(StartupSweepCollection, &AlreadyRunning, &ErrorMessage))
                     {
-                         Instance->Logs->Normal(LogSource,
-                                                "Failed to queue SAM startup sweep for collection '" +
-                                                     StartupSweepCollection + "': " + ErrorMessage + ".");
+                         if (Instance->Logs && !ErrorMessage.empty())
+                         {
+                              Instance->Logs->Normal(LogSource,
+                                                     "Failed to queue SAM startup sweep for collection '" +
+                                                          StartupSweepCollection + "': " + ErrorMessage + ".");
+                         }
+
+                         std::lock_guard<std::mutex> Lock(StartupSweepMutex);
+                         StartupSweepStartedCollections.insert(StartupSweepCollection);
+                         continue;
                     }
 
-                    std::lock_guard<std::mutex> Lock(StartupSweepMutex);
-                    StartupSweepStartedCollections.insert(StartupSweepCollection);
-                    return;
+                    if (AlreadyRunning)
+                    {
+                         std::lock_guard<std::mutex> Lock(StartupSweepMutex);
+                         StartupSweepStartedCollections.insert(StartupSweepCollection);
+                         continue;
+                    }
+
+                    {
+                         std::lock_guard<std::mutex> Lock(StartupSweepMutex);
+                         StartupSweepStartedCollections.insert(StartupSweepCollection);
+                    }
+
+                    ++QueuedCount;
+
+                    if (Instance->Logs)
+                    {
+                         Instance->Logs->Debug(LogSource,
+                                               "Queued SAM startup sweep for collection '" +
+                                                    StartupSweepCollection + "'.");
+                    }
                }
 
-               if (AlreadyRunning)
+               if (QueuedCount > 0)
                {
                     return;
-               }
-
-               {
-                    std::lock_guard<std::mutex> Lock(StartupSweepMutex);
-                    StartupSweepStartedCollections.insert(StartupSweepCollection);
-               }
-
-               if (Instance->Logs)
-               {
-                    Instance->Logs->Debug(LogSource,
-                                          "Queued SAM startup sweep for collection '" +
-                                               StartupSweepCollection + "'.");
                }
 
                return;
           }
+
+          if (AvailableSlots == 0)
+          {
+               return;
+          }
+
+          size_t QueuedAutoIndexes = 0;
 
           for (const auto &Collection : Collections)
           {
@@ -179,12 +203,18 @@ namespace
                uint64_t IndexedMutationVersion = 0;
                const bool HasIndexedVersion =
                     Instance->Sam->GetCollectionIndexedMutationVersion(Collection, IndexedMutationVersion);
+               uint64_t RequestedMutationVersion = 0;
+               const bool HasPendingRebuild =
+                    Instance->Sam->HasPendingCollectionRebuild(Collection, &RequestedMutationVersion);
                const uint64_t CurrentMutationVersion =
                     Instance->API->GetCollectionMutationVersion(Collection);
                const bool NeedsInitialIndex = !HasIndexedVersion && DocumentCount > 0;
                const bool NeedsRefresh = HasIndexedVersion && CurrentMutationVersion > IndexedMutationVersion;
+               const bool NeedsRequestedRetry =
+                    HasPendingRebuild &&
+                    (DocumentCount > 0 || RequestedMutationVersion > 0 || !HasIndexedVersion);
 
-               if (!NeedsInitialIndex && !NeedsRefresh)
+               if (!NeedsInitialIndex && !NeedsRefresh && !NeedsRequestedRetry)
                {
                     continue;
                }
@@ -206,21 +236,28 @@ namespace
 
                if (AlreadyRunning)
                {
-                    return;
-               }
+                    continue;
+                }
 
-               if (Instance->Logs)
-               {
-                    const std::string Reason = NeedsRefresh
+                if (Instance->Logs)
+                {
+                    const std::string Reason = NeedsRequestedRetry
+                         ? "a pending rebuild request is recorded"
+                         : NeedsRefresh
                          ? "source mutation version advanced from " + std::to_string(IndexedMutationVersion) +
                               " to " + std::to_string(CurrentMutationVersion)
                          : "collection has documents but no completed SAM index state";
                     Instance->Logs->Debug(LogSource,
                                           "Queued SAM auto-index for collection '" + Collection +
                                                "' because " + Reason + ".");
-               }
+                }
 
-               return;
+               ++QueuedAutoIndexes;
+
+               if (QueuedAutoIndexes >= AvailableSlots)
+               {
+                    return;
+               }
           }
 
           RefreshSAMSearchIdeaProfile(LogSource);
