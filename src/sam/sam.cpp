@@ -7558,29 +7558,46 @@ bool SAM::RecordSearchIdea(const std::string& Collection,
                            const std::vector<SearchIdeaDocumentRef>& Documents,
                            std::string* ErrorMessage)
 {
-     std::unique_lock<std::mutex> Lock(DBMutex, std::try_to_lock);
+     constexpr size_t MaxAttempts = 4;
+     constexpr auto RetryDelay = std::chrono::milliseconds(2);
 
-     if (!Lock.owns_lock())
+     for (size_t Attempt = 0; Attempt < MaxAttempts; ++Attempt)
      {
-          if (ErrorMessage)
+          std::unique_lock<std::mutex> Lock(DBMutex, std::try_to_lock);
+
+          if (Lock.owns_lock())
           {
-               *ErrorMessage = "SAM history recording skipped because the database is busy.";
+               if (!Database)
+               {
+                    if (ErrorMessage)
+                    {
+                         *ErrorMessage = "SAM database is not open.";
+                    }
+
+                    return false;
+               }
+
+               return RecordSearchIdeaLocked(Collection, Query, Documents, ErrorMessage);
           }
 
-          return false;
-     }
-
-     if (!Database)
-     {
-          if (ErrorMessage)
+          if ((Attempt + 1) < MaxAttempts)
           {
-               *ErrorMessage = "SAM database is not open.";
+               std::this_thread::sleep_for(RetryDelay);
           }
-
-          return false;
      }
 
-     return RecordSearchIdeaLocked(Collection, Query, Documents, ErrorMessage);
+     const std::string FailureMessage = "SAM history recording skipped because the database remained busy.";
+
+     if (ErrorMessage)
+     {
+          *ErrorMessage = FailureMessage;
+     }
+
+     RecordDebugEvent(Collection,
+                      "skipped SAM search-idea recording for query '" + TrimCopy(Query) +
+                           "' because the database remained busy");
+
+     return false;
 }
 
 bool SAM::RecordSearchIdeaLocked(const std::string& Collection,

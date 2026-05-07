@@ -2495,6 +2495,7 @@ HttpResponse SearchAPI::HandleSAMSearch(const HttpRequest &Request)
           {
                HttpRequest SubRequest = Request;
                SubRequest.QueryParams["collection"] = Collection;
+               SubRequest.QueryParams["skip"] = "1";
                SubRequest.QueryParams.erase("all");
                SubRequest.QueryParams.erase("collections");
 
@@ -2576,7 +2577,17 @@ HttpResponse SearchAPI::HandleSAMSearch(const HttpRequest &Request)
           if (Instance->Sam->IsOpen() && !SkipRecord)
           {
                const auto IdeaDocuments = BuildSAMIdeaDocumentsFromLookupHits(LocalHits);
-               Instance->Sam->RecordSearchIdea(CollectionName, Query, IdeaDocuments);
+               std::string RecordError;
+
+               if (!Instance->Sam->RecordSearchIdea(CollectionName, Query, IdeaDocuments, &RecordError) &&
+                   Instance && Instance->Logs)
+               {
+                    const std::string ErrorText =
+                         RecordError.empty() ? std::string("unknown SAM history write failure") : RecordError;
+                    Instance->Logs->Normal("search_api",
+                                           "Failed to record SAM search idea for collection '" + CollectionName +
+                                                "': " + ErrorText + ".");
+               }
           }
      }
 
