@@ -1198,6 +1198,10 @@ class SearchAPI
 
      void ResetCollectionMutationVersions();
 
+     /* Propagate synonym or stopword changes into SAM and queue affected collection rebuilds. */
+
+     void SyncSAMLexicalChange(const std::string& Collection, bool GlobalScope);
+
      ReplicationStatusSnapshot GetReplicationStatusSnapshot() const;
 
      /* ExtractCollectionFromPath extracts collection names from paths. */

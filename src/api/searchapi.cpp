@@ -465,6 +465,24 @@ static void QueueSAMResyncReconciliation(const std::vector<std::string> &Collect
      }
 }
 
+static const char *kSAMGlobalLexicalScope = "__global__";
+
+static std::vector<std::string> BuildSAMLexicalSyncTargets(const std::string &Collection,
+                                                           bool GlobalScope)
+{
+     if (GlobalScope)
+     {
+          return HybridStorageManagerInstance().ListCollections();
+     }
+
+     if (Collection.empty())
+     {
+          return {};
+     }
+
+     return {Collection};
+}
+
 static std::string GetReplicationOperationHeader(const HttpRequest &Request)
 {
      return TrimHeaderValue(GetHeaderValueInsensitive(Request.Headers, "X-HLQ-Replication-Op"));
@@ -1102,6 +1120,63 @@ void SearchAPI::ResetCollectionMutationVersions()
 {
      std::lock_guard<std::mutex> lock(CollectionMutationMutex);
      CollectionMutationVersions.clear();
+}
+
+void SearchAPI::SyncSAMLexicalChange(const std::string& Collection, bool GlobalScope)
+{
+     if (!Instance || !Instance->Sam || !Instance->Sam->IsOpen())
+     {
+          return;
+     }
+
+     const std::string Scope = GlobalScope ? std::string(kSAMGlobalLexicalScope) : Collection;
+
+     if (Scope.empty())
+     {
+          return;
+     }
+
+     bool Updated = false;
+     std::string ErrorMessage;
+
+     if (!Instance->Sam->SyncLexicalResources(Scope, &Updated, &ErrorMessage))
+     {
+          if (Instance->Logs && !ErrorMessage.empty())
+          {
+               Instance->Logs->Normal("search_api",
+                                      "Failed to sync SAM lexical resources for '" + Scope +
+                                           "': " + ErrorMessage + ".");
+          }
+
+          return;
+     }
+
+     if (Instance->Logs && Updated)
+     {
+          Instance->Logs->Debug("search_api",
+                                "Synced SAM lexical resources for '" + Scope + "'.");
+     }
+
+     for (const auto &Target : BuildSAMLexicalSyncTargets(Collection, GlobalScope))
+     {
+          if (Target.empty())
+          {
+               continue;
+          }
+
+          bool AlreadyRunning = false;
+          ErrorMessage.clear();
+
+          if (!Instance->Sam->StartRecreateCollectionAsync(Target, &AlreadyRunning, &ErrorMessage))
+          {
+               if (Instance->Logs && !ErrorMessage.empty())
+               {
+                    Instance->Logs->Normal("search_api",
+                                           "Failed to queue SAM lexical refresh for collection '" +
+                                                Target + "': " + ErrorMessage + ".");
+               }
+          }
+     }
 }
 
 ReplicationStatusSnapshot SearchAPI::GetReplicationStatusSnapshot() const
