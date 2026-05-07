@@ -700,7 +700,19 @@ class Parser
 
           result.Collection = collection_name;
           ParsedStatement.Collection = collection_name;
-          result.Valid = true;
+
+          if (PeekText() == ";")
+          {
+               Advance();
+          }
+
+          if (!AtEnd())
+          {
+               result.Error = "Unexpected trailing tokens after unsupported SQL UPDATE statement.";
+               return result;
+          }
+
+          result.Error = "SQL UPDATE is not supported by hlquery yet.";
           return result;
      }
 
@@ -2219,7 +2231,7 @@ class Parser
           {
                if (error)
                {
-                    *error = "String literals containing ',', '&&', '||', or range delimiters are not supported by hlquery SQL yet.";
+                    *error = "String literals containing ',', parentheses, logical filter delimiters, or range delimiters are not supported by hlquery SQL yet.";
                }
                return false;
           }
