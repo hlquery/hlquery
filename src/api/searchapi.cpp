@@ -94,6 +94,17 @@ static std::string TrimHeaderValue(const std::string &Value)
      return Value.substr(Start, End - Start + 1);
 }
 
+static std::string GetQueryParamValue(const HttpRequest &Request, const std::string &Key)
+{
+     const auto It = Request.QueryParams.find(Key);
+     if (It == Request.QueryParams.end())
+     {
+          return "";
+     }
+
+     return TrimHeaderValue(It->second);
+}
+
 static std::string ExtractPeerAuthToken(const HttpRequest &Request)
 {
      std::string AuthHeader = TrimHeaderValue(GetHeaderValueInsensitive(Request.Headers, "Authorization"));
@@ -452,6 +463,24 @@ static void QueueSAMResyncReconciliation(const std::vector<std::string> &Collect
                                                Collection + "' after resync session '" + SessionID + "'.");
           }
      }
+}
+
+static const char *kSAMGlobalLexicalScope = "__global__";
+
+static std::vector<std::string> BuildSAMLexicalSyncTargets(const std::string &Collection,
+                                                           bool GlobalScope)
+{
+     if (GlobalScope)
+     {
+          return HybridStorageManagerInstance().ListCollections();
+     }
+
+     if (Collection.empty())
+     {
+          return {};
+     }
+
+     return {Collection};
 }
 
 static std::string GetReplicationOperationHeader(const HttpRequest &Request)
@@ -1016,6 +1045,46 @@ bool SearchAPI::IsInitialized() const
      return HybridStorageManagerInstance().IsInitialized();
 }
 
+void SearchAPI::AttachSearchResponseMeta(HttpResponse &Response,
+                                         const ComprehensiveSearchQuery &Query,
+                                         const HttpRequest &Request,
+                                         const std::string &CollectionName)
+{
+     try
+     {
+          nlohmann::json Root = nlohmann::json::parse(Response.Body);
+          nlohmann::json Meta = nlohmann::json::object();
+
+          Meta["query"] = Query.Q;
+          Meta["exact_match"] = Query.PrioritizeExactMatch;
+          Meta["highlight"] = Query.Highlight;
+          Meta["distributed"] = ShouldAttemptDistributedSearch(Request);
+
+          const std::string Route = GetQueryParamValue(Request, "route");
+          if (!Route.empty())
+          {
+               Meta["route"] = Route;
+          }
+
+          if (!CollectionName.empty())
+          {
+               Meta["collection"] = CollectionName;
+          }
+
+          const std::string ExecutionMode = TrimHeaderValue(GetHeaderValueInsensitive(Response.Headers, "X-HLQ-Execution-Mode"));
+          if (!ExecutionMode.empty())
+          {
+               Meta["execution_mode"] = ExecutionMode;
+          }
+
+          Root["meta"] = Meta;
+          Response.Body = Root.dump();
+     }
+     catch (...)
+     {
+     }
+}
+
 uint64_t SearchAPI::GetCollectionMutationVersion(const std::string &Collection) const
 {
      std::lock_guard<std::mutex> lock(CollectionMutationMutex);
@@ -1051,6 +1120,63 @@ void SearchAPI::ResetCollectionMutationVersions()
 {
      std::lock_guard<std::mutex> lock(CollectionMutationMutex);
      CollectionMutationVersions.clear();
+}
+
+void SearchAPI::SyncSAMLexicalChange(const std::string& Collection, bool GlobalScope)
+{
+     if (!Instance || !Instance->Sam || !Instance->Sam->IsOpen())
+     {
+          return;
+     }
+
+     const std::string Scope = GlobalScope ? std::string(kSAMGlobalLexicalScope) : Collection;
+
+     if (Scope.empty())
+     {
+          return;
+     }
+
+     bool Updated = false;
+     std::string ErrorMessage;
+
+     if (!Instance->Sam->SyncLexicalResources(Scope, &Updated, &ErrorMessage))
+     {
+          if (Instance->Logs && !ErrorMessage.empty())
+          {
+               Instance->Logs->Normal("search_api",
+                                      "Failed to sync SAM lexical resources for '" + Scope +
+                                           "': " + ErrorMessage + ".");
+          }
+
+          return;
+     }
+
+     if (Instance->Logs && Updated)
+     {
+          Instance->Logs->Debug("search_api",
+                                "Synced SAM lexical resources for '" + Scope + "'.");
+     }
+
+     for (const auto &Target : BuildSAMLexicalSyncTargets(Collection, GlobalScope))
+     {
+          if (Target.empty())
+          {
+               continue;
+          }
+
+          bool AlreadyRunning = false;
+          ErrorMessage.clear();
+
+          if (!Instance->Sam->StartRecreateCollectionAsync(Target, &AlreadyRunning, &ErrorMessage))
+          {
+               if (Instance->Logs && !ErrorMessage.empty())
+               {
+                    Instance->Logs->Normal("search_api",
+                                           "Failed to queue SAM lexical refresh for collection '" +
+                                                Target + "': " + ErrorMessage + ".");
+               }
+          }
+     }
 }
 
 ReplicationStatusSnapshot SearchAPI::GetReplicationStatusSnapshot() const

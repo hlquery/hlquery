@@ -165,14 +165,9 @@ bool hlquery::Initialize()
      Listeners = ListenManager::CreateCustomProtocolListeners(*Config);
      RunListeners();
 
-     for (auto *server : HTTPServers)
-     {
-          server->SetReadyToAccept(true);
-     }
-
      if (Logs)
      {
-          Logs->Normal("hlquery", "HTTP servers verified ready to accept connections after initialization.");
+          Logs->Normal("hlquery", "HTTP servers initialized; readiness will follow startup loading state.");
      }
 
      return true;

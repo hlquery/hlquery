@@ -48,6 +48,7 @@ class SAM
      struct TermEntry;
      struct DocumentEntry;
      struct CollectionJobStatus;
+     struct LexicalSyncInfo;
 
      /* One debug event emitted by SAM for in-memory inspection. */
 
@@ -138,6 +139,7 @@ class SAM
      std::unordered_set<std::string> CancelledCollections;
      bool CancelAllRequested = false;
      bool ShuttingDown = false;
+     size_t BackgroundWorkerCount = 1;
      std::vector<std::thread> WorkerThreads;
 
      /* Resolve the filesystem path used by the SAM database. */
@@ -151,6 +153,10 @@ class SAM
      /* Start the background workers that process queued index jobs. */
 
      void StartIndexWorker();
+
+     /* Return the desired number of concurrent SAM background workers. */
+
+     size_t ResolveBackgroundWorkerCount() const;
 
      /* Run the background loop that drains queued index jobs. */
 
@@ -320,6 +326,22 @@ class SAM
           std::string ErrorMessage;
      };
 
+     struct LexicalSyncInfo
+     {
+          bool CollectionSynonymsSynced = false;
+          bool GlobalSynonymsSynced = false;
+          bool CollectionStopwordsSynced = false;
+          bool GlobalStopwordsSynced = false;
+          size_t CollectionSynonymGroups = 0;
+          size_t GlobalSynonymGroups = 0;
+          size_t CollectionStopwords = 0;
+          size_t GlobalStopwords = 0;
+          uint64_t CollectionSynonymsSyncedAtMS = 0;
+          uint64_t GlobalSynonymsSyncedAtMS = 0;
+          uint64_t CollectionStopwordsSyncedAtMS = 0;
+          uint64_t GlobalStopwordsSyncedAtMS = 0;
+     };
+
      /* Construct the SAM manager and initialize its runtime state. */
 
      SAM();
@@ -450,6 +472,18 @@ class SAM
      /* Return the last source collection mutation version captured by a completed SAM rebuild. */
 
      bool GetCollectionIndexedMutationVersion(const std::string& Collection, uint64_t& Version) const;
+
+     /* Mirror one collection or global lexical resource set into the SAM database. */
+
+     bool SyncLexicalResources(const std::string& Collection,
+                               bool* Updated = nullptr,
+                               std::string* ErrorMessage = nullptr);
+
+     /* Return lexical sync metadata for one collection plus the global scope. */
+
+     bool GetLexicalSyncInfo(const std::string& Collection,
+                             LexicalSyncInfo& Info,
+                             std::string* ErrorMessage = nullptr) const;
 
      /* Load one indexed SAM document entry. */
 

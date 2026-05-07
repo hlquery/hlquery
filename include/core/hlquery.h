@@ -41,6 +41,8 @@
 #include "sql/sql.h"
 #include "utils/tools.h"
 
+/* Global HLQuery engine instance exported. */
+
 CoreExport extern hlquery* Instance;
 
 /* 

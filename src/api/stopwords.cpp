@@ -51,6 +51,29 @@ namespace
 {
 static const char *kGlobalStopwordsCollection = "__global__";
 
+static std::string TrimStopwordValue(const std::string &Value)
+{
+     const size_t Start = Value.find_first_not_of(" \t\r\n");
+     if (Start == std::string::npos)
+     {
+          return "";
+     }
+
+     const size_t End = Value.find_last_not_of(" \t\r\n");
+     return Value.substr(Start, End - Start + 1);
+}
+
+static std::string NormalizeStopwordValue(const std::string &Value)
+{
+     std::string Result = TrimStopwordValue(Value);
+     std::transform(Result.begin(), Result.end(), Result.begin(),
+                    [](unsigned char Ch)
+                    {
+                         return static_cast<char>(std::tolower(Ch));
+                    });
+     return Result;
+}
+
 static bool IsGlobalStopwordsPath(const std::string &Path)
 {
      return Path == "/stopwords/global" || Path.find("/stopwords/global/") == 0;
@@ -293,6 +316,25 @@ HttpResponse SearchAPI::HandleCreateStopword(const HttpRequest &Request)
      {
           nlohmann::json StopwordData = nlohmann::json::parse(Request.Body);
           std::vector<std::string> WordsToAdd;
+          std::unordered_set<std::string> SeenWords;
+
+          auto AppendWord = [&](const std::string &RawWord) -> bool
+          {
+               const std::string WordStr = TrimStopwordValue(RawWord);
+               const std::string Normalized = NormalizeStopwordValue(WordStr);
+
+               if (WordStr.empty() || Normalized.empty())
+               {
+                    return false;
+               }
+
+               if (SeenWords.insert(Normalized).second)
+               {
+                    WordsToAdd.push_back(WordStr);
+               }
+
+               return true;
+          };
 
           if (StopwordData.contains("words") && StopwordData["words"].is_array())
           {
@@ -300,24 +342,16 @@ HttpResponse SearchAPI::HandleCreateStopword(const HttpRequest &Request)
                {
                     if (WordVal.is_string())
                     {
-                         std::string WordStr = WordVal.get<std::string>();
-
-                         if (!WordStr.empty())
+                         if (!AppendWord(WordVal.get<std::string>()))
                          {
-                              WordsToAdd.push_back(WordStr);
+                              return HttpResponse(Status::BAD_REQUEST, StatusText(Status::BAD_REQUEST), "application/json");
                          }
                     }
                }
           }
           else if (StopwordData.contains("word") && StopwordData["word"].is_string())
           {
-               std::string WordStr = StopwordData["word"].get<std::string>();
-
-               if (!WordStr.empty())
-               {
-                    WordsToAdd.push_back(WordStr);
-               }
-               else
+               if (!AppendWord(StopwordData["word"].get<std::string>()))
                {
                     return HttpResponse(Status::BAD_REQUEST, StatusText(Status::BAD_REQUEST), "application/json");
                }
@@ -444,6 +478,9 @@ HttpResponse SearchAPI::HandleCreateStopword(const HttpRequest &Request)
           {
                return HttpResponse(Status::INTERNAL_SERVER_ERROR, StatusText(Status::INTERNAL_SERVER_ERROR), "application/json");
           }
+
+          SyncSAMLexicalChange(CollectionName, IsGlobalScope);
+          BumpCollectionMutationVersion(IsGlobalScope ? "*" : CollectionName);
 
           HttpResponse Response(Status::OK, StatusText(Status::OK), "application/json");
 
@@ -635,6 +672,9 @@ HttpResponse SearchAPI::HandleDeleteStopword(const HttpRequest &Request)
           {
                return HttpResponse(Status::INTERNAL_SERVER_ERROR, StatusText(Status::INTERNAL_SERVER_ERROR), "application/json");
           }
+
+          SyncSAMLexicalChange(CollectionName, IsGlobalScope);
+          BumpCollectionMutationVersion(IsGlobalScope ? "*" : CollectionName);
 
           HttpResponse Response(Status::OK, StatusText(Status::OK), "application/json");
 

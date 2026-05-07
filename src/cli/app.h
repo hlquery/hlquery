@@ -52,6 +52,10 @@ class HLQueryCLI
 
      HTTPResponse MakeRequest(const std::string &method, const std::string &path, const std::string &body = "", int timeout_seconds = -1);
 
+     /* Enables or disables request dry-run mode for debugging. */
+
+     void SetRequestDryRunMode(bool enabled, bool print_curl = false);
+
      /* Lists collections. */
 
      void ListCollections(int offset = 0, int limit = 10000, bool json_output = false);
@@ -123,6 +127,10 @@ class HLQueryCLI
      /* Shows server status. */
 
      void ShowStatus();
+
+     /* Runs a compact diagnostics sweep against the configured server. */
+
+     void ShowDoctor();
 
      /* Shows advanced server information. */
 
@@ -346,6 +354,8 @@ class HLQueryCLI
 
      std::string AuthToken;
      bool SSLAuthMode = false;
+     bool RequestDryRunMode = false;
+     bool RequestDryRunPrintCurl = false;
      std::string ProgramName;
 
      int DefaultTimeoutSeconds = 5;

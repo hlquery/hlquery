@@ -87,6 +87,7 @@ enum class RouteAction
      Status,
      SearchConfig,
      Health,
+     Ready,
      Ping,
      Stats,
      Metrics,
@@ -318,6 +319,10 @@ class HttpConnection : public EventHandler
 
      std::atomic<bool> ClosingValue;
 
+     /* Tracks the active request id so responses can echo it back. */
+
+     std::string ActiveRequestID;
+
      /* Number of active asynchronous request tasks */
 
      std::atomic<int> ActiveRequestTasks{0};
@@ -410,6 +415,8 @@ class HttpServer : public EventHandler
      HttpResponse HandleNotFound(const HttpRequest& Request);
 
      HttpResponse HandleHealth(const HttpRequest& Request);
+
+     HttpResponse HandleReady(const HttpRequest& Request);
 
      /* EventHandler interface. */
 

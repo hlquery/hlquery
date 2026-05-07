@@ -659,12 +659,15 @@ void HLQueryCLI::ShowHelp()
      std::cout << "    --ssl-auth              Over HTTPS, send token as both Authorization and X-API-Key (env: HLQ_SSL_AUTH).\n";
      std::cout << "    --timeout SECONDS       Request timeout in seconds (default: 30).\n";
      std::cout << "    --raw                   Print raw HTTP JSON responses.\n";
+     std::cout << "    --dry-run-request       Print the first generated HTTP request and exit.\n";
+     std::cout << "    --curl                  Print a curl form plus the first generated HTTP request and exit.\n";
      std::cout << "    -h, --help              Show this help message.\n\n";
      std::cout << "    Note: --host and --port can be used together instead of -url.\n";
      std::cout << "          Example: --host localhost --port 9201.\n\n";
 
      std::cout << "HEALTH/STATUS:.\n";
      std::cout << "    health                  Quick health check (/health and /stats).\n";
+     std::cout << "    doctor                  Run readiness, health, stats, and config checks.\n";
      std::cout << "    stats                   Show server statistics.\n";
      std::cout << "    links [ping]            Show distributed links (use 'ping' to fail on unreachable links).\n";
      std::cout << "    ask [collection] \"q\" [max] [s]  Return natural-language answer (auto-detects collection intent).\n";

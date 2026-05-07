@@ -660,6 +660,8 @@ struct SAMQueryTokenViews
      std::string NormalizedPhrase;
      std::vector<std::string> FullTokens;
      std::vector<std::string> CoreTokens;
+     std::unordered_map<std::string, std::vector<std::string>> SynonymGraph;
+     std::unordered_set<std::string> Stopwords;
 };
 
 bool IsSingleTokenSAMIntent(const SAMQueryTokenViews& QueryViews)
@@ -683,6 +685,13 @@ struct SAMLearnedVariant
      double Score = 0.0;
      size_t Support = 0;
 };
+
+struct SAMCollectionProfileHints
+{
+     std::unordered_set<std::string> StrongTokens;
+};
+
+constexpr const char* kSAMGlobalLexicalCollection = "__global__";
 
 struct SAMProfileEntry
 {
@@ -725,8 +734,17 @@ uint64_t GetSAMCurrentTimeMS();
 double GetSAMIdeaFreshness(uint64_t LastSeenMS, uint64_t NowMS);
 bool ParseSearchIdeaEntry(const std::string& RawValue, SAM::SearchIdeaEntry& Entry);
 std::string BuildStrongSearchIdeaPhrase(const std::string& Value, size_t MaxTokens = 4);
+void LoadSAMSynonymGraphForCollection(rocksdb::DB* Database,
+                                      const std::string& Collection,
+                                      std::unordered_map<std::string, std::vector<std::string>>& SynonymGraph);
+void LoadSAMStopwordsForCollection(rocksdb::DB* Database,
+                                   const std::string& Collection,
+                                   std::unordered_set<std::string>& Stopwords);
 bool IsUsefulLearnedVariant(const std::string& Value,
-                            const std::unordered_set<std::string>& QueryTokens);
+                            const std::unordered_set<std::string>& QueryTokens,
+                            const std::unordered_set<std::string>* StrongTokens = nullptr);
+SAMCollectionProfileHints LoadCollectionProfileHints(rocksdb::DB* Database,
+                                                     const std::string& Collection);
 double ComputeManifestSeedStrength(const SAMQueryTokenViews& QueryViews,
                                    const SAM::TermEntry& Term);
 bool SearchIntentCandidateWeightGreater(const llm::SearchIntentCandidate& Left,
@@ -1006,6 +1024,29 @@ std::vector<std::string> NormalizeSAMTokens(const std::string& Value, bool Remov
      return Result;
 }
 
+std::vector<std::string> NormalizeSAMTokensWithStopwords(const std::string& Value,
+                                                         bool RemoveStopwords,
+                                                         const std::unordered_set<std::string>* Stopwords)
+{
+     std::vector<std::string> Tokens = TokenizeNormalized(NormalizeTerm(Value));
+     std::vector<std::string> Result;
+     Result.reserve(Tokens.size());
+
+     for (const auto& Token : Tokens)
+     {
+          const bool CustomStopword = (Stopwords && Stopwords->find(Token) != Stopwords->end());
+
+          if (RemoveStopwords && (CustomStopword || IsSamStopword(Token)))
+          {
+               continue;
+          }
+
+          Result.push_back(SingularizeToken(Token));
+     }
+
+     return Result;
+}
+
 std::vector<std::string> TrimOuterSAMStopwords(std::vector<std::string> Tokens)
 {
      while (!Tokens.empty() && IsSamStopword(Tokens.front()))
@@ -1021,19 +1062,34 @@ std::vector<std::string> TrimOuterSAMStopwords(std::vector<std::string> Tokens)
      return Tokens;
 }
 
-std::vector<std::string> GetSAMTokenAlternatives(const std::string& Token)
+std::vector<std::string> GetSAMTokenAlternatives(const SAMQueryTokenViews& QueryViews,
+                                                 const std::string& Token)
 {
      std::vector<std::string> Alternatives;
      Alternatives.push_back(Token);
 
+     const auto It = QueryViews.SynonymGraph.find(Token);
+
+     if (It != QueryViews.SynonymGraph.end())
+     {
+          for (const auto& Candidate : It->second)
+          {
+               if (Candidate != Token)
+               {
+                    Alternatives.push_back(Candidate);
+               }
+          }
+     }
+
      return Alternatives;
 }
 
-SAMTokenMatchResult MatchSAMQueryTokenToTermToken(const std::string& QueryToken,
+SAMTokenMatchResult MatchSAMQueryTokenToTermToken(const SAMQueryTokenViews& QueryViews,
+                                                  const std::string& QueryToken,
                                                   const std::string& TermToken)
 {
      SAMTokenMatchResult Result;
-     const std::vector<std::string> Alternatives = GetSAMTokenAlternatives(QueryToken);
+     const std::vector<std::string> Alternatives = GetSAMTokenAlternatives(QueryViews, QueryToken);
 
      for (size_t Index = 0; Index < Alternatives.size(); ++Index)
      {
@@ -1065,14 +1121,18 @@ SAMTokenMatchResult MatchSAMQueryTokenToTermToken(const std::string& QueryToken,
      return Result;
 }
 
-SAMQueryTokenViews NormalizeSAMQueryTokenViews(const std::string& Query)
+SAMQueryTokenViews NormalizeSAMQueryTokenViews(rocksdb::DB* Database,
+                                               const std::string& Collection,
+                                               const std::string& Query)
 {
      SAMQueryTokenViews Views;
      Views.Quoted = IsQuotedSAMQuery(Query);
      Views.NormalizedQuery = NormalizeTerm(Query);
      Views.NormalizedPhrase = NormalizeTerm(StripSAMQueryQuotes(Query));
-     Views.FullTokens = NormalizeSAMTokens(StripSAMQueryQuotes(Query), false);
-     Views.CoreTokens = NormalizeSAMTokens(StripSAMQueryQuotes(Query), true);
+     LoadSAMSynonymGraphForCollection(Database, Collection, Views.SynonymGraph);
+     LoadSAMStopwordsForCollection(Database, Collection, Views.Stopwords);
+     Views.FullTokens = NormalizeSAMTokensWithStopwords(StripSAMQueryQuotes(Query), false, &Views.Stopwords);
+     Views.CoreTokens = NormalizeSAMTokensWithStopwords(StripSAMQueryQuotes(Query), true, &Views.Stopwords);
      return Views;
 }
 
@@ -1188,11 +1248,14 @@ std::string NormalizeSAMLikePattern(const std::string& Query)
      return TrimCopy(Converted);
 }
 
-std::vector<std::string> BuildQueryVariants(const std::string& Query)
+std::vector<std::string> BuildQueryVariants(rocksdb::DB* Database,
+                                            const std::string& Collection,
+                                            const std::string& Query,
+                                            const std::unordered_set<std::string>* StrongTokens = nullptr)
 {
      std::vector<std::string> Variants;
      std::unordered_set<std::string> Seen;
-     const SAMQueryTokenViews QueryViews = NormalizeSAMQueryTokenViews(Query);
+     const SAMQueryTokenViews QueryViews = NormalizeSAMQueryTokenViews(Database, Collection, Query);
      const std::string& Normalized = QueryViews.NormalizedPhrase.empty() ? QueryViews.NormalizedQuery : QueryViews.NormalizedPhrase;
 
      auto AppendVariant = [&](const std::string& Value)
@@ -1223,6 +1286,12 @@ std::vector<std::string> BuildQueryVariants(const std::string& Query)
      for (const auto& Token : Tokens)
      {
           if (IsSamStopword(Token))
+          {
+               continue;
+          }
+
+          if (IsWeakSamToken(Token) &&
+              (!StrongTokens || StrongTokens->find(SingularizeToken(Token)) == StrongTokens->end()))
           {
                continue;
           }
@@ -1454,13 +1523,25 @@ SAMSemanticQuery BuildSemanticQueryPlan(rocksdb::DB* Database,
      return Plan;
 }
 
-bool IsStrongSAMVariantToken(const std::string& Token)
+bool IsStrongSAMVariantToken(const std::string& Token,
+                             const std::unordered_set<std::string>* StrongTokens = nullptr)
 {
-     return !(Token.empty() || IsSamStopword(Token) || IsWeakSamToken(Token));
+     if (Token.empty() || IsSamStopword(Token))
+     {
+          return false;
+     }
+
+     if (StrongTokens && StrongTokens->find(Token) != StrongTokens->end())
+     {
+          return true;
+     }
+
+     return !IsWeakSamToken(Token);
 }
 
 bool IsUsefulLearnedVariant(const std::string& Value,
-                            const std::unordered_set<std::string>& QueryTokens)
+                            const std::unordered_set<std::string>& QueryTokens,
+                            const std::unordered_set<std::string>* StrongTokens)
 {
      const std::vector<std::string> Tokens = NormalizeSAMTokens(Value, true);
 
@@ -1474,7 +1555,7 @@ bool IsUsefulLearnedVariant(const std::string& Value,
 
      for (const auto& Token : Tokens)
      {
-          if (!IsStrongSAMVariantToken(Token))
+          if (!IsStrongSAMVariantToken(Token, StrongTokens))
           {
                return false;
           }
@@ -1488,6 +1569,127 @@ bool IsUsefulLearnedVariant(const std::string& Value,
      }
 
      return StrongCount > 0 && NewTokenCount > 0;
+}
+
+SAMCollectionProfileHints LoadCollectionProfileHints(rocksdb::DB* Database,
+                                                     const std::string& Collection)
+{
+     SAMCollectionProfileHints Hints;
+
+     if (!Database || Collection.empty())
+     {
+          return Hints;
+     }
+
+     std::string RawProfile;
+     const rocksdb::Status Status =
+          Database->Get(rocksdb::ReadOptions(), BuildCollectionProfileKey(Collection), &RawProfile);
+
+     if (!Status.ok() || RawProfile.empty())
+     {
+          return Hints;
+     }
+
+     try
+     {
+          const nlohmann::json Root = nlohmann::json::parse(RawProfile);
+
+          auto AddStrongTokens = [&](const std::string& Value)
+          {
+               for (const auto& Token : NormalizeSAMTokens(Value, true))
+               {
+                    if (!Token.empty() && !IsSamStopword(Token) && Token.size() >= 3)
+                    {
+                         Hints.StrongTokens.insert(Token);
+                    }
+               }
+          };
+
+          auto ProcessTermArray = [&](const nlohmann::json& TermsArray, size_t MinSupport, double MinScore)
+          {
+               if (!TermsArray.is_array())
+               {
+                    return;
+               }
+
+               for (const auto& Item : TermsArray)
+               {
+                    if (!Item.is_object())
+                    {
+                         continue;
+                    }
+
+                    const std::string Text = NormalizeTerm(Item.value("text", ""));
+                    const size_t Support =
+                         static_cast<size_t>(std::max<int64_t>(0, Item.value("support", 0)));
+                    const double Score = ClampSAMScore(Item.value("score", 0.0));
+
+                    if (Text.empty() || Support < MinSupport || Score < MinScore)
+                    {
+                         continue;
+                    }
+
+                    AddStrongTokens(Text);
+               }
+          };
+
+          auto ProcessFamilyArray = [&](const nlohmann::json& FamiliesArray, size_t MinSupport, double MinScore)
+          {
+               if (!FamiliesArray.is_array())
+               {
+                    return;
+               }
+
+               for (const auto& Item : FamiliesArray)
+               {
+                    if (!Item.is_object())
+                    {
+                         continue;
+                    }
+
+                    const size_t Support =
+                         static_cast<size_t>(std::max<int64_t>(0, Item.value("support", 0)));
+                    const double Score = ClampSAMScore(Item.value("score", 0.0));
+
+                    if (Support < MinSupport || Score < MinScore)
+                    {
+                         continue;
+                    }
+
+                    AddStrongTokens(Item.value("subject", ""));
+
+                    auto ProcessStringArray = [&](const nlohmann::json& Values)
+                    {
+                         if (!Values.is_array())
+                         {
+                              return;
+                         }
+
+                         for (const auto& Value : Values)
+                         {
+                              if (Value.is_string())
+                              {
+                                   AddStrongTokens(Value.get<std::string>());
+                              }
+                         }
+                    };
+
+                    ProcessStringArray(Item.value("aliases", nlohmann::json::array()));
+                    ProcessStringArray(Item.value("descriptors", nlohmann::json::array()));
+                    ProcessStringArray(Item.value("queries", nlohmann::json::array()));
+               }
+          };
+
+          ProcessTermArray(Root.value("terms", nlohmann::json::array()), 2, 0.54);
+          ProcessTermArray(Root.value("learned_terms", nlohmann::json::array()), 1, 0.60);
+          ProcessFamilyArray(Root.value("families", nlohmann::json::array()), 2, 0.54);
+          ProcessFamilyArray(Root.value("learned_families", nlohmann::json::array()), 1, 0.60);
+     }
+     catch (...)
+     {
+     }
+
+     return Hints;
 }
 
 double ComputeManifestSeedStrength(const SAMQueryTokenViews& QueryViews,
@@ -1513,7 +1715,7 @@ double ComputeManifestSeedStrength(const SAMQueryTokenViews& QueryViews,
 
           for (const auto& TermToken : TermTokens)
           {
-               if (MatchSAMQueryTokenToTermToken(QueryToken, TermToken).Matched)
+               if (MatchSAMQueryTokenToTermToken(QueryViews, QueryToken, TermToken).Matched)
                {
                     TokenMatched = true;
                     break;
@@ -1588,6 +1790,7 @@ std::vector<std::string> BuildCollectionLearnedVariants(rocksdb::DB* Database,
                                                         const std::string& Collection,
                                                         const std::string& Query,
                                                         const SAMQueryTokenViews& QueryViews,
+                                                        const std::unordered_set<std::string>* StrongTokens = nullptr,
                                                         size_t MaxVariants = 12)
 {
      std::vector<std::string> Variants;
@@ -1642,7 +1845,7 @@ std::vector<std::string> BuildCollectionLearnedVariants(rocksdb::DB* Database,
                     continue;
                }
 
-               if (!IsUsefulLearnedVariant(Candidate, QueryTokenSet))
+               if (!IsUsefulLearnedVariant(Candidate, QueryTokenSet, StrongTokens))
                {
                     continue;
                }
@@ -1775,7 +1978,7 @@ bool TokensFuzzyMatch(const std::vector<std::string>& QueryTokens,
 
           for (const auto& TermToken : TermTokens)
           {
-               if (MatchSAMQueryTokenToTermToken(QueryToken, TermToken).Matched)
+               if (QueryToken == TermToken)
                {
                     TokenMatched = true;
                     break;
@@ -1852,7 +2055,7 @@ double ComputeUnorderedWindowBoost(const std::vector<std::string>& QueryTokens,
           {
                for (const auto& QueryToken : QueryTokens)
                {
-                    if (MatchSAMQueryTokenToTermToken(QueryToken, TermTokens[End]).Matched)
+                    if (QueryToken == TermTokens[End])
                     {
                          Seen.insert(QueryToken);
                     }
@@ -1909,7 +2112,7 @@ double ComputeOrderedWindowBoost(const std::vector<std::string>& QueryTokens,
 
           for (size_t End = Start; End < TermTokens.size() && QueryIndex < QueryTokens.size(); ++End)
           {
-               if (MatchSAMQueryTokenToTermToken(QueryTokens[QueryIndex], TermTokens[End]).Matched)
+               if (QueryTokens[QueryIndex] == TermTokens[End])
                {
                     ++QueryIndex;
 
@@ -2483,7 +2686,7 @@ double ComputeSAM25SourceFieldScore(const SAMQueryTokenViews& QueryViews,
 
           for (const auto& FieldToken : FieldTokens)
           {
-               const SAMTokenMatchResult Match = MatchSAMQueryTokenToTermToken(QueryToken, FieldToken);
+               const SAMTokenMatchResult Match = MatchSAMQueryTokenToTermToken(QueryViews, QueryToken, FieldToken);
 
                if (!Match.Matched)
                {
@@ -2714,6 +2917,7 @@ std::vector<SAMLearnedVariant> BuildSeededCollectionVariants(rocksdb::DB* Databa
                                                              const std::string& Collection,
                                                              const SAMQueryTokenViews& QueryViews,
                                                              const std::unordered_map<std::string, SAMAggregatedHit>& AggregatedHits,
+                                                             const std::unordered_set<std::string>* StrongTokens = nullptr,
                                                              size_t MaxVariants = 10)
 {
      std::vector<SAMLearnedVariant> Variants;
@@ -2785,7 +2989,7 @@ std::vector<SAMLearnedVariant> BuildSeededCollectionVariants(rocksdb::DB* Databa
                     continue;
                }
 
-               if (!IsUsefulLearnedVariant(Candidate, QueryTokenSet))
+               if (!IsUsefulLearnedVariant(Candidate, QueryTokenSet, StrongTokens))
                {
                     continue;
                }
@@ -3021,6 +3225,7 @@ std::vector<SAMMatchedSearchIdea> BuildMatchedSearchIdeas(rocksdb::DB* Database,
 
 std::vector<std::string> BuildSearchIdeaVariants(const std::vector<SAMMatchedSearchIdea>& Ideas,
                                                  const SAMQueryTokenViews& QueryViews,
+                                                 const std::unordered_set<std::string>* StrongTokens,
                                                  size_t MaxVariants)
 {
      std::vector<std::string> Variants;
@@ -3045,7 +3250,7 @@ std::vector<std::string> BuildSearchIdeaVariants(const std::vector<SAMMatchedSea
                continue;
           }
 
-          if (!IsUsefulLearnedVariant(Candidate, QueryTokenSet) || !Seen.insert(Candidate).second)
+          if (!IsUsefulLearnedVariant(Candidate, QueryTokenSet, StrongTokens) || !Seen.insert(Candidate).second)
           {
                continue;
           }
@@ -3155,7 +3360,7 @@ SAMSemanticCandidate ScoreSemanticProfileMatch(const SAMSemanticQuery& QueryPlan
 
      for (const auto& Rewrite : QueryPlan.Rewrites)
      {
-          const SAMQueryTokenViews RewriteViews = NormalizeSAMQueryTokenViews(Rewrite);
+          const SAMQueryTokenViews RewriteViews = NormalizeSAMQueryTokenViews(nullptr, "", Rewrite);
 
           for (const auto& Target : Targets)
           {
@@ -3357,6 +3562,73 @@ std::string ClassifySAMMatchedPath(const SAM::LookupHit& Hit)
      return "sam_term";
 }
 
+bool ShouldRejectWeakSearchIdeaHit(const SAM::LookupHit& Hit)
+{
+     if (Hit.MatchedKind != "search_idea")
+     {
+          return false;
+     }
+
+     const bool HasSourceDocumentSupport =
+          Hit.Breakdown.SourceDocScore > 0.0 || Hit.Breakdown.SourceDocBonus > 0.0;
+     if (HasSourceDocumentSupport)
+     {
+          return false;
+     }
+
+     if (Hit.EvidenceCount >= 3)
+     {
+          return false;
+     }
+
+     return Hit.Breakdown.FinalScore < 1.20;
+}
+
+bool HasStrongSourceSupport(const SAM::LookupHit& Hit)
+{
+     return Hit.Breakdown.SourceDocScore > 0.0 || Hit.Breakdown.SourceDocBonus > 0.0;
+}
+
+bool IsSemanticLikeSAMHit(const SAM::LookupHit& Hit)
+{
+     return Hit.MatchedKind == "search_idea" ||
+            Hit.MatchedKind == "semantic" ||
+            Hit.MatchedPath == "search_idea" ||
+            Hit.MatchedPath == "semantic_profile" ||
+            Hit.MatchedPath == "semantic_hybrid" ||
+            Hit.MatchedPath == "collection_learned";
+}
+
+bool HasCorroboratedSAMHit(const std::vector<SAM::LookupHit>& Hits)
+{
+     for (const auto& Hit : Hits)
+     {
+          if (HasStrongSourceSupport(Hit) || Hit.EvidenceCount >= 3)
+          {
+               return true;
+          }
+     }
+
+     return false;
+}
+
+bool ShouldSuppressLowConfidenceSAMResultSet(const std::vector<SAM::LookupHit>& Hits)
+{
+     if (Hits.empty() || HasCorroboratedSAMHit(Hits))
+     {
+          return false;
+     }
+
+     const SAM::LookupHit& TopHit = Hits.front();
+
+     if (!IsSemanticLikeSAMHit(TopHit))
+     {
+          return false;
+     }
+
+     return TopHit.Breakdown.FinalScore < 1.30;
+}
+
 void FinalizeSAMAggregatedHits(std::vector<SAM::LookupHit>& Hits,
                                const std::unordered_map<std::string, SAMAggregatedHit>& AggregatedHits,
                                const SAMQueryTokenViews& QueryViews,
@@ -3409,6 +3681,10 @@ void FinalizeSAMAggregatedHits(std::vector<SAM::LookupHit>& Hits,
           {
                FinalHit.TermOrigin = FinalHit.MatchedSource;
           }
+          if (ShouldRejectWeakSearchIdeaHit(FinalHit))
+          {
+               continue;
+          }
           if (IsSAM25DebugExplainEnabled() && !FinalHit.Explain.empty())
           {
                std::ostringstream Stream;
@@ -3460,6 +3736,11 @@ void FinalizeSAMAggregatedHits(std::vector<SAM::LookupHit>& Hits,
      {
           Hits.resize(Limit);
      }
+
+     if (ShouldSuppressLowConfidenceSAMResultSet(Hits))
+     {
+          Hits.clear();
+     }
 }
 
 double ComputeSAM25TermScore(rocksdb::DB* Database,
@@ -3497,7 +3778,7 @@ double ComputeSAM25TermScore(rocksdb::DB* Database,
 
           for (const auto& TermToken : TermTokens)
           {
-               const SAMTokenMatchResult Match = MatchSAMQueryTokenToTermToken(QueryToken, TermToken);
+               const SAMTokenMatchResult Match = MatchSAMQueryTokenToTermToken(QueryViews, QueryToken, TermToken);
 
                if (!Match.Matched)
                {
@@ -3626,7 +3907,7 @@ void AppendFuzzyFallbackHits(std::unordered_map<std::string, SAMAggregatedHit>& 
           return;
      }
 
-     const SAMQueryTokenViews QueryViews = NormalizeSAMQueryTokenViews(Query);
+     const SAMQueryTokenViews QueryViews = NormalizeSAMQueryTokenViews(Database, Collection, Query);
      const std::vector<std::string>& QueryTokens = QueryViews.CoreTokens;
 
      if (QueryTokens.empty())
@@ -3818,6 +4099,254 @@ std::string BuildSearchIdeaKey(const std::string& Collection, const std::string&
 std::string BuildCollectionStateKey(const std::string& Collection)
 {
      return "sam:state:" + Collection;
+}
+
+std::string BuildLexicalMirrorKey(const std::string& Kind, const std::string& Collection)
+{
+     return "sam:lexical:" + Kind + ":" + Collection;
+}
+
+size_t CountMirroredSynonymGroups(const nlohmann::json& Root)
+{
+     if (Root.is_object() && Root.contains("synonyms") && Root["synonyms"].is_array())
+     {
+          return Root["synonyms"].size();
+     }
+
+     if (Root.is_array())
+     {
+          return Root.size();
+     }
+
+     return 0;
+}
+
+size_t CountMirroredStopwords(const nlohmann::json& Root)
+{
+     if (Root.is_object() && Root.contains("stopwords") && Root["stopwords"].is_array())
+     {
+          return Root["stopwords"].size();
+     }
+
+     if (Root.is_array())
+     {
+          return Root.size();
+     }
+
+     return 0;
+}
+
+void LoadMirroredSynonymGraph(const nlohmann::json& Root,
+                              std::unordered_map<std::string, std::vector<std::string>>& SynonymGraph)
+{
+     nlohmann::json Groups = nlohmann::json::array();
+
+     if (Root.is_object() && Root.contains("synonyms") && Root["synonyms"].is_array())
+     {
+          Groups = Root["synonyms"];
+     }
+     else if (Root.is_array())
+     {
+          Groups = Root;
+     }
+
+     for (const auto& Group : Groups)
+     {
+          if (!Group.is_object())
+          {
+               continue;
+          }
+
+          std::vector<std::string> Terms;
+          const std::string RootTerm = NormalizeTerm(Group.value("root", ""));
+
+          if (!RootTerm.empty())
+          {
+               Terms.push_back(RootTerm);
+          }
+
+          if (Group.contains("synonyms") && Group["synonyms"].is_array())
+          {
+               for (const auto& Syn : Group["synonyms"])
+               {
+                    if (!Syn.is_string())
+                    {
+                         continue;
+                    }
+
+                    const std::string Normalized = NormalizeTerm(Syn.get<std::string>());
+
+                    if (!Normalized.empty())
+                    {
+                         Terms.push_back(Normalized);
+                    }
+               }
+          }
+
+          std::sort(Terms.begin(), Terms.end());
+          Terms.erase(std::unique(Terms.begin(), Terms.end()), Terms.end());
+
+          for (const auto& Term : Terms)
+          {
+               auto& Targets = SynonymGraph[Term];
+
+               for (const auto& Candidate : Terms)
+               {
+                    if (Candidate != Term)
+                    {
+                         Targets.push_back(Candidate);
+                    }
+               }
+
+               std::sort(Targets.begin(), Targets.end());
+               Targets.erase(std::unique(Targets.begin(), Targets.end()), Targets.end());
+          }
+     }
+}
+
+void LoadMirroredStopwords(const nlohmann::json& Root,
+                           std::unordered_set<std::string>& Stopwords)
+{
+     nlohmann::json Values = nlohmann::json::array();
+
+     if (Root.is_object() && Root.contains("stopwords") && Root["stopwords"].is_array())
+     {
+          Values = Root["stopwords"];
+     }
+     else if (Root.is_array())
+     {
+          Values = Root;
+     }
+
+     for (const auto& Entry : Values)
+     {
+          std::string Word;
+
+          if (Entry.is_string())
+          {
+               Word = Entry.get<std::string>();
+          }
+          else if (Entry.is_object())
+          {
+               if (Entry.contains("word") && Entry["word"].is_string())
+               {
+                    Word = Entry["word"].get<std::string>();
+               }
+               else if (Entry.contains("text") && Entry["text"].is_string())
+               {
+                    Word = Entry["text"].get<std::string>();
+               }
+          }
+
+          Word = NormalizeTerm(Word);
+
+          if (!Word.empty())
+          {
+               Stopwords.insert(Word);
+          }
+     }
+}
+
+bool LoadMirroredLexicalJSON(rocksdb::DB* Database,
+                             const std::string& Kind,
+                             const std::string& Collection,
+                             nlohmann::json& Root,
+                             std::string* ErrorMessage = nullptr)
+{
+     Root = nlohmann::json::object();
+
+     if (!Database || Collection.empty())
+     {
+          return false;
+     }
+
+     std::string RawValue;
+     const rocksdb::Status Status =
+          Database->Get(rocksdb::ReadOptions(), BuildLexicalMirrorKey(Kind, Collection), &RawValue);
+
+     if (Status.IsNotFound() || RawValue.empty())
+     {
+          return false;
+     }
+
+     if (!Status.ok())
+     {
+          if (ErrorMessage)
+          {
+               *ErrorMessage = Status.ToString();
+          }
+
+          return false;
+     }
+
+     try
+     {
+          Root = nlohmann::json::parse(RawValue);
+          return true;
+     }
+     catch (const std::exception& E)
+     {
+          if (ErrorMessage)
+          {
+               *ErrorMessage = E.what();
+          }
+     }
+
+     return false;
+}
+
+void LoadSAMSynonymGraphForCollection(rocksdb::DB* Database,
+                                      const std::string& Collection,
+                                      std::unordered_map<std::string, std::vector<std::string>>& SynonymGraph)
+{
+     if (!Database)
+     {
+          return;
+     }
+
+     auto LoadScope = [&](const std::string& Scope)
+     {
+          nlohmann::json Root;
+
+          if (LoadMirroredLexicalJSON(Database, "synonyms", Scope, Root))
+          {
+               LoadMirroredSynonymGraph(Root, SynonymGraph);
+          }
+     };
+
+     if (!Collection.empty())
+     {
+          LoadScope(Collection);
+     }
+
+     LoadScope(kSAMGlobalLexicalCollection);
+}
+
+void LoadSAMStopwordsForCollection(rocksdb::DB* Database,
+                                   const std::string& Collection,
+                                   std::unordered_set<std::string>& Stopwords)
+{
+     if (!Database)
+     {
+          return;
+     }
+
+     auto LoadScope = [&](const std::string& Scope)
+     {
+          nlohmann::json Root;
+
+          if (LoadMirroredLexicalJSON(Database, "stopwords", Scope, Root))
+          {
+               LoadMirroredStopwords(Root, Stopwords);
+          }
+     };
+
+     if (!Collection.empty())
+     {
+          LoadScope(Collection);
+     }
+
+     LoadScope(kSAMGlobalLexicalCollection);
 }
 
 constexpr size_t kSAMSearchIdeasMaxEntries = 100;
@@ -4923,6 +5452,7 @@ bool RebuildCollectionProfileLocked(rocksdb::DB* Database,
 std::vector<std::string> BuildPersistedCollectionProfileVariants(rocksdb::DB* Database,
                                                                  const std::string& Collection,
                                                                  const SAMQueryTokenViews& QueryViews,
+                                                                 const std::unordered_set<std::string>* StrongTokens = nullptr,
                                                                  size_t MaxVariants = 12)
 {
      std::vector<std::string> Variants;
@@ -4978,7 +5508,7 @@ std::vector<std::string> BuildPersistedCollectionProfileVariants(rocksdb::DB* Da
                     const double EntryScore = ClampSAMScore(Item.value("score", 0.0) * LayerWeight);
                     const size_t Support = static_cast<size_t>(std::max<int64_t>(0, Item.value("support", 0)));
                     const double MatchStrength =
-                         IsUsefulLearnedVariant(Text, QueryTokens) ? 0.0 :
+                         IsUsefulLearnedVariant(Text, QueryTokens, StrongTokens) ? 0.0 :
                          std::max(ComputeManifestSeedStrength(
                                        QueryViews,
                                        SAM::TermEntry{Text, "collection_profile", "profile", EntryScore, EntryScore}),
@@ -5000,7 +5530,7 @@ std::vector<std::string> BuildPersistedCollectionProfileVariants(rocksdb::DB* Da
 
                               const std::string Candidate = NormalizeTerm(RelatedItem.get<std::string>());
 
-                              if (!IsUsefulLearnedVariant(Candidate, QueryTokens))
+                              if (!IsUsefulLearnedVariant(Candidate, QueryTokens, StrongTokens))
                               {
                                    continue;
                               }
@@ -5086,7 +5616,7 @@ std::vector<std::string> BuildPersistedCollectionProfileVariants(rocksdb::DB* Da
                     {
                          const std::string Candidate = NormalizeTerm(CandidateText);
 
-                         if (!IsUsefulLearnedVariant(Candidate, QueryTokens))
+                         if (!IsUsefulLearnedVariant(Candidate, QueryTokens, StrongTokens))
                          {
                               return;
                          }
@@ -5566,6 +6096,83 @@ bool IsUsefulSAMDocumentPhrase(const std::string& Value)
      }
 
      return !IsIdentifierLikeSAMValue(Value);
+}
+
+std::vector<std::string> ExtractStrongSAMTokens(const std::string& Value)
+{
+     std::vector<std::string> StrongTokens;
+
+     for (const auto& Token : NormalizeSAMTokens(Value, true))
+     {
+          const std::string Singular = SingularizeToken(Token);
+
+          if (Singular.empty() || IsWeakSamToken(Singular) || IsNumericLikeSAMToken(Singular))
+          {
+               continue;
+          }
+
+          if (std::find(StrongTokens.begin(), StrongTokens.end(), Singular) == StrongTokens.end())
+          {
+               StrongTokens.push_back(Singular);
+          }
+     }
+
+     return StrongTokens;
+}
+
+bool ShouldSkipSAMPairPhrase(const std::string& SubjectSeed,
+                             const std::string& CandidateSeed)
+{
+     const std::string NormalizedSubject = NormalizeTerm(SubjectSeed);
+     const std::string NormalizedCandidate = NormalizeTerm(CandidateSeed);
+
+     if (NormalizedSubject.empty() || NormalizedCandidate.empty())
+     {
+          return true;
+     }
+
+     if (NormalizedSubject == NormalizedCandidate)
+     {
+          return true;
+     }
+
+     const std::vector<std::string> SubjectStrongTokens = ExtractStrongSAMTokens(NormalizedSubject);
+     const std::vector<std::string> CandidateStrongTokens = ExtractStrongSAMTokens(NormalizedCandidate);
+
+     if (CandidateStrongTokens.empty())
+     {
+          return true;
+     }
+
+     size_t NewStrongTokens = 0;
+
+     for (const auto& Token : CandidateStrongTokens)
+     {
+          if (std::find(SubjectStrongTokens.begin(), SubjectStrongTokens.end(), Token) == SubjectStrongTokens.end())
+          {
+               ++NewStrongTokens;
+          }
+     }
+
+     if (NewStrongTokens == 0)
+     {
+          return true;
+     }
+
+     const std::vector<std::string> CandidateTokens = TokenizeNormalized(NormalizedCandidate);
+
+     if (!CandidateTokens.empty())
+     {
+          const std::string& First = CandidateTokens.front();
+          const std::string& Last = CandidateTokens.back();
+
+          if ((IsWeakSamToken(First) || IsWeakSamToken(Last)) && NewStrongTokens < 2)
+          {
+               return true;
+          }
+     }
+
+     return false;
 }
 
 std::string JoinSAMTokenRange(const std::vector<std::string>& Tokens,
@@ -6695,6 +7302,12 @@ std::vector<SAM::TermEntry> SAM::ExpandDocumentTerms(const std::string& Collecti
                if (!Subject.empty() && NormalizeTerm(Value) != Subject)
                {
                     const std::string LoweredValue = NormalizeTerm(Value);
+
+                    if (ShouldSkipSAMPairPhrase(Subject, LoweredValue))
+                    {
+                         continue;
+                    }
+
                     const std::string Kind =
                          QueryLike ? "query" :
                          TaxonomyLike ? "query" :
@@ -6868,6 +7481,11 @@ std::vector<SAM::TermEntry> SAM::ExpandDocumentTerms(const std::string& Collecti
 
                for (const auto& DescriptorSeed : CurrentDescriptors)
                {
+                    if (ShouldSkipSAMPairPhrase(SubjectSeed, DescriptorSeed))
+                    {
+                         continue;
+                    }
+
                     const std::vector<std::string> DescriptorTokens = NormalizeSAMTokens(DescriptorSeed, true);
 
                     if (DescriptorTokens.empty())
@@ -8010,7 +8628,6 @@ void SAM::FinishLookupActivity(uint64_t Sequence,
 std::vector<SAM::LookupHit> SAM::Lookup(const std::string& Query, size_t Limit) const
 {
      std::vector<LookupHit> Hits;
-     const SAMQueryTokenViews QueryViews = NormalizeSAMQueryTokenViews(Query);
      const uint64_t ActivitySequence = BeginLookupActivity("", Query);
      std::shared_ptr<rocksdb::DB> DatabaseHandle;
 
@@ -8025,7 +8642,9 @@ std::vector<SAM::LookupHit> SAM::Lookup(const std::string& Query, size_t Limit) 
           return Hits;
      }
 
-     std::vector<std::string> Variants = BuildQueryVariants(Query);
+     const SAMQueryTokenViews QueryViews = NormalizeSAMQueryTokenViews(DatabaseHandle.get(), "", Query);
+
+     std::vector<std::string> Variants = BuildQueryVariants(DatabaseHandle.get(), "", Query);
      const SAMSemanticQuery SemanticPlan = BuildSemanticQueryPlan(DatabaseHandle.get(), "", Query, QueryViews);
 
      for (const auto& Candidate : SemanticPlan.Rewrites)
@@ -8123,7 +8742,6 @@ std::vector<SAM::LookupHit> SAM::Lookup(const std::string& Query, size_t Limit) 
 std::vector<SAM::LookupHit> SAM::Lookup(const std::string& Collection, const std::string& Query, size_t Limit) const
 {
      std::vector<LookupHit> Hits;
-     const SAMQueryTokenViews QueryViews = NormalizeSAMQueryTokenViews(Query);
 
      if (Collection.empty())
      {
@@ -8144,19 +8762,24 @@ std::vector<SAM::LookupHit> SAM::Lookup(const std::string& Collection, const std
           return Hits;
      }
 
-     std::vector<std::string> Variants = BuildQueryVariants(Query);
+     const SAMQueryTokenViews QueryViews = NormalizeSAMQueryTokenViews(DatabaseHandle.get(), Collection, Query);
+
+     const SAMCollectionProfileHints ProfileHints = LoadCollectionProfileHints(DatabaseHandle.get(), Collection);
+     std::vector<std::string> Variants = BuildQueryVariants(DatabaseHandle.get(), Collection, Query, &ProfileHints.StrongTokens);
      const SAMSemanticQuery SemanticPlan = BuildSemanticQueryPlan(DatabaseHandle.get(), Collection, Query, QueryViews);
      const std::vector<std::string> PersistedProfileVariants =
           BuildPersistedCollectionProfileVariants(DatabaseHandle.get(), Collection, QueryViews,
+                                                 &ProfileHints.StrongTokens,
                                                  std::max<size_t>(8, std::min<size_t>(Limit * 3, 16)));
      const std::vector<std::string> LearnedVariants =
           BuildCollectionLearnedVariants(DatabaseHandle.get(), Collection, Query, QueryViews,
+                                         &ProfileHints.StrongTokens,
                                          std::max<size_t>(8, std::min<size_t>(Limit * 3, 16)));
      const std::vector<SAMMatchedSearchIdea> SearchIdeas =
           BuildMatchedSearchIdeas(DatabaseHandle.get(), Collection, Query, QueryViews,
                                   std::max<size_t>(6, std::min<size_t>(Limit * 2, 10)));
      const std::vector<std::string> SearchIdeaVariants =
-          BuildSearchIdeaVariants(SearchIdeas, QueryViews,
+          BuildSearchIdeaVariants(SearchIdeas, QueryViews, &ProfileHints.StrongTokens,
                                   std::max<size_t>(6, std::min<size_t>(Limit * 2, 10)));
 
      for (const auto& Candidate : PersistedProfileVariants)
@@ -8270,6 +8893,7 @@ std::vector<SAM::LookupHit> SAM::Lookup(const std::string& Collection, const std
      AppendSearchIdeaHits(AggregatedHits, DatabaseHandle.get(), Collection, SearchIdeas);
      const std::vector<SAMLearnedVariant> SeededVariants =
           BuildSeededCollectionVariants(DatabaseHandle.get(), Collection, QueryViews, AggregatedHits,
+                                        &ProfileHints.StrongTokens,
                                         std::max<size_t>(6, std::min<size_t>(Limit * 3, 12)));
      AppendCollectionLearnedHits(AggregatedHits, DatabaseHandle.get(), Collection, SeededVariants);
 
@@ -8496,6 +9120,220 @@ bool SAM::GetCollectionIndexedMutationVersion(const std::string& Collection, uin
      }
 
      return ReadCollectionIndexedMutationVersionLocked(DatabaseHandle.get(), Collection, Version);
+}
+
+bool SAM::SyncLexicalResources(const std::string& Collection,
+                               bool* Updated,
+                               std::string* ErrorMessage)
+{
+     if (Updated)
+     {
+          *Updated = false;
+     }
+
+     if (Collection.empty())
+     {
+          if (ErrorMessage)
+          {
+               *ErrorMessage = "Collection is required for SAM lexical sync.";
+          }
+
+          return false;
+     }
+
+     std::shared_ptr<rocksdb::DB> DatabaseHandle;
+
+     {
+          std::lock_guard<std::mutex> Lock(DBMutex);
+          DatabaseHandle = Database;
+     }
+
+     if (!DatabaseHandle)
+     {
+          if (ErrorMessage)
+          {
+               *ErrorMessage = "SAM database is not open.";
+          }
+
+          return false;
+     }
+
+     const std::string SynonymsSourceKey = "synonyms:" + Collection;
+     const std::string StopwordsSourceKey = "stopwords:" + Collection;
+     const std::string SynonymsRaw = HybridStorageManagerInstance().Get(SynonymsSourceKey);
+     const std::string StopwordsRaw = HybridStorageManagerInstance().Get(StopwordsSourceKey);
+     const uint64_t NowMS = Instance ? Instance->NowMs() : 0;
+
+     auto BuildWrappedJSON = [&](const char* Kind,
+                                 const std::string& SourceKey,
+                                 const std::string& RawValue) -> std::string
+     {
+          nlohmann::json Wrapped;
+          Wrapped["collection"] = Collection;
+          Wrapped["kind"] = Kind;
+          Wrapped["source_key"] = SourceKey;
+          Wrapped["synced_at_ms"] = NowMS;
+
+          if (RawValue.empty())
+          {
+               if (std::string(Kind) == "synonyms")
+               {
+                    Wrapped["synonyms"] = nlohmann::json::array();
+               }
+               else
+               {
+                    Wrapped["stopwords"] = nlohmann::json::array();
+               }
+          }
+          else
+          {
+               try
+               {
+                    const nlohmann::json Parsed = nlohmann::json::parse(RawValue);
+
+                    if (std::string(Kind) == "synonyms")
+                    {
+                         if (Parsed.is_object() && Parsed.contains("synonyms"))
+                         {
+                              Wrapped["synonyms"] = Parsed["synonyms"];
+                         }
+                         else if (Parsed.is_array())
+                         {
+                              Wrapped["synonyms"] = Parsed;
+                         }
+                         else
+                         {
+                              Wrapped["synonyms"] = nlohmann::json::array();
+                         }
+                    }
+                    else
+                    {
+                         if (Parsed.is_object() && Parsed.contains("stopwords"))
+                         {
+                              Wrapped["stopwords"] = Parsed["stopwords"];
+                         }
+                         else if (Parsed.is_array())
+                         {
+                              Wrapped["stopwords"] = Parsed;
+                         }
+                         else
+                         {
+                              Wrapped["stopwords"] = nlohmann::json::array();
+                         }
+                    }
+               }
+               catch (const std::exception& E)
+               {
+                    if (ErrorMessage)
+                    {
+                         *ErrorMessage = E.what();
+                    }
+
+                    return "";
+               }
+          }
+
+          return Wrapped.dump();
+     };
+
+     const std::string WrappedSynonyms = BuildWrappedJSON("synonyms", SynonymsSourceKey, SynonymsRaw);
+     const std::string WrappedStopwords = BuildWrappedJSON("stopwords", StopwordsSourceKey, StopwordsRaw);
+
+     if (WrappedSynonyms.empty() || WrappedStopwords.empty())
+     {
+          return false;
+     }
+
+     std::string ExistingSynonyms;
+     std::string ExistingStopwords;
+     (void)DatabaseHandle->Get(rocksdb::ReadOptions(), BuildLexicalMirrorKey("synonyms", Collection), &ExistingSynonyms);
+     (void)DatabaseHandle->Get(rocksdb::ReadOptions(), BuildLexicalMirrorKey("stopwords", Collection), &ExistingStopwords);
+
+     const bool Changed = (ExistingSynonyms != WrappedSynonyms || ExistingStopwords != WrappedStopwords);
+     rocksdb::WriteBatch Batch;
+     Batch.Put(BuildLexicalMirrorKey("synonyms", Collection), WrappedSynonyms);
+     Batch.Put(BuildLexicalMirrorKey("stopwords", Collection), WrappedStopwords);
+
+     const rocksdb::Status Status = DatabaseHandle->Write(rocksdb::WriteOptions(), &Batch);
+
+     if (!Status.ok())
+     {
+          if (ErrorMessage)
+          {
+               *ErrorMessage = Status.ToString();
+          }
+
+          return false;
+     }
+
+     if (Updated)
+     {
+          *Updated = Changed;
+     }
+
+     return true;
+}
+
+bool SAM::GetLexicalSyncInfo(const std::string& Collection,
+                             LexicalSyncInfo& Info,
+                             std::string* ErrorMessage) const
+{
+     Info = LexicalSyncInfo{};
+
+     std::shared_ptr<rocksdb::DB> DatabaseHandle;
+
+     {
+          std::lock_guard<std::mutex> Lock(DBMutex);
+          DatabaseHandle = Database;
+     }
+
+     if (!DatabaseHandle)
+     {
+          if (ErrorMessage)
+          {
+               *ErrorMessage = "SAM database is not open.";
+          }
+
+          return false;
+     }
+
+     auto ReadOne = [&](const std::string& Kind,
+                        const std::string& Scope,
+                        bool* Synced,
+                        size_t* Count,
+                        uint64_t* SyncedAt)
+     {
+          nlohmann::json Root;
+          std::string LocalError;
+
+          if (!LoadMirroredLexicalJSON(DatabaseHandle.get(), Kind, Scope, Root, &LocalError))
+          {
+               return;
+          }
+
+          *Synced = true;
+          *SyncedAt = Root.value("synced_at_ms", static_cast<uint64_t>(0));
+
+          if (Kind == "synonyms")
+          {
+               *Count = CountMirroredSynonymGroups(Root);
+          }
+          else
+          {
+               *Count = CountMirroredStopwords(Root);
+          }
+     };
+
+     if (!Collection.empty())
+     {
+          ReadOne("synonyms", Collection, &Info.CollectionSynonymsSynced, &Info.CollectionSynonymGroups, &Info.CollectionSynonymsSyncedAtMS);
+          ReadOne("stopwords", Collection, &Info.CollectionStopwordsSynced, &Info.CollectionStopwords, &Info.CollectionStopwordsSyncedAtMS);
+     }
+
+     ReadOne("synonyms", kSAMGlobalLexicalCollection, &Info.GlobalSynonymsSynced, &Info.GlobalSynonymGroups, &Info.GlobalSynonymsSyncedAtMS);
+     ReadOne("stopwords", kSAMGlobalLexicalCollection, &Info.GlobalStopwordsSynced, &Info.GlobalStopwords, &Info.GlobalStopwordsSyncedAtMS);
+
+     return true;
 }
 
 bool SAM::GetDocumentEntry(const std::string& Collection,

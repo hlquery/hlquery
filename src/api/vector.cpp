@@ -1271,6 +1271,7 @@ HttpResponse SearchAPI::HandleVectorSearch(const HttpRequest &Request)
      HttpResponse Response(Status::OK, StatusText(Status::OK), "application/json");
 
      Response.Body = GenerateComprehensiveSearchResponse(SearchResultObj, SearchQueryObj);
+     AttachSearchResponseMeta(Response, SearchQueryObj, Request, CollectionName);
 
      if (SearchQueryObj.EnableAnalytics)
      {

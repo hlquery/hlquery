@@ -124,6 +124,18 @@ static std::string NormalizeSynonymTerm(const std::string &Value)
      return Result;
 }
 
+static std::string TrimSynonymTerm(const std::string &Value)
+{
+     const size_t Start = Value.find_first_not_of(" \t\r\n");
+     if (Start == std::string::npos)
+     {
+          return "";
+     }
+
+     const size_t End = Value.find_last_not_of(" \t\r\n");
+     return Value.substr(Start, End - Start + 1);
+}
+
 /* List all synonyms for a collection. */
 
 /*
@@ -375,9 +387,18 @@ HttpResponse SearchAPI::HandleCreateOrUpdateSynonym(const HttpRequest &Request)
                return HttpResponse(Status::BAD_REQUEST, StatusText(Status::BAD_REQUEST), "application/json");
           }
 
-          const std::string RootTerm = SynonymData["root"].get<std::string>();
+          const std::string RootTerm = TrimSynonymTerm(SynonymData["root"].get<std::string>());
           const std::string NormalizedRoot = NormalizeSynonymTerm(RootTerm);
+
+          if (RootTerm.empty() || NormalizedRoot.empty())
+          {
+               HttpResponse Response(Status::BAD_REQUEST, StatusText(Status::BAD_REQUEST), "application/json");
+               Response.Body = "{\"error\":\"Invalid synonym group\",\"message\":\"Root term is required.\"}";
+               return Response;
+          }
+
           std::unordered_set<std::string> SeenSynonyms;
+          nlohmann::json SanitizedSynonyms = nlohmann::json::array();
 
           for (const auto &Syn : SynonymData["synonyms"])
           {
@@ -386,8 +407,15 @@ HttpResponse SearchAPI::HandleCreateOrUpdateSynonym(const HttpRequest &Request)
                     return HttpResponse(Status::BAD_REQUEST, StatusText(Status::BAD_REQUEST), "application/json");
                }
 
-               const std::string SynonymTerm = Syn.get<std::string>();
+               const std::string SynonymTerm = TrimSynonymTerm(Syn.get<std::string>());
                const std::string NormalizedSynonym = NormalizeSynonymTerm(SynonymTerm);
+
+               if (SynonymTerm.empty() || NormalizedSynonym.empty())
+               {
+                    HttpResponse Response(Status::BAD_REQUEST, StatusText(Status::BAD_REQUEST), "application/json");
+                    Response.Body = "{\"error\":\"Invalid synonym group\",\"message\":\"Synonyms must be non-empty strings.\"}";
+                    return Response;
+               }
 
                if (!NormalizedRoot.empty() && NormalizedSynonym == NormalizedRoot)
                {
@@ -396,8 +424,21 @@ HttpResponse SearchAPI::HandleCreateOrUpdateSynonym(const HttpRequest &Request)
                     return Response;
                }
 
-               SeenSynonyms.insert(NormalizedSynonym);
+               if (SeenSynonyms.insert(NormalizedSynonym).second)
+               {
+                    SanitizedSynonyms.push_back(SynonymTerm);
+               }
           }
+
+          if (SanitizedSynonyms.empty())
+          {
+               HttpResponse Response(Status::BAD_REQUEST, StatusText(Status::BAD_REQUEST), "application/json");
+               Response.Body = "{\"error\":\"Invalid synonym group\",\"message\":\"At least one synonym is required.\"}";
+               return Response;
+          }
+
+          SynonymData["root"] = RootTerm;
+          SynonymData["synonyms"] = SanitizedSynonyms;
 
           /* Get existing synonyms for this collection. */
 
@@ -493,6 +534,9 @@ HttpResponse SearchAPI::HandleCreateOrUpdateSynonym(const HttpRequest &Request)
           {
                return HttpResponse(Status::INTERNAL_SERVER_ERROR, StatusText(Status::INTERNAL_SERVER_ERROR), "application/json");
           }
+
+          SyncSAMLexicalChange(CollectionName, IsGlobalScope);
+          BumpCollectionMutationVersion(IsGlobalScope ? "*" : CollectionName);
 
           HttpResponse Response(Status::OK, StatusText(Status::OK), "application/json");
 
@@ -803,6 +847,9 @@ HttpResponse SearchAPI::HandleDeleteSynonym(const HttpRequest &Request)
           {
                return HttpResponse(Status::INTERNAL_SERVER_ERROR, StatusText(Status::INTERNAL_SERVER_ERROR), "application/json");
           }
+
+          SyncSAMLexicalChange(CollectionName, IsGlobalScope);
+          BumpCollectionMutationVersion(IsGlobalScope ? "*" : CollectionName);
 
           HttpResponse Response(Status::OK, StatusText(Status::OK), "application/json");
 

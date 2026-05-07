@@ -368,6 +368,11 @@ RouteAction ResolveHttpRoute(const HttpRequest &Request)
                return RouteAction::Health;
           }
 
+          if (NormalizedPath == "/ready" && Method == "GET")
+          {
+               return RouteAction::Ready;
+          }
+
           if (NormalizedPath == "/ping" && Method == "GET")
           {
                if (Instance && Instance->Logs)
@@ -760,6 +765,8 @@ const char *RouteActionName(RouteAction ActionVal)
                return "SearchConfig";
           case RouteAction::Health:
                return "Health";
+          case RouteAction::Ready:
+               return "Ready";
           case RouteAction::Ping:
                return "Ping";
           case RouteAction::Stats:

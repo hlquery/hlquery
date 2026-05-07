@@ -77,6 +77,12 @@ void HLQueryCLI::SetDefaultTimeoutSeconds(int timeout_seconds)
      DefaultTimeoutSeconds = timeout_seconds;
 }
 
+void HLQueryCLI::SetRequestDryRunMode(bool enabled, bool print_curl)
+{
+     RequestDryRunMode = enabled;
+     RequestDryRunPrintCurl = print_curl;
+}
+
 /* Gets the program display name. */
 
 const std::string &HLQueryCLI::GetProgramName() const
@@ -447,6 +453,55 @@ bool HLQueryCLI::IsServerLoading()
      return false;
 }
 
+void HLQueryCLI::ShowDoctor()
+{
+     const char *env_config = std::getenv("HLQ_CONFIG");
+     const std::string config_path = (env_config && *env_config) ? env_config : std::string(HLQUERY_CONFIG_DIR "/hlquery.conf");
+
+     HTTPResponse ready_response = MakeRequest("GET", "/ready", "", DefaultTimeoutSeconds);
+     HTTPResponse health_response = MakeRequest("GET", "/health", "", DefaultTimeoutSeconds);
+     HTTPResponse stats_response = MakeRequest("GET", "/stats", "", DefaultTimeoutSeconds);
+
+     bool ready_ok = (ready_response.StatusCode == 200);
+     bool health_ok = (health_response.StatusCode == 200);
+     bool stats_ok = (stats_response.StatusCode == 200);
+     bool config_exists = std::filesystem::exists(config_path);
+
+     std::cout << "Doctor report for " << BaseURL << "\n";
+     std::cout << "  Ready: " << (ready_ok ? "ok" : "fail") << " (" << ready_response.StatusCode << ")\n";
+     std::cout << "  Health: " << (health_ok ? "ok" : "fail") << " (" << health_response.StatusCode << ")\n";
+     std::cout << "  Stats: " << (stats_ok ? "ok" : "fail") << " (" << stats_response.StatusCode << ")\n";
+     std::cout << "  Config: " << (config_exists ? "found" : "missing") << " (" << config_path << ")\n";
+
+     if (health_ok)
+     {
+          try
+          {
+               nlohmann::json health_json = nlohmann::json::parse(health_response.Body);
+               if (health_json.contains("auth_enabled"))
+               {
+                    std::cout << "  Auth enabled: " << (health_json["auth_enabled"].get<bool>() ? "yes" : "no") << "\n";
+               }
+               if (health_json.contains("version") && health_json["version"].is_string())
+               {
+                    std::cout << "  Version: " << health_json["version"].get<std::string>() << "\n";
+               }
+               if (health_json.contains("health_reason") && health_json["health_reason"].is_string())
+               {
+                    std::cout << "  Health reason: " << health_json["health_reason"].get<std::string>() << "\n";
+               }
+          }
+          catch (...)
+          {
+          }
+     }
+
+     if (!ready_ok || !health_ok || !stats_ok)
+     {
+          SetExitCode(2);
+     }
+}
+
 /* Makes an HTTP request. */
 
 HLQueryCLI::HTTPResponse HLQueryCLI::MakeRequest(const std::string &method, const std::string &path, const std::string &body, int timeout_seconds)
@@ -515,6 +570,66 @@ HLQueryCLI::HTTPResponse HLQueryCLI::MakeRequest(const std::string &method, cons
      {
           Host = "localhost";
           Port = 9200;
+     }
+
+     std::stringstream request;
+
+     /* Build the HTTP request headers and body. */
+
+     request << method << " " << path << " HTTP/1.1\r\n";
+     request << "Host: " << Host << ":" << Port << "\r\n";
+     request << "User-Agent: hlquery-cli/1.0\r\n";
+     request << "Accept: application/json\r\n";
+     request << "Connection: close\r\n";
+
+     if (!AuthToken.empty())
+     {
+          request << "Authorization: Bearer " << AuthToken << "\r\n";
+          if (SSLAuthMode && UseSSL)
+          {
+               request << "X-API-Key: " << AuthToken << "\r\n";
+          }
+     }
+
+     if (!body.empty())
+     {
+          request << "Content-Type: application/json\r\n";
+          request << "Content-Length: " << body.length() << "\r\n";
+     }
+
+     request << "\r\n";
+
+     if (!body.empty())
+     {
+          request << body;
+     }
+
+     if (RequestDryRunMode)
+     {
+          if (RequestDryRunPrintCurl)
+          {
+               std::cout << "curl -i -X " << method;
+
+               if (!AuthToken.empty())
+               {
+                    std::cout << " -H \"Authorization: Bearer " << AuthToken << "\"";
+                    if (SSLAuthMode && UseSSL)
+                    {
+                         std::cout << " -H \"X-API-Key: " << AuthToken << "\"";
+                    }
+               }
+
+               if (!body.empty())
+               {
+                    std::cout << " -H \"Content-Type: application/json\"";
+                    std::cout << " --data '" << body << "'";
+               }
+
+               std::cout << " \"" << BaseURL << path << "\"" << std::endl;
+          }
+
+          std::cout << request.str() << std::endl;
+          std::exit(0);
      }
 
      /* Open and configure a TCP socket for the HTTP request. */
@@ -694,38 +809,6 @@ HLQueryCLI::HTTPResponse HLQueryCLI::MakeRequest(const std::string &method, cons
           }
      }
 #endif
-
-     std::stringstream request;
-
-     /* Build the HTTP request headers and body. */
-
-     request << method << " " << path << " HTTP/1.1\r\n";
-     request << "Host: " << Host << ":" << Port << "\r\n";
-     request << "User-Agent: hlquery-cli/1.0\r\n";
-     request << "Accept: application/json\r\n";
-     request << "Connection: close\r\n";
-
-     if (!AuthToken.empty())
-     {
-          request << "Authorization: Bearer " << AuthToken << "\r\n";
-          if (SSLAuthMode && UseSSL)
-          {
-               request << "X-API-Key: " << AuthToken << "\r\n";
-          }
-     }
-
-     if (!body.empty())
-     {
-          request << "Content-Type: application/json\r\n";
-          request << "Content-Length: " << body.length() << "\r\n";
-     }
-
-     request << "\r\n";
-
-     if (!body.empty())
-     {
-          request << body;
-     }
 
      if (RawMode)
      {

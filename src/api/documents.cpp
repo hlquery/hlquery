@@ -2696,9 +2696,18 @@ HttpResponse SearchAPI::HandleSAMStatus(const HttpRequest &Request)
      const std::map<std::string, SAM::CollectionJobStatus> AllStatuses = Instance->Sam->GetAllCollectionJobStatuses();
      const std::vector<SAM::SearchActivityEntry> ActiveSearches = Instance->Sam->GetActiveSearchActivities(CollectionName);
      size_t RunningCount = 0;
+     size_t IndexedDocumentsTotal = 0;
+     size_t FailedDocumentsTotal = 0;
+     size_t PendingDocumentsTotal = 0;
+     size_t SourceDocumentsTotal = 0;
 
      for (const auto &Entry : AllStatuses)
      {
+          IndexedDocumentsTotal += Entry.second.IndexedDocuments;
+          FailedDocumentsTotal += Entry.second.FailedDocuments;
+          PendingDocumentsTotal += Entry.second.PendingDocuments;
+          SourceDocumentsTotal += Entry.second.TotalDocuments;
+
           if (!CollectionName.empty() && Entry.first != CollectionName)
           {
                continue;
@@ -2778,6 +2787,8 @@ HttpResponse SearchAPI::HandleSAMStatus(const HttpRequest &Request)
      else if (!CollectionName.empty())
      {
           const SAM::CollectionJobStatus &JobStatus = AllStatuses.at(CollectionName);
+          SAM::LexicalSyncInfo LexicalInfo;
+          const bool HasLexicalInfo = Instance->Sam->GetLexicalSyncInfo(CollectionName, LexicalInfo);
           SAM::SearchActivityEntry LatestSearch;
           const bool HasLatestSearch = Instance->Sam->GetLatestSearchActivity(CollectionName, LatestSearch);
           Root["collection"] = CollectionName;
@@ -2791,6 +2802,24 @@ HttpResponse SearchAPI::HandleSAMStatus(const HttpRequest &Request)
           Root["error"] = JobStatus.ErrorMessage;
           Root["active_search_count"] = ActiveSearches.size();
           Root["search_running"] = !ActiveSearches.empty();
+
+          if (HasLexicalInfo)
+          {
+               Root["lexical_sync"] = {
+                    {"collection_synonyms_synced", LexicalInfo.CollectionSynonymsSynced},
+                    {"collection_synonym_groups", LexicalInfo.CollectionSynonymGroups},
+                    {"collection_synonyms_synced_at_ms", LexicalInfo.CollectionSynonymsSyncedAtMS},
+                    {"global_synonyms_synced", LexicalInfo.GlobalSynonymsSynced},
+                    {"global_synonym_groups", LexicalInfo.GlobalSynonymGroups},
+                    {"global_synonyms_synced_at_ms", LexicalInfo.GlobalSynonymsSyncedAtMS},
+                    {"collection_stopwords_synced", LexicalInfo.CollectionStopwordsSynced},
+                    {"collection_stopwords", LexicalInfo.CollectionStopwords},
+                    {"collection_stopwords_synced_at_ms", LexicalInfo.CollectionStopwordsSyncedAtMS},
+                    {"global_stopwords_synced", LexicalInfo.GlobalStopwordsSynced},
+                    {"global_stopwords", LexicalInfo.GlobalStopwords},
+                    {"global_stopwords_synced_at_ms", LexicalInfo.GlobalStopwordsSyncedAtMS}
+               };
+          }
 
           if (HasLatestSearch)
           {
@@ -2815,6 +2844,10 @@ HttpResponse SearchAPI::HandleSAMStatus(const HttpRequest &Request)
      {
           Root["running_count"] = RunningCount;
           Root["known_count"] = AllStatuses.size();
+          Root["indexed_total"] = IndexedDocumentsTotal;
+          Root["failed_total"] = FailedDocumentsTotal;
+          Root["pending_total"] = PendingDocumentsTotal;
+          Root["source_total"] = SourceDocumentsTotal;
           Root["active_search_count"] = ActiveSearches.size();
           Root["search_running"] = !ActiveSearches.empty();
 

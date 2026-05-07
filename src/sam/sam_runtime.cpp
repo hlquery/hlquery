@@ -27,6 +27,7 @@ SAM::SAM()
      OptionsValue.create_if_missing = true;
      OptionsValue.error_if_exists = false;
      OptionsValue.max_open_files = 128;
+     BackgroundWorkerCount = ResolveBackgroundWorkerCount();
 }
 
 SAM::~SAM()
@@ -194,10 +195,18 @@ void SAM::StartIndexWorker()
           return;
      }
 
-     WorkerThreads.emplace_back([this]()
+     if (BackgroundWorkerCount == 0)
      {
-          RunIndexWorker();
-     });
+          BackgroundWorkerCount = 1;
+     }
+
+     for (size_t Index = 0; Index < BackgroundWorkerCount; ++Index)
+     {
+          WorkerThreads.emplace_back([this]()
+          {
+               RunIndexWorker();
+          });
+     }
 }
 
 void SAM::RunIndexWorker()
@@ -208,24 +217,50 @@ void SAM::RunIndexWorker()
 
           {
                std::unique_lock<std::mutex> Lock(QueueMutex);
-               QueueCV.wait(Lock, [this]()
+               while (true)
                {
-                    return ShuttingDown || !PendingIndexJobs.empty();
-               });
+                    QueueCV.wait(Lock, [this]()
+                    {
+                         return ShuttingDown || !PendingIndexJobs.empty();
+                    });
 
-               if (ShuttingDown && PendingIndexJobs.empty())
-               {
-                    return;
+                    if (ShuttingDown && PendingIndexJobs.empty())
+                    {
+                         return;
+                    }
+
+                    size_t SelectedIndex = PendingIndexJobs.size();
+
+                    {
+                         std::lock_guard<std::mutex> JobLock(JobMutex);
+
+                         for (size_t Index = 0; Index < PendingIndexJobs.size(); ++Index)
+                         {
+                              if (ActiveCollectionTasks.find(PendingIndexJobs[Index].Collection) ==
+                                  ActiveCollectionTasks.end())
+                              {
+                                   ++ActiveCollectionTasks[PendingIndexJobs[Index].Collection];
+                                   SelectedIndex = Index;
+                                   break;
+                              }
+                         }
+                    }
+
+                    if (SelectedIndex < PendingIndexJobs.size())
+                    {
+                         Job = std::move(PendingIndexJobs[SelectedIndex]);
+                         PendingIndexJobs.erase(PendingIndexJobs.begin() + static_cast<long>(SelectedIndex));
+                         PendingIndexKeys.erase(BuildPendingIndexKey(Job.Collection, Job.Doc.ID));
+                         break;
+                    }
+
+                    QueueCV.wait(Lock);
+
+                    if (ShuttingDown && PendingIndexJobs.empty())
+                    {
+                         return;
+                    }
                }
-
-               Job = std::move(PendingIndexJobs.front());
-               PendingIndexJobs.pop_front();
-               PendingIndexKeys.erase(BuildPendingIndexKey(Job.Collection, Job.Doc.ID));
-          }
-
-          {
-               std::lock_guard<std::mutex> JobLock(JobMutex);
-               ++ActiveCollectionTasks[Job.Collection];
           }
 
           auto FinishTask = [this, &Job]()
@@ -247,6 +282,7 @@ void SAM::RunIndexWorker()
                }
 
                JobStateCV.notify_all();
+               QueueCV.notify_all();
           };
 
           {
@@ -393,6 +429,18 @@ void SAM::RunIndexWorker()
                                            "': " + (ErrorMessage.empty() ? std::string("unknown error") : ErrorMessage) + ".");
           }
      }
+}
+
+size_t SAM::ResolveBackgroundWorkerCount() const
+{
+     const unsigned int HardwareThreads = std::thread::hardware_concurrency();
+
+     if (HardwareThreads == 0)
+     {
+          return 2;
+     }
+
+     return std::max<size_t>(1, std::min<size_t>(static_cast<size_t>(HardwareThreads), 4));
 }
 
 bool SAM::IsOpen() const
@@ -1416,6 +1464,8 @@ bool SAM::DeleteCollection(const std::string& Collection, std::string* ErrorMess
           rocksdb::WriteBatch Batch;
           Batch.Delete(BuildCollectionProfileKey(Collection));
           Batch.Delete(BuildCollectionStateKey(Collection));
+          Batch.Delete(BuildLexicalMirrorKey("synonyms", Collection));
+          Batch.Delete(BuildLexicalMirrorKey("stopwords", Collection));
 
           const std::string IdeaPrefix = BuildSearchIdeaPrefix(Collection);
           std::unique_ptr<rocksdb::Iterator> IdeaIterator(Database->NewIterator(rocksdb::ReadOptions()));

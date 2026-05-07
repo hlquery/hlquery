@@ -44,6 +44,7 @@
 #include "core/hlquery.h"
 #include "core/socketengine.h"
 #include "runtime/threadlimit.h"
+#include "sam/sam.h"
 #include "search/rfusion.h"
 #include "search/cstore.h"
 #include "search/lindex.h"
@@ -878,6 +879,55 @@ HttpResponse SearchAPI::HandleHealth(const HttpRequest &Request)
      return Response;
 }
 
+HttpResponse SearchAPI::HandleReady(const HttpRequest &Request)
+{
+     (void)Request;
+
+     nlohmann::json ReadyJSON;
+     ReadyJSON["server"] = "hlquery";
+     ReadyJSON["ready"] = true;
+     ReadyJSON["status"] = "ready";
+
+     bool IsReady = IsInitialized();
+     bool IsLoading = false;
+     bool SyncInProgress = false;
+
+     if (Instance)
+     {
+          SyncInProgress = Instance->IsSyncInProgress();
+
+          for (auto *ServerVal : Instance->HTTPServers)
+          {
+               if (ServerVal && ServerVal->IsLoading())
+               {
+                    IsLoading = true;
+                    break;
+               }
+          }
+     }
+
+     if (!IsReady || IsLoading || SyncInProgress)
+     {
+          ReadyJSON["ready"] = false;
+          ReadyJSON["status"] = "not_ready";
+          ReadyJSON["initialized"] = IsReady;
+          ReadyJSON["loading"] = IsLoading;
+          ReadyJSON["sync_in_progress"] = SyncInProgress;
+
+          HttpResponse Response(Status::SERVICE_UNAVAILABLE, StatusText(Status::SERVICE_UNAVAILABLE), "application/json");
+          Response.Body = ReadyJSON.dump();
+          return Response;
+     }
+
+     ReadyJSON["initialized"] = true;
+     ReadyJSON["loading"] = false;
+     ReadyJSON["sync_in_progress"] = false;
+
+     HttpResponse Response(Status::OK, StatusText(Status::OK), "application/json");
+     Response.Body = ReadyJSON.dump();
+     return Response;
+}
+
 /* HandleMetrics returns system metrics. */
 
 HttpResponse SearchAPI::HandleMetrics(const HttpRequest &Request)
@@ -960,6 +1010,14 @@ HttpResponse SearchAPI::HandleStats(const HttpRequest &Request)
           StatsJSON["demo_mode"] = DemoMode;
           StatsJSON["readonly_mode"] = DemoMode;
           StatsJSON["io"] = BuildSocketIOStatsJSON();
+          const bool SamEnabled = Instance->Config && Instance->Config->GetSamEnabled();
+          const bool SamAvailable = SamEnabled && Instance->Sam && Instance->Sam->IsOpen();
+          StatsJSON["sam_enabled"] = SamEnabled;
+          StatsJSON["sam_available"] = SamAvailable;
+          StatsJSON["sam"] = {
+               {"enabled", SamEnabled},
+               {"available", SamAvailable}
+          };
           if (!DemoMessage.empty())
           {
                StatsJSON["demo_message"] = DemoMessage;

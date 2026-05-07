@@ -93,6 +93,36 @@ static void LogAccessControl(const std::string &Reason, const HttpRequest &Reque
      }
 }
 
+static std::string GetHeaderValueInsensitive(const std::map<std::string, std::string> &Headers, const std::string &Name)
+{
+     std::string LowerName = Name;
+     std::transform(LowerName.begin(), LowerName.end(), LowerName.begin(), [](unsigned char c)
+                    { return static_cast<char>(std::tolower(c)); });
+
+     for (const auto &Header : Headers)
+     {
+          std::string Key = Header.first;
+          std::transform(Key.begin(), Key.end(), Key.begin(), [](unsigned char c)
+                         { return static_cast<char>(std::tolower(c)); });
+          if (Key == LowerName)
+          {
+               return Header.second;
+          }
+     }
+
+     return "";
+}
+
+static bool IsHealthLikePath(const std::string &Path)
+{
+     return Path == "/health" || Path == "/health/" ||
+            Path == "/ready" || Path == "/ready/" ||
+            Path == "/status" || Path == "/status/" ||
+            Path == "/query" || Path == "/query/" ||
+            Path == "/ping" || Path == "/ping/" ||
+            Path == "/stats" || Path == "/stats/";
+}
+
 static bool IsReplicationHopRequest(const HttpRequest &Request)
 {
      for (const auto &Header : Request.Headers)
@@ -1337,7 +1367,7 @@ void HttpConnection::ProcessRequest()
      /* SECURITY: If auth is disabled but a token is provided, reject the request. */
 
      if (!AuthManager.IsAuthEnabled() && HasAuthToken && !IsAuthorizedReplicationRequest(Request) &&
-         Request.Path != "/health" && Request.Path != "/ping")
+         !IsHealthLikePath(Request.Path))
      {
           HttpResponse Response(http_code::FORBIDDEN, StatusText(http_code::FORBIDDEN), "application/json");
 
@@ -1356,7 +1386,7 @@ void HttpConnection::ProcessRequest()
      {
           /* Skip auth for health, status, and ping endpoints (status is needed to check auth requirement). */
 
-          if (Request.Path != "/health" && Request.Path != "/status" && Request.Path != "/query" && Request.Path != "/ping")
+          if (!IsHealthLikePath(Request.Path))
           {
                if (!HasAuthToken)
                {
@@ -1884,6 +1914,7 @@ void HttpConnection::ProcessSingleRequest(const std::string &RequestStr)
 
      Request.RemoteAddress = ClientIP;
      Request.RemotePort = ClientPort;
+     ActiveRequestID = GetHeaderValueInsensitive(Request.Headers, "X-Request-Id");
      Request.IsCancelled = [this]()
      {
           return ClosingValue.load(std::memory_order_acquire) || !HasFD();
@@ -1894,6 +1925,11 @@ void HttpConnection::ProcessSingleRequest(const std::string &RequestStr)
      if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
      {
           Instance->Logs->Debug("http_server", "ProcessSingleRequest: " + Request.Method + " " + Request.Path + " from " + ClientIP + ":" + std::to_string(ClientPort) + " (body_size: " + std::to_string(Request.Body.size()) + ").");
+     }
+
+     if (!ActiveRequestID.empty() && !IsHealthLikePath(Request.Path) && Instance && Instance->Logs)
+     {
+          Instance->Logs->Normal("http_server", "request_id=" + ActiveRequestID + " method=" + Request.Method + " path=" + Request.Path + " remote=" + ClientIP + ":" + std::to_string(ClientPort) + ".");
      }
 
      /* Handle CORS preflight (OPTIONS) requests. */
@@ -1937,11 +1973,7 @@ void HttpConnection::ProcessSingleRequest(const std::string &RequestStr)
 
           /* Allow health check endpoints during loading. */
 
-          bool IsHealthCheck = (Request.Path == "/health" || Request.Path == "/health/" ||
-                                Request.Path == "/status" || Request.Path == "/status/" ||
-                                Request.Path == "/query" || Request.Path == "/query/" ||
-                                Request.Path == "/ping" || Request.Path == "/ping/" ||
-                                Request.Path == "/stats" || Request.Path == "/stats/");
+          bool IsHealthCheck = IsHealthLikePath(Request.Path);
 
           /* Allow collection creation during loading (needed for benchmarks). */
 
@@ -1994,11 +2026,7 @@ void HttpConnection::ProcessSingleRequest(const std::string &RequestStr)
 
           /* Allow health check endpoints during sync. */
 
-          bool IsHealthCheck = (Request.Path == "/health" || Request.Path == "/health/" ||
-                                Request.Path == "/status" || Request.Path == "/status/" ||
-                                Request.Path == "/query" || Request.Path == "/query/" ||
-                                Request.Path == "/ping" || Request.Path == "/ping/" ||
-                                Request.Path == "/stats" || Request.Path == "/stats/");
+          bool IsHealthCheck = IsHealthLikePath(Request.Path);
 
           /* Allow collection creation during sync - it's safe and needed for benchmarks. */
 
@@ -2055,7 +2083,7 @@ void HttpConnection::ProcessSingleRequest(const std::string &RequestStr)
           /* Allow /health, /status, and /ping without auth even if token is provided. */
 
           if (!AuthManagerVal.IsAuthEnabled() && HasAuthToken && !IsAuthorizedReplicationRequest(Request) &&
-              Request.Path != "/health" && Request.Path != "/status" && Request.Path != "/query" && Request.Path != "/ping")
+              !IsHealthLikePath(Request.Path))
           {
                Response = HttpResponse(http_code::FORBIDDEN, StatusText(http_code::FORBIDDEN), "application/json");
 
@@ -2072,7 +2100,7 @@ void HttpConnection::ProcessSingleRequest(const std::string &RequestStr)
           {
                /* Skip auth for health, status, and ping endpoints (status is needed to check auth requirement). */
 
-               if (Request.Path != "/health" && Request.Path != "/status" && Request.Path != "/query" && Request.Path != "/ping")
+               if (!IsHealthLikePath(Request.Path))
                {
                     if (!HasAuthToken)
                     {
@@ -2867,6 +2895,10 @@ void HttpConnection::ProcessSingleRequest(const std::string &RequestStr)
      {
           Response = API.HandleHealth(Request);
      }
+     else if (Request.Path == "/ready" && Request.Method == "GET")
+     {
+          Response = API.HandleReady(Request);
+     }
      else if ((Request.Path == "/metrics" || Request.Path == "/metrics.json") && Request.Method == "GET")
      {
           Response = API.HandleMetrics(Request);
@@ -2960,6 +2992,13 @@ void HttpConnection::ProcessSingleRequest(const std::string &RequestStr)
 
 void HttpConnection::SendResponse(const HttpResponse &Response)
 {
+     HttpResponse EffectiveResponse = Response;
+
+     if (!ActiveRequestID.empty())
+     {
+          EffectiveResponse.Headers["X-Request-Id"] = ActiveRequestID;
+     }
+
      if (ClosingValue.load(std::memory_order_acquire) || !HasFD())
      {
           if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
@@ -2972,16 +3011,16 @@ void HttpConnection::SendResponse(const HttpResponse &Response)
 
      if (Instance && Instance->Logs)
      {
-          Instance->Logs->Normal("http_server.", "[SendResponse] ENTRY - status=" + std::to_string(Response.StatusCode) + " " + Response.StatusText + ", body_size=" + std::to_string(Response.Body.length()) + ", keep_alive=" + std::string(KeepAlive ? "true" : "false") + ", closing=" + std::string(ClosingValue.load() ? "true" : "false") + ", fd=" + std::to_string(GetFD()) + ".");
+          Instance->Logs->Normal("http_server.", "[SendResponse] ENTRY - status=" + std::to_string(EffectiveResponse.StatusCode) + " " + EffectiveResponse.StatusText + ", body_size=" + std::to_string(EffectiveResponse.Body.length()) + ", keep_alive=" + std::string(KeepAlive ? "true" : "false") + ", closing=" + std::string(ClosingValue.load() ? "true" : "false") + ", fd=" + std::to_string(GetFD()) + ".");
      }
 
      /* Cap response body size to prevent OOM. */
 
-     if (Response.Body.length() > HTTP_MAX_RESPONSE_SIZE)
+     if (EffectiveResponse.Body.length() > HTTP_MAX_RESPONSE_SIZE)
      {
           if (Instance && Instance->Logs)
           {
-               Instance->Logs->Critical("http", "Response body too large: " + std::to_string(Response.Body.length()) + " bytes - REJECTING!.");
+               Instance->Logs->Critical("http", "Response body too large: " + std::to_string(EffectiveResponse.Body.length()) + " bytes - REJECTING!.");
           }
 
           HttpResponse ErrorResp;
@@ -2999,14 +3038,14 @@ void HttpConnection::SendResponse(const HttpResponse &Response)
 
      std::string ResponseStr;
 
-     ResponseStr.reserve(1024 + std::min(Response.Body.length(), static_cast<size_t>(HTTP_MAX_RESPONSE_SIZE))); /* Pre-allocate safely. */
+     ResponseStr.reserve(1024 + std::min(EffectiveResponse.Body.length(), static_cast<size_t>(HTTP_MAX_RESPONSE_SIZE))); /* Pre-allocate safely. */
 
      /* Status line. */
 
      ResponseStr += "HTTP/1.1 ";
-     ResponseStr += std::to_string(Response.StatusCode);
+     ResponseStr += std::to_string(EffectiveResponse.StatusCode);
      ResponseStr += " ";
-     ResponseStr += Response.StatusText;
+     ResponseStr += EffectiveResponse.StatusText;
      ResponseStr += "\r\n";
 
      /* Add keep-alive header if supported. */
@@ -3029,12 +3068,12 @@ void HttpConnection::SendResponse(const HttpResponse &Response)
 
      ResponseStr += "Access-Control-Allow-Origin: *\r\n";
      ResponseStr += "Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS, PATCH\r\n";
-     ResponseStr += "Access-Control-Allow-Headers: Content-Type, Authorization, Accept, X-Requested-With, X-API-Key\r\n";
+     ResponseStr += "Access-Control-Allow-Headers: Content-Type, Authorization, Accept, X-Requested-With, X-API-Key, X-Request-Id\r\n";
      ResponseStr += "Access-Control-Max-Age: 86400\r\n";
 
      /* Headers. */
 
-     for (const auto &HeaderPair : Response.Headers)
+     for (const auto &HeaderPair : EffectiveResponse.Headers)
      {
           ResponseStr += HeaderPair.first;
           ResponseStr += ": ";
@@ -3045,7 +3084,7 @@ void HttpConnection::SendResponse(const HttpResponse &Response)
      /* Content-Length. */
 
      ResponseStr += "Content-Length: ";
-     ResponseStr += std::to_string(Response.Body.length());
+     ResponseStr += std::to_string(EffectiveResponse.Body.length());
      ResponseStr += "\r\n";
 
      /* End of headers. */
@@ -3054,7 +3093,7 @@ void HttpConnection::SendResponse(const HttpResponse &Response)
 
      /* Body. */
 
-     ResponseStr += Response.Body;
+     ResponseStr += EffectiveResponse.Body;
 
      /* Protect response buffer with mutex to prevent race conditions. */
 
@@ -3669,11 +3708,16 @@ HttpServer::HttpServer(const BindConfig &Conf) : Config(Conf), Running(false)
                         return HandleHealth(Req);
                    });
 
+     RegisterRoute("GET", "/ready", [this](const HttpRequest &Req)
+                   {
+                        return HandleReady(Req);
+                   });
+
      RegisterRoute("GET", "/", [](const HttpRequest & /* Req */)
                    {
                         HttpResponse Resp(200, "OK");
 
-                        Resp.Body = "hlquery HTTP Server\nAvailable endpoints:\n- GET /health\n";
+                        Resp.Body = "hlquery HTTP Server\nAvailable endpoints:\n- GET /health\n- GET /ready\n";
 
                         return Resp;
                    });
@@ -3955,11 +3999,6 @@ bool HttpServer::Start()
 
      Running = true;
 
-     /* CRITICAL FIX: Set ReadyToAcceptValue to true immediately after server starts. */
-     /* Request processing will check IsLoadingValue and allow GET requests during loading. */
-
-     ReadyToAcceptValue.store(true);
-
      /* Verify socket is actually registered and ready. */
 
      int EpollFD = SocketEngine::GetEpollFD();
@@ -4176,6 +4215,11 @@ HttpResponse HttpServer::HandleHealth(const HttpRequest &Request)
      }
 
      return Builder.Build();
+}
+
+HttpResponse HttpServer::HandleReady(const HttpRequest &Request)
+{
+     return SearchAPI::GetInstance().HandleReady(Request);
 }
 
 /* OnEventHandlerRead handles read events. */
@@ -4803,6 +4847,7 @@ static RouteAction ResolveRouteWithFallback(const HttpRequest &Request)
 static bool IsPublicRouteAction(RouteAction ActionVal)
 {
      return (ActionVal == RouteAction::Health ||
+             ActionVal == RouteAction::Ready ||
              ActionVal == RouteAction::Status ||
              ActionVal == RouteAction::SearchConfig ||
              ActionVal == RouteAction::Ping ||
@@ -5055,11 +5100,7 @@ HttpResponse ProcessRequestWithAPI(SearchAPI &API, const HttpRequest &Request)
      {
           /* Allow health check endpoints during sync. */
 
-          bool IsHealthCheck = (Request.Path == "/health" || Request.Path == "/health/" ||
-                                Request.Path == "/status" || Request.Path == "/status/" ||
-                                Request.Path == "/query" || Request.Path == "/query/" ||
-                                Request.Path == "/ping" || Request.Path == "/ping/" ||
-                                Request.Path == "/stats" || Request.Path == "/stats/");
+          bool IsHealthCheck = IsHealthLikePath(Request.Path);
 
           /* Allow collection creation during sync - it's safe and needed for benchmarks. */
 
@@ -5139,6 +5180,9 @@ HttpResponse ProcessRequestWithAPI(SearchAPI &API, const HttpRequest &Request)
                     }
 
                     return API.HandleHealth(Request);
+
+               case RouteAction::Ready:
+                    return API.HandleReady(Request);
 
                case RouteAction::Ping:
                     return API.HandlePing(Request);

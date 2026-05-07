@@ -1775,6 +1775,7 @@ HttpResponse SearchAPI::HandleSearch(const HttpRequest &Request)
                Response.Headers["X-HLQ-Execution-Mode"] = "distributed";
                ApplySQLDistinct(SearchResultObj, SQLApplyResult.Translation);
                Response.Body = GenerateComprehensiveSearchResponse(SearchResultObj, SearchQueryObj);
+               AttachSearchResponseMeta(Response, SearchQueryObj, Request, CollectionName);
 
                if (!SearchQueryObj.Q.empty() && SearchQueryObj.Q != "*" &&
                    Instance && Instance->Sam && Instance->Sam->IsOpen())
@@ -1908,6 +1909,8 @@ HttpResponse SearchAPI::HandleSearch(const HttpRequest &Request)
                }
           }
      }
+
+     AttachSearchResponseMeta(Response, SearchQueryObj, Request, CollectionName);
 
      /* Analytics are emitted after the response body is finalized so counts match the payload. */
 
@@ -2352,6 +2355,7 @@ HttpResponse SearchAPI::HandleGlobalSearch(const HttpRequest &Request)
      HttpResponse Response(Status::OK, StatusText(Status::OK), "application/json");
      Response.Headers["X-HLQ-Execution-Mode"] = ShouldAttemptDistributedSearch(Request) ? "distributed-global" : "global";
      Response.Body = GenerateComprehensiveSearchResponse(GlobalResult, BaseQuery);
+     AttachSearchResponseMeta(Response, BaseQuery, Request, "*");
 
      /* Collection-search analytics report a wildcard collection because the scope is merged. */
 
