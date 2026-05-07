@@ -3555,7 +3555,7 @@ bool ExecuteTalkCommand(const std::string &line,
 
                if (parts.size() == 2)
                {
-                    collection_name.clear();
+                    collection_name = state.CurrentCollection;
                }
                else if (parts.size() == 3)
                {
@@ -3803,18 +3803,13 @@ bool ExecuteTalkCommand(const std::string &line,
                }
 
                if (IsUnsignedInteger(document_id) &&
-                   (!state.LastListedSAMDocumentIds.empty() || !state.LastListedDocumentIds.empty()))
+                   !state.LastListedSAMDocumentIds.empty())
                {
                     std::string resolved_document_id;
-                    const std::vector<std::string> &document_ids =
-                         !state.LastListedSAMDocumentIds.empty()
-                              ? state.LastListedSAMDocumentIds
-                              : state.LastListedDocumentIds;
-
                     if (!ResolveSAMDocumentReference(cli,
                                                      resolved_collection,
                                                      document_id,
-                                                     document_ids,
+                                                     state.LastListedSAMDocumentIds,
                                                      resolved_document_id,
                                                      error_message))
                     {

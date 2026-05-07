@@ -2696,9 +2696,18 @@ HttpResponse SearchAPI::HandleSAMStatus(const HttpRequest &Request)
      const std::map<std::string, SAM::CollectionJobStatus> AllStatuses = Instance->Sam->GetAllCollectionJobStatuses();
      const std::vector<SAM::SearchActivityEntry> ActiveSearches = Instance->Sam->GetActiveSearchActivities(CollectionName);
      size_t RunningCount = 0;
+     size_t IndexedDocumentsTotal = 0;
+     size_t FailedDocumentsTotal = 0;
+     size_t PendingDocumentsTotal = 0;
+     size_t SourceDocumentsTotal = 0;
 
      for (const auto &Entry : AllStatuses)
      {
+          IndexedDocumentsTotal += Entry.second.IndexedDocuments;
+          FailedDocumentsTotal += Entry.second.FailedDocuments;
+          PendingDocumentsTotal += Entry.second.PendingDocuments;
+          SourceDocumentsTotal += Entry.second.TotalDocuments;
+
           if (!CollectionName.empty() && Entry.first != CollectionName)
           {
                continue;
@@ -2835,6 +2844,10 @@ HttpResponse SearchAPI::HandleSAMStatus(const HttpRequest &Request)
      {
           Root["running_count"] = RunningCount;
           Root["known_count"] = AllStatuses.size();
+          Root["indexed_total"] = IndexedDocumentsTotal;
+          Root["failed_total"] = FailedDocumentsTotal;
+          Root["pending_total"] = PendingDocumentsTotal;
+          Root["source_total"] = SourceDocumentsTotal;
           Root["active_search_count"] = ActiveSearches.size();
           Root["search_running"] = !ActiveSearches.empty();
 

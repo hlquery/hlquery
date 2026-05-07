@@ -3562,6 +3562,73 @@ std::string ClassifySAMMatchedPath(const SAM::LookupHit& Hit)
      return "sam_term";
 }
 
+bool ShouldRejectWeakSearchIdeaHit(const SAM::LookupHit& Hit)
+{
+     if (Hit.MatchedKind != "search_idea")
+     {
+          return false;
+     }
+
+     const bool HasSourceDocumentSupport =
+          Hit.Breakdown.SourceDocScore > 0.0 || Hit.Breakdown.SourceDocBonus > 0.0;
+     if (HasSourceDocumentSupport)
+     {
+          return false;
+     }
+
+     if (Hit.EvidenceCount >= 3)
+     {
+          return false;
+     }
+
+     return Hit.Breakdown.FinalScore < 1.20;
+}
+
+bool HasStrongSourceSupport(const SAM::LookupHit& Hit)
+{
+     return Hit.Breakdown.SourceDocScore > 0.0 || Hit.Breakdown.SourceDocBonus > 0.0;
+}
+
+bool IsSemanticLikeSAMHit(const SAM::LookupHit& Hit)
+{
+     return Hit.MatchedKind == "search_idea" ||
+            Hit.MatchedKind == "semantic" ||
+            Hit.MatchedPath == "search_idea" ||
+            Hit.MatchedPath == "semantic_profile" ||
+            Hit.MatchedPath == "semantic_hybrid" ||
+            Hit.MatchedPath == "collection_learned";
+}
+
+bool HasCorroboratedSAMHit(const std::vector<SAM::LookupHit>& Hits)
+{
+     for (const auto& Hit : Hits)
+     {
+          if (HasStrongSourceSupport(Hit) || Hit.EvidenceCount >= 3)
+          {
+               return true;
+          }
+     }
+
+     return false;
+}
+
+bool ShouldSuppressLowConfidenceSAMResultSet(const std::vector<SAM::LookupHit>& Hits)
+{
+     if (Hits.empty() || HasCorroboratedSAMHit(Hits))
+     {
+          return false;
+     }
+
+     const SAM::LookupHit& TopHit = Hits.front();
+
+     if (!IsSemanticLikeSAMHit(TopHit))
+     {
+          return false;
+     }
+
+     return TopHit.Breakdown.FinalScore < 1.30;
+}
+
 void FinalizeSAMAggregatedHits(std::vector<SAM::LookupHit>& Hits,
                                const std::unordered_map<std::string, SAMAggregatedHit>& AggregatedHits,
                                const SAMQueryTokenViews& QueryViews,
@@ -3614,6 +3681,10 @@ void FinalizeSAMAggregatedHits(std::vector<SAM::LookupHit>& Hits,
           {
                FinalHit.TermOrigin = FinalHit.MatchedSource;
           }
+          if (ShouldRejectWeakSearchIdeaHit(FinalHit))
+          {
+               continue;
+          }
           if (IsSAM25DebugExplainEnabled() && !FinalHit.Explain.empty())
           {
                std::ostringstream Stream;
@@ -3664,6 +3735,11 @@ void FinalizeSAMAggregatedHits(std::vector<SAM::LookupHit>& Hits,
      if (Limit > 0 && Hits.size() > Limit)
      {
           Hits.resize(Limit);
+     }
+
+     if (ShouldSuppressLowConfidenceSAMResultSet(Hits))
+     {
+          Hits.clear();
      }
 }
 
