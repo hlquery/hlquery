@@ -2372,6 +2372,8 @@ bool HybridStorageManager::DeleteDocument(const std::string &collection, const s
 
      if (deleted)
      {
+          bool partial_cleanup_failed = false;
+
           try
           {
                Instance->SearchIndex->DeleteDocument(collection, document_id);
@@ -2392,19 +2394,25 @@ bool HybridStorageManager::DeleteDocument(const std::string &collection, const s
                {
                     Instance->Logs->Critical("hybrid_storage", "[INDEX_ERROR] Failed to remove document '" + document_id + "' from inverted index (storage already deleted): " + std::string(e.what()) + ".");
                }
+
+               partial_cleanup_failed = true;
           }
 
           if (Instance && Instance->Sam && Instance->Sam->IsOpen())
           {
                std::string sam_error;
 
-               if (!Instance->Sam->DeleteDocument(collection, document_id, &sam_error) &&
-                   Instance->Logs)
+               if (!Instance->Sam->DeleteDocument(collection, document_id, &sam_error))
                {
-                    Instance->Logs->Normal("sam",
-                                           "Failed to remove SAM terms for '" + collection + "/" +
-                                                document_id + "': " +
-                                                (sam_error.empty() ? std::string("unknown error") : sam_error) + ".");
+                    if (Instance->Logs)
+                    {
+                         Instance->Logs->Normal("sam",
+                                                "Failed to remove SAM terms for '" + collection + "/" +
+                                                     document_id + "': " +
+                                                     (sam_error.empty() ? std::string("unknown error") : sam_error) + ".");
+                    }
+
+                    partial_cleanup_failed = true;
                }
           }
 
@@ -2452,6 +2460,24 @@ bool HybridStorageManager::DeleteDocument(const std::string &collection, const s
                     std::string new_meta_value = std::to_string(current_count) + ":" + std::to_string(timestamp);
 
                     Instance->Database->Set(meta_key, new_meta_value);
+               }
+          }
+
+          if (partial_cleanup_failed)
+          {
+               const uint64_t FailureCount = PostDeleteCleanupFailures.fetch_add(1, std::memory_order_relaxed) + 1;
+
+               if (Instance)
+               {
+                    Instance->StatsVal.SetHealthDegraded(true, "Post-delete cleanup drift detected after storage removal");
+
+                    if (Instance->Logs)
+                    {
+                         Instance->Logs->Normal("hybrid_storage",
+                                                "[CONSISTENCY_WARNING] Document '" + document_id +
+                                                     "' was deleted from storage but secondary cleanup was incomplete (total failures: " +
+                                                     std::to_string(FailureCount) + ").");
+                    }
                }
           }
      }

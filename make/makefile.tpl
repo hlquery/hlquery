@@ -663,6 +663,7 @@ LOGDIR ?= ${LOGDIR}
 DATADIR ?= ${DATADIR}
 RUNDIR ?= ${RUNDIR}
 BINDIR ?= ${BINDIR}
+SYSTEMD_UNIT_DIR ?= ${SYSTEMD_UNIT_DIR}
 INSTALL ?= install
 STAGED_RUN_DIR := $(if $(strip $(DESTDIR)),$(DESTDIR)/$(RUN_DIR),$(RUN_DIR))
 
@@ -952,9 +953,9 @@ install-system: all
 		$(INSTALL) -d "$(DESTDIR)$(CONFDIR)"; \
 		cp -r run/conf/* "$(DESTDIR)$(CONFDIR)/"; \
 	fi
-	@if [ -f "etc/package-builder/hlquery.service" ]; then \
-		$(INSTALL) -d "$(DESTDIR)$(PREFIX)/lib/systemd/system"; \
-		$(INSTALL) -m 0644 "etc/package-builder/hlquery.service" "$(DESTDIR)$(PREFIX)/lib/systemd/system/hlquery.service"; \
+	@if [ -n "$(SYSTEMD_UNIT_DIR)" ] && [ -f "etc/package-builder/hlquery.service" ]; then \
+		$(INSTALL) -d "$(DESTDIR)$(SYSTEMD_UNIT_DIR)"; \
+		$(INSTALL) -m 0644 "etc/package-builder/hlquery.service" "$(DESTDIR)$(SYSTEMD_UNIT_DIR)/hlquery.service"; \
 	fi
 	@$(INSTALL) -d "$(DESTDIR)$(LOGDIR)"
 	@$(INSTALL) -d "$(DESTDIR)$(DATADIR)"

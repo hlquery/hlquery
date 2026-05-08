@@ -1149,6 +1149,8 @@ HttpResponse SearchAPI::HandleStats(const HttpRequest &Request)
 
                StatsJSON["indexing"] = indexing_json;
           }
+
+          StatsJSON["storage"]["post_delete_cleanup_failures_total"] = storage.GetPostDeleteCleanupFailures();
      }
 
      HttpResponse Response(Status::OK, StatusText(Status::OK), "application/json");
