@@ -1789,7 +1789,7 @@ HttpResponse SearchAPI::HandleDeleteDocument(const HttpRequest &Request)
 
      HttpResponse Response(Status::OK, StatusText(Status::OK), "application/json");
 
-     Response.Body = "{\"message\":\"Document deleted successfully\",\"id\":\"" + EscapeJSONString(DocumentID) + "\"}";
+     Response.Body = "{\"deleted\":true,\"message\":\"Document deleted successfully\",\"id\":\"" + EscapeJSONString(DocumentID) + "\"}";
      FOREACH_MOD(OnDeleteDocument, CollectionName, DocumentID, Request.RemoteAddress, Request.APIKeyID, !Request.APIKeyID.empty());
      BumpCollectionMutationVersion(CollectionName);
 

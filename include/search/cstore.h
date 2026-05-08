@@ -173,6 +173,10 @@ class HybridStorageManager
 
      std::condition_variable FlushThreadCV;
 
+     /* PostDeleteCleanupFailures counts deletes where storage succeeded but secondary cleanup drifted. */
+
+     std::atomic<uint64_t> PostDeleteCleanupFailures{0};
+
      /* CleanupUnusedKeyMutexes removes stale key mutexes. */
 
      void CleanupUnusedKeyMutexes();
@@ -326,6 +330,13 @@ class HybridStorageManager
      /* DeleteDocument deletes a document by id. */
 
      bool DeleteDocument(const std::string& collection, const std::string& document_id);
+
+     /* GetPostDeleteCleanupFailures returns deletes that left secondary cleanup incomplete. */
+
+     uint64_t GetPostDeleteCleanupFailures() const
+     {
+          return PostDeleteCleanupFailures.load(std::memory_order_relaxed);
+     }
 
      /* UpdateDocument updates a document atomically. */
 

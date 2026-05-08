@@ -1,27 +1,52 @@
+/*
+ * hlquery - Search beyond keywords.
+ * https://www.hlquery.com
+ *
+ * Copyright (C) 2021-2026, Carlos F. Ferry <carlos.ferry@gmail.com>
+ *
+ * This file is part of hlquery, released under the BSD License version 3.
+ * You are free to redistribute and/or modify this software
+ * under the terms of the BSD License.
+ * For more details, please visit: https://docs.hlquery.com
+ */
+
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <ctime>
 #include <mutex>
 #include <string>
+#include <vector>
 
 #include "core/hlquery.h"
 #include "core/modules.h"
 #include "search/cstore.h"
 #include "vendor/json/json.hpp"
 
-namespace
-{
-constexpr const char* kDefaultPrefix = "events-";
+/* Default prefix used for day-bucketed event collections. */
 
-bool StartsWith(const std::string& value, const std::string& prefix)
+static constexpr const char* DefaultEventPrefix = "events-";
+
+/* Default prefix used for day-bucketed search collections. */
+
+static constexpr const char* DefaultSearchPrefix = "searches-";
+
+/* Default number of queued records flushed in one batch. */
+
+static constexpr unsigned int DefaultBatchSize = 16;
+
+/* Return whether one string starts with another string. */
+
+static bool StartsWith(const std::string& Value, const std::string& Prefix)
 {
-     return value.size() >= prefix.size() && value.compare(0, prefix.size(), prefix) == 0;
+     return Value.size() >= Prefix.size() && Value.compare(0, Prefix.size(), Prefix) == 0;
 }
 
-std::string BoolString(bool value)
+/* Convert one boolean value into the serialized form stored in event documents. */
+
+static std::string BoolString(bool Value)
 {
-     return value ? "true" : "false";
-}
+     return Value ? "true" : "false";
 }
 
 /* Runtime module that writes internal event documents into day-bucketed collections. */
@@ -30,249 +55,428 @@ class EventRuntimeModule final : public AutoRuntimeModule<EventRuntimeModule>
 {
    private:
 
-     std::string EventPrefix = kDefaultPrefix;
+     /* One queued event or search record waiting for batch flush. */
+
+     struct PendingRecord
+     {
+          std::string StoragePrefix;
+          std::string EventType;
+          std::string SubjectCollection;
+          nlohmann::json Payload;
+     };
+
+     std::string EventPrefix = DefaultEventPrefix;
+     std::string SearchPrefix = DefaultSearchPrefix;
+
+     unsigned int BatchSize = DefaultBatchSize;
+
      std::mutex CollectionCreateMutex;
+     std::mutex QueueMutex;
+
      std::atomic<uint64_t> Sequence{0};
+     std::atomic<uint64_t> BatchSequence{0};
+
+     std::vector<PendingRecord> PendingRecords;
 
      /* Return the current local day in YYYY-MM-DD form. */
 
      std::string CurrentDayString() const
      {
-          const std::time_t now = std::time(nullptr);
-          std::tm local_tm{};
+          const std::time_t Now = std::time(nullptr);
+
+          std::tm LocalTime{};
 
 #if defined(_WIN32)
-          localtime_s(&local_tm, &now);
+          localtime_s(&LocalTime, &Now);
 #else
-          localtime_r(&now, &local_tm);
+          localtime_r(&Now, &LocalTime);
 #endif
 
-          char buffer[11];
-          if (std::strftime(buffer, sizeof(buffer), "%Y-%m-%d", &local_tm) == 0)
+          char Buffer[11];
+
+          if (std::strftime(Buffer, sizeof(Buffer), "%Y-%m-%d", &LocalTime) == 0)
           {
                return "unknown-day";
           }
 
-          return buffer;
+          return Buffer;
      }
 
      /* Return the current local timestamp in RFC3339-like form. */
 
      std::string CurrentTimestampString() const
      {
-          const auto now = std::chrono::system_clock::now();
-          const auto millis = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()) % 1000;
-          const std::time_t now_time = std::chrono::system_clock::to_time_t(now);
-          std::tm local_tm{};
+          const auto Now = std::chrono::system_clock::now();
+          const auto Millis = std::chrono::duration_cast<std::chrono::milliseconds>(Now.time_since_epoch()) % 1000;
+          const std::time_t NowTime = std::chrono::system_clock::to_time_t(Now);
+
+          std::tm LocalTime{};
 
 #if defined(_WIN32)
-          localtime_s(&local_tm, &now_time);
+          localtime_s(&LocalTime, &NowTime);
 #else
-          localtime_r(&now_time, &local_tm);
+          localtime_r(&NowTime, &LocalTime);
 #endif
 
-          char buffer[32];
-          if (std::strftime(buffer, sizeof(buffer), "%Y-%m-%dT%H:%M:%S", &local_tm) == 0)
+          char Buffer[32];
+
+          if (std::strftime(Buffer, sizeof(Buffer), "%Y-%m-%dT%H:%M:%S", &LocalTime) == 0)
           {
                return "unknown-time";
           }
 
-          return std::string(buffer) + "." + std::to_string(static_cast<long long>(millis.count()));
+          return std::string(Buffer) + "." + std::to_string(static_cast<long long>(Millis.count()));
      }
 
-     /* Build the internal collection name for one day. */
+     /* Build the internal collection name for one day and storage prefix. */
 
-     std::string BuildEventCollectionName(const std::string& day) const
+     std::string BuildStorageCollectionName(const std::string& Prefix, const std::string& Day) const
      {
-          return EventPrefix + day;
+          return Prefix + Day;
      }
 
-     /* Return whether a collection belongs to this module's internal storage. */
+     /* Build one unique document identifier for a queued record. */
 
-     bool IsInternalEventCollection(const std::string& collection) const
+     std::string BuildDocumentID(const std::string& Day)
      {
-          return StartsWith(collection, EventPrefix);
+          const uint64_t NowSeconds = static_cast<uint64_t>(std::time(nullptr));
+          const uint64_t LocalSequence = Sequence.fetch_add(1, std::memory_order_relaxed);
+          return Day + "-" + std::to_string(NowSeconds) + "-" + std::to_string(LocalSequence);
      }
 
-     /* Ensure the target day collection exists before inserting an event document. */
+     /* Build one unique batch tag shared by all records flushed together. */
 
-     bool EnsureEventCollection(const std::string& collection_name)
+     std::string BuildBatchTag(const std::string& Day)
      {
-          if (HybridStorageManagerInstance().CollectionExists(collection_name))
+          const uint64_t LocalSequence = BatchSequence.fetch_add(1, std::memory_order_relaxed);
+          return "batch-" + Day + "-" + std::to_string(LocalSequence);
+     }
+
+     /* Return whether one collection belongs to this module's internal storage. */
+
+     bool IsInternalStorageCollection(const std::string& Collection) const
+     {
+          return StartsWith(Collection, EventPrefix) || StartsWith(Collection, SearchPrefix);
+     }
+
+     /* Ensure the target collection exists before inserting one flushed record. */
+
+     bool EnsureStorageCollection(const std::string& CollectionName, const std::string& StoragePrefix)
+     {
+          if (HybridStorageManagerInstance().CollectionExists(CollectionName))
           {
                return true;
           }
 
-          std::lock_guard<std::mutex> lock(CollectionCreateMutex);
+          std::lock_guard<std::mutex> Lock(CollectionCreateMutex);
 
-          if (HybridStorageManagerInstance().CollectionExists(collection_name))
+          if (HybridStorageManagerInstance().CollectionExists(CollectionName))
           {
                return true;
           }
 
-          CollectionConfig config;
-          config.Name = collection_name;
-          config.Fields["event_type"] = "string";
-          config.Fields["subject_collection"] = "string";
-          config.Fields["query"] = "string";
-          config.Fields["day"] = "string";
-          config.Fields["at"] = "string";
-          config.Fields["requester_ip"] = "string";
-          config.Fields["requester_user"] = "string";
-          config.Fields["authenticated"] = "string";
-          config.Fields["search_time_ms"] = "int64";
-          config.Fields["found"] = "int64";
-          config.Fields["returned"] = "int64";
-          config.Fields["distributed"] = "string";
-          config.Metadata["_module"] = "m_event";
-          config.Metadata["_internal"] = "true";
-          config.Metadata["_event_day"] = collection_name.substr(EventPrefix.size());
+          CollectionConfig Config;
 
-          return HybridStorageManagerInstance().CreateCollection(collection_name, config);
+          Config.Name = CollectionName;
+          Config.Fields["event_type"] = "string";
+          Config.Fields["subject_collection"] = "string";
+          Config.Fields["query"] = "string";
+          Config.Fields["day"] = "string";
+          Config.Fields["at"] = "string";
+          Config.Fields["requester_ip"] = "string";
+          Config.Fields["requester_user"] = "string";
+          Config.Fields["authenticated"] = "string";
+          Config.Fields["search_time_ms"] = "int64";
+          Config.Fields["found"] = "int64";
+          Config.Fields["returned"] = "int64";
+          Config.Fields["distributed"] = "string";
+          Config.Fields["batch_tag"] = "string";
+          Config.Fields["batch_size"] = "int64";
+          Config.Fields["batch_index"] = "int64";
+          Config.Metadata["_module"] = "m_event";
+          Config.Metadata["_internal"] = "true";
+          Config.Metadata["_event_day"] = CollectionName.substr(StoragePrefix.size());
+          Config.Metadata["_event_stream"] = StoragePrefix == SearchPrefix ? "searches" : "events";
+
+          return HybridStorageManagerInstance().CreateCollection(CollectionName, Config);
      }
 
-     /* Persist one event document directly into storage. */
+     /* Persist one batch of queued records directly into storage. */
 
-     void InsertEvent(const std::string& event_type,
-                      const std::string& subject_collection,
-                      const nlohmann::json& payload)
+     void FlushRecords(std::vector<PendingRecord>& Records)
      {
-          const std::string day = CurrentDayString();
-          const std::string event_collection = BuildEventCollectionName(day);
-
-          if (!EnsureEventCollection(event_collection))
+          if (Records.empty())
           {
                return;
           }
 
-          Document doc;
-          doc.Timestamp = static_cast<uint64_t>(std::time(nullptr));
-          doc.ID = day + "-" + std::to_string(doc.Timestamp) + "-" + std::to_string(Sequence.fetch_add(1, std::memory_order_relaxed));
-          doc.Title = event_type;
-          doc.Content = payload.dump();
-          doc.Fields["event_type"] = event_type;
-          doc.Fields["subject_collection"] = subject_collection;
-          doc.Fields["query"] = payload.value("query", "");
-          doc.Fields["day"] = day;
-          doc.Fields["at"] = payload.value("at", "");
-          doc.Fields["requester_ip"] = payload.value("requester_ip", "");
-          doc.Fields["requester_user"] = payload.value("requester_user", "");
-          doc.Fields["authenticated"] = payload.value("authenticated", "");
-          doc.Fields["search_time_ms"] = payload.value("search_time_ms", "");
-          doc.Fields["found"] = payload.value("found", "");
-          doc.Fields["returned"] = payload.value("returned", "");
-          doc.Fields["distributed"] = payload.value("distributed", "");
+          const std::string Day = CurrentDayString();
+          const std::string BatchTag = BuildBatchTag(Day);
+          const std::string BatchSizeValue = std::to_string(static_cast<unsigned long long>(Records.size()));
 
-          (void)HybridStorageManagerInstance().AddDocument(event_collection, doc);
+          for (std::size_t Index = 0; Index < Records.size(); ++Index)
+          {
+               PendingRecord& Record = Records[Index];
+               const std::string CollectionName = BuildStorageCollectionName(Record.StoragePrefix, Day);
+
+               if (!EnsureStorageCollection(CollectionName, Record.StoragePrefix))
+               {
+                    continue;
+               }
+
+               Record.Payload["batch_tag"] = BatchTag;
+               Record.Payload["batch_size"] = BatchSizeValue;
+               Record.Payload["batch_index"] = std::to_string(static_cast<unsigned long long>(Index));
+
+               Document Doc;
+
+               Doc.Timestamp = static_cast<uint64_t>(std::time(nullptr));
+               Doc.ID = BuildDocumentID(Day);
+               Doc.Title = Record.EventType;
+               Doc.Content = Record.Payload.dump();
+               Doc.Fields["event_type"] = Record.EventType;
+               Doc.Fields["subject_collection"] = Record.SubjectCollection;
+               Doc.Fields["query"] = Record.Payload.value("query", "");
+               Doc.Fields["day"] = Day;
+               Doc.Fields["at"] = Record.Payload.value("at", "");
+               Doc.Fields["requester_ip"] = Record.Payload.value("requester_ip", "");
+               Doc.Fields["requester_user"] = Record.Payload.value("requester_user", "");
+               Doc.Fields["authenticated"] = Record.Payload.value("authenticated", "");
+               Doc.Fields["search_time_ms"] = Record.Payload.value("search_time_ms", "");
+               Doc.Fields["found"] = Record.Payload.value("found", "");
+               Doc.Fields["returned"] = Record.Payload.value("returned", "");
+               Doc.Fields["distributed"] = Record.Payload.value("distributed", "");
+               Doc.Fields["batch_tag"] = BatchTag;
+               Doc.Fields["batch_size"] = BatchSizeValue;
+               Doc.Fields["batch_index"] = std::to_string(static_cast<unsigned long long>(Index));
+
+               (void)HybridStorageManagerInstance().AddDocument(CollectionName, Doc);
+          }
      }
 
-     /* Build the common payload fields used by all event documents. */
+     /* Flush queued records when the queue reached the configured threshold. */
 
-     nlohmann::json BuildBasePayload(const std::string& event_type,
-                                     const std::string& subject_collection,
-                                     const std::string& requester_ip,
-                                     const std::string& requester_user,
-                                     bool authenticated) const
+     void FlushPendingIfReady()
      {
-          nlohmann::json payload = nlohmann::json::object();
-          payload["event_type"] = event_type;
-          payload["subject_collection"] = subject_collection;
-          payload["day"] = CurrentDayString();
-          payload["at"] = CurrentTimestampString();
-          payload["requester_ip"] = requester_ip;
-          payload["requester_user"] = requester_user;
-          payload["authenticated"] = BoolString(authenticated);
-          return payload;
+          std::vector<PendingRecord> Records;
+
+          {
+               std::lock_guard<std::mutex> Lock(QueueMutex);
+
+               if (PendingRecords.size() < BatchSize)
+               {
+                    return;
+               }
+
+               const std::size_t FlushCount = std::min<std::size_t>(PendingRecords.size(), static_cast<std::size_t>(BatchSize));
+
+               Records.assign(PendingRecords.begin(), PendingRecords.begin() + static_cast<std::vector<PendingRecord>::difference_type>(FlushCount));
+               PendingRecords.erase(PendingRecords.begin(), PendingRecords.begin() + static_cast<std::vector<PendingRecord>::difference_type>(FlushCount));
+          }
+
+          FlushRecords(Records);
+     }
+
+     /* Flush all queued records regardless of the current queue length. */
+
+     void FlushAllPending()
+     {
+          std::vector<PendingRecord> Records;
+
+          {
+               std::lock_guard<std::mutex> Lock(QueueMutex);
+
+               if (PendingRecords.empty())
+               {
+                    return;
+               }
+
+               Records.swap(PendingRecords);
+          }
+
+          FlushRecords(Records);
+     }
+
+     /* Queue one record for batched persistence. */
+
+     void QueueRecord(const std::string& StoragePrefix,
+                      const std::string& EventType,
+                      const std::string& SubjectCollection,
+                      const nlohmann::json& Payload)
+     {
+          {
+               std::lock_guard<std::mutex> Lock(QueueMutex);
+
+               PendingRecord Record;
+
+               Record.StoragePrefix = StoragePrefix;
+               Record.EventType = EventType;
+               Record.SubjectCollection = SubjectCollection;
+               Record.Payload = Payload;
+
+               PendingRecords.push_back(std::move(Record));
+          }
+
+          FlushPendingIfReady();
+     }
+
+     /* Build the common payload fields used by all stored records. */
+
+     nlohmann::json BuildBasePayload(const std::string& EventType,
+                                     const std::string& SubjectCollection,
+                                     const std::string& RequesterIP,
+                                     const std::string& RequesterUser,
+                                     bool Authenticated) const
+     {
+          nlohmann::json Payload = nlohmann::json::object();
+
+          Payload["event_type"] = EventType;
+          Payload["subject_collection"] = SubjectCollection;
+          Payload["day"] = CurrentDayString();
+          Payload["at"] = CurrentTimestampString();
+          Payload["requester_ip"] = RequesterIP;
+          Payload["requester_user"] = RequesterUser;
+          Payload["authenticated"] = BoolString(Authenticated);
+          return Payload;
      }
 
    public:
 
+     /* Construct the event runtime module. */
+
      EventRuntimeModule()
-         : AutoRuntimeModule("event", false)
+          : AutoRuntimeModule("event", false)
      {
+
      }
+
+     /* Load event-module configuration. */
 
      bool Start(const ServerConfig& Config, std::string&) override
      {
-          auto tag = Config.GetConfigReader().GetTag("event");
-          if (tag)
+          auto Tag = Config.GetConfigReader().GetTag("event");
+
+          if (Tag)
           {
-               const std::string configured_prefix = tag->GetString("prefix", EventPrefix);
-               if (!configured_prefix.empty())
+               const std::string ConfiguredEventPrefix = Tag->GetString("prefix", EventPrefix);
+               const std::string ConfiguredSearchPrefix = Tag->GetString("search_prefix", SearchPrefix);
+               const int ConfiguredBatchSize = Tag->GetInt("batch_size", static_cast<int>(BatchSize));
+
+               if (!ConfiguredEventPrefix.empty())
                {
-                    EventPrefix = configured_prefix;
+                    EventPrefix = ConfiguredEventPrefix;
+               }
+
+               if (!ConfiguredSearchPrefix.empty())
+               {
+                    SearchPrefix = ConfiguredSearchPrefix;
+               }
+
+               if (ConfiguredBatchSize > 0)
+               {
+                    BatchSize = static_cast<unsigned int>(ConfiguredBatchSize);
                }
           }
 
           return true;
      }
 
+     /* Stop the event runtime module. */
+
      void Stop() override
      {
+          FlushAllPending();
      }
 
-     void OnCreateCollection(const std::string& Collection, const std::string& RequesterIP, const std::string& RequesterUser, bool Authenticated) override
+     /* Flush incomplete batches periodically so queued records do not remain buffered indefinitely. */
+
+     void OnEveryOneMinute() override
      {
-          if (IsInternalEventCollection(Collection))
+          FlushAllPending();
+     }
+
+     /* Record successful collection-creation events. */
+
+     void OnCreateCollection(const std::string& Collection,
+                             const std::string& RequesterIP,
+                             const std::string& RequesterUser,
+                             bool Authenticated) override
+     {
+          if (IsInternalStorageCollection(Collection))
           {
                return;
           }
 
-          nlohmann::json payload = BuildBasePayload("create_collection", Collection, RequesterIP, RequesterUser, Authenticated);
-          InsertEvent("create_collection", Collection, payload);
+          nlohmann::json Payload = BuildBasePayload("create_collection", Collection, RequesterIP, RequesterUser, Authenticated);
+
+          QueueRecord(EventPrefix, "create_collection", Collection, Payload);
      }
 
-     void OnDeleteCollection(const std::string& Collection, const std::string& RequesterIP, const std::string& RequesterUser, bool Authenticated) override
+     /* Record successful collection-deletion events. */
+
+     void OnDeleteCollection(const std::string& Collection,
+                             const std::string& RequesterIP,
+                             const std::string& RequesterUser,
+                             bool Authenticated) override
      {
-          if (IsInternalEventCollection(Collection))
+          if (IsInternalStorageCollection(Collection))
           {
                return;
           }
 
-          nlohmann::json payload = BuildBasePayload("delete_collection", Collection, RequesterIP, RequesterUser, Authenticated);
-          InsertEvent("delete_collection", Collection, payload);
+          nlohmann::json Payload = BuildBasePayload("delete_collection", Collection, RequesterIP, RequesterUser, Authenticated);
+
+          QueueRecord(EventPrefix, "delete_collection", Collection, Payload);
      }
+
+     /* Record collection-search events in the search stream. */
 
      void OnSearchCollection(const SearchEvent& Event) override
      {
-          if (IsInternalEventCollection(Event.Collection))
+          if (IsInternalStorageCollection(Event.Collection))
           {
                return;
           }
 
-          nlohmann::json payload = BuildBasePayload("search_collection",
+          nlohmann::json Payload = BuildBasePayload("search_collection",
                                                     Event.Collection,
                                                     Event.RequesterIP,
                                                     Event.RequesterUser,
                                                     Event.Authenticated);
-          payload["query"] = Event.Query;
-          payload["analytics_tag"] = Event.AnalyticsTag;
-          payload["search_time_ms"] = std::to_string(Event.SearchTimeMS);
-          payload["found"] = std::to_string(Event.Found);
-          payload["returned"] = std::to_string(Event.Returned);
-          payload["distributed"] = BoolString(Event.Distributed);
-          InsertEvent("search_collection", Event.Collection, payload);
+
+          Payload["query"] = Event.Query;
+          Payload["analytics_tag"] = Event.AnalyticsTag;
+          Payload["search_time_ms"] = std::to_string(Event.SearchTimeMS);
+          Payload["found"] = std::to_string(Event.Found);
+          Payload["returned"] = std::to_string(Event.Returned);
+          Payload["distributed"] = BoolString(Event.Distributed);
+
+          QueueRecord(SearchPrefix, "search_collection", Event.Collection, Payload);
      }
+
+     /* Record document-search events in the search stream. */
 
      void OnSearchDocument(const SearchEvent& Event) override
      {
-          if (IsInternalEventCollection(Event.Collection))
+          if (IsInternalStorageCollection(Event.Collection))
           {
                return;
           }
 
-          nlohmann::json payload = BuildBasePayload("search_document",
+          nlohmann::json Payload = BuildBasePayload("search_document",
                                                     Event.Collection,
                                                     Event.RequesterIP,
                                                     Event.RequesterUser,
                                                     Event.Authenticated);
-          payload["query"] = Event.Query;
-          payload["analytics_tag"] = Event.AnalyticsTag;
-          payload["search_time_ms"] = std::to_string(Event.SearchTimeMS);
-          payload["found"] = std::to_string(Event.Found);
-          payload["returned"] = std::to_string(Event.Returned);
-          payload["distributed"] = BoolString(Event.Distributed);
-          InsertEvent("search_document", Event.Collection, payload);
+
+          Payload["query"] = Event.Query;
+          Payload["analytics_tag"] = Event.AnalyticsTag;
+          Payload["search_time_ms"] = std::to_string(Event.SearchTimeMS);
+          Payload["found"] = std::to_string(Event.Found);
+          Payload["returned"] = std::to_string(Event.Returned);
+          Payload["distributed"] = BoolString(Event.Distributed);
+
+          QueueRecord(SearchPrefix, "search_document", Event.Collection, Payload);
      }
 };
 
