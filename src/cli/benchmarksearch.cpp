@@ -18,6 +18,7 @@
 #include <vendor/json/json.hpp>
 
 #include "benchmarkclient.h"
+#include "runtime/clock.h"
 #include "utils/tools.h"
 
 /* External declarations. */
@@ -146,7 +147,7 @@ void RunSearches(const std::string &base_url, const std::string &auth_token)
 
      int search_count_val = 0;
 
-     auto start_time = std::chrono::high_resolution_clock::now();
+     auto start_time = Now();
 
      std::vector<std::string> base_queries =
           {
@@ -842,7 +843,7 @@ void RunSearches(const std::string &base_url, const std::string &auth_token)
           PrintSearchResult(++search_count_val, "Random Search: '" + query + "'", response, collection);
      }
 
-     auto end_time = std::chrono::high_resolution_clock::now();
+     auto end_time = Now();
 
      auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
 

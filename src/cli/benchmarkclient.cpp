@@ -41,6 +41,7 @@
 #include <vendor/json/json.hpp>
 
 #include "benchmarkclient.h"
+#include "runtime/clock.h"
 #include "runtime/exitmanager.h"
 
 #ifndef HLQUERY_HAS_OPENSSL
@@ -514,7 +515,7 @@ HTTPResponse BenchmarkClient::MakeRequest(const std::string &method, const std::
 
           bool response_complete = false;
 
-          auto read_start = std::chrono::steady_clock::now();
+          auto read_start = Now();
 
           int sock_flags = fcntl(sock, F_GETFL, 0);
 
@@ -540,7 +541,7 @@ HTTPResponse BenchmarkClient::MakeRequest(const std::string &method, const std::
                     return response;
                }
 
-               if (std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - read_start).count() > timeout_ms)
+               if (ElapsedMs(read_start) > timeout_ms)
                {
                     if (sock_flags >= 0)
                     {

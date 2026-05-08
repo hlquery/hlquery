@@ -20,6 +20,7 @@
 #include <vendor/json/json.hpp>
 
 #include "benchmarkclient.h"
+#include "runtime/clock.h"
 #include "utils/tools.h"
 
 /* Task-specific functions. */
@@ -72,7 +73,7 @@ void CreateCollectionsThread(const std::string &base_url, const std::string &aut
 
      for (int i = start_idx; i < end_idx; i++)
      {
-          auto start = std::chrono::high_resolution_clock::now();
+          auto start = Now();
 
           std::string collection_name = g_collection_prefix + std::to_string(i);
 
@@ -90,7 +91,7 @@ void CreateCollectionsThread(const std::string &base_url, const std::string &aut
                success = false;
           }
 
-          auto end = std::chrono::high_resolution_clock::now();
+          auto end = Now();
 
           if (success)
           {
@@ -186,7 +187,7 @@ void InsertAdditionalDocumentsThread(const std::string &base_url, const std::str
                     batch.push_back(std::make_tuple(doc_id, title, content));
                }
 
-               auto batch_start_time = std::chrono::high_resolution_clock::now();
+               auto batch_start_time = Now();
 
                int inserted = 0;
 
@@ -202,7 +203,7 @@ void InsertAdditionalDocumentsThread(const std::string &base_url, const std::str
                     client.ResetConnection();
                }
 
-               auto batch_end_time = std::chrono::high_resolution_clock::now();
+               auto batch_end_time = Now();
 
                documents_inserted.fetch_add(inserted);
                documents_skipped.fetch_add(batch.size() - inserted);
@@ -288,7 +289,7 @@ void InsertDocumentsThread(const std::string &base_url, const std::string &auth_
                     batch.push_back(std::make_tuple(doc_id, title, content));
                }
 
-               auto batch_start_time = std::chrono::high_resolution_clock::now();
+               auto batch_start_time = Now();
 
                int inserted = 0;
 
@@ -304,7 +305,7 @@ void InsertDocumentsThread(const std::string &base_url, const std::string &auth_
                     client.ResetConnection();
                }
 
-               auto batch_end_time = std::chrono::high_resolution_clock::now();
+               auto batch_end_time = Now();
 
                documents_inserted.fetch_add(inserted);
                documents_skipped.fetch_add(batch.size() - inserted);

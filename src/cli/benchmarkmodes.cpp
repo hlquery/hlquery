@@ -23,6 +23,7 @@
 #include <vendor/json/json.hpp>
 
 #include "benchmarkclient.h"
+#include "runtime/clock.h"
 #include "utils/tools.h"
 
 /* Helper functions from other files. */
@@ -68,7 +69,7 @@ class FloodCircuitBreaker
      {
           if (CircuitOpen.load())
           {
-               uint64_t now = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+               uint64_t now = SteadyNowMs();
                uint64_t last_failure = LastFailureTime.load();
 
                if (now - last_failure > RESET_TIMEOUT_MS)
@@ -95,7 +96,7 @@ class FloodCircuitBreaker
      {
           int failures = ConsecutiveFailures.fetch_add(1) + 1;
 
-          LastFailureTime.store(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count());
+          LastFailureTime.store(SteadyNowMs());
 
           if (failures >= FAILURE_THRESHOLD)
           {
@@ -141,7 +142,7 @@ void RunDetailedBenchmark(const std::string &base_url, const std::string &auth_t
      std::cout << "Testing ALL routes and functionalities...\n";
      std::cout << "Target: 1,000+ document inserts, 1,000+ searches.\n\n";
 
-     auto overall_start = std::chrono::high_resolution_clock::now();
+     auto overall_start = Now();
      (void)overall_start;
 
      int min_documents = std::max(num_documents, 1000);
@@ -175,11 +176,11 @@ void RunDetailedBenchmark(const std::string &base_url, const std::string &auth_t
 
      std::cout << "[1/15] Testing connection...\n";
 
-     auto start = std::chrono::high_resolution_clock::now();
+     auto start = Now();
 
      std::string conn_error = client.TestConnection();
 
-     auto end = std::chrono::high_resolution_clock::now();
+     auto end = Now();
 
      auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
 
@@ -203,11 +204,11 @@ void RunDetailedBenchmark(const std::string &base_url, const std::string &auth_t
 
      std::cout << "[2/15] Testing collection operations...\n";
 
-     start = std::chrono::high_resolution_clock::now();
+     start = Now();
 
      std::vector<std::string> existing_collections = client.ListCollections();
 
-     end = std::chrono::high_resolution_clock::now();
+     end = Now();
 
      duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
 
@@ -229,11 +230,11 @@ void RunDetailedBenchmark(const std::string &base_url, const std::string &auth_t
      {
           std::string col_name = "detailed_col_" + std::to_string(i);
 
-          start = std::chrono::high_resolution_clock::now();
+          start = Now();
 
           bool created = client.CreateCollection(col_name);
 
-          end = std::chrono::high_resolution_clock::now();
+          end = Now();
 
           duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
 
@@ -257,11 +258,11 @@ void RunDetailedBenchmark(const std::string &base_url, const std::string &auth_t
 
      if (!test_collections.empty())
      {
-          start = std::chrono::high_resolution_clock::now();
+          start = Now();
 
           HTTPResponse col_response = client.MakeRequest("GET", "/collections/" + test_collections[0]);
 
-          end = std::chrono::high_resolution_clock::now();
+          end = Now();
 
           duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
 
@@ -359,11 +360,11 @@ void RunDetailedBenchmark(const std::string &base_url, const std::string &auth_t
                batch.push_back(std::make_tuple(doc_id, title, content));
           }
 
-          start = std::chrono::high_resolution_clock::now();
+          start = Now();
 
           int inserted = client.InsertDocumentsBulk(main_collection, batch);
 
-          end = std::chrono::high_resolution_clock::now();
+          end = Now();
 
           duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
 
@@ -426,11 +427,11 @@ void RunDetailedBenchmark(const std::string &base_url, const std::string &auth_t
 
           content = content.substr(0, doc_size);
 
-          start = std::chrono::high_resolution_clock::now();
+          start = Now();
 
           bool inserted = client.InsertDocument(main_collection, doc_id, title, content);
 
-          end = std::chrono::high_resolution_clock::now();
+          end = Now();
 
           duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
 
@@ -453,11 +454,11 @@ void RunDetailedBenchmark(const std::string &base_url, const std::string &auth_t
 
      if (!sample_docs.empty() && !test_collections.empty())
      {
-          start = std::chrono::high_resolution_clock::now();
+          start = Now();
 
           HTTPResponse doc_response = client.GetDocument(test_collections[0], sample_docs[0]);
 
-          end = std::chrono::high_resolution_clock::now();
+          end = Now();
 
           duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
 
@@ -482,11 +483,11 @@ void RunDetailedBenchmark(const std::string &base_url, const std::string &auth_t
           update_doc_json["title"] = "Updated Title";
           update_doc_json["content"] = "Updated content";
 
-          start = std::chrono::high_resolution_clock::now();
+          start = Now();
 
           HTTPResponse update_response = client.MakeRequest("PUT", "/collections/" + test_collections[0] + "/documents/" + sample_docs[0], update_doc_json.dump());
 
-          end = std::chrono::high_resolution_clock::now();
+          end = Now();
 
           duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
 
@@ -538,11 +539,11 @@ void RunDetailedBenchmark(const std::string &base_url, const std::string &auth_t
                query += " " + std::to_string(i / 50);
           }
 
-          start = std::chrono::high_resolution_clock::now();
+          start = Now();
 
           HTTPResponse search_resp = client.Search(test_collection, query);
 
-          end = std::chrono::high_resolution_clock::now();
+          end = Now();
 
           duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
 
@@ -600,11 +601,11 @@ void RunDetailedBenchmark(const std::string &base_url, const std::string &auth_t
           params["filter_by"] = "title:" + query;
           params["limit"] = "10";
 
-          start = std::chrono::high_resolution_clock::now();
+          start = Now();
 
           HTTPResponse search_resp = client.Search(test_collection, query, params);
 
-          end = std::chrono::high_resolution_clock::now();
+          end = Now();
 
           duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
 
@@ -641,11 +642,11 @@ void RunDetailedBenchmark(const std::string &base_url, const std::string &auth_t
           params["sort_by"] = (i % 2 == 0) ? "title:asc" : "title:desc";
           params["limit"] = "20";
 
-          start = std::chrono::high_resolution_clock::now();
+          start = Now();
 
           HTTPResponse search_resp = client.Search(test_collection, query, params);
 
-          end = std::chrono::high_resolution_clock::now();
+          end = Now();
 
           duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
 
@@ -684,11 +685,11 @@ void RunDetailedBenchmark(const std::string &base_url, const std::string &auth_t
           search_params_json["limit"] = 10;
           search_params_json["highlight_full_fields"] = "title,content";
 
-          start = std::chrono::high_resolution_clock::now();
+          start = Now();
 
           HTTPResponse post_search = client.SearchPost(test_collection, search_params_json);
 
-          end = std::chrono::high_resolution_clock::now();
+          end = Now();
 
           duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
 
@@ -736,11 +737,11 @@ void RunDetailedBenchmark(const std::string &base_url, const std::string &auth_t
                multi_search_json["Searches"].push_back(search_req);
           }
 
-          start = std::chrono::high_resolution_clock::now();
+          start = Now();
 
           HTTPResponse multi_resp = client.MultiSearch(multi_search_json);
 
-          end = std::chrono::high_resolution_clock::now();
+          end = Now();
 
           duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
 
@@ -769,11 +770,11 @@ void RunDetailedBenchmark(const std::string &base_url, const std::string &auth_t
 
           synonym_json["synonyms"] = {"car", "automobile", "vehicle"};
 
-          start = std::chrono::high_resolution_clock::now();
+          start = Now();
 
           HTTPResponse syn_resp = client.MakeRequest("POST", "/collections/" + test_col + "/synonyms/test_syn", synonym_json.dump());
 
-          end = std::chrono::high_resolution_clock::now();
+          end = Now();
 
           duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
 
@@ -796,11 +797,11 @@ void RunDetailedBenchmark(const std::string &base_url, const std::string &auth_t
 
           stopwords_json["stopwords"] = {"the", "a", "an"};
 
-          start = std::chrono::high_resolution_clock::now();
+          start = Now();
 
           HTTPResponse stop_resp = client.MakeRequest("POST", "/collections/" + test_col + "/stopwords", stopwords_json.dump());
 
-          end = std::chrono::high_resolution_clock::now();
+          end = Now();
 
           duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
 
@@ -826,11 +827,11 @@ void RunDetailedBenchmark(const std::string &base_url, const std::string &auth_t
           override_json["rule"]["match"] = "exact";
           override_json["rule"]["filter_by"] = "title:test";
 
-          start = std::chrono::high_resolution_clock::now();
+          start = Now();
 
           HTTPResponse over_resp = client.MakeRequest("POST", "/collections/" + test_col + "/overrides/test_override", override_json.dump());
 
-          end = std::chrono::high_resolution_clock::now();
+          end = Now();
 
           duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
 
@@ -854,11 +855,11 @@ void RunDetailedBenchmark(const std::string &base_url, const std::string &auth_t
 
      std::cout << "[7/15] Testing additional API endpoints...\n";
 
-     start = std::chrono::high_resolution_clock::now();
+     start = Now();
 
      HTTPResponse health_resp = client.MakeRequest("GET", "/health");
 
-     end = std::chrono::high_resolution_clock::now();
+     end = Now();
 
      duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
 
@@ -871,11 +872,11 @@ void RunDetailedBenchmark(const std::string &base_url, const std::string &auth_t
 
      std::cout << "  ✓ Health check (" << duration.count() << " ms).\n";
 
-     start = std::chrono::high_resolution_clock::now();
+     start = Now();
 
      HTTPResponse status_resp = client.MakeRequest("GET", "/status");
 
-     end = std::chrono::high_resolution_clock::now();
+     end = Now();
 
      duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
 
@@ -888,11 +889,11 @@ void RunDetailedBenchmark(const std::string &base_url, const std::string &auth_t
 
      std::cout << "  ✓ Status check (" << duration.count() << " ms).\n";
 
-     start = std::chrono::high_resolution_clock::now();
+     start = Now();
 
      HTTPResponse stats_resp = client.MakeRequest("GET", "/stats");
 
-     end = std::chrono::high_resolution_clock::now();
+     end = Now();
 
      duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
 
@@ -927,11 +928,11 @@ void RunDetailedBenchmark(const std::string &base_url, const std::string &auth_t
                update_doc_json["title"] = "Updated Title " + std::to_string(i);
                update_doc_json["content"] = "Updated content for document " + std::to_string(i) + ". This is a comprehensive update test.";
 
-               start = std::chrono::high_resolution_clock::now();
+               start = Now();
 
                HTTPResponse update_resp = client.MakeRequest("PUT", "/collections/" + test_col + "/documents/" + sample_docs[i], update_doc_json.dump());
 
-               end = std::chrono::high_resolution_clock::now();
+               end = Now();
 
                duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
 
@@ -957,11 +958,11 @@ void RunDetailedBenchmark(const std::string &base_url, const std::string &auth_t
 
           for (size_t i = 0; i < sample_docs.size() && i < 100; i++)
           {
-               start = std::chrono::high_resolution_clock::now();
+               start = Now();
 
                HTTPResponse doc_resp = client.GetDocument(test_col, sample_docs[i]);
 
-               end = std::chrono::high_resolution_clock::now();
+               end = Now();
 
                duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
 
@@ -988,11 +989,11 @@ void RunDetailedBenchmark(const std::string &base_url, const std::string &auth_t
 
           for (size_t i = delete_start_val; i < sample_docs.size() && delete_count_val < 30; i++)
           {
-               start = std::chrono::high_resolution_clock::now();
+               start = Now();
 
                HTTPResponse del_resp = client.MakeRequest("DELETE", "/collections/" + test_collection + "/documents/" + sample_docs[i]);
 
-               end = std::chrono::high_resolution_clock::now();
+               end = Now();
 
                duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
 
@@ -1013,11 +1014,11 @@ void RunDetailedBenchmark(const std::string &base_url, const std::string &auth_t
 
           std::cout << "  Testing delete by filter...\n";
 
-          start = std::chrono::high_resolution_clock::now();
+          start = Now();
 
           HTTPResponse filter_del_resp = client.MakeRequest("DELETE", "/collections/" + test_collection + "/documents?filter_by=title:Updated");
 
-          end = std::chrono::high_resolution_clock::now();
+          end = Now();
 
           duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
 
@@ -1041,11 +1042,11 @@ void RunDetailedBenchmark(const std::string &base_url, const std::string &auth_t
      {
           for (int i = 0; i < 10; i++)
           {
-               start = std::chrono::high_resolution_clock::now();
+               start = Now();
 
                std::vector<std::string> cols = client.ListCollections();
 
-               end = std::chrono::high_resolution_clock::now();
+               end = Now();
 
                duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
 
@@ -1093,7 +1094,7 @@ void RunFloodBenchmark(const std::string &base_url, const std::string &auth_toke
      signal(SIGINT, FloodSignalHandler);
      signal(SIGTERM, FloodSignalHandler);
 
-     auto start_time = std::chrono::high_resolution_clock::now();
+     auto start_time = Now();
 
      BenchmarkClient client(base_url, auth_token, reuse_collections);
 
@@ -1243,7 +1244,7 @@ void RunFloodBenchmark(const std::string &base_url, const std::string &auth_toke
 
                     for (int i = 0; i < batch_size; i++)
                     {
-                         std::string doc_id = "flood_doc_" + std::to_string(col_name.length()) + "_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) + "_" + GenerateRandomString(8, gen);
+                         std::string doc_id = "flood_doc_" + std::to_string(col_name.length()) + "_" + std::to_string(SteadyNowNs()) + "_" + GenerateRandomString(8, gen);
 
                          std::string title = GenerateRandomSentence(3 + (i % 5), gen);
 
@@ -1285,7 +1286,7 @@ void RunFloodBenchmark(const std::string &base_url, const std::string &auth_toke
                                    {
                                         content += "Data: " + GenerateRandomString(20, gen) + " ";
                                         content += "Value: " + std::to_string(quantity_dist(gen)) + " ";
-                                        content += "Timestamp: " + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) + " ";
+                                        content += "Timestamp: " + std::to_string(SteadyNowNs()) + " ";
                                    }
                               }
 
@@ -1434,7 +1435,7 @@ void RunFloodBenchmark(const std::string &base_url, const std::string &auth_toke
                     break;
                }
 
-               auto current_time = std::chrono::high_resolution_clock::now();
+               auto current_time = Now();
 
                auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(current_time - start_time).count();
 
@@ -1517,7 +1518,7 @@ void RunFloodBenchmark(const std::string &base_url, const std::string &auth_toke
 
      stats_printer.join();
 
-     auto end_time_val = std::chrono::high_resolution_clock::now();
+     auto end_time_val = Now();
 
      auto total_duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time_val - start_time).count();
 

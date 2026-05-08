@@ -25,6 +25,7 @@
 #include <vendor/json/json.hpp>
 
 #include "benchmarkclient.h"
+#include "runtime/clock.h"
 
 /* Signal and stat helpers. */
 
@@ -1666,7 +1667,7 @@ int main(int argc, char *argv[])
                }
                else
                {
-                    *log_file_stream << "\n=== Benchmark started at " << std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count() << " ===\n";
+                    *log_file_stream << "\n=== Benchmark started at " << Time() << " ===\n";
                     log_file_stream->flush();
 
                     std::cout << "Logging to file: " << log_file_val << ".\n";
@@ -2079,11 +2080,11 @@ int main(int argc, char *argv[])
                advanced_metrics.ConfigBatchSize = batch_size;
           }
 
-          auto start_time_val = std::chrono::high_resolution_clock::now();
+          auto start_time_val = Now();
 
           if (run_id_val.empty())
           {
-               auto now = std::chrono::high_resolution_clock::now();
+               auto now = Now();
 
                auto run_id_timestamp = std::chrono::duration_cast<std::chrono::nanoseconds>(now.time_since_epoch()).count();
 
@@ -2220,7 +2221,7 @@ int main(int argc, char *argv[])
 
           if (advanced_mode)
           {
-               advanced_metrics.Phase1StartMS = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - start_time_val).count();
+               advanced_metrics.Phase1StartMS = std::chrono::duration_cast<std::chrono::milliseconds>(Now() - start_time_val).count();
           }
 
           if (g_benchmark_should_stop.load())
@@ -2322,7 +2323,7 @@ int main(int argc, char *argv[])
 
           if (advanced_mode)
           {
-               advanced_metrics.Phase1EndMS = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - start_time_val).count();
+               advanced_metrics.Phase1EndMS = std::chrono::duration_cast<std::chrono::milliseconds>(Now() - start_time_val).count();
                advanced_metrics.Phase1CollectionsCreated = collections_created.load();
                advanced_metrics.Phase1CollectionsSkipped = collections_skipped.load();
 
@@ -2351,7 +2352,7 @@ int main(int argc, char *argv[])
 
           int docs_per_collection_val = num_documents / num_collections;
           int remaining_docs_val = num_documents % num_collections;
-          auto ingest_start_time_val = std::chrono::high_resolution_clock::now();
+          auto ingest_start_time_val = Now();
           auto ingest_end_time_val = ingest_start_time_val;
           int64_t ingest_duration_ms = 0;
 
@@ -2374,7 +2375,7 @@ int main(int argc, char *argv[])
 
           if (advanced_mode)
           {
-               advanced_metrics.Phase2StartMS = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - start_time_val).count();
+               advanced_metrics.Phase2StartMS = std::chrono::duration_cast<std::chrono::milliseconds>(Now() - start_time_val).count();
                advanced_metrics.IngestStartMS = advanced_metrics.Phase2StartMS;
           }
 
@@ -2465,7 +2466,7 @@ int main(int argc, char *argv[])
 
           if (advanced_mode)
           {
-               advanced_metrics.Phase2EndMS = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - start_time_val).count();
+               advanced_metrics.Phase2EndMS = std::chrono::duration_cast<std::chrono::milliseconds>(Now() - start_time_val).count();
                advanced_metrics.Phase2DocumentsInserted = documents_inserted.load();
                advanced_metrics.Phase2DocumentsSkipped = documents_skipped.load();
 
@@ -2575,7 +2576,7 @@ int main(int argc, char *argv[])
                std::cerr << "   Phase 2b failed - benchmark may be incomplete.\n";
           }
 
-          ingest_end_time_val = std::chrono::high_resolution_clock::now();
+          ingest_end_time_val = Now();
           ingest_duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(ingest_end_time_val - ingest_start_time_val).count();
 
           if (advanced_mode)
@@ -2596,9 +2597,9 @@ int main(int argc, char *argv[])
           {
                BenchmarkClient flush_client(base_url, auth_token);
 
-               auto flush_start = std::chrono::high_resolution_clock::now();
+               auto flush_start = Now();
                HTTPResponse flush_resp = flush_client.FlushSync();
-               auto flush_end = std::chrono::high_resolution_clock::now();
+               auto flush_end = Now();
 
                flush_duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(flush_end - flush_start).count();
                flush_status_code = flush_resp.StatusCode;
@@ -2648,7 +2649,7 @@ int main(int argc, char *argv[])
                sanity_search_ran = true;
           }
 
-          auto end_time_val = std::chrono::high_resolution_clock::now();
+          auto end_time_val = Now();
 
           auto ingest_commit_duration_val = std::chrono::duration_cast<std::chrono::milliseconds>(end_time_val - ingest_start_time_val);
           auto duration_val = std::chrono::duration_cast<std::chrono::milliseconds>(end_time_val - start_time_val);

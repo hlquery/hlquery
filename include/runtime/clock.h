@@ -13,6 +13,7 @@
 #pragma once
 
 #include <chrono>
+#include <cstdint>
 #include <ctime>
 #include <time.h>
 
@@ -115,4 +116,93 @@ inline std::chrono::steady_clock::time_point Now()
      {
           return std::chrono::steady_clock::time_point{};
      }
+}
+
+/*
+ * Return the current monotonic time as whole milliseconds from the runtime
+ * steady clock epoch. This is intended for timeout bookkeeping and other
+ * in-process comparisons where a numeric monotonic value is easier to store
+ * than a time point. If clock access unexpectedly fails, the helper returns
+ * `0` so callers receive a deterministic fallback value.
+ */
+
+inline uint64_t SteadyNowMs()
+{
+     try
+     {
+          return static_cast<uint64_t>(
+               std::chrono::duration_cast<std::chrono::milliseconds>(
+                    Now().time_since_epoch())
+                    .count());
+     }
+     catch (...)
+     {
+          return 0;
+     }
+}
+
+/*
+ * Return the current monotonic time as whole nanoseconds from the runtime
+ * steady clock epoch. This preserves higher-resolution monotonic entropy for
+ * benchmark IDs and synthetic payload generation without exposing raw clock
+ * tick periods to call sites. If clock access unexpectedly fails, the helper
+ * returns `0`.
+ */
+
+inline uint64_t SteadyNowNs()
+{
+     try
+     {
+          return static_cast<uint64_t>(
+               std::chrono::duration_cast<std::chrono::nanoseconds>(
+                    Now().time_since_epoch())
+                    .count());
+     }
+     catch (...)
+     {
+          return 0;
+     }
+}
+
+/*
+ * Convert a steady-clock duration to whole milliseconds. The conversion
+ * truncates toward zero, matching the rest of the runtime's millisecond
+ * accounting. If conversion unexpectedly throws, the helper returns `0`.
+ */
+
+inline long long DurationMs(std::chrono::steady_clock::duration duration)
+{
+     try
+     {
+          return std::chrono::duration_cast<std::chrono::milliseconds>(duration).count();
+     }
+     catch (...)
+     {
+          return 0;
+     }
+}
+
+/*
+ * Return the elapsed whole milliseconds between two monotonic time points.
+ * This keeps interval measurement on the shared steady clock abstraction and
+ * avoids repeating `duration_cast` boilerplate at call sites.
+ */
+
+inline long long ElapsedMs(
+     const std::chrono::steady_clock::time_point &start,
+     const std::chrono::steady_clock::time_point &end)
+{
+     try
+     {
+          return DurationMs(end - start);
+     }
+     catch (...)
+     {
+          return 0;
+     }
+}
+
+inline long long ElapsedMs(const std::chrono::steady_clock::time_point &start)
+{
+     return ElapsedMs(start, Now());
 }
