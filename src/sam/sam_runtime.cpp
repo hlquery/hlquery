@@ -328,6 +328,8 @@ void SAM::RunIndexWorker()
                                              Job.HasExpectedMutationVersion,
                                              Job.ExpectedMutationVersion);
 
+          bool RetryRequested = false;
+
           {
                std::lock_guard<std::mutex> JobLock(JobMutex);
                CollectionJobStatus& Status = CollectionJobs[Job.Collection];
@@ -353,6 +355,7 @@ void SAM::RunIndexWorker()
                         ErrorMessage.find("Source collection changed during SAM indexing;") == 0)
                     {
                          Status.NeedsRetry = true;
+                         RetryRequested = true;
                     }
                }
 
@@ -410,6 +413,23 @@ void SAM::RunIndexWorker()
                }
           }
 
+          if (RetryRequested)
+          {
+               std::lock_guard<std::mutex> DBLock(DBMutex);
+               if (Database)
+               {
+                    SAMCollectionState State;
+                    if (ReadCollectionStateLocked(Database.get(), Job.Collection, State, nullptr, nullptr))
+                    {
+                         State.RebuildRequested = true;
+                         State.RequestedMutationVersion =
+                              GetCurrentCollectionMutationVersion(Job.Collection);
+                         (void)WriteCollectionStateLocked(Database.get(), Job.Collection, State, nullptr);
+                    }
+               }
+          }
+
+          FlushPendingSearchIdeas(1);
           FinishTask();
 
           if (Success)
@@ -770,6 +790,32 @@ bool SAM::StartRecreateCollectionAsync(const std::string& Collection,
 
                return false;
           }
+
+          SAMCollectionState State;
+          std::string StateError;
+
+          if (!ReadCollectionStateLocked(Database.get(), Collection, State, nullptr, &StateError))
+          {
+               if (ErrorMessage)
+               {
+                    *ErrorMessage = StateError;
+               }
+
+               return false;
+          }
+
+          State.RebuildRequested = true;
+          State.RequestedMutationVersion = GetCurrentCollectionMutationVersion(Collection);
+
+          if (!WriteCollectionStateLocked(Database.get(), Collection, State, &StateError))
+          {
+               if (ErrorMessage)
+               {
+                    *ErrorMessage = StateError;
+               }
+
+               return false;
+          }
      }
 
      if (!HybridStorageManager::GetInstance().CollectionExists(Collection))
@@ -995,54 +1041,100 @@ bool SAM::StartRecreateCollectionAsync(const std::string& Collection,
                                          HasExpectedMutationVersion,
                                          ExpectedMutationVersion))
                {
-                    std::lock_guard<std::mutex> Lock(JobMutex);
-                    CollectionJobStatus& JobStatus = CollectionJobs[Collection];
-                    if (JobStatus.PendingDocuments > 0)
+                    bool QueueNeedsRetry = false;
                     {
-                         --JobStatus.PendingDocuments;
+                         std::lock_guard<std::mutex> Lock(JobMutex);
+                         CollectionJobStatus& JobStatus = CollectionJobs[Collection];
+                         if (JobStatus.PendingDocuments > 0)
+                         {
+                              --JobStatus.PendingDocuments;
+                         }
+                         ++JobStatus.FailedDocuments;
+                         JobStatus.ErrorMessage = QueueError;
+                         if (HasExpectedMutationVersion &&
+                             QueueError.find("Source collection changed during SAM indexing;") == 0)
+                         {
+                              JobStatus.NeedsRetry = true;
+                              QueueNeedsRetry = true;
+                         }
                     }
-                    ++JobStatus.FailedDocuments;
-                    JobStatus.ErrorMessage = QueueError;
-                    if (HasExpectedMutationVersion &&
-                        QueueError.find("Source collection changed during SAM indexing;") == 0)
+
+                    if (QueueNeedsRetry)
                     {
-                         JobStatus.NeedsRetry = true;
+                         std::lock_guard<std::mutex> DBLock(DBMutex);
+                         if (Database)
+                         {
+                              SAMCollectionState State;
+                              if (ReadCollectionStateLocked(Database.get(), Collection, State, nullptr, nullptr))
+                              {
+                                   State.RebuildRequested = true;
+                                   State.RequestedMutationVersion =
+                                        GetCurrentCollectionMutationVersion(Collection);
+                                   (void)WriteCollectionStateLocked(Database.get(), Collection, State, nullptr);
+                              }
+                         }
                     }
                }
           }
 
           if (DocumentsToQueue.empty())
           {
-               std::lock_guard<std::mutex> Lock(JobMutex);
-               CollectionJobStatus& JobStatus = CollectionJobs[Collection];
-               JobStatus.Running = false;
                std::string StateError;
-               if (!ValidateExpectedMutationVersion(Collection,
-                                                    HasExpectedMutationVersion,
-                                                    ExpectedMutationVersion,
-                                                    &StateError))
+               const bool ValidMutationVersion =
+                    ValidateExpectedMutationVersion(Collection,
+                                                   HasExpectedMutationVersion,
+                                                   ExpectedMutationVersion,
+                                                   &StateError);
+               bool WroteIndexedMutationVersion = false;
+
+               if (ValidMutationVersion)
                {
-                    JobStatus.NeedsRetry = true;
-                    JobStatus.Completed = false;
-                    JobStatus.ErrorMessage = StateError;
+                    std::lock_guard<std::mutex> DBLock(DBMutex);
+                    WroteIndexedMutationVersion =
+                         WriteCollectionIndexedMutationVersionLocked(Database.get(),
+                                                                     Collection,
+                                                                     ExpectedMutationVersion,
+                                                                     &StateError);
+               }
+
+               {
+                    std::lock_guard<std::mutex> Lock(JobMutex);
+                    CollectionJobStatus& JobStatus = CollectionJobs[Collection];
+                    JobStatus.Running = false;
+
+                    if (!ValidMutationVersion)
+                    {
+                         JobStatus.NeedsRetry = true;
+                         JobStatus.Completed = false;
+                         JobStatus.ErrorMessage = StateError;
+                    }
+                    else
+                    {
+                         JobStatus.Completed = WroteIndexedMutationVersion;
+                         if (!WroteIndexedMutationVersion && !StateError.empty())
+                         {
+                              JobStatus.ErrorMessage = StateError;
+                         }
+                    }
+               }
+
+               if (!ValidMutationVersion)
+               {
+                    std::lock_guard<std::mutex> DBLock(DBMutex);
+                    if (Database)
+                    {
+                         SAMCollectionState State;
+                         if (ReadCollectionStateLocked(Database.get(), Collection, State, nullptr, nullptr))
+                         {
+                              State.RebuildRequested = true;
+                              State.RequestedMutationVersion = GetCurrentCollectionMutationVersion(Collection);
+                              (void)WriteCollectionStateLocked(Database.get(), Collection, State, nullptr);
+                         }
+                    }
                     RecordDebugEvent(Collection, "rebuild invalidated before completion: " + StateError);
                }
                else
                {
-                    bool WroteIndexedMutationVersion = false;
-                    {
-                         std::lock_guard<std::mutex> DBLock(DBMutex);
-                         WroteIndexedMutationVersion =
-                              WriteCollectionIndexedMutationVersionLocked(Database.get(),
-                                                                          Collection,
-                                                                          ExpectedMutationVersion,
-                                                                          &StateError);
-                    }
-                    JobStatus.Completed = WroteIndexedMutationVersion;
-                    if (!WroteIndexedMutationVersion && !StateError.empty())
-                    {
-                         JobStatus.ErrorMessage = StateError;
-                    }
                     RecordDebugEvent(Collection, "rebuild complete: indexed 0, failed 0");
                }
           }

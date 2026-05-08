@@ -141,7 +141,11 @@ bool SQLIsSafeFilterLiteral(const std::string &value)
 {
      for (char character : value)
      {
-          if (character == '&' || character == '|' || character == '[' || character == ']' || character == '{' || character == '}' || character == ',')
+          if (character == '&' || character == '|' ||
+              character == '[' || character == ']' ||
+              character == '{' || character == '}' ||
+              character == '(' || character == ')' ||
+              character == ',')
           {
                return false;
           }

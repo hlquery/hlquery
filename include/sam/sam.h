@@ -114,6 +114,14 @@ class SAM
           uint64_t ExpectedMutationVersion = 0;
      };
 
+     struct PendingSearchIdeaJob
+     {
+          std::string Collection;
+          std::string Query;
+          std::vector<SearchIdeaDocumentRef> Documents;
+          size_t Attempts = 0;
+     };
+
      std::shared_ptr<rocksdb::DB> Database;
      rocksdb::Options OptionsValue;
      std::string DBPath;
@@ -125,6 +133,7 @@ class SAM
      mutable std::mutex DebugMutex;
      mutable std::mutex SearchActivityMutex;
      mutable std::mutex QueueMutex;
+     mutable std::mutex SearchIdeaQueueMutex;
      std::condition_variable QueueCV;
      std::condition_variable JobStateCV;
      std::map<std::string, CollectionJobStatus> CollectionJobs;
@@ -135,6 +144,7 @@ class SAM
      mutable std::unordered_map<std::string, SearchActivityEntry> LatestSearchActivityByCollection;
      std::deque<PendingIndexJob> PendingIndexJobs;
      std::unordered_set<std::string> PendingIndexKeys;
+     std::deque<PendingSearchIdeaJob> PendingSearchIdeaJobs;
      std::unordered_map<std::string, size_t> ActiveCollectionTasks;
      std::unordered_set<std::string> CancelledCollections;
      bool CancelAllRequested = false;
@@ -222,6 +232,13 @@ class SAM
                                  const std::string& Query,
                                  const std::vector<SearchIdeaDocumentRef>& Documents,
                                  std::string* ErrorMessage = nullptr);
+
+     bool EnqueuePendingSearchIdea(const std::string& Collection,
+                                   const std::string& Query,
+                                   const std::vector<SearchIdeaDocumentRef>& Documents,
+                                   std::string* ErrorMessage = nullptr);
+
+     size_t FlushPendingSearchIdeas(size_t MaxJobs = 1);
 
      /* Trim stored search ideas to the configured history budget. */
 
@@ -469,9 +486,16 @@ class SAM
 
      std::map<std::string, CollectionJobStatus> GetAllCollectionJobStatuses() const;
 
+     size_t GetBackgroundWorkerCount() const;
+
+     size_t GetRunningCollectionJobCount() const;
+
      /* Return the last source collection mutation version captured by a completed SAM rebuild. */
 
      bool GetCollectionIndexedMutationVersion(const std::string& Collection, uint64_t& Version) const;
+
+     bool HasPendingCollectionRebuild(const std::string& Collection,
+                                      uint64_t* RequestedVersion = nullptr) const;
 
      /* Mirror one collection or global lexical resource set into the SAM database. */
 

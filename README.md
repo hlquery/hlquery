@@ -31,6 +31,14 @@ hlquery is built for teams that want strong search capabilities without taking o
 
 You can use hlquery for classic full-text search, hybrid retrieval, vector similarity, and AI-assisted search workflows while keeping deployment and integration straightforward. The project also ships with official client libraries, command-line tools, and modular runtime extensions, which makes it practical both for local development and production services.
 
+### SAM: Search That Gets Smarter Over Time
+
+hlquery includes **SAM**, the **Secondary Assistant Manager**. SAM adds a second retrieval layer for natural-language intent, search assistance, and learned query behavior, helping hlquery move beyond strict keyword matching when users do not know the exact terms in your data.
+
+That makes SAM a strong option for support search, internal knowledge tools, copilots, and AI-assisted workflows. It expands documents into broader lookup phrases, records repeated search ideas, and can build collection-level intent profiles over time. The result is a search experience that needs less reformulation and handles messier queries more naturally.
+
+Just as important, SAM runs inside hlquery. You do not need a separate service to experiment with smarter retrieval, and you do not have to give up lexical or hybrid precision to use it. Queries like "the error about invalid session token" or "cheap gaming laptop for travel" are exactly where SAM can help close the gap between how people search and how data is stored.
+
 ---
 
 ### Prerequisites
@@ -56,7 +64,7 @@ Homebrew provides CMake and OpenSSL.
 
 **FreeBSD:**
 ```bash
-$ sudo pkg install git gmake cmake openssl
+$ sudo pkg install gmake cmake openssl
 ```
 
 > **Note**: This project uses gmake features. On FreeBSD, run `gmake` instead of `make`.
@@ -181,7 +189,7 @@ Document 'product1' added to collection 'products'
 **Using the Node API:**
 
 ```js
-const Client = require('./etc/api/node/lib/Client'); // Load the official hlquery Node client.
+const Client = require('hlquery-node-client');
 const client = new Client('http://localhost:9200'); 
 const documents = client.documents(); // Use the documents service for document writes.
 

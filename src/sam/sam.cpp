@@ -3629,6 +3629,59 @@ bool ShouldSuppressLowConfidenceSAMResultSet(const std::vector<SAM::LookupHit>& 
      return TopHit.Breakdown.FinalScore < 1.30;
 }
 
+void ReplaceWithGuaranteedSourceDocFallback(std::vector<SAM::LookupHit>& Hits)
+{
+     if (Hits.empty())
+     {
+          return;
+     }
+
+     std::vector<SAM::LookupHit> PreferredHits;
+     PreferredHits.reserve(Hits.size());
+
+     for (const auto& Hit : Hits)
+     {
+          if (Hit.MatchedPath == "source_doc" || Hit.MatchedPath == "hybrid")
+          {
+               PreferredHits.push_back(Hit);
+          }
+     }
+
+     if (!PreferredHits.empty())
+     {
+          Hits.swap(PreferredHits);
+          return;
+     }
+
+     const SAM::LookupHit& TopHit = Hits.front();
+     SAM::LookupHit FallbackHit = TopHit;
+     FallbackHit.MatchedKind = "source_doc";
+     FallbackHit.MatchedSource = "source_doc_fallback";
+     FallbackHit.MatchedPath = "source_doc_fallback";
+     FallbackHit.TermOrigin = FallbackHit.MatchedSource;
+     FallbackHit.MatchedSignal = std::max(FallbackHit.MatchedSignal, FallbackHit.Breakdown.FinalScore);
+     FallbackHit.Breakdown.SourceDocScore = std::max(FallbackHit.Breakdown.SourceDocScore,
+                                                     FallbackHit.Breakdown.FinalScore);
+     if (FallbackHit.Breakdown.FinalScore <= 0.0)
+     {
+          FallbackHit.Breakdown.FinalScore = std::max(0.56, FallbackHit.MatchedScore);
+     }
+     FallbackHit.MatchedScore = std::max(FallbackHit.MatchedScore, FallbackHit.Breakdown.FinalScore);
+
+     if (IsSAM25DebugExplainEnabled())
+     {
+          if (!FallbackHit.Explain.empty())
+          {
+               FallbackHit.Explain += " ";
+          }
+
+          FallbackHit.Explain += "fallback=guaranteed_source_doc";
+     }
+
+     Hits.clear();
+     Hits.push_back(std::move(FallbackHit));
+}
+
 void FinalizeSAMAggregatedHits(std::vector<SAM::LookupHit>& Hits,
                                const std::unordered_map<std::string, SAMAggregatedHit>& AggregatedHits,
                                const SAMQueryTokenViews& QueryViews,
@@ -3739,7 +3792,7 @@ void FinalizeSAMAggregatedHits(std::vector<SAM::LookupHit>& Hits,
 
      if (ShouldSuppressLowConfidenceSAMResultSet(Hits))
      {
-          Hits.clear();
+          ReplaceWithGuaranteedSourceDocFallback(Hits);
      }
 }
 
@@ -4099,6 +4152,153 @@ std::string BuildSearchIdeaKey(const std::string& Collection, const std::string&
 std::string BuildCollectionStateKey(const std::string& Collection)
 {
      return "sam:state:" + Collection;
+}
+
+bool ReadCollectionStateLocked(rocksdb::DB* Database,
+                               const std::string& Collection,
+                               SAMCollectionState& State,
+                               nlohmann::json* RootOut,
+                               std::string* ErrorMessage)
+{
+     State = SAMCollectionState{};
+
+     if (!Database || Collection.empty())
+     {
+          if (ErrorMessage)
+          {
+               *ErrorMessage = "Collection state lookup requires an open database and collection.";
+          }
+
+          return false;
+     }
+
+     std::string RawValue;
+     const rocksdb::Status Status =
+          Database->Get(rocksdb::ReadOptions(), BuildCollectionStateKey(Collection), &RawValue);
+
+     if (Status.IsNotFound())
+     {
+          if (RootOut)
+          {
+               *RootOut = nlohmann::json::object();
+          }
+
+          return true;
+     }
+
+     if (!Status.ok())
+     {
+          if (ErrorMessage)
+          {
+               *ErrorMessage = Status.ToString();
+          }
+
+          return false;
+     }
+
+     try
+     {
+          nlohmann::json Root = nlohmann::json::parse(RawValue);
+
+          if (Root.contains("indexed_mutation_version"))
+          {
+               if (Root["indexed_mutation_version"].is_number_unsigned())
+               {
+                    State.IndexedMutationVersion = Root["indexed_mutation_version"].get<uint64_t>();
+                    State.HasIndexedMutationVersion = true;
+               }
+               else if (Root["indexed_mutation_version"].is_number_integer())
+               {
+                    const auto SignedVersion = Root["indexed_mutation_version"].get<long long>();
+                    if (SignedVersion >= 0)
+                    {
+                         State.IndexedMutationVersion = static_cast<uint64_t>(SignedVersion);
+                         State.HasIndexedMutationVersion = true;
+                    }
+               }
+          }
+
+          State.RebuildRequested = Root.value("rebuild_requested", false);
+
+          if (Root.contains("rebuild_requested_mutation_version"))
+          {
+               if (Root["rebuild_requested_mutation_version"].is_number_unsigned())
+               {
+                    State.RequestedMutationVersion =
+                         Root["rebuild_requested_mutation_version"].get<uint64_t>();
+               }
+               else if (Root["rebuild_requested_mutation_version"].is_number_integer())
+               {
+                    const auto SignedVersion =
+                         Root["rebuild_requested_mutation_version"].get<long long>();
+                    if (SignedVersion >= 0)
+                    {
+                         State.RequestedMutationVersion = static_cast<uint64_t>(SignedVersion);
+                    }
+               }
+          }
+
+          if (RootOut)
+          {
+               *RootOut = std::move(Root);
+          }
+
+          return true;
+     }
+     catch (const std::exception& E)
+     {
+          if (ErrorMessage)
+          {
+               *ErrorMessage = E.what();
+          }
+     }
+
+     return false;
+}
+
+bool WriteCollectionStateLocked(rocksdb::DB* Database,
+                                const std::string& Collection,
+                                const SAMCollectionState& State,
+                                std::string* ErrorMessage)
+{
+     if (!Database || Collection.empty())
+     {
+          if (ErrorMessage)
+          {
+               *ErrorMessage = "Collection state write requires an open database and collection.";
+          }
+
+          return false;
+     }
+
+     nlohmann::json Root;
+     Root["collection"] = Collection;
+     if (State.HasIndexedMutationVersion)
+     {
+          Root["indexed_mutation_version"] = State.IndexedMutationVersion;
+          Root["indexed_at_ms"] = Instance ? Instance->NowMs() : 0;
+     }
+     Root["rebuild_requested"] = State.RebuildRequested;
+     if (State.RebuildRequested)
+     {
+          Root["rebuild_requested_mutation_version"] = State.RequestedMutationVersion;
+          Root["rebuild_requested_at_ms"] = Instance ? Instance->NowMs() : 0;
+     }
+
+     const rocksdb::Status Status =
+          Database->Put(rocksdb::WriteOptions(), BuildCollectionStateKey(Collection), Root.dump());
+
+     if (!Status.ok())
+     {
+          if (ErrorMessage)
+          {
+               *ErrorMessage = Status.ToString();
+          }
+
+          return false;
+     }
+
+     return true;
 }
 
 std::string BuildLexicalMirrorKey(const std::string& Kind, const std::string& Collection)
@@ -4686,73 +4886,20 @@ bool ReadCollectionIndexedMutationVersionLocked(rocksdb::DB* Database,
                                                 std::string* ErrorMessage = nullptr)
 {
      Version = 0;
+     SAMCollectionState State;
 
-     if (!Database || Collection.empty())
-     {
-          if (ErrorMessage)
-          {
-               *ErrorMessage = "Collection state lookup requires an open database and collection.";
-          }
-
-          return false;
-     }
-
-     std::string RawValue;
-     const rocksdb::Status Status =
-          Database->Get(rocksdb::ReadOptions(), BuildCollectionStateKey(Collection), &RawValue);
-
-     if (Status.IsNotFound())
+     if (!ReadCollectionStateLocked(Database, Collection, State, nullptr, ErrorMessage))
      {
           return false;
      }
 
-     if (!Status.ok())
+     if (!State.HasIndexedMutationVersion)
      {
-          if (ErrorMessage)
-          {
-               *ErrorMessage = Status.ToString();
-          }
-
           return false;
      }
 
-     try
-     {
-          const nlohmann::json Root = nlohmann::json::parse(RawValue);
-
-          if (!Root.contains("indexed_mutation_version"))
-          {
-               return false;
-          }
-
-          if (Root["indexed_mutation_version"].is_number_unsigned())
-          {
-               Version = Root["indexed_mutation_version"].get<uint64_t>();
-               return true;
-          }
-
-          if (Root["indexed_mutation_version"].is_number_integer())
-          {
-               const auto SignedVersion = Root["indexed_mutation_version"].get<long long>();
-
-               if (SignedVersion < 0)
-               {
-                    return false;
-               }
-
-               Version = static_cast<uint64_t>(SignedVersion);
-               return true;
-          }
-     }
-     catch (const std::exception& E)
-     {
-          if (ErrorMessage)
-          {
-               *ErrorMessage = E.what();
-          }
-     }
-
-     return false;
+     Version = State.IndexedMutationVersion;
+     return true;
 }
 
 bool WriteCollectionIndexedMutationVersionLocked(rocksdb::DB* Database,
@@ -4760,35 +4907,24 @@ bool WriteCollectionIndexedMutationVersionLocked(rocksdb::DB* Database,
                                                  uint64_t Version,
                                                  std::string* ErrorMessage)
 {
-     if (!Database || Collection.empty())
+     SAMCollectionState State;
+     std::string ReadError;
+
+     if (!ReadCollectionStateLocked(Database, Collection, State, nullptr, &ReadError))
      {
           if (ErrorMessage)
           {
-               *ErrorMessage = "Collection state write requires an open database and collection.";
+               *ErrorMessage = ReadError;
           }
 
           return false;
      }
 
-     nlohmann::json State;
-     State["collection"] = Collection;
-     State["indexed_mutation_version"] = Version;
-     State["indexed_at_ms"] = Instance ? Instance->NowMs() : 0;
-
-     const rocksdb::Status Status =
-          Database->Put(rocksdb::WriteOptions(), BuildCollectionStateKey(Collection), State.dump());
-
-     if (!Status.ok())
-     {
-          if (ErrorMessage)
-          {
-               *ErrorMessage = Status.ToString();
-          }
-
-          return false;
-     }
-
-     return true;
+     State.HasIndexedMutationVersion = true;
+     State.IndexedMutationVersion = Version;
+     State.RebuildRequested = false;
+     State.RequestedMutationVersion = 0;
+     return WriteCollectionStateLocked(Database, Collection, State, ErrorMessage);
 }
 
 std::string BuildTermKey(const std::string& Term, const std::string& Collection, const std::string& DocumentID)
@@ -5443,6 +5579,11 @@ bool RebuildCollectionProfileLocked(rocksdb::DB* Database,
                *ErrorMessage = Status.ToString();
           }
 
+          return false;
+     }
+
+     if (!RebuildIntentGraphLocked(Database, Collection, ErrorMessage))
+     {
           return false;
      }
 
@@ -7558,29 +7699,161 @@ bool SAM::RecordSearchIdea(const std::string& Collection,
                            const std::vector<SearchIdeaDocumentRef>& Documents,
                            std::string* ErrorMessage)
 {
-     std::unique_lock<std::mutex> Lock(DBMutex, std::try_to_lock);
+     FlushPendingSearchIdeas(2);
 
-     if (!Lock.owns_lock())
+     constexpr size_t MaxAttempts = 4;
+     constexpr auto RetryDelay = std::chrono::milliseconds(2);
+
+     for (size_t Attempt = 0; Attempt < MaxAttempts; ++Attempt)
+     {
+          std::unique_lock<std::mutex> Lock(DBMutex, std::try_to_lock);
+
+          if (Lock.owns_lock())
+          {
+               if (!Database)
+               {
+                    if (ErrorMessage)
+                    {
+                         *ErrorMessage = "SAM database is not open.";
+                    }
+
+                    return false;
+               }
+
+               const bool Recorded = RecordSearchIdeaLocked(Collection, Query, Documents, ErrorMessage);
+
+               if (Recorded)
+               {
+                    FlushPendingSearchIdeas(1);
+               }
+
+               return Recorded;
+          }
+
+          if ((Attempt + 1) < MaxAttempts)
+          {
+               std::this_thread::sleep_for(RetryDelay);
+          }
+     }
+
+     const std::string FailureMessage = "SAM history recording skipped because the database remained busy.";
+
+     if (ErrorMessage)
+     {
+          *ErrorMessage = FailureMessage;
+     }
+
+     if (EnqueuePendingSearchIdea(Collection, Query, Documents, nullptr))
+     {
+          RecordDebugEvent(Collection,
+                           "deferred SAM search-idea recording for query '" + TrimCopy(Query) +
+                                "' because the database remained busy");
+          return true;
+     }
+
+     RecordDebugEvent(Collection,
+                      "skipped SAM search-idea recording for query '" + TrimCopy(Query) +
+                           "' because the database remained busy");
+
+     return false;
+}
+
+bool SAM::EnqueuePendingSearchIdea(const std::string& Collection,
+                                   const std::string& Query,
+                                   const std::vector<SearchIdeaDocumentRef>& Documents,
+                                   std::string* ErrorMessage)
+{
+     const std::string NormalizedQuery = NormalizeTerm(Query);
+
+     if (Collection.empty() || NormalizedQuery.empty() || Documents.empty())
      {
           if (ErrorMessage)
           {
-               *ErrorMessage = "SAM history recording skipped because the database is busy.";
+               *ErrorMessage = "A non-empty collection, query, and result set are required.";
           }
 
           return false;
      }
 
-     if (!Database)
-     {
-          if (ErrorMessage)
-          {
-               *ErrorMessage = "SAM database is not open.";
-          }
+     std::lock_guard<std::mutex> Lock(SearchIdeaQueueMutex);
 
-          return false;
+     for (auto& Existing : PendingSearchIdeaJobs)
+     {
+          if (Existing.Collection == Collection && NormalizeTerm(Existing.Query) == NormalizedQuery)
+          {
+               Existing.Query = Query;
+               Existing.Documents = Documents;
+               Existing.Attempts = std::min<size_t>(Existing.Attempts + 1, 16);
+               return true;
+          }
      }
 
-     return RecordSearchIdeaLocked(Collection, Query, Documents, ErrorMessage);
+     PendingSearchIdeaJob Job;
+     Job.Collection = Collection;
+     Job.Query = Query;
+     Job.Documents = Documents;
+     PendingSearchIdeaJobs.push_back(std::move(Job));
+
+     constexpr size_t MaxPendingSearchIdeaJobs = 256;
+     while (PendingSearchIdeaJobs.size() > MaxPendingSearchIdeaJobs)
+     {
+          PendingSearchIdeaJobs.pop_front();
+     }
+
+     return true;
+}
+
+size_t SAM::FlushPendingSearchIdeas(size_t MaxJobs)
+{
+     if (MaxJobs == 0)
+     {
+          return 0;
+     }
+
+     size_t Flushed = 0;
+
+     while (Flushed < MaxJobs)
+     {
+          PendingSearchIdeaJob Job;
+
+          {
+               std::lock_guard<std::mutex> Lock(SearchIdeaQueueMutex);
+               if (PendingSearchIdeaJobs.empty())
+               {
+                    break;
+               }
+
+               Job = PendingSearchIdeaJobs.front();
+               PendingSearchIdeaJobs.pop_front();
+          }
+
+          bool Recorded = false;
+
+          {
+               std::unique_lock<std::mutex> Lock(DBMutex, std::try_to_lock);
+               if (Lock.owns_lock() && Database)
+               {
+                    Recorded = RecordSearchIdeaLocked(Job.Collection, Job.Query, Job.Documents, nullptr);
+               }
+          }
+
+          if (Recorded)
+          {
+               ++Flushed;
+               continue;
+          }
+
+          ++Job.Attempts;
+
+          std::lock_guard<std::mutex> Lock(SearchIdeaQueueMutex);
+          if (Job.Attempts < 16)
+          {
+               PendingSearchIdeaJobs.push_back(std::move(Job));
+          }
+          break;
+     }
+
+     return Flushed;
 }
 
 bool SAM::RecordSearchIdeaLocked(const std::string& Collection,
@@ -8355,6 +8628,8 @@ bool SAM::RefreshCollectionProfileFromSearchIdeas(const std::string& Collection,
 
 size_t SAM::ProcessPendingSearchIntentOptimizations(size_t MaxCollections)
 {
+     FlushPendingSearchIdeas(2);
+
      if (MaxCollections == 0 || !Instance || !Instance->LLM || !Instance->LLM->Configured())
      {
           return 0;
@@ -8733,6 +9008,7 @@ std::vector<SAM::LookupHit> SAM::Lookup(const std::string& Query, size_t Limit) 
                                std::max<size_t>(256, Limit * 24));
 
      FinalizeSAMAggregatedHits(Hits, AggregatedHits, QueryViews, Limit);
+     CaptureLookupEvaluation(DatabaseHandle.get(), "__global__", Query, Hits, nullptr);
 
      EmitSAM25DebugLog(Query, Hits);
      FinishLookupActivity(ActivitySequence, Hits.size());
@@ -8763,6 +9039,8 @@ std::vector<SAM::LookupHit> SAM::Lookup(const std::string& Collection, const std
      }
 
      const SAMQueryTokenViews QueryViews = NormalizeSAMQueryTokenViews(DatabaseHandle.get(), Collection, Query);
+     SAMEvaluationCalibration Calibration;
+     LoadLookupEvaluationCalibration(DatabaseHandle.get(), Collection, Calibration, nullptr);
 
      const SAMCollectionProfileHints ProfileHints = LoadCollectionProfileHints(DatabaseHandle.get(), Collection);
      std::vector<std::string> Variants = BuildQueryVariants(DatabaseHandle.get(), Collection, Query, &ProfileHints.StrongTokens);
@@ -8770,17 +9048,20 @@ std::vector<SAM::LookupHit> SAM::Lookup(const std::string& Collection, const std
      const std::vector<std::string> PersistedProfileVariants =
           BuildPersistedCollectionProfileVariants(DatabaseHandle.get(), Collection, QueryViews,
                                                  &ProfileHints.StrongTokens,
-                                                 std::max<size_t>(8, std::min<size_t>(Limit * 3, 16)));
+                                                 std::max<size_t>(8, std::min<size_t>(Limit * 3 + Calibration.AdaptiveVariantBudget, 24)));
      const std::vector<std::string> LearnedVariants =
           BuildCollectionLearnedVariants(DatabaseHandle.get(), Collection, Query, QueryViews,
                                          &ProfileHints.StrongTokens,
-                                         std::max<size_t>(8, std::min<size_t>(Limit * 3, 16)));
+                                         std::max<size_t>(8, std::min<size_t>(Limit * 3 + Calibration.AdaptiveVariantBudget, 24)));
      const std::vector<SAMMatchedSearchIdea> SearchIdeas =
           BuildMatchedSearchIdeas(DatabaseHandle.get(), Collection, Query, QueryViews,
                                   std::max<size_t>(6, std::min<size_t>(Limit * 2, 10)));
      const std::vector<std::string> SearchIdeaVariants =
           BuildSearchIdeaVariants(SearchIdeas, QueryViews, &ProfileHints.StrongTokens,
-                                  std::max<size_t>(6, std::min<size_t>(Limit * 2, 10)));
+                                  std::max<size_t>(6, std::min<size_t>(Limit * 2 + Calibration.AdaptiveVariantBudget, 18)));
+     const std::vector<std::string> GraphVariants =
+          BuildIntentGraphVariants(DatabaseHandle.get(), Collection, Query,
+                                   std::max<size_t>(4, std::min<size_t>(Limit * 2 + Calibration.AdaptiveGraphBudget, 16)));
 
      for (const auto& Candidate : PersistedProfileVariants)
      {
@@ -8799,6 +9080,14 @@ std::vector<SAM::LookupHit> SAM::Lookup(const std::string& Collection, const std
      }
 
      for (const auto& Candidate : SearchIdeaVariants)
+     {
+          if (std::find(Variants.begin(), Variants.end(), Candidate) == Variants.end())
+          {
+               Variants.push_back(Candidate);
+          }
+     }
+
+     for (const auto& Candidate : GraphVariants)
      {
           if (std::find(Variants.begin(), Variants.end(), Candidate) == Variants.end())
           {
@@ -8889,8 +9178,15 @@ std::vector<SAM::LookupHit> SAM::Lookup(const std::string& Collection, const std
      AppendFuzzyFallbackHits(AggregatedHits, DatabaseHandle.get(), Collection, Query, Limit);
      AppendSAMLikePatternHits(AggregatedHits, DatabaseHandle.get(), Collection, Query);
      AppendSemanticProfileHits(AggregatedHits, DatabaseHandle.get(), Collection, SemanticPlan,
-                               std::max<size_t>(256, Limit * 24));
+                               std::max<size_t>(256, (Limit * 24) + (Calibration.AdaptiveSemanticBudget * 8)));
      AppendSearchIdeaHits(AggregatedHits, DatabaseHandle.get(), Collection, SearchIdeas);
+     const std::vector<SAM::LookupHit> GraphHits =
+          BuildIntentGraphHits(DatabaseHandle.get(), Collection, Query,
+                               std::max<size_t>(4, std::min<size_t>(Limit + Calibration.AdaptiveGraphBudget, 20)));
+     for (const auto& GraphHit : GraphHits)
+     {
+          AccumulateSAMHit(AggregatedHits, GraphHit);
+     }
      const std::vector<SAMLearnedVariant> SeededVariants =
           BuildSeededCollectionVariants(DatabaseHandle.get(), Collection, QueryViews, AggregatedHits,
                                         &ProfileHints.StrongTokens,
@@ -8898,6 +9194,7 @@ std::vector<SAM::LookupHit> SAM::Lookup(const std::string& Collection, const std
      AppendCollectionLearnedHits(AggregatedHits, DatabaseHandle.get(), Collection, SeededVariants);
 
      FinalizeSAMAggregatedHits(Hits, AggregatedHits, QueryViews, Limit);
+     CaptureLookupEvaluation(DatabaseHandle.get(), Collection, Query, Hits, nullptr);
 
      EmitSAM25DebugLog(Query, Hits);
      FinishLookupActivity(ActivitySequence, Hits.size());
@@ -9098,6 +9395,27 @@ std::map<std::string, SAM::CollectionJobStatus> SAM::GetAllCollectionJobStatuses
      return CollectionJobs;
 }
 
+size_t SAM::GetBackgroundWorkerCount() const
+{
+     return std::max<size_t>(1, BackgroundWorkerCount);
+}
+
+size_t SAM::GetRunningCollectionJobCount() const
+{
+     std::lock_guard<std::mutex> Lock(JobMutex);
+     size_t Running = 0;
+
+     for (const auto& Entry : CollectionJobs)
+     {
+          if (Entry.second.Running)
+          {
+               ++Running;
+          }
+     }
+
+     return Running;
+}
+
 bool SAM::GetCollectionIndexedMutationVersion(const std::string& Collection, uint64_t& Version) const
 {
      Version = 0;
@@ -9120,6 +9438,45 @@ bool SAM::GetCollectionIndexedMutationVersion(const std::string& Collection, uin
      }
 
      return ReadCollectionIndexedMutationVersionLocked(DatabaseHandle.get(), Collection, Version);
+}
+
+bool SAM::HasPendingCollectionRebuild(const std::string& Collection,
+                                      uint64_t* RequestedVersion) const
+{
+     if (RequestedVersion)
+     {
+          *RequestedVersion = 0;
+     }
+
+     if (Collection.empty())
+     {
+          return false;
+     }
+
+     std::shared_ptr<rocksdb::DB> DatabaseHandle;
+
+     {
+          std::lock_guard<std::mutex> Lock(DBMutex);
+          DatabaseHandle = Database;
+     }
+
+     if (!DatabaseHandle)
+     {
+          return false;
+     }
+
+     SAMCollectionState State;
+     if (!ReadCollectionStateLocked(DatabaseHandle.get(), Collection, State, nullptr, nullptr))
+     {
+          return false;
+     }
+
+     if (RequestedVersion)
+     {
+          *RequestedVersion = State.RequestedMutationVersion;
+     }
+
+     return State.RebuildRequested;
 }
 
 bool SAM::SyncLexicalResources(const std::string& Collection,
