@@ -191,6 +191,7 @@ sub apply_install_layout {
         $config_ref->{DATADIR} = catdir($base_path, $run_dir, 'data') unless $set_ref->{datadir};
         $config_ref->{RUNDIR}  = catdir($base_path, $run_dir, 'pid') unless $set_ref->{rundir};
         $config_ref->{BINDIR}  = catdir($base_path, $run_dir, 'bin') unless $set_ref->{bindir};
+        $config_ref->{SYSTEMD_UNIT_DIR} = '' unless exists $config_ref->{SYSTEMD_UNIT_DIR};
     } elsif ($layout eq 'system' || $layout eq 'debian' || $layout eq 'rpm') {
         $config_ref->{PREFIX} = '/usr' unless $set_ref->{prefix};
         $config_ref->{CONFDIR} = '/etc/hlquery' unless $set_ref->{confdir};
@@ -198,6 +199,8 @@ sub apply_install_layout {
         $config_ref->{DATADIR} = '/var/lib/hlquery' unless $set_ref->{datadir};
         $config_ref->{RUNDIR}  = '/run/hlquery' unless $set_ref->{rundir};
         $config_ref->{BINDIR}  = '/usr/bin' unless $set_ref->{bindir};
+        $config_ref->{SYSTEMD_UNIT_DIR} = '/usr/lib/systemd/system';
+        $config_ref->{SYSTEMD_UNIT_DIR} = '/lib/systemd/system' if $layout eq 'debian';
     } else {
         die "Invalid layout '$layout'. Valid layouts: dev, system, debian, rpm, auto\n";
     }

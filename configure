@@ -941,6 +941,7 @@ sub generate_makefile {
     $template_content =~ s/\$\{DATADIR\}/$config{DATADIR}/g;
     $template_content =~ s/\$\{RUNDIR\}/$config{RUNDIR}/g;
     $template_content =~ s/\$\{BINDIR\}/$config{BINDIR}/g;
+    $template_content =~ s/\$\{SYSTEMD_UNIT_DIR\}/$config{SYSTEMD_UNIT_DIR}/g;
     $template_content =~ s/\$\{CONFIGURE_COMMAND\}/$reconfigure_command/g;
     
     # SSL support - auto-detected
