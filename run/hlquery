@@ -21,10 +21,10 @@ use POSIX qw(strftime WNOHANG);
 # Configuration
 my $VERSION = "1.0.0";
 my $BINARY_NAME = "hlquery";
-my $DEFAULT_CONFIG = "/etc/hlquery/hlquery.conf";
-my $DEFAULT_PIDFILE = "/run/hlquery/hlquery.pid";
-my $DEFAULT_PID_DIR  = "/run/hlquery";
-my $DEFAULT_LOGDIR = "/var/log/hlquery";
+my $DEFAULT_CONFIG = "/home/cferry/work/hlquery/run/conf/hlquery.conf";
+my $DEFAULT_PIDFILE = "/home/cferry/work/hlquery/run/pid/hlquery.pid";
+my $DEFAULT_PID_DIR  = "/home/cferry/work/hlquery/run/pid";
+my $DEFAULT_LOGDIR = "/home/cferry/work/hlquery/run/logs";
 
 # Colors for output
 my $RED = "\033[31m";
@@ -94,7 +94,7 @@ EOF
 
 sub find_binary {
     # Check fixed location from configure first
-    my $fixed_binary = "/usr/bin/" . $BINARY_NAME;
+    my $fixed_binary = "/home/cferry/work/hlquery/run/bin/" . $BINARY_NAME;
     if (-x $fixed_binary) {
         return $fixed_binary;
     }

@@ -3819,6 +3819,24 @@ bool ExecuteTalkCommand(const std::string &line,
 
                     document_id = resolved_document_id;
                }
+               else if (IsUnsignedInteger(document_id) &&
+                        resolved_collection == state.CurrentCollection)
+               {
+                    std::string resolved_document_id;
+
+                    if (!ResolveCollectionDocumentReference(cli,
+                                                            resolved_collection,
+                                                            document_id,
+                                                            state.LastListedDocumentIds,
+                                                            resolved_document_id,
+                                                            error_message))
+                    {
+                         TalkPrintError(error_message);
+                         return true;
+                    }
+
+                    document_id = resolved_document_id;
+               }
 
                cli.OpenSAMDocument(resolved_collection, document_id);
                return true;
