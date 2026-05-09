@@ -2742,6 +2742,8 @@ HttpResponse SearchAPI::HandleSAMStatus(const HttpRequest &Request)
                {"known", true},
                {"running", Entry.second.Running},
                {"completed", Entry.second.Completed},
+               {"needs_retry", Entry.second.NeedsRetry},
+               {"retry_scheduled", Entry.second.RetryScheduled},
                {"indexed", Entry.second.IndexedDocuments},
                {"failed", Entry.second.FailedDocuments},
                {"pending", Entry.second.PendingDocuments},
@@ -2790,10 +2792,14 @@ HttpResponse SearchAPI::HandleSAMStatus(const HttpRequest &Request)
           Root["failed"] = 0;
           Root["pending"] = 0;
           Root["total"] = 0;
+          Root["needs_retry"] = Instance->Sam->HasPendingCollectionRebuild(CollectionName);
+          Root["retry_scheduled"] = false;
           Root["error"] = std::string();
           Root["active_search_count"] = ActiveSearches.size();
           Root["search_running"] = !ActiveSearches.empty();
-          Root["message"] = "No SAM rebuild has been recorded for this collection.";
+          Root["message"] = Root["needs_retry"].get<bool>()
+               ? "Automatic SAM retry is queued for this collection."
+               : "No SAM rebuild has been recorded for this collection.";
      }
      else if (!CollectionName.empty())
      {
@@ -2806,6 +2812,8 @@ HttpResponse SearchAPI::HandleSAMStatus(const HttpRequest &Request)
           Root["known"] = true;
           Root["running"] = JobStatus.Running;
           Root["completed"] = JobStatus.Completed;
+          Root["needs_retry"] = JobStatus.NeedsRetry;
+          Root["retry_scheduled"] = JobStatus.RetryScheduled;
           Root["indexed"] = JobStatus.IndexedDocuments;
           Root["failed"] = JobStatus.FailedDocuments;
           Root["pending"] = JobStatus.PendingDocuments;
@@ -2847,9 +2855,11 @@ HttpResponse SearchAPI::HandleSAMStatus(const HttpRequest &Request)
           }
 
           Root["message"] = JobStatus.Running ? "SAM indexing is running."
-                                              : (!ActiveSearches.empty() ? "SAM is analyzing recent searches."
-                                                                         : (JobStatus.Completed ? "SAM indexing is idle."
-                                                                                                : "SAM indexing has not started."));
+                                              : (JobStatus.RetryScheduled ? "Automatic SAM retry is queued after source mutations."
+                                                                         : (JobStatus.NeedsRetry ? "SAM rebuild needs retry after source mutations."
+                                                                                                : (!ActiveSearches.empty() ? "SAM is analyzing recent searches."
+                                                                                                                           : (JobStatus.Completed ? "SAM indexing is idle."
+                                                                                                                                                  : "SAM indexing has not started."))));
      }
      else
      {
@@ -2899,6 +2909,19 @@ HttpResponse SearchAPI::HandleSAMHistory(const HttpRequest &Request)
      }
 
      int LimitVal = 100;
+     bool InteractionsOnly = false;
+     const auto InteractionsOnlyIt = Request.QueryParams.find("interactions_only");
+     if (InteractionsOnlyIt != Request.QueryParams.end())
+     {
+          std::string BoolValue = TrimCopy(InteractionsOnlyIt->second);
+          std::transform(BoolValue.begin(), BoolValue.end(), BoolValue.begin(),
+                         [](unsigned char C)
+                         {
+                              return static_cast<char>(std::tolower(C));
+                         });
+          InteractionsOnly = (BoolValue == "1" || BoolValue == "true" ||
+                              BoolValue == "yes" || BoolValue == "on");
+     }
 
      if (!ParseNonNegativeIntParam(Request.QueryParams, "limit", 100, LimitVal) || LimitVal <= 0)
      {
@@ -2916,11 +2939,16 @@ HttpResponse SearchAPI::HandleSAMHistory(const HttpRequest &Request)
      Root["collection"] = CollectionName;
      Root["limit"] = LimitVal;
      Root["kept_limit"] = 100;
-     Root["count"] = History.size();
+     Root["interactions_only"] = InteractionsOnly;
      Root["history"] = nlohmann::json::array();
 
      for (const auto &Entry : History)
      {
+          if (InteractionsOnly && Entry.InteractionUses == 0)
+          {
+               continue;
+          }
+
           nlohmann::json BestMatch = nlohmann::json::object();
           std::string Conclusion = Entry.ResolvedConclusion;
 
@@ -2950,6 +2978,8 @@ HttpResponse SearchAPI::HandleSAMHistory(const HttpRequest &Request)
                {"first_seen_ms", Entry.FirstSeenMS},
                {"last_seen_ms", Entry.LastSeenMS},
                {"uses", Entry.Uses},
+               {"interaction_uses", Entry.InteractionUses},
+               {"last_interaction_ms", Entry.LastInteractionMS},
                {"resolved_interpretation", Entry.ResolvedInterpretation},
                {"resolved_conclusion", Entry.ResolvedConclusion},
                {"resolved_at_ms", Entry.ResolvedAtMS},
@@ -2967,7 +2997,9 @@ HttpResponse SearchAPI::HandleSAMHistory(const HttpRequest &Request)
                HistoryJson["documents"].push_back({
                     {"id", Document.DocumentID},
                     {"title", Document.Title},
-                    {"score", Document.Score}
+                    {"score", Document.Score},
+                    {"interaction_uses", Document.InteractionUses},
+                    {"last_interaction_ms", Document.LastInteractionMS}
                });
 
                if (!Document.Title.empty())
@@ -2994,6 +3026,8 @@ HttpResponse SearchAPI::HandleSAMHistory(const HttpRequest &Request)
 
           Root["history"].push_back(std::move(HistoryJson));
      }
+
+     Root["count"] = Root["history"].size();
 
      HttpResponse Response(Status::OK, StatusText(Status::OK), "application/json");
      Response.Body = Root.dump();
@@ -3276,6 +3310,36 @@ HttpResponse SearchAPI::HandleSAMGetDocument(const HttpRequest &Request)
           {"error", HasJobStatus ? JobStatus.ErrorMessage : std::string()}
      };
      Root["document"] = BuildDocumentJSON(StorageDoc);
+
+     const auto InteractionQueryIt = Request.QueryParams.find("interaction_query");
+     const std::string InteractionQuery = (InteractionQueryIt != Request.QueryParams.end())
+          ? TrimCopy(InteractionQueryIt->second)
+          : std::string();
+
+     if (!InteractionQuery.empty())
+     {
+          SAM::SearchIdeaDocumentRef InteractionDocument;
+          InteractionDocument.DocumentID = Entry.DocumentID;
+          InteractionDocument.Title = Entry.Title;
+          InteractionDocument.Score = 0.0;
+          InteractionDocument.InteractionUses = 1;
+          InteractionDocument.LastInteractionMS = static_cast<uint64_t>(NowMs());
+
+          std::string InteractionError;
+          if (!Instance->Sam->RecordSearchInteraction(CollectionName,
+                                                      InteractionQuery,
+                                                      InteractionDocument,
+                                                      &InteractionError))
+          {
+               Root["interaction_recorded"] = false;
+               Root["interaction_error"] = InteractionError;
+          }
+          else
+          {
+               Root["interaction_recorded"] = true;
+               Root["interaction_query"] = InteractionQuery;
+          }
+     }
 
      HttpResponse Response(Status::OK, StatusText(Status::OK), "application/json");
      Response.Body = Root.dump();

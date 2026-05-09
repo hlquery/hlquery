@@ -21,7 +21,7 @@ class IPFilter;
 class LogManager;
 class ServerConfig;
 class SearchAPI;
-struct SearchHit;
 class DBManager;
 class InvertedIndex;
 class SAM;
+struct SearchHit;

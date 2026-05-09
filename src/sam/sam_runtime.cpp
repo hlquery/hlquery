@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <filesystem>
 #include <rocksdb/write_batch.h>
+#include <chrono>
 #include <sstream>
 
 #include "core/hlquery.h"
@@ -183,6 +184,82 @@ bool SAM::ValidateExpectedMutationVersion(const std::string& Collection,
      }
 
      return false;
+}
+
+void SAM::ScheduleRetryRebuild(const std::string& Collection)
+{
+     if (Collection.empty())
+     {
+          return;
+     }
+
+     {
+          std::lock_guard<std::mutex> Lock(JobMutex);
+          CollectionJobStatus& Status = CollectionJobs[Collection];
+
+          if (Status.RetryScheduled)
+          {
+               return;
+          }
+
+          Status.RetryScheduled = true;
+     }
+
+     std::thread([this, Collection]()
+     {
+          std::this_thread::sleep_for(std::chrono::seconds(5));
+
+          {
+               std::lock_guard<std::mutex> Lock(JobMutex);
+
+               if (ShuttingDown || IsCollectionCancelledLocked(Collection))
+               {
+                    auto It = CollectionJobs.find(Collection);
+                    if (It != CollectionJobs.end())
+                    {
+                         It->second.RetryScheduled = false;
+                    }
+                    return;
+               }
+          }
+
+          bool AlreadyRunning = false;
+          std::string ErrorMessage;
+          const bool Started = StartRecreateCollectionAsync(Collection, &AlreadyRunning, &ErrorMessage);
+
+          {
+               std::lock_guard<std::mutex> Lock(JobMutex);
+               auto It = CollectionJobs.find(Collection);
+               if (It != CollectionJobs.end())
+               {
+                    It->second.RetryScheduled = false;
+
+                    if (Started || AlreadyRunning)
+                    {
+                         It->second.NeedsRetry = false;
+                         if (It->second.ErrorMessage.find("Source collection changed during SAM indexing;") == 0)
+                         {
+                              It->second.ErrorMessage = "Automatic SAM retry queued after source mutations.";
+                         }
+                    }
+                    else if (!ErrorMessage.empty())
+                    {
+                         It->second.ErrorMessage = ErrorMessage;
+                    }
+                 }
+          }
+
+          if (Started)
+          {
+               RecordDebugEvent(Collection, "scheduled automatic rebuild retry after concurrent source mutation");
+          }
+          else if (!AlreadyRunning)
+          {
+               RecordDebugEvent(Collection,
+                                "automatic rebuild retry could not be queued: " +
+                                     (ErrorMessage.empty() ? std::string("unknown error") : ErrorMessage));
+          }
+     }).detach();
 }
 
 void SAM::StartIndexWorker()
@@ -427,6 +504,8 @@ void SAM::RunIndexWorker()
                          (void)WriteCollectionStateLocked(Database.get(), Job.Collection, State, nullptr);
                     }
                }
+
+               ScheduleRetryRebuild(Job.Collection);
           }
 
           FlushPendingSearchIdeas(1);
@@ -856,6 +935,7 @@ bool SAM::StartRecreateCollectionAsync(const std::string& Collection,
           JobStatus = CollectionJobStatus{};
           JobStatus.Running = true;
           JobStatus.Completed = false;
+          JobStatus.RetryScheduled = false;
           JobStatus.ErrorMessage.clear();
           CancelledCollections.erase(Collection);
      }
@@ -1073,6 +1153,8 @@ bool SAM::StartRecreateCollectionAsync(const std::string& Collection,
                                    (void)WriteCollectionStateLocked(Database.get(), Collection, State, nullptr);
                               }
                          }
+
+                         ScheduleRetryRebuild(Collection);
                     }
                }
           }
@@ -1132,6 +1214,7 @@ bool SAM::StartRecreateCollectionAsync(const std::string& Collection,
                          }
                     }
                     RecordDebugEvent(Collection, "rebuild invalidated before completion: " + StateError);
+                    ScheduleRetryRebuild(Collection);
                }
                else
                {

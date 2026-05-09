@@ -3132,6 +3132,11 @@ struct SAMMatchedSearchIdea
      double CoverageScore = 0.0;
 };
 
+constexpr double kSAMSearchIdeaInteractionBaseBoost = 1.20;
+constexpr double kSAMSearchIdeaInteractionStepBoost = 0.08;
+constexpr double kSAMSearchIdeaInteractionSourceBonus = 0.12;
+constexpr double kSAMSearchIdeaInteractionSourceBonusStep = 0.04;
+
 std::vector<SAMMatchedSearchIdea> BuildMatchedSearchIdeas(rocksdb::DB* Database,
                                                           const std::string& Collection,
                                                           const std::string& Query,
@@ -3315,12 +3320,22 @@ void AppendSearchIdeaHits(std::unordered_map<std::string, SAMAggregatedHit>& Agg
                Hit.MatchedScore = ClampSAMScore((Idea.Score * 0.74) +
                                                 (ClampSAMScore(DocumentRef.Score) * 0.26));
                Hit.MatchedSignal = std::max(Idea.SemanticScore, Idea.CoverageScore);
-               Hit.EvidenceCount = static_cast<size_t>(std::max<uint64_t>(1, Idea.Entry.Uses));
+               Hit.EvidenceCount = static_cast<size_t>(std::max<uint64_t>(1, Idea.Entry.Uses + DocumentRef.InteractionUses));
                Hit.Breakdown.TermScore = Hit.MatchedScore;
                Hit.Breakdown.SemanticScore = Idea.SemanticScore;
                Hit.Breakdown.SemanticVectorScore = Idea.SemanticScore;
                Hit.Breakdown.EvidenceBonus = std::min(0.18, static_cast<double>(Hit.EvidenceCount) * 0.01);
-               Hit.Breakdown.FinalScore = ClampSAMScore(Hit.MatchedScore + Hit.Breakdown.EvidenceBonus);
+               Hit.Breakdown.SourceDocBonus = std::min(0.28,
+                                                       static_cast<double>(DocumentRef.InteractionUses) *
+                                                            kSAMSearchIdeaInteractionSourceBonusStep);
+               if (DocumentRef.InteractionUses > 0)
+               {
+                    Hit.Breakdown.SourceDocBonus = std::max(Hit.Breakdown.SourceDocBonus,
+                                                            kSAMSearchIdeaInteractionSourceBonus);
+               }
+               Hit.Breakdown.FinalScore = ClampSAMScore(Hit.MatchedScore +
+                                                        Hit.Breakdown.EvidenceBonus +
+                                                        Hit.Breakdown.SourceDocBonus);
                AccumulateSAMHit(AggregatedHits, Hit);
           }
      }
@@ -4555,7 +4570,6 @@ constexpr uint64_t kSAMSearchIdeaRecentWindowMs = 24ULL * 60ULL * 60ULL * 1000UL
 constexpr uint64_t kSAMSearchIdeaProfileMinUses = 2;
 constexpr uint64_t kSAMSearchIdeaProfileSyncCooldownMs = 60ULL * 60ULL * 1000ULL;
 constexpr size_t kSAMSearchIdeaProfileForceSyncMinDelta = 4;
-
 uint64_t GetSAMCurrentTimeMS()
 {
      return static_cast<uint64_t>(NowMs());
@@ -4597,6 +4611,8 @@ nlohmann::json SerializeSearchIdeaEntry(const SAM::SearchIdeaEntry& Entry)
      Root["resolved_conclusion"] = Entry.ResolvedConclusion;
      Root["resolved_at_ms"] = Entry.ResolvedAtMS;
      Root["resolved_uses"] = Entry.ResolvedUses;
+     Root["interaction_uses"] = Entry.InteractionUses;
+     Root["last_interaction_ms"] = Entry.LastInteractionMS;
      Root["resolved_candidates"] = nlohmann::json::array();
      Root["resolved_ranked_terms"] = nlohmann::json::array();
 
@@ -4610,7 +4626,9 @@ nlohmann::json SerializeSearchIdeaEntry(const SAM::SearchIdeaEntry& Entry)
           Root["documents"].push_back({
                {"id", Document.DocumentID},
                {"title", Document.Title},
-               {"score", Document.Score}
+               {"score", Document.Score},
+               {"interaction_uses", Document.InteractionUses},
+               {"last_interaction_ms", Document.LastInteractionMS}
           });
      }
 
@@ -4649,6 +4667,8 @@ bool ParseSearchIdeaEntry(const std::string& RawValue, SAM::SearchIdeaEntry& Ent
           Entry.ResolvedConclusion = TrimCopy(Root.value("resolved_conclusion", ""));
           Entry.ResolvedAtMS = Root.value("resolved_at_ms", static_cast<uint64_t>(0));
           Entry.ResolvedUses = Root.value("resolved_uses", static_cast<uint64_t>(0));
+          Entry.InteractionUses = Root.value("interaction_uses", static_cast<uint64_t>(0));
+          Entry.LastInteractionMS = Root.value("last_interaction_ms", static_cast<uint64_t>(0));
 
           if (Root.contains("vector") && Root["vector"].is_array())
           {
@@ -4671,6 +4691,8 @@ bool ParseSearchIdeaEntry(const std::string& RawValue, SAM::SearchIdeaEntry& Ent
                     Document.DocumentID = Item.value("id", "");
                     Document.Title = Item.value("title", "");
                     Document.Score = Item.value("score", 0.0);
+                    Document.InteractionUses = Item.value("interaction_uses", static_cast<uint64_t>(0));
+                    Document.LastInteractionMS = Item.value("last_interaction_ms", static_cast<uint64_t>(0));
 
                     if (!Document.DocumentID.empty())
                     {
@@ -7699,6 +7721,7 @@ bool SAM::RecordSearchIdea(const std::string& Collection,
                            const std::vector<SearchIdeaDocumentRef>& Documents,
                            std::string* ErrorMessage)
 {
+     FlushPendingSearchInteractions(2);
      FlushPendingSearchIdeas(2);
 
      constexpr size_t MaxAttempts = 4;
@@ -7756,6 +7779,14 @@ bool SAM::RecordSearchIdea(const std::string& Collection,
                            "' because the database remained busy");
 
      return false;
+}
+
+bool SAM::RecordSearchInteraction(const std::string& Collection,
+                                  const std::string& Query,
+                                  const SearchIdeaDocumentRef& Document,
+                                  std::string* ErrorMessage)
+{
+     return EnqueuePendingSearchInteraction(Collection, Query, Document, ErrorMessage);
 }
 
 bool SAM::EnqueuePendingSearchIdea(const std::string& Collection,
@@ -7854,6 +7885,253 @@ size_t SAM::FlushPendingSearchIdeas(size_t MaxJobs)
      }
 
      return Flushed;
+}
+
+bool SAM::EnqueuePendingSearchInteraction(const std::string& Collection,
+                                          const std::string& Query,
+                                          const SearchIdeaDocumentRef& Document,
+                                          std::string* ErrorMessage)
+{
+     const std::string NormalizedQuery = NormalizeTerm(Query);
+
+     if (Collection.empty() || NormalizedQuery.empty() || Document.DocumentID.empty())
+     {
+          if (ErrorMessage)
+          {
+               *ErrorMessage = "A non-empty collection, query, and document ID are required.";
+          }
+
+          return false;
+     }
+
+     std::lock_guard<std::mutex> Lock(SearchInteractionQueueMutex);
+
+     for (auto& Existing : PendingSearchInteractionJobs)
+     {
+          if (Existing.Collection == Collection &&
+              NormalizeTerm(Existing.Query) == NormalizedQuery &&
+              Existing.Document.DocumentID == Document.DocumentID)
+          {
+               Existing.Query = Query;
+               Existing.Document.Title = Document.Title.empty() ? Existing.Document.Title : Document.Title;
+               Existing.Document.Score = std::max(Existing.Document.Score, Document.Score);
+               Existing.Document.InteractionUses += std::max<uint64_t>(1, Document.InteractionUses);
+               Existing.Document.LastInteractionMS = std::max(Existing.Document.LastInteractionMS,
+                                                              Document.LastInteractionMS);
+               Existing.Attempts = std::min<size_t>(Existing.Attempts + 1, 16);
+               return true;
+          }
+     }
+
+     PendingSearchInteractionJob Job;
+     Job.Collection = Collection;
+     Job.Query = Query;
+     Job.Document = Document;
+     Job.Document.InteractionUses = std::max<uint64_t>(1, Job.Document.InteractionUses);
+     PendingSearchInteractionJobs.push_back(std::move(Job));
+
+     constexpr size_t MaxPendingSearchInteractionJobs = 512;
+     while (PendingSearchInteractionJobs.size() > MaxPendingSearchInteractionJobs)
+     {
+          PendingSearchInteractionJobs.pop_front();
+     }
+
+     return true;
+}
+
+size_t SAM::FlushPendingSearchInteractions(size_t MaxJobs)
+{
+     if (MaxJobs == 0)
+     {
+          return 0;
+     }
+
+     size_t Flushed = 0;
+
+     while (Flushed < MaxJobs)
+     {
+          PendingSearchInteractionJob Job;
+
+          {
+               std::lock_guard<std::mutex> Lock(SearchInteractionQueueMutex);
+               if (PendingSearchInteractionJobs.empty())
+               {
+                    break;
+               }
+
+               Job = PendingSearchInteractionJobs.front();
+               PendingSearchInteractionJobs.pop_front();
+          }
+
+          bool Recorded = false;
+
+          {
+               std::unique_lock<std::mutex> Lock(DBMutex, std::try_to_lock);
+               if (Lock.owns_lock() && Database)
+               {
+                    Recorded = RecordSearchInteractionLocked(Job.Collection, Job.Query, Job.Document, nullptr);
+               }
+          }
+
+          if (Recorded)
+          {
+               ++Flushed;
+               continue;
+          }
+
+          ++Job.Attempts;
+
+          std::lock_guard<std::mutex> Lock(SearchInteractionQueueMutex);
+          if (Job.Attempts < 16)
+          {
+               PendingSearchInteractionJobs.push_back(std::move(Job));
+          }
+          break;
+     }
+
+     return Flushed;
+}
+
+bool SAM::RecordSearchInteractionLocked(const std::string& Collection,
+                                        const std::string& Query,
+                                        const SearchIdeaDocumentRef& Document,
+                                        std::string* ErrorMessage)
+{
+     if (!Database)
+     {
+          if (ErrorMessage)
+          {
+               *ErrorMessage = "SAM database is not open.";
+          }
+
+          return false;
+     }
+
+     if (!ShouldTrackSAMSearchIdeas(Collection))
+     {
+          return true;
+     }
+
+     const std::string NormalizedQuery = NormalizeTerm(Query);
+
+     if (Collection.empty() || NormalizedQuery.empty() || Document.DocumentID.empty())
+     {
+          if (ErrorMessage)
+          {
+               *ErrorMessage = "A non-empty collection, query, and document ID are required.";
+          }
+
+          return false;
+     }
+
+     const uint64_t NowMS = GetSAMCurrentTimeMS();
+     SearchIdeaEntry Entry;
+     std::string RawValue;
+     const std::string IdeaKey = BuildSearchIdeaKey(Collection, NormalizedQuery);
+     const rocksdb::Status ReadStatus =
+          Database->Get(rocksdb::ReadOptions(), IdeaKey, &RawValue);
+
+     if (ReadStatus.ok())
+     {
+          ParseSearchIdeaEntry(RawValue, Entry);
+     }
+     else if (!ReadStatus.IsNotFound() && ErrorMessage)
+     {
+          *ErrorMessage = ReadStatus.ToString();
+          return false;
+     }
+
+     Entry.Collection = Collection;
+     Entry.Query = TrimCopy(Query);
+     Entry.NormalizedQuery = NormalizedQuery;
+     Entry.FirstSeenMS = Entry.FirstSeenMS == 0 ? NowMS : Entry.FirstSeenMS;
+     Entry.LastSeenMS = std::max(Entry.LastSeenMS, NowMS);
+     Entry.Uses = std::max<uint64_t>(1, Entry.Uses);
+     Entry.Vector = BuildHashedSemanticVector({Entry.NormalizedQuery});
+     Entry.InteractionUses += std::max<uint64_t>(1, Document.InteractionUses);
+     Entry.LastInteractionMS = NowMS;
+
+     std::unordered_map<std::string, SearchIdeaDocumentRef> RankedDocuments;
+
+     for (const auto& Existing : Entry.Documents)
+     {
+          if (!Existing.DocumentID.empty())
+          {
+               RankedDocuments[Existing.DocumentID] = Existing;
+          }
+     }
+
+     SearchIdeaDocumentRef Candidate = Document;
+     Candidate.InteractionUses = std::max<uint64_t>(1, Candidate.InteractionUses);
+     Candidate.LastInteractionMS = Candidate.LastInteractionMS == 0 ? NowMS : Candidate.LastInteractionMS;
+     Candidate.Score = std::max(Candidate.Score,
+                                kSAMSearchIdeaInteractionBaseBoost +
+                                     (static_cast<double>(std::min<uint64_t>(Candidate.InteractionUses, 4) - 1) *
+                                      kSAMSearchIdeaInteractionStepBoost));
+
+     auto ExistingIt = RankedDocuments.find(Candidate.DocumentID);
+
+     if (ExistingIt == RankedDocuments.end())
+     {
+          RankedDocuments[Candidate.DocumentID] = Candidate;
+     }
+     else
+     {
+          ExistingIt->second.Title = Candidate.Title.empty() ? ExistingIt->second.Title : Candidate.Title;
+          ExistingIt->second.Score = std::max(ExistingIt->second.Score, Candidate.Score);
+          ExistingIt->second.InteractionUses += Candidate.InteractionUses;
+          ExistingIt->second.LastInteractionMS = std::max(ExistingIt->second.LastInteractionMS,
+                                                          Candidate.LastInteractionMS);
+     }
+
+     Entry.Documents.clear();
+     Entry.Documents.reserve(RankedDocuments.size());
+
+     for (const auto& Pair : RankedDocuments)
+     {
+          Entry.Documents.push_back(Pair.second);
+     }
+
+     std::sort(Entry.Documents.begin(), Entry.Documents.end(),
+               [](const SearchIdeaDocumentRef& A, const SearchIdeaDocumentRef& B)
+               {
+                    if (A.InteractionUses != B.InteractionUses)
+                    {
+                         return A.InteractionUses > B.InteractionUses;
+                    }
+
+                    if (A.Score != B.Score)
+                    {
+                         return A.Score > B.Score;
+                    }
+
+                    return A.DocumentID < B.DocumentID;
+               });
+
+     if (Entry.Documents.size() > kSAMSearchIdeaMaxDocs)
+     {
+          Entry.Documents.resize(kSAMSearchIdeaMaxDocs);
+     }
+
+     const rocksdb::Status WriteStatus =
+          Database->Put(rocksdb::WriteOptions(), IdeaKey, SerializeSearchIdeaEntry(Entry).dump());
+
+     if (!WriteStatus.ok())
+     {
+          if (ErrorMessage)
+          {
+               *ErrorMessage = WriteStatus.ToString();
+          }
+
+          return false;
+     }
+
+     if (!TrimSearchIdeasLocked(Collection, ErrorMessage))
+     {
+          return false;
+     }
+
+     return true;
 }
 
 bool SAM::RecordSearchIdeaLocked(const std::string& Collection,
@@ -8628,6 +8906,7 @@ bool SAM::RefreshCollectionProfileFromSearchIdeas(const std::string& Collection,
 
 size_t SAM::ProcessPendingSearchIntentOptimizations(size_t MaxCollections)
 {
+     FlushPendingSearchInteractions(8);
      FlushPendingSearchIdeas(2);
 
      if (MaxCollections == 0 || !Instance || !Instance->LLM || !Instance->LLM->Configured())
@@ -8757,6 +9036,11 @@ size_t SAM::ProcessPendingSearchIntentOptimizations(size_t MaxCollections)
      }
 
      return Processed;
+}
+
+size_t SAM::FlushPendingInteractionSignals(size_t MaxJobs)
+{
+     return FlushPendingSearchInteractions(MaxJobs);
 }
 
 bool SAM::CancelCollectionWork(const std::string& Collection, std::string* ErrorMessage)

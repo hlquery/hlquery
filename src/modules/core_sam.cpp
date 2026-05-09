@@ -27,9 +27,11 @@
 namespace
 {
      constexpr const char* kSAMGlobalLexicalScope = "__global__";
+     constexpr uint64_t kSAMInteractionFlushIntervalMs = 60ULL * 60ULL * 1000ULL;
      std::mutex StartupSweepMutex;
      bool StartupSweepActive = false;
      std::set<std::string> StartupSweepStartedCollections;
+     uint64_t LastInteractionFlushMS = 0;
 
      void RefreshSAMSearchIdeaProfile(const std::string &LogSource)
      {
@@ -280,6 +282,39 @@ namespace
           }
      }
 
+     void FlushSAMInteractionSignals(const std::string &LogSource, bool Force)
+     {
+          if (!Instance || !Instance->Sam || !Instance->Sam->IsOpen())
+          {
+               return;
+          }
+
+          const uint64_t NowMS = static_cast<uint64_t>(NowMs());
+
+          if (!Force && LastInteractionFlushMS > 0 &&
+              NowMS > LastInteractionFlushMS &&
+              (NowMS - LastInteractionFlushMS) < kSAMInteractionFlushIntervalMs)
+          {
+               return;
+          }
+
+          const size_t Flushed = Instance->Sam->FlushPendingInteractionSignals(512);
+
+          if (Flushed == 0 && !Force)
+          {
+               return;
+          }
+
+          LastInteractionFlushMS = NowMS;
+
+          if (Flushed > 0 && Instance->Logs)
+          {
+               Instance->Logs->Debug(LogSource,
+                                     "Flushed " + std::to_string(Flushed) +
+                                          " pending SAM interaction signal(s).");
+          }
+     }
+
      void SyncSAMLexicalScope(const std::string& Collection,
                               bool GlobalScope,
                               const std::string& LogSource)
@@ -364,11 +399,12 @@ class CoreSAMModule final : public AutoRuntimeModule<CoreSAMModule>
 
      void Stop() override
      {
-
+          FlushSAMInteractionSignals("core_sam", true);
      }
 
      void OnStartup() override
      {
+          LastInteractionFlushMS = static_cast<uint64_t>(NowMs());
           SyncSAMLexicalScope(kSAMGlobalLexicalScope, false, "core_sam");
 
           for (const auto& Collection : HybridStorageManager::GetInstance().ListCollections())
@@ -384,6 +420,7 @@ class CoreSAMModule final : public AutoRuntimeModule<CoreSAMModule>
      {
           SyncSAMLexicalScope(kSAMGlobalLexicalScope, false, "core_sam");
 
+          FlushSAMInteractionSignals("core_sam", false);
           TriggerSAMAutoIndex("core_sam", false);
           OptimizeSAMSearchIntent("core_sam");
      }

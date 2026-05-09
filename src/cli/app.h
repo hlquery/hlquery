@@ -190,7 +190,10 @@ class HLQueryCLI
 
      /* Shows recently recorded SAM search history entries. */
 
-     void ShowSAMHistory(const std::string &collection_name, int limit = 100, bool json_output = false);
+     void ShowSAMHistory(const std::string &collection_name,
+                         int limit = 100,
+                         bool json_output = false,
+                         bool interactions_only = false);
 
      /* Lists SAM-indexed documents for one collection. */
 
@@ -198,7 +201,10 @@ class HLQueryCLI
 
      /* Opens one SAM document entry. */
 
-     void OpenSAMDocument(const std::string &collection_name, const std::string &document_id, bool json_output = false);
+     void OpenSAMDocument(const std::string &collection_name,
+                          const std::string &document_id,
+                          bool json_output = false,
+                          const std::string &interaction_query = "");
 
      /* Searches across multiple collections via the global search endpoint. */
 

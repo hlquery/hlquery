@@ -1869,6 +1869,7 @@ void HLQueryCLI::ShowSAMStatus(const std::string &collection_name, bool json_out
                     rows.push_back({
                          entry.value("collection", ""),
                          running ? "yes" : "no",
+                         entry.value("retry_scheduled", false) ? "queued" : (entry.value("needs_retry", false) ? "yes" : "no"),
                          entry.value("completed", false) ? "yes" : "no",
                          std::to_string(entry.value("indexed", static_cast<size_t>(0))),
                          std::to_string(entry.value("failed", static_cast<size_t>(0))),
@@ -1877,7 +1878,7 @@ void HLQueryCLI::ShowSAMStatus(const std::string &collection_name, bool json_out
                     });
                }
 
-               PrintTable({"Collection", "Running", "Completed", "Indexed", "Failed", "Pending", "Total"}, rows);
+               PrintTable({"Collection", "Running", "Retry", "Completed", "Indexed", "Failed", "Pending", "Total"}, rows);
 
                const nlohmann::json &running_collections = root["running_collections"];
 
@@ -1947,6 +1948,7 @@ void HLQueryCLI::ShowSAMStatus(const std::string &collection_name, bool json_out
      rows.push_back({"collection", root.value("collection", "")});
      rows.push_back({"known", root.value("known", false) ? "yes" : "no"});
      rows.push_back({"running", root.value("running", false) ? "yes" : "no"});
+     rows.push_back({"retry", root.value("retry_scheduled", false) ? "queued" : (root.value("needs_retry", false) ? "yes" : "no")});
      rows.push_back({"completed", root.value("completed", false) ? "yes" : "no"});
      rows.push_back({"indexed", std::to_string(root.value("indexed", static_cast<size_t>(0)))});
      rows.push_back({"failed", std::to_string(root.value("failed", static_cast<size_t>(0)))});
@@ -1986,7 +1988,10 @@ void HLQueryCLI::ShowSAMStatus(const std::string &collection_name, bool json_out
 
 }
 
-void HLQueryCLI::ShowSAMHistory(const std::string &collection_name, int limit, bool json_output)
+void HLQueryCLI::ShowSAMHistory(const std::string &collection_name,
+                                int limit,
+                                bool json_output,
+                                bool interactions_only)
 {
      if (limit <= 0)
      {
@@ -1998,6 +2003,11 @@ void HLQueryCLI::ShowSAMHistory(const std::string &collection_name, int limit, b
      if (!collection_name.empty())
      {
           path += "&collection=" + hlquery_cli::UrlEncode(collection_name);
+     }
+
+     if (interactions_only)
+     {
+          path += "&interactions_only=true";
      }
 
      HLQueryCLI::HTTPResponse response = MakeRequest("GET", path, "", std::max(60, DefaultTimeoutSeconds));
@@ -2026,7 +2036,7 @@ void HLQueryCLI::ShowSAMHistory(const std::string &collection_name, int limit, b
      }
 
      const nlohmann::json &history = root["history"];
-     std::cout << "SAM recent search history";
+     std::cout << (interactions_only ? "SAM recorded interactions" : "SAM recent search history");
 
      if (!collection_name.empty())
      {
@@ -2037,7 +2047,7 @@ void HLQueryCLI::ShowSAMHistory(const std::string &collection_name, int limit, b
 
      if (!history.is_array() || history.empty())
      {
-          std::cout << "No SAM search history found.\n";
+          std::cout << (interactions_only ? "No SAM interactions found.\n" : "No SAM search history found.\n");
           return;
      }
 
@@ -2047,6 +2057,7 @@ void HLQueryCLI::ShowSAMHistory(const std::string &collection_name, int limit, b
      for (const auto &entry : history)
      {
           std::string best_match;
+          std::string top_interaction;
           std::string llm_intent = entry.value("resolved_interpretation", "");
           std::string conclusion = entry.value("resolved_conclusion", "");
 
@@ -2078,18 +2089,77 @@ void HLQueryCLI::ShowSAMHistory(const std::string &collection_name, int limit, b
                }
           }
 
-          rows.push_back({
-               std::to_string(index++),
-               entry.value("collection", ""),
-               entry.value("query", ""),
-               std::to_string(entry.value("uses", static_cast<uint64_t>(0))),
-               llm_intent,
-               best_match,
-               conclusion
-          });
+          if (entry.contains("documents") && entry["documents"].is_array())
+          {
+               uint64_t best_interaction_uses = 0;
+
+               for (const auto &document : entry["documents"])
+               {
+                    if (!document.is_object())
+                    {
+                         continue;
+                    }
+
+                    const uint64_t document_interactions =
+                         document.value("interaction_uses", static_cast<uint64_t>(0));
+
+                    if (document_interactions == 0 || document_interactions < best_interaction_uses)
+                    {
+                         continue;
+                    }
+
+                    std::string document_label = document.value("title", "");
+
+                    if (document_label.empty())
+                    {
+                         document_label = document.value("id", "");
+                    }
+
+                    if (document_label.empty())
+                    {
+                         continue;
+                    }
+
+                    best_interaction_uses = document_interactions;
+                    top_interaction = document_label + " (" + std::to_string(document_interactions) + ")";
+               }
+          }
+
+          if (interactions_only)
+          {
+               rows.push_back({
+                    std::to_string(index++),
+                    entry.value("collection", ""),
+                    entry.value("query", ""),
+                    std::to_string(entry.value("interaction_uses", static_cast<uint64_t>(0))),
+                    top_interaction,
+                    best_match,
+                    conclusion
+               });
+          }
+          else
+          {
+               rows.push_back({
+                    std::to_string(index++),
+                    entry.value("collection", ""),
+                    entry.value("query", ""),
+                    std::to_string(entry.value("uses", static_cast<uint64_t>(0))),
+                    std::to_string(entry.value("interaction_uses", static_cast<uint64_t>(0))),
+                    llm_intent,
+                    best_match,
+                    conclusion
+               });
+          }
      }
 
-     PrintTable({"#", "Collection", "Query", "Uses", "LLM Intent", "Best Match", "Conclusion"}, rows);
+     if (interactions_only)
+     {
+          PrintTable({"#", "Collection", "Query", "Int", "Top Interaction", "Best Match", "Conclusion"}, rows);
+     }
+     else
+     {
+          PrintTable({"#", "Collection", "Query", "Uses", "Int", "LLM Intent", "Best Match", "Conclusion"}, rows);
+     }
 }
 
 void HLQueryCLI::ListSAMDocuments(const std::string &collection_name, int offset, int limit, bool json_output)
@@ -2213,7 +2283,10 @@ void HLQueryCLI::ListSAMDocuments(const std::string &collection_name, int offset
      PrintTable({"#", "ID", "Title", "Terms"}, rows);
 }
 
-void HLQueryCLI::OpenSAMDocument(const std::string &collection_name, const std::string &document_id, bool json_output)
+void HLQueryCLI::OpenSAMDocument(const std::string &collection_name,
+                                 const std::string &document_id,
+                                 bool json_output,
+                                 const std::string &interaction_query)
 {
      if (collection_name.empty() || document_id.empty())
      {
@@ -2222,7 +2295,10 @@ void HLQueryCLI::OpenSAMDocument(const std::string &collection_name, const std::
      }
 
      const std::string path = "/sam/documents/" + hlquery_cli::UrlEncode(collection_name) +
-                              "/" + hlquery_cli::UrlEncode(document_id);
+                              "/" + hlquery_cli::UrlEncode(document_id) +
+                              (interaction_query.empty()
+                                   ? ""
+                                   : "?interaction_query=" + hlquery_cli::UrlEncode(interaction_query));
      HLQueryCLI::HTTPResponse response = MakeRequest("GET", path);
 
      if (CheckRequestFailed(response))
