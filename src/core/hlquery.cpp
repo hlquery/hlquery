@@ -413,8 +413,8 @@ void hlquery::Run()
           SetupSignalHandlers();
      }
 
-     time_t OLDTimeVal = Time();
-     time_t LastMinuteRun = (OLDTimeVal > 0) ? (OLDTimeVal / 60) : -1;
+     time_t old_time = Time();
+     time_t LastMinuteRun = (old_time > 0) ? (old_time / 60) : -1;
 
      if (!hlquery::WritePID())
      {
@@ -462,10 +462,10 @@ void hlquery::Run()
 
           /* Execute periodic maintenance tasks based on clock movement */
 
-          if (NowTimeVal != OLDTimeVal)
+          if (NowTimeVal != old_time)
           {
                SafePeriodicFlush();
-               OLDTimeVal = NowTimeVal;
+               old_time = NowTimeVal;
           }
 
           if (Instance && Instance->Modules && CurrentMinute >= 0 && CurrentMinute != LastMinuteRun)

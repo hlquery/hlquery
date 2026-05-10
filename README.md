@@ -175,8 +175,6 @@ $schema = [
 
 $response = $collections->create('products', $schema); 
 $body = $response->getBody(); 
-
-echo "Created collection: " . ($body['name'] ?? 'products') . PHP_EOL; 
 ```
 
 ### Index Documents
@@ -276,11 +274,9 @@ SQL rows for `select title from music where content like 'madonna%' or content l
 Search completed in 19 ms.
 ```
 
-### GitHub Repositories & Development Workflow
+### GitHub Repositories & Branch Structure
 
 hlquery is actively developed across multiple GitHub repositories. We maintain a structured development workflow to ensure stability and continuous improvement.
-
-### Branch Structure
 
 Each repository follows a **two-branch development model**:
 

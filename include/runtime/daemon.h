@@ -19,7 +19,7 @@
 
 /*
  * Coordinates daemon-side optimization routines and lazy processing
- * for the HLQuery runtime.
+ * for the hlquery runtime.
  */
 
 class DaemonHandler

@@ -230,7 +230,6 @@ void SearchThreadPool::Pause()
 void SearchThreadPool::Resume()
 {
      Paused = false;
-
      QueueCV.notify_all();
 }
 
@@ -284,7 +283,6 @@ SearchThreadPool::PoolStats SearchThreadPool::GetStats()
 void SearchThreadPool::ScaleUp(size_t additional_threads)
 {
      size_t CurrentThreads = Workers.size();
-
      size_t TargetThreads = std::min(CurrentThreads + additional_threads, Config.MaxThreads);
 
      ScaleThreads(TargetThreads);
@@ -738,13 +736,11 @@ bool ThreadPoolManager::Initialize()
           /* Reserve 1 thread for main thread */
 
           size_t Reserved = RocksDBThreads + 1; /* RocksDB + main thread */
-
           size_t AvailableForPools = (MaxThreads > Reserved) ? (MaxThreads - Reserved) : 1;
 
           /* Distribute available threads evenly across 4 pools */
 
           size_t BaseThreadsPerPool = AvailableForPools / 4;
-
           size_t ExtraThreads = AvailableForPools % 4;
 
           if (BaseThreadsPerPool == 0)
