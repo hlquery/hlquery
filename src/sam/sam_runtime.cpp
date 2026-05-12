@@ -24,6 +24,41 @@
 #include "search/storageengine.h"
 #include "vendor/json/json.hpp"
 
+namespace {
+constexpr const char* kPendingIndexQueuePrefix = "sam:queue:index:";
+
+std::string BuildPendingIndexQueueKey(const std::string& Collection, const std::string& DocumentID)
+{
+     std::string Key;
+     Key.reserve(std::char_traits<char>::length(kPendingIndexQueuePrefix) + Collection.size() + 1 + DocumentID.size());
+     Key.append(kPendingIndexQueuePrefix);
+     Key.append(Collection);
+     Key.push_back('\0');
+     Key.append(DocumentID);
+     return Key;
+}
+
+bool ParsePendingIndexQueueKey(const std::string& Key, std::string& Collection, std::string& DocumentID)
+{
+     const size_t PrefixLen = std::char_traits<char>::length(kPendingIndexQueuePrefix);
+     if (Key.size() <= PrefixLen || Key.compare(0, PrefixLen, kPendingIndexQueuePrefix) != 0)
+     {
+          return false;
+     }
+
+     const std::string_view Remainder(Key.data() + PrefixLen, Key.size() - PrefixLen);
+     const size_t Sep = Remainder.find('\0');
+     if (Sep == std::string::npos)
+     {
+          return false;
+     }
+
+     Collection.assign(Remainder.substr(0, Sep));
+     DocumentID.assign(Remainder.substr(Sep + 1));
+     return !Collection.empty() && !DocumentID.empty();
+}
+}
+
 SAM::SAM()
 {
      OptionsValue.create_if_missing = true;
@@ -105,6 +140,54 @@ bool SAM::Initialize()
           if (Instance && Instance->Logs)
           {
                Instance->Logs->Normal("sam", "Secondary Assistant Manager opened at " + DBPath + ".");
+          }
+     }
+
+     {
+          std::lock_guard<std::mutex> DBLock(DBMutex);
+          if (Database)
+          {
+               std::unique_ptr<rocksdb::Iterator> It(Database->NewIterator(rocksdb::ReadOptions()));
+               for (It->Seek(kPendingIndexQueuePrefix);
+                    It->Valid() && It->key().starts_with(kPendingIndexQueuePrefix);
+                    It->Next())
+               {
+                    std::string Collection;
+                    std::string DocumentID;
+                    if (!ParsePendingIndexQueueKey(It->key().ToString(), Collection, DocumentID))
+                    {
+                         continue;
+                    }
+
+                    bool HasExpectedMutationVersion = false;
+                    uint64_t ExpectedMutationVersion = 0;
+
+                    try
+                    {
+                         const nlohmann::json Root = nlohmann::json::parse(It->value().ToString());
+                         HasExpectedMutationVersion = Root.value("has_expected_mutation_version", false);
+                         ExpectedMutationVersion = Root.value("expected_mutation_version", 0);
+                    }
+                    catch (...) {}
+
+                    const Document Doc = HybridStorageManager::GetInstance().GetDocument(Collection, DocumentID);
+                    if (Doc.ID.empty())
+                    {
+                         (void)Database->Delete(rocksdb::WriteOptions(), It->key());
+                         continue;
+                    }
+
+                    {
+                         std::lock_guard<std::mutex> QueueLock(QueueMutex);
+                         const std::string PendingKey = BuildPendingIndexKey(Collection, DocumentID);
+                         if (!PendingIndexKeys.insert(PendingKey).second)
+                         {
+                              continue;
+                         }
+
+                         PendingIndexJobs.push_back(PendingIndexJob{Collection, Doc, HasExpectedMutationVersion, ExpectedMutationVersion});
+                    }
+               }
           }
      }
 
@@ -339,6 +422,14 @@ void SAM::RunIndexWorker()
                          Job = std::move(PendingIndexJobs[SelectedIndex]);
                          PendingIndexJobs.erase(PendingIndexJobs.begin() + static_cast<long>(SelectedIndex));
                          PendingIndexKeys.erase(BuildPendingIndexKey(Job.Collection, Job.Doc.ID));
+                         {
+                              std::lock_guard<std::mutex> DBLock(DBMutex);
+                              if (Database)
+                              {
+                                   (void)Database->Delete(rocksdb::WriteOptions(),
+                                                          BuildPendingIndexQueueKey(Job.Collection, Job.Doc.ID));
+                              }
+                         }
                          break;
                     }
 
@@ -1284,6 +1375,7 @@ bool SAM::EnqueueIndexDocument(const std::string& Collection,
      }
 
      const std::string PendingKey = BuildPendingIndexKey(Collection, Doc.ID);
+     bool PersistQueueItem = false;
 
      {
           std::lock_guard<std::mutex> Lock(QueueMutex);
@@ -1297,17 +1389,35 @@ bool SAM::EnqueueIndexDocument(const std::string& Collection,
                          ExistingJob.Doc = Doc;
                          ExistingJob.HasExpectedMutationVersion = HasExpectedMutationVersion;
                          ExistingJob.ExpectedMutationVersion = ExpectedMutationVersion;
+                         PersistQueueItem = true;
                          break;
                     }
                }
 
-               return true;
+               // Fall through to persist the refreshed job payload.
           }
+          else
+          {
+               PendingIndexJobs.push_back(PendingIndexJob{Collection,
+                                                          Doc,
+                                                          HasExpectedMutationVersion,
+                                                          ExpectedMutationVersion});
+               PersistQueueItem = true;
+          }
+     }
 
-          PendingIndexJobs.push_back(PendingIndexJob{Collection,
-                                                     Doc,
-                                                     HasExpectedMutationVersion,
-                                                     ExpectedMutationVersion});
+     if (PersistQueueItem)
+     {
+          std::lock_guard<std::mutex> DBLock(DBMutex);
+          if (Database)
+          {
+               nlohmann::json Root;
+               Root["has_expected_mutation_version"] = HasExpectedMutationVersion;
+               Root["expected_mutation_version"] = ExpectedMutationVersion;
+               (void)Database->Put(rocksdb::WriteOptions(),
+                                   BuildPendingIndexQueueKey(Collection, Doc.ID),
+                                   Root.dump());
+          }
      }
 
      RecordDebugEvent(Collection, "queued background index for " + Doc.ID);
@@ -1572,6 +1682,7 @@ bool SAM::DeleteDocument(const std::string& Collection, const std::string& Docum
           return false;
      }
 
+     (void)Database->Delete(rocksdb::WriteOptions(), BuildPendingIndexQueueKey(Collection, DocumentID));
      return RemoveExistingDocumentTermsLocked(Collection, DocumentID, ErrorMessage);
 }
 
@@ -1622,6 +1733,15 @@ bool SAM::DeleteCollection(const std::string& Collection, std::string* ErrorMess
                }
 
                return false;
+          }
+
+          std::unique_ptr<rocksdb::Iterator> QueueIterator(Database->NewIterator(rocksdb::ReadOptions()));
+          const std::string QueuePrefix = std::string(kPendingIndexQueuePrefix) + Collection + std::string(1, '\0');
+          for (QueueIterator->Seek(QueuePrefix);
+               QueueIterator->Valid() && QueueIterator->key().starts_with(QueuePrefix);
+               QueueIterator->Next())
+          {
+               (void)Database->Delete(rocksdb::WriteOptions(), QueueIterator->key());
           }
 
           std::vector<std::string> ExistingDocumentIDs;
