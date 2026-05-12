@@ -112,6 +112,13 @@ sub find_binary {
             return File::Spec->rel2abs($path);
         }
     }
+
+    # Fall back to PATH lookup.
+    my $from_path = `command -v $BINARY_NAME 2>/dev/null`;
+    chomp $from_path;
+    if ($from_path && -x $from_path) {
+        return $from_path;
+    }
     
     return undef;
 }

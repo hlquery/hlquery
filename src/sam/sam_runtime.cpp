@@ -147,6 +147,7 @@ bool SAM::Initialize()
           std::lock_guard<std::mutex> DBLock(DBMutex);
           if (Database)
           {
+               std::vector<std::string> StaleQueueKeys;
                std::unique_ptr<rocksdb::Iterator> It(Database->NewIterator(rocksdb::ReadOptions()));
                for (It->Seek(kPendingIndexQueuePrefix);
                     It->Valid() && It->key().starts_with(kPendingIndexQueuePrefix);
@@ -173,7 +174,7 @@ bool SAM::Initialize()
                     const Document Doc = HybridStorageManager::GetInstance().GetDocument(Collection, DocumentID);
                     if (Doc.ID.empty())
                     {
-                         (void)Database->Delete(rocksdb::WriteOptions(), It->key());
+                         StaleQueueKeys.push_back(It->key().ToString());
                          continue;
                     }
 
@@ -187,6 +188,16 @@ bool SAM::Initialize()
 
                          PendingIndexJobs.push_back(PendingIndexJob{Collection, Doc, HasExpectedMutationVersion, ExpectedMutationVersion});
                     }
+               }
+
+               if (!StaleQueueKeys.empty())
+               {
+                    rocksdb::WriteBatch Batch;
+                    for (const auto& Key : StaleQueueKeys)
+                    {
+                         Batch.Delete(Key);
+                    }
+                    (void)Database->Write(rocksdb::WriteOptions(), &Batch);
                }
           }
      }
@@ -1737,11 +1748,22 @@ bool SAM::DeleteCollection(const std::string& Collection, std::string* ErrorMess
 
           std::unique_ptr<rocksdb::Iterator> QueueIterator(Database->NewIterator(rocksdb::ReadOptions()));
           const std::string QueuePrefix = std::string(kPendingIndexQueuePrefix) + Collection + std::string(1, '\0');
+          std::vector<std::string> QueueKeysToDelete;
           for (QueueIterator->Seek(QueuePrefix);
                QueueIterator->Valid() && QueueIterator->key().starts_with(QueuePrefix);
                QueueIterator->Next())
           {
-               (void)Database->Delete(rocksdb::WriteOptions(), QueueIterator->key());
+               QueueKeysToDelete.push_back(QueueIterator->key().ToString());
+          }
+
+          if (!QueueKeysToDelete.empty())
+          {
+               rocksdb::WriteBatch Batch;
+               for (const auto& Key : QueueKeysToDelete)
+               {
+                    Batch.Delete(Key);
+               }
+               (void)Database->Write(rocksdb::WriteOptions(), &Batch);
           }
 
           std::vector<std::string> ExistingDocumentIDs;
