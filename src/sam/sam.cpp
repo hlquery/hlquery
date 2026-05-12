@@ -9067,7 +9067,8 @@ bool SAM::CancelCollectionWork(const std::string& Collection, std::string* Error
 
           for (auto It = PendingIndexKeys.begin(); It != PendingIndexKeys.end(); )
           {
-               if (It->rfind(Collection + "\n", 0) == 0)
+               const std::string Prefix = Collection + std::string(1, '\0');
+               if (It->rfind(Prefix, 0) == 0)
                {
                     It = PendingIndexKeys.erase(It);
                }

@@ -15,6 +15,7 @@
 #include <rocksdb/write_batch.h>
 #include <chrono>
 #include <sstream>
+#include <thread>
 
 #include "core/hlquery.h"
 #include "sam/lang.h"
@@ -133,6 +134,11 @@ void SAM::Shutdown()
      {
           if (Worker.joinable())
           {
+               if (Worker.get_id() == std::this_thread::get_id())
+               {
+                    continue;
+               }
+
                Worker.join();
           }
      }
@@ -146,7 +152,12 @@ void SAM::Shutdown()
 
 std::string SAM::BuildPendingIndexKey(const std::string& Collection, const std::string& DocumentID)
 {
-     return Collection + "\n" + DocumentID;
+     std::string Key;
+     Key.reserve(Collection.size() + 1 + DocumentID.size());
+     Key.append(Collection);
+     Key.push_back('\0');
+     Key.append(DocumentID);
+     return Key;
 }
 
 uint64_t SAM::GetCurrentCollectionMutationVersion(const std::string& Collection) const
@@ -1588,7 +1599,8 @@ bool SAM::DeleteCollection(const std::string& Collection, std::string* ErrorMess
 
           for (auto It = PendingIndexKeys.begin(); It != PendingIndexKeys.end(); )
           {
-               if (It->rfind(Collection + "\n", 0) == 0)
+               const std::string Prefix = Collection + std::string(1, '\0');
+               if (It->rfind(Prefix, 0) == 0)
                {
                     It = PendingIndexKeys.erase(It);
                }
