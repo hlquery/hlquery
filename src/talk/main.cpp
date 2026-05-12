@@ -1416,6 +1416,53 @@ std::vector<std::string> FetchSAMDocumentIds(HLQueryCLI &cli, const std::string 
      return document_ids;
 }
 
+std::vector<std::string> FetchSAMSearchDocumentIds(HLQueryCLI &cli,
+                                                   const std::string &collection_name,
+                                                   const std::string &query,
+                                                   int limit = 1000)
+{
+     std::vector<std::string> document_ids;
+
+     if (collection_name.empty() || query.empty())
+     {
+          return document_ids;
+     }
+
+     std::string path = "/sam/search?collection=" + hlquery_cli::UrlEncode(collection_name) +
+                        "&q=" + hlquery_cli::UrlEncode(query) +
+                        "&limit=" + std::to_string(limit);
+
+     HLQueryCLI::HTTPResponse response = cli.MakeRequest("GET", path);
+
+     if (response.StatusCode != 200)
+     {
+          return document_ids;
+     }
+
+     try
+     {
+          nlohmann::json root = nlohmann::json::parse(response.Body);
+
+          if (!root.contains("hits") || !root["hits"].is_array())
+          {
+               return document_ids;
+          }
+
+          for (const auto &hit : root["hits"])
+          {
+               if (hit.contains("id") && hit["id"].is_string())
+               {
+                    document_ids.push_back(hit["id"].get<std::string>());
+               }
+          }
+     }
+     catch (...)
+     {
+     }
+
+     return document_ids;
+}
+
 /* Fetch one document ID by absolute 1-based position within a collection listing. */
 
 bool FetchDocumentIdAtPosition(HLQueryCLI &cli,
@@ -2079,6 +2126,7 @@ void PrintHelp()
      std::cout << "  sam search [COL] QUERY [limit]  Search SAM phrases in the current or specified collection\n";
      std::cout << "  sam status [COL]  Show current SAM background indexing status\n";
      std::cout << "  sam history [COL] [limit]  Show recent SAM search history\n";
+     std::cout << "  sam int|inst|interactions [COL] [limit]  Show learned SAM interaction refinements\n";
      std::cout << "  sam debug [COL] [limit]  Stream live SAM debug events for one collection\n";
      std::cout << "  sam list [COL] [offset limit]  List SAM-indexed documents for one collection\n";
      std::cout << "  sam open ID|COL/ID  Open one SAM-indexed document\n";
@@ -2129,6 +2177,7 @@ void PrintSAMHelp()
      std::cout << "  sam search [COL] QUERY [limit]  Search SAM phrases in the current or specified collection\n";
      std::cout << "  sam status [COL]  Show current SAM background indexing status\n";
      std::cout << "  sam history [COL] [limit]  Show recent SAM search history\n";
+     std::cout << "  sam int|inst|interactions [COL] [limit]  Show learned SAM interaction refinements\n";
      std::cout << "  sam debug [COL] [limit]  Stream live SAM debug events for one collection\n";
      std::cout << "  sam list [COL] [offset limit]  List SAM-indexed documents for one collection\n";
      std::cout << "  sam open ID|COL/ID  Open one SAM-indexed document\n";
@@ -2180,6 +2229,8 @@ void SetCurrentCollection(TalkState &state, const std::string &collection_name)
      state.CurrentCollection = collection_name;
      state.LastListedDocumentIds.clear();
      state.LastListedSAMDocumentIds.clear();
+     state.LastSAMSearchCollection.clear();
+     state.LastSAMSearchQuery.clear();
 }
 
 bool GoBackCollection(TalkState &state)
@@ -3544,6 +3595,9 @@ bool ExecuteTalkCommand(const std::string &line,
                     return true;
                }
 
+               state.LastSAMSearchCollection = collection_name;
+               state.LastSAMSearchQuery = query_text;
+               state.LastListedSAMDocumentIds = FetchSAMSearchDocumentIds(cli, collection_name, query_text, limit_val);
                cli.SearchSAM(collection_name, query_text, limit_val);
                return true;
           }
@@ -3621,6 +3675,56 @@ bool ExecuteTalkCommand(const std::string &line,
                }
 
                cli.ShowSAMHistory(collection_name, limit);
+               return true;
+          }
+
+          if (parts.size() >= 2 &&
+              (parts[1] == "int" || parts[1] == "inst" || parts[1] == "interactions"))
+          {
+               std::string collection_name;
+               std::string error_message;
+               int limit = 100;
+
+               if (parts.size() == 2)
+               {
+                    collection_name = state.CurrentCollection;
+               }
+               else if (parts.size() == 3)
+               {
+                    if (IsUnsignedInteger(parts[2]))
+                    {
+                         limit = std::stoi(parts[2]);
+                         collection_name = state.CurrentCollection;
+                    }
+                    else if (!ResolveSAMCollectionReference(state, cli, parts[2], collection_name, error_message))
+                    {
+                         TalkPrintError(error_message);
+                         return true;
+                    }
+               }
+               else if (parts.size() == 4)
+               {
+                    if (!ResolveSAMCollectionReference(state, cli, parts[2], collection_name, error_message))
+                    {
+                         TalkPrintError(error_message);
+                         return true;
+                    }
+
+                    if (!IsUnsignedInteger(parts[3]))
+                    {
+                         TalkPrintError("SAM interaction limit must be a positive integer");
+                         return true;
+                    }
+
+                    limit = std::stoi(parts[3]);
+               }
+               else
+               {
+                    TalkPrintError("Usage: sam int [collection] [limit]");
+                    return true;
+               }
+
+               cli.ShowSAMHistory(collection_name, limit, false, true);
                return true;
           }
 
@@ -3772,6 +3876,8 @@ bool ExecuteTalkCommand(const std::string &line,
                }
 
                state.LastListedSAMDocumentIds = FetchSAMDocumentIds(cli, collection_name, offset, limit);
+               state.LastSAMSearchCollection.clear();
+               state.LastSAMSearchQuery.clear();
                cli.ListSAMDocuments(collection_name, offset, limit);
                return true;
           }
@@ -3819,8 +3925,33 @@ bool ExecuteTalkCommand(const std::string &line,
 
                     document_id = resolved_document_id;
                }
+               else if (IsUnsignedInteger(document_id) &&
+                        resolved_collection == state.CurrentCollection)
+               {
+                    std::string resolved_document_id;
 
-               cli.OpenSAMDocument(resolved_collection, document_id);
+                    if (!ResolveCollectionDocumentReference(cli,
+                                                            resolved_collection,
+                                                            document_id,
+                                                            state.LastListedDocumentIds,
+                                                            resolved_document_id,
+                                                            error_message))
+                    {
+                         TalkPrintError(error_message);
+                         return true;
+                    }
+
+                    document_id = resolved_document_id;
+               }
+
+               std::string interaction_query;
+
+               if (resolved_collection == state.LastSAMSearchCollection)
+               {
+                    interaction_query = state.LastSAMSearchQuery;
+               }
+
+               cli.OpenSAMDocument(resolved_collection, document_id, false, interaction_query);
                return true;
           }
 

@@ -206,7 +206,7 @@ class BenchmarkClient
 
      /* Gets total document count. */
 
-     HTTPResponse GetDocTotal();
+     HTTPResponse GetDocTotal(const std::string &prefix = "");
 
      /* Gets health status. */
 
@@ -218,7 +218,7 @@ class BenchmarkClient
 
      /* Updates counters. */
 
-     HTTPResponse UpdateCounters();
+     HTTPResponse UpdateCounters(const std::string &prefix = "");
 
      /* Flushes and syncs. */
 

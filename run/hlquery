@@ -21,17 +21,10 @@ use POSIX qw(strftime WNOHANG);
 # Configuration
 my $VERSION = "1.0.0";
 my $BINARY_NAME = "hlquery";
-<<<<<<< HEAD
-my $DEFAULT_CONFIG = "/home/cferry/p/hlquery/hlquery/run/conf/hlquery.conf";
-my $DEFAULT_PIDFILE = "/home/cferry/p/hlquery/hlquery/run/pid/hlquery.pid";
-my $DEFAULT_PID_DIR  = "/home/cferry/p/hlquery/hlquery/run/pid";
-my $DEFAULT_LOGDIR = "/home/cferry/p/hlquery/hlquery/run/logs";
-=======
 my $DEFAULT_CONFIG = "/etc/hlquery/hlquery.conf";
 my $DEFAULT_PIDFILE = "/run/hlquery/hlquery.pid";
 my $DEFAULT_PID_DIR  = "/run/hlquery";
 my $DEFAULT_LOGDIR = "/var/log/hlquery";
->>>>>>> unstable
 
 # Colors for output
 my $RED = "\033[31m";
@@ -101,11 +94,7 @@ EOF
 
 sub find_binary {
     # Check fixed location from configure first
-<<<<<<< HEAD
-    my $fixed_binary = "/home/cferry/p/hlquery/hlquery/run/bin/" . $BINARY_NAME;
-=======
     my $fixed_binary = "/usr/bin/" . $BINARY_NAME;
->>>>>>> unstable
     if (-x $fixed_binary) {
         return $fixed_binary;
     }
@@ -122,6 +111,13 @@ sub find_binary {
         if (-x $path) {
             return File::Spec->rel2abs($path);
         }
+    }
+
+    # Fall back to PATH lookup.
+    my $from_path = `command -v $BINARY_NAME 2>/dev/null`;
+    chomp $from_path;
+    if ($from_path && -x $from_path) {
+        return $from_path;
     }
     
     return undef;

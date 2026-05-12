@@ -25,6 +25,7 @@
 #include <vendor/json/json.hpp>
 
 #include "benchmarkclient.h"
+#include "runtime/clock.h"
 
 /* Signal and stat helpers. */
 
@@ -1364,8 +1365,8 @@ static void PrintBenchmarkHelp(const char *program_name)
 {
      std::cout << "Usage: " << program_name << " [options]\n"
                << "Options:\n"
-               << "  --url URL          Server URL (default: http://localhost:9200)\n"
-               << "  --host HOST        Server host (default: localhost)\n"
+               << "  --url URL          Server URL (default: http://127.0.0.1:9200)\n"
+               << "  --host HOST        Server host (default: 127.0.0.1)\n"
                << "  --port PORT        Server port (default: 9200)\n"
                << "  --auth TOKEN      Authentication token\n"
                << "  --ssl-auth        Over HTTPS, send token as both Authorization and X-API-Key\n"
@@ -1388,7 +1389,7 @@ static void PrintBenchmarkHelp(const char *program_name)
                << "  --check-consistency      Check consistency of /status, /stats, /metrics, /doctotal\n"
                << "  --dry-run          Generate collections/docs in memory but don't send to server\n"
                << "  --cleanup          Delete all benchmark-tagged collections at end\n"
-               << "  --prefix PREFIX    Custom prefix for benchmark collections (default: bench_collection_)\n"
+               << "  --prefix PREFIX    Custom prefix for benchmark collections (default: bench_{runid}_)\n"
                << "  --durability-config PATH  Load durability settings from config (e.g., run/conf/database.conf)\n"
                << "  --reuse-collections Reuse existing collections instead of deleting/recreating them\n"
                << "  --skip-auth-check  Skip authentication requirement check (useful when auth is disabled)\n"
@@ -1417,8 +1418,8 @@ int main(int argc, char *argv[])
 
           /* Default benchmark configuration values. */
 
-          std::string base_url = "http://localhost:9200";
-          std::string host = "localhost";
+          std::string base_url = "http://127.0.0.1:9200";
+          std::string host = "127.0.0.1";
           int port = 9200;
           bool host_set = false;
           bool port_set = false;
@@ -1666,7 +1667,7 @@ int main(int argc, char *argv[])
                }
                else
                {
-                    *log_file_stream << "\n=== Benchmark started at " << std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count() << " ===\n";
+                    *log_file_stream << "\n=== Benchmark started at " << Time() << " ===\n";
                     log_file_stream->flush();
 
                     std::cout << "Logging to file: " << log_file_val << ".\n";
@@ -2049,6 +2050,25 @@ int main(int argc, char *argv[])
           const int active_collection_threads = std::max(1, std::min(num_threads, num_collections));
           const int active_document_threads = std::max(1, num_threads);
 
+          if (run_id_val.empty())
+          {
+               auto now = Now();
+
+               auto run_id_timestamp = std::chrono::duration_cast<std::chrono::nanoseconds>(now.time_since_epoch()).count();
+
+               static std::random_device rd;
+               static std::mt19937 gen(rd());
+
+               std::uniform_int_distribution<> dis(1000, 9999);
+
+               run_id_val = std::to_string(run_id_timestamp) + "_" + std::to_string(dis(gen));
+          }
+
+          if (custom_prefix_val.empty() && !reuse_collections)
+          {
+               g_collection_prefix = "bench_" + run_id_val + "_";
+          }
+
           std::cout << "HLQuery Benchmark Tool.\n";
           std::cout << "\n";
           std::cout << "Server URL: " << base_url << ".\n";
@@ -2056,6 +2076,7 @@ int main(int argc, char *argv[])
           std::cout << "Documents: " << num_documents << ".\n";
           std::cout << "Threads: " << num_threads << " requested, " << active_document_threads << " ingest worker(s), " << active_collection_threads << " collection worker(s).\n";
           std::cout << "Batch size: " << batch_size << ".\n";
+          std::cout << "Collection prefix: " << g_collection_prefix << ".\n";
 
           if (advanced_mode)
           {
@@ -2079,21 +2100,7 @@ int main(int argc, char *argv[])
                advanced_metrics.ConfigBatchSize = batch_size;
           }
 
-          auto start_time_val = std::chrono::high_resolution_clock::now();
-
-          if (run_id_val.empty())
-          {
-               auto now = std::chrono::high_resolution_clock::now();
-
-               auto run_id_timestamp = std::chrono::duration_cast<std::chrono::nanoseconds>(now.time_since_epoch()).count();
-
-               static std::random_device rd;
-               static std::mt19937 gen(rd());
-
-               std::uniform_int_distribution<> dis(1000, 9999);
-
-               run_id_val = std::to_string(run_id_timestamp) + "_" + std::to_string(dis(gen));
-          }
+          auto start_time_val = Now();
 
           if (advanced_mode)
           {
@@ -2220,7 +2227,7 @@ int main(int argc, char *argv[])
 
           if (advanced_mode)
           {
-               advanced_metrics.Phase1StartMS = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - start_time_val).count();
+               advanced_metrics.Phase1StartMS = std::chrono::duration_cast<std::chrono::milliseconds>(Now() - start_time_val).count();
           }
 
           if (g_benchmark_should_stop.load())
@@ -2322,7 +2329,7 @@ int main(int argc, char *argv[])
 
           if (advanced_mode)
           {
-               advanced_metrics.Phase1EndMS = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - start_time_val).count();
+               advanced_metrics.Phase1EndMS = std::chrono::duration_cast<std::chrono::milliseconds>(Now() - start_time_val).count();
                advanced_metrics.Phase1CollectionsCreated = collections_created.load();
                advanced_metrics.Phase1CollectionsSkipped = collections_skipped.load();
 
@@ -2351,7 +2358,7 @@ int main(int argc, char *argv[])
 
           int docs_per_collection_val = num_documents / num_collections;
           int remaining_docs_val = num_documents % num_collections;
-          auto ingest_start_time_val = std::chrono::high_resolution_clock::now();
+          auto ingest_start_time_val = Now();
           auto ingest_end_time_val = ingest_start_time_val;
           int64_t ingest_duration_ms = 0;
 
@@ -2374,7 +2381,7 @@ int main(int argc, char *argv[])
 
           if (advanced_mode)
           {
-               advanced_metrics.Phase2StartMS = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - start_time_val).count();
+               advanced_metrics.Phase2StartMS = std::chrono::duration_cast<std::chrono::milliseconds>(Now() - start_time_val).count();
                advanced_metrics.IngestStartMS = advanced_metrics.Phase2StartMS;
           }
 
@@ -2465,7 +2472,7 @@ int main(int argc, char *argv[])
 
           if (advanced_mode)
           {
-               advanced_metrics.Phase2EndMS = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - start_time_val).count();
+               advanced_metrics.Phase2EndMS = std::chrono::duration_cast<std::chrono::milliseconds>(Now() - start_time_val).count();
                advanced_metrics.Phase2DocumentsInserted = documents_inserted.load();
                advanced_metrics.Phase2DocumentsSkipped = documents_skipped.load();
 
@@ -2575,7 +2582,7 @@ int main(int argc, char *argv[])
                std::cerr << "   Phase 2b failed - benchmark may be incomplete.\n";
           }
 
-          ingest_end_time_val = std::chrono::high_resolution_clock::now();
+          ingest_end_time_val = Now();
           ingest_duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(ingest_end_time_val - ingest_start_time_val).count();
 
           if (advanced_mode)
@@ -2596,9 +2603,9 @@ int main(int argc, char *argv[])
           {
                BenchmarkClient flush_client(base_url, auth_token);
 
-               auto flush_start = std::chrono::high_resolution_clock::now();
+               auto flush_start = Now();
                HTTPResponse flush_resp = flush_client.FlushSync();
-               auto flush_end = std::chrono::high_resolution_clock::now();
+               auto flush_end = Now();
 
                flush_duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(flush_end - flush_start).count();
                flush_status_code = flush_resp.StatusCode;
@@ -2648,7 +2655,7 @@ int main(int argc, char *argv[])
                sanity_search_ran = true;
           }
 
-          auto end_time_val = std::chrono::high_resolution_clock::now();
+          auto end_time_val = Now();
 
           auto ingest_commit_duration_val = std::chrono::duration_cast<std::chrono::milliseconds>(end_time_val - ingest_start_time_val);
           auto duration_val = std::chrono::duration_cast<std::chrono::milliseconds>(end_time_val - start_time_val);

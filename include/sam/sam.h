@@ -66,6 +66,8 @@ class SAM
           std::string DocumentID;
           std::string Title;
           double Score = 0.0;
+          uint64_t InteractionUses = 0;
+          uint64_t LastInteractionMS = 0;
      };
 
      /* One normalized search idea and its learned intent state. */
@@ -84,6 +86,8 @@ class SAM
           std::string ResolvedConclusion;
           uint64_t ResolvedAtMS = 0;
           uint64_t ResolvedUses = 0;
+          uint64_t InteractionUses = 0;
+          uint64_t LastInteractionMS = 0;
           std::vector<llm::SearchIntentCandidate> ResolvedCandidates;
           std::vector<llm::SearchIntentCandidate> ResolvedRankedTerms;
      };
@@ -122,6 +126,14 @@ class SAM
           size_t Attempts = 0;
      };
 
+     struct PendingSearchInteractionJob
+     {
+          std::string Collection;
+          std::string Query;
+          SearchIdeaDocumentRef Document;
+          size_t Attempts = 0;
+     };
+
      std::shared_ptr<rocksdb::DB> Database;
      rocksdb::Options OptionsValue;
      std::string DBPath;
@@ -134,6 +146,7 @@ class SAM
      mutable std::mutex SearchActivityMutex;
      mutable std::mutex QueueMutex;
      mutable std::mutex SearchIdeaQueueMutex;
+     mutable std::mutex SearchInteractionQueueMutex;
      std::condition_variable QueueCV;
      std::condition_variable JobStateCV;
      std::map<std::string, CollectionJobStatus> CollectionJobs;
@@ -145,6 +158,7 @@ class SAM
      std::deque<PendingIndexJob> PendingIndexJobs;
      std::unordered_set<std::string> PendingIndexKeys;
      std::deque<PendingSearchIdeaJob> PendingSearchIdeaJobs;
+     std::deque<PendingSearchInteractionJob> PendingSearchInteractionJobs;
      std::unordered_map<std::string, size_t> ActiveCollectionTasks;
      std::unordered_set<std::string> CancelledCollections;
      bool CancelAllRequested = false;
@@ -239,6 +253,20 @@ class SAM
                                    std::string* ErrorMessage = nullptr);
 
      size_t FlushPendingSearchIdeas(size_t MaxJobs = 1);
+
+     bool RecordSearchInteractionLocked(const std::string& Collection,
+                                        const std::string& Query,
+                                        const SearchIdeaDocumentRef& Document,
+                                        std::string* ErrorMessage = nullptr);
+
+     bool EnqueuePendingSearchInteraction(const std::string& Collection,
+                                          const std::string& Query,
+                                          const SearchIdeaDocumentRef& Document,
+                                          std::string* ErrorMessage = nullptr);
+
+     size_t FlushPendingSearchInteractions(size_t MaxJobs = 1);
+
+     void ScheduleRetryRebuild(const std::string& Collection);
 
      /* Trim stored search ideas to the configured history budget. */
 
@@ -336,6 +364,7 @@ class SAM
           bool Running = false;
           bool Completed = false;
           bool NeedsRetry = false;
+          bool RetryScheduled = false;
           size_t IndexedDocuments = 0;
           size_t FailedDocuments = 0;
           size_t PendingDocuments = 0;
@@ -434,6 +463,13 @@ class SAM
                            const std::vector<SearchIdeaDocumentRef>& Documents,
                            std::string* ErrorMessage = nullptr);
 
+     /* Record one explicit user interaction against a search idea and document. */
+
+     bool RecordSearchInteraction(const std::string& Collection,
+                                  const std::string& Query,
+                                  const SearchIdeaDocumentRef& Document,
+                                  std::string* ErrorMessage = nullptr);
+
      /* Recompute one collection profile from accumulated search ideas. */
 
      bool RefreshCollectionProfileFromSearchIdeas(const std::string& Collection,
@@ -443,6 +479,10 @@ class SAM
      /* Process a bounded batch of pending search-intent optimization work. */
 
      size_t ProcessPendingSearchIntentOptimizations(size_t MaxCollections = 1);
+
+     /* Flush queued interaction-backed search-idea updates. */
+
+     size_t FlushPendingInteractionSignals(size_t MaxJobs = 1);
 
      /* Cancel all queued and in-flight SAM work for one collection and wait for quiescence. */
 
