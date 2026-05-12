@@ -606,20 +606,36 @@ void SAM::RunIndexWorker()
           if (RetryRequested)
           {
                std::lock_guard<std::mutex> DBLock(DBMutex);
-               if (Database)
-               {
-                    SAMCollectionState State;
-                    if (ReadCollectionStateLocked(Database.get(), Job.Collection, State, nullptr, nullptr))
-                    {
-                         State.RebuildRequested = true;
-                         State.RequestedMutationVersion =
-                              GetCurrentCollectionMutationVersion(Job.Collection);
-                         (void)WriteCollectionStateLocked(Database.get(), Job.Collection, State, nullptr);
-                    }
-               }
+	               if (Database)
+	               {
+	                    SAMCollectionState State;
+	                    std::string StateError;
+	                    if (ReadCollectionStateLocked(Database.get(), Job.Collection, State, nullptr, &StateError))
+	                    {
+	                         State.RebuildRequested = true;
+	                         State.RequestedMutationVersion =
+	                              GetCurrentCollectionMutationVersion(Job.Collection);
+	                         if (!WriteCollectionStateLocked(Database.get(), Job.Collection, State, &StateError))
+	                         {
+	                              if (Instance && Instance->Logs)
+	                              {
+	                                   Instance->Logs->Normal("sam",
+	                                                          "Failed to persist rebuild retry state for '" + Job.Collection +
+	                                                               "': " + (StateError.empty() ? std::string("unknown error") : StateError) + ".");
+	                              }
+	                         }
+	                    }
+	                    else if (Instance && Instance->Logs)
+	                    {
+	                         Instance->Logs->Normal("sam",
+	                                                "Failed to read collection state for '" + Job.Collection +
+	                                                     "' while scheduling rebuild retry: " +
+	                                                     (StateError.empty() ? std::string("unknown error") : StateError) + ".");
+	                    }
+	               }
 
-               ScheduleRetryRebuild(Job.Collection);
-          }
+	               ScheduleRetryRebuild(Job.Collection);
+	          }
 
           FlushPendingSearchIdeas(1);
           FinishTask();
@@ -1255,20 +1271,37 @@ bool SAM::StartRecreateCollectionAsync(const std::string& Collection,
                     if (QueueNeedsRetry)
                     {
                          std::lock_guard<std::mutex> DBLock(DBMutex);
-                         if (Database)
-                         {
-                              SAMCollectionState State;
-                              if (ReadCollectionStateLocked(Database.get(), Collection, State, nullptr, nullptr))
-                              {
-                                   State.RebuildRequested = true;
-                                   State.RequestedMutationVersion =
-                                        GetCurrentCollectionMutationVersion(Collection);
-                                   (void)WriteCollectionStateLocked(Database.get(), Collection, State, nullptr);
-                              }
-                         }
+	                         if (Database)
+	                         {
+	                              SAMCollectionState State;
+	                              std::string StateError;
+	                              if (ReadCollectionStateLocked(Database.get(), Collection, State, nullptr, &StateError))
+	                              {
+	                                   State.RebuildRequested = true;
+	                                   State.RequestedMutationVersion =
+	                                        GetCurrentCollectionMutationVersion(Collection);
+	                                   if (!WriteCollectionStateLocked(Database.get(), Collection, State, &StateError))
+	                                   {
+	                                        if (Instance && Instance->Logs)
+	                                        {
+	                                             Instance->Logs->Normal("sam",
+	                                                                    "Failed to persist rebuild retry state for '" + Collection +
+	                                                                         "': " +
+	                                                                         (StateError.empty() ? std::string("unknown error") : StateError) + ".");
+	                                        }
+	                                   }
+	                              }
+	                              else if (Instance && Instance->Logs)
+	                              {
+	                                   Instance->Logs->Normal("sam",
+	                                                          "Failed to read collection state for '" + Collection +
+	                                                               "' while scheduling rebuild retry: " +
+	                                                               (StateError.empty() ? std::string("unknown error") : StateError) + ".");
+	                              }
+	                         }
 
-                         ScheduleRetryRebuild(Collection);
-                    }
+	                         ScheduleRetryRebuild(Collection);
+	                    }
                }
           }
 
@@ -1316,19 +1349,36 @@ bool SAM::StartRecreateCollectionAsync(const std::string& Collection,
                if (!ValidMutationVersion)
                {
                     std::lock_guard<std::mutex> DBLock(DBMutex);
-                    if (Database)
-                    {
-                         SAMCollectionState State;
-                         if (ReadCollectionStateLocked(Database.get(), Collection, State, nullptr, nullptr))
-                         {
-                              State.RebuildRequested = true;
-                              State.RequestedMutationVersion = GetCurrentCollectionMutationVersion(Collection);
-                              (void)WriteCollectionStateLocked(Database.get(), Collection, State, nullptr);
-                         }
-                    }
-                    RecordDebugEvent(Collection, "rebuild invalidated before completion: " + StateError);
-                    ScheduleRetryRebuild(Collection);
-               }
+		                    if (Database)
+		                    {
+		                         SAMCollectionState State;
+		                         std::string StateIOError;
+		                         if (ReadCollectionStateLocked(Database.get(), Collection, State, nullptr, &StateIOError))
+		                         {
+		                              State.RebuildRequested = true;
+		                              State.RequestedMutationVersion = GetCurrentCollectionMutationVersion(Collection);
+		                              if (!WriteCollectionStateLocked(Database.get(), Collection, State, &StateIOError))
+		                              {
+		                                   if (Instance && Instance->Logs)
+		                                   {
+		                                        Instance->Logs->Normal("sam",
+		                                                               "Failed to persist rebuild retry state for '" + Collection +
+		                                                                    "': " +
+		                                                                    (StateIOError.empty() ? std::string("unknown error") : StateIOError) + ".");
+		                                   }
+		                              }
+		                         }
+		                         else if (Instance && Instance->Logs)
+		                         {
+		                              Instance->Logs->Normal("sam",
+		                                                     "Failed to read collection state for '" + Collection +
+		                                                          "' while scheduling rebuild retry: " +
+		                                                          (StateIOError.empty() ? std::string("unknown error") : StateIOError) + ".");
+		                         }
+		                    }
+	                    RecordDebugEvent(Collection, "rebuild invalidated before completion: " + StateError);
+	                    ScheduleRetryRebuild(Collection);
+	               }
                else
                {
                     RecordDebugEvent(Collection, "rebuild complete: indexed 0, failed 0");

@@ -168,14 +168,22 @@ bool ModuleManager::LoadModule(const ServerConfig &Config,
      ModuleEntry.Name = ModuleName;
      ModuleEntry.Path = ExplicitPath;
 
-     const std::string ModulePath = ResolveModulePath(Config, ModuleEntry);
-     const bool IsCoreModule = ModuleName.rfind("core_", 0) == 0;
+	     const std::string ModulePath = ResolveModulePath(Config, ModuleEntry);
+	     const bool IsCoreModule = ModuleName.rfind("core_", 0) == 0;
 
-     if (!std::filesystem::exists(ModulePath))
-     {
-          ErrorMessage = "Configured module '" + ModuleName + "' could not be found: " + ModulePath;
-          return false;
-     }
+	     std::error_code EC;
+	     if (!std::filesystem::exists(ModulePath, EC))
+	     {
+	          if (EC)
+	          {
+	               ErrorMessage = "Configured module '" + ModuleName + "' could not be inspected: " + ModulePath + " (" + EC.message() + ")";
+	          }
+	          else
+	          {
+	               ErrorMessage = "Configured module '" + ModuleName + "' could not be found: " + ModulePath;
+	          }
+	          return false;
+	     }
 
      if (Logger)
      {
@@ -558,15 +566,23 @@ bool ModuleManager::LoadConfiguredModules(const ServerConfig &Config, LogManager
      for (const auto &ModuleEntry : Config.GetModuleLoads())
      {
           const std::string &ModuleName = ModuleEntry.Name;
-          std::string ModulePath = ResolveModulePath(Config, ModuleEntry);
-          const bool IsCoreModule = ModuleName.rfind("core_", 0) == 0;
+	          std::string ModulePath = ResolveModulePath(Config, ModuleEntry);
+	          const bool IsCoreModule = ModuleName.rfind("core_", 0) == 0;
 
-          if (!std::filesystem::exists(ModulePath))
-          {
-               ErrorMessage = "Configured module '" + ModuleName + "' could not be found: " + ModulePath;
-               RollbackStagedModules();
-               return false;
-          }
+	          std::error_code EC;
+	          if (!std::filesystem::exists(ModulePath, EC))
+	          {
+	               if (EC)
+	               {
+	                    ErrorMessage = "Configured module '" + ModuleName + "' could not be inspected: " + ModulePath + " (" + EC.message() + ")";
+	               }
+	               else
+	               {
+	                    ErrorMessage = "Configured module '" + ModuleName + "' could not be found: " + ModulePath;
+	               }
+	               RollbackStagedModules();
+	               return false;
+	          }
 
           void *Handle = dlopen(ModulePath.c_str(), RTLD_NOW | RTLD_LOCAL);
 

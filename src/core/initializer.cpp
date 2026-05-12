@@ -151,27 +151,33 @@ bool hlquery::InitializeServer()
           }
      }
 
-     /* Check for dirty shutdown using the runtime data directory for this instance. */
+	     /* Check for dirty shutdown using the runtime data directory for this instance. */
 
-     {
-          std::string ShutdownMarker = RuntimePaths::ResolveRuntimeDataDir(Config.get()) + "/.clean_shutdown";
+	     {
+	          std::string ShutdownMarker = RuntimePaths::ResolveRuntimeDataDir(Config.get()) + "/.clean_shutdown";
 
-          bool CleanShutdownFlag = std::filesystem::exists(ShutdownMarker);
+	          std::error_code EC;
+	          bool CleanShutdownFlag = std::filesystem::exists(ShutdownMarker, EC);
+	          if (EC)
+	          {
+	               /* If we can't inspect the marker (permissions/IO), treat it as a dirty shutdown. */
+	               CleanShutdownFlag = false;
+	          }
 
-          if (!CleanShutdownFlag)
-          {
-               StatsVal.SetDirtyShutdown(true);
-          }
-          else
-          {
-               try
-               {
-                    std::filesystem::remove(ShutdownMarker);
-               }
-               catch (...)
-               {
-               }
-          }
+	          if (!CleanShutdownFlag)
+	          {
+	               StatsVal.SetDirtyShutdown(true);
+	          }
+	          else
+	          {
+	               try
+	               {
+	                    std::filesystem::remove(ShutdownMarker, EC);
+	               }
+	               catch (...)
+	               {
+	               }
+	          }
 
           StatsVal.IncrementRestartCount();
      }
@@ -191,11 +197,12 @@ bool hlquery::InitializeServer()
 
           std::string ExistingPIDInfo = "";
 
-          try
-          {
-               if (std::filesystem::exists(PIDFilePath))
-               {
-                    std::ifstream PIDFileStream(PIDFilePath);
+	          try
+	          {
+	               std::error_code EC;
+	               if (std::filesystem::exists(PIDFilePath, EC))
+	               {
+	                    std::ifstream PIDFileStream(PIDFilePath);
 
                     if (PIDFileStream.is_open())
                     {
@@ -210,12 +217,12 @@ bool hlquery::InitializeServer()
                               ExistingPIDInfo = " (PID: " + PIDStrValue + ")";
                          }
                     }
-               }
-          }
-          catch (...)
-          {
-               /* Ignore errors during PID file inspection */
-          }
+	               }
+	          }
+	          catch (...)
+	          {
+	               /* Ignore errors during PID file inspection */
+	          }
 
           ConsoleWriter::WriteError("[FATAL] CheckExistingProcessInternal() failed - another instance may be running" + ExistingPIDInfo + ".", true);
           ConsoleWriter::WriteError("[FATAL] To stop the existing instance, run: ./etc/scripts/debug_daemon.sh stop.", true);
@@ -356,31 +363,61 @@ bool hlquery::InitializeServer()
 
                bool ValidationPassedFlag = true;
 
-               std::string ValidationErrorsMsg;
+	               std::string ValidationErrorsMsg;
 
-               std::string DataDirPath = std::string(HLQUERY_DATA_DIR);
+	               std::string DataDirPath = std::string(HLQUERY_DATA_DIR);
 
-               if (!std::filesystem::exists(DataDirPath))
-               {
-                    ValidationPassedFlag = false;
+	               std::error_code EC;
+	               const bool DataDirExists = std::filesystem::exists(DataDirPath, EC);
+	               if (EC)
+	               {
+	                    ValidationPassedFlag = false;
+	                    ValidationErrorsMsg += "Data directory check failed: " + DataDirPath + " (" + EC.message() + ")\n";
+	               }
+	               else if (!DataDirExists)
+	               {
+	                    ValidationPassedFlag = false;
 
-                    ValidationErrorsMsg += "Data directory does not exist: " + DataDirPath + "\n";
-               }
-               else if (!std::filesystem::is_directory(DataDirPath))
-               {
-                    ValidationPassedFlag = false;
+	                    ValidationErrorsMsg += "Data directory does not exist: " + DataDirPath + "\n";
+	               }
+	               else if (!std::filesystem::is_directory(DataDirPath, EC))
+	               {
+	                    if (EC)
+	                    {
+	                         ValidationPassedFlag = false;
+	                         ValidationErrorsMsg += "Data directory type check failed: " + DataDirPath + " (" + EC.message() + ")\n";
+	                    }
+	                    else
+	                    {
+	                    ValidationPassedFlag = false;
 
-                    ValidationErrorsMsg += "Data directory is not a directory: " + DataDirPath + "\n";
-               }
+	                    ValidationErrorsMsg += "Data directory is not a directory: " + DataDirPath + "\n";
+	                    }
+	               }
 
-               std::string CollectionsDirPath = DataDirPath + "/collections";
+	               std::string CollectionsDirPath = DataDirPath + "/collections";
 
-               if (std::filesystem::exists(CollectionsDirPath) && !std::filesystem::is_directory(CollectionsDirPath))
-               {
-                    ValidationPassedFlag = false;
+	               EC.clear();
+	               const bool CollectionsExists = std::filesystem::exists(CollectionsDirPath, EC);
+	               if (EC)
+	               {
+	                    ValidationPassedFlag = false;
+	                    ValidationErrorsMsg += "Collections path check failed: " + CollectionsDirPath + " (" + EC.message() + ")\n";
+	               }
+	               else if (CollectionsExists && !std::filesystem::is_directory(CollectionsDirPath, EC))
+	               {
+	                    if (EC)
+	                    {
+	                         ValidationPassedFlag = false;
+	                         ValidationErrorsMsg += "Collections path type check failed: " + CollectionsDirPath + " (" + EC.message() + ")\n";
+	                    }
+	                    else
+	                    {
+	                    ValidationPassedFlag = false;
 
-                    ValidationErrorsMsg += "Collections path is not a directory: " + CollectionsDirPath + "\n";
-               }
+	                    ValidationErrorsMsg += "Collections path is not a directory: " + CollectionsDirPath + "\n";
+	                    }
+	               }
 
                if (ValidationPassedFlag)
                {

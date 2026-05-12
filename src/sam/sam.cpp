@@ -13,11 +13,13 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <charconv>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
 #include <cmath>
+#include <optional>
 #include <regex>
 #include <rocksdb/write_batch.h>
 #include <set>
@@ -676,7 +678,7 @@ struct SAMTokenMatchResult
 {
      bool Matched = false;
      bool UsedSynonym = false;
-     size_t Distance = static_cast<size_t>(-1);
+     std::optional<size_t> Distance;
 };
 
 struct SAMLearnedVariant
@@ -1099,7 +1101,7 @@ SAMTokenMatchResult MatchSAMQueryTokenToTermToken(const SAMQueryTokenViews& Quer
           {
                Result.Matched = true;
                Result.UsedSynonym = Index > 0;
-               Result.Distance = 0;
+               Result.Distance = 0U;
                return Result;
           }
 
@@ -2680,33 +2682,33 @@ double ComputeSAM25SourceFieldScore(const SAMQueryTokenViews& QueryViews,
      size_t DistancePenalty = 0;
      size_t SynonymMatches = 0;
 
-     for (const auto& QueryToken : QueryTokens)
-     {
-          SAMTokenMatchResult BestMatch;
+	     for (const auto& QueryToken : QueryTokens)
+	     {
+	          SAMTokenMatchResult BestMatch;
 
           for (const auto& FieldToken : FieldTokens)
           {
                const SAMTokenMatchResult Match = MatchSAMQueryTokenToTermToken(QueryViews, QueryToken, FieldToken);
 
-               if (!Match.Matched)
-               {
-                    continue;
-               }
+	               if (!Match.Matched)
+	               {
+	                    continue;
+	               }
 
-               if (!BestMatch.Matched || Match.Distance < BestMatch.Distance ||
-                   (Match.Distance == BestMatch.Distance && !Match.UsedSynonym && BestMatch.UsedSynonym))
-               {
-                    BestMatch = Match;
-               }
-          }
+	               if (!BestMatch.Matched || *Match.Distance < *BestMatch.Distance ||
+	                   (*Match.Distance == *BestMatch.Distance && !Match.UsedSynonym && BestMatch.UsedSynonym))
+	               {
+	                    BestMatch = Match;
+	               }
+	          }
 
-          if (BestMatch.Matched)
-          {
-               Matched++;
-               DistancePenalty += (BestMatch.Distance == static_cast<size_t>(-1) ? 0 : BestMatch.Distance);
-               SynonymMatches += BestMatch.UsedSynonym ? 1U : 0U;
-          }
-     }
+	          if (BestMatch.Matched)
+	          {
+	               Matched++;
+	               DistancePenalty += BestMatch.Distance.value_or(0U);
+	               SynonymMatches += BestMatch.UsedSynonym ? 1U : 0U;
+	          }
+	     }
 
      if (Matched == 0)
      {
@@ -3853,19 +3855,19 @@ double ComputeSAM25TermScore(rocksdb::DB* Database,
                     continue;
                }
 
-               if (!BestMatch.Matched || Match.Distance < BestMatch.Distance ||
-                   (Match.Distance == BestMatch.Distance && !Match.UsedSynonym && BestMatch.UsedSynonym))
+               if (!BestMatch.Matched || *Match.Distance < *BestMatch.Distance ||
+                   (*Match.Distance == *BestMatch.Distance && !Match.UsedSynonym && BestMatch.UsedSynonym))
                {
                     BestMatch = Match;
                }
           }
 
-          if (BestMatch.Matched)
-          {
-               Matched++;
-               DistancePenalty += (BestMatch.Distance == static_cast<size_t>(-1) ? 0 : BestMatch.Distance);
-               SynonymMatches += BestMatch.UsedSynonym ? 1U : 0U;
-          }
+               if (BestMatch.Matched)
+               {
+                    Matched++;
+                    DistancePenalty += BestMatch.Distance.value_or(0U);
+                    SynonymMatches += BestMatch.UsedSynonym ? 1U : 0U;
+               }
      }
 
      if (Matched == 0)
@@ -6673,12 +6675,10 @@ std::string SpellSAMNumericToken(const std::string& Token, const std::string& La
      }
 
      int Value = 0;
-
-     try
-     {
-          Value = std::stoi(Token);
-     }
-     catch (...)
+     const char* Begin = Token.data();
+     const char* End = Begin + Token.size();
+     const auto Parsed = std::from_chars(Begin, End, Value);
+     if (Parsed.ec != std::errc{} || Parsed.ptr != End)
      {
           return "";
      }
@@ -9185,6 +9185,87 @@ void SAM::FinishLookupActivity(uint64_t Sequence,
      ActiveSearchActivities.erase(It);
 }
 
+static std::vector<SAM::LookupHit> LookupDirectTermOnly(std::shared_ptr<rocksdb::DB> DatabaseHandle,
+                                                        const std::string& Collection,
+                                                        const std::string& Query,
+                                                        const SAMQueryTokenViews& QueryViews,
+                                                        size_t Limit)
+{
+     std::vector<SAM::LookupHit> Hits;
+     if (!DatabaseHandle || Collection.empty() || Query.empty() || Limit == 0)
+     {
+          return Hits;
+     }
+
+     std::unordered_map<std::string, SAMAggregatedHit> AggregatedHits;
+     std::unordered_map<std::string, bool> FreshnessCache;
+
+     const std::string Normalized = NormalizeTerm(Query);
+     if (Normalized.empty())
+     {
+          return Hits;
+     }
+
+     const std::string Prefix = "sam:term:" + Normalized + ":";
+     std::unique_ptr<rocksdb::Iterator> Iterator(DatabaseHandle->NewIterator(rocksdb::ReadOptions()));
+
+     for (Iterator->Seek(Prefix); Iterator->Valid() && Iterator->key().starts_with(Prefix); Iterator->Next())
+     {
+          try
+          {
+               nlohmann::json Payload = nlohmann::json::parse(Iterator->value().ToString());
+               SAM::LookupHit Hit;
+               Hit.Collection = Payload.value("collection", "");
+               if (Hit.Collection != Collection)
+               {
+                    continue;
+               }
+               Hit.DocumentID = Payload.value("id", "");
+               Hit.Title = Payload.value("title", "");
+               Hit.MatchedTerm = Payload.value("term", "");
+               Hit.MatchedKind = Payload.value("kind", "");
+               Hit.MatchedSource = Payload.value("source", "");
+               Hit.TermOrigin = Hit.MatchedSource;
+               Hit.MatchedPath = "sam_term_degraded";
+               Hit.MatchedScore = Payload.value("score", 0.0);
+               Hit.MatchedSignal = Payload.value("signal", 0.0);
+               Hit.Breakdown.TermScore = Hit.MatchedScore;
+               Hit.Breakdown.FinalScore = Hit.MatchedScore;
+
+               if (!Hit.DocumentID.empty())
+               {
+                    std::string ManifestValue;
+                    const rocksdb::Status ManifestStatus =
+                         DatabaseHandle->Get(rocksdb::ReadOptions(),
+                                             BuildDocManifestKey(Hit.Collection, Hit.DocumentID),
+                                             &ManifestValue);
+
+                    if (!ManifestStatus.ok())
+                    {
+                         continue;
+                    }
+
+                    SAM::DocumentEntry Entry;
+
+                    if (!ParseManifestValue(ManifestValue, Entry) ||
+                        !IsSAMDocumentEntryCurrent(Entry, &FreshnessCache))
+                    {
+                         continue;
+                    }
+
+                    Hit.Title = Entry.Title.empty() ? Hit.Title : Entry.Title;
+                    AccumulateSAMHit(AggregatedHits, Hit);
+               }
+          }
+          catch (...)
+          {
+          }
+     }
+
+     FinalizeSAMAggregatedHits(Hits, AggregatedHits, QueryViews, Limit);
+     return Hits;
+}
+
 std::vector<SAM::LookupHit> SAM::Lookup(const std::string& Query, size_t Limit) const
 {
      std::vector<LookupHit> Hits;
@@ -9324,6 +9405,15 @@ std::vector<SAM::LookupHit> SAM::Lookup(const std::string& Collection, const std
      }
 
      const SAMQueryTokenViews QueryViews = NormalizeSAMQueryTokenViews(DatabaseHandle.get(), Collection, Query);
+
+     SAM::CollectionJobStatus Status;
+     if (GetCollectionJobStatus(Collection, Status) && Status.Running)
+     {
+          Hits = LookupDirectTermOnly(DatabaseHandle, Collection, Query, QueryViews, Limit);
+          FinishLookupActivity(ActivitySequence, Hits.size());
+          return Hits;
+     }
+
      SAMEvaluationCalibration Calibration;
      LoadLookupEvaluationCalibration(DatabaseHandle.get(), Collection, Calibration, nullptr);
 
@@ -9745,16 +9835,24 @@ bool SAM::HasPendingCollectionRebuild(const std::string& Collection,
           DatabaseHandle = Database;
      }
 
-     if (!DatabaseHandle)
-     {
-          return false;
-     }
+	     if (!DatabaseHandle)
+	     {
+	          return false;
+	     }
 
-     SAMCollectionState State;
-     if (!ReadCollectionStateLocked(DatabaseHandle.get(), Collection, State, nullptr, nullptr))
-     {
-          return false;
-     }
+	     SAMCollectionState State;
+	     std::string StateError;
+	     if (!ReadCollectionStateLocked(DatabaseHandle.get(), Collection, State, nullptr, &StateError))
+	     {
+	          if (Instance && Instance->Logs)
+	          {
+	               Instance->Logs->Debug("sam",
+	                                     "Failed to read collection state for '" + Collection +
+	                                          "' in HasPendingCollectionRebuild(): " +
+	                                          (StateError.empty() ? std::string("unknown error") : StateError) + ".");
+	          }
+	          return false;
+	     }
 
      if (RequestedVersion)
      {
