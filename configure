@@ -1707,9 +1707,9 @@ print "\n"
     }
 
     print "  " . $char_map{'asterisk'} . " To build the project, run:\n";
-    print "    " . $bold_start . $build_cmd . $reset_end . "\n\n";
+    print "  " . $bold_start . "\$ " . $build_cmd . $reset_end . "\n\n";
     print "  " . $char_map{'asterisk'} . " To install locally, run:\n";
-    print "    " . $bold_start . "$make_cmd install" . $reset_end . "\n\n";
+    print "  " . $bold_start .  "\$ " . "$make_cmd install" . $reset_end . "\n\n";
     print_section_end();
     
 }

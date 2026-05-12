@@ -2161,8 +2161,13 @@ HTTPResponse BenchmarkClient::GetStats()
 
 /* Gets total document count from the server. */
 
-HTTPResponse BenchmarkClient::GetDocTotal()
+HTTPResponse BenchmarkClient::GetDocTotal(const std::string &prefix)
 {
+     if (!prefix.empty())
+     {
+          return MakeRequest("GET", "/doctotal?prefix=" + UrlEncode(prefix));
+     }
+
      return MakeRequest("GET", "/doctotal");
 }
 
@@ -2182,8 +2187,13 @@ HTTPResponse BenchmarkClient::GetMetrics()
 
 /* Triggers a counter update on the server. */
 
-HTTPResponse BenchmarkClient::UpdateCounters()
+HTTPResponse BenchmarkClient::UpdateCounters(const std::string &prefix)
 {
+     if (!prefix.empty())
+     {
+          return MakeRequest("POST", "/update-counters?prefix=" + UrlEncode(prefix));
+     }
+
      return MakeRequest("POST", "/update-counters");
 }
 
@@ -2198,7 +2208,7 @@ HTTPResponse BenchmarkClient::FlushSync()
           return response;
      }
 
-     return UpdateCounters();
+     return UpdateCounters("");
 }
 
 /* Encodes a string for use in a URL. */

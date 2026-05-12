@@ -60,6 +60,14 @@ ifneq ($(filter FreeBSD OpenBSD NetBSD DragonFly Darwin,$(OS_NAME)),)
   FS_LIB :=
 endif
 
+# User-facing install hint:
+# - On Linux, `make` is typically GNU make even if you invoked `gmake`.
+# - On *BSD/macOS, GNU make is usually `gmake`.
+INSTALL_HINT_MAKE := make
+ifneq ($(filter FreeBSD OpenBSD NetBSD DragonFly Darwin,$(OS_NAME)),)
+  INSTALL_HINT_MAKE := gmake
+endif
+
 PKG_TLS_CFLAGS_OTHER = $(shell if pkg-config --exists openssl 2>/dev/null; then pkg-config --cflags-only-other openssl 2>/dev/null; elif pkg-config --exists gnutls 2>/dev/null; then pkg-config --cflags-only-other gnutls 2>/dev/null; fi)
 PKG_TLS_CFLAGS_INCLUDE = $(shell if pkg-config --exists openssl 2>/dev/null; then pkg-config --cflags-only-I openssl 2>/dev/null; elif pkg-config --exists gnutls 2>/dev/null; then pkg-config --cflags-only-I gnutls 2>/dev/null; fi)
 ifeq ($(strip $(TLS_CFLAGS)),)
@@ -850,7 +858,7 @@ all: prepare $(BIN_DIR)/hlquery $(BIN_DIR)/hlquery-cli $(BIN_DIR)/hlquery-benchm
 	@echo "$(BLUE)   Server: build/bin/hlquery$(NC)"
 	@echo "$(BLUE)   CLI:    build/bin/hlquery-cli$(NC)"
 	@echo "$(BLUE)   Talk:   build/bin/hlquery-talk$(NC)"
-	@echo "$(YELLOW)   Run 'make install' to install to run/bin/$(NC)"
+	@echo "$(YELLOW)   Run '$(INSTALL_HINT_MAKE) install' to install to run/bin/$(NC)"
 	@echo ""
 	@echo "$(NC)$(BOLD)Done!$(NC)"
 	@echo ""

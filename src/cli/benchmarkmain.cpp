@@ -1365,8 +1365,8 @@ static void PrintBenchmarkHelp(const char *program_name)
 {
      std::cout << "Usage: " << program_name << " [options]\n"
                << "Options:\n"
-               << "  --url URL          Server URL (default: http://localhost:9200)\n"
-               << "  --host HOST        Server host (default: localhost)\n"
+               << "  --url URL          Server URL (default: http://127.0.0.1:9200)\n"
+               << "  --host HOST        Server host (default: 127.0.0.1)\n"
                << "  --port PORT        Server port (default: 9200)\n"
                << "  --auth TOKEN      Authentication token\n"
                << "  --ssl-auth        Over HTTPS, send token as both Authorization and X-API-Key\n"
@@ -1389,7 +1389,7 @@ static void PrintBenchmarkHelp(const char *program_name)
                << "  --check-consistency      Check consistency of /status, /stats, /metrics, /doctotal\n"
                << "  --dry-run          Generate collections/docs in memory but don't send to server\n"
                << "  --cleanup          Delete all benchmark-tagged collections at end\n"
-               << "  --prefix PREFIX    Custom prefix for benchmark collections (default: bench_collection_)\n"
+               << "  --prefix PREFIX    Custom prefix for benchmark collections (default: bench_{runid}_)\n"
                << "  --durability-config PATH  Load durability settings from config (e.g., run/conf/database.conf)\n"
                << "  --reuse-collections Reuse existing collections instead of deleting/recreating them\n"
                << "  --skip-auth-check  Skip authentication requirement check (useful when auth is disabled)\n"
@@ -1418,8 +1418,8 @@ int main(int argc, char *argv[])
 
           /* Default benchmark configuration values. */
 
-          std::string base_url = "http://localhost:9200";
-          std::string host = "localhost";
+          std::string base_url = "http://127.0.0.1:9200";
+          std::string host = "127.0.0.1";
           int port = 9200;
           bool host_set = false;
           bool port_set = false;
@@ -2050,6 +2050,25 @@ int main(int argc, char *argv[])
           const int active_collection_threads = std::max(1, std::min(num_threads, num_collections));
           const int active_document_threads = std::max(1, num_threads);
 
+          if (run_id_val.empty())
+          {
+               auto now = Now();
+
+               auto run_id_timestamp = std::chrono::duration_cast<std::chrono::nanoseconds>(now.time_since_epoch()).count();
+
+               static std::random_device rd;
+               static std::mt19937 gen(rd());
+
+               std::uniform_int_distribution<> dis(1000, 9999);
+
+               run_id_val = std::to_string(run_id_timestamp) + "_" + std::to_string(dis(gen));
+          }
+
+          if (custom_prefix_val.empty() && !reuse_collections)
+          {
+               g_collection_prefix = "bench_" + run_id_val + "_";
+          }
+
           std::cout << "HLQuery Benchmark Tool.\n";
           std::cout << "\n";
           std::cout << "Server URL: " << base_url << ".\n";
@@ -2057,6 +2076,7 @@ int main(int argc, char *argv[])
           std::cout << "Documents: " << num_documents << ".\n";
           std::cout << "Threads: " << num_threads << " requested, " << active_document_threads << " ingest worker(s), " << active_collection_threads << " collection worker(s).\n";
           std::cout << "Batch size: " << batch_size << ".\n";
+          std::cout << "Collection prefix: " << g_collection_prefix << ".\n";
 
           if (advanced_mode)
           {
@@ -2081,20 +2101,6 @@ int main(int argc, char *argv[])
           }
 
           auto start_time_val = Now();
-
-          if (run_id_val.empty())
-          {
-               auto now = Now();
-
-               auto run_id_timestamp = std::chrono::duration_cast<std::chrono::nanoseconds>(now.time_since_epoch()).count();
-
-               static std::random_device rd;
-               static std::mt19937 gen(rd());
-
-               std::uniform_int_distribution<> dis(1000, 9999);
-
-               run_id_val = std::to_string(run_id_timestamp) + "_" + std::to_string(dis(gen));
-          }
 
           if (advanced_mode)
           {

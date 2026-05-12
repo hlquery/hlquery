@@ -218,14 +218,14 @@ void GetFinalCounts(BenchmarkClient &client, AdvancedMetrics &metrics, bool verb
           std::cout << "\nFetching final counts from server...\n";
      }
 
-     HTTPResponse update_resp = client.UpdateCounters();
+     HTTPResponse update_resp = client.UpdateCounters(g_collection_prefix);
 
      if (update_resp.StatusCode != 200 && verbose)
      {
           std::cerr << "  Warning: update-counters returned status " << update_resp.StatusCode << ".\n";
      }
 
-     HTTPResponse doctotal_resp = client.GetDocTotal();
+     HTTPResponse doctotal_resp = client.GetDocTotal(g_collection_prefix);
 
      if (doctotal_resp.StatusCode == 200)
      {
@@ -764,7 +764,7 @@ void CheckConsistency(BenchmarkClient &client, bool verbose)
           }
      }
 
-     HTTPResponse doctotal_resp = client.GetDocTotal();
+     HTTPResponse doctotal_resp = client.GetDocTotal(g_collection_prefix);
 
      if (doctotal_resp.StatusCode == 200)
      {

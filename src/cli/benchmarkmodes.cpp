@@ -1473,7 +1473,7 @@ void RunFloodBenchmark(const std::string &base_url, const std::string &auth_toke
 
                BenchmarkClient stats_client(base_url, auth_token);
 
-               HTTPResponse doctotal_resp = stats_client.GetDocTotal();
+               HTTPResponse doctotal_resp = stats_client.GetDocTotal("");
 
                double mb_inserted = static_cast<double>(flood_bytes_inserted.load()) / (1024.0 * 1024.0);
 

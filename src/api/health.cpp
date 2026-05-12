@@ -1600,21 +1600,38 @@ HttpResponse SearchAPI::HandleIntegrity(const HttpRequest &Request)
 
 HttpResponse SearchAPI::HandleDocTotal(const HttpRequest &Request)
 {
-     (void)Request;
+     std::string prefix_filter;
+     const auto prefix_it = Request.QueryParams.find("prefix");
+
+     if (prefix_it != Request.QueryParams.end())
+     {
+          prefix_filter = HealthTrimWhitespace(prefix_it->second);
+     }
 
      size_t TotalDocs = 0;
      auto CollectionsList = HybridStorageManager::GetInstance().ListCollections();
+     size_t IncludedCollections = 0;
 
      for (const auto &Name : CollectionsList)
      {
+          if (!prefix_filter.empty() && Name.rfind(prefix_filter, 0) != 0)
+          {
+               continue;
+          }
+
           TotalDocs += HybridStorageManager::GetInstance().GetCollectionDocumentCount(Name);
+          IncludedCollections++;
      }
 
      HttpResponse Response(Status::OK, StatusText(Status::OK), "application/json");
 
      nlohmann::json DocTotalJSON;
      DocTotalJSON["doctotal"] = TotalDocs;
-     DocTotalJSON["coltotal"] = CollectionsList.size();
+     DocTotalJSON["coltotal"] = prefix_filter.empty() ? CollectionsList.size() : IncludedCollections;
+     if (!prefix_filter.empty())
+     {
+          DocTotalJSON["prefix"] = prefix_filter;
+     }
 
      Response.Body = DocTotalJSON.dump();
 
@@ -1625,13 +1642,33 @@ HttpResponse SearchAPI::HandleDocTotal(const HttpRequest &Request)
 
 HttpResponse SearchAPI::HandleUpdateCounters(const HttpRequest &Request)
 {
-     (void)Request;
+     std::string prefix_filter;
+     const auto prefix_it = Request.QueryParams.find("prefix");
 
-     HybridStorageManager::GetInstance().UpdateCollectionCounters(true);
+     if (prefix_it != Request.QueryParams.end())
+     {
+          prefix_filter = HealthTrimWhitespace(prefix_it->second);
+     }
+
+     if (!prefix_filter.empty())
+     {
+          HybridStorageManager::GetInstance().UpdateCollectionCountersPrefix(prefix_filter, true);
+     }
+     else
+     {
+          HybridStorageManager::GetInstance().UpdateCollectionCounters(true);
+     }
 
      HttpResponse Response(Status::OK, StatusText(Status::OK), "application/json");
 
-     Response.Body = "{\"status\":\"ok\"}";
+     if (!prefix_filter.empty())
+     {
+          Response.Body = "{\"status\":\"ok\",\"prefix\":\"" + prefix_filter + "\"}";
+     }
+     else
+     {
+          Response.Body = "{\"status\":\"ok\"}";
+     }
 
      return Response;
 }

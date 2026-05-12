@@ -613,6 +613,105 @@ void HybridStorageManager::UpdateCollectionCounters(bool force)
      }
 }
 
+void HybridStorageManager::UpdateCollectionCountersPrefix(const std::string &prefix, bool force)
+{
+     if (prefix.empty())
+     {
+          UpdateCollectionCounters(force);
+          return;
+     }
+
+     if (!Instance || !Instance->Database)
+     {
+          return;
+     }
+
+     auto collections = ListCollections();
+
+     std::vector<std::string> filtered;
+     filtered.reserve(collections.size());
+
+     for (const auto &collection : collections)
+     {
+          if (collection.rfind(prefix, 0) == 0)
+          {
+               filtered.push_back(collection);
+          }
+     }
+
+     if (Instance && Instance->Logs)
+     {
+          Instance->Logs->Normal("hybrid_storage", "UpdateCollectionCountersPrefix: Updating counts for " + std::to_string(filtered.size()) + " collection(s) with prefix '" + prefix + "'.");
+     }
+
+     for (const auto &collection : filtered)
+     {
+          std::string doc_prefix = "doc:" + collection + ":";
+
+          size_t actual_count = Instance->Database->CountKeys(doc_prefix);
+
+          std::string meta_key = "collection_meta:" + collection;
+
+          std::string meta_value = Instance->Database->Get(meta_key);
+
+          size_t stored_count = 0;
+
+          time_t timestamp = time(nullptr);
+
+          if (!meta_value.empty())
+          {
+               size_t colon_pos = meta_value.find(':');
+
+               if (colon_pos != std::string::npos)
+               {
+                    stored_count = std::stoull(meta_value.substr(0, colon_pos));
+
+                    if (colon_pos + 1 < meta_value.size())
+                    {
+                         time_t parsed_ts = std::stoull(meta_value.substr(colon_pos + 1));
+
+                         if (parsed_ts > 0)
+                         {
+                              timestamp = parsed_ts;
+                         }
+                    }
+               }
+          }
+
+          if (actual_count != stored_count || meta_value.empty())
+          {
+               std::string new_meta_value = std::to_string(actual_count) + ":" + std::to_string(timestamp);
+
+               Instance->Database->Set(meta_key, new_meta_value);
+
+               if (Instance && Instance->Logs && actual_count != stored_count)
+               {
+                    Instance->Logs->Normal("hybrid_storage", "UpdateCollectionCountersPrefix: Updated '" + collection + "' count from " + std::to_string(stored_count) + " to " + std::to_string(actual_count) + ".");
+               }
+          }
+     }
+
+     if (force && Instance && Instance->Database)
+     {
+          try
+          {
+               Instance->Database->FlushAndSync();
+          }
+          catch (...)
+          {
+               if (Instance && Instance->Logs)
+               {
+                    Instance->Logs->Normal("hybrid_storage", "UpdateCollectionCountersPrefix: WARNING - FlushAndSync failed, metadata may not be persisted.");
+               }
+          }
+     }
+
+     if (Instance && Instance->Logs)
+     {
+          Instance->Logs->Normal("hybrid_storage", "UpdateCollectionCountersPrefix: Completed.");
+     }
+}
+
 /* CreateCollection - Creates a new collection and stores metadata. */
 
 bool HybridStorageManager::CreateCollection(const std::string &name, const CollectionConfig &config)
