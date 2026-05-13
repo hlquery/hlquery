@@ -24,8 +24,11 @@
 #include "search/storageengine.h"
 #include "vendor/json/json.hpp"
 
-namespace {
+namespace
+{
 constexpr const char* kPendingIndexQueuePrefix = "sam:queue:index:";
+
+/* Build the persisted queue key for one pending SAM index job. */
 
 std::string BuildPendingIndexQueueKey(const std::string& Collection, const std::string& DocumentID)
 {
@@ -37,6 +40,8 @@ std::string BuildPendingIndexQueueKey(const std::string& Collection, const std::
      Key.append(DocumentID);
      return Key;
 }
+
+/* Parse a persisted queue key back into collection and document identifiers. */
 
 bool ParsePendingIndexQueueKey(const std::string& Key, std::string& Collection, std::string& DocumentID)
 {
@@ -58,6 +63,8 @@ bool ParsePendingIndexQueueKey(const std::string& Key, std::string& Collection, 
      return !Collection.empty() && !DocumentID.empty();
 }
 }
+
+/* Initialize SAM runtime defaults. */
 
 SAM::SAM()
 {
@@ -138,6 +145,8 @@ size_t SAM::ClearQueuedAutoIndexJobs()
      return ClearedJobs;
 }
 
+/* Open the SAM database and restore durable queue state. */
+
 bool SAM::Initialize()
 {
      {
@@ -212,7 +221,9 @@ bool SAM::Initialize()
                          HasExpectedMutationVersion = Root.value("has_expected_mutation_version", false);
                          ExpectedMutationVersion = Root.value("expected_mutation_version", 0);
                     }
-                    catch (...) {}
+                    catch (...)
+                    {
+                    }
 
                     const Document Doc = HybridStorageManager::GetInstance().GetDocument(Collection, DocumentID);
                     if (Doc.ID.empty())
@@ -249,6 +260,8 @@ bool SAM::Initialize()
 
      return true;
 }
+
+/* Stop workers and release the SAM database handle. */
 
 void SAM::Shutdown()
 {
@@ -287,9 +300,7 @@ void SAM::Shutdown()
 
           if (Instance && Instance->Logs)
           {
-               Instance->Logs->Normal("sam",
-                                      "SAM shutdown clearing " + std::to_string(PendingIndexJobs.size()) +
-                                           " queued index job(s).");
+               Instance->Logs->Normal("sam", "SAM shutdown clearing " + std::to_string(PendingIndexJobs.size()) + " queued index job(s).");
           }
 
           PendingIndexJobs.clear();
@@ -306,9 +317,7 @@ void SAM::Shutdown()
 
      if (Instance && Instance->Logs)
      {
-          Instance->Logs->Normal("sam",
-                                 "SAM shutdown joining " + std::to_string(ThreadsToJoin.size()) +
-                                      " worker thread(s).");
+          Instance->Logs->Normal("sam", "SAM shutdown joining " + std::to_string(ThreadsToJoin.size()) + " worker thread(s).");
      }
 
      for (auto& Worker : ThreadsToJoin)
@@ -487,6 +496,8 @@ void SAM::StartIndexWorker()
           });
      }
 }
+
+/* Drain queued document indexing jobs until shutdown. */
 
 void SAM::RunIndexWorker()
 {
@@ -703,36 +714,35 @@ void SAM::RunIndexWorker()
           if (RetryRequested)
           {
                std::lock_guard<std::mutex> DBLock(DBMutex);
-	               if (Database)
-	               {
-	                    SAMCollectionState State;
-	                    std::string StateError;
-	                    if (ReadCollectionStateLocked(Database.get(), Job.Collection, State, nullptr, &StateError))
-	                    {
-	                         State.RebuildRequested = true;
-	                         State.RequestedMutationVersion =
-	                              GetCurrentCollectionMutationVersion(Job.Collection);
-	                         if (!WriteCollectionStateLocked(Database.get(), Job.Collection, State, &StateError))
-	                         {
-	                              if (Instance && Instance->Logs)
-	                              {
-	                                   Instance->Logs->Normal("sam",
-	                                                          "Failed to persist rebuild retry state for '" + Job.Collection +
-	                                                               "': " + (StateError.empty() ? std::string("unknown error") : StateError) + ".");
-	                              }
-	                         }
-	                    }
-	                    else if (Instance && Instance->Logs)
-	                    {
-	                         Instance->Logs->Normal("sam",
-	                                                "Failed to read collection state for '" + Job.Collection +
-	                                                     "' while scheduling rebuild retry: " +
-	                                                     (StateError.empty() ? std::string("unknown error") : StateError) + ".");
-	                    }
-	               }
 
-	               ScheduleRetryRebuild(Job.Collection);
-	          }
+               if (Database)
+               {
+                    SAMCollectionState State;
+
+                    std::string StateError;
+
+                    if (ReadCollectionStateLocked(Database.get(), Job.Collection, State, nullptr, &StateError))
+                    {
+                         State.RebuildRequested = true;
+                         State.RequestedMutationVersion =
+                              GetCurrentCollectionMutationVersion(Job.Collection);
+
+                         if (!WriteCollectionStateLocked(Database.get(), Job.Collection, State, &StateError))
+                         {
+                              if (Instance && Instance->Logs)
+                              {
+                                   Instance->Logs->Normal("sam", "Failed to persist rebuild retry state for '" + Job.Collection + "': " + (StateError.empty() ? std::string("unknown error") : StateError) + ".");
+                              }
+                         }
+                    }
+                    else if (Instance && Instance->Logs)
+                    {
+                         Instance->Logs->Normal("sam", "Failed to read collection state for '" + Job.Collection + "' while scheduling rebuild retry: " + (StateError.empty() ? std::string("unknown error") : StateError) + ".");
+                    }
+               }
+
+               ScheduleRetryRebuild(Job.Collection);
+          }
 
           FlushPendingSearchIdeas(1);
           FinishTask();
@@ -749,9 +759,7 @@ void SAM::RunIndexWorker()
 
           if (Instance && Instance->Logs)
           {
-               Instance->Logs->Normal("sam",
-                                      "Failed to background index '" + Job.Collection + "/" + Job.Doc.ID +
-                                           "': " + (ErrorMessage.empty() ? std::string("unknown error") : ErrorMessage) + ".");
+               Instance->Logs->Normal("sam", "Failed to background index '" + Job.Collection + "/" + Job.Doc.ID + "': " + (ErrorMessage.empty() ? std::string("unknown error") : ErrorMessage) + ".");
           }
      }
 }
@@ -883,9 +891,7 @@ bool SAM::Recreate(std::string* ErrorMessage)
 
      if (Instance && Instance->Logs)
      {
-          Instance->Logs->Normal("sam",
-                                 "SAM recreate complete: indexed " + std::to_string(IndexedDocuments) +
-                                      " documents, failed " + std::to_string(FailedDocuments) + ".");
+          Instance->Logs->Normal("sam", "SAM recreate complete: indexed " + std::to_string(IndexedDocuments) + " documents, failed " + std::to_string(FailedDocuments) + ".");
      }
 
      return true;
@@ -1009,9 +1015,7 @@ bool SAM::RecreateCollection(const std::string& Collection,
 
                if (Instance && Instance->Logs && !IndexError.empty())
                {
-                    Instance->Logs->Normal("sam",
-                                           "Failed to index '" + Collection + "/" + DocumentID +
-                                                "' during collection rebuild: " + IndexError + ".");
+                    Instance->Logs->Normal("sam", "Failed to index '" + Collection + "/" + DocumentID + "' during collection rebuild: " + IndexError + ".");
                }
           }
      }
@@ -1042,9 +1046,7 @@ bool SAM::RecreateCollection(const std::string& Collection,
      {
           if (Instance && Instance->Logs)
           {
-               Instance->Logs->Normal("sam",
-                                      "Failed to rebuild SAM collection profile for '" + Collection +
-                                           "': " + ProfileError + ".");
+               Instance->Logs->Normal("sam", "Failed to rebuild SAM collection profile for '" + Collection + "': " + ProfileError + ".");
           }
 
           if (ErrorMessage && ErrorMessage->empty())
@@ -1055,10 +1057,7 @@ bool SAM::RecreateCollection(const std::string& Collection,
 
      if (Instance && Instance->Logs)
      {
-          Instance->Logs->Normal("sam",
-                                 "SAM rebuild for collection '" + Collection + "' complete: indexed " +
-                                      std::to_string(IndexedCount) + " documents, failed " +
-                                      std::to_string(FailedCount) + ".");
+          Instance->Logs->Normal("sam", "SAM rebuild for collection '" + Collection + "' complete: indexed " + std::to_string(IndexedCount) + " documents, failed " + std::to_string(FailedCount) + ".");
      }
 
      return true;
@@ -1368,37 +1367,35 @@ bool SAM::StartRecreateCollectionAsync(const std::string& Collection,
                     if (QueueNeedsRetry)
                     {
                          std::lock_guard<std::mutex> DBLock(DBMutex);
-	                         if (Database)
-	                         {
-	                              SAMCollectionState State;
-	                              std::string StateError;
-	                              if (ReadCollectionStateLocked(Database.get(), Collection, State, nullptr, &StateError))
-	                              {
-	                                   State.RebuildRequested = true;
-	                                   State.RequestedMutationVersion =
-	                                        GetCurrentCollectionMutationVersion(Collection);
-	                                   if (!WriteCollectionStateLocked(Database.get(), Collection, State, &StateError))
-	                                   {
-	                                        if (Instance && Instance->Logs)
-	                                        {
-	                                             Instance->Logs->Normal("sam",
-	                                                                    "Failed to persist rebuild retry state for '" + Collection +
-	                                                                         "': " +
-	                                                                         (StateError.empty() ? std::string("unknown error") : StateError) + ".");
-	                                        }
-	                                   }
-	                              }
-	                              else if (Instance && Instance->Logs)
-	                              {
-	                                   Instance->Logs->Normal("sam",
-	                                                          "Failed to read collection state for '" + Collection +
-	                                                               "' while scheduling rebuild retry: " +
-	                                                               (StateError.empty() ? std::string("unknown error") : StateError) + ".");
-	                              }
-	                         }
 
-	                         ScheduleRetryRebuild(Collection);
-	                    }
+                         if (Database)
+                         {
+                              SAMCollectionState State;
+
+                              std::string StateError;
+
+                              if (ReadCollectionStateLocked(Database.get(), Collection, State, nullptr, &StateError))
+                              {
+                                   State.RebuildRequested = true;
+                                   State.RequestedMutationVersion =
+                                        GetCurrentCollectionMutationVersion(Collection);
+
+                                   if (!WriteCollectionStateLocked(Database.get(), Collection, State, &StateError))
+                                   {
+                                        if (Instance && Instance->Logs)
+                                        {
+                                             Instance->Logs->Normal("sam", "Failed to persist rebuild retry state for '" + Collection + "': " + (StateError.empty() ? std::string("unknown error") : StateError) + ".");
+                                        }
+                                   }
+                              }
+                              else if (Instance && Instance->Logs)
+                              {
+                                   Instance->Logs->Normal("sam", "Failed to read collection state for '" + Collection + "' while scheduling rebuild retry: " + (StateError.empty() ? std::string("unknown error") : StateError) + ".");
+                              }
+                         }
+
+                         ScheduleRetryRebuild(Collection);
+                    }
                }
           }
 
@@ -1446,36 +1443,35 @@ bool SAM::StartRecreateCollectionAsync(const std::string& Collection,
                if (!ValidMutationVersion)
                {
                     std::lock_guard<std::mutex> DBLock(DBMutex);
-		                    if (Database)
-		                    {
-		                         SAMCollectionState State;
-		                         std::string StateIOError;
-		                         if (ReadCollectionStateLocked(Database.get(), Collection, State, nullptr, &StateIOError))
-		                         {
-		                              State.RebuildRequested = true;
-		                              State.RequestedMutationVersion = GetCurrentCollectionMutationVersion(Collection);
-		                              if (!WriteCollectionStateLocked(Database.get(), Collection, State, &StateIOError))
-		                              {
-		                                   if (Instance && Instance->Logs)
-		                                   {
-		                                        Instance->Logs->Normal("sam",
-		                                                               "Failed to persist rebuild retry state for '" + Collection +
-		                                                                    "': " +
-		                                                                    (StateIOError.empty() ? std::string("unknown error") : StateIOError) + ".");
-		                                   }
-		                              }
-		                         }
-		                         else if (Instance && Instance->Logs)
-		                         {
-		                              Instance->Logs->Normal("sam",
-		                                                     "Failed to read collection state for '" + Collection +
-		                                                          "' while scheduling rebuild retry: " +
-		                                                          (StateIOError.empty() ? std::string("unknown error") : StateIOError) + ".");
-		                         }
-		                    }
-	                    RecordDebugEvent(Collection, "rebuild invalidated before completion: " + StateError);
-	                    ScheduleRetryRebuild(Collection);
-	               }
+
+                    if (Database)
+                    {
+                         SAMCollectionState State;
+
+                         std::string StateIOError;
+
+                         if (ReadCollectionStateLocked(Database.get(), Collection, State, nullptr, &StateIOError))
+                         {
+                              State.RebuildRequested = true;
+                              State.RequestedMutationVersion = GetCurrentCollectionMutationVersion(Collection);
+
+                              if (!WriteCollectionStateLocked(Database.get(), Collection, State, &StateIOError))
+                              {
+                                   if (Instance && Instance->Logs)
+                                   {
+                                        Instance->Logs->Normal("sam", "Failed to persist rebuild retry state for '" + Collection + "': " + (StateIOError.empty() ? std::string("unknown error") : StateIOError) + ".");
+                                   }
+                              }
+                         }
+                         else if (Instance && Instance->Logs)
+                         {
+                              Instance->Logs->Normal("sam", "Failed to read collection state for '" + Collection + "' while scheduling rebuild retry: " + (StateIOError.empty() ? std::string("unknown error") : StateIOError) + ".");
+                         }
+                    }
+
+                    RecordDebugEvent(Collection, "rebuild invalidated before completion: " + StateError);
+                    ScheduleRetryRebuild(Collection);
+               }
                else
                {
                     RecordDebugEvent(Collection, "rebuild complete: indexed 0, failed 0");
@@ -1552,7 +1548,7 @@ bool SAM::EnqueueIndexDocument(const std::string& Collection,
                     }
                }
 
-               // Fall through to persist the refreshed job payload.
+               /* Fall through to persist the refreshed job payload. */
           }
           else
           {
@@ -1582,6 +1578,8 @@ bool SAM::EnqueueIndexDocument(const std::string& Collection,
      QueueCV.notify_one();
      return true;
 }
+
+/* Remove persisted SAM term and manifest data for one source document. */
 
 bool SAM::RemoveExistingDocumentTermsLocked(const std::string& Collection,
                                             const std::string& DocumentID,
@@ -1685,6 +1683,8 @@ bool SAM::RemoveExistingDocumentTermsLocked(const std::string& Collection,
 
      return true;
 }
+
+/* Index one source document into SAM after validating the main store state. */
 
 bool SAM::IndexDocumentLocked(const std::string& Collection,
                               const Document& Doc,
@@ -1889,6 +1889,8 @@ bool SAM::IndexDocument(const std::string& Collection,
                                 HasExpectedMutationVersion,
                                 ExpectedMutationVersion);
 }
+
+/* Delete SAM state for one source document and clear queued work. */
 
 bool SAM::DeleteDocument(const std::string& Collection, const std::string& DocumentID, std::string* ErrorMessage)
 {

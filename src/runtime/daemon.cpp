@@ -1590,7 +1590,6 @@ bool hlquery::Daemonize()
                close(DaemonSyncPipe[0]);
                close(DaemonSyncPipe[1]);
                DaemonSyncPipe[0] = -1;
-
                DaemonSyncPipe[1] = -1;
 
                return false;
@@ -1600,9 +1599,7 @@ bool hlquery::Daemonize()
                /* The original parent exits only after the child confirms successful detach. */
 
                close(DaemonSyncPipe[1]);
-
                char SyncDummyChar;
-
                ssize_t SyncReadCount = read(DaemonSyncPipe[0], &SyncDummyChar, 1);
 
                if (SyncReadCount <= 0 || SyncDummyChar == 'E')
@@ -1691,7 +1688,6 @@ bool hlquery::Daemonize()
           if (DaemonSyncPipe[1] >= 0)
           {
                close(DaemonSyncPipe[1]);
-
                DaemonSyncPipe[1] = -1;
           }
 
@@ -1742,7 +1738,6 @@ void hlquery::IncreaseCoreDumpSize()
 void hlquery::Cleanup()
 {
      static std::atomic<bool> CleanupCalledFlagValue{false};
-
      bool ExpectedFlag = false;
 
      if (!CleanupCalledFlagValue.compare_exchange_strong(ExpectedFlag, true))
