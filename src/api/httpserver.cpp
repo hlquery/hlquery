@@ -1461,6 +1461,14 @@ void HttpConnection::ProcessRequest()
                SendResponse(DedupResponse);
                return;
           }
+
+          HttpResponse ReadOnlyResponse = API.CheckReadOnlyMode(Request, Operation);
+          if (ReadOnlyResponse.StatusCode != 0)
+          {
+               RecordAnalyticsForResponse(Request, ReadOnlyResponse);
+               SendResponse(ReadOnlyResponse);
+               return;
+          }
      }
 
      ResponseVal = ProcessRequestWithAPI(API, Request);

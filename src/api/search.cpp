@@ -2672,7 +2672,7 @@ ComprehensiveSearchResult SearchAPI::PerformComprehensiveSearch(const std::strin
 
           /* Mark indexing-in-progress when searchable data exists but the lexical index is incomplete. */
 
-          if ((indexed_count == 0 && collection_docs > 0 && indexing) || (indexed_count == 0 && !Hits.empty()))
+          if ((collection_docs > 0 && indexing) || (indexed_count == 0 && !Hits.empty()))
           {
                ResultObj.IndexingInProgress = true;
           }

@@ -208,7 +208,10 @@ class SAM
 
      /* Remove all existing term mappings for one document while holding the database lock. */
 
-     bool RemoveExistingDocumentTermsLocked(const std::string& Collection, const std::string& DocumentID, std::string* ErrorMessage = nullptr);
+     bool RemoveExistingDocumentTermsLocked(const std::string& Collection,
+                                            const std::string& DocumentID,
+                                            std::string* ErrorMessage = nullptr,
+                                            bool ScanAllTermKeys = false);
 
      /* Index one document into SAM while holding the database lock. */
 

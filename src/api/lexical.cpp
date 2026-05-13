@@ -1657,9 +1657,11 @@ std::vector<SearchHit> SearchAPI::ProcessLexicalSearch(const std::string &Collec
                                             (Postings.empty() || Query.InlineFuzzy) &&
                                             !query_variant_terms_list.empty());
 
-     if ((Query.AllowScanFallback || force_structured_scan || needs_typo_scan_fallback) &&
-         (Postings.empty() || force_structured_scan || needs_typo_scan_fallback) &&
-         (!has_in_memory_index || collection_indexing || force_structured_scan || needs_typo_scan_fallback))
+     const bool prefer_storage_scan_while_indexing = collection_indexing && collection_docs > 0;
+
+     if ((Query.AllowScanFallback || prefer_storage_scan_while_indexing || force_structured_scan || needs_typo_scan_fallback) &&
+         (Postings.empty() || prefer_storage_scan_while_indexing || force_structured_scan || needs_typo_scan_fallback) &&
+         (!has_in_memory_index || prefer_storage_scan_while_indexing || force_structured_scan || needs_typo_scan_fallback))
      {
           const bool allow_prefix_match = Query.Prefix;
 

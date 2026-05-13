@@ -1585,18 +1585,14 @@ bool SAM::EnqueueIndexDocument(const std::string& Collection,
 
 bool SAM::RemoveExistingDocumentTermsLocked(const std::string& Collection,
                                             const std::string& DocumentID,
-                                            std::string* ErrorMessage)
+                                            std::string* ErrorMessage,
+                                            bool ScanAllTermKeys)
 {
      const std::string ManifestKey = BuildDocManifestKey(Collection, DocumentID);
      std::string ExistingValue;
      const rocksdb::Status GetStatus = Database->Get(rocksdb::ReadOptions(), ManifestKey, &ExistingValue);
 
-     if (GetStatus.IsNotFound())
-     {
-          return true;
-     }
-
-     if (!GetStatus.ok())
+     if (!GetStatus.IsNotFound() && !GetStatus.ok())
      {
           if (ErrorMessage)
           {
@@ -1610,23 +1606,26 @@ bool SAM::RemoveExistingDocumentTermsLocked(const std::string& Collection,
 
      try
      {
-          nlohmann::json Root = nlohmann::json::parse(ExistingValue);
-
-          if (Root.contains("terms") && Root["terms"].is_array())
+          if (!GetStatus.IsNotFound())
           {
-               for (const auto& Entry : Root["terms"])
-               {
-                    if (Entry.is_string())
-                    {
-                         Batch.Delete(BuildTermKey(Entry.get<std::string>(), Collection, DocumentID));
-                    }
-                    else if (Entry.is_object())
-                    {
-                         const std::string Text = Entry.value("text", "");
+               nlohmann::json Root = nlohmann::json::parse(ExistingValue);
 
-                         if (!Text.empty())
+               if (Root.contains("terms") && Root["terms"].is_array())
+               {
+                    for (const auto& Entry : Root["terms"])
+                    {
+                         if (Entry.is_string())
                          {
-                              Batch.Delete(BuildTermKey(Text, Collection, DocumentID));
+                              Batch.Delete(BuildTermKey(Entry.get<std::string>(), Collection, DocumentID));
+                         }
+                         else if (Entry.is_object())
+                         {
+                              const std::string Text = Entry.value("text", "");
+
+                              if (!Text.empty())
+                              {
+                                   Batch.Delete(BuildTermKey(Text, Collection, DocumentID));
+                              }
                          }
                     }
                }
@@ -1634,12 +1633,40 @@ bool SAM::RemoveExistingDocumentTermsLocked(const std::string& Collection,
      }
      catch (const std::exception& E)
      {
-          if (ErrorMessage)
+          if (!ScanAllTermKeys)
           {
-               *ErrorMessage = E.what();
-          }
+               if (ErrorMessage)
+               {
+                    *ErrorMessage = E.what();
+               }
 
-          return false;
+               return false;
+          }
+     }
+
+     if (ScanAllTermKeys)
+     {
+          const std::string TermPrefix = "sam:term:";
+          std::unique_ptr<rocksdb::Iterator> Iterator(Database->NewIterator(rocksdb::ReadOptions()));
+
+          for (Iterator->Seek(TermPrefix);
+               Iterator->Valid() && Iterator->key().starts_with(TermPrefix);
+               Iterator->Next())
+          {
+               try
+               {
+                    const nlohmann::json Payload = nlohmann::json::parse(Iterator->value().ToString());
+
+                    if (Payload.value("collection", "") == Collection &&
+                        Payload.value("id", "") == DocumentID)
+                    {
+                         Batch.Delete(Iterator->key());
+                    }
+               }
+               catch (...)
+               {
+               }
+          }
      }
 
      Batch.Delete(ManifestKey);
@@ -1675,8 +1702,38 @@ bool SAM::IndexDocumentLocked(const std::string& Collection,
           return false;
      }
 
+     Document SourceDoc = HybridStorageManager::GetInstance().GetDocument(Collection, Doc.ID);
+
+     if (SourceDoc.ID.empty())
+     {
+          std::lock_guard<std::mutex> Lock(DBMutex);
+
+          if (!Database)
+          {
+               if (ErrorMessage)
+               {
+                    *ErrorMessage = "SAM database is not open.";
+               }
+
+               return false;
+          }
+
+          if (!RemoveExistingDocumentTermsLocked(Collection, Doc.ID, ErrorMessage, true))
+          {
+               return false;
+          }
+
+          RecordDebugEvent(Collection, "removed stale SAM index for deleted source document " + Doc.ID);
+          return true;
+     }
+
+     if (BuildSAMSourceDocumentFingerprint(SourceDoc) != BuildSAMSourceDocumentFingerprint(Doc))
+     {
+          RecordDebugEvent(Collection, "refreshing stale queued SAM job for " + Doc.ID + " from main document store");
+     }
+
      std::string TermsError;
-     const std::vector<TermEntry> Terms = ExpandDocumentTerms(Collection, Doc, &TermsError);
+     const std::vector<TermEntry> Terms = ExpandDocumentTerms(Collection, SourceDoc, &TermsError);
      if (Terms.empty())
      {
           const std::string FailureMessage = TermsError.empty()
@@ -1708,11 +1765,11 @@ bool SAM::IndexDocumentLocked(const std::string& Collection,
           }
 
           RecordDebugEvent(Collection,
-                           "indexed " + Doc.ID + " with " + std::to_string(Terms.size()) +
+                           "indexed " + SourceDoc.ID + " with " + std::to_string(Terms.size()) +
                                 " term(s): " + Preview.str());
      }
 
-     std::lock_guard<std::mutex> Lock(DBMutex);
+     std::unique_lock<std::mutex> Lock(DBMutex);
 
      if (!Database)
      {
@@ -1733,7 +1790,7 @@ bool SAM::IndexDocumentLocked(const std::string& Collection,
           return false;
      }
 
-     if (!RemoveExistingDocumentTermsLocked(Collection, Doc.ID, ErrorMessage))
+     if (!RemoveExistingDocumentTermsLocked(Collection, SourceDoc.ID, ErrorMessage))
      {
           return false;
      }
@@ -1741,15 +1798,15 @@ bool SAM::IndexDocumentLocked(const std::string& Collection,
      rocksdb::WriteBatch Batch;
      nlohmann::json Manifest;
      Manifest["collection"] = Collection;
-     Manifest["id"] = Doc.ID;
-     Manifest["title"] = Doc.Title;
-     Manifest["source_timestamp"] = Doc.Timestamp;
-     Manifest["source_fingerprint"] = BuildSAMSourceDocumentFingerprint(Doc);
-     Manifest["lang"] = sam::lang::DetectDocumentLanguage(Collection, Doc);
-     Manifest["label"] = DetectSAMDocumentLabel(Doc);
-     Manifest["format"] = DetectSAMDocumentFormat(Doc);
+     Manifest["id"] = SourceDoc.ID;
+     Manifest["title"] = SourceDoc.Title;
+     Manifest["source_timestamp"] = SourceDoc.Timestamp;
+     Manifest["source_fingerprint"] = BuildSAMSourceDocumentFingerprint(SourceDoc);
+     Manifest["lang"] = sam::lang::DetectDocumentLanguage(Collection, SourceDoc);
+     Manifest["label"] = DetectSAMDocumentLabel(SourceDoc);
+     Manifest["format"] = DetectSAMDocumentFormat(SourceDoc);
      Manifest["terms"] = nlohmann::json::array();
-     const SAMSemanticProfile SemanticProfile = BuildSemanticProfile(Doc.Title.empty() ? Doc.ID : Doc.Title, Terms);
+     const SAMSemanticProfile SemanticProfile = BuildSemanticProfile(SourceDoc.Title.empty() ? SourceDoc.ID : SourceDoc.Title, Terms);
 
      for (const auto& Term : Terms)
      {
@@ -1763,19 +1820,19 @@ bool SAM::IndexDocumentLocked(const std::string& Collection,
 
           nlohmann::json Payload;
           Payload["collection"] = Collection;
-          Payload["id"] = Doc.ID;
-          Payload["title"] = Doc.Title;
+          Payload["id"] = SourceDoc.ID;
+          Payload["title"] = SourceDoc.Title;
           Payload["term"] = Term.Text;
           Payload["kind"] = Term.Kind;
           Payload["source"] = Term.Source;
           Payload["score"] = Term.Score;
           Payload["signal"] = Term.Signal;
-          Batch.Put(BuildTermKey(Term.Text, Collection, Doc.ID), Payload.dump());
+          Batch.Put(BuildTermKey(Term.Text, Collection, SourceDoc.ID), Payload.dump());
      }
 
      StoreSemanticProfileJSON(Manifest, SemanticProfile);
 
-     Batch.Put(BuildDocManifestKey(Collection, Doc.ID), Manifest.dump());
+     Batch.Put(BuildDocManifestKey(Collection, SourceDoc.ID), Manifest.dump());
 
      if (!ValidateExpectedMutationVersion(Collection,
                                           HasExpectedMutationVersion,
@@ -1784,6 +1841,25 @@ bool SAM::IndexDocumentLocked(const std::string& Collection,
      {
           RecordDebugEvent(Collection, "discarded stale SAM job before commit for " + Doc.ID);
           return false;
+     }
+
+     const Document LatestDoc = HybridStorageManager::GetInstance().GetDocument(Collection, SourceDoc.ID);
+
+     if (LatestDoc.ID.empty())
+     {
+          RecordDebugEvent(Collection, "discarded SAM commit for deleted source document " + SourceDoc.ID);
+          return true;
+     }
+
+     if (BuildSAMSourceDocumentFingerprint(LatestDoc) != BuildSAMSourceDocumentFingerprint(SourceDoc))
+     {
+          RecordDebugEvent(Collection, "restarting SAM index for " + SourceDoc.ID + " because source changed before commit");
+          Lock.unlock();
+          return IndexDocumentLocked(Collection,
+                                     LatestDoc,
+                                     ErrorMessage,
+                                     HasExpectedMutationVersion,
+                                     ExpectedMutationVersion);
      }
 
      const rocksdb::Status Status = Database->Write(rocksdb::WriteOptions(), &Batch);
@@ -1841,7 +1917,7 @@ bool SAM::DeleteDocument(const std::string& Collection, const std::string& Docum
      }
 
      (void)Database->Delete(rocksdb::WriteOptions(), BuildPendingIndexQueueKey(Collection, DocumentID));
-     return RemoveExistingDocumentTermsLocked(Collection, DocumentID, ErrorMessage);
+     return RemoveExistingDocumentTermsLocked(Collection, DocumentID, ErrorMessage, true);
 }
 
 bool SAM::DeleteCollection(const std::string& Collection, std::string* ErrorMessage)
