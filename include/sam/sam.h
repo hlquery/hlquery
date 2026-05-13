@@ -110,6 +110,10 @@ class SAM
 
      void SetAutoIndexPauseUntilMS(uint64_t UntilMS);
 
+     /* Clear queued automatic indexing jobs without touching manual rebuild/search work. */
+
+     size_t ClearQueuedAutoIndexJobs();
+
      /* Returns the current pause-until timestamp in ms (0 means not paused). */
 
      uint64_t GetAutoIndexPauseUntilMS() const;

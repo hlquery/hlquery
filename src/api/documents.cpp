@@ -2989,12 +2989,32 @@ HttpResponse SearchAPI::HandleSAMPause(const HttpRequest &Request)
      }
 
      Instance->Sam->SetAutoIndexPauseUntilMS(AppliedUntilMS);
+     const size_t ClearedQueuedAutoIndexJobs =
+          (AppliedUntilMS > NowMS) ? Instance->Sam->ClearQueuedAutoIndexJobs() : 0;
+
+     if (Instance->Logs)
+     {
+          if (AppliedUntilMS > NowMS)
+          {
+               Instance->Logs->Normal("sam",
+                                      "SAM auto-index paused until " +
+                                           std::to_string(AppliedUntilMS) +
+                                           " ms; cleared " +
+                                           std::to_string(ClearedQueuedAutoIndexJobs) +
+                                           " queued auto-index job(s).");
+          }
+          else
+          {
+               Instance->Logs->Normal("sam", "SAM auto-index pause cleared.");
+          }
+     }
 
      nlohmann::json Root;
      Root["ok"] = true;
      Root["requested_pause_until_ms"] = RequestedUntilMS;
      Root["pause_until_ms"] = AppliedUntilMS;
      Root["paused"] = (AppliedUntilMS > NowMS);
+     Root["cleared_queued_auto_index_jobs"] = ClearedQueuedAutoIndexJobs;
      Root["note"] = "Pauses only automatic SAM background jobs (auto-index). Manual /sam/rebuild is unaffected.";
 
      HttpResponse Response(Status::OK, StatusText(Status::OK), "application/json");

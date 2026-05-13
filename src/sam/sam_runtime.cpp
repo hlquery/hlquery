@@ -95,6 +95,49 @@ bool SAM::IsCollectionCancelledLocked(const std::string& Collection) const
      return ShuttingDown || CancelAllRequested || CancelledCollections.find(Collection) != CancelledCollections.end();
 }
 
+size_t SAM::ClearQueuedAutoIndexJobs()
+{
+     size_t ClearedJobs = 0;
+
+     {
+          std::lock_guard<std::mutex> QueueLock(QueueMutex);
+          ClearedJobs = PendingIndexJobs.size();
+          PendingIndexJobs.clear();
+          PendingIndexKeys.clear();
+     }
+
+     {
+          std::lock_guard<std::mutex> DBLock(DBMutex);
+          if (Database)
+          {
+               std::vector<std::string> QueueKeys;
+               std::unique_ptr<rocksdb::Iterator> It(Database->NewIterator(rocksdb::ReadOptions()));
+
+               for (It->Seek(kPendingIndexQueuePrefix);
+                    It->Valid() && It->key().starts_with(kPendingIndexQueuePrefix);
+                    It->Next())
+               {
+                    QueueKeys.push_back(It->key().ToString());
+               }
+
+               if (!QueueKeys.empty())
+               {
+                    rocksdb::WriteBatch Batch;
+
+                    for (const std::string& Key : QueueKeys)
+                    {
+                         Batch.Delete(Key);
+                    }
+
+                    (void)Database->Write(rocksdb::WriteOptions(), &Batch);
+                    ClearedJobs = std::max(ClearedJobs, QueueKeys.size());
+               }
+          }
+     }
+
+     return ClearedJobs;
+}
+
 bool SAM::Initialize()
 {
      {

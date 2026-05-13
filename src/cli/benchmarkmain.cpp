@@ -2115,30 +2115,52 @@ int main(int argc, char *argv[])
 
           BenchmarkClient control_client(base_url, auth_token);
 
-          struct SAMPauseGuard
-          {
-               BenchmarkClient *Client = nullptr;
-               bool Enabled = false;
-
-               ~SAMPauseGuard()
-               {
-                    if (Enabled && Client)
-                    {
-                         Client->PauseSAM(0);
-                    }
-               }
-          };
-
-          SAMPauseGuard sam_pause_guard;
-          sam_pause_guard.Client = &control_client;
-          sam_pause_guard.Enabled = pause_sam;
+          uint64_t sam_pause_until_ms = 0;
 
           if (pause_sam)
           {
-               const uint64_t now_ms =
-                    static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(start_time_val.time_since_epoch()).count());
+               const uint64_t now_ms = static_cast<uint64_t>(NowMs());
+               sam_pause_until_ms = now_ms + (5ULL * 60ULL * 1000ULL);
 
-               control_client.PauseSAM(now_ms + (5ULL * 60ULL * 1000ULL));
+               const HTTPResponse pause_response = control_client.PauseSAM(sam_pause_until_ms);
+               bool sam_pause_applied = false;
+
+               if (pause_response.StatusCode == 200)
+               {
+                    try
+                    {
+                         const nlohmann::json root = nlohmann::json::parse(pause_response.Body);
+                         sam_pause_applied = root.value("paused", false);
+                         sam_pause_until_ms = root.value("pause_until_ms", sam_pause_until_ms);
+                    }
+                    catch (const std::exception&)
+                    {
+                         sam_pause_applied = false;
+                    }
+               }
+
+               if (sam_pause_applied)
+               {
+                    std::cout << "SAM auto-index pause: enabled until " << sam_pause_until_ms
+                              << " ms (expires automatically).\n";
+               }
+               else
+               {
+                    std::cout << "SAM auto-index pause: failed";
+                    if (pause_response.StatusCode != -1)
+                    {
+                         std::cout << " (HTTP " << pause_response.StatusCode << ")";
+                    }
+                    if (!pause_response.ErrorMessage.empty())
+                    {
+                         std::cout << " - " << pause_response.ErrorMessage;
+                    }
+                    std::cout << ".\n";
+               }
+          }
+          else
+          {
+               std::cout << "SAM auto-index pause: disabled by --no-pause-sam.\n";
           }
 
           if (advanced_mode)
