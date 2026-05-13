@@ -92,7 +92,7 @@ void SAM::RecordDebugEvent(const std::string& Collection, const std::string& Mes
 
 bool SAM::IsCollectionCancelledLocked(const std::string& Collection) const
 {
-     return CancelAllRequested || CancelledCollections.find(Collection) != CancelledCollections.end();
+     return ShuttingDown || CancelAllRequested || CancelledCollections.find(Collection) != CancelledCollections.end();
 }
 
 bool SAM::Initialize()
@@ -212,16 +212,60 @@ void SAM::Shutdown()
      std::vector<std::thread> ThreadsToJoin;
      std::shared_ptr<rocksdb::DB> DatabaseToRelease;
 
+     if (Instance && Instance->Logs)
+     {
+          Instance->Logs->Normal("sam", "SAM shutdown begin.");
+     }
+
+     {
+          std::lock_guard<std::mutex> Lock(JobMutex);
+          ShuttingDown = true;
+          CancelAllRequested = true;
+
+          for (auto& Entry : CollectionJobs)
+          {
+               if (Entry.second.Running)
+               {
+                    Entry.second.Running = false;
+                    Entry.second.Completed = false;
+                    Entry.second.PendingDocuments = 0;
+
+                    if (Entry.second.ErrorMessage.empty())
+                    {
+                         Entry.second.ErrorMessage = "Cancelled during shutdown.";
+                    }
+               }
+          }
+     }
+
      {
           std::lock_guard<std::mutex> Lock(QueueMutex);
           ShuttingDown = true;
+
+          if (Instance && Instance->Logs)
+          {
+               Instance->Logs->Normal("sam",
+                                      "SAM shutdown clearing " + std::to_string(PendingIndexJobs.size()) +
+                                           " queued index job(s).");
+          }
+
+          PendingIndexJobs.clear();
+          PendingIndexKeys.clear();
      }
 
      QueueCV.notify_all();
+     JobStateCV.notify_all();
 
      {
           std::lock_guard<std::mutex> Lock(JobMutex);
           ThreadsToJoin.swap(WorkerThreads);
+     }
+
+     if (Instance && Instance->Logs)
+     {
+          Instance->Logs->Normal("sam",
+                                 "SAM shutdown joining " + std::to_string(ThreadsToJoin.size()) +
+                                      " worker thread(s).");
      }
 
      for (auto& Worker : ThreadsToJoin)
@@ -237,10 +281,20 @@ void SAM::Shutdown()
           }
      }
 
+     if (Instance && Instance->Logs)
+     {
+          Instance->Logs->Normal("sam", "SAM shutdown workers joined.");
+     }
+
      {
           std::lock_guard<std::mutex> Lock(DBMutex);
           DatabaseOpen.store(false, std::memory_order_release);
           DatabaseToRelease = std::move(Database);
+     }
+
+     if (Instance && Instance->Logs)
+     {
+          Instance->Logs->Normal("sam", "SAM shutdown complete.");
      }
 }
 

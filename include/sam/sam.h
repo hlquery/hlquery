@@ -106,6 +106,14 @@ class SAM
           bool Running = false;
      };
 
+     /* Pause automatic background indexing until the given wall-clock timestamp in ms. */
+
+     void SetAutoIndexPauseUntilMS(uint64_t UntilMS);
+
+     /* Returns the current pause-until timestamp in ms (0 means not paused). */
+
+     uint64_t GetAutoIndexPauseUntilMS() const;
+
    private:
 
      /* One queued background indexing job for a source document. */
@@ -117,6 +125,10 @@ class SAM
           bool HasExpectedMutationVersion = false;
           uint64_t ExpectedMutationVersion = 0;
      };
+
+     /* Coordinated pause for auto-index background work (does not block manual rebuild/search). */
+
+     std::atomic<uint64_t> AutoIndexPauseUntilMS {0};
 
      struct PendingSearchIdeaJob
      {

@@ -1392,6 +1392,8 @@ static void PrintBenchmarkHelp(const char *program_name)
                << "  --prefix PREFIX    Custom prefix for benchmark collections (default: bench_{runid}_)\n"
                << "  --durability-config PATH  Load durability settings from config (e.g., run/conf/database.conf)\n"
                << "  --reuse-collections Reuse existing collections instead of deleting/recreating them\n"
+               << "  --pause-sam         Pause SAM auto-index during benchmark (default)\n"
+               << "  --no-pause-sam      Do not pause SAM auto-index during benchmark\n"
                << "  --skip-auth-check  Skip authentication requirement check (useful when auth is disabled)\n"
                << "  --unorganized      Create an 'unorganized' collection with non-standard schema for testing\n"
                << "  --log-file FILE    Structured log file (JSON lines format)\n"
@@ -1459,6 +1461,7 @@ int main(int argc, char *argv[])
 
           bool cleanup_benchmark_val = false;
           bool reuse_collections = false;
+          bool pause_sam = true;
 
           std::string log_file_val = "";
 
@@ -1606,6 +1609,14 @@ int main(int argc, char *argv[])
                else if (arg == "--reuse-collections")
                {
                     reuse_collections = true;
+               }
+               else if (arg == "--pause-sam")
+               {
+                    pause_sam = true;
+               }
+               else if (arg == "--no-pause-sam")
+               {
+                    pause_sam = false;
                }
                else if (arg == "--log-file")
                {
@@ -2101,6 +2112,34 @@ int main(int argc, char *argv[])
           }
 
           auto start_time_val = Now();
+
+          BenchmarkClient control_client(base_url, auth_token);
+
+          struct SAMPauseGuard
+          {
+               BenchmarkClient *Client = nullptr;
+               bool Enabled = false;
+
+               ~SAMPauseGuard()
+               {
+                    if (Enabled && Client)
+                    {
+                         Client->PauseSAM(0);
+                    }
+               }
+          };
+
+          SAMPauseGuard sam_pause_guard;
+          sam_pause_guard.Client = &control_client;
+          sam_pause_guard.Enabled = pause_sam;
+
+          if (pause_sam)
+          {
+               const uint64_t now_ms =
+                    static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(start_time_val.time_since_epoch()).count());
+
+               control_client.PauseSAM(now_ms + (5ULL * 60ULL * 1000ULL));
+          }
 
           if (advanced_mode)
           {

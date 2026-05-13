@@ -18,6 +18,12 @@ use File::Spec;
 use File::Basename;
 use POSIX qw(strftime WNOHANG);
 
+# Flush output immediately so wrapper logs don't interleave with the shell prompt.
+$| = 1;
+select(STDERR);
+$| = 1;
+select(STDOUT);
+
 # Configuration
 my $VERSION = "${HLQUERY_VERSION}";
 my $BINARY_NAME = "hlquery";
@@ -600,6 +606,8 @@ sub stop_server {
     while ($count < $timeout && is_running()) {
         if ($count == 3) {
             print_info("Still waiting for shutdown. Slow stops usually mean background writes, flushes, or open requests are finishing.");
+            print_info("Escalating to SIGINT to request a faster shutdown path...");
+            kill('INT', $pid);
         }
         sleep 1;
         $count++;

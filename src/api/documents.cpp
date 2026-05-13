@@ -2385,16 +2385,72 @@ HttpResponse SearchAPI::HandleSAMSearch(const HttpRequest &Request)
      const bool Distributed = ShouldAttemptDistributedSearch(Request);
      const bool IncludeExplain = Instance->Config && Instance->Config->GetSam25DebugExplain();
 
+     auto BuildSAMIndexingJSON = [&]()
+     {
+          nlohmann::json StatusJSON;
+          StatusJSON["known"] = false;
+          StatusJSON["running"] = false;
+          StatusJSON["completed"] = false;
+          StatusJSON["needs_retry"] = false;
+          StatusJSON["retry_scheduled"] = false;
+          StatusJSON["pending"] = 0;
+          StatusJSON["indexed"] = 0;
+          StatusJSON["failed"] = 0;
+          StatusJSON["total"] = 0;
+          StatusJSON["active_search_count"] = 0;
+          StatusJSON["search_running"] = false;
+
+          if (!Instance || !Instance->Sam || !Instance->Sam->IsOpen() || CollectionName.empty())
+          {
+               return StatusJSON;
+          }
+
+          SAM::CollectionJobStatus JobStatus;
+          const bool HasJobStatus = Instance->Sam->GetCollectionJobStatus(CollectionName, JobStatus);
+          const std::vector<SAM::SearchActivityEntry> ActiveSearches =
+               Instance->Sam->GetActiveSearchActivities(CollectionName);
+
+          StatusJSON["known"] = HasJobStatus;
+          StatusJSON["active_search_count"] = ActiveSearches.size();
+          StatusJSON["search_running"] = !ActiveSearches.empty();
+
+          if (HasJobStatus)
+          {
+               StatusJSON["running"] = JobStatus.Running;
+               StatusJSON["completed"] = JobStatus.Completed;
+               StatusJSON["needs_retry"] = JobStatus.NeedsRetry;
+               StatusJSON["retry_scheduled"] = JobStatus.RetryScheduled;
+               StatusJSON["pending"] = JobStatus.PendingDocuments;
+               StatusJSON["indexed"] = JobStatus.IndexedDocuments;
+               StatusJSON["failed"] = JobStatus.FailedDocuments;
+               StatusJSON["total"] = JobStatus.TotalDocuments;
+               StatusJSON["error"] = JobStatus.ErrorMessage;
+          }
+          else
+          {
+               StatusJSON["needs_retry"] = Instance->Sam->HasPendingCollectionRebuild(CollectionName);
+          }
+
+          return StatusJSON;
+     };
+
      auto BuildResponse = [&](const std::string &CollectionLabel,
                               const std::vector<SAM::LookupHit> &Hits,
                               const std::string &ExecutionMode,
                               const std::vector<std::string> &Collections = std::vector<std::string>())
      {
+          const nlohmann::json SAMIndexingJSON = BuildSAMIndexingJSON();
+          const bool SAMIndexingInProgress =
+               SAMIndexingJSON.value("running", false) ||
+               SAMIndexingJSON.value("retry_scheduled", false);
           nlohmann::json Root;
           Root["ok"] = true;
           Root["collection"] = CollectionLabel;
           Root["query"] = Query;
           Root["count"] = Hits.size();
+          Root["indexing_in_progress"] = SAMIndexingInProgress;
+          Root["sam_indexing"] = SAMIndexingJSON;
+          Root["execution_mode"] = ExecutionMode;
           Root["hits"] = nlohmann::json::array();
 
           if (!Collections.empty())
@@ -2876,6 +2932,70 @@ HttpResponse SearchAPI::HandleSAMStatus(const HttpRequest &Request)
                                              : (!ActiveSearches.empty() ? "SAM is analyzing recent searches."
                                                                         : "No SAM collections are currently indexing.");
      }
+
+     HttpResponse Response(Status::OK, StatusText(Status::OK), "application/json");
+     Response.Body = Root.dump();
+     return Response;
+}
+
+HttpResponse SearchAPI::HandleSAMPause(const HttpRequest &Request)
+{
+     if (Request.Method != "POST")
+     {
+          return HttpResponse(Status::METHOD_NOT_ALLOWED, StatusText(Status::METHOD_NOT_ALLOWED), "application/json");
+     }
+
+     if (!Instance || !Instance->Sam || !Instance->Sam->IsOpen())
+     {
+          return BuildErrorResponse(Status::SERVICE_UNAVAILABLE,
+                                    Code::SEARCH_INVALID_PARAMETER,
+                                    "SAM unavailable",
+                                    "Secondary Assistant Manager is not initialized.");
+     }
+
+     const auto PauseIt = Request.QueryParams.find("pause");
+     const std::string PauseToken = (PauseIt != Request.QueryParams.end()) ? TrimCopy(PauseIt->second) : "";
+
+     if (PauseToken.empty())
+     {
+          return BuildErrorResponse(Status::BAD_REQUEST,
+                                    Code::SEARCH_INVALID_PARAMETER,
+                                    "Missing pause value",
+                                    "Query parameter 'pause' is required (unix ms timestamp, or 0 to clear).");
+     }
+
+     uint64_t RequestedUntilMS = 0;
+
+     try
+     {
+          RequestedUntilMS = static_cast<uint64_t>(std::stoull(PauseToken));
+     }
+     catch (const std::exception &)
+     {
+          return BuildErrorResponse(Status::BAD_REQUEST,
+                                    Code::SEARCH_INVALID_PARAMETER,
+                                    "Invalid pause value",
+                                    "Query parameter 'pause' must be an integer unix ms timestamp, or 0 to clear.");
+     }
+
+     const uint64_t NowMS = static_cast<uint64_t>(NowMs());
+     uint64_t AppliedUntilMS = 0;
+
+     if (RequestedUntilMS > NowMS)
+     {
+          constexpr uint64_t kMaxPauseWindowMS = 5ULL * 60ULL * 1000ULL;
+
+          AppliedUntilMS = std::min<uint64_t>(RequestedUntilMS, NowMS + kMaxPauseWindowMS);
+     }
+
+     Instance->Sam->SetAutoIndexPauseUntilMS(AppliedUntilMS);
+
+     nlohmann::json Root;
+     Root["ok"] = true;
+     Root["requested_pause_until_ms"] = RequestedUntilMS;
+     Root["pause_until_ms"] = AppliedUntilMS;
+     Root["paused"] = (AppliedUntilMS > NowMS);
+     Root["note"] = "Pauses only automatic SAM background jobs (auto-index). Manual /sam/rebuild is unaffected.";
 
      HttpResponse Response(Status::OK, StatusText(Status::OK), "application/json");
      Response.Body = Root.dump();

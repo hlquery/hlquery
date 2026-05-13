@@ -2587,6 +2587,10 @@ void HttpConnection::ProcessSingleRequest(const std::string &RequestStr)
      {
           Response = API.HandleSAMHistory(Request);
      }
+     else if (NormalizedPath == "/sam/pause" && Request.Method == "POST")
+     {
+          Response = API.HandleSAMPause(Request);
+     }
      else if (NormalizedPath == "/sam/documents" && Request.Method == "GET")
      {
           Response = API.HandleSAMListDocuments(Request);
@@ -4780,6 +4784,8 @@ APIKeyAction MapRouteToKeyAction(RouteAction ActionVal)
 
           case RouteAction::SamRebuild:
                return APIKeyAction::UPDATE;
+          case RouteAction::SamPause:
+               return APIKeyAction::UPDATE;
 
           default:
                return APIKeyAction::SEARCH;
@@ -5305,6 +5311,9 @@ HttpResponse ProcessRequestWithAPI(SearchAPI &API, const HttpRequest &Request)
 
                case RouteAction::SamHistory:
                     return API.HandleSAMHistory(Request);
+
+               case RouteAction::SamPause:
+                    return API.HandleSAMPause(Request);
 
                case RouteAction::SamListDocuments:
                     return API.HandleSAMListDocuments(Request);

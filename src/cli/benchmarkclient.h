@@ -220,6 +220,10 @@ class BenchmarkClient
 
      HTTPResponse UpdateCounters(const std::string &prefix = "");
 
+     /* Pause automatic SAM background indexing until unix ms timestamp (0 clears). */
+
+     HTTPResponse PauseSAM(uint64_t pause_until_ms);
+
      /* Flushes and syncs. */
 
      HTTPResponse FlushSync();

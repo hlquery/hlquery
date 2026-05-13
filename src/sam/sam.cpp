@@ -9775,6 +9775,16 @@ size_t SAM::GetBackgroundWorkerCount() const
      return std::max<size_t>(1, BackgroundWorkerCount);
 }
 
+void SAM::SetAutoIndexPauseUntilMS(uint64_t UntilMS)
+{
+     AutoIndexPauseUntilMS.store(UntilMS, std::memory_order_relaxed);
+}
+
+uint64_t SAM::GetAutoIndexPauseUntilMS() const
+{
+     return AutoIndexPauseUntilMS.load(std::memory_order_relaxed);
+}
+
 size_t SAM::GetRunningCollectionJobCount() const
 {
      std::lock_guard<std::mutex> Lock(JobMutex);

@@ -855,6 +855,10 @@ class SearchAPI
 
      HttpResponse HandleSAMHistory(const HttpRequest& Request);
 
+     /* HandleSAMPause pauses automatic SAM background indexing (auto-index). */
+
+     HttpResponse HandleSAMPause(const HttpRequest& Request);
+
      /* HandleSAMListDocuments lists SAM-indexed documents for one collection. */
 
      HttpResponse HandleSAMListDocuments(const HttpRequest& Request);

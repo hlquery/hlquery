@@ -229,6 +229,11 @@ RouteAction ResolveHttpRoute(const HttpRequest &Request)
                return RouteAction::SamHistory;
           }
 
+          if (NormalizedPath == "/sam/pause" && Request.Method == "POST")
+          {
+               return RouteAction::SamPause;
+          }
+
           if (NormalizedPath == "/sam/documents" && Request.Method == "GET")
           {
                return RouteAction::SamListDocuments;
@@ -839,6 +844,8 @@ const char *RouteActionName(RouteAction ActionVal)
                return "SamDebug";
           case RouteAction::SamHistory:
                return "SamHistory";
+          case RouteAction::SamPause:
+               return "SamPause";
           case RouteAction::SamListDocuments:
                return "SamListDocuments";
           case RouteAction::SamGetDocument:
