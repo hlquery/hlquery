@@ -128,6 +128,7 @@ Server up for 3 days, 1h 0m 31s
 Official client libraries are available for popular programming languages:
 
 - **[Node.js](https://github.com/hlquery/node-api)** - Official Node.js client.
+- **[TypeScript](https://github.com/hlquery/type-api)** - Official TypeScript client.
 - **[Go](https://github.com/hlquery/go-api)** - Official Go client.
 - **[Java](https://github.com/hlquery/java-api)** - Official Java client.
 - **[Python](https://github.com/hlquery/python-api)** - Official Python client.
@@ -302,7 +303,7 @@ We welcome contributions from the community! All contributions must be released 
 ### How to Contribute
 
 - Check existing [issues](https://github.com/hlquery/hlquery/issues) or create new ones
-- Contribute to client libraries (Node.js, Go, Java, Python, PHP, Ruby, Rust, Perl, C++)
+- Contribute to client libraries (Node.js, TypeScript, Go, Java, Python, PHP, Ruby, Rust, Perl, C++)
 - Test and report bugs
 - Improve documentation
 

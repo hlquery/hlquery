@@ -170,17 +170,33 @@ void SearchThreadPool::Shutdown()
 
      QueueCV.notify_all();
 
-     /* Join all worker threads (daemon mode removed - always join, never detach) */
+     std::vector<std::unique_ptr<WorkerThread>> WorkersToJoin;
+     size_t NumThreads = 0;
 
-     std::lock_guard<std::mutex> Lock(WorkersMutex);
-
-     size_t NumThreads = Workers.size();
-
-     for (size_t i = 0; i < Workers.size(); ++i)
      {
-          auto &worker = Workers[i];
+          std::lock_guard<std::mutex> Lock(WorkersMutex);
 
-          if (worker->Thread.joinable())
+          NumThreads = Workers.size();
+
+          for (auto &worker : Workers)
+          {
+               if (worker)
+               {
+                    worker->Running = false;
+               }
+          }
+
+          WorkersToJoin.swap(Workers);
+          ActiveWorkerCount.store(0, std::memory_order_release);
+     }
+
+     QueueCV.notify_all();
+
+     /* Join all worker threads without holding WorkersMutex. */
+
+     for (auto &worker : WorkersToJoin)
+     {
+          if (worker && worker->Thread.joinable())
           {
                try
                {
@@ -206,9 +222,6 @@ void SearchThreadPool::Shutdown()
                }
           }
      }
-
-     Workers.clear();
-     ActiveWorkerCount.store(0, std::memory_order_release);
 
      try
      {
@@ -477,130 +490,147 @@ void SearchThreadPool::UpdateStatistics(const std::chrono::steady_clock::time_po
 
 void SearchThreadPool::ScaleThreads(size_t target_threads)
 {
-     std::lock_guard<std::mutex> Lock(WorkersMutex);
+     std::vector<std::unique_ptr<WorkerThread>> WorkersToJoin;
+     size_t ThreadsToRemove = 0;
 
-     size_t CurrentThreads = Workers.size();
-
-     if (target_threads > CurrentThreads)
      {
-          /* Scale up: create additional threads */
+          std::lock_guard<std::mutex> Lock(WorkersMutex);
 
-          for (size_t i = CurrentThreads; i < target_threads; ++i)
+          size_t CurrentThreads = Workers.size();
+
+          if (target_threads > CurrentThreads)
           {
-               if (ThreadLimit::GetCurrentThreadCount() >= ThreadLimit::GetMaxThreads())
+               /* Scale up: create additional threads */
+
+               for (size_t i = CurrentThreads; i < target_threads; ++i)
                {
-                    if (Instance && Instance->Logs)
+                    if (ThreadLimit::GetCurrentThreadCount() >= ThreadLimit::GetMaxThreads())
                     {
-                         Instance->Logs->Normal("thread_pool", "Thread limit reached during scale-up, stopping at " + std::to_string(i) + " threads (max: " + std::to_string(ThreadLimit::GetMaxThreads()) + ").");
+                         if (Instance && Instance->Logs)
+                         {
+                              Instance->Logs->Normal("thread_pool", "Thread limit reached during scale-up, stopping at " + std::to_string(i) + " threads (max: " + std::to_string(ThreadLimit::GetMaxThreads()) + ").");
+                         }
+
+                         break;
                     }
 
-                    break;
-               }
+                    /* Register thread before creating to prevent exceeding limit */
 
-               /* Register thread before creating to prevent exceeding limit */
+                    ThreadLimit::IncrementThreadCount();
 
-               ThreadLimit::IncrementThreadCount();
-
-               try
-               {
-                    auto worker = std::make_unique<WorkerThread>();
-                    WorkerThread *worker_ptr = worker.get();
-
-                    Workers.push_back(std::move(worker));
-                    ActiveWorkerCount.store(Workers.size(), std::memory_order_release);
-
-                    worker_ptr->Thread = std::thread([this, worker_ptr, i]()
-                                                     {
-                                                          /* Set thread name */
-
-                                                          std::string thread_name = "hlquery:search:" + std::to_string(i);
-
-                                                          ThreadLimit::SetThreadName(thread_name.c_str());
-
-                                                          WorkerLoop(worker_ptr, i);
-                                                     });
-
-                    if (Config.EnableCPUAffinity && !CPUCores.empty())
+                    try
                     {
-                         int cpu_core = CPUCores[i % CPUCores.size()];
+                         auto worker = std::make_unique<WorkerThread>();
+                         WorkerThread *worker_ptr = worker.get();
 
-                         SetThreadAffinity(worker_ptr->Thread, cpu_core);
-
-                         worker_ptr->CPUCore = cpu_core;
-                    }
-               }
-               catch (const std::exception &e)
-               {
-                    /* Thread creation failed - unregister to maintain accurate count */
-
-                    if (!Workers.empty())
-                    {
-                         Workers.pop_back();
+                         Workers.push_back(std::move(worker));
                          ActiveWorkerCount.store(Workers.size(), std::memory_order_release);
-                    }
 
-                    ThreadLimit::DecrementThreadCount();
+                         worker_ptr->Thread = std::thread([this, worker_ptr, i]()
+                                                          {
+                                                               /* Set thread name */
+
+                                                               std::string thread_name = "hlquery:search:" + std::to_string(i);
+
+                                                               ThreadLimit::SetThreadName(thread_name.c_str());
+
+                                                               WorkerLoop(worker_ptr, i);
+                                                          });
+
+                         if (Config.EnableCPUAffinity && !CPUCores.empty())
+                         {
+                              int cpu_core = CPUCores[i % CPUCores.size()];
+
+                              SetThreadAffinity(worker_ptr->Thread, cpu_core);
+
+                              worker_ptr->CPUCore = cpu_core;
+                         }
+                    }
+                    catch (const std::exception &e)
+                    {
+                         /* Thread creation failed - unregister to maintain accurate count */
+
+                         if (!Workers.empty())
+                         {
+                              Workers.pop_back();
+                              ActiveWorkerCount.store(Workers.size(), std::memory_order_release);
+                         }
+
+                         ThreadLimit::DecrementThreadCount();
+
+                         if (Instance && Instance->Logs)
+                         {
+                              Instance->Logs->Normal("thread_pool", "Thread creation failed: " + std::string(e.what()) + ", stopping at " + std::to_string(i) + " threads.");
+                         }
+
+                         break;
+                    }
+               }
+          }
+          else if (target_threads < CurrentThreads)
+          {
+               /* Scale down: validate minimum requirements before removing threads */
+
+               size_t MinRequired = Config.CoreThreads;
+
+               size_t OriginalTarget = target_threads;
+
+               if (target_threads < MinRequired)
+               {
+                    target_threads = MinRequired;
 
                     if (Instance && Instance->Logs)
                     {
-                         Instance->Logs->Normal("thread_pool", "Thread creation failed: " + std::string(e.what()) + ", stopping at " + std::to_string(i) + " threads.");
+                         Instance->Logs->Normal("thread_pool", "Scale-down limited by pool core_threads, adjusting from " + std::to_string(OriginalTarget) + " to " + std::to_string(target_threads) + ".");
+                    }
+               }
+
+               if (target_threads >= CurrentThreads)
+               {
+                    if (Instance && Instance->Logs)
+                    {
+                         Instance->Logs->Normal("thread_pool", "Scale-down prevented by minimum requirements, keeping " + std::to_string(CurrentThreads) + " threads.");
                     }
 
-                    break;
+                    return;
                }
+
+               ThreadsToRemove = CurrentThreads - target_threads;
+
+               for (size_t i = target_threads; i < CurrentThreads; ++i)
+               {
+                    if (i < Workers.size() && Workers[i])
+                    {
+                         Workers[i]->Running = false;
+                    }
+               }
+
+               ActiveWorkerCount.store(target_threads, std::memory_order_release);
+
+               WorkersToJoin.reserve(ThreadsToRemove);
+
+               for (size_t i = target_threads; i < CurrentThreads; ++i)
+               {
+                    WorkersToJoin.push_back(std::move(Workers[i]));
+               }
+
+               Workers.erase(Workers.begin() + target_threads, Workers.end());
           }
      }
-     else if (target_threads < CurrentThreads)
+
+     if (!WorkersToJoin.empty())
      {
-          /* Scale down: validate minimum requirements before removing threads */
-
-          size_t MinRequired = Config.CoreThreads;
-
-          size_t OriginalTarget = target_threads;
-
-          if (target_threads < MinRequired)
-          {
-               target_threads = MinRequired;
-
-               if (Instance && Instance->Logs)
-               {
-                    Instance->Logs->Normal("thread_pool", "Scale-down limited by pool core_threads, adjusting from " + std::to_string(OriginalTarget) + " to " + std::to_string(target_threads) + ".");
-               }
-          }
-
-          if (target_threads >= CurrentThreads)
-          {
-               if (Instance && Instance->Logs)
-               {
-                    Instance->Logs->Normal("thread_pool", "Scale-down prevented by minimum requirements, keeping " + std::to_string(CurrentThreads) + " threads.");
-               }
-
-               return;
-          }
-
-          size_t ThreadsToRemove = CurrentThreads - target_threads;
-
-          for (size_t i = target_threads; i < CurrentThreads; ++i)
-          {
-               if (i < Workers.size() && Workers[i])
-               {
-                    Workers[i]->Running = false;
-               }
-          }
-
-          ActiveWorkerCount.store(target_threads, std::memory_order_release);
-
-          /* Wake workers so only the selected tail threads can observe Running=false and exit. */
+          /* Wake workers so selected tail threads can observe Running=false and exit. */
 
           QueueCV.notify_all();
 
-          /* Wait for threads to exit before unregistering */
+          /* Wait for threads to exit without holding WorkersMutex. */
 
-          for (size_t i = target_threads; i < CurrentThreads; ++i)
+          for (auto &worker : WorkersToJoin)
           {
-               if (i < Workers.size() && Workers[i] && Workers[i]->Thread.joinable())
+               if (worker && worker->Thread.joinable())
                {
-                    Workers[i]->Thread.join(); /* Join instead of detach - daemon mode removed */
+                    worker->Thread.join(); /* Join instead of detach - daemon mode removed */
                }
           }
 
@@ -610,8 +640,6 @@ void SearchThreadPool::ScaleThreads(size_t target_threads)
           {
                ThreadLimit::DecrementThreadCount();
           }
-
-          Workers.erase(Workers.begin() + target_threads, Workers.end());
      }
 }
 

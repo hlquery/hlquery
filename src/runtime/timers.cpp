@@ -117,37 +117,41 @@ void TimerManager::Add(Timer entry)
 
 void TimerManager::Tick()
 {
-     /* Protect the timer list */
+     std::vector<Timer> DueTimers;
 
-     std::unique_lock<std::shared_mutex> lock(MutexValue);
-
-     /* Current time */
-
-     auto now = Instance->Now();
-
-     for (auto &Entry : Entries)
      {
-          if (Entry.IsDue(now))
+          /* Protect the timer list */
+
+          std::unique_lock<std::shared_mutex> lock(MutexValue);
+
+          /* Current time */
+
+          auto now = Instance->Now();
+
+          for (auto &Entry : Entries)
           {
-               /* Execute task without holding the lock to avoid deadlocks */
-
-               lock.unlock();
-               Entry.Execute();
-               lock.lock();
-
-               Entry.UpdateAfterRun(now);
+               if (Entry.IsDue(now))
+               {
+                    DueTimers.push_back(Entry);
+                    Entry.UpdateAfterRun(now);
+               }
           }
+
+          /* Drop non-repeating timers that have fired */
+
+          Entries.erase(
+               std::remove_if(Entries.begin(), Entries.end(),
+                              [](const Timer &Entry)
+                              {
+                                   return Entry.IsRetired();
+                              }),
+               Entries.end());
      }
 
-     /* Drop non-repeating timers that have fired */
-
-     Entries.erase(
-          std::remove_if(Entries.begin(), Entries.end(),
-                         [](const Timer &Entry)
-                         {
-                              return Entry.IsRetired();
-                         }),
-          Entries.end());
+     for (const auto &Entry : DueTimers)
+     {
+          Entry.Execute();
+     }
 }
 
 /* Get milliseconds until next scheduled timer */
