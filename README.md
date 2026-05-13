@@ -93,7 +93,7 @@ $ gmake install
 
 ### Running hlquery
 
-Start the server:
+**Start the server:**
 
 ```bash
 $ ./run/hlquery start
@@ -101,33 +101,26 @@ $ ./run/hlquery start
 
 > **Note**: hlquery uses port **9200** by default. Ensure this port is available and not blocked by your firewall.
 
-Stop the server:
+**Stop the server:**
 
 ```bash
 $ ./run/hlquery stop
 ```
 
-Run in foreground (for debugging):
-
-```bash
-$ ./run/hlquery start --nofork
-```
-
-Get current status as JSON:
-
-```bash
-$ ./run/hlquery status --json
-{"action":"status","pid":206773,"status":"running","success":true,"uptime":9,"version":"1.0.0"}
-```
-
-Stop the server as JSON:
+**Stop the server as JSON:**
 
 ```bash
 $ ./run/hlquery stop --json
 {"action":"stop","stopped_pid":206773,"success":true}
 ```
 
-Run talk:
+**Run in foreground (for debugging):**
+
+```bash
+$ ./run/hlquery start --nofork
+```
+
+**Run talk:**
 
 ```text
 $ ./run/bin/hlquery-talk
