@@ -16,10 +16,17 @@ use warnings;
 use Getopt::Long qw(GetOptions Configure);
 use File::Spec;
 use File::Basename;
+use FindBin qw($Bin);
 use POSIX qw(strftime WNOHANG);
 
+# Flush output immediately so wrapper logs don't interleave with the shell prompt.
+$| = 1;
+select(STDERR);
+$| = 1;
+select(STDOUT);
+
 # Configuration
-my $VERSION = "${HLQUERY_VERSION}";
+my $VERSION = load_version();
 my $BINARY_NAME = "hlquery";
 my $DEFAULT_CONFIG = "${HLQUERY_CONFIG_DIR}/hlquery.conf";
 my $DEFAULT_PIDFILE = "${HLQUERY_PID_DIR}/hlquery.pid";
@@ -43,6 +50,28 @@ my $pid_file_path;
 my $log_dir_path;
 my $working_dir;
 my $json_output = 0;
+
+sub load_version {
+    my @candidates = (
+        File::Spec->catfile($Bin, '..', 'src', 'version.sh'),
+        File::Spec->catfile($Bin, 'src', 'version.sh'),
+    );
+
+    for my $script (@candidates) {
+        next unless -f $script;
+
+        open my $version_fh, '-|', 'sh', $script or next;
+        my $version = do { local $/; <$version_fh> };
+        close $version_fh;
+        chomp $version;
+        $version =~ s/^\s+|\s+$//g;
+        $version =~ s/^hlquery-//;
+
+        return $version if length $version;
+    }
+
+    return "1.0.0";
+}
 
 sub print_banner {
     print <<"EOF";
@@ -600,6 +629,8 @@ sub stop_server {
     while ($count < $timeout && is_running()) {
         if ($count == 3) {
             print_info("Still waiting for shutdown. Slow stops usually mean background writes, flushes, or open requests are finishing.");
+            print_info("Escalating to SIGINT to request a faster shutdown path...");
+            kill('INT', $pid);
         }
         sleep 1;
         $count++;
@@ -703,7 +734,6 @@ sub show_status {
             action => 'status',
             status => 'running',
             pid => $pid,
-            port => configured_port(),
             version => $VERSION,
             uptime => process_uptime($pid),
             success => '__JSON_TRUE__',
@@ -715,7 +745,6 @@ sub show_status {
             action => 'status',
             status => 'stopped',
             pid => undef,
-            port => configured_port(),
             version => $VERSION,
             uptime => 0,
             success => '__JSON_FALSE__',

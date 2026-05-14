@@ -79,6 +79,14 @@ namespace
                return;
           }
 
+          const uint64_t NowMS = static_cast<uint64_t>(NowMs());
+          const uint64_t PauseUntilMS = Instance->Sam->GetAutoIndexPauseUntilMS();
+
+          if (PauseUntilMS > 0 && NowMS < PauseUntilMS)
+          {
+               return;
+          }
+
           const size_t MaxParallelJobs =
                std::max<size_t>(1, Instance->Sam->GetBackgroundWorkerCount());
           size_t AvailableSlots = MaxParallelJobs;
@@ -200,7 +208,7 @@ namespace
 
           for (const auto &Collection : Collections)
           {
-               const size_t DocumentCount =
+          const size_t DocumentCount =
                     HybridStorageManager::GetInstance().GetCollectionDocumentCount(Collection);
                uint64_t IndexedMutationVersion = 0;
                const bool HasIndexedVersion =
@@ -272,6 +280,14 @@ namespace
                return;
           }
 
+          const uint64_t NowMS = static_cast<uint64_t>(NowMs());
+          const uint64_t PauseUntilMS = Instance->Sam->GetAutoIndexPauseUntilMS();
+
+          if (PauseUntilMS > 0 && NowMS < PauseUntilMS)
+          {
+               return;
+          }
+
           const size_t Processed = Instance->Sam->ProcessPendingSearchIntentOptimizations(1);
 
           if (Processed > 0 && Instance->Logs)
@@ -287,6 +303,18 @@ namespace
           if (!Instance || !Instance->Sam || !Instance->Sam->IsOpen())
           {
                return;
+          }
+
+          const uint64_t PauseUntilMS = Instance->Sam->GetAutoIndexPauseUntilMS();
+
+          if (!Force && PauseUntilMS > 0)
+          {
+               const uint64_t NowMS = static_cast<uint64_t>(NowMs());
+
+               if (NowMS < PauseUntilMS)
+               {
+                    return;
+               }
           }
 
           const uint64_t NowMS = static_cast<uint64_t>(NowMs());

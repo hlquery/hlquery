@@ -220,6 +220,90 @@ static std::vector<std::string> ExtractTermsSimple(const std::string &text, bool
      return terms;
 }
 
+static std::vector<std::string> ExtractTermsInOrderSimple(const std::string &text, bool case_sensitive = false)
+{
+     std::vector<std::string> terms;
+
+     if (text.empty())
+     {
+          return terms;
+     }
+
+     const size_t max_text_size = 1000000;
+     const std::string &text_to_process = (text.length() > max_text_size) ? text.substr(0, max_text_size) : text;
+
+     size_t pos = 0;
+     const size_t text_len = text_to_process.length();
+     const size_t max_terms = 100000;
+
+     while (pos < text_len && terms.size() < max_terms)
+     {
+          while (pos < text_len && (std::isspace(static_cast<unsigned char>(text_to_process[pos])) || text_to_process[pos] == '-' || text_to_process[pos] == '.' || text_to_process[pos] == ',' || text_to_process[pos] == ':' || text_to_process[pos] == '/' || text_to_process[pos] == '\\' || text_to_process[pos] == '(' || text_to_process[pos] == ')' || text_to_process[pos] == '[' || text_to_process[pos] == ']' || text_to_process[pos] == '{' || text_to_process[pos] == '}' || text_to_process[pos] == '@' || text_to_process[pos] == '#' || text_to_process[pos] == '$' || text_to_process[pos] == '%' || text_to_process[pos] == '&' || text_to_process[pos] == '+' || text_to_process[pos] == '=' || text_to_process[pos] == ';' || text_to_process[pos] == '|' || text_to_process[pos] == '!' || text_to_process[pos] == '?' || text_to_process[pos] == '~' || text_to_process[pos] == '^' || text_to_process[pos] == '`' || text_to_process[pos] == '"'))
+          {
+               pos++;
+          }
+
+          if (pos >= text_len)
+          {
+               break;
+          }
+
+          size_t word_start = pos;
+
+          while (pos < text_len && !std::isspace(static_cast<unsigned char>(text_to_process[pos])) && text_to_process[pos] != '-' && text_to_process[pos] != '.' && text_to_process[pos] != ',' && text_to_process[pos] != ':' && text_to_process[pos] != '/' && text_to_process[pos] != '\\' && text_to_process[pos] != '(' && text_to_process[pos] != ')' && text_to_process[pos] != '[' && text_to_process[pos] != ']' && text_to_process[pos] != '{' && text_to_process[pos] != '}' && text_to_process[pos] != '@' && text_to_process[pos] != '#' && text_to_process[pos] != '$' && text_to_process[pos] != '%' && text_to_process[pos] != '&' && text_to_process[pos] != '+' && text_to_process[pos] != '=' && text_to_process[pos] != ';' && text_to_process[pos] != '|' && text_to_process[pos] != '!' && text_to_process[pos] != '?' && text_to_process[pos] != '~' && text_to_process[pos] != '^' && text_to_process[pos] != '`' && text_to_process[pos] != '"')
+          {
+               pos++;
+          }
+
+          if (pos > word_start)
+          {
+               std::string word = text_to_process.substr(word_start, pos - word_start);
+               std::string normalized = NormalizeTermSimple(word, case_sensitive);
+
+               if (!normalized.empty())
+               {
+                    terms.push_back(normalized);
+               }
+          }
+     }
+
+     return terms;
+}
+
+static bool FieldContainsPhraseSimple(const std::string &field_value,
+                                      const std::string &phrase,
+                                      bool case_sensitive = false)
+{
+     const std::vector<std::string> field_terms = ExtractTermsInOrderSimple(field_value, case_sensitive);
+     const std::vector<std::string> phrase_terms = ExtractTermsInOrderSimple(phrase, case_sensitive);
+
+     if (field_terms.empty() || phrase_terms.empty() || phrase_terms.size() > field_terms.size())
+     {
+          return false;
+     }
+
+     for (size_t start = 0; start + phrase_terms.size() <= field_terms.size(); ++start)
+     {
+          bool matched = true;
+
+          for (size_t index = 0; index < phrase_terms.size(); ++index)
+          {
+               if (field_terms[start + index] != phrase_terms[index])
+               {
+                    matched = false;
+                    break;
+               }
+          }
+
+          if (matched)
+          {
+               return true;
+          }
+     }
+
+     return false;
+}
+
 /*
  * ExtractQuotedPhrases implementation.
  */
@@ -689,7 +773,7 @@ static bool EvaluateQueryClause(const Document &doc,
      {
           if (clause.Phrase)
           {
-               if (field_val.second.find(clause.Value) != std::string::npos)
+               if (FieldContainsPhraseSimple(field_val.second, clause.Value, case_sensitive))
                {
                     return true;
                }
@@ -770,14 +854,7 @@ static std::vector<std::string> BuildCandidateQueriesFromParsedExpression(const 
                     builder << " ";
                }
 
-               if (clause.Phrase)
-               {
-                    builder << '"' << clause.Value << '"';
-               }
-               else
-               {
-                    builder << clause.Value;
-               }
+               builder << clause.Value;
                first = false;
           }
 
@@ -1262,7 +1339,7 @@ static bool AllQuotedPhrasesMatchRequestedFields(const std::vector<std::pair<std
 
           for (const auto &field_val : field_values)
           {
-               if (field_val.second.find(phrase) != std::string::npos)
+               if (FieldContainsPhraseSimple(field_val.second, phrase))
                {
                     phrase_found = true;
                     break;
@@ -1580,9 +1657,11 @@ std::vector<SearchHit> SearchAPI::ProcessLexicalSearch(const std::string &Collec
                                             (Postings.empty() || Query.InlineFuzzy) &&
                                             !query_variant_terms_list.empty());
 
-     if ((Query.AllowScanFallback || force_structured_scan || needs_typo_scan_fallback) &&
-         (Postings.empty() || force_structured_scan || needs_typo_scan_fallback) &&
-         (!has_in_memory_index || collection_indexing || force_structured_scan || needs_typo_scan_fallback))
+     const bool prefer_storage_scan_while_indexing = collection_indexing && collection_docs > 0;
+
+     if ((Query.AllowScanFallback || prefer_storage_scan_while_indexing || force_structured_scan || needs_typo_scan_fallback) &&
+         (Postings.empty() || prefer_storage_scan_while_indexing || force_structured_scan || needs_typo_scan_fallback) &&
+         (!has_in_memory_index || prefer_storage_scan_while_indexing || force_structured_scan || needs_typo_scan_fallback))
      {
           const bool allow_prefix_match = Query.Prefix;
 

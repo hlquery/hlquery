@@ -171,14 +171,15 @@ void LogStream::WriteLog(LogLevel Level, const std::string &Type, const std::str
                }
           }
      }
-     else if (ConfigValue.method == "console")
-     {
-          LogLine = FormatLogLine(Level, Type, FinalMessage, true);
-          LineSize = LogLine.size() + 1;
-          std::cout << LogLine << std::endl;
+	     else if (ConfigValue.method == "console")
+	     {
+	          const bool UseColors = (isatty(STDOUT_FILENO) == 1);
+	          LogLine = FormatLogLine(Level, Type, FinalMessage, UseColors);
+	          LineSize = LogLine.size() + 1;
+	          std::cout << LogLine << std::endl;
 
-          std::cout.flush();
-     }
+	          std::cout.flush();
+	     }
 }
 
 /* Flushes any buffered data to the configured target. */

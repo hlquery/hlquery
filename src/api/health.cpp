@@ -1016,7 +1016,12 @@ HttpResponse SearchAPI::HandleStats(const HttpRequest &Request)
           StatsJSON["sam_available"] = SamAvailable;
           StatsJSON["sam"] = {
                {"enabled", SamEnabled},
-               {"available", SamAvailable}
+               {"available", SamAvailable},
+               {"smart_background", Instance->Config ? Instance->Config->GetSamSmartBackground() : true},
+               {"background_improvement_interval_ms",
+                    Instance->Config ? Instance->Config->GetSamBackgroundImprovementIntervalMs() : 60000},
+               {"background_improvement_poll_ms",
+                    Instance->Config ? Instance->Config->GetSamBackgroundImprovementPollMs() : 15000}
           };
           if (!DemoMessage.empty())
           {

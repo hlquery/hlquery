@@ -2082,6 +2082,35 @@ size_t HybridStorageManager::AddDocumentsBatch(const std::string &collection, co
           }
      }
 
+     if (count > 0 && Instance && Instance->Sam && Instance->Sam->IsOpen())
+     {
+          for (const auto &doc : documents)
+          {
+               if (doc.ID.empty())
+               {
+                    continue;
+               }
+
+               Document stored_doc = GetDocument(collection, doc.ID);
+
+               if (stored_doc.ID.empty())
+               {
+                    continue;
+               }
+
+               std::string sam_error;
+
+               if (!Instance->Sam->EnqueueIndexDocument(collection, stored_doc, &sam_error) &&
+                   Instance->Logs)
+               {
+                    Instance->Logs->Normal("sam",
+                                           "Failed to queue batch SAM index for '" +
+                                                collection + "/" + stored_doc.ID + "': " +
+                                                (sam_error.empty() ? std::string("unknown error") : sam_error) + ".");
+               }
+          }
+     }
+
      /* Batch write complete */
 
      /* Return total number of documents written (both new and updated) */

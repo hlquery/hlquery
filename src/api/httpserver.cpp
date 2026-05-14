@@ -1461,6 +1461,14 @@ void HttpConnection::ProcessRequest()
                SendResponse(DedupResponse);
                return;
           }
+
+          HttpResponse ReadOnlyResponse = API.CheckReadOnlyMode(Request, Operation);
+          if (ReadOnlyResponse.StatusCode != 0)
+          {
+               RecordAnalyticsForResponse(Request, ReadOnlyResponse);
+               SendResponse(ReadOnlyResponse);
+               return;
+          }
      }
 
      ResponseVal = ProcessRequestWithAPI(API, Request);
@@ -2586,6 +2594,14 @@ void HttpConnection::ProcessSingleRequest(const std::string &RequestStr)
      else if (NormalizedPath == "/sam/history" && Request.Method == "GET")
      {
           Response = API.HandleSAMHistory(Request);
+     }
+     else if (NormalizedPath == "/sam/pause" && Request.Method == "POST")
+     {
+          Response = API.HandleSAMPause(Request);
+     }
+     else if (NormalizedPath == "/sam/improve" && Request.Method == "POST")
+     {
+          Response = API.HandleSAMImprove(Request);
      }
      else if (NormalizedPath == "/sam/documents" && Request.Method == "GET")
      {
@@ -4780,6 +4796,10 @@ APIKeyAction MapRouteToKeyAction(RouteAction ActionVal)
 
           case RouteAction::SamRebuild:
                return APIKeyAction::UPDATE;
+          case RouteAction::SamPause:
+               return APIKeyAction::UPDATE;
+          case RouteAction::SamImprove:
+               return APIKeyAction::UPDATE;
 
           default:
                return APIKeyAction::SEARCH;
@@ -5305,6 +5325,12 @@ HttpResponse ProcessRequestWithAPI(SearchAPI &API, const HttpRequest &Request)
 
                case RouteAction::SamHistory:
                     return API.HandleSAMHistory(Request);
+
+               case RouteAction::SamPause:
+                    return API.HandleSAMPause(Request);
+
+               case RouteAction::SamImprove:
+                    return API.HandleSAMImprove(Request);
 
                case RouteAction::SamListDocuments:
                     return API.HandleSAMListDocuments(Request);

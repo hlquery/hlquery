@@ -106,6 +106,51 @@ class SAM
           bool Running = false;
      };
 
+     struct ImprovementStats
+     {
+          size_t ImprovedCollections = 0;
+          size_t OptimizedIdeas = 0;
+          size_t SkippedBusy = 0;
+          size_t SkippedStaleIndex = 0;
+          size_t SkippedPendingRebuild = 0;
+          size_t SkippedCancelled = 0;
+          size_t SkippedNotIndexed = 0;
+          size_t SkippedLLMUnavailable = 0;
+          size_t SkippedThrottled = 0;
+          size_t SkippedPaused = 0;
+          size_t SkippedFlushInProgress = 0;
+          size_t SkippedNoDatabase = 0;
+
+          size_t TotalImproved() const
+          {
+               return ImprovedCollections + OptimizedIdeas;
+          }
+     };
+
+     /* Pause automatic background indexing until the given wall-clock timestamp in ms. */
+
+     void SetAutoIndexPauseUntilMS(uint64_t UntilMS);
+
+     /* Pause automatic work for a flush transaction without touching manual pauses. */
+
+     bool BeginFlushPause(uint64_t UntilMS, std::string* ErrorMessage = nullptr);
+
+     /* Release the flush-owned pause and allow automatic work to resume if no manual pause remains. */
+
+     void EndFlushPause();
+
+     /* Clear queued automatic indexing jobs without touching manual rebuild/search work. */
+
+     size_t ClearQueuedAutoIndexJobs();
+
+     /* Returns the current pause-until timestamp in ms (0 means not paused). */
+
+     uint64_t GetAutoIndexPauseUntilMS() const;
+
+     std::string GetAutoIndexPauseReason(uint64_t NowMS = 0) const;
+
+     bool IsFlushInProgress() const;
+
    private:
 
      /* One queued background indexing job for a source document. */
@@ -117,6 +162,12 @@ class SAM
           bool HasExpectedMutationVersion = false;
           uint64_t ExpectedMutationVersion = 0;
      };
+
+     /* Coordinated pause for auto-index background work (does not block manual rebuild/search). */
+
+     std::atomic<uint64_t> ManualAutoIndexPauseUntilMS {0};
+     std::atomic<uint64_t> FlushAutoIndexPauseUntilMS {0};
+     std::atomic<bool> FlushInProgress {false};
 
      struct PendingSearchIdeaJob
      {
@@ -160,6 +211,7 @@ class SAM
      std::deque<PendingSearchIdeaJob> PendingSearchIdeaJobs;
      std::deque<PendingSearchInteractionJob> PendingSearchInteractionJobs;
      std::unordered_map<std::string, size_t> ActiveCollectionTasks;
+     std::unordered_map<std::string, uint64_t> LastBackgroundImprovementMS;
      std::unordered_set<std::string> CancelledCollections;
      bool CancelAllRequested = false;
      bool ShuttingDown = false;
@@ -186,13 +238,31 @@ class SAM
 
      void RunIndexWorker();
 
+     /* Run low-priority SAM improvement work while indexing is idle. */
+
+     void RunImprovementWorker();
+
+     /* Try to reserve one idle collection for low-priority improvement. */
+
+     bool TryBeginBackgroundImprovement(const std::string& Collection,
+                                        uint64_t NowMS,
+                                        bool Force = false,
+                                        std::string* SkipReason = nullptr);
+
+     /* Release a collection reserved by the low-priority improvement worker. */
+
+     void FinishBackgroundImprovement(const std::string& Collection);
+
      /* Remove all indexed SAM data from the database. */
 
      bool ClearAll(std::string* ErrorMessage = nullptr);
 
      /* Remove all existing term mappings for one document while holding the database lock. */
 
-     bool RemoveExistingDocumentTermsLocked(const std::string& Collection, const std::string& DocumentID, std::string* ErrorMessage = nullptr);
+     bool RemoveExistingDocumentTermsLocked(const std::string& Collection,
+                                            const std::string& DocumentID,
+                                            std::string* ErrorMessage = nullptr,
+                                            bool ScanAllTermKeys = false);
 
      /* Index one document into SAM while holding the database lock. */
 
@@ -479,6 +549,12 @@ class SAM
      /* Process a bounded batch of pending search-intent optimization work. */
 
      size_t ProcessPendingSearchIntentOptimizations(size_t MaxCollections = 1);
+
+     /* Run a low-priority improvement pass for idle/current SAM collections. */
+
+     size_t ImproveIdleCollections(size_t MaxCollections = 0, bool Force = false);
+
+     ImprovementStats ImproveIdleCollectionsDetailed(size_t MaxCollections = 0, bool Force = false);
 
      /* Flush queued interaction-backed search-idea updates. */
 

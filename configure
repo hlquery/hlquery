@@ -943,6 +943,8 @@ sub generate_makefile {
     $template_content =~ s/\$\{BINDIR\}/$config{BINDIR}/g;
     $template_content =~ s/\$\{SYSTEMD_UNIT_DIR\}/$config{SYSTEMD_UNIT_DIR}/g;
     $template_content =~ s/\$\{CONFIGURE_COMMAND\}/$reconfigure_command/g;
+    my $project_version = PROJECT_VERSION;
+    $template_content =~ s/\$\{HLQUERY_VERSION\}/$project_version/g;
     
     # SSL support - auto-detected
     my $with_ssl = $config{SSL_ENABLED} ? '1' : '0';

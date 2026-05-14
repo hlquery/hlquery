@@ -94,7 +94,7 @@ class SearchThreadPool
 
      /* Submit one task to the pool.
       * Returns a future for the scheduled callable or an empty future
-      * when the queue is already at capacity.
+      * when the pool is shutting down or the queue is already at capacity.
       */
 
      template <typename F, typename... Args>
@@ -108,6 +108,13 @@ class SearchThreadPool
 
           {
                std::lock_guard<std::mutex> lock(QueueMutex);
+
+               if (ShutdownFlag.load(std::memory_order_acquire))
+               {
+                    RejectedTasks++;
+
+                    return std::future<ReturnType>(); /* Return empty future for rejected tasks */
+               }
 
                if (TaskQueue.size() >= Config.QueueCapacity)
                {

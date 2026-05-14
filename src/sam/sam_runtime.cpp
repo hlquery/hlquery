@@ -24,8 +24,13 @@
 #include "search/storageengine.h"
 #include "vendor/json/json.hpp"
 
-namespace {
+namespace
+{
 constexpr const char* kPendingIndexQueuePrefix = "sam:queue:index:";
+constexpr uint64_t kDefaultBackgroundImprovementIntervalMS = 60000;
+constexpr uint64_t kDefaultBackgroundImprovementPollMS = 15000;
+
+/* Build the persisted queue key for one pending SAM index job. */
 
 std::string BuildPendingIndexQueueKey(const std::string& Collection, const std::string& DocumentID)
 {
@@ -37,6 +42,8 @@ std::string BuildPendingIndexQueueKey(const std::string& Collection, const std::
      Key.append(DocumentID);
      return Key;
 }
+
+/* Parse a persisted queue key back into collection and document identifiers. */
 
 bool ParsePendingIndexQueueKey(const std::string& Key, std::string& Collection, std::string& DocumentID)
 {
@@ -57,7 +64,48 @@ bool ParsePendingIndexQueueKey(const std::string& Key, std::string& Collection, 
      DocumentID.assign(Remainder.substr(Sep + 1));
      return !Collection.empty() && !DocumentID.empty();
 }
+
+bool SmartSAMBackgroundEnabled()
+{
+     return !Instance || !Instance->Config || Instance->Config->GetSamSmartBackground();
 }
+
+bool SAMAutomaticPauseActive()
+{
+     if (!Instance || !Instance->Sam)
+     {
+          return false;
+     }
+
+     const uint64_t NowMS = static_cast<uint64_t>(NowMs());
+     const uint64_t PauseUntilMS = Instance->Sam->GetAutoIndexPauseUntilMS();
+     return PauseUntilMS > 0 && NowMS < PauseUntilMS;
+}
+
+uint64_t ResolveBackgroundImprovementIntervalMS()
+{
+     if (!Instance || !Instance->Config)
+     {
+          return kDefaultBackgroundImprovementIntervalMS;
+     }
+
+     return static_cast<uint64_t>(
+          std::max(5000, Instance->Config->GetSamBackgroundImprovementIntervalMs()));
+}
+
+std::chrono::milliseconds ResolveBackgroundImprovementPollInterval()
+{
+     if (!Instance || !Instance->Config)
+     {
+          return std::chrono::milliseconds(kDefaultBackgroundImprovementPollMS);
+     }
+
+     return std::chrono::milliseconds(
+          std::max(1000, Instance->Config->GetSamBackgroundImprovementPollMs()));
+}
+}
+
+/* Initialize SAM runtime defaults. */
 
 SAM::SAM()
 {
@@ -92,8 +140,53 @@ void SAM::RecordDebugEvent(const std::string& Collection, const std::string& Mes
 
 bool SAM::IsCollectionCancelledLocked(const std::string& Collection) const
 {
-     return CancelAllRequested || CancelledCollections.find(Collection) != CancelledCollections.end();
+     return ShuttingDown || CancelAllRequested || CancelledCollections.find(Collection) != CancelledCollections.end();
 }
+
+size_t SAM::ClearQueuedAutoIndexJobs()
+{
+     size_t ClearedJobs = 0;
+
+     {
+          std::lock_guard<std::mutex> QueueLock(QueueMutex);
+          ClearedJobs = PendingIndexJobs.size();
+          PendingIndexJobs.clear();
+          PendingIndexKeys.clear();
+     }
+
+     {
+          std::lock_guard<std::mutex> DBLock(DBMutex);
+          if (Database)
+          {
+               std::vector<std::string> QueueKeys;
+               std::unique_ptr<rocksdb::Iterator> It(Database->NewIterator(rocksdb::ReadOptions()));
+
+               for (It->Seek(kPendingIndexQueuePrefix);
+                    It->Valid() && It->key().starts_with(kPendingIndexQueuePrefix);
+                    It->Next())
+               {
+                    QueueKeys.push_back(It->key().ToString());
+               }
+
+               if (!QueueKeys.empty())
+               {
+                    rocksdb::WriteBatch Batch;
+
+                    for (const std::string& Key : QueueKeys)
+                    {
+                         Batch.Delete(Key);
+                    }
+
+                    (void)Database->Write(rocksdb::WriteOptions(), &Batch);
+                    ClearedJobs = std::max(ClearedJobs, QueueKeys.size());
+               }
+          }
+     }
+
+     return ClearedJobs;
+}
+
+/* Open the SAM database and restore durable queue state. */
 
 bool SAM::Initialize()
 {
@@ -169,7 +262,9 @@ bool SAM::Initialize()
                          HasExpectedMutationVersion = Root.value("has_expected_mutation_version", false);
                          ExpectedMutationVersion = Root.value("expected_mutation_version", 0);
                     }
-                    catch (...) {}
+                    catch (...)
+                    {
+                    }
 
                     const Document Doc = HybridStorageManager::GetInstance().GetDocument(Collection, DocumentID);
                     if (Doc.ID.empty())
@@ -207,21 +302,63 @@ bool SAM::Initialize()
      return true;
 }
 
+/* Stop workers and release the SAM database handle. */
+
 void SAM::Shutdown()
 {
      std::vector<std::thread> ThreadsToJoin;
      std::shared_ptr<rocksdb::DB> DatabaseToRelease;
 
+     if (Instance && Instance->Logs)
+     {
+          Instance->Logs->Normal("sam", "SAM shutdown begin.");
+     }
+
+     {
+          std::lock_guard<std::mutex> Lock(JobMutex);
+          ShuttingDown = true;
+          CancelAllRequested = true;
+
+          for (auto& Entry : CollectionJobs)
+          {
+               if (Entry.second.Running)
+               {
+                    Entry.second.Running = false;
+                    Entry.second.Completed = false;
+                    Entry.second.PendingDocuments = 0;
+
+                    if (Entry.second.ErrorMessage.empty())
+                    {
+                         Entry.second.ErrorMessage = "Cancelled during shutdown.";
+                    }
+               }
+          }
+     }
+
      {
           std::lock_guard<std::mutex> Lock(QueueMutex);
           ShuttingDown = true;
+
+          if (Instance && Instance->Logs)
+          {
+               Instance->Logs->Normal("sam", "SAM shutdown clearing " + std::to_string(PendingIndexJobs.size()) + " queued index job(s).");
+          }
+
+          PendingIndexJobs.clear();
+          PendingIndexKeys.clear();
      }
 
      QueueCV.notify_all();
+     JobStateCV.notify_all();
 
      {
           std::lock_guard<std::mutex> Lock(JobMutex);
           ThreadsToJoin.swap(WorkerThreads);
+     }
+
+     if (Instance && Instance->Logs)
+     {
+          Instance->Logs->Normal("sam", "SAM shutdown joining " + std::to_string(ThreadsToJoin.size()) + " worker thread(s).");
      }
 
      for (auto& Worker : ThreadsToJoin)
@@ -237,10 +374,20 @@ void SAM::Shutdown()
           }
      }
 
+     if (Instance && Instance->Logs)
+     {
+          Instance->Logs->Normal("sam", "SAM shutdown workers joined.");
+     }
+
      {
           std::lock_guard<std::mutex> Lock(DBMutex);
           DatabaseOpen.store(false, std::memory_order_release);
           DatabaseToRelease = std::move(Database);
+     }
+
+     if (Instance && Instance->Logs)
+     {
+          Instance->Logs->Normal("sam", "SAM shutdown complete.");
      }
 }
 
@@ -389,7 +536,316 @@ void SAM::StartIndexWorker()
                RunIndexWorker();
           });
      }
+
+     WorkerThreads.emplace_back([this]()
+     {
+          RunImprovementWorker();
+     });
 }
+
+bool SAM::TryBeginBackgroundImprovement(const std::string& Collection,
+                                        uint64_t NowMS,
+                                        bool Force,
+                                        std::string* SkipReason)
+{
+     if (SkipReason)
+     {
+          SkipReason->clear();
+     }
+
+     if (Collection.empty())
+     {
+          if (SkipReason)
+          {
+               *SkipReason = "not_indexed";
+          }
+
+          return false;
+     }
+
+     if (FlushInProgress.load(std::memory_order_acquire))
+     {
+          if (SkipReason)
+          {
+               *SkipReason = "flush";
+          }
+
+          return false;
+     }
+
+     if (!Force && SAMAutomaticPauseActive())
+     {
+          if (SkipReason)
+          {
+               *SkipReason = "paused";
+          }
+
+          return false;
+     }
+
+     {
+          std::lock_guard<std::mutex> QueueLock(QueueMutex);
+
+          if (!PendingIndexJobs.empty())
+          {
+               if (SkipReason)
+               {
+                    *SkipReason = "busy";
+               }
+
+               return false;
+          }
+     }
+
+     std::lock_guard<std::mutex> JobLock(JobMutex);
+
+     if (IsCollectionCancelledLocked(Collection))
+     {
+          if (SkipReason)
+          {
+               *SkipReason = "cancelled";
+          }
+
+          return false;
+     }
+
+     if (ActiveCollectionTasks.find(Collection) != ActiveCollectionTasks.end())
+     {
+          if (SkipReason)
+          {
+               *SkipReason = "busy";
+          }
+
+          return false;
+     }
+
+     const auto StatusIt = CollectionJobs.find(Collection);
+
+     if (StatusIt != CollectionJobs.end() && StatusIt->second.Running)
+     {
+          if (SkipReason)
+          {
+               *SkipReason = "busy";
+          }
+
+          return false;
+     }
+
+     const uint64_t LastImprovementMS = LastBackgroundImprovementMS[Collection];
+     const uint64_t ImprovementIntervalMS = ResolveBackgroundImprovementIntervalMS();
+
+     if (!Force &&
+         LastImprovementMS > 0 &&
+         NowMS > LastImprovementMS &&
+         (NowMS - LastImprovementMS) < ImprovementIntervalMS)
+     {
+          if (SkipReason)
+          {
+               *SkipReason = "throttled";
+          }
+
+          return false;
+     }
+
+     ++ActiveCollectionTasks[Collection];
+     LastBackgroundImprovementMS[Collection] = NowMS;
+     return true;
+}
+
+void SAM::FinishBackgroundImprovement(const std::string& Collection)
+{
+     std::lock_guard<std::mutex> JobLock(JobMutex);
+     auto ActiveIt = ActiveCollectionTasks.find(Collection);
+
+     if (ActiveIt != ActiveCollectionTasks.end())
+     {
+          if (ActiveIt->second > 0)
+          {
+               --ActiveIt->second;
+          }
+
+          if (ActiveIt->second == 0)
+          {
+               ActiveCollectionTasks.erase(ActiveIt);
+          }
+     }
+
+     JobStateCV.notify_all();
+     QueueCV.notify_all();
+}
+
+SAM::ImprovementStats SAM::ImproveIdleCollectionsDetailed(size_t MaxCollections, bool Force)
+{
+     ImprovementStats Stats;
+     FlushPendingSearchInteractions(4);
+     FlushPendingSearchIdeas(2);
+     Stats.OptimizedIdeas = ProcessPendingSearchIntentOptimizations(1);
+
+     if (!Instance || !Instance->LLM || !Instance->LLM->Configured())
+     {
+          Stats.SkippedLLMUnavailable = 1;
+     }
+
+     const std::vector<std::string> Collections =
+          HybridStorageManager::GetInstance().ListCollections();
+     const uint64_t NowMS = Instance ? Instance->NowMs() : 0;
+
+     for (const auto& Collection : Collections)
+     {
+          if (MaxCollections > 0 && Stats.ImprovedCollections >= MaxCollections)
+          {
+               break;
+          }
+
+          std::string SkipReason;
+          if (!TryBeginBackgroundImprovement(Collection, NowMS, Force, &SkipReason))
+          {
+               if (SkipReason == "busy")
+               {
+                    ++Stats.SkippedBusy;
+               }
+               else if (SkipReason == "cancelled")
+               {
+                    ++Stats.SkippedCancelled;
+               }
+               else if (SkipReason == "throttled")
+               {
+                    ++Stats.SkippedThrottled;
+               }
+               else if (SkipReason == "paused")
+               {
+                    ++Stats.SkippedPaused;
+               }
+               else if (SkipReason == "flush")
+               {
+                    ++Stats.SkippedFlushInProgress;
+               }
+               else
+               {
+                    ++Stats.SkippedNotIndexed;
+               }
+
+               continue;
+          }
+
+          bool Improved = false;
+          std::string ErrorMessage;
+
+          {
+               std::lock_guard<std::mutex> DBLock(DBMutex);
+
+               if (Database)
+               {
+                    SAMCollectionState State;
+                    std::string StateError;
+                    const bool LoadedState =
+                         ReadCollectionStateLocked(Database.get(), Collection, State, nullptr, &StateError);
+                    const uint64_t CurrentMutationVersion =
+                         GetCurrentCollectionMutationVersion(Collection);
+                    const bool CurrentIndex =
+                         LoadedState &&
+                         State.HasIndexedMutationVersion &&
+                         !State.RebuildRequested &&
+                         (CurrentMutationVersion == 0 ||
+                          State.IndexedMutationVersion == CurrentMutationVersion);
+
+                    if (CurrentIndex)
+                    {
+                         const bool RebuiltProfile =
+                              RebuildCollectionProfileLocked(Database.get(), Collection, &ErrorMessage);
+                         const bool RebuiltGraph =
+                              RebuildIntentGraphLocked(Database.get(), Collection, &ErrorMessage);
+                         Improved = RebuiltProfile || RebuiltGraph;
+                    }
+                    else if (LoadedState && State.RebuildRequested)
+                    {
+                         ErrorMessage = "skipped because a rebuild is already pending";
+                         ++Stats.SkippedPendingRebuild;
+                    }
+                    else if (!LoadedState)
+                    {
+                         ErrorMessage = StateError;
+                         ++Stats.SkippedNotIndexed;
+                    }
+                    else
+                    {
+                         ErrorMessage = "skipped because indexed mutation version is stale";
+                         if (!State.HasIndexedMutationVersion)
+                         {
+                              ++Stats.SkippedNotIndexed;
+                         }
+                         else
+                         {
+                              ++Stats.SkippedStaleIndex;
+                         }
+                    }
+               }
+               else
+               {
+                    ++Stats.SkippedNoDatabase;
+               }
+          }
+
+          FinishBackgroundImprovement(Collection);
+
+          if (Improved)
+          {
+               ++Stats.ImprovedCollections;
+               RecordDebugEvent(Collection, "background improvement refreshed learned profile and intent graph");
+          }
+          else if (!ErrorMessage.empty())
+          {
+               RecordDebugEvent(Collection, "background improvement " + ErrorMessage);
+          }
+     }
+
+     return Stats;
+}
+
+size_t SAM::ImproveIdleCollections(size_t MaxCollections, bool Force)
+{
+     return ImproveIdleCollectionsDetailed(MaxCollections, Force).TotalImproved();
+}
+
+void SAM::RunImprovementWorker()
+{
+     while (true)
+     {
+          const auto PollInterval = ResolveBackgroundImprovementPollInterval();
+
+          {
+               std::unique_lock<std::mutex> Lock(QueueMutex);
+               QueueCV.wait_for(Lock, PollInterval, [this]()
+               {
+                    return ShuttingDown;
+               });
+
+               if (ShuttingDown)
+               {
+                    return;
+               }
+
+               if (!PendingIndexJobs.empty())
+               {
+                    continue;
+               }
+          }
+
+          if (!SmartSAMBackgroundEnabled())
+          {
+               continue;
+          }
+
+          if (SAMAutomaticPauseActive())
+          {
+               continue;
+          }
+
+          ImproveIdleCollections(1, false);
+     }
+}
+
+/* Drain queued document indexing jobs until shutdown. */
 
 void SAM::RunIndexWorker()
 {
@@ -409,6 +865,16 @@ void SAM::RunIndexWorker()
                     if (ShuttingDown && PendingIndexJobs.empty())
                     {
                          return;
+                    }
+
+                    if (FlushInProgress.load(std::memory_order_acquire))
+                    {
+                         QueueCV.wait_for(Lock, std::chrono::milliseconds(250), [this]()
+                         {
+                              return ShuttingDown ||
+                                     !FlushInProgress.load(std::memory_order_acquire);
+                         });
+                         continue;
                     }
 
                     size_t SelectedIndex = PendingIndexJobs.size();
@@ -606,15 +1072,30 @@ void SAM::RunIndexWorker()
           if (RetryRequested)
           {
                std::lock_guard<std::mutex> DBLock(DBMutex);
+
                if (Database)
                {
                     SAMCollectionState State;
-                    if (ReadCollectionStateLocked(Database.get(), Job.Collection, State, nullptr, nullptr))
+
+                    std::string StateError;
+
+                    if (ReadCollectionStateLocked(Database.get(), Job.Collection, State, nullptr, &StateError))
                     {
                          State.RebuildRequested = true;
                          State.RequestedMutationVersion =
                               GetCurrentCollectionMutationVersion(Job.Collection);
-                         (void)WriteCollectionStateLocked(Database.get(), Job.Collection, State, nullptr);
+
+                         if (!WriteCollectionStateLocked(Database.get(), Job.Collection, State, &StateError))
+                         {
+                              if (Instance && Instance->Logs)
+                              {
+                                   Instance->Logs->Normal("sam", "Failed to persist rebuild retry state for '" + Job.Collection + "': " + (StateError.empty() ? std::string("unknown error") : StateError) + ".");
+                              }
+                         }
+                    }
+                    else if (Instance && Instance->Logs)
+                    {
+                         Instance->Logs->Normal("sam", "Failed to read collection state for '" + Job.Collection + "' while scheduling rebuild retry: " + (StateError.empty() ? std::string("unknown error") : StateError) + ".");
                     }
                }
 
@@ -636,9 +1117,7 @@ void SAM::RunIndexWorker()
 
           if (Instance && Instance->Logs)
           {
-               Instance->Logs->Normal("sam",
-                                      "Failed to background index '" + Job.Collection + "/" + Job.Doc.ID +
-                                           "': " + (ErrorMessage.empty() ? std::string("unknown error") : ErrorMessage) + ".");
+               Instance->Logs->Normal("sam", "Failed to background index '" + Job.Collection + "/" + Job.Doc.ID + "': " + (ErrorMessage.empty() ? std::string("unknown error") : ErrorMessage) + ".");
           }
      }
 }
@@ -770,9 +1249,7 @@ bool SAM::Recreate(std::string* ErrorMessage)
 
      if (Instance && Instance->Logs)
      {
-          Instance->Logs->Normal("sam",
-                                 "SAM recreate complete: indexed " + std::to_string(IndexedDocuments) +
-                                      " documents, failed " + std::to_string(FailedDocuments) + ".");
+          Instance->Logs->Normal("sam", "SAM recreate complete: indexed " + std::to_string(IndexedDocuments) + " documents, failed " + std::to_string(FailedDocuments) + ".");
      }
 
      return true;
@@ -896,9 +1373,7 @@ bool SAM::RecreateCollection(const std::string& Collection,
 
                if (Instance && Instance->Logs && !IndexError.empty())
                {
-                    Instance->Logs->Normal("sam",
-                                           "Failed to index '" + Collection + "/" + DocumentID +
-                                                "' during collection rebuild: " + IndexError + ".");
+                    Instance->Logs->Normal("sam", "Failed to index '" + Collection + "/" + DocumentID + "' during collection rebuild: " + IndexError + ".");
                }
           }
      }
@@ -929,9 +1404,7 @@ bool SAM::RecreateCollection(const std::string& Collection,
      {
           if (Instance && Instance->Logs)
           {
-               Instance->Logs->Normal("sam",
-                                      "Failed to rebuild SAM collection profile for '" + Collection +
-                                           "': " + ProfileError + ".");
+               Instance->Logs->Normal("sam", "Failed to rebuild SAM collection profile for '" + Collection + "': " + ProfileError + ".");
           }
 
           if (ErrorMessage && ErrorMessage->empty())
@@ -942,10 +1415,7 @@ bool SAM::RecreateCollection(const std::string& Collection,
 
      if (Instance && Instance->Logs)
      {
-          Instance->Logs->Normal("sam",
-                                 "SAM rebuild for collection '" + Collection + "' complete: indexed " +
-                                      std::to_string(IndexedCount) + " documents, failed " +
-                                      std::to_string(FailedCount) + ".");
+          Instance->Logs->Normal("sam", "SAM rebuild for collection '" + Collection + "' complete: indexed " + std::to_string(IndexedCount) + " documents, failed " + std::to_string(FailedCount) + ".");
      }
 
      return true;
@@ -1024,6 +1494,16 @@ bool SAM::StartRecreateCollectionAsync(const std::string& Collection,
           std::lock_guard<std::mutex> Lock(JobMutex);
           const auto ExistingIt = CollectionJobs.find(Collection);
 
+          if (FlushInProgress.load(std::memory_order_acquire))
+          {
+               if (ErrorMessage)
+               {
+                    *ErrorMessage = "SAM flush is in progress.";
+               }
+
+               return false;
+          }
+
           if (IsCollectionCancelledLocked(Collection))
           {
                if (ErrorMessage)
@@ -1051,6 +1531,7 @@ bool SAM::StartRecreateCollectionAsync(const std::string& Collection,
           JobStatus.RetryScheduled = false;
           JobStatus.ErrorMessage.clear();
           CancelledCollections.erase(Collection);
+          ++ActiveCollectionTasks[Collection];
      }
 
      RecordDebugEvent(Collection,
@@ -1060,13 +1541,10 @@ bool SAM::StartRecreateCollectionAsync(const std::string& Collection,
      const uint64_t ExpectedMutationVersion =
           HasExpectedMutationVersion ? GetCurrentCollectionMutationVersion(Collection) : 0;
 
-     std::thread([this, Collection, HasExpectedMutationVersion, ExpectedMutationVersion]()
+     try
      {
+          std::thread([this, Collection, HasExpectedMutationVersion, ExpectedMutationVersion]()
           {
-               std::lock_guard<std::mutex> Lock(JobMutex);
-               ++ActiveCollectionTasks[Collection];
-          }
-
           auto FinishTask = [this, &Collection]()
           {
                std::lock_guard<std::mutex> Lock(JobMutex);
@@ -1113,7 +1591,8 @@ bool SAM::StartRecreateCollectionAsync(const std::string& Collection,
                {
                     std::lock_guard<std::mutex> Lock(JobMutex);
 
-                    if (IsCollectionCancelledLocked(Collection))
+                    if (IsCollectionCancelledLocked(Collection) ||
+                        FlushInProgress.load(std::memory_order_acquire))
                     {
                          CollectionJobStatus& JobStatus = CollectionJobs[Collection];
                          JobStatus.Running = false;
@@ -1176,7 +1655,8 @@ bool SAM::StartRecreateCollectionAsync(const std::string& Collection,
                     JobStatus.PendingDocuments = DocumentsToQueue.size();
                     JobStatus.TotalDocuments = DocumentsToQueue.size();
 
-                    if (IsCollectionCancelledLocked(Collection))
+                    if (IsCollectionCancelledLocked(Collection) ||
+                        FlushInProgress.load(std::memory_order_acquire))
                     {
                          JobStatus.Running = false;
                          JobStatus.Completed = false;
@@ -1205,7 +1685,8 @@ bool SAM::StartRecreateCollectionAsync(const std::string& Collection,
                {
                     std::lock_guard<std::mutex> Lock(JobMutex);
 
-                    if (IsCollectionCancelledLocked(Collection))
+                    if (IsCollectionCancelledLocked(Collection) ||
+                        FlushInProgress.load(std::memory_order_acquire))
                     {
                          CollectionJobStatus& JobStatus = CollectionJobs[Collection];
                          JobStatus.Running = false;
@@ -1255,15 +1736,30 @@ bool SAM::StartRecreateCollectionAsync(const std::string& Collection,
                     if (QueueNeedsRetry)
                     {
                          std::lock_guard<std::mutex> DBLock(DBMutex);
+
                          if (Database)
                          {
                               SAMCollectionState State;
-                              if (ReadCollectionStateLocked(Database.get(), Collection, State, nullptr, nullptr))
+
+                              std::string StateError;
+
+                              if (ReadCollectionStateLocked(Database.get(), Collection, State, nullptr, &StateError))
                               {
                                    State.RebuildRequested = true;
                                    State.RequestedMutationVersion =
                                         GetCurrentCollectionMutationVersion(Collection);
-                                   (void)WriteCollectionStateLocked(Database.get(), Collection, State, nullptr);
+
+                                   if (!WriteCollectionStateLocked(Database.get(), Collection, State, &StateError))
+                                   {
+                                        if (Instance && Instance->Logs)
+                                        {
+                                             Instance->Logs->Normal("sam", "Failed to persist rebuild retry state for '" + Collection + "': " + (StateError.empty() ? std::string("unknown error") : StateError) + ".");
+                                        }
+                                   }
+                              }
+                              else if (Instance && Instance->Logs)
+                              {
+                                   Instance->Logs->Normal("sam", "Failed to read collection state for '" + Collection + "' while scheduling rebuild retry: " + (StateError.empty() ? std::string("unknown error") : StateError) + ".");
                               }
                          }
 
@@ -1316,16 +1812,32 @@ bool SAM::StartRecreateCollectionAsync(const std::string& Collection,
                if (!ValidMutationVersion)
                {
                     std::lock_guard<std::mutex> DBLock(DBMutex);
+
                     if (Database)
                     {
                          SAMCollectionState State;
-                         if (ReadCollectionStateLocked(Database.get(), Collection, State, nullptr, nullptr))
+
+                         std::string StateIOError;
+
+                         if (ReadCollectionStateLocked(Database.get(), Collection, State, nullptr, &StateIOError))
                          {
                               State.RebuildRequested = true;
                               State.RequestedMutationVersion = GetCurrentCollectionMutationVersion(Collection);
-                              (void)WriteCollectionStateLocked(Database.get(), Collection, State, nullptr);
+
+                              if (!WriteCollectionStateLocked(Database.get(), Collection, State, &StateIOError))
+                              {
+                                   if (Instance && Instance->Logs)
+                                   {
+                                        Instance->Logs->Normal("sam", "Failed to persist rebuild retry state for '" + Collection + "': " + (StateIOError.empty() ? std::string("unknown error") : StateIOError) + ".");
+                                   }
+                              }
+                         }
+                         else if (Instance && Instance->Logs)
+                         {
+                              Instance->Logs->Normal("sam", "Failed to read collection state for '" + Collection + "' while scheduling rebuild retry: " + (StateIOError.empty() ? std::string("unknown error") : StateIOError) + ".");
                          }
                     }
+
                     RecordDebugEvent(Collection, "rebuild invalidated before completion: " + StateError);
                     ScheduleRetryRebuild(Collection);
                }
@@ -1335,8 +1847,39 @@ bool SAM::StartRecreateCollectionAsync(const std::string& Collection,
                }
           }
 
-          FinishTask();
-     }).detach();
+               FinishTask();
+          }).detach();
+     }
+     catch (const std::exception& E)
+     {
+          std::lock_guard<std::mutex> Lock(JobMutex);
+          CollectionJobStatus& JobStatus = CollectionJobs[Collection];
+          JobStatus.Running = false;
+          JobStatus.Completed = false;
+          JobStatus.PendingDocuments = 0;
+          JobStatus.ErrorMessage = E.what();
+          auto ActiveIt = ActiveCollectionTasks.find(Collection);
+          if (ActiveIt != ActiveCollectionTasks.end())
+          {
+               if (ActiveIt->second > 0)
+               {
+                    --ActiveIt->second;
+               }
+
+               if (ActiveIt->second == 0)
+               {
+                    ActiveCollectionTasks.erase(ActiveIt);
+               }
+          }
+          JobStateCV.notify_all();
+
+          if (ErrorMessage)
+          {
+               *ErrorMessage = E.what();
+          }
+
+          return false;
+     }
 
      return true;
 }
@@ -1349,6 +1892,16 @@ bool SAM::EnqueueIndexDocument(const std::string& Collection,
 {
      {
           std::lock_guard<std::mutex> Lock(JobMutex);
+
+          if (FlushInProgress.load(std::memory_order_acquire))
+          {
+               if (ErrorMessage)
+               {
+                    *ErrorMessage = "SAM flush is in progress.";
+               }
+
+               return false;
+          }
 
           if (IsCollectionCancelledLocked(Collection))
           {
@@ -1405,7 +1958,7 @@ bool SAM::EnqueueIndexDocument(const std::string& Collection,
                     }
                }
 
-               // Fall through to persist the refreshed job payload.
+               /* Fall through to persist the refreshed job payload. */
           }
           else
           {
@@ -1436,20 +1989,18 @@ bool SAM::EnqueueIndexDocument(const std::string& Collection,
      return true;
 }
 
+/* Remove persisted SAM term and manifest data for one source document. */
+
 bool SAM::RemoveExistingDocumentTermsLocked(const std::string& Collection,
                                             const std::string& DocumentID,
-                                            std::string* ErrorMessage)
+                                            std::string* ErrorMessage,
+                                            bool ScanAllTermKeys)
 {
      const std::string ManifestKey = BuildDocManifestKey(Collection, DocumentID);
      std::string ExistingValue;
      const rocksdb::Status GetStatus = Database->Get(rocksdb::ReadOptions(), ManifestKey, &ExistingValue);
 
-     if (GetStatus.IsNotFound())
-     {
-          return true;
-     }
-
-     if (!GetStatus.ok())
+     if (!GetStatus.IsNotFound() && !GetStatus.ok())
      {
           if (ErrorMessage)
           {
@@ -1463,23 +2014,45 @@ bool SAM::RemoveExistingDocumentTermsLocked(const std::string& Collection,
 
      try
      {
-          nlohmann::json Root = nlohmann::json::parse(ExistingValue);
-
-          if (Root.contains("terms") && Root["terms"].is_array())
+          if (!GetStatus.IsNotFound())
           {
-               for (const auto& Entry : Root["terms"])
+               nlohmann::json Root = nlohmann::json::parse(ExistingValue);
+
+               if (Root.contains("terms") && Root["terms"].is_array())
                {
-                    if (Entry.is_string())
+                    for (const auto& Entry : Root["terms"])
                     {
-                         Batch.Delete(BuildTermKey(Entry.get<std::string>(), Collection, DocumentID));
+                         if (Entry.is_string())
+                         {
+                              Batch.Delete(BuildTermKey(Entry.get<std::string>(), Collection, DocumentID));
+                         }
+                         else if (Entry.is_object())
+                         {
+                              const std::string Text = Entry.value("text", "");
+
+                              if (!Text.empty())
+                              {
+                                   Batch.Delete(BuildTermKey(Text, Collection, DocumentID));
+                              }
+                         }
                     }
-                    else if (Entry.is_object())
+               }
+
+               if (Root.contains("semantic_index") && Root["semantic_index"].is_array())
+               {
+                    for (const auto& Entry : Root["semantic_index"])
                     {
+                         if (!Entry.is_object())
+                         {
+                              continue;
+                         }
+
                          const std::string Text = Entry.value("text", "");
+                         const std::string Kind = Entry.value("kind", "semantic");
 
                          if (!Text.empty())
                          {
-                              Batch.Delete(BuildTermKey(Text, Collection, DocumentID));
+                              Batch.Delete(BuildSemanticProfileKey(Text, Collection, DocumentID, Kind));
                          }
                     }
                }
@@ -1487,12 +2060,62 @@ bool SAM::RemoveExistingDocumentTermsLocked(const std::string& Collection,
      }
      catch (const std::exception& E)
      {
-          if (ErrorMessage)
+          if (!ScanAllTermKeys)
           {
-               *ErrorMessage = E.what();
+               if (ErrorMessage)
+               {
+                    *ErrorMessage = E.what();
+               }
+
+               return false;
+          }
+     }
+
+     if (ScanAllTermKeys)
+     {
+          const std::string TermPrefix = "sam:term:";
+          std::unique_ptr<rocksdb::Iterator> Iterator(Database->NewIterator(rocksdb::ReadOptions()));
+
+          for (Iterator->Seek(TermPrefix);
+               Iterator->Valid() && Iterator->key().starts_with(TermPrefix);
+               Iterator->Next())
+          {
+               try
+               {
+                    const nlohmann::json Payload = nlohmann::json::parse(Iterator->value().ToString());
+
+                    if (Payload.value("collection", "") == Collection &&
+                        Payload.value("id", "") == DocumentID)
+                    {
+                         Batch.Delete(Iterator->key());
+                    }
+               }
+               catch (...)
+               {
+               }
           }
 
-          return false;
+          const std::string SemanticPrefix = "sam:semantic:";
+          std::unique_ptr<rocksdb::Iterator> SemanticIterator(Database->NewIterator(rocksdb::ReadOptions()));
+
+          for (SemanticIterator->Seek(SemanticPrefix);
+               SemanticIterator->Valid() && SemanticIterator->key().starts_with(SemanticPrefix);
+               SemanticIterator->Next())
+          {
+               try
+               {
+                    const nlohmann::json Payload = nlohmann::json::parse(SemanticIterator->value().ToString());
+
+                    if (Payload.value("collection", "") == Collection &&
+                        Payload.value("id", "") == DocumentID)
+                    {
+                         Batch.Delete(SemanticIterator->key());
+                    }
+               }
+               catch (...)
+               {
+               }
+          }
      }
 
      Batch.Delete(ManifestKey);
@@ -1512,6 +2135,8 @@ bool SAM::RemoveExistingDocumentTermsLocked(const std::string& Collection,
      return true;
 }
 
+/* Index one source document into SAM after validating the main store state. */
+
 bool SAM::IndexDocumentLocked(const std::string& Collection,
                               const Document& Doc,
                               std::string* ErrorMessage,
@@ -1528,8 +2153,38 @@ bool SAM::IndexDocumentLocked(const std::string& Collection,
           return false;
      }
 
+     Document SourceDoc = HybridStorageManager::GetInstance().GetDocument(Collection, Doc.ID);
+
+     if (SourceDoc.ID.empty())
+     {
+          std::lock_guard<std::mutex> Lock(DBMutex);
+
+          if (!Database)
+          {
+               if (ErrorMessage)
+               {
+                    *ErrorMessage = "SAM database is not open.";
+               }
+
+               return false;
+          }
+
+          if (!RemoveExistingDocumentTermsLocked(Collection, Doc.ID, ErrorMessage, true))
+          {
+               return false;
+          }
+
+          RecordDebugEvent(Collection, "removed stale SAM index for deleted source document " + Doc.ID);
+          return true;
+     }
+
+     if (BuildSAMSourceDocumentFingerprint(SourceDoc) != BuildSAMSourceDocumentFingerprint(Doc))
+     {
+          RecordDebugEvent(Collection, "refreshing stale queued SAM job for " + Doc.ID + " from main document store");
+     }
+
      std::string TermsError;
-     const std::vector<TermEntry> Terms = ExpandDocumentTerms(Collection, Doc, &TermsError);
+     const std::vector<TermEntry> Terms = ExpandDocumentTerms(Collection, SourceDoc, &TermsError);
      if (Terms.empty())
      {
           const std::string FailureMessage = TermsError.empty()
@@ -1561,11 +2216,11 @@ bool SAM::IndexDocumentLocked(const std::string& Collection,
           }
 
           RecordDebugEvent(Collection,
-                           "indexed " + Doc.ID + " with " + std::to_string(Terms.size()) +
+                           "indexed " + SourceDoc.ID + " with " + std::to_string(Terms.size()) +
                                 " term(s): " + Preview.str());
      }
 
-     std::lock_guard<std::mutex> Lock(DBMutex);
+     std::unique_lock<std::mutex> Lock(DBMutex);
 
      if (!Database)
      {
@@ -1586,7 +2241,7 @@ bool SAM::IndexDocumentLocked(const std::string& Collection,
           return false;
      }
 
-     if (!RemoveExistingDocumentTermsLocked(Collection, Doc.ID, ErrorMessage))
+     if (!RemoveExistingDocumentTermsLocked(Collection, SourceDoc.ID, ErrorMessage))
      {
           return false;
      }
@@ -1594,15 +2249,16 @@ bool SAM::IndexDocumentLocked(const std::string& Collection,
      rocksdb::WriteBatch Batch;
      nlohmann::json Manifest;
      Manifest["collection"] = Collection;
-     Manifest["id"] = Doc.ID;
-     Manifest["title"] = Doc.Title;
-     Manifest["source_timestamp"] = Doc.Timestamp;
-     Manifest["source_fingerprint"] = BuildSAMSourceDocumentFingerprint(Doc);
-     Manifest["lang"] = sam::lang::DetectDocumentLanguage(Collection, Doc);
-     Manifest["label"] = DetectSAMDocumentLabel(Doc);
-     Manifest["format"] = DetectSAMDocumentFormat(Doc);
+     Manifest["id"] = SourceDoc.ID;
+     Manifest["title"] = SourceDoc.Title;
+     Manifest["source_timestamp"] = SourceDoc.Timestamp;
+     Manifest["source_fingerprint"] = BuildSAMSourceDocumentFingerprint(SourceDoc);
+     Manifest["lang"] = sam::lang::DetectDocumentLanguage(Collection, SourceDoc);
+     Manifest["label"] = DetectSAMDocumentLabel(SourceDoc);
+     Manifest["format"] = DetectSAMDocumentFormat(SourceDoc);
      Manifest["terms"] = nlohmann::json::array();
-     const SAMSemanticProfile SemanticProfile = BuildSemanticProfile(Doc.Title.empty() ? Doc.ID : Doc.Title, Terms);
+     const SAMSemanticProfile SemanticProfile = BuildSemanticProfile(SourceDoc.Title.empty() ? SourceDoc.ID : SourceDoc.Title, Terms);
+     const std::vector<SAMSemanticIndexEntry> SemanticIndex = BuildSemanticIndexEntries(SemanticProfile, 32);
 
      for (const auto& Term : Terms)
      {
@@ -1616,19 +2272,36 @@ bool SAM::IndexDocumentLocked(const std::string& Collection,
 
           nlohmann::json Payload;
           Payload["collection"] = Collection;
-          Payload["id"] = Doc.ID;
-          Payload["title"] = Doc.Title;
+          Payload["id"] = SourceDoc.ID;
+          Payload["title"] = SourceDoc.Title;
           Payload["term"] = Term.Text;
           Payload["kind"] = Term.Kind;
           Payload["source"] = Term.Source;
           Payload["score"] = Term.Score;
           Payload["signal"] = Term.Signal;
-          Batch.Put(BuildTermKey(Term.Text, Collection, Doc.ID), Payload.dump());
+          Batch.Put(BuildTermKey(Term.Text, Collection, SourceDoc.ID), Payload.dump());
      }
 
      StoreSemanticProfileJSON(Manifest, SemanticProfile);
+     Manifest["semantic_index"] = nlohmann::json::array();
 
-     Batch.Put(BuildDocManifestKey(Collection, Doc.ID), Manifest.dump());
+     for (const auto& Entry : SemanticIndex)
+     {
+          Manifest["semantic_index"].push_back({
+               {"text", Entry.Text},
+               {"kind", Entry.Kind}
+          });
+
+          nlohmann::json Payload;
+          Payload["collection"] = Collection;
+          Payload["id"] = SourceDoc.ID;
+          Payload["title"] = SourceDoc.Title;
+          Payload["term"] = Entry.Text;
+          Payload["kind"] = Entry.Kind;
+          Batch.Put(BuildSemanticProfileKey(Entry.Text, Collection, SourceDoc.ID, Entry.Kind), Payload.dump());
+     }
+
+     Batch.Put(BuildDocManifestKey(Collection, SourceDoc.ID), Manifest.dump());
 
      if (!ValidateExpectedMutationVersion(Collection,
                                           HasExpectedMutationVersion,
@@ -1637,6 +2310,25 @@ bool SAM::IndexDocumentLocked(const std::string& Collection,
      {
           RecordDebugEvent(Collection, "discarded stale SAM job before commit for " + Doc.ID);
           return false;
+     }
+
+     const Document LatestDoc = HybridStorageManager::GetInstance().GetDocument(Collection, SourceDoc.ID);
+
+     if (LatestDoc.ID.empty())
+     {
+          RecordDebugEvent(Collection, "discarded SAM commit for deleted source document " + SourceDoc.ID);
+          return true;
+     }
+
+     if (BuildSAMSourceDocumentFingerprint(LatestDoc) != BuildSAMSourceDocumentFingerprint(SourceDoc))
+     {
+          RecordDebugEvent(Collection, "restarting SAM index for " + SourceDoc.ID + " because source changed before commit");
+          Lock.unlock();
+          return IndexDocumentLocked(Collection,
+                                     LatestDoc,
+                                     ErrorMessage,
+                                     HasExpectedMutationVersion,
+                                     ExpectedMutationVersion);
      }
 
      const rocksdb::Status Status = Database->Write(rocksdb::WriteOptions(), &Batch);
@@ -1667,6 +2359,8 @@ bool SAM::IndexDocument(const std::string& Collection,
                                 ExpectedMutationVersion);
 }
 
+/* Delete SAM state for one source document and clear queued work. */
+
 bool SAM::DeleteDocument(const std::string& Collection, const std::string& DocumentID, std::string* ErrorMessage)
 {
      {
@@ -1694,7 +2388,7 @@ bool SAM::DeleteDocument(const std::string& Collection, const std::string& Docum
      }
 
      (void)Database->Delete(rocksdb::WriteOptions(), BuildPendingIndexQueueKey(Collection, DocumentID));
-     return RemoveExistingDocumentTermsLocked(Collection, DocumentID, ErrorMessage);
+     return RemoveExistingDocumentTermsLocked(Collection, DocumentID, ErrorMessage, true);
 }
 
 bool SAM::DeleteCollection(const std::string& Collection, std::string* ErrorMessage)

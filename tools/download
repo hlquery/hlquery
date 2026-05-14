@@ -1,0 +1,299 @@
+#!/usr/bin/env perl
+use strict;
+use warnings;
+
+use Cwd qw(abs_path);
+use File::Basename qw(dirname);
+use File::Path qw(make_path);
+use File::Spec;
+use Getopt::Long qw(GetOptions);
+
+my @catalog = (
+     {
+          name               => 'qwen_0_5',
+          family             => 'Qwen2.5 Instruct',
+          repo               => 'bartowski/Qwen2.5-0.5B-Instruct-GGUF',
+          file               => 'Qwen2.5-0.5B-Instruct-Q4_K_M.gguf',
+          description        => 'Smallest local Qwen profile for low-memory setups.',
+          default            => 0,
+          default_max_tokens => 4096,
+     },
+     {
+          name               => 'qwen_1_5',
+          family             => 'Qwen2.5 Instruct',
+          repo               => 'bartowski/Qwen2.5-1.5B-Instruct-GGUF',
+          file               => 'Qwen2.5-1.5B-Instruct-Q4_K_M.gguf',
+          description        => 'Balanced local Qwen profile for general use.',
+          default            => 0,
+          default_max_tokens => 4096,
+     },
+     {
+          name               => 'qwen_3',
+          family             => 'Qwen2.5 Instruct',
+          repo               => 'bartowski/Qwen2.5-3B-Instruct-GGUF',
+          file               => 'Qwen2.5-3B-Instruct-Q4_K_M.gguf',
+          description        => 'Mid-sized local Qwen profile with better answer quality than the smaller presets.',
+          default            => 0,
+          default_max_tokens => 4096,
+     },
+     {
+          name               => 'qwen_14',
+          family             => 'Qwen2.5 Instruct',
+          repo               => 'bartowski/Qwen2.5-14B-Instruct-GGUF',
+          file               => 'Qwen2.5-14B-Instruct-Q4_K_M.gguf',
+          description        => 'Largest shipped general Qwen profile and the default local model download.',
+          default            => 1,
+          default_max_tokens => 4096,
+     },
+     {
+          name               => 'qwen_coder_1_5',
+          family             => 'Qwen2.5.1 Coder',
+          repo               => 'bartowski/Qwen2.5.1-Coder-1.5B-Instruct-GGUF',
+          file               => 'Qwen2.5.1-Coder-1.5B-Instruct-Q4_K_M.gguf',
+          description        => 'Coder-focused Qwen profile for local code prompts.',
+          default            => 0,
+          default_max_tokens => 4096,
+     },
+);
+
+my %models_by_name = map { $_->{name} => $_ } @catalog;
+
+my $script_name = File::Basename::basename($0);
+my $script_dir  = dirname(abs_path($0) || $0);
+my $repo_root   = dirname($script_dir);
+my $default_dir = File::Spec->catdir($repo_root, 'run', 'models');
+
+my @requested_models;
+my $download_dir = $default_dir;
+my $show_help    = 0;
+my $show_list    = 0;
+my $show_config  = 0;
+my $download_all = 0;
+my $force        = 0;
+my $dry_run      = 0;
+my $max_tokens;
+
+GetOptions(
+     'help|h'       => \$show_help,
+     'list'         => \$show_list,
+     'config'       => \$show_config,
+     'all'          => \$download_all,
+     'force'        => \$force,
+     'dry-run'      => \$dry_run,
+     'dir=s'        => \$download_dir,
+     'model=s@'     => \@requested_models,
+     'max-tokens=i' => \$max_tokens,
+) or die usage(1);
+
+if ($show_help)
+{
+     print usage(0);
+     exit 0;
+}
+
+if ($show_list)
+{
+     print_model_list();
+     exit 0;
+}
+
+if ($show_config)
+{
+     my @config_models = resolve_models();
+     print_config_snippet(\@config_models);
+     exit 0;
+}
+
+my @models = resolve_models();
+make_path($download_dir) unless $dry_run || -d $download_dir;
+
+my $downloader = detect_downloader();
+my @downloaded;
+my @skipped;
+
+for my $model (@models)
+{
+     my $target_path = File::Spec->catfile($download_dir, $model->{file});
+     my $url         = build_hf_url($model->{repo}, $model->{file});
+
+     if (-e $target_path && !$force)
+     {
+          print "[skip] $model->{name} already exists at $target_path\n";
+          push @skipped, $model;
+          next;
+     }
+
+     if ($dry_run)
+     {
+          print "[dry-run] $model->{name}\n";
+          print "          url: $url\n";
+          print "          dst: $target_path\n";
+          next;
+     }
+
+     print "[download] $model->{name} -> $target_path\n";
+     run_downloader($downloader, $url, $target_path);
+     push @downloaded, $model;
+}
+
+print_summary(\@models, \@downloaded, \@skipped);
+print_config_snippet(\@models);
+exit 0;
+
+sub usage
+{
+     my ($exit_code) = @_;
+     my $default_models = join(', ', map { $_->{name} } grep { $_->{default} } @catalog);
+
+     return <<"USAGE";
+Usage: $script_name [options]
+
+Downloads local GGUF models into run/models for hlquery.
+
+By default this script downloads the biggest shipped general Qwen model:
+  $default_models
+
+Options:
+  --help, -h          Show this help
+  --list              List known model presets
+  --config            Print a config snippet without downloading
+  --model NAME        Download one preset by name, repeatable
+  --all               Download every known preset
+  --dir PATH          Target directory (default: $default_dir)
+  --max-tokens N      Override the recommended max token hint in output
+  --force             Re-download even if the file already exists
+  --dry-run           Show what would be downloaded without fetching files
+
+Examples:
+  ./$script_name
+  ./$script_name --model qwen_14
+  ./$script_name --model qwen_0_5 --model qwen_coder_1_5
+  ./$script_name --list
+  ./$script_name --config --model qwen_14
+USAGE
+}
+
+sub print_model_list
+{
+     print "Known model presets:\n";
+
+     for my $model (@catalog)
+     {
+          my $default_label = $model->{default} ? ' [default]' : '';
+          print "  $model->{name}$default_label\n";
+          print "    family: $model->{family}\n";
+          print "    file:   $model->{file}\n";
+          print "    repo:   $model->{repo}\n";
+          print "    tokens: " . effective_max_tokens($model) . "\n";
+          print "    note:   $model->{description}\n";
+     }
+}
+
+sub resolve_models
+{
+     if ($download_all)
+     {
+          return @catalog;
+     }
+
+     if (!@requested_models)
+     {
+          return grep { $_->{default} } @catalog;
+     }
+
+     my %seen;
+     my @resolved;
+
+     for my $name (@requested_models)
+     {
+          die "Unknown model preset '$name'. Use --list to see valid names.\n"
+               unless exists $models_by_name{$name};
+
+          next if $seen{$name}++;
+          push @resolved, $models_by_name{$name};
+     }
+
+     return @resolved;
+}
+
+sub build_hf_url
+{
+     my ($repo, $file) = @_;
+     return "https://huggingface.co/$repo/resolve/main/$file?download=true";
+}
+
+sub detect_downloader
+{
+     for my $candidate (qw(curl wget))
+     {
+          my $path = `command -v $candidate 2>/dev/null`;
+          chomp $path;
+
+          if ($path ne '')
+          {
+               return $candidate;
+          }
+     }
+
+     die "Neither curl nor wget is available. Install one of them first.\n";
+}
+
+sub run_downloader
+{
+     my ($downloader, $url, $target_path) = @_;
+     my $temp_path = "$target_path.part";
+     unlink $temp_path if -e $temp_path;
+
+     if ($downloader eq 'curl')
+     {
+          system('curl', '-fL', '--progress-bar', '-o', $temp_path, $url) == 0
+               or die "curl failed while downloading $url\n";
+     }
+     else
+     {
+          system('wget', '-O', $temp_path, $url) == 0
+               or die "wget failed while downloading $url\n";
+     }
+
+     rename $temp_path, $target_path
+          or die "Failed to move $temp_path to $target_path: $!\n";
+}
+
+sub effective_max_tokens
+{
+     my ($model) = @_;
+     return defined($max_tokens) ? $max_tokens : $model->{default_max_tokens};
+}
+
+sub print_summary
+{
+     my ($all_models, $downloaded, $skipped) = @_;
+
+     print "\nSummary:\n";
+     print "  requested: " . scalar(@$all_models) . "\n";
+     print "  downloaded: " . scalar(@$downloaded) . "\n";
+     print "  skipped: " . scalar(@$skipped) . "\n";
+     print "  models_dir: $download_dir\n";
+}
+
+sub print_config_snippet
+{
+     my ($models) = @_;
+     my $default_name = $models->[0]{name};
+     my $token_hint   = effective_max_tokens($models->[0]);
+
+     print "\nSuggested config:\n";
+     print "# Recommended default max tokens for these Qwen presets: $token_hint\n";
+     print "<llm\n";
+     print "     models_dir=\"run/models\"\n";
+     print "     model_name=\"$default_name\">\n\n";
+
+     for my $index (0 .. $#{$models})
+     {
+          my $model = $models->[$index];
+          my $default_attr = $index == 0 ? ' default="true"' : '';
+          print "<model name=\"$model->{name}\" file=\"$model->{file}\"$default_attr>\n";
+     }
+
+     print "\n# Default model name: $default_name\n";
+}

@@ -359,6 +359,18 @@ void ServerConfig::ApplyConfiguration()
           SamDataDirectory = SAMTag->GetString("data_dir", SamDataDirectory);
           SamSearchIdeasCollection = SAMTag->GetString("sam_search_ideas", SamSearchIdeasCollection);
           SamIndexAll = SAMTag->GetBool("index_all", SamIndexAll);
+          SamSmartBackground = SAMTag->GetBool("background_improvements",
+                                               SAMTag->GetBool("smart_sam", SamSmartBackground));
+          SamBackgroundImprovementIntervalMs =
+               SAMTag->GetIntRange("background_improvement_interval_ms",
+                                    SamBackgroundImprovementIntervalMs,
+                                    5000,
+                                    3600000);
+          SamBackgroundImprovementPollMs =
+               SAMTag->GetIntRange("background_improvement_poll_ms",
+                                    SamBackgroundImprovementPollMs,
+                                    1000,
+                                    300000);
           Sam25DynamicQueryWeight = SAMTag->GetBool("sam25_dynamic_query_weight", Sam25DynamicQueryWeight);
           Sam25ShortQueryPhraseBoost = SAMTag->GetDoubleRange("sam25_short_query_phrase_boost", Sam25ShortQueryPhraseBoost, 0.1, 5.0);
           Sam25LongQueryPhraseBoost = SAMTag->GetDoubleRange("sam25_long_query_phrase_boost", Sam25LongQueryPhraseBoost, 0.1, 5.0);

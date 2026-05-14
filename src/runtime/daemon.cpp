@@ -64,6 +64,10 @@ volatile sig_atomic_t InSignalHandler = 0;
 
 volatile sig_atomic_t PendingShutdownSignal = 0;
 
+/* Set while cleanup is running; escalation signals can then exit immediately. */
+
+static volatile sig_atomic_t CleanupInProgress = 0;
+
 /* PID file handle to keep the lock active while running. */
 
 static int PIDFileFD = -1;
@@ -685,6 +689,11 @@ void hlquery::SetSignal(int SignalNum)
      if (SignalNum == SIGINT)
      {
           /* SIGINT is treated as an immediate shutdown request from an interactive user. */
+
+          if (CleanupInProgress)
+          {
+               ExitManager::EmergencyExit(0);
+          }
 
           PendingShutdownSignal = SignalNum;
 
@@ -1581,7 +1590,6 @@ bool hlquery::Daemonize()
                close(DaemonSyncPipe[0]);
                close(DaemonSyncPipe[1]);
                DaemonSyncPipe[0] = -1;
-
                DaemonSyncPipe[1] = -1;
 
                return false;
@@ -1591,9 +1599,7 @@ bool hlquery::Daemonize()
                /* The original parent exits only after the child confirms successful detach. */
 
                close(DaemonSyncPipe[1]);
-
                char SyncDummyChar;
-
                ssize_t SyncReadCount = read(DaemonSyncPipe[0], &SyncDummyChar, 1);
 
                if (SyncReadCount <= 0 || SyncDummyChar == 'E')
@@ -1682,7 +1688,6 @@ bool hlquery::Daemonize()
           if (DaemonSyncPipe[1] >= 0)
           {
                close(DaemonSyncPipe[1]);
-
                DaemonSyncPipe[1] = -1;
           }
 
@@ -1733,7 +1738,6 @@ void hlquery::IncreaseCoreDumpSize()
 void hlquery::Cleanup()
 {
      static std::atomic<bool> CleanupCalledFlagValue{false};
-
      bool ExpectedFlag = false;
 
      if (!CleanupCalledFlagValue.compare_exchange_strong(ExpectedFlag, true))
@@ -1741,12 +1745,31 @@ void hlquery::Cleanup()
           return;
      }
 
+     CleanupInProgress = 1;
+
+     if (Instance)
+     {
+          Instance->SetShutdownInProgress(true);
+     }
+
+     auto LogCleanupStage = [](const std::string& Stage)
+     {
+          if (Instance && Instance->Logs)
+          {
+               Instance->Logs->Normal("daemon", "Cleanup: " + Stage + ".");
+          }
+     };
+
+     LogCleanupStage("begin");
+
      /* Stop modules before tearing down shared executors they may depend on. */
 
      if (Instance)
      {
           if (Instance->Modules)
           {
+               LogCleanupStage("unloading modules");
+
                try
                {
                     Instance->Modules->OnUnloadModules();
@@ -1758,6 +1781,7 @@ void hlquery::Cleanup()
                }
 
                Instance->Modules.reset();
+               LogCleanupStage("modules unloaded");
           }
 
           if (Instance->Timers)
@@ -1770,34 +1794,48 @@ void hlquery::Cleanup()
 
      if (Instance && Instance->API)
      {
+          LogCleanupStage("stopping api");
           Instance->API->Shutdown();
           Instance->API = nullptr;
+          LogCleanupStage("api stopped");
      }
      else
      {
+          LogCleanupStage("stopping singleton api");
           SearchAPI::GetInstance().Shutdown();
+          LogCleanupStage("singleton api stopped");
      }
 
      if (Instance && Instance->Sam)
      {
+          LogCleanupStage("stopping sam");
           Instance->Sam->Shutdown();
           Instance->Sam.reset();
+          LogCleanupStage("sam stopped");
      }
 
+     LogCleanupStage("stopping storage");
      HybridStorageManagerInstance().Shutdown();
+     LogCleanupStage("storage stopped");
 
      if (Instance && Instance->ThreadPools)
      {
+          LogCleanupStage("stopping thread pools");
           Instance->ThreadPools->Shutdown();
           Instance->ThreadPools = nullptr;
+          LogCleanupStage("thread pools stopped");
      }
      else
      {
+          LogCleanupStage("stopping singleton thread pools");
           ThreadPoolManager::GetInstance().Shutdown();
+          LogCleanupStage("singleton thread pools stopped");
      }
 
      if (Instance)
      {
+          LogCleanupStage("stopping http servers");
+
           for (auto *server : Instance->HTTPServers)
           {
                /* Each HTTP server shuts down independently before the vector is cleared. */
@@ -1805,6 +1843,7 @@ void hlquery::Cleanup()
                ShutdownHttpServer(server);
           }
           Instance->HTTPServers.clear();
+          LogCleanupStage("http servers stopped");
      }
 
      extern std::vector<std::thread> BackgroundThreads;
@@ -1827,6 +1866,8 @@ void hlquery::Cleanup()
                ThreadPtr.join();
           }
      }
+
+     LogCleanupStage("background threads stopped");
 
      try
      {

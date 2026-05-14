@@ -506,7 +506,9 @@ void HLQueryCLI::ShowDoctor()
 
 HLQueryCLI::HTTPResponse HLQueryCLI::MakeRequest(const std::string &method, const std::string &path, const std::string &body, int timeout_seconds)
 {
+#ifdef HLQUERY_HAS_OPENSSL
      static thread_local int TLSHandshakeRetryDepth = 0;
+#endif
 
      /* Normalize timeouts and validate request inputs. */
 

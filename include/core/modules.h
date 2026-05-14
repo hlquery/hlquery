@@ -321,92 +321,7 @@ struct ModulePreCheckResult
      std::string Details;
 };
 
-/* Enumerates every lifecycle and policy hook supported by RuntimeModule. */
-
-enum class ModuleHook : size_t
-{
-     /* Startup and periodic lifecycle hooks. */
-
-     OnStartup,
-     OnThreadPoolsReady,
-     OnEveryOneMinute,
-     OnIdleTick,
-     OnNewTimer,
-
-     /* Passive observation hooks for requests and searches. */
-
-     OnRequestAnalytics,
-     OnAuthenticatedRequest,
-     OnPingRequest,
-     OnDBRequest,
-     OnSearchCollection,
-     OnSearchDocument,
-     ComputeSearchWeightMultiplier,
-
-     /* Pre-flight policy hooks for mutating operations. */
-
-     OnPreCreateCollection,
-     OnPreUpdateCollection,
-     OnPreDeleteCollection,
-     OnPreAddDocument,
-     OnPreUpdateDocument,
-     OnPreBulkImportDocuments,
-     OnPreDeleteDocument,
-     OnPreDeleteDocuments,
-     OnPreUpdateByQuery,
-     OnPreDeleteByQuery,
-     OnPreUpsertAlias,
-     OnPreDeleteAlias,
-     OnPreUpsertSynonym,
-     OnPreDeleteSynonym,
-     OnPreCreateStopword,
-     OnPreDeleteStopword,
-     OnPreUpsertOverride,
-     OnPreDeleteOverride,
-     OnPreCreateUser,
-     OnPreUpdateUser,
-     OnPreDeleteUser,
-     OnPreCreateKey,
-     OnPreUpdateKey,
-     OnPreDeleteKey,
-     OnPreLinksConnect,
-     OnPreLinksDisconnect,
-     OnPreFlush,
-     OnPreRepair,
-
-     /* Post-success notification hooks for completed operations. */
-
-     OnCreateCollection,
-     OnUpdateCollection,
-     OnDeleteCollection,
-     OnAddDocument,
-     OnUpdateDocument,
-     OnDeleteDocument,
-     OnDeleteDocuments,
-     OnBulkImportDocuments,
-     OnUpdateByQuery,
-     OnDeleteByQuery,
-     OnGlobalSynAdd,
-     OnGlobalSynDel,
-     OnUpsertSynonym,
-     OnDeleteSynonym,
-     OnGlobalStopwordAdd,
-     OnCreateStopword,
-     OnDeleteStopword,
-     OnUpsertOverride,
-     OnDeleteOverride,
-     OnUpsertAlias,
-     OnDeleteAlias,
-     OnFlush,
-     OnLinksConnect,
-     OnLinksDisconnect,
-     OnRepair,
-     OnAnalyticsClick,
-
-     /* Sentinel used to size hook tracking storage. */
-
-     OnCount
-};
+/* Single source of truth for every lifecycle and policy hook supported by RuntimeModule. */
 
 #define HLQUERY_MODULE_HOOK_METHODS(X)                                                                                 \
      X(OnStartup)                                                                                                       \
@@ -475,6 +390,19 @@ enum class ModuleHook : size_t
      X(OnLinksDisconnect)                                                                                               \
      X(OnRepair)                                                                                                        \
      X(OnAnalyticsClick)
+
+/* Enumerates every lifecycle and policy hook supported by RuntimeModule. */
+
+enum class ModuleHook : size_t
+{
+#define HLQUERY_MODULE_HOOK_ENUM_ENTRY(Method) Method,
+     HLQUERY_MODULE_HOOK_METHODS(HLQUERY_MODULE_HOOK_ENUM_ENTRY)
+#undef HLQUERY_MODULE_HOOK_ENUM_ENTRY
+
+     /* Sentinel used to size hook tracking storage. */
+
+     OnCount
+};
 
 /* Base class for runtime-loadable modules. */
 
