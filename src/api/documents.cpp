@@ -3078,6 +3078,7 @@ HttpResponse SearchAPI::HandleSAMImprove(const HttpRequest &Request)
      Root["skipped_not_indexed"] = Stats.SkippedNotIndexed;
      Root["skipped_llm_unavailable"] = Stats.SkippedLLMUnavailable;
      Root["skipped_throttled"] = Stats.SkippedThrottled;
+     Root["skipped_paused"] = Stats.SkippedPaused;
      Root["skipped_flush_in_progress"] = Stats.SkippedFlushInProgress;
      Root["skipped_no_database"] = Stats.SkippedNoDatabase;
      Root["limit"] = Limit;

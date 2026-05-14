@@ -117,6 +117,7 @@ class SAM
           size_t SkippedNotIndexed = 0;
           size_t SkippedLLMUnavailable = 0;
           size_t SkippedThrottled = 0;
+          size_t SkippedPaused = 0;
           size_t SkippedFlushInProgress = 0;
           size_t SkippedNoDatabase = 0;
 

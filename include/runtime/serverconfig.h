@@ -577,9 +577,24 @@ class ServerConfig
     }
 
     bool GetSamIndexAll() const
-    {
+     {
          return SamIndexAll;
-    }
+     }
+
+     bool GetSamSmartBackground() const
+     {
+          return SamSmartBackground;
+     }
+
+     int GetSamBackgroundImprovementIntervalMs() const
+     {
+          return SamBackgroundImprovementIntervalMs;
+     }
+
+     int GetSamBackgroundImprovementPollMs() const
+     {
+          return SamBackgroundImprovementPollMs;
+     }
 
     bool GetSam25DynamicQueryWeight() const
     {
@@ -2048,6 +2063,9 @@ class ServerConfig
     std::string SamDataDirectory = HLQUERY_SAM_DATA_DIR;
     std::string SamSearchIdeasCollection;
     bool SamIndexAll = false;
+    bool SamSmartBackground = true;
+    int SamBackgroundImprovementIntervalMs = 60000;
+    int SamBackgroundImprovementPollMs = 15000;
     bool Sam25DynamicQueryWeight = true;
     double Sam25ShortQueryPhraseBoost = 1.20;
     double Sam25LongQueryPhraseBoost = 0.85;

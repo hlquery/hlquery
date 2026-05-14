@@ -3168,6 +3168,38 @@ bool SAM::CancelCollectionWork(const std::string& Collection, std::string* Error
           }
      }
 
+     {
+          std::lock_guard<std::mutex> DBLock(DBMutex);
+          if (Database)
+          {
+               const std::string QueuePrefix =
+                    std::string("sam:queue:index:") + Collection + std::string(1, '\0');
+               std::vector<std::string> QueueKeysToDelete;
+               std::unique_ptr<rocksdb::Iterator> Iterator(Database->NewIterator(rocksdb::ReadOptions()));
+
+               for (Iterator->Seek(QueuePrefix);
+                    Iterator->Valid() && Iterator->key().starts_with(QueuePrefix);
+                    Iterator->Next())
+               {
+                    QueueKeysToDelete.push_back(Iterator->key().ToString());
+               }
+
+               if (!QueueKeysToDelete.empty())
+               {
+                    rocksdb::WriteBatch Batch;
+
+                    for (const auto& Key : QueueKeysToDelete)
+                    {
+                         Batch.Delete(Key);
+                    }
+
+                    (void)Database->Write(rocksdb::WriteOptions(), &Batch);
+               }
+          }
+     }
+
+     QueueCV.notify_all();
+
      std::unique_lock<std::mutex> Lock(JobMutex);
      CancelledCollections.insert(Collection);
      CollectionJobStatus& Status = CollectionJobs[Collection];
@@ -3192,11 +3224,8 @@ bool SAM::CancelAllWork(std::string* ErrorMessage)
 {
      (void)ErrorMessage;
 
-     {
-          std::lock_guard<std::mutex> QueueLock(QueueMutex);
-          PendingIndexJobs.clear();
-          PendingIndexKeys.clear();
-     }
+     (void)ClearQueuedAutoIndexJobs();
+     QueueCV.notify_all();
 
      std::unique_lock<std::mutex> Lock(JobMutex);
      CancelAllRequested = true;

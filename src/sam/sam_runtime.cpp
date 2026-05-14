@@ -27,8 +27,8 @@
 namespace
 {
 constexpr const char* kPendingIndexQueuePrefix = "sam:queue:index:";
-constexpr uint64_t kBackgroundImprovementIntervalMS = 60000;
-constexpr auto kBackgroundImprovementPollInterval = std::chrono::seconds(15);
+constexpr uint64_t kDefaultBackgroundImprovementIntervalMS = 60000;
+constexpr uint64_t kDefaultBackgroundImprovementPollMS = 15000;
 
 /* Build the persisted queue key for one pending SAM index job. */
 
@@ -63,6 +63,45 @@ bool ParsePendingIndexQueueKey(const std::string& Key, std::string& Collection, 
      Collection.assign(Remainder.substr(0, Sep));
      DocumentID.assign(Remainder.substr(Sep + 1));
      return !Collection.empty() && !DocumentID.empty();
+}
+
+bool SmartSAMBackgroundEnabled()
+{
+     return !Instance || !Instance->Config || Instance->Config->GetSamSmartBackground();
+}
+
+bool SAMAutomaticPauseActive()
+{
+     if (!Instance || !Instance->Sam)
+     {
+          return false;
+     }
+
+     const uint64_t NowMS = static_cast<uint64_t>(NowMs());
+     const uint64_t PauseUntilMS = Instance->Sam->GetAutoIndexPauseUntilMS();
+     return PauseUntilMS > 0 && NowMS < PauseUntilMS;
+}
+
+uint64_t ResolveBackgroundImprovementIntervalMS()
+{
+     if (!Instance || !Instance->Config)
+     {
+          return kDefaultBackgroundImprovementIntervalMS;
+     }
+
+     return static_cast<uint64_t>(
+          std::max(5000, Instance->Config->GetSamBackgroundImprovementIntervalMs()));
+}
+
+std::chrono::milliseconds ResolveBackgroundImprovementPollInterval()
+{
+     if (!Instance || !Instance->Config)
+     {
+          return std::chrono::milliseconds(kDefaultBackgroundImprovementPollMS);
+     }
+
+     return std::chrono::milliseconds(
+          std::max(1000, Instance->Config->GetSamBackgroundImprovementPollMs()));
 }
 }
 
@@ -534,6 +573,16 @@ bool SAM::TryBeginBackgroundImprovement(const std::string& Collection,
           return false;
      }
 
+     if (!Force && SAMAutomaticPauseActive())
+     {
+          if (SkipReason)
+          {
+               *SkipReason = "paused";
+          }
+
+          return false;
+     }
+
      {
           std::lock_guard<std::mutex> QueueLock(QueueMutex);
 
@@ -583,11 +632,12 @@ bool SAM::TryBeginBackgroundImprovement(const std::string& Collection,
      }
 
      const uint64_t LastImprovementMS = LastBackgroundImprovementMS[Collection];
+     const uint64_t ImprovementIntervalMS = ResolveBackgroundImprovementIntervalMS();
 
      if (!Force &&
          LastImprovementMS > 0 &&
          NowMS > LastImprovementMS &&
-         (NowMS - LastImprovementMS) < kBackgroundImprovementIntervalMS)
+         (NowMS - LastImprovementMS) < ImprovementIntervalMS)
      {
           if (SkipReason)
           {
@@ -661,6 +711,10 @@ SAM::ImprovementStats SAM::ImproveIdleCollectionsDetailed(size_t MaxCollections,
                else if (SkipReason == "throttled")
                {
                     ++Stats.SkippedThrottled;
+               }
+               else if (SkipReason == "paused")
+               {
+                    ++Stats.SkippedPaused;
                }
                else if (SkipReason == "flush")
                {
@@ -757,9 +811,11 @@ void SAM::RunImprovementWorker()
 {
      while (true)
      {
+          const auto PollInterval = ResolveBackgroundImprovementPollInterval();
+
           {
                std::unique_lock<std::mutex> Lock(QueueMutex);
-               QueueCV.wait_for(Lock, kBackgroundImprovementPollInterval, [this]()
+               QueueCV.wait_for(Lock, PollInterval, [this]()
                {
                     return ShuttingDown;
                });
@@ -773,6 +829,16 @@ void SAM::RunImprovementWorker()
                {
                     continue;
                }
+          }
+
+          if (!SmartSAMBackgroundEnabled())
+          {
+               continue;
+          }
+
+          if (SAMAutomaticPauseActive())
+          {
+               continue;
           }
 
           ImproveIdleCollections(1, false);
@@ -799,6 +865,16 @@ void SAM::RunIndexWorker()
                     if (ShuttingDown && PendingIndexJobs.empty())
                     {
                          return;
+                    }
+
+                    if (FlushInProgress.load(std::memory_order_acquire))
+                    {
+                         QueueCV.wait_for(Lock, std::chrono::milliseconds(250), [this]()
+                         {
+                              return ShuttingDown ||
+                                     !FlushInProgress.load(std::memory_order_acquire);
+                         });
+                         continue;
                     }
 
                     size_t SelectedIndex = PendingIndexJobs.size();
@@ -1418,6 +1494,16 @@ bool SAM::StartRecreateCollectionAsync(const std::string& Collection,
           std::lock_guard<std::mutex> Lock(JobMutex);
           const auto ExistingIt = CollectionJobs.find(Collection);
 
+          if (FlushInProgress.load(std::memory_order_acquire))
+          {
+               if (ErrorMessage)
+               {
+                    *ErrorMessage = "SAM flush is in progress.";
+               }
+
+               return false;
+          }
+
           if (IsCollectionCancelledLocked(Collection))
           {
                if (ErrorMessage)
@@ -1445,6 +1531,7 @@ bool SAM::StartRecreateCollectionAsync(const std::string& Collection,
           JobStatus.RetryScheduled = false;
           JobStatus.ErrorMessage.clear();
           CancelledCollections.erase(Collection);
+          ++ActiveCollectionTasks[Collection];
      }
 
      RecordDebugEvent(Collection,
@@ -1454,13 +1541,10 @@ bool SAM::StartRecreateCollectionAsync(const std::string& Collection,
      const uint64_t ExpectedMutationVersion =
           HasExpectedMutationVersion ? GetCurrentCollectionMutationVersion(Collection) : 0;
 
-     std::thread([this, Collection, HasExpectedMutationVersion, ExpectedMutationVersion]()
+     try
      {
+          std::thread([this, Collection, HasExpectedMutationVersion, ExpectedMutationVersion]()
           {
-               std::lock_guard<std::mutex> Lock(JobMutex);
-               ++ActiveCollectionTasks[Collection];
-          }
-
           auto FinishTask = [this, &Collection]()
           {
                std::lock_guard<std::mutex> Lock(JobMutex);
@@ -1507,7 +1591,8 @@ bool SAM::StartRecreateCollectionAsync(const std::string& Collection,
                {
                     std::lock_guard<std::mutex> Lock(JobMutex);
 
-                    if (IsCollectionCancelledLocked(Collection))
+                    if (IsCollectionCancelledLocked(Collection) ||
+                        FlushInProgress.load(std::memory_order_acquire))
                     {
                          CollectionJobStatus& JobStatus = CollectionJobs[Collection];
                          JobStatus.Running = false;
@@ -1570,7 +1655,8 @@ bool SAM::StartRecreateCollectionAsync(const std::string& Collection,
                     JobStatus.PendingDocuments = DocumentsToQueue.size();
                     JobStatus.TotalDocuments = DocumentsToQueue.size();
 
-                    if (IsCollectionCancelledLocked(Collection))
+                    if (IsCollectionCancelledLocked(Collection) ||
+                        FlushInProgress.load(std::memory_order_acquire))
                     {
                          JobStatus.Running = false;
                          JobStatus.Completed = false;
@@ -1599,7 +1685,8 @@ bool SAM::StartRecreateCollectionAsync(const std::string& Collection,
                {
                     std::lock_guard<std::mutex> Lock(JobMutex);
 
-                    if (IsCollectionCancelledLocked(Collection))
+                    if (IsCollectionCancelledLocked(Collection) ||
+                        FlushInProgress.load(std::memory_order_acquire))
                     {
                          CollectionJobStatus& JobStatus = CollectionJobs[Collection];
                          JobStatus.Running = false;
@@ -1760,8 +1847,39 @@ bool SAM::StartRecreateCollectionAsync(const std::string& Collection,
                }
           }
 
-          FinishTask();
-     }).detach();
+               FinishTask();
+          }).detach();
+     }
+     catch (const std::exception& E)
+     {
+          std::lock_guard<std::mutex> Lock(JobMutex);
+          CollectionJobStatus& JobStatus = CollectionJobs[Collection];
+          JobStatus.Running = false;
+          JobStatus.Completed = false;
+          JobStatus.PendingDocuments = 0;
+          JobStatus.ErrorMessage = E.what();
+          auto ActiveIt = ActiveCollectionTasks.find(Collection);
+          if (ActiveIt != ActiveCollectionTasks.end())
+          {
+               if (ActiveIt->second > 0)
+               {
+                    --ActiveIt->second;
+               }
+
+               if (ActiveIt->second == 0)
+               {
+                    ActiveCollectionTasks.erase(ActiveIt);
+               }
+          }
+          JobStateCV.notify_all();
+
+          if (ErrorMessage)
+          {
+               *ErrorMessage = E.what();
+          }
+
+          return false;
+     }
 
      return true;
 }
