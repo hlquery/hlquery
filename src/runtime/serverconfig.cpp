@@ -1552,13 +1552,12 @@ void ServerConfig::ApplyConfiguration()
                const std::filesystem::path ConfigDirValue = ConfigPathValue.parent_path();
                if (!ConfigDirValue.empty())
                {
+                    /* Development configs live under run/conf and should log to run/logs.
+                     * System packages are configured with HLQUERY_LOG_DIR=/var/log/hlquery;
+                     * do not derive /etc/hlquery/logs from /etc/hlquery/hlquery.conf. */
                     if (ConfigDirValue.filename() == "conf" && !ConfigDirValue.parent_path().empty())
                     {
                          ResolvedLogDir = ConfigDirValue.parent_path() / "logs";
-                    }
-                    else
-                    {
-                         ResolvedLogDir = ConfigDirValue / "logs";
                     }
                }
           }
