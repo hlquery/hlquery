@@ -111,6 +111,12 @@ void AppendSemanticProfileHits(std::unordered_map<std::string, SAMAggregatedHit>
                }
 
                const SAMSemanticCandidate Match = ScoreSemanticProfileMatch(QueryPlan, Profile);
+
+               if (Match.ProfileScore < 0.35)
+               {
+                    return;
+               }
+
                const double CombinedSemantic = std::max(Match.ProfileScore, Match.VectorScore * 0.92);
 
                ++Scored;
@@ -588,7 +594,7 @@ void FinalizeSAMAggregatedHits(std::vector<SAM::LookupHit>& Hits,
 
      if (ShouldSuppressLowConfidenceSAMResultSet(Hits))
      {
-          ReplaceWithGuaranteedSourceDocFallback(Hits);
+          Hits.clear();
      }
 }
 

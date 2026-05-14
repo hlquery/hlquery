@@ -3253,6 +3253,12 @@ std::vector<SAMMatchedSearchIdea> BuildMatchedSearchIdeas(rocksdb::DB* Database,
 
           const double CoverageScore = ClampSAMScore(static_cast<double>(Overlap) /
                static_cast<double>(std::max<size_t>(1, QueryViews.CoreTokens.size())));
+
+          if (CoverageScore <= 0.0)
+          {
+               continue;
+          }
+
           const double SemanticScore = ComputeSemanticVectorSimilarity(QueryVector, Entry.Vector);
           const double PopularityScore = ClampSAMScore(std::log1p(static_cast<double>(Entry.Uses)) / std::log(12.0));
           const double FreshnessScore = GetSAMIdeaFreshness(Entry.LastSeenMS, NowMS);
