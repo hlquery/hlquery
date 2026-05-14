@@ -18,5 +18,10 @@
 
 namespace sam::lang
 {
+std::string DetectTextLanguage(const std::string& Text);
 std::string DetectDocumentLanguage(const std::string& Collection, const Document& Doc);
+std::string DetectCollectionLanguage(const std::string& Collection, size_t MaxDocuments = 128);
+bool RefreshCollectionLanguage(const std::string& Collection,
+                               std::string* LanguageOut = nullptr,
+                               size_t MaxDocuments = 128);
 }

@@ -1171,7 +1171,7 @@ SAMTokenMatchResult MatchSAMQueryTokenToTermToken(const SAMQueryTokenViews& Quer
           if (Index == 0)
           {
                const size_t Distance = EditDistance(Candidate, TermToken);
-               const size_t MaxDistance = Candidate.size() >= 8 ? 2 : 1;
+               const size_t MaxDistance = Candidate.size() >= 5 ? 2 : 1;
 
                if (Distance <= MaxDistance)
                {
@@ -1184,6 +1184,63 @@ SAMTokenMatchResult MatchSAMQueryTokenToTermToken(const SAMQueryTokenViews& Quer
      }
 
      return Result;
+}
+
+size_t CountSAMMatchedQueryTokens(const SAMQueryTokenViews& QueryViews,
+                                  const std::vector<std::string>& CandidateTokens)
+{
+     if (QueryViews.CoreTokens.empty() || CandidateTokens.empty())
+     {
+          return 0;
+     }
+
+     size_t Matched = 0;
+
+     for (const auto& QueryToken : QueryViews.CoreTokens)
+     {
+          for (const auto& CandidateToken : CandidateTokens)
+          {
+               if (MatchSAMQueryTokenToTermToken(QueryViews, QueryToken, CandidateToken).Matched)
+               {
+                    ++Matched;
+                    break;
+               }
+          }
+     }
+
+     return Matched;
+}
+
+double ComputeSAMQueryTokenCoverage(const SAMQueryTokenViews& QueryViews,
+                                    const std::vector<std::string>& CandidateTokens)
+{
+     if (QueryViews.CoreTokens.empty())
+     {
+          return 0.0;
+     }
+
+     return static_cast<double>(CountSAMMatchedQueryTokens(QueryViews, CandidateTokens)) /
+            static_cast<double>(QueryViews.CoreTokens.size());
+}
+
+double GetSAM25RequiredCoverage(const SAMQueryTokenViews& QueryViews,
+                                double ConfiguredMinCoverage)
+{
+     const size_t QuerySize = QueryViews.CoreTokens.size();
+
+     if (QuerySize <= 1)
+     {
+          return ConfiguredMinCoverage;
+     }
+
+     if (QuerySize == 2)
+     {
+          return std::max(ConfiguredMinCoverage, 1.0);
+     }
+
+     const double AllButOneCoverage =
+          static_cast<double>(QuerySize - 1) / static_cast<double>(QuerySize);
+     return std::max(ConfiguredMinCoverage, AllButOneCoverage);
 }
 
 SAMQueryTokenViews NormalizeSAMQueryTokenViews(rocksdb::DB* Database,
@@ -2786,7 +2843,8 @@ double ComputeSAM25SourceFieldScore(const SAMQueryTokenViews& QueryViews,
      const double SynonymCoverage = ClampSAMScore(static_cast<double>(SynonymMatches) /
           static_cast<double>(std::max<size_t>(1, QueryTokens.size())));
      const double QueryPhraseWeight = GetSAM25QueryPhraseWeight(QueryViews);
-     const double MinCoverage = (Instance && Instance->Config ? Instance->Config->GetSam25MinCoverage() : 0.50);
+     const double ConfiguredMinCoverage = (Instance && Instance->Config ? Instance->Config->GetSam25MinCoverage() : 0.50);
+     const double MinCoverage = GetSAM25RequiredCoverage(QueryViews, ConfiguredMinCoverage);
      const double MinOrderedBoostForPhrase = (Instance && Instance->Config ?
           Instance->Config->GetSam25MinOrderedBoostForPhrase() : 0.20);
      const double MinFinalScore = (Instance && Instance->Config ? Instance->Config->GetSam25SourceDocMinScore() : 0.32);

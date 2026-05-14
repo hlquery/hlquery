@@ -431,6 +431,40 @@ bool ShouldSuppressLowConfidenceSAMResultSet(const std::vector<SAM::LookupHit>& 
      return TopHit.Breakdown.FinalScore < 1.30;
 }
 
+bool HasEnoughLiteralSAMCoverage(const SAM::LookupHit& Hit,
+                                 const SAMQueryTokenViews& QueryViews)
+{
+     if (QueryViews.CoreTokens.size() <= 1)
+     {
+          return true;
+     }
+
+     if (HasStrongSourceSupport(Hit))
+     {
+          return true;
+     }
+
+     const double ConfiguredMinCoverage = (Instance && Instance->Config
+          ? Instance->Config->GetSam25MinCoverage()
+          : 0.50);
+     const double RequiredCoverage = GetSAM25RequiredCoverage(QueryViews, ConfiguredMinCoverage);
+
+     auto CoverageFor = [&](const std::string& Value)
+     {
+          std::vector<std::string> Tokens = TokenizeNormalized(Value);
+
+          for (auto& Token : Tokens)
+          {
+               Token = SingularizeToken(Token);
+          }
+
+          return ComputeSAMQueryTokenCoverage(QueryViews, Tokens);
+     };
+
+     const double BestCoverage = std::max(CoverageFor(Hit.MatchedTerm), CoverageFor(Hit.Title));
+     return BestCoverage >= RequiredCoverage;
+}
+
 void ReplaceWithGuaranteedSourceDocFallback(std::vector<SAM::LookupHit>& Hits)
 {
      if (Hits.empty())
@@ -537,6 +571,10 @@ void FinalizeSAMAggregatedHits(std::vector<SAM::LookupHit>& Hits,
                FinalHit.TermOrigin = FinalHit.MatchedSource;
           }
           if (ShouldRejectWeakSearchIdeaHit(FinalHit))
+          {
+               continue;
+          }
+          if (!HasEnoughLiteralSAMCoverage(FinalHit, QueryViews))
           {
                continue;
           }
@@ -670,7 +708,8 @@ double ComputeSAM25TermScore(rocksdb::DB* Database,
      const double BaseTermScore = ClampSAMScore(Term.Score);
      const double SignalScore = ClampSAMScore(Term.Signal);
      const double QueryPhraseWeight = GetSAM25QueryPhraseWeight(QueryViews);
-     const double MinCoverage = (Instance && Instance->Config ? Instance->Config->GetSam25MinCoverage() : 0.50);
+     const double ConfiguredMinCoverage = (Instance && Instance->Config ? Instance->Config->GetSam25MinCoverage() : 0.50);
+     const double MinCoverage = GetSAM25RequiredCoverage(QueryViews, ConfiguredMinCoverage);
      const double MinOrderedBoostForPhrase = (Instance && Instance->Config ?
           Instance->Config->GetSam25MinOrderedBoostForPhrase() : 0.20);
      const double MinFinalScore = (Instance && Instance->Config ? Instance->Config->GetSam25MinFinalScore() : 0.35);

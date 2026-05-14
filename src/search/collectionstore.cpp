@@ -26,6 +26,7 @@
 #include "search/cstore.h"
 #include "search/lindex.h"
 #include "sam/sam.h"
+#include "sam/lang.h"
 #include "search/writeaheadlogvalidator.h"
 #include "utils/consolewriter.h"
 
@@ -37,6 +38,52 @@ static std::mutex IndexingThreadsMutex;
 static std::string GetCollectionConfigKey(const std::string &Name)
 {
      return "collection_config:" + Name;
+}
+
+static bool CollectionNeedsLanguageDetection(const std::string &Name)
+{
+     CollectionConfig config;
+
+     if (!HybridStorageManagerInstance().GetCollectionConfig(Name, config))
+     {
+          return false;
+     }
+
+     const auto it = config.Metadata.find("_lang");
+
+     if (it == config.Metadata.end())
+     {
+          return true;
+     }
+
+     const std::string value = it->second;
+     return value.empty() || value == "auto" || value == "und";
+}
+
+static void RefreshCollectionLanguageIfNeeded(const std::string &Collection,
+                                              const Document *SeedDocument = nullptr)
+{
+     if (Collection.empty() || !CollectionNeedsLanguageDetection(Collection))
+     {
+          return;
+     }
+
+     std::string language = "und";
+
+     if (SeedDocument)
+     {
+          language = sam::lang::DetectDocumentLanguage(Collection, *SeedDocument);
+     }
+
+     if (language.empty() || language == "und")
+     {
+          language = sam::lang::DetectCollectionLanguage(Collection, 128);
+     }
+
+     if (!language.empty() && language != "und")
+     {
+          HybridStorageManagerInstance().UpdateCollectionMetadata(Collection, "_lang", language);
+     }
 }
 
 static std::string SerializeCollectionConfig(const CollectionConfig &Config)
@@ -1912,6 +1959,8 @@ bool HybridStorageManager::AddDocument(const std::string &collection, const Docu
                                                 (sam_error.empty() ? std::string("unknown error") : sam_error) + ".");
                }
           }
+
+          RefreshCollectionLanguageIfNeeded(collection, &doc);
      }
 
      /* Document write complete */
@@ -2109,6 +2158,11 @@ size_t HybridStorageManager::AddDocumentsBatch(const std::string &collection, co
                                                 (sam_error.empty() ? std::string("unknown error") : sam_error) + ".");
                }
           }
+     }
+
+     if (count > 0)
+     {
+          RefreshCollectionLanguageIfNeeded(collection, nullptr);
      }
 
      /* Batch write complete */

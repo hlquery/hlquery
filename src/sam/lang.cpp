@@ -13,14 +13,15 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
-#include <sstream>
+#include <limits>
+#include <map>
 #include <string>
 #include <unordered_map>
-#include <unordered_set>
 #include <utility>
 #include <vector>
 
 #include "sam/lang.h"
+#include "cld2/public/compact_lang_det.h"
 
 namespace
 {
@@ -123,6 +124,37 @@ std::string NormalizeLanguageHint(const std::string& Value)
      return "";
 }
 
+std::string NormalizeCLD2LanguageCode(const CLD2::Language Language)
+{
+     if (Language == CLD2::UNKNOWN_LANGUAGE)
+     {
+          return "und";
+     }
+
+     const char* Code = CLD2::LanguageCode(Language);
+
+     if (Code == nullptr || Code[0] == '\0')
+     {
+          return "und";
+     }
+
+     std::string Normalized = ToLowerASCII(Code);
+
+     if (Normalized == "un" || Normalized == "unknown")
+     {
+          return "und";
+     }
+
+     const size_t Dash = Normalized.find('-');
+
+     if (Dash != std::string::npos && Dash > 0)
+     {
+          Normalized.resize(Dash);
+     }
+
+     return Normalized;
+}
+
 std::vector<std::pair<std::string, std::string>> CollectDocumentTextFields(const Document& Doc)
 {
      std::vector<std::pair<std::string, std::string>> Fields;
@@ -191,14 +223,14 @@ std::string ResolveDocumentLanguageOverride(const std::string& Collection, const
      return "";
 }
 
-std::string NormalizeTextForLanguageDetection(std::string Value)
+std::string NormalizeTextForCLD2(std::string Value)
 {
      std::transform(Value.begin(), Value.end(), Value.begin(),
                     [](unsigned char C)
                     {
-                         if (std::isalnum(C) || std::isspace(C))
+                         if (std::iscntrl(C) && !std::isspace(C))
                          {
-                              return static_cast<char>(std::tolower(C));
+                              return ' ';
                          }
 
                          switch (C)
@@ -218,8 +250,6 @@ std::string NormalizeTextForLanguageDetection(std::string Value)
                               case ']':
                               case '{':
                               case '}':
-                              case '"':
-                              case '\'':
                                    return ' ';
                               default:
                                    return static_cast<char>(C);
@@ -228,78 +258,8 @@ std::string NormalizeTextForLanguageDetection(std::string Value)
      return Value;
 }
 
-std::vector<std::string> TokenizeLanguageSample(const std::string& Value)
+std::string BuildDocumentLanguageSample(const Document& Doc, size_t MaxBytes = 8192)
 {
-     std::vector<std::string> Tokens;
-     std::istringstream Input(Value);
-     std::string Token;
-
-     while (Input >> Token)
-     {
-          Tokens.push_back(Token);
-     }
-
-     return Tokens;
-}
-
-struct LanguageProfile
-{
-     const char* Code = "und";
-     std::unordered_set<std::string> FunctionWords;
-     std::vector<std::string> Fragments;
-     std::vector<std::string> StrongMarkers;
-};
-
-int CountNeedleMatches(const std::string& Haystack, const std::vector<std::string>& Needles)
-{
-     int Score = 0;
-
-     for (const auto& Needle : Needles)
-     {
-          size_t Position = Haystack.find(Needle);
-
-          while (Position != std::string::npos)
-          {
-               ++Score;
-               Position = Haystack.find(Needle, Position + Needle.size());
-          }
-     }
-
-     return Score;
-}
-
-int ScoreLanguageProfile(const LanguageProfile& Profile,
-                         const std::vector<std::string>& Tokens,
-                         const std::string& NormalizedText,
-                         const std::string& OriginalText)
-{
-     int Score = 0;
-
-     for (const auto& Token : Tokens)
-     {
-          if (Profile.FunctionWords.find(Token) != Profile.FunctionWords.end())
-          {
-               Score += 2;
-          }
-     }
-
-     Score += CountNeedleMatches(NormalizedText, Profile.Fragments);
-     Score += CountNeedleMatches(OriginalText, Profile.StrongMarkers) * 3;
-     return Score;
-}
-}
-
-namespace sam::lang
-{
-std::string DetectDocumentLanguage(const std::string& Collection, const Document& Doc)
-{
-     const std::string ExplicitLanguage = ResolveDocumentLanguageOverride(Collection, Doc);
-
-     if (!ExplicitLanguage.empty())
-     {
-          return ExplicitLanguage;
-     }
-
      const std::vector<std::pair<std::string, std::string>> TextFields = CollectDocumentTextFields(Doc);
      std::string Combined;
 
@@ -312,88 +272,259 @@ std::string DetectDocumentLanguage(const std::string& Collection, const Document
 
           Combined += Entry.second;
 
-          if (Combined.size() >= 4096)
+          if (Combined.size() >= MaxBytes)
           {
-               Combined.resize(4096);
+               Combined.resize(MaxBytes);
                break;
           }
      }
 
-     const std::string Normalized = NormalizeTextForLanguageDetection(Combined);
+     return NormalizeTextForCLD2(Combined);
+}
 
-     if (Normalized.empty())
+bool IsUsefulCLD2Result(const CLD2::Language Language,
+                        const int Percent,
+                        const double NormalizedScore,
+                        const int TextBytes,
+                        const bool IsReliable)
+{
+     if (Language == CLD2::UNKNOWN_LANGUAGE || TextBytes < 16 || Percent < 45)
+     {
+          return false;
+     }
+
+     if (IsReliable)
+     {
+          return Percent >= 50 && NormalizedScore >= 0.10;
+     }
+
+     if (TextBytes >= 96 && Percent >= 75 && NormalizedScore >= 0.25)
+     {
+          return true;
+     }
+
+     if (TextBytes >= 256 && Percent >= 65 && NormalizedScore >= 0.18)
+     {
+          return true;
+     }
+
+     return false;
+}
+
+std::string DetectLanguageWithCld2(const std::string& Text)
+{
+     const std::string Normalized = NormalizeTextForCLD2(Text);
+
+     if (Normalized.empty() || Normalized.size() > static_cast<size_t>(std::numeric_limits<int>::max()))
      {
           return "und";
      }
 
-     const std::vector<std::string> Tokens = TokenizeLanguageSample(Normalized);
+     CLD2::Language Languages[3] = {
+          CLD2::UNKNOWN_LANGUAGE,
+          CLD2::UNKNOWN_LANGUAGE,
+          CLD2::UNKNOWN_LANGUAGE};
+     int Percent[3] = {0, 0, 0};
+     double NormalizedScore[3] = {0.0, 0.0, 0.0};
+     CLD2::ResultChunkVector Chunks;
+     int TextBytes = 0;
+     bool IsReliable = false;
+     int ValidPrefixBytes = 0;
+     const CLD2::CLDHints Hints = {nullptr, nullptr, 0, CLD2::UNKNOWN_LANGUAGE};
 
-     if (Tokens.empty())
+     const CLD2::Language Summary = CLD2::ExtDetectLanguageSummaryCheckUTF8(
+          Normalized.data(),
+          static_cast<int>(Normalized.size()),
+          true,
+          &Hints,
+          0,
+          Languages,
+          Percent,
+          NormalizedScore,
+          &Chunks,
+          &TextBytes,
+          &IsReliable,
+          &ValidPrefixBytes);
+
+     if (ValidPrefixBytes != static_cast<int>(Normalized.size()))
      {
           return "und";
      }
 
-     static const std::array<LanguageProfile, 6> Profiles = {{
-          {"en",
-           {"the", "and", "for", "with", "from", "this", "that", "into", "about", "your", "guide", "overview", "summary"},
-           {"tion", "ions", "ing ", "ed ", "ly "},
-           {}},
-          {"es",
-           {"el", "la", "los", "las", "un", "una", "de", "del", "para", "con", "por", "que", "como", "desde", "sobre"},
-           {"ción", "ciones", "mente", "años", "está", "será", " para "},
-           {"á", "é", "í", "ó", "ú", "ñ", "¿", "¡"}},
-          {"fr",
-           {"le", "la", "les", "des", "une", "pour", "avec", "dans", "sur", "est", "pas", "par", "qui"},
-           {"tion", "ement", "aire", "ique", " pour ", " avec "},
-           {"à", "â", "ç", "è", "é", "ê", "ë", "î", "ï", "ô", "ù", "û", "œ"}},
-          {"pt",
-           {"de", "do", "da", "dos", "das", "para", "com", "uma", "que", "por", "sobre", "não", "mais"},
-           {"ção", "ções", "mente", " para ", " com ", " não "},
-           {"ã", "á", "â", "à", "ç", "é", "ê", "í", "ó", "ô", "õ", "ú"}},
-          {"de",
-           {"der", "die", "das", "und", "mit", "für", "ist", "nicht", "von", "ein", "eine", "auf", "über"},
-           {"ung", "keit", "lich", "sch", " für ", " und "},
-           {"ä", "ö", "ü", "ß"}},
-          {"it",
-           {"il", "lo", "la", "gli", "le", "per", "con", "che", "una", "del", "della", "sono", "come"},
-           {"zione", "zioni", "mente", " per ", " con "},
-           {"à", "è", "é", "ì", "ò", "ù"}}
-     }};
-
-     std::string BestCode = "und";
-     int BestScore = 0;
-     int SecondBestScore = 0;
-
-     for (const auto& Profile : Profiles)
+     if (IsUsefulCLD2Result(Summary, Percent[0], NormalizedScore[0], TextBytes, IsReliable))
      {
-          const int Score = ScoreLanguageProfile(Profile, Tokens, Normalized, Combined);
+          return NormalizeCLD2LanguageCode(Summary);
+     }
 
-          if (Score > BestScore)
+     for (size_t Index = 0; Index < 3; ++Index)
+     {
+          if (IsUsefulCLD2Result(Languages[Index], Percent[Index], NormalizedScore[Index], TextBytes, IsReliable))
           {
-               SecondBestScore = BestScore;
-               BestScore = Score;
-               BestCode = Profile.Code;
-               continue;
+               return NormalizeCLD2LanguageCode(Languages[Index]);
+          }
+     }
+
+     return "und";
+}
+
+std::string DetectDocumentLanguageInternal(const std::string& Collection,
+                                           const Document& Doc,
+                                           bool AllowCollectionOverride)
+{
+     if (AllowCollectionOverride)
+     {
+          const std::string ExplicitLanguage = ResolveDocumentLanguageOverride(Collection, Doc);
+
+          if (!ExplicitLanguage.empty())
+          {
+               return ExplicitLanguage;
+          }
+     }
+     else
+     {
+          static const std::array<std::string, 4> LanguageFieldNames = {"lang", "language", "_lang", "locale"};
+
+          for (const auto& Entry : Doc.Fields)
+          {
+               const std::string Key = TrimLowerCopy(Entry.first);
+
+               if (std::find(LanguageFieldNames.begin(), LanguageFieldNames.end(), Key) == LanguageFieldNames.end())
+               {
+                    continue;
+               }
+
+               const std::string Candidate = NormalizeLanguageHint(Entry.second);
+
+               if (!Candidate.empty())
+               {
+                    return Candidate;
+               }
+          }
+     }
+
+     return DetectLanguageWithCld2(BuildDocumentLanguageSample(Doc));
+}
+}
+
+namespace sam::lang
+{
+std::string DetectTextLanguage(const std::string& Text)
+{
+     return DetectLanguageWithCld2(Text);
+}
+
+std::string DetectDocumentLanguage(const std::string& Collection, const Document& Doc)
+{
+     return DetectDocumentLanguageInternal(Collection, Doc, true);
+}
+
+std::string DetectCollectionLanguage(const std::string& Collection, size_t MaxDocuments)
+{
+     if (Collection.empty() || MaxDocuments == 0)
+     {
+          return "und";
+     }
+
+     constexpr int BatchSize = 128;
+     size_t SeenDocuments = 0;
+     int Offset = 0;
+     std::map<std::string, double> WeightedVotes;
+     std::string Combined;
+     Combined.reserve(65536);
+
+     while (SeenDocuments < MaxDocuments)
+     {
+          const int Limit = static_cast<int>(std::min<size_t>(BatchSize, MaxDocuments - SeenDocuments));
+          const std::vector<Document> Documents = HybridStorageManagerInstance().ListDocuments(Collection, Limit, Offset);
+
+          if (Documents.empty())
+          {
+               break;
           }
 
-          if (Score > SecondBestScore)
+          for (const auto& Doc : Documents)
           {
-               SecondBestScore = Score;
+               const std::string DocumentLang = DetectDocumentLanguageInternal(Collection, Doc, false);
+
+               if (!DocumentLang.empty() && DocumentLang != "und")
+               {
+                    WeightedVotes[DocumentLang] += 1.0;
+               }
+
+               if (Combined.size() < 262144)
+               {
+                    if (!Combined.empty())
+                    {
+                         Combined.push_back('\n');
+                    }
+
+                    Combined += BuildDocumentLanguageSample(Doc, 4096);
+               }
+          }
+
+          SeenDocuments += Documents.size();
+          Offset += static_cast<int>(Documents.size());
+
+          if (Documents.size() < static_cast<size_t>(Limit))
+          {
+               break;
           }
      }
 
-     if (BestScore <= 1)
+     const std::string CorpusLanguage = DetectLanguageWithCld2(Combined);
+
+     if (!CorpusLanguage.empty() && CorpusLanguage != "und")
+     {
+          WeightedVotes[CorpusLanguage] += std::max<double>(3.0, static_cast<double>(SeenDocuments) * 0.35);
+     }
+
+     std::string BestLanguage = "und";
+     double BestScore = 0.0;
+     double SecondScore = 0.0;
+
+     for (const auto& Vote : WeightedVotes)
+     {
+          if (Vote.second > BestScore)
+          {
+               SecondScore = BestScore;
+               BestScore = Vote.second;
+               BestLanguage = Vote.first;
+          }
+          else if (Vote.second > SecondScore)
+          {
+               SecondScore = Vote.second;
+          }
+     }
+
+     if (BestScore <= 0.0)
      {
           return "und";
      }
 
-     const int Margin = BestScore - SecondBestScore;
-
-     if (BestScore < 4 && Margin <= 1)
+     if (SecondScore > 0.0 && BestScore < SecondScore * 1.25)
      {
           return "und";
      }
 
-     return BestCode;
+     return BestLanguage;
+}
+
+bool RefreshCollectionLanguage(const std::string& Collection,
+                               std::string* LanguageOut,
+                               size_t MaxDocuments)
+{
+     const std::string Language = DetectCollectionLanguage(Collection, MaxDocuments);
+
+     if (LanguageOut)
+     {
+          *LanguageOut = Language;
+     }
+
+     if (Collection.empty() || Language.empty() || Language == "und")
+     {
+          return false;
+     }
+
+     return HybridStorageManagerInstance().UpdateCollectionMetadata(Collection, "_lang", Language);
 }
 }

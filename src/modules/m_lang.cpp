@@ -14,6 +14,7 @@
 #include <vector>
 
 #include "core/modules.h"
+#include "sam/lang.h"
 #include "search/cstore.h"
 #include "utils/jsonbuilder.h"
 
@@ -86,10 +87,11 @@ class LangRuntimeModule final : public AutoRuntimeModule<LangRuntimeModule>
 
           description.Name = "lang";
           description.Summary = "Manages collection _lang metadata.";
-          description.Syntax = "hlquery-cli module lang <status|get|set> <collection> [lang]";
+          description.Syntax = "hlquery-cli module lang <status|get|set|detect> <collection> [lang]";
           description.Examples.push_back("hlquery-cli module lang status");
           description.Examples.push_back("hlquery-cli module lang get books");
           description.Examples.push_back("hlquery-cli module lang set books en");
+          description.Examples.push_back("hlquery-cli module lang detect books");
 
           return description;
      }
@@ -139,6 +141,16 @@ class LangRuntimeModule final : public AutoRuntimeModule<LangRuntimeModule>
           set_command.Parameters.push_back(collection_param);
           set_command.Parameters.push_back(lang_param);
           commands.push_back(set_command);
+
+          ModuleCommandSpec detect_command;
+
+          detect_command.Route = "detect";
+          detect_command.Summary = "Detects and stores collection language using CLD2.";
+          detect_command.Syntax = "module lang detect <collection>";
+          detect_command.MinParameters = 1;
+          detect_command.MaxParameters = 1;
+          detect_command.Parameters.push_back(collection_param);
+          commands.push_back(detect_command);
 
           return commands;
      }
@@ -244,6 +256,60 @@ class LangRuntimeModule final : public AutoRuntimeModule<LangRuntimeModule>
                     .Add("collection", collection)
                     .Add("lang", lang)
                     .Add("message", "Collection language updated.")
+                    .ToString();
+
+               return response;
+          }
+
+          if (route == "detect")
+          {
+               const std::string collection = GetCollectionParameter(Request);
+
+               if (collection.empty())
+               {
+                    ModuleCommandResponse response;
+
+                    response.StatusCode = 400;
+                    response.Body = JsonBuilder().Add("error", "Missing collection parameter.").ToString();
+
+                    return response;
+               }
+
+               if (!HybridStorageManagerInstance().CollectionExists(collection))
+               {
+                    ModuleCommandResponse response;
+
+                    response.StatusCode = 404;
+                    response.Body = JsonBuilder().Add("error", "Collection not found.").ToString();
+
+                    return response;
+               }
+
+               std::string lang;
+
+               if (!sam::lang::RefreshCollectionLanguage(collection, &lang))
+               {
+                    ModuleCommandResponse response;
+
+                    response.StatusCode = 422;
+                    response.Body = JsonBuilder()
+                         .Add("module", "lang")
+                         .Add("collection", collection)
+                         .Add("lang", lang.empty() ? "und" : lang)
+                         .Add("error", "Collection language could not be detected reliably.")
+                         .ToString();
+
+                    return response;
+               }
+
+               ModuleCommandResponse response;
+
+               response.Success = true;
+               response.Body = JsonBuilder()
+                    .Add("module", "lang")
+                    .Add("collection", collection)
+                    .Add("lang", lang)
+                    .Add("message", "Collection language detected and updated.")
                     .ToString();
 
                return response;
