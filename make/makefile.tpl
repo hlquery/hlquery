@@ -985,6 +985,7 @@ install-system: all
 	@$(INSTALL) -d "$(DESTDIR)$(RUNDIR)"
 	@if [ -f "run/hlquery" ]; then \
 		$(INSTALL) -m 0755 run/hlquery "$(DESTDIR)$(BINDIR)/hlquery-wrapper"; \
+		ln -sf hlquery-wrapper "$(DESTDIR)$(BINDIR)/hlqueryctl"; \
 	fi
 	@echo "$(GREEN)✓ System-wide installation complete!$(NC)"
 
