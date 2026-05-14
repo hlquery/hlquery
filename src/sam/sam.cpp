@@ -911,6 +911,57 @@ SAMSemanticProfile BuildSemanticProfile(const std::string& Title,
      return Profile;
 }
 
+std::vector<SAMSemanticIndexEntry> BuildSemanticIndexEntries(const SAMSemanticProfile& Profile,
+                                                            size_t Limit)
+{
+     std::vector<SAMSemanticIndexEntry> Entries;
+     std::unordered_set<std::string> Seen;
+
+     auto Append = [&](const std::string& Value, const std::string& Kind)
+     {
+          if (Entries.size() >= Limit)
+          {
+               return;
+          }
+
+          const std::string Normalized = NormalizeTerm(Value);
+
+          if (Normalized.empty() || Normalized.size() < 2)
+          {
+               return;
+          }
+
+          const std::string SeenKey = Kind + "\n" + Normalized;
+
+          if (!Seen.insert(SeenKey).second)
+          {
+               return;
+          }
+
+          Entries.push_back(SAMSemanticIndexEntry{Normalized, Kind});
+     };
+
+     Append(Profile.Subject, "semantic_subject");
+
+     for (const auto& Alias : Profile.Aliases)
+     {
+          Append(Alias, "semantic_alias");
+     }
+
+     for (const auto& Descriptor : Profile.Descriptors)
+     {
+          Append(Descriptor, "semantic_descriptor");
+     }
+
+     for (const auto& Query : Profile.Queries)
+     {
+          Append(Query, "semantic_query");
+     }
+
+     Append(Profile.Summary, "semantic_summary");
+     return Entries;
+}
+
 void StoreSemanticProfileJSON(nlohmann::json& Manifest,
                               const SAMSemanticProfile& Profile)
 {

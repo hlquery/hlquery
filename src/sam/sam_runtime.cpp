@@ -27,6 +27,8 @@
 namespace
 {
 constexpr const char* kPendingIndexQueuePrefix = "sam:queue:index:";
+constexpr uint64_t kBackgroundImprovementIntervalMS = 60000;
+constexpr auto kBackgroundImprovementPollInterval = std::chrono::seconds(15);
 
 /* Build the persisted queue key for one pending SAM index job. */
 
@@ -494,6 +496,286 @@ void SAM::StartIndexWorker()
           {
                RunIndexWorker();
           });
+     }
+
+     WorkerThreads.emplace_back([this]()
+     {
+          RunImprovementWorker();
+     });
+}
+
+bool SAM::TryBeginBackgroundImprovement(const std::string& Collection,
+                                        uint64_t NowMS,
+                                        bool Force,
+                                        std::string* SkipReason)
+{
+     if (SkipReason)
+     {
+          SkipReason->clear();
+     }
+
+     if (Collection.empty())
+     {
+          if (SkipReason)
+          {
+               *SkipReason = "not_indexed";
+          }
+
+          return false;
+     }
+
+     if (FlushInProgress.load(std::memory_order_acquire))
+     {
+          if (SkipReason)
+          {
+               *SkipReason = "flush";
+          }
+
+          return false;
+     }
+
+     {
+          std::lock_guard<std::mutex> QueueLock(QueueMutex);
+
+          if (!PendingIndexJobs.empty())
+          {
+               if (SkipReason)
+               {
+                    *SkipReason = "busy";
+               }
+
+               return false;
+          }
+     }
+
+     std::lock_guard<std::mutex> JobLock(JobMutex);
+
+     if (IsCollectionCancelledLocked(Collection))
+     {
+          if (SkipReason)
+          {
+               *SkipReason = "cancelled";
+          }
+
+          return false;
+     }
+
+     if (ActiveCollectionTasks.find(Collection) != ActiveCollectionTasks.end())
+     {
+          if (SkipReason)
+          {
+               *SkipReason = "busy";
+          }
+
+          return false;
+     }
+
+     const auto StatusIt = CollectionJobs.find(Collection);
+
+     if (StatusIt != CollectionJobs.end() && StatusIt->second.Running)
+     {
+          if (SkipReason)
+          {
+               *SkipReason = "busy";
+          }
+
+          return false;
+     }
+
+     const uint64_t LastImprovementMS = LastBackgroundImprovementMS[Collection];
+
+     if (!Force &&
+         LastImprovementMS > 0 &&
+         NowMS > LastImprovementMS &&
+         (NowMS - LastImprovementMS) < kBackgroundImprovementIntervalMS)
+     {
+          if (SkipReason)
+          {
+               *SkipReason = "throttled";
+          }
+
+          return false;
+     }
+
+     ++ActiveCollectionTasks[Collection];
+     LastBackgroundImprovementMS[Collection] = NowMS;
+     return true;
+}
+
+void SAM::FinishBackgroundImprovement(const std::string& Collection)
+{
+     std::lock_guard<std::mutex> JobLock(JobMutex);
+     auto ActiveIt = ActiveCollectionTasks.find(Collection);
+
+     if (ActiveIt != ActiveCollectionTasks.end())
+     {
+          if (ActiveIt->second > 0)
+          {
+               --ActiveIt->second;
+          }
+
+          if (ActiveIt->second == 0)
+          {
+               ActiveCollectionTasks.erase(ActiveIt);
+          }
+     }
+
+     JobStateCV.notify_all();
+     QueueCV.notify_all();
+}
+
+SAM::ImprovementStats SAM::ImproveIdleCollectionsDetailed(size_t MaxCollections, bool Force)
+{
+     ImprovementStats Stats;
+     FlushPendingSearchInteractions(4);
+     FlushPendingSearchIdeas(2);
+     Stats.OptimizedIdeas = ProcessPendingSearchIntentOptimizations(1);
+
+     if (!Instance || !Instance->LLM || !Instance->LLM->Configured())
+     {
+          Stats.SkippedLLMUnavailable = 1;
+     }
+
+     const std::vector<std::string> Collections =
+          HybridStorageManager::GetInstance().ListCollections();
+     const uint64_t NowMS = Instance ? Instance->NowMs() : 0;
+
+     for (const auto& Collection : Collections)
+     {
+          if (MaxCollections > 0 && Stats.ImprovedCollections >= MaxCollections)
+          {
+               break;
+          }
+
+          std::string SkipReason;
+          if (!TryBeginBackgroundImprovement(Collection, NowMS, Force, &SkipReason))
+          {
+               if (SkipReason == "busy")
+               {
+                    ++Stats.SkippedBusy;
+               }
+               else if (SkipReason == "cancelled")
+               {
+                    ++Stats.SkippedCancelled;
+               }
+               else if (SkipReason == "throttled")
+               {
+                    ++Stats.SkippedThrottled;
+               }
+               else if (SkipReason == "flush")
+               {
+                    ++Stats.SkippedFlushInProgress;
+               }
+               else
+               {
+                    ++Stats.SkippedNotIndexed;
+               }
+
+               continue;
+          }
+
+          bool Improved = false;
+          std::string ErrorMessage;
+
+          {
+               std::lock_guard<std::mutex> DBLock(DBMutex);
+
+               if (Database)
+               {
+                    SAMCollectionState State;
+                    std::string StateError;
+                    const bool LoadedState =
+                         ReadCollectionStateLocked(Database.get(), Collection, State, nullptr, &StateError);
+                    const uint64_t CurrentMutationVersion =
+                         GetCurrentCollectionMutationVersion(Collection);
+                    const bool CurrentIndex =
+                         LoadedState &&
+                         State.HasIndexedMutationVersion &&
+                         !State.RebuildRequested &&
+                         (CurrentMutationVersion == 0 ||
+                          State.IndexedMutationVersion == CurrentMutationVersion);
+
+                    if (CurrentIndex)
+                    {
+                         const bool RebuiltProfile =
+                              RebuildCollectionProfileLocked(Database.get(), Collection, &ErrorMessage);
+                         const bool RebuiltGraph =
+                              RebuildIntentGraphLocked(Database.get(), Collection, &ErrorMessage);
+                         Improved = RebuiltProfile || RebuiltGraph;
+                    }
+                    else if (LoadedState && State.RebuildRequested)
+                    {
+                         ErrorMessage = "skipped because a rebuild is already pending";
+                         ++Stats.SkippedPendingRebuild;
+                    }
+                    else if (!LoadedState)
+                    {
+                         ErrorMessage = StateError;
+                         ++Stats.SkippedNotIndexed;
+                    }
+                    else
+                    {
+                         ErrorMessage = "skipped because indexed mutation version is stale";
+                         if (!State.HasIndexedMutationVersion)
+                         {
+                              ++Stats.SkippedNotIndexed;
+                         }
+                         else
+                         {
+                              ++Stats.SkippedStaleIndex;
+                         }
+                    }
+               }
+               else
+               {
+                    ++Stats.SkippedNoDatabase;
+               }
+          }
+
+          FinishBackgroundImprovement(Collection);
+
+          if (Improved)
+          {
+               ++Stats.ImprovedCollections;
+               RecordDebugEvent(Collection, "background improvement refreshed learned profile and intent graph");
+          }
+          else if (!ErrorMessage.empty())
+          {
+               RecordDebugEvent(Collection, "background improvement " + ErrorMessage);
+          }
+     }
+
+     return Stats;
+}
+
+size_t SAM::ImproveIdleCollections(size_t MaxCollections, bool Force)
+{
+     return ImproveIdleCollectionsDetailed(MaxCollections, Force).TotalImproved();
+}
+
+void SAM::RunImprovementWorker()
+{
+     while (true)
+     {
+          {
+               std::unique_lock<std::mutex> Lock(QueueMutex);
+               QueueCV.wait_for(Lock, kBackgroundImprovementPollInterval, [this]()
+               {
+                    return ShuttingDown;
+               });
+
+               if (ShuttingDown)
+               {
+                    return;
+               }
+
+               if (!PendingIndexJobs.empty())
+               {
+                    continue;
+               }
+          }
+
+          ImproveIdleCollections(1, false);
      }
 }
 
@@ -1493,6 +1775,16 @@ bool SAM::EnqueueIndexDocument(const std::string& Collection,
      {
           std::lock_guard<std::mutex> Lock(JobMutex);
 
+          if (FlushInProgress.load(std::memory_order_acquire))
+          {
+               if (ErrorMessage)
+               {
+                    *ErrorMessage = "SAM flush is in progress.";
+               }
+
+               return false;
+          }
+
           if (IsCollectionCancelledLocked(Collection))
           {
                if (ErrorMessage)
@@ -1627,6 +1919,25 @@ bool SAM::RemoveExistingDocumentTermsLocked(const std::string& Collection,
                          }
                     }
                }
+
+               if (Root.contains("semantic_index") && Root["semantic_index"].is_array())
+               {
+                    for (const auto& Entry : Root["semantic_index"])
+                    {
+                         if (!Entry.is_object())
+                         {
+                              continue;
+                         }
+
+                         const std::string Text = Entry.value("text", "");
+                         const std::string Kind = Entry.value("kind", "semantic");
+
+                         if (!Text.empty())
+                         {
+                              Batch.Delete(BuildSemanticProfileKey(Text, Collection, DocumentID, Kind));
+                         }
+                    }
+               }
           }
      }
      catch (const std::exception& E)
@@ -1659,6 +1970,28 @@ bool SAM::RemoveExistingDocumentTermsLocked(const std::string& Collection,
                         Payload.value("id", "") == DocumentID)
                     {
                          Batch.Delete(Iterator->key());
+                    }
+               }
+               catch (...)
+               {
+               }
+          }
+
+          const std::string SemanticPrefix = "sam:semantic:";
+          std::unique_ptr<rocksdb::Iterator> SemanticIterator(Database->NewIterator(rocksdb::ReadOptions()));
+
+          for (SemanticIterator->Seek(SemanticPrefix);
+               SemanticIterator->Valid() && SemanticIterator->key().starts_with(SemanticPrefix);
+               SemanticIterator->Next())
+          {
+               try
+               {
+                    const nlohmann::json Payload = nlohmann::json::parse(SemanticIterator->value().ToString());
+
+                    if (Payload.value("collection", "") == Collection &&
+                        Payload.value("id", "") == DocumentID)
+                    {
+                         Batch.Delete(SemanticIterator->key());
                     }
                }
                catch (...)
@@ -1807,6 +2140,7 @@ bool SAM::IndexDocumentLocked(const std::string& Collection,
      Manifest["format"] = DetectSAMDocumentFormat(SourceDoc);
      Manifest["terms"] = nlohmann::json::array();
      const SAMSemanticProfile SemanticProfile = BuildSemanticProfile(SourceDoc.Title.empty() ? SourceDoc.ID : SourceDoc.Title, Terms);
+     const std::vector<SAMSemanticIndexEntry> SemanticIndex = BuildSemanticIndexEntries(SemanticProfile, 32);
 
      for (const auto& Term : Terms)
      {
@@ -1831,6 +2165,23 @@ bool SAM::IndexDocumentLocked(const std::string& Collection,
      }
 
      StoreSemanticProfileJSON(Manifest, SemanticProfile);
+     Manifest["semantic_index"] = nlohmann::json::array();
+
+     for (const auto& Entry : SemanticIndex)
+     {
+          Manifest["semantic_index"].push_back({
+               {"text", Entry.Text},
+               {"kind", Entry.Kind}
+          });
+
+          nlohmann::json Payload;
+          Payload["collection"] = Collection;
+          Payload["id"] = SourceDoc.ID;
+          Payload["title"] = SourceDoc.Title;
+          Payload["term"] = Entry.Text;
+          Payload["kind"] = Entry.Kind;
+          Batch.Put(BuildSemanticProfileKey(Entry.Text, Collection, SourceDoc.ID, Entry.Kind), Payload.dump());
+     }
 
      Batch.Put(BuildDocManifestKey(Collection, SourceDoc.ID), Manifest.dump());
 

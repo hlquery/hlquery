@@ -12,16 +12,36 @@
 
 #include <algorithm>
 #include <array>
+#include <cerrno>
 #include <cctype>
+#include <chrono>
+#include <cstring>
 #include <cstdio>
 #include <cstdlib>
 #include <cmath>
+#include <fcntl.h>
+#include <signal.h>
 #include <sstream>
+#include <sys/wait.h>
+#include <thread>
+#include <unistd.h>
 
 #include "core/hlquery.h"
 #include "core/llm.h"
 #include "sam/lang.h"
 #include "vendor/json/json.hpp"
+
+namespace
+{
+struct LLMInferenceResult
+{
+     bool Started = false;
+     bool TimedOut = false;
+     int ExitCode = -1;
+     std::string Stdout;
+     std::string Stderr;
+};
+}
 
 static std::string TrimCopy(const std::string& Value)
 {
@@ -284,6 +304,238 @@ static void AddPromptEnvelope(nlohmann::json& Payload,
      };
 }
 
+static void AppendPipeOutput(int FD, std::string& Output)
+{
+     std::array<char, 4096> Buffer{};
+
+     while (true)
+     {
+          const ssize_t ReadCount = read(FD, Buffer.data(), Buffer.size());
+
+          if (ReadCount > 0)
+          {
+               Output.append(Buffer.data(), static_cast<size_t>(ReadCount));
+               continue;
+          }
+
+          if (ReadCount == 0 || errno == EAGAIN || errno == EWOULDBLOCK)
+          {
+               break;
+          }
+
+          if (errno == EINTR)
+          {
+               continue;
+          }
+
+          break;
+     }
+}
+
+static bool WritePayloadFile(const std::string& Payload, std::string& PathOut)
+{
+     std::array<char, 64> Template{};
+     const std::string Prefix = "/tmp/hlquery-llm-XXXXXX";
+
+     std::copy(Prefix.begin(), Prefix.end(), Template.begin());
+     int FD = mkstemp(Template.data());
+
+     if (FD < 0)
+     {
+          return false;
+     }
+
+     size_t Written = 0;
+
+     while (Written < Payload.size())
+     {
+          const ssize_t Result = write(FD,
+                                       Payload.data() + Written,
+                                       Payload.size() - Written);
+
+          if (Result > 0)
+          {
+               Written += static_cast<size_t>(Result);
+               continue;
+          }
+
+          if (Result < 0 && errno == EINTR)
+          {
+               continue;
+          }
+
+          close(FD);
+          unlink(Template.data());
+          return false;
+     }
+
+     close(FD);
+     PathOut = Template.data();
+     return true;
+}
+
+static void LogLLMInferenceFailure(const std::string& Mode, const LLMInferenceResult& Result)
+{
+     if (!Instance || !Instance->Logs)
+     {
+          return;
+     }
+
+     std::string Message = "LLM inference failed for mode '" + Mode + "'";
+
+     if (Result.TimedOut)
+     {
+          Message += ": timed out";
+     }
+     else if (!Result.Started)
+     {
+          Message += ": process did not start";
+     }
+     else
+     {
+          Message += ": exit_code=" + std::to_string(Result.ExitCode);
+     }
+
+     const std::string Stderr = TrimCopy(Result.Stderr);
+
+     if (!Stderr.empty())
+     {
+          Message += ", stderr=" + Stderr.substr(0, 512);
+     }
+
+     Instance->Logs->Normal("llm", Message + ".");
+}
+
+static LLMInferenceResult RunLLMInferenceCommand(const std::string& Command,
+                                                 const std::string& ModelPath,
+                                                 const std::string& Mode,
+                                                 const nlohmann::json& Payload,
+                                                 int TimeoutMS = 60000)
+{
+     LLMInferenceResult Result;
+     std::string PayloadPath;
+
+     if (Command.empty() || !WritePayloadFile(Payload.dump(), PayloadPath))
+     {
+          return Result;
+     }
+
+     int StdoutPipe[2] = {-1, -1};
+     int StderrPipe[2] = {-1, -1};
+
+     if (pipe(StdoutPipe) != 0 || pipe(StderrPipe) != 0)
+     {
+          if (StdoutPipe[0] >= 0)
+          {
+               close(StdoutPipe[0]);
+               close(StdoutPipe[1]);
+          }
+
+          if (StderrPipe[0] >= 0)
+          {
+               close(StderrPipe[0]);
+               close(StderrPipe[1]);
+          }
+
+          unlink(PayloadPath.c_str());
+          return Result;
+     }
+
+     const pid_t PID = fork();
+
+     if (PID == 0)
+     {
+          dup2(StdoutPipe[1], STDOUT_FILENO);
+          dup2(StderrPipe[1], STDERR_FILENO);
+          close(StdoutPipe[0]);
+          close(StdoutPipe[1]);
+          close(StderrPipe[0]);
+          close(StderrPipe[1]);
+
+          setenv("HLQUERY_LLM_MODEL", ModelPath.c_str(), 1);
+          setenv("HLQUERY_LLM_PAYLOAD_MODE", Mode.c_str(), 1);
+          setenv("HLQUERY_LLM_PAYLOAD_JSON_FILE", PayloadPath.c_str(), 1);
+
+          if (Mode == "context")
+          {
+               setenv("HLQUERY_LLM_CONTEXT_JSON_FILE", PayloadPath.c_str(), 1);
+          }
+          else if (Mode == "anchors")
+          {
+               setenv("HLQUERY_LLM_ANCHOR_JSON_FILE", PayloadPath.c_str(), 1);
+          }
+          else if (Mode == "search_intent")
+          {
+               setenv("HLQUERY_LLM_SEARCH_JSON_FILE", PayloadPath.c_str(), 1);
+          }
+
+          execl("/bin/sh", "sh", "-c", Command.c_str(), static_cast<char*>(nullptr));
+          _exit(127);
+     }
+
+     close(StdoutPipe[1]);
+     close(StderrPipe[1]);
+
+     if (PID < 0)
+     {
+          close(StdoutPipe[0]);
+          close(StderrPipe[0]);
+          unlink(PayloadPath.c_str());
+          return Result;
+     }
+
+     Result.Started = true;
+     fcntl(StdoutPipe[0], F_SETFL, fcntl(StdoutPipe[0], F_GETFL, 0) | O_NONBLOCK);
+     fcntl(StderrPipe[0], F_SETFL, fcntl(StderrPipe[0], F_GETFL, 0) | O_NONBLOCK);
+
+     const auto Deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(TimeoutMS);
+     int Status = 0;
+
+     while (true)
+     {
+          AppendPipeOutput(StdoutPipe[0], Result.Stdout);
+          AppendPipeOutput(StderrPipe[0], Result.Stderr);
+
+          const pid_t WaitResult = waitpid(PID, &Status, WNOHANG);
+
+          if (WaitResult == PID)
+          {
+               if (WIFEXITED(Status))
+               {
+                    Result.ExitCode = WEXITSTATUS(Status);
+               }
+               else if (WIFSIGNALED(Status))
+               {
+                    Result.ExitCode = 128 + WTERMSIG(Status);
+               }
+
+               break;
+          }
+
+          if (WaitResult < 0 && errno != EINTR)
+          {
+               break;
+          }
+
+          if (std::chrono::steady_clock::now() >= Deadline)
+          {
+               Result.TimedOut = true;
+               kill(PID, SIGKILL);
+               waitpid(PID, &Status, 0);
+               break;
+          }
+
+          std::this_thread::sleep_for(std::chrono::milliseconds(10));
+     }
+
+     AppendPipeOutput(StdoutPipe[0], Result.Stdout);
+     AppendPipeOutput(StderrPipe[0], Result.Stderr);
+     close(StdoutPipe[0]);
+     close(StderrPipe[0]);
+     unlink(PayloadPath.c_str());
+     return Result;
+}
+
 static void AppendSuggestion(std::vector<llm::ContextSuggestion>& Suggestions,
                              std::unordered_set<std::string>& Seen,
                              const std::string& Value,
@@ -519,31 +771,28 @@ std::vector<llm::ContextSuggestion> llm::BuildDocumentContext(const std::string&
           AddPromptEnvelope(Payload, Collection, Doc, "context", Limit);
 
           std::lock_guard<std::mutex> Lock(InferenceMutex);
+          const LLMInferenceResult Result =
+               RunLLMInferenceCommand(InferenceCommand, ModelPath, "context", Payload);
 
-          setenv("HLQUERY_LLM_MODEL", ModelPath.c_str(), 1);
-          setenv("HLQUERY_LLM_CONTEXT_JSON", Payload.dump().c_str(), 1);
-
-          FILE* Pipe = popen(InferenceCommand.c_str(), "r");
-
-          if (Pipe)
+          if (Result.ExitCode == 0)
           {
-               std::array<char, 512> Buffer{};
+               std::istringstream Input(Result.Stdout);
+               std::string Line;
 
-               while (fgets(Buffer.data(), static_cast<int>(Buffer.size()), Pipe))
+               while (std::getline(Input, Line))
                {
-                    AppendSuggestion(Suggestions, Seen, Buffer.data(), "llm", Limit);
+                    AppendSuggestion(Suggestions, Seen, Line, "llm", Limit);
 
                     if (Suggestions.size() >= Limit)
                     {
                          break;
                     }
                }
-
-               pclose(Pipe);
           }
-
-          unsetenv("HLQUERY_LLM_MODEL");
-          unsetenv("HLQUERY_LLM_CONTEXT_JSON");
+          else
+          {
+               LogLLMInferenceFailure("context", Result);
+          }
      }
 
      if (Suggestions.size() > Limit)
@@ -645,31 +894,17 @@ std::vector<llm::AnchorSuggestion> llm::BuildDocumentAnchors(const std::string& 
           AddPromptEnvelope(Payload, Collection, Doc, "anchors", Limit, Language);
 
           std::lock_guard<std::mutex> Lock(InferenceMutex);
+          const LLMInferenceResult Result =
+               RunLLMInferenceCommand(InferenceCommand, ModelPath, "anchors", Payload);
 
-          setenv("HLQUERY_LLM_MODEL", ModelPath.c_str(), 1);
-          setenv("HLQUERY_LLM_ANCHOR_JSON", Payload.dump().c_str(), 1);
-
-          FILE* Pipe = popen(InferenceCommand.c_str(), "r");
-          std::string RawOutput;
-
-          if (Pipe)
+          if (Result.ExitCode != 0)
           {
-               std::array<char, 1024> Buffer{};
-
-               while (fgets(Buffer.data(), static_cast<int>(Buffer.size()), Pipe))
-               {
-                    RawOutput += Buffer.data();
-               }
-
-               pclose(Pipe);
+               LogLLMInferenceFailure("anchors", Result);
           }
 
-          unsetenv("HLQUERY_LLM_MODEL");
-          unsetenv("HLQUERY_LLM_ANCHOR_JSON");
+          const std::string TrimmedOutput = TrimCopy(Result.Stdout);
 
-          const std::string TrimmedOutput = TrimCopy(RawOutput);
-
-          if (!TrimmedOutput.empty())
+          if (Result.ExitCode == 0 && !TrimmedOutput.empty())
           {
                try
                {
@@ -785,28 +1020,16 @@ llm::SearchIntentResolution llm::ResolveSearchIntent(const std::string& Collecti
      }
 
      std::lock_guard<std::mutex> Lock(InferenceMutex);
-     setenv("HLQUERY_LLM_MODEL", ModelPath.c_str(), 1);
-     setenv("HLQUERY_LLM_SEARCH_JSON", Payload.dump().c_str(), 1);
+     const LLMInferenceResult Result =
+          RunLLMInferenceCommand(InferenceCommand, ModelPath, "search_intent", Payload);
 
-     FILE* Pipe = popen(InferenceCommand.c_str(), "r");
-     std::string RawOutput;
-
-     if (Pipe)
+     if (Result.ExitCode != 0)
      {
-          std::array<char, 1024> Buffer{};
-
-          while (fgets(Buffer.data(), static_cast<int>(Buffer.size()), Pipe))
-          {
-               RawOutput += Buffer.data();
-          }
-
-          pclose(Pipe);
+          LogLLMInferenceFailure("search_intent", Result);
+          return Resolution;
      }
 
-     unsetenv("HLQUERY_LLM_MODEL");
-     unsetenv("HLQUERY_LLM_SEARCH_JSON");
-
-     const std::string TrimmedOutput = TrimCopy(RawOutput);
+     const std::string TrimmedOutput = TrimCopy(Result.Stdout);
 
      if (TrimmedOutput.empty())
      {

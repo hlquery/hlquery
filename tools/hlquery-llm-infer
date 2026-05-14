@@ -151,6 +151,32 @@ $candidate_text
 PROMPT
     }
 
+    if ($mode eq 'anchors') {
+        return <<"PROMPT";
+You generate precise anchor, alias, descriptor, and query suggestions for one search document.
+Return exactly one compact JSON object on a single line. No markdown. No prose before or after the JSON.
+JSON schema:
+{
+  "anchors": [{"text":"...", "kind":"anchor", "confidence":0.0, "reason":"...", "language":"..."}]
+}
+Rules:
+- anchors: up to $limit useful indexing phrases, ordered best-first.
+- kind must be one of anchor, alias, descriptor, or query.
+- confidence values must be between 0.0 and 1.0.
+- Each text must be 1 to 8 words.
+- Prefer exact entities, aliases, roles, labels, and high-precision query phrases grounded in the document.
+- Avoid ids, urls, handles, timestamps, boilerplate, generic filler, and near duplicates.
+- Do not invent facts not supported by the title, fields, or content.
+
+Instruction: $instruction
+
+Title: $title
+Fields:
+$field_text
+Content: $content
+PROMPT
+    }
+
     return <<"PROMPT";
 You generate retrieval-oriented structured reasoning for one document.
 Return exactly one compact JSON object on a single line. No markdown. No prose before or after the JSON.
@@ -294,7 +320,13 @@ sub extract_json_object {
 
 my $model = $ENV{HLQUERY_LLM_MODEL} // '';
 my $context_json = $ENV{HLQUERY_LLM_CONTEXT_JSON} // '';
+my $context_json_file = $ENV{HLQUERY_LLM_CONTEXT_JSON_FILE} // '';
+my $anchor_json = $ENV{HLQUERY_LLM_ANCHOR_JSON} // '';
+my $anchor_json_file = $ENV{HLQUERY_LLM_ANCHOR_JSON_FILE} // '';
 my $search_json = $ENV{HLQUERY_LLM_SEARCH_JSON} // '';
+my $search_json_file = $ENV{HLQUERY_LLM_SEARCH_JSON_FILE} // '';
+my $payload_mode = $ENV{HLQUERY_LLM_PAYLOAD_MODE} // '';
+my $payload_json_file = $ENV{HLQUERY_LLM_PAYLOAD_JSON_FILE} // '';
 my $sam_json = $ENV{HLQUERY_SAM_DOC_JSON} // '';
 my $sam_json_file = $ENV{HLQUERY_SAM_DOC_JSON_FILE} // '';
 
@@ -305,12 +337,27 @@ if (!$model) {
 my $runner = $ENV{HLQUERY_LLM_RUNNER} // 'llama-cli';
 my $mode = 'sam';
 my $limit = 6;
-my $payload_json = $sam_json_file ne '' ? read_file_text($sam_json_file) : $sam_json;
+my $payload_json = $payload_json_file ne '' ? read_file_text($payload_json_file)
+                 : ($sam_json_file ne '' ? read_file_text($sam_json_file) : $sam_json);
 my $creativity_mode = $ENV{HLQUERY_SAM_CREATIVITY_MODE} // 'balanced';
 
-if ($context_json ne '') {
+if ($payload_mode ne '') {
+    $mode = $payload_mode;
+} elsif ($context_json_file ne '') {
+    $payload_json = read_file_text($context_json_file);
+    $mode = 'context';
+} elsif ($context_json ne '') {
     $payload_json = $context_json;
     $mode = 'context';
+} elsif ($anchor_json_file ne '') {
+    $payload_json = read_file_text($anchor_json_file);
+    $mode = 'anchors';
+} elsif ($anchor_json ne '') {
+    $payload_json = $anchor_json;
+    $mode = 'anchors';
+} elsif ($search_json_file ne '') {
+    $payload_json = read_file_text($search_json_file);
+    $mode = 'search_intent';
 } elsif ($search_json ne '') {
     $payload_json = $search_json;
     $mode = 'search_intent';
@@ -332,6 +379,12 @@ if ($mode eq 'search_intent' && ref($payload) eq 'HASH' && defined $payload->{li
     $limit = int($payload->{limit});
     $limit = 1 if $limit < 1;
     $limit = 8 if $limit > 8;
+}
+
+if ($mode eq 'anchors' && ref($payload) eq 'HASH' && defined $payload->{limit}) {
+    $limit = int($payload->{limit});
+    $limit = 1 if $limit < 1;
+    $limit = 12 if $limit > 12;
 }
 
 if ($mode eq 'sam' && defined $ENV{HLQUERY_SAM_TERM_LIMIT}) {
@@ -378,7 +431,7 @@ my $raw_output = <$fh>;
 close $fh;
 $raw_output = '' unless defined $raw_output;
 
-if ($mode eq 'sam' || $mode eq 'search_intent') {
+if ($mode eq 'sam' || $mode eq 'search_intent' || $mode eq 'anchors') {
     my $json = extract_json_object($raw_output);
 
     if ($json ne '') {

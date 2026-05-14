@@ -82,23 +82,24 @@ void AppendSemanticProfileHits(std::unordered_map<std::string, SAMAggregatedHit>
           return;
      }
 
-     const std::string Prefix = Collection.empty() ? "sam:doc:" : "sam:doc:" + Collection + ":";
-     std::unique_ptr<rocksdb::Iterator> Iterator(Database->NewIterator(rocksdb::ReadOptions()));
-     size_t Scanned = 0;
+     size_t Scored = 0;
+     bool AcceptedSemantic = false;
 
-     for (Iterator->Seek(Prefix);
-          Iterator->Valid() && Iterator->key().starts_with(Prefix) && Scanned < MaxCandidates;
-          Iterator->Next(), ++Scanned)
+     auto ScoreManifest = [&](const std::string& RawValue)
      {
+          if (Scored >= MaxCandidates)
+          {
+               return;
+          }
+
           try
           {
-               const nlohmann::json Root = nlohmann::json::parse(Iterator->value().ToString());
+               const nlohmann::json Root = nlohmann::json::parse(RawValue);
                SAM::DocumentEntry Entry;
 
-               if (!ParseManifestValue(Iterator->value().ToString(), Entry) ||
-                   !IsSAMDocumentEntryCurrent(Entry))
+               if (!ParseManifestValue(RawValue, Entry) || !IsSAMDocumentEntryCurrent(Entry))
                {
-                    continue;
+                    return;
                }
 
                SAMSemanticProfile Profile;
@@ -112,9 +113,11 @@ void AppendSemanticProfileHits(std::unordered_map<std::string, SAMAggregatedHit>
                const SAMSemanticCandidate Match = ScoreSemanticProfileMatch(QueryPlan, Profile);
                const double CombinedSemantic = std::max(Match.ProfileScore, Match.VectorScore * 0.92);
 
+               ++Scored;
+
                if (CombinedSemantic < 0.52)
                {
-                    continue;
+                    return;
                }
 
                SAM::LookupHit Hit;
@@ -144,11 +147,108 @@ void AppendSemanticProfileHits(std::unordered_map<std::string, SAMAggregatedHit>
                if (!Hit.Collection.empty() && !Hit.DocumentID.empty())
                {
                     AccumulateSAMHit(AggregatedHits, Hit);
+                    AcceptedSemantic = true;
                }
           }
           catch (...)
           {
           }
+     };
+
+     std::vector<std::string> CandidateTerms;
+     std::unordered_set<std::string> SeenTerms;
+
+     auto AddCandidateTerm = [&](const std::string& Value)
+     {
+          const std::string Normalized = NormalizeTerm(Value);
+
+          if (Normalized.size() < 2 || !SeenTerms.insert(Normalized).second)
+          {
+               return;
+          }
+
+          CandidateTerms.push_back(Normalized);
+     };
+
+     for (const auto& Rewrite : QueryPlan.Rewrites)
+     {
+          AddCandidateTerm(Rewrite);
+
+          for (const auto& Token : TokenizeNormalized(Rewrite))
+          {
+               if (Token.size() >= 3)
+               {
+                    AddCandidateTerm(Token);
+               }
+          }
+     }
+
+     std::unordered_set<std::string> SeenDocuments;
+
+     for (const auto& CandidateTerm : CandidateTerms)
+     {
+          if (Scored >= MaxCandidates)
+          {
+               break;
+          }
+
+          const std::string Prefix = BuildSemanticProfilePrefix(CandidateTerm, Collection);
+          std::unique_ptr<rocksdb::Iterator> Iterator(Database->NewIterator(rocksdb::ReadOptions()));
+
+          for (Iterator->Seek(Prefix);
+               Iterator->Valid() && Iterator->key().starts_with(Prefix) && Scored < MaxCandidates;
+               Iterator->Next())
+          {
+               try
+               {
+                    const nlohmann::json Payload = nlohmann::json::parse(Iterator->value().ToString());
+                    const std::string HitCollection = Payload.value("collection", "");
+                    const std::string HitDocumentID = Payload.value("id", "");
+
+                    if (HitCollection.empty() || HitDocumentID.empty())
+                    {
+                         continue;
+                    }
+
+                    const std::string SeenKey = HitCollection + "\n" + HitDocumentID;
+
+                    if (!SeenDocuments.insert(SeenKey).second)
+                    {
+                         continue;
+                    }
+
+                    std::string ManifestValue;
+                    const rocksdb::Status ManifestStatus =
+                         Database->Get(rocksdb::ReadOptions(),
+                                       BuildDocManifestKey(HitCollection, HitDocumentID),
+                                       &ManifestValue);
+
+                    if (ManifestStatus.ok())
+                    {
+                         ScoreManifest(ManifestValue);
+                    }
+               }
+               catch (...)
+               {
+               }
+          }
+     }
+
+     if (AcceptedSemantic)
+     {
+          return;
+     }
+
+     Scored = 0;
+     const std::string Prefix = Collection.empty() ? "sam:doc:" : "sam:doc:" + Collection + ":";
+     std::unique_ptr<rocksdb::Iterator> Iterator(Database->NewIterator(rocksdb::ReadOptions()));
+     size_t Scanned = 0;
+
+     for (Iterator->Seek(Prefix);
+          Iterator->Valid() && Iterator->key().starts_with(Prefix) && Scanned < MaxCandidates;
+          Iterator->Next(), ++Scanned)
+     {
+          ScoreManifest(Iterator->value().ToString());
      }
 }
 
@@ -832,6 +932,22 @@ std::string ResolveSamDataDir()
 std::string BuildDocManifestKey(const std::string& Collection, const std::string& DocumentID)
 {
      return "sam:doc:" + Collection + ":" + DocumentID;
+}
+
+std::string BuildSemanticProfileKey(const std::string& Term,
+                                    const std::string& Collection,
+                                    const std::string& DocumentID,
+                                    const std::string& Kind)
+{
+     return "sam:semantic:" + NormalizeTerm(Term) + ":" + Collection + ":" + DocumentID + ":" + Kind;
+}
+
+std::string BuildSemanticProfilePrefix(const std::string& Term, const std::string& Collection)
+{
+     const std::string Normalized = NormalizeTerm(Term);
+     return Collection.empty()
+          ? "sam:semantic:" + Normalized + ":"
+          : "sam:semantic:" + Normalized + ":" + Collection + ":";
 }
 
 /* Build the collection-level SAM profile key. */

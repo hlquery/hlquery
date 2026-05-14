@@ -859,6 +859,10 @@ class SearchAPI
 
      HttpResponse HandleSAMPause(const HttpRequest& Request);
 
+     /* HandleSAMImprove runs low-priority SAM improvement for idle collections. */
+
+     HttpResponse HandleSAMImprove(const HttpRequest& Request);
+
      /* HandleSAMListDocuments lists SAM-indexed documents for one collection. */
 
      HttpResponse HandleSAMListDocuments(const HttpRequest& Request);

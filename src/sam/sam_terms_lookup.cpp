@@ -2965,6 +2965,11 @@ size_t SAM::ProcessPendingSearchIntentOptimizations(size_t MaxCollections)
      FlushPendingSearchInteractions(8);
      FlushPendingSearchIdeas(2);
 
+     if (FlushInProgress.load(std::memory_order_acquire))
+     {
+          return 0;
+     }
+
      if (MaxCollections == 0 || !Instance || !Instance->LLM || !Instance->LLM->Configured())
      {
           return 0;
@@ -3045,11 +3050,44 @@ size_t SAM::ProcessPendingSearchIntentOptimizations(size_t MaxCollections)
 
      for (const auto& PendingIdea : PendingIdeas)
      {
+          {
+               std::lock_guard<std::mutex> QueueLock(QueueMutex);
+               const bool HasQueuedIndexWork =
+                    std::any_of(PendingIndexJobs.begin(),
+                                PendingIndexJobs.end(),
+                                [&](const PendingIndexJob& Job)
+                                {
+                                     return Job.Collection == PendingIdea.first;
+                                });
+
+               if (HasQueuedIndexWork)
+               {
+                    continue;
+               }
+          }
+
+          {
+               std::lock_guard<std::mutex> JobLock(JobMutex);
+               const auto ActiveIt = ActiveCollectionTasks.find(PendingIdea.first);
+               const auto StatusIt = CollectionJobs.find(PendingIdea.first);
+
+               if (IsCollectionCancelledLocked(PendingIdea.first) ||
+                   ActiveIt != ActiveCollectionTasks.end() ||
+                   (StatusIt != CollectionJobs.end() && StatusIt->second.Running))
+               {
+                    continue;
+               }
+
+               ++ActiveCollectionTasks[PendingIdea.first];
+          }
+
           bool Updated = false;
           std::string ErrorMessage;
 
           if (!OptimizeSearchIdeaIntentLocked(PendingIdea.first, PendingIdea.second, &Updated, &ErrorMessage))
           {
+               FinishBackgroundImprovement(PendingIdea.first);
+
                if (Instance->Logs && !ErrorMessage.empty())
                {
                     Instance->Logs->Normal("sam", "Failed to optimize SAM search intent for collection '" + PendingIdea.first + "' and query '" + PendingIdea.second + "': " + ErrorMessage + ".");
@@ -3060,6 +3098,7 @@ size_t SAM::ProcessPendingSearchIntentOptimizations(size_t MaxCollections)
 
           if (!Updated)
           {
+               FinishBackgroundImprovement(PendingIdea.first);
                continue;
           }
 
@@ -3080,6 +3119,7 @@ size_t SAM::ProcessPendingSearchIntentOptimizations(size_t MaxCollections)
           }
 
           ++Processed;
+          FinishBackgroundImprovement(PendingIdea.first);
      }
 
      return Processed;
@@ -3832,12 +3872,63 @@ size_t SAM::GetBackgroundWorkerCount() const
 
 void SAM::SetAutoIndexPauseUntilMS(uint64_t UntilMS)
 {
-     AutoIndexPauseUntilMS.store(UntilMS, std::memory_order_relaxed);
+     ManualAutoIndexPauseUntilMS.store(UntilMS, std::memory_order_relaxed);
+}
+
+bool SAM::BeginFlushPause(uint64_t UntilMS, std::string* ErrorMessage)
+{
+     bool Expected = false;
+
+     if (!FlushInProgress.compare_exchange_strong(Expected, true, std::memory_order_acq_rel))
+     {
+          if (ErrorMessage)
+          {
+               *ErrorMessage = "A flush operation is already coordinating SAM work.";
+          }
+
+          return false;
+     }
+
+     FlushAutoIndexPauseUntilMS.store(UntilMS, std::memory_order_release);
+     QueueCV.notify_all();
+     return true;
+}
+
+void SAM::EndFlushPause()
+{
+     FlushAutoIndexPauseUntilMS.store(0, std::memory_order_release);
+     FlushInProgress.store(false, std::memory_order_release);
+     QueueCV.notify_all();
 }
 
 uint64_t SAM::GetAutoIndexPauseUntilMS() const
 {
-     return AutoIndexPauseUntilMS.load(std::memory_order_relaxed);
+     return std::max(ManualAutoIndexPauseUntilMS.load(std::memory_order_acquire),
+                     FlushAutoIndexPauseUntilMS.load(std::memory_order_acquire));
+}
+
+std::string SAM::GetAutoIndexPauseReason(uint64_t NowMS) const
+{
+     const uint64_t ManualPause = ManualAutoIndexPauseUntilMS.load(std::memory_order_acquire);
+     const uint64_t FlushPause = FlushAutoIndexPauseUntilMS.load(std::memory_order_acquire);
+
+     if (FlushInProgress.load(std::memory_order_acquire) &&
+         (NowMS == 0 || FlushPause == 0 || NowMS < FlushPause))
+     {
+          return "flush";
+     }
+
+     if (ManualPause > 0 && (NowMS == 0 || NowMS < ManualPause))
+     {
+          return "manual";
+     }
+
+     return "";
+}
+
+bool SAM::IsFlushInProgress() const
+{
+     return FlushInProgress.load(std::memory_order_acquire);
 }
 
 size_t SAM::GetRunningCollectionJobCount() const

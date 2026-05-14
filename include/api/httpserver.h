@@ -125,6 +125,7 @@ enum class RouteAction
      SamDebug,
      SamHistory,
      SamPause,
+     SamImprove,
      SamListDocuments,
      SamGetDocument,
      AddDocument,

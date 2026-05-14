@@ -31,6 +31,12 @@ struct SAMSemanticProfile
      std::vector<float> Vector;
 };
 
+struct SAMSemanticIndexEntry
+{
+     std::string Text;
+     std::string Kind;
+};
+
 struct SAMCollectionState
 {
      uint64_t IndexedMutationVersion = 0;
@@ -61,12 +67,19 @@ std::string BuildCollectionStateKey(const std::string& Collection);
 std::string BuildIntentGraphKey(const std::string& Collection);
 std::string BuildLexicalMirrorKey(const std::string& Kind, const std::string& Collection);
 std::string BuildTermKey(const std::string& Term, const std::string& Collection, const std::string& DocumentID);
+std::string BuildSemanticProfileKey(const std::string& Term,
+                                    const std::string& Collection,
+                                    const std::string& DocumentID,
+                                    const std::string& Kind);
+std::string BuildSemanticProfilePrefix(const std::string& Term, const std::string& Collection);
 std::string BuildSAMSourceDocumentFingerprint(const Document& Doc);
 std::string DetectSAMDocumentLabel(const Document& Doc);
 std::string DetectSAMDocumentFormat(const Document& Doc);
 bool ParseManifestValue(const std::string& RawValue, SAM::DocumentEntry& Entry);
 SAMSemanticProfile BuildSemanticProfile(const std::string& Title,
                                         const std::vector<SAM::TermEntry>& Terms);
+std::vector<SAMSemanticIndexEntry> BuildSemanticIndexEntries(const SAMSemanticProfile& Profile,
+                                                            size_t Limit = 32);
 void StoreSemanticProfileJSON(nlohmann::json& Manifest, const SAMSemanticProfile& Profile);
 bool RebuildCollectionProfileLocked(rocksdb::DB* Database,
                                     const std::string& Collection,

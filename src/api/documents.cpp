@@ -2991,6 +2991,9 @@ HttpResponse SearchAPI::HandleSAMPause(const HttpRequest &Request)
      Instance->Sam->SetAutoIndexPauseUntilMS(AppliedUntilMS);
      const size_t ClearedQueuedAutoIndexJobs =
           (AppliedUntilMS > NowMS) ? Instance->Sam->ClearQueuedAutoIndexJobs() : 0;
+     const uint64_t EffectivePauseUntilMS = Instance->Sam->GetAutoIndexPauseUntilMS();
+     const std::string PauseReason = Instance->Sam->GetAutoIndexPauseReason(NowMS);
+     const bool FlushInProgress = Instance->Sam->IsFlushInProgress();
 
      if (Instance->Logs)
      {
@@ -3012,10 +3015,76 @@ HttpResponse SearchAPI::HandleSAMPause(const HttpRequest &Request)
      nlohmann::json Root;
      Root["ok"] = true;
      Root["requested_pause_until_ms"] = RequestedUntilMS;
-     Root["pause_until_ms"] = AppliedUntilMS;
-     Root["paused"] = (AppliedUntilMS > NowMS);
+     Root["manual_pause_until_ms"] = AppliedUntilMS;
+     Root["pause_until_ms"] = EffectivePauseUntilMS;
+     Root["paused"] = (EffectivePauseUntilMS > NowMS) || FlushInProgress;
+     Root["pause_reason"] = PauseReason;
+     Root["flush_in_progress"] = FlushInProgress;
      Root["cleared_queued_auto_index_jobs"] = ClearedQueuedAutoIndexJobs;
      Root["note"] = "Pauses only automatic SAM background jobs (auto-index). Manual /sam/rebuild is unaffected.";
+
+     HttpResponse Response(Status::OK, StatusText(Status::OK), "application/json");
+     Response.Body = Root.dump();
+     return Response;
+}
+
+HttpResponse SearchAPI::HandleSAMImprove(const HttpRequest &Request)
+{
+     if (Request.Method != "POST")
+     {
+          return HttpResponse(Status::METHOD_NOT_ALLOWED, StatusText(Status::METHOD_NOT_ALLOWED), "application/json");
+     }
+
+     if (!Instance || !Instance->Sam || !Instance->Sam->IsOpen())
+     {
+          return BuildErrorResponse(Status::SERVICE_UNAVAILABLE,
+                                    Code::SEARCH_INVALID_PARAMETER,
+                                    "SAM unavailable",
+                                    "Secondary Assistant Manager is not initialized.");
+     }
+
+     size_t Limit = 0;
+     const auto LimitIt = Request.QueryParams.find("limit");
+
+     if (LimitIt != Request.QueryParams.end() && !TrimCopy(LimitIt->second).empty())
+     {
+          try
+          {
+               Limit = static_cast<size_t>(std::stoull(TrimCopy(LimitIt->second)));
+          }
+          catch (const std::exception &)
+          {
+               return BuildErrorResponse(Status::BAD_REQUEST,
+                                         Code::SEARCH_INVALID_PARAMETER,
+                                         "Invalid limit value",
+                                         "Query parameter 'limit' must be a non-negative integer.");
+          }
+     }
+
+     const bool Force = Request.QueryParams.find("force") != Request.QueryParams.end() &&
+                        IsTruthyToken(Request.QueryParams.at("force"));
+     const SAM::ImprovementStats Stats = Instance->Sam->ImproveIdleCollectionsDetailed(Limit, Force);
+     const size_t Improved = Stats.TotalImproved();
+
+     nlohmann::json Root;
+     Root["ok"] = true;
+     Root["improved"] = Improved;
+     Root["improved_collections"] = Stats.ImprovedCollections;
+     Root["optimized_ideas"] = Stats.OptimizedIdeas;
+     Root["skipped_busy"] = Stats.SkippedBusy;
+     Root["skipped_stale_index"] = Stats.SkippedStaleIndex;
+     Root["skipped_pending_rebuild"] = Stats.SkippedPendingRebuild;
+     Root["skipped_cancelled"] = Stats.SkippedCancelled;
+     Root["skipped_not_indexed"] = Stats.SkippedNotIndexed;
+     Root["skipped_llm_unavailable"] = Stats.SkippedLLMUnavailable;
+     Root["skipped_throttled"] = Stats.SkippedThrottled;
+     Root["skipped_flush_in_progress"] = Stats.SkippedFlushInProgress;
+     Root["skipped_no_database"] = Stats.SkippedNoDatabase;
+     Root["limit"] = Limit;
+     Root["force"] = Force;
+     Root["message"] = Improved > 0
+          ? "SAM improvement pass completed."
+          : "No idle/current SAM collections were eligible for improvement.";
 
      HttpResponse Response(Status::OK, StatusText(Status::OK), "application/json");
      Response.Body = Root.dump();
