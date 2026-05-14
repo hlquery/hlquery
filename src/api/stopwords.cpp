@@ -74,6 +74,34 @@ static std::string NormalizeStopwordValue(const std::string &Value)
      return Result;
 }
 
+static std::string StopwordJSONValueToText(const nlohmann::json &Value)
+{
+     if (Value.is_string())
+     {
+          return Value.get<std::string>();
+     }
+
+     if (Value.is_object())
+     {
+          if (Value.contains("word") && Value["word"].is_string())
+          {
+               return Value["word"].get<std::string>();
+          }
+
+          if (Value.contains("text") && Value["text"].is_string())
+          {
+               return Value["text"].get<std::string>();
+          }
+
+          if (Value.contains("value") && Value["value"].is_string())
+          {
+               return Value["value"].get<std::string>();
+          }
+     }
+
+     return "";
+}
+
 static bool IsGlobalStopwordsPath(const std::string &Path)
 {
      return Path == "/stopwords/global" || Path.find("/stopwords/global/") == 0;
@@ -437,15 +465,12 @@ HttpResponse SearchAPI::HandleCreateStopword(const HttpRequest &Request)
 
                for (const auto &SW : StopwordsArray)
                {
-                    if (SW.contains("word"))
-                    {
-                         std::string ExistingWord = SW["word"].get<std::string>();
+                    std::string ExistingWord = StopwordJSONValueToText(SW);
 
-                         if (CaseInsensitiveEqual(WordStr, ExistingWord))
-                         {
-                              Exists = true;
-                              break;
-                         }
+                    if (!ExistingWord.empty() && CaseInsensitiveEqual(WordStr, ExistingWord))
+                    {
+                         Exists = true;
+                         break;
                     }
                }
 
@@ -643,16 +668,13 @@ HttpResponse SearchAPI::HandleDeleteStopword(const HttpRequest &Request)
 
           for (auto SWIt = StopwordsArray.begin(); SWIt != StopwordsArray.end(); ++SWIt)
           {
-               if (SWIt->contains("word"))
-               {
-                    std::string ExistingWord = (*SWIt)["word"].get<std::string>();
+               std::string ExistingWord = StopwordJSONValueToText(*SWIt);
 
-                    if (CaseInsensitiveEqual(WordStr, ExistingWord))
-                    {
-                         StopwordsArray.erase(SWIt);
-                         FoundVal = true;
-                         break;
-                    }
+               if (!ExistingWord.empty() && CaseInsensitiveEqual(WordStr, ExistingWord))
+               {
+                    StopwordsArray.erase(SWIt);
+                    FoundVal = true;
+                    break;
                }
           }
 
