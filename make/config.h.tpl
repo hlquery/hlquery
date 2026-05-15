@@ -399,6 +399,10 @@ ${HLQUERY_SSL_DEFINES}
 
 #define HTTP_READ_BUFFER_SIZE 8192
 
+/* Kernel send/receive socket buffer size in bytes (8MB) */
+
+#define HLQUERY_SOCKET_BUFFER_SIZE (8 * 1024 * 1024)
+
 /* RocksDB Default Configuration Constants */
 /* Create database if missing */
 
