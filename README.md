@@ -33,7 +33,7 @@ hlquery is built for teams that want strong search capabilities without taking o
 
 You can use hlquery for classic full-text search, hybrid retrieval, vector similarity, and AI-assisted search workflows while keeping deployment and integration straightforward. The project also ships with official client libraries, command-line tools, and modular runtime extensions, which makes it practical both for local development and production services.
 
-### SAM: Search That Gets Smarter Over Time
+### SAM: Search that gets smarter over time
 
 hlquery includes **SAM**, the **Secondary Assistant Manager**. SAM adds a second retrieval layer for natural-language intent, search assistance, and learned query behavior, helping hlquery move beyond strict keyword matching when users do not know the exact terms in your data.
 
