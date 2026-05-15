@@ -69,7 +69,7 @@ Homebrew provides CMake and OpenSSL.
 $ sudo pkg install gmake cmake openssl
 ```
 
-> **Note**: This project uses gmake features. On FreeBSD, run `gmake` instead of `make`.
+**Note**: This project uses gmake features. On FreeBSD, run `gmake` instead of `make`.
 
 ### Installation
 

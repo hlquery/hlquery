@@ -300,7 +300,7 @@ sub print_animated_header {
     my $bold_end = $ansi_supported ? ENDC : "";
     print "" . $bold_start . " ⟶ Starting configuration on hlquery " . $version . $bold_end;
     if (is_release_candidate_version($version)) {
-        print "\n" . $bold_start . "   This is a release candidate release" . $bold_end;
+        print "\n" . $bold_start . "   This is a release candidate release!" . $bold_end;
     }
     
     # Simple dots animation
