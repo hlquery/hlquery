@@ -103,6 +103,22 @@ sub shell_quote_args {
     return join(' ', map { shell_quote_arg($_) } @values);
 }
 
+sub release_stage_for_version {
+    my ($version) = @_;
+    $version //= '';
+
+    if ($version =~ /(?:^|[._-])rc(\d*)$/i || $version =~ /rc(\d*)$/i) {
+        return length($1) ? "release candidate $1" : "release candidate";
+    }
+
+    return 'stable';
+}
+
+sub is_release_candidate_version {
+    my ($version) = @_;
+    return release_stage_for_version($version) =~ /^release candidate/ ? 1 : 0;
+}
+
 # Global variables
 # Use script directory, not current working directory
 # This ensures configure works correctly even when run from a different directory
@@ -283,6 +299,9 @@ sub print_animated_header {
     my $bold_start = $ansi_supported ? BOLD : "";
     my $bold_end = $ansi_supported ? ENDC : "";
     print "" . $bold_start . " ⟶ Starting configuration on hlquery " . $version . $bold_end;
+    if (is_release_candidate_version($version)) {
+        print "\n" . $bold_start . "   This is a release candidate release" . $bold_end;
+    }
     
     # Simple dots animation
 
@@ -863,7 +882,9 @@ sub generate_config_h {
     
     my %vars = (
         'SOCKETENGINE_NAME' => $config{SOCKETENGINE},
-        'HLQUERY_VERSION' => PROJECT_VERSION,
+        'HLQUERY_VERSION' => $config{VERSION},
+        'HLQUERY_RELEASE_STAGE' => release_stage_for_version($config{VERSION}),
+        'HLQUERY_RELEASE_CANDIDATE' => is_release_candidate_version($config{VERSION}),
         'HLQUERY_SYSTEM' => $system_name,
         'HLQUERY_CONFIG_DIR' => $config_dir,
         'HLQUERY_DATA_DIR' => $data_dir,
@@ -943,8 +964,8 @@ sub generate_makefile {
     $template_content =~ s/\$\{BINDIR\}/$config{BINDIR}/g;
     $template_content =~ s/\$\{SYSTEMD_UNIT_DIR\}/$config{SYSTEMD_UNIT_DIR}/g;
     $template_content =~ s/\$\{CONFIGURE_COMMAND\}/$reconfigure_command/g;
-    my $project_version = PROJECT_VERSION;
-    $template_content =~ s/\$\{HLQUERY_VERSION\}/$project_version/g;
+    my $project_version = $config{VERSION};
+    $template_content =~ s/(?<!\$)\$\{HLQUERY_VERSION\}/$project_version/g;
     
     # SSL support - auto-detected
     my $with_ssl = $config{SSL_ENABLED} ? '1' : '0';
@@ -1061,7 +1082,7 @@ sub generate_hlquery_wrapper {
     close $template_fh;
     
     my %vars = (
-        'HLQUERY_VERSION' => PROJECT_VERSION,
+        'HLQUERY_VERSION' => $config{VERSION},
         'HLQUERY_CONFIG_DIR' => $config{CONFDIR},
         'HLQUERY_DATA_DIR' => $config{DATADIR},
         'HLQUERY_LOG_DIR' => $config{LOGDIR},
@@ -1669,6 +1690,8 @@ sub main {
 
     print_summary_line($char_map{'gear'}, "I/O Engine", $config{SOCKETENGINE});
     print_summary_line($char_map{'gear'}, "Compiler", "$config{CXX} ($config{CXX_VERSION})");
+    print_summary_line($char_map{'gear'}, "Version", $config{VERSION});
+    print_summary_line($char_map{'gear'}, "Release", release_stage_for_version($config{VERSION}));
     print_summary_line($char_map{'gear'}, "Layout", $config{LAYOUT});
     print "\n";
     print_summary_line($char_map{'star'}, "Binary", catfile($config{BINDIR}, 'hlquery'));
