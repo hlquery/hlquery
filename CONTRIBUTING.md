@@ -4,7 +4,7 @@
 
 ### Contributing to hlquery
 
-Thanks for contributing to `hlquery`.
+Thanks for contributing to **hlquery**.
 
 This project is under active development. Keep changes focused, document behavior changes clearly, and validate them locally before opening a pull request.
 By participating in this project, you agree to follow the [Code of Conduct](./CODE_OF_CONDUCT.md).
@@ -25,7 +25,7 @@ The repository uses a two-branch model:
 
 Unless a maintainer asks otherwise, target `unstable` for new contributions.
 
-## Code Style
+### Code Style
 
 - Follow the existing code style in the surrounding files.
 - C++ formatting is defined in [`.clang-format`](./.clang-format).
