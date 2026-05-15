@@ -3384,7 +3384,7 @@ static std::vector<SAM::LookupHit> LookupDirectTermOnly(std::shared_ptr<rocksdb:
           }
      }
 
-     FinalizeSAMAggregatedHits(Hits, AggregatedHits, QueryViews, Limit);
+     FinalizeSAMAggregatedHits(Hits, AggregatedHits, QueryViews, DatabaseHandle.get(), Limit);
      return Hits;
 }
 
@@ -3495,7 +3495,7 @@ std::vector<SAM::LookupHit> SAM::Lookup(const std::string& Query, size_t Limit) 
      AppendSemanticProfileHits(AggregatedHits, DatabaseHandle.get(), "", SemanticPlan,
                                std::max<size_t>(256, Limit * 24));
 
-     FinalizeSAMAggregatedHits(Hits, AggregatedHits, QueryViews, Limit);
+     FinalizeSAMAggregatedHits(Hits, AggregatedHits, QueryViews, DatabaseHandle.get(), Limit);
      CaptureLookupEvaluation(DatabaseHandle.get(), "__global__", Query, Hits, nullptr);
 
      EmitSAM25DebugLog(Query, Hits);
@@ -3690,7 +3690,7 @@ std::vector<SAM::LookupHit> SAM::Lookup(const std::string& Collection, const std
                                         std::max<size_t>(6, std::min<size_t>(Limit * 3, 12)));
      AppendCollectionLearnedHits(AggregatedHits, DatabaseHandle.get(), Collection, SeededVariants);
 
-     FinalizeSAMAggregatedHits(Hits, AggregatedHits, QueryViews, Limit);
+     FinalizeSAMAggregatedHits(Hits, AggregatedHits, QueryViews, DatabaseHandle.get(), Limit);
      CaptureLookupEvaluation(DatabaseHandle.get(), Collection, Query, Hits, nullptr);
 
      EmitSAM25DebugLog(Query, Hits);
