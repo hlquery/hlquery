@@ -336,6 +336,63 @@ class AnalyticsManager
           return Enabled.load(std::memory_order_acquire);
      }
 
+     /* Returns whether the worker was started. */
+
+     bool IsStarted() const
+     {
+          return Started.load(std::memory_order_acquire);
+     }
+
+     /* Returns whether the worker loop should be running. */
+
+     bool IsRunning() const
+     {
+          return Running.load(std::memory_order_acquire);
+     }
+
+     /* Returns the configured remote endpoint URL. */
+
+     const std::string &GetEndpointURL() const
+     {
+          return EndpointURL;
+     }
+
+     /* Returns the configured flush interval in seconds. */
+
+     int GetFlushIntervalSeconds() const
+     {
+          return FlushIntervalSeconds;
+     }
+
+     /* Returns the configured connect and I/O timeout in milliseconds. */
+
+     int GetConnectTimeoutMS() const
+     {
+          return ConnectTimeoutMS;
+     }
+
+     /* Returns the cumulative count of dropped events. */
+
+     uint64_t GetDroppedEventsTotal() const
+     {
+          return DroppedEvents.load(std::memory_order_relaxed);
+     }
+
+     /* Returns the cumulative count of failed outbound posts. */
+
+     uint64_t GetFailedPostsTotal() const
+     {
+          return FailedPosts.load(std::memory_order_relaxed);
+     }
+
+     /* Returns the current number of buffered analytics buckets. */
+
+     size_t GetBufferedBucketCount() const
+     {
+          std::lock_guard<std::mutex> Lock(BucketsMutex);
+          return Buckets.size();
+     }
+
      /* Starts the analytics worker. */
 
      void Start();

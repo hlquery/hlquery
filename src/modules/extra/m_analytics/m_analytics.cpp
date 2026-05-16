@@ -468,12 +468,25 @@ class AnalyticsRuntimeModule final : public AutoRuntimeModule<AnalyticsRuntimeMo
           {
                ModuleCommandResponse response;
                response.Success = true;
-               response.Body = JsonBuilder()
-                    .Add("module", "analytics")
+               JsonBuilder builder;
+               builder.Add("module", "analytics")
                     .Add("loaded", static_cast<bool>(manager))
                     .Add("enabled", manager && manager->IsEnabled())
-                    .Add("message", manager ? "Analytics module is loaded." : "Analytics module is not configured.")
-                    .ToString();
+                    .Add("message", manager ? "Analytics module is loaded." : "Analytics module is not configured.");
+
+               if (manager)
+               {
+                    builder.Add("started", manager->IsStarted())
+                         .Add("running", manager->IsRunning())
+                         .Add("endpoint", manager->GetEndpointURL())
+                         .Add("flush_interval_seconds", manager->GetFlushIntervalSeconds())
+                         .Add("connect_timeout_ms", manager->GetConnectTimeoutMS())
+                         .Add("buffered_buckets", static_cast<unsigned long long>(manager->GetBufferedBucketCount()))
+                         .Add("dropped_events_total", static_cast<unsigned long long>(manager->GetDroppedEventsTotal()))
+                         .Add("failed_posts_total", static_cast<unsigned long long>(manager->GetFailedPostsTotal()));
+               }
+
+               response.Body = builder.ToString();
                return response;
           }
 

@@ -53,6 +53,7 @@ ad.json
 vendor/**/node_modules/
 
 # Generated docs/web dependencies
+node_modules/
 docs/node_modules/
 etc/docs/node_modules/
 etc/web/node_modules/
