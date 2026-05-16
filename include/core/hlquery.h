@@ -75,6 +75,10 @@ class CoreExport hlquery
 
      void DisplaySSLInfo();
 
+     /* Print startup banner and module list */
+
+     void WriteStartupBanner();
+
      /* Initialize server in no-fork mode */
 
      bool InitializeNoForkMode();

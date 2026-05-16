@@ -655,9 +655,11 @@ bool CreateFakeCollections(const std::string &base_url, const std::string &auth_
 
      for (const auto &spec : specs)
      {
+          const std::string collection_name = reuse_collections ? spec.Name : (g_collection_prefix + "fake_" + spec.Name);
+
           if (verbose)
           {
-               LogOutput("Creating fake collection '" + spec.Name + "'...\n");
+               LogOutput("Creating fake collection '" + collection_name + "'...\n");
           }
 
           bool collection_created = false;
@@ -671,7 +673,7 @@ bool CreateFakeCollections(const std::string &base_url, const std::string &auth_
                food_fields.push_back({{"name", "ingredients"}, {"type", "string"}});
                food_fields.push_back({{"name", "cuisine"}, {"type", "string"}});
                food_fields.push_back({{"name", "dish"}, {"type", "string"}});
-               collection_created = client.CreateCollectionWithSchemaLocal(spec.Name, food_fields, "");
+               collection_created = client.CreateCollectionWithSchemaLocal(collection_name, food_fields, "");
           }
           else if (spec.Name == "universities")
           {
@@ -683,7 +685,7 @@ bool CreateFakeCollections(const std::string &base_url, const std::string &auth_
                university_fields.push_back({{"name", "state"}, {"type", "string"}});
                university_fields.push_back({{"name", "city"}, {"type", "string"}});
                university_fields.push_back({{"name", "institution_type"}, {"type", "string"}});
-               collection_created = client.CreateCollectionWithSchemaLocal(spec.Name, university_fields, "");
+               collection_created = client.CreateCollectionWithSchemaLocal(collection_name, university_fields, "");
           }
           else if (spec.Name == "math")
           {
@@ -698,16 +700,16 @@ bool CreateFakeCollections(const std::string &base_url, const std::string &auth_
                math_fields.push_back({{"name", "value_c"}, {"type", "float"}});
                math_fields.push_back({{"name", "equation_index"}, {"type", "int32"}});
                math_fields.push_back({{"name", "prime_candidate"}, {"type", "int32"}});
-               collection_created = client.CreateCollectionWithSchemaLocal(spec.Name, math_fields, "value");
+               collection_created = client.CreateCollectionWithSchemaLocal(collection_name, math_fields, "value");
           }
           else
           {
-               collection_created = client.CreateCollectionLocal(spec.Name);
+               collection_created = client.CreateCollectionLocal(collection_name);
           }
 
           if (!collection_created)
           {
-               std::cerr << "✗ Failed to create fake collection '" << spec.Name << "'.\n";
+               std::cerr << "✗ Failed to create fake collection '" << collection_name << "'.\n";
                continue;
           }
 
@@ -1005,7 +1007,7 @@ bool CreateFakeCollections(const std::string &base_url, const std::string &auth_
 
                content += BuildCollectionSynonymDocHint(spec.Name, i);
 
-               std::string doc_id = MakeMeaningfulDocId(spec.Name, title, content, i, used_ids);
+               std::string doc_id = MakeMeaningfulDocId(collection_name, title, content, i, used_ids);
                std::string safe_title = RemoveCommas(title);
                std::string safe_content = RemoveCommas(content);
                std::string description = BuildBenchmarkDescription(spec.Name, tag, content);
@@ -1027,16 +1029,16 @@ bool CreateFakeCollections(const std::string &base_url, const std::string &auth_
                enriched_docs.push_back(std::move(enriched_doc));
           }
 
-          int inserted = client.InsertDocumentsBulkLocal(spec.Name, docs);
-
-          size_t enriched_updated = 0;
+          size_t inserted = 0;
           for (const auto &doc : enriched_docs)
           {
-               if (client.UpsertDocumentWithFieldsLocal(spec.Name, doc))
+               if (client.UpsertDocumentWithFieldsLocal(collection_name, doc))
                {
-                    enriched_updated++;
+                    inserted++;
                }
           }
+
+          size_t enriched_updated = inserted;
 
           if (spec.Name == "food")
           {
@@ -1073,7 +1075,7 @@ bool CreateFakeCollections(const std::string &base_url, const std::string &auth_
                     food_doc["cuisine"] = (i % 3 == 0) ? "Italian" : ((i % 3 == 1) ? "Japanese" : "Mexican");
                     food_doc["ingredients"] = ingredients;
 
-                    if (client.UpsertDocumentWithFieldsLocal(spec.Name, food_doc))
+                    if (client.UpsertDocumentWithFieldsLocal(collection_name, food_doc))
                     {
                          food_updated++;
                     }
@@ -1119,7 +1121,7 @@ bool CreateFakeCollections(const std::string &base_url, const std::string &auth_
                     university_doc["city"] = profile.City;
                     university_doc["institution_type"] = profile.Type;
 
-                    if (client.UpsertDocumentWithFieldsLocal(spec.Name, university_doc))
+                    if (client.UpsertDocumentWithFieldsLocal(collection_name, university_doc))
                     {
                          universities_updated++;
                     }
@@ -1160,7 +1162,7 @@ bool CreateFakeCollections(const std::string &base_url, const std::string &auth_
                     math_doc["equation_index"] = equation_index;
                     math_doc["prime_candidate"] = prime_candidate;
 
-                    if (client.UpsertDocumentWithFieldsLocal(spec.Name, math_doc))
+                    if (client.UpsertDocumentWithFieldsLocal(collection_name, math_doc))
                     {
                          math_updated++;
                     }
@@ -1172,10 +1174,10 @@ bool CreateFakeCollections(const std::string &base_url, const std::string &auth_
                }
           }
 
-          LogOutput("✓ Inserted " + std::to_string(inserted) + " fake documents into '" + spec.Name + "'.\n");
-          if (inserted != static_cast<int>(docs.size()))
+          LogOutput("✓ Inserted " + std::to_string(inserted) + " fake documents into '" + collection_name + "'.\n");
+          if (inserted != docs.size())
           {
-               std::cerr << "✗ Fake collection '" << spec.Name << "' imported " << inserted << " of " << docs.size() << " local documents. Distributed routing was bypassed for this seed path.\n";
+               std::cerr << "✗ Fake collection '" << collection_name << "' imported " << inserted << " of " << docs.size() << " local documents.\n";
           }
           if (verbose)
           {
@@ -1189,7 +1191,7 @@ bool CreateFakeCollections(const std::string &base_url, const std::string &auth_
                const FakeSynonymSeed &seed = collection_synonyms[local_index];
                const std::string synonym_id = "fake_syn_" + spec.Name + "_" + std::to_string(local_index + 1);
 
-               if (client.AddSynonym(spec.Name, synonym_id, seed.Root, seed.Synonyms))
+               if (client.AddSynonym(collection_name, synonym_id, seed.Root, seed.Synonyms))
                {
                     collection_synonyms_added++;
                }
@@ -1203,7 +1205,7 @@ bool CreateFakeCollections(const std::string &base_url, const std::string &auth_
           const std::vector<std::string> collection_stopwords = GetFakeCollectionStopwords(spec.Name);
           for (const auto &word : collection_stopwords)
           {
-               if (client.AddStopword(spec.Name, word))
+               if (client.AddStopword(collection_name, word))
                {
                     collection_stopwords_added++;
                }
@@ -1980,6 +1982,23 @@ int main(int argc, char *argv[])
           {
                LogOutput("CREATING FAKE COLLECTIONS\n");
                LogOutput("----------------------------------------------------------------\n");
+
+               if (run_id_val.empty())
+               {
+                    auto now = Now();
+                    auto run_id_timestamp = std::chrono::duration_cast<std::chrono::nanoseconds>(now.time_since_epoch()).count();
+
+                    static std::random_device rd;
+                    static std::mt19937 gen(rd());
+                    std::uniform_int_distribution<> dis(1000, 9999);
+
+                    run_id_val = std::to_string(run_id_timestamp) + "_" + std::to_string(dis(gen));
+               }
+
+               if (custom_prefix_val.empty() && !reuse_collections)
+               {
+                    g_collection_prefix = "bench_" + run_id_val + "_";
+               }
 
                bool fake_ok = CreateFakeCollections(base_url, auth_token, reuse_collections, verbose_mode);
 

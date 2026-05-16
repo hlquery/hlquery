@@ -227,7 +227,6 @@ bool IPFilter::Initialize(const std::string &AllowedIPsConfig, const std::string
      /* Normalize deny list input. */
 
      std::string DenyTrimmed = DeniedIPsConfig;
-
      DenyTrimmed.erase(0, DenyTrimmed.find_first_not_of(" \t\n\r"));
 
      DenyTrimmed.erase(DenyTrimmed.find_last_not_of(" \t\n\r") + 1);
@@ -335,9 +334,7 @@ bool IPFilter::Initialize(const std::string &AllowedIPsConfig, const std::string
                     if (IsValidIP(Entry))
                     {
                          DeniedIPs.insert(Entry);
-
                          DeniedDirectIPs.insert(Entry);
-
                          HasDenyEntries = true;
 
                          if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
@@ -367,7 +364,6 @@ bool IPFilter::Initialize(const std::string &AllowedIPsConfig, const std::string
           if (Instance && Instance->Logs)
           {
                std::string DNSInfo = HasHostnames ? " (DNS resolution enabled)" : " (no DNS resolution needed)";
-
                Instance->Logs->Normal("ip_allow", "IP allow filter initialized with " + std::to_string(AllowedIPs.size()) + " IP(s), " + std::to_string(CIDRRanges.size()) + " CIDR range(s), " + std::to_string(RegularHostnames.size()) + " hostname(s), " + std::to_string(WildcardHostnames.size()) + " wildcard hostname(s)" + DNSInfo + ".");
           }
      }
@@ -377,7 +373,6 @@ bool IPFilter::Initialize(const std::string &AllowedIPsConfig, const std::string
           if (Instance && Instance->Logs)
           {
                std::string DNSInfo = HasDenyHostnames ? " (DNS resolution enabled)" : " (no DNS resolution needed)";
-
                Instance->Logs->Normal("ip_deny", "IP deny filter initialized with " + std::to_string(DeniedIPs.size()) + " IP(s), " + std::to_string(DeniedCIDRRanges.size()) + " CIDR range(s), " + std::to_string(DeniedRegularHostnames.size()) + " hostname(s), " + std::to_string(DeniedWildcardHostnames.size()) + " wildcard hostname(s)" + DNSInfo + ".");
           }
      }

@@ -114,9 +114,7 @@ bool hlquery::Initialize()
           return true;
      }
 
-     newline();
-     const std::vector<std::string> loaded_modules = Modules ? Modules->GetLoadedModuleNames() : std::vector<std::string>{};
-     ConsoleWriter::WriteStartup(Tools::FormatStartupMessage(loaded_modules), true, false);
+     WriteStartupBanner();
 
      /* Initialize the core server logic */
 
@@ -171,6 +169,17 @@ bool hlquery::Initialize()
      }
 
      return true;
+}
+
+void hlquery::WriteStartupBanner()
+{
+     newline();
+     std::vector<std::string> loaded_modules;
+     if (Modules)
+     {
+          loaded_modules = Modules->GetLoadedModuleNames();
+     }
+     ConsoleWriter::WriteStartup(Tools::FormatStartupMessage(loaded_modules), true, false);
 }
 
 /* Start all network listeners to begin accepting client connections */

@@ -125,7 +125,7 @@ $ ./run/hlquery start --nofork
 **Run talk:**
 
 ```text
-$ ./run/bin/hlquery-talk
+$ ./run/hlquery talk
 localhost:9200> use art
 Using collection 'art'.
 localhost:9200|art> uptime
@@ -154,7 +154,7 @@ For complete API documentation, visit [docs.hlquery.com](https://docs.hlquery.co
 ### Create a Collection
 
 ```bash
-$ hlquery-cli create products title content price
+$ ./run/hlquery cli create products title content price
 Collection 'products' created successfully
 ```
 
@@ -244,34 +244,34 @@ auto result = collections->search("products", {{"like", "laptop"}});
 
 ```bash
 # Field-specific search
-$ hlquery-cli search products "title:laptop"
+$ ./run/hlquery cli search products "title:laptop"
 
 # Range query
-$ hlquery-cli search products "price:[100 TO 500]"
+$ ./run/hlquery cli search products "price:[100 TO 500]"
 
 # Fuzzy search (tolerates typos)
-$ hlquery-cli search products "laptop~2"
+$ ./run/hlquery cli search products "laptop~2"
 
 # Wildcard search
-$ hlquery-cli search products "laptop*"
+$ ./run/hlquery cli search products "laptop*"
 
 # Case-sensitive search
-$ hlquery-cli search products "is:casesensitive Laptop"
+$ ./run/hlquery cli search products "is:casesensitive Laptop"
 
 # Boost term importance
-$ hlquery-cli search products "laptop^2.0 computer"
+$ ./run/hlquery cli search products "laptop^2.0 computer"
 
 # NOT operator
-$ hlquery-cli search products "!apple"
+$ ./run/hlquery cli search products "!apple"
 
 # Combined queries
-$ hlquery-cli search products "title:laptop AND price:[100 TO 500]"
+$ ./run/hlquery cli search products "title:laptop AND price:[100 TO 500]"
 ```
 
 **SQL example:**
 
 ```text
-$ ./run/bin/hlquery-talk
+$ ./run/hlquery talk
 localhost:9200> sql: select title from music where content like 'madonna%' or content like 'nirvana%';
 SQL rows for `select title from music where content like 'madonna%' or content like 'nirvana%';`:
 +-------------------------+

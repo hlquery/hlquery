@@ -71,7 +71,7 @@ void LogError(const std::string &message)
 {
      std::lock_guard<std::mutex> lock(log_mutex);
 
-     std::cerr << message;
+     std::cerr << message << std::flush;
 
      if (log_file_stream && log_file_stream->is_open())
      {
@@ -84,7 +84,7 @@ void LogOutput(const std::string &message)
 {
      std::lock_guard<std::mutex> lock(log_mutex);
 
-     std::cout << message;
+     std::cout << message << std::flush;
 
      if (log_file_stream && log_file_stream->is_open())
      {

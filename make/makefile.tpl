@@ -761,11 +761,11 @@ install:
 		echo "  Run as daemon:     ./run/hlquery start"; \
 		echo ""; \
 		echo "To run benchmarks, run:"; \
-		echo "  ./run/bin/hlquery-benchmark"; \
+		echo "  ./run/hlquery benchmark"; \
 		echo ""; \
 		echo "To run the command line, run:"; \
-		echo "  ./run/bin/hlquery-cli"; \
-		echo "  ./run/bin/hlquery-talk"; \
+		echo "  ./run/hlquery cli"; \
+		echo "  ./run/hlquery talk"; \
 		echo ""; \
 	else \
 		echo "$(CYAN)Staging tree ready at $(STAGED_RUN_DIR)$(NC)"; \

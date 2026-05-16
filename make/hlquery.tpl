@@ -92,6 +92,9 @@ Commands:
     kill        Force stop the hlquery server (SIGKILL)
     restart     Restart the hlquery server
     status      Show server status
+    cli         Run hlquery CLI tool (hlquery-cli)
+    benchmark   Run benchmark tool (hlquery-benchmark)
+    talk        Run interactive talk tool (hlquery-talk)
     reload      Reload configuration
     test        Test configuration
     sslgen      Generate SSL certificates
@@ -117,6 +120,9 @@ Examples:
     $0 start --debug --nofork   # Start with debug in foreground
     $0 stop                     # Stop server gracefully
     $0 status                   # Check server status
+    $0 cli help                 # Run CLI help
+    $0 benchmark                # Run benchmarks
+    $0 talk                     # Run interactive talk
 
 EOF
 }
@@ -143,6 +149,46 @@ sub find_binary {
     }
     
     return undef;
+}
+
+sub find_named_binary {
+    my ($name) = @_;
+
+    # Check fixed location from configure first
+    my $fixed_binary = "${HLQUERY_BIN_DIR}/" . $name;
+    if (-x $fixed_binary) {
+        return $fixed_binary;
+    }
+
+    my $script_dir = dirname(File::Spec->rel2abs($0));
+    my $possible_paths = [
+        File::Spec->catfile($script_dir, "bin", $name),
+        File::Spec->catfile($script_dir, "..", "build", "bin", $name),
+        File::Spec->catfile($script_dir, "..", "run", "bin", $name),
+        $name  # Try PATH
+    ];
+
+    foreach my $path (@$possible_paths) {
+        if (-x $path) {
+            return File::Spec->rel2abs($path);
+        }
+    }
+
+    return undef;
+}
+
+sub exec_tool {
+    my ($tool_name, @args) = @_;
+    my $tool_path = find_named_binary($tool_name);
+    unless ($tool_path) {
+        print_error("Could not find $tool_name binary. Please ensure it's installed correctly.");
+        exit 1;
+    }
+
+    exec { $tool_path } ($tool_path, @args) or do {
+        print_error("Failed to exec $tool_path: $!");
+        exit 1;
+    };
 }
 
 sub setup_paths {
@@ -805,6 +851,21 @@ sub main {
     my $skip_auth = 0;
     my $help = 0;
     my $version_opt = 0;
+    my $command;
+
+    if (@ARGV && $ARGV[0] !~ /^-/) {
+        $command = shift @ARGV;
+        if ($command eq 'cli') {
+            exec_tool("hlquery-cli", @ARGV);
+        }
+        if ($command eq 'talk') {
+            exec_tool("hlquery-talk", @ARGV);
+        }
+        if ($command eq 'benchmark' || $command eq 'bench') {
+            exec_tool("hlquery-benchmark", @ARGV);
+        }
+    }
+
     Configure('pass_through');
 
     GetOptions(
@@ -818,8 +879,8 @@ sub main {
         'help' => \$help,
         'version' => \$version_opt
     );
-    
-    my $command = shift @ARGV;
+
+    $command ||= shift @ARGV;
     
     if ($help || ($command && $command eq 'help')) {
         print_banner() unless $json_output;

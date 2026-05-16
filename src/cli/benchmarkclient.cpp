@@ -423,6 +423,12 @@ HTTPResponse BenchmarkClient::MakeRequest(const std::string &method, const std::
           request << "Accept: application/json\r\n";
           request << "Connection: " << (use_keep_alive ? "keep-alive" : "close") << "\r\n";
 
+          /* Benchmarks should not be blocked on replication acknowledgements. */
+          if (method == "POST" || method == "PUT" || method == "DELETE" || method == "PATCH")
+          {
+               request << "X-HLQ-Replication-Hop: 1\r\n";
+          }
+
           if (!AuthToken.empty())
           {
                request << "Authorization: Bearer " << AuthToken << "\r\n";
