@@ -177,19 +177,19 @@ $collections = $client->collections();
 $schema = [ 
     'fields' => [ 
 	
-	/* Store the document id as a string field.    */
+        /* Store the document id as a string field.    */
 
         ['name' => 'id', 'type' => 'string'],        
 
-	/* Keep the main product title searchable.     */
+        /* Keep the main product title searchable.     */
 
         ['name' => 'title', 'type' => 'string'],     
 	
-	/* Index the longer product description text.  */	
+        /* Index the longer product description text.  */	
 
         ['name' => 'content', 'type' => 'string'],  
 
-	/* Save a numeric price for filters and sorts. */
+        /* Save a numeric price for filters and sorts. */
 
         ['name' => 'price', 'type' => 'float'],  
     ], 
