@@ -3557,7 +3557,7 @@ HttpResponse SearchAPI::HandleSAMGetDocument(const HttpRequest &Request)
                Root["interaction_recorded"] = true;
                Root["interaction_query"] = InteractionQuery;
 
-               FOREACH_MOD(OnSamBlah,
+               FOREACH_MOD(OnSamInteraction,
                            CollectionName,
                            InteractionQuery,
                            Entry.DocumentID,

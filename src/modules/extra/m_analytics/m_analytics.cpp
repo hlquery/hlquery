@@ -227,12 +227,12 @@ class AnalyticsRuntimeModule final : public AutoRuntimeModule<AnalyticsRuntimeMo
           }
      }
 
-     void OnSamBlah(const std::string &Collection,
-                    const std::string &Query,
-                    const std::string &DocumentID,
-                    const std::string &RequesterIP,
-                    const std::string &RequesterUser,
-                    bool Authenticated) override
+     void OnSamInteraction(const std::string &Collection,
+                           const std::string &Query,
+                           const std::string &DocumentID,
+                           const std::string &RequesterIP,
+                           const std::string &RequesterUser,
+                           bool Authenticated) override
      {
           EnsureStarted();
 

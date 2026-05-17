@@ -436,7 +436,7 @@ void ServerConfig::ApplyConfiguration()
                SamDataDirectory = SAMTag->GetString("sam_data_dir", SamDataDirectory);
           }
 
-          if (SAMTag->HasAttribute("SAMID"))
+          if (!SAMTag->HasAttribute("sam_search_ideas") && SAMTag->HasAttribute("SAMID"))
           {
                SamSearchIdeasCollection = SAMTag->GetString("SAMID", SamSearchIdeasCollection);
           }

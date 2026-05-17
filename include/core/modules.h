@@ -338,7 +338,7 @@ enum class ModuleHook : size_t
      OnSearchDocument,
      OnSamSearch,
      OnSamIndexing,
-     OnSamBlah,
+     OnSamInteraction,
      ComputeSearchWeightMultiplier,
      OnPreCreateCollection,
      OnPreUpdateCollection,
@@ -461,8 +461,8 @@ class RuntimeModule
                !std::is_same_v<decltype(&Derived::OnSamSearch), decltype(&RuntimeModule::OnSamSearch)>;
           Hooks[static_cast<size_t>(ModuleHook::OnSamIndexing)] =
                !std::is_same_v<decltype(&Derived::OnSamIndexing), decltype(&RuntimeModule::OnSamIndexing)>;
-          Hooks[static_cast<size_t>(ModuleHook::OnSamBlah)] =
-               !std::is_same_v<decltype(&Derived::OnSamBlah), decltype(&RuntimeModule::OnSamBlah)>;
+          Hooks[static_cast<size_t>(ModuleHook::OnSamInteraction)] =
+               !std::is_same_v<decltype(&Derived::OnSamInteraction), decltype(&RuntimeModule::OnSamInteraction)>;
           Hooks[static_cast<size_t>(ModuleHook::ComputeSearchWeightMultiplier)] =
                !std::is_same_v<decltype(&Derived::ComputeSearchWeightMultiplier), decltype(&RuntimeModule::ComputeSearchWeightMultiplier)>;
           Hooks[static_cast<size_t>(ModuleHook::OnPreCreateCollection)] =
@@ -800,12 +800,12 @@ class RuntimeModule
 
      /* Called after hlquery records one explicit SAM search interaction signal. */
 
-     virtual void OnSamBlah(const std::string& Collection,
-                            const std::string& Query,
-                            const std::string& DocumentID,
-                            const std::string& RequesterIP,
-                            const std::string& RequesterUser,
-                            bool Authenticated)
+     virtual void OnSamInteraction(const std::string& Collection,
+                                   const std::string& Query,
+                                   const std::string& DocumentID,
+                                   const std::string& RequesterIP,
+                                   const std::string& RequesterUser,
+                                   bool Authenticated)
      {
           (void)Collection;
           (void)Query;
