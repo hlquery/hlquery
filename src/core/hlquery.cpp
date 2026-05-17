@@ -103,6 +103,22 @@ hlquery::~hlquery()
      HTTPServers.clear();
 }
 
+void hlquery::AddBackgroundThread(std::thread &&ThreadVal)
+{
+     std::lock_guard<std::mutex> Lock(BackgroundThreadsMutex);
+     BackgroundThreads.push_back(std::move(ThreadVal));
+}
+
+std::vector<std::thread> hlquery::TakeBackgroundThreads()
+{
+     std::vector<std::thread> ThreadsToJoin;
+     {
+          std::lock_guard<std::mutex> Lock(BackgroundThreadsMutex);
+          ThreadsToJoin.swap(BackgroundThreads);
+     }
+     return ThreadsToJoin;
+}
+
 /* Performs server initialization and sets up all core subsystems */
 
 bool hlquery::Initialize()

@@ -27,13 +27,6 @@
 #include "runtime/daemon.h"
 #include "core/modulemanager.h"
 #include "vendor/json/json.hpp"
-
-/* Static container to store background threads for joining at shutdown */
-
-std::vector<std::thread> BackgroundThreads;
-
-std::mutex BackgroundThreadsMutex;
-
 #include "core/hlquery.h"
 #include "core/socketengine.h"
 #include "runtime/threadlimit.h"
@@ -42,28 +35,6 @@ std::mutex BackgroundThreadsMutex;
 #include "utils/consolewriter.h"
 #include "utils/infos.h"
 #include "utils/tools.h"
-
-/* Helper macro to safely call LogManager methods */
-
-#define SAFE_LOG(Level, Type, Msg)                                           \
-     do                                                                      \
-     {                                                                       \
-          if (Logs)                                                          \
-          {                                                                  \
-               LogManager *LogsPtr = Logs.get();                             \
-               if (LogsPtr)                                                  \
-               {                                                             \
-                    try                                                      \
-                    {                                                        \
-                         LogManager::SafeLog(LogsPtr, Level, Type, Msg);     \
-                    }                                                        \
-                    catch (...)                                              \
-                    {                                                        \
-                         /* Silently ignore logging failures during startup. */ \
-                    }                                                        \
-               }                                                             \
-          }                                                                  \
-     } while (0)
 
 /* Prints a startup section with one module name per line. */
 
@@ -1563,9 +1534,10 @@ void hlquery::WaitForMetadataScan()
                                                                                        });
 
                                                    {
-                                                        std::lock_guard<std::mutex> Lock(BackgroundThreadsMutex);
-
-                                                        BackgroundThreads.push_back(std::move(LoadThreadInstanceFinal));
+                                                        if (Instance)
+                                                        {
+                                                             Instance->AddBackgroundThread(std::move(LoadThreadInstanceFinal));
+                                                        }
                                                    }
                                               }
                                               else
@@ -1667,9 +1639,10 @@ void hlquery::WaitForMetadataScan()
                                          });
 
           {
-               std::lock_guard<std::mutex> Lock(BackgroundThreadsMutex);
-
-               BackgroundThreads.push_back(std::move(WaitThreadInstance));
+               if (Instance)
+               {
+                    Instance->AddBackgroundThread(std::move(WaitThreadInstance));
+               }
           }
      }
      else

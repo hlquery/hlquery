@@ -223,11 +223,11 @@ $ hlquery-cli search products "laptop"
 Search results for 'laptop' in collection 'products':
 Found 1 document(s) (showing 1-1 of 1)
 
-+---+-------------+----------+-----------------+---------------------------------------+----------+
-| # | Document ID | Score    | Title           | Content Preview                       | Fields   |
-+---+-------------+----------+-----------------+---------------------------------------+----------+
-| 1 | product1    | 1.094500 | Laptop Computer | High-performance laptop with 16GB RAM | 0 fields |
-+---+-------------+----------+-----------------+---------------------------------------+----------+
++---+-------------+----------+-----------------+---------------------------------------+
+| # | Document ID | Score    | Title           | Content Preview                       | 
++---+-------------+----------+-----------------+---------------------------------------+
+| 1 | product1    | 1.094500 | Laptop Computer | High-performance laptop with 16GB RAM |
++---+-------------+----------+-----------------+---------------------------------------+
 ```
 
 **Using the C++ API:**

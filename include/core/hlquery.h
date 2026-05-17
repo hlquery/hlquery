@@ -107,6 +107,14 @@ class CoreExport hlquery
 
      std::atomic<bool> ShutdownInProgress{false};
 
+     /* Background threads spawned during initialization that must be joined at shutdown. */
+
+     std::vector<std::thread> BackgroundThreads;
+
+     /* Mutex guarding BackgroundThreads. */
+
+     std::mutex BackgroundThreadsMutex;
+
    public:
 
      /* Constructor */
@@ -144,6 +152,14 @@ class CoreExport hlquery
      /* Perform graceful cleanup of all server resources */
 
      void Cleanup();
+
+     /* Register one background thread to be joined during shutdown. */
+
+     void AddBackgroundThread(std::thread &&ThreadVal);
+
+     /* Take ownership of all background threads for joining outside the lock. */
+
+     std::vector<std::thread> TakeBackgroundThreads();
 
      /* Increase the core dump size limit for debugging crashes */
 

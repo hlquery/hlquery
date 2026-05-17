@@ -1846,15 +1846,11 @@ void hlquery::Cleanup()
           LogCleanupStage("http servers stopped");
      }
 
-     extern std::vector<std::thread> BackgroundThreads;
-
-     extern std::mutex BackgroundThreadsMutex;
-
      std::vector<std::thread> ThreadsToJoin;
 
+     if (Instance)
      {
-          std::lock_guard<std::mutex> Lock(BackgroundThreadsMutex);
-          ThreadsToJoin.swap(BackgroundThreads);
+          ThreadsToJoin = Instance->TakeBackgroundThreads();
      }
 
      /* Joining outside the mutex prevents long shutdown stalls from blocking other owners. */
