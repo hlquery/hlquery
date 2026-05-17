@@ -136,20 +136,18 @@ Server up for 3 days, 1h 0m 31s
 
 Official client libraries are available for popular programming languages:
 
-🟣 indicates an official API client library.
-
 | Client | Description |
 | --- | --- |
-| 🟣 **[C++](https://github.com/hlquery/cpp-api)** | Native C++ client library for low-level and embedded integrations. |
-| 🟣 **[Go](https://github.com/hlquery/go-api)** | Idiomatic Go client for indexing, search, and service backends. |
-| 🟣 **[Java](https://github.com/hlquery/java-api)** | JVM client for Java applications and server-side integrations. |
-| 🟣 **[Node.js](https://github.com/hlquery/node-api)** | Async JavaScript client for Node.js services and tools. |
-| 🟣 **[Perl](https://github.com/hlquery/perl-api)** | Perl client library for scripts and existing Perl services. |
-| 🟣 **[PHP](https://github.com/hlquery/php-api)** | Composer-ready PHP client for web apps and API integrations. |
-| 🟣 **[Python](https://github.com/hlquery/python-api)** | Python client for scripts, data workflows, and backend services. |
-| 🟣 **[Ruby](https://github.com/hlquery/ruby-api)** | Ruby client for Rails apps, scripts, and service integrations. |
-| 🟣 **[Rust](https://github.com/hlquery/rust-api)** | Rust client library for strongly typed hlquery integrations. |
-| 🟣 **[TypeScript](https://github.com/hlquery/type-api)** | Typed client for TypeScript applications and SDK-style integrations. |
+| **[C++](https://github.com/hlquery/cpp-api)** | Native C++ client library for low-level and embedded integrations. |
+| **[Go](https://github.com/hlquery/go-api)** | Idiomatic Go client for indexing, search, and service backends. |
+| **[Java](https://github.com/hlquery/java-api)** | JVM client for Java applications and server-side integrations. |
+| **[Node.js](https://github.com/hlquery/node-api)** | Async JavaScript client for Node.js services and tools. |
+| **[Perl](https://github.com/hlquery/perl-api)** | Perl client library for scripts and existing Perl services. |
+| **[PHP](https://github.com/hlquery/php-api)** | Composer-ready PHP client for web apps and API integrations. |
+| **[Python](https://github.com/hlquery/python-api)** | Python client for scripts, data workflows, and backend services. |
+| **[Ruby](https://github.com/hlquery/ruby-api)** | Ruby client for Rails apps, scripts, and service integrations. |
+| **[Rust](https://github.com/hlquery/rust-api)** | Rust client library for strongly typed hlquery integrations. |
+| **[TypeScript](https://github.com/hlquery/type-api)** | Typed client for TypeScript applications and SDK-style integrations. |
 
 For complete API documentation, visit [docs.hlquery.com](https://docs.hlquery.com/).
 
