@@ -136,18 +136,20 @@ Server up for 3 days, 1h 0m 31s
 
 Official client libraries are available for popular programming languages:
 
+🟣 indicates an official API client library.
+
 | Client | Description |
 | --- | --- |
-| **[C++](https://github.com/hlquery/cpp-api)** | Native C++ client library for low-level and embedded integrations. |
-| **[Go](https://github.com/hlquery/go-api)** | Idiomatic Go client for indexing, search, and service backends. |
-| **[Java](https://github.com/hlquery/java-api)** | JVM client for Java applications and server-side integrations. |
-| **[Node.js](https://github.com/hlquery/node-api)** | Async JavaScript client for Node.js services and tools. |
-| **[Perl](https://github.com/hlquery/perl-api)** | Perl client library for scripts and existing Perl services. |
-| **[PHP](https://github.com/hlquery/php-api)** | Composer-ready PHP client for web apps and API integrations. |
-| **[Python](https://github.com/hlquery/python-api)** | Python client for scripts, data workflows, and backend services. |
-| **[Ruby](https://github.com/hlquery/ruby-api)** | Ruby client for Rails apps, scripts, and service integrations. |
-| **[Rust](https://github.com/hlquery/rust-api)** | Rust client library for strongly typed hlquery integrations. |
-| **[TypeScript](https://github.com/hlquery/type-api)** | Typed client for TypeScript applications and SDK-style integrations. |
+| 🟣 **[C++](https://github.com/hlquery/cpp-api)** | Native C++ client library for low-level and embedded integrations. |
+| 🟣 **[Go](https://github.com/hlquery/go-api)** | Idiomatic Go client for indexing, search, and service backends. |
+| 🟣 **[Java](https://github.com/hlquery/java-api)** | JVM client for Java applications and server-side integrations. |
+| 🟣 **[Node.js](https://github.com/hlquery/node-api)** | Async JavaScript client for Node.js services and tools. |
+| 🟣 **[Perl](https://github.com/hlquery/perl-api)** | Perl client library for scripts and existing Perl services. |
+| 🟣 **[PHP](https://github.com/hlquery/php-api)** | Composer-ready PHP client for web apps and API integrations. |
+| 🟣 **[Python](https://github.com/hlquery/python-api)** | Python client for scripts, data workflows, and backend services. |
+| 🟣 **[Ruby](https://github.com/hlquery/ruby-api)** | Ruby client for Rails apps, scripts, and service integrations. |
+| 🟣 **[Rust](https://github.com/hlquery/rust-api)** | Rust client library for strongly typed hlquery integrations. |
+| 🟣 **[TypeScript](https://github.com/hlquery/type-api)** | Typed client for TypeScript applications and SDK-style integrations. |
 
 For complete API documentation, visit [docs.hlquery.com](https://docs.hlquery.com/).
 
@@ -176,10 +178,22 @@ $collections = $client->collections();
 
 $schema = [ 
     'fields' => [ 
-        ['name' => 'id', 'type' => 'string'],        /* Store the document id as a string field.    */
-        ['name' => 'title', 'type' => 'string'],     /* Keep the main product title searchable.     */
-        ['name' => 'content', 'type' => 'string'],   /* Index the longer product description text.  */
-        ['name' => 'price', 'type' => 'float'],      /* Save a numeric price for filters and sorts. */
+	
+	/* Store the document id as a string field.    */
+
+        ['name' => 'id', 'type' => 'string'],        
+
+	/* Keep the main product title searchable.     */
+
+        ['name' => 'title', 'type' => 'string'],     
+	
+	/* Index the longer product description text.  */	
+
+        ['name' => 'content', 'type' => 'string'],  
+
+	/* Save a numeric price for filters and sorts. */
+
+        ['name' => 'price', 'type' => 'float'],  
     ], 
 ]; 
 
