@@ -427,6 +427,58 @@ void AnalyticsManager::RecordSearchEvent(const std::string &Action,
      }
 }
 
+void AnalyticsManager::RecordQueryEvent(const AnalyticsQueryEvent &Event)
+{
+     if (!IsEnabled())
+     {
+          return;
+     }
+
+     std::unique_lock<std::mutex> Lock(BucketsMutex, std::try_to_lock);
+
+     if (!Lock.owns_lock())
+     {
+          DroppedEvents.fetch_add(1, std::memory_order_relaxed);
+          return;
+     }
+
+     if (WindowStartMS == 0)
+     {
+          WindowStartMS = NowMS();
+     }
+
+     if (QueryEvents.size() >= MaxQueryEvents)
+     {
+          DroppedEvents.fetch_add(1, std::memory_order_relaxed);
+          return;
+     }
+
+     AnalyticsQueryEvent Copy = Event;
+
+     if (Copy.Action.empty())
+     {
+          Copy.Action = "SearchQuery";
+     }
+
+     if (Copy.Collection.empty())
+     {
+          Copy.Collection = kSystemCollection;
+     }
+
+     if (Copy.Query.size() > MaxQueryLength)
+     {
+          Copy.Query.resize(MaxQueryLength);
+     }
+
+     QueryEvents.push_back(std::move(Copy));
+
+     if (EstimateBufferedBytesLocked() >= MaxBufferedBytes)
+     {
+          FlushRequested.store(true, std::memory_order_release);
+          WakeCondition.notify_one();
+     }
+}
+
 /* Record one analytics click event. */
 
 void AnalyticsManager::RecordClickEvent(const std::string &Collection, int Rank, const std::string &RequesterIP, const std::string &RequesterUser, bool Authenticated)
@@ -641,6 +693,7 @@ void AnalyticsManager::FlushOnce()
      }
 
      std::unordered_map<AnalyticsBucketKey, AnalyticsBucket, AnalyticsBucketKeyHash> Snapshot;
+     std::vector<AnalyticsQueryEvent> QuerySnapshot;
      uint64_t SnapshotStartMS = 0;
      uint64_t SnapshotEndMS = NowMS();
      uint64_t TotalRequests = 0;
@@ -650,6 +703,7 @@ void AnalyticsManager::FlushOnce()
 
           if (Buckets.empty())
           {
+               QuerySnapshot.swap(QueryEvents);
                if (WindowStartMS == 0)
                {
                     WindowStartMS = SnapshotEndMS;
@@ -660,6 +714,7 @@ void AnalyticsManager::FlushOnce()
           else
           {
                Snapshot.swap(Buckets);
+               QuerySnapshot.swap(QueryEvents);
                SnapshotStartMS = WindowStartMS;
                WindowStartMS = SnapshotEndMS;
           }
@@ -670,7 +725,7 @@ void AnalyticsManager::FlushOnce()
           TotalRequests += Entry.second.Count;
      }
 
-     std::string Payload = BuildPayload(Snapshot, SnapshotStartMS, SnapshotEndMS);
+     std::string Payload = BuildPayload(Snapshot, QuerySnapshot, SnapshotStartMS, SnapshotEndMS);
 
      if (Payload.empty())
      {
@@ -692,6 +747,12 @@ void AnalyticsManager::FlushOnce()
           }
 
           MergeBucketsLocked(Snapshot);
+          if (!QuerySnapshot.empty() && QueryEvents.size() < MaxQueryEvents)
+          {
+               const size_t SpaceLeft = MaxQueryEvents - QueryEvents.size();
+               const size_t CopyCount = std::min(SpaceLeft, QuerySnapshot.size());
+               QueryEvents.insert(QueryEvents.end(), QuerySnapshot.begin(), QuerySnapshot.begin() + static_cast<std::ptrdiff_t>(CopyCount));
+          }
      }
 
      if (Instance && Instance->Logs)
@@ -714,6 +775,17 @@ size_t AnalyticsManager::EstimateBufferedBytesLocked() const
           Total += Entry.first.Collection.capacity();
           Total += Entry.first.RequesterIP.capacity();
           Total += Entry.first.RequesterUser.capacity();
+     }
+
+     for (const auto &Entry : QueryEvents)
+     {
+          Total += sizeof(Entry);
+          Total += Entry.Action.capacity();
+          Total += Entry.Collection.capacity();
+          Total += Entry.Query.capacity();
+          Total += Entry.DocumentID.capacity();
+          Total += Entry.RequesterIP.capacity();
+          Total += Entry.RequesterUser.capacity();
      }
 
      return Total;
@@ -1207,6 +1279,7 @@ bool AnalyticsManager::PostPayload(const std::string &Body)
 
 std::string AnalyticsManager::BuildPayload(
      const std::unordered_map<AnalyticsBucketKey, AnalyticsBucket, AnalyticsBucketKeyHash> &Snapshot,
+     const std::vector<AnalyticsQueryEvent> &QuerySnapshot,
      uint64_t SnapshotWindowStartMS,
      uint64_t SnapshotWindowEndMS)
 {
@@ -1279,6 +1352,30 @@ std::string AnalyticsManager::BuildPayload(
      Payload["dropped_events"] = DroppedEvents.exchange(0, std::memory_order_acq_rel);
      Payload["failed_posts_total"] = FailedPosts.load(std::memory_order_relaxed);
      Payload["events"] = std::move(Events);
+
+     if (!QuerySnapshot.empty())
+     {
+          nlohmann::json Searches = nlohmann::json::array();
+
+          for (const auto &Entry : QuerySnapshot)
+          {
+               Searches.push_back({
+                    {"action", Entry.Action},
+                    {"collection", Entry.Collection.empty() ? "*" : Entry.Collection},
+                    {"query", Entry.Query},
+                    {"document_id", Entry.DocumentID.empty() ? nullptr : nlohmann::json(Entry.DocumentID)},
+                    {"requester_ip", Entry.RequesterIP.empty() ? nullptr : nlohmann::json(Entry.RequesterIP)},
+                    {"requester_user", Entry.RequesterUser.empty() ? nullptr : nlohmann::json(Entry.RequesterUser)},
+                    {"authenticated", Entry.Authenticated},
+                    {"search_time_ms", Entry.SearchTimeMS},
+                    {"found", Entry.Found},
+                    {"returned", Entry.Returned},
+                    {"document_count", Entry.DocumentCount},
+               });
+          }
+
+          Payload["searches"] = std::move(Searches);
+     }
 
      return Payload.dump();
 }

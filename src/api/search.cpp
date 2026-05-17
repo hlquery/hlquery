@@ -1781,7 +1781,16 @@ HttpResponse SearchAPI::HandleSearch(const HttpRequest &Request)
                    Instance && Instance->Sam && Instance->Sam->IsOpen())
                {
                     const auto IdeaDocuments = BuildSAMSearchIdeaDocuments(SearchResultObj.Hits);
-                    Instance->Sam->RecordSearchIdea(CollectionName, SearchQueryObj.Q, IdeaDocuments);
+                    if (Instance->Sam->RecordSearchIdea(CollectionName, SearchQueryObj.Q, IdeaDocuments))
+                    {
+                         FOREACH_MOD(OnSamSearch,
+                                     CollectionName,
+                                     SearchQueryObj.Q,
+                                     static_cast<uint64_t>(IdeaDocuments.size()),
+                                     Request.RemoteAddress,
+                                     Request.APIKeyID,
+                                     !Request.APIKeyID.empty());
+                    }
                }
 
                /* Analytics fire for the final distributed response the same as local results. */
@@ -1918,7 +1927,16 @@ HttpResponse SearchAPI::HandleSearch(const HttpRequest &Request)
          Instance && Instance->Sam && Instance->Sam->IsOpen())
      {
           const auto IdeaDocuments = BuildSAMSearchIdeaDocuments(SearchResultObj.Hits);
-          Instance->Sam->RecordSearchIdea(CollectionName, SearchQueryObj.Q, IdeaDocuments);
+          if (Instance->Sam->RecordSearchIdea(CollectionName, SearchQueryObj.Q, IdeaDocuments))
+          {
+               FOREACH_MOD(OnSamSearch,
+                           CollectionName,
+                           SearchQueryObj.Q,
+                           static_cast<uint64_t>(IdeaDocuments.size()),
+                           Request.RemoteAddress,
+                           Request.APIKeyID,
+                           !Request.APIKeyID.empty());
+          }
      }
 
      if (SearchQueryObj.EnableAnalytics)
