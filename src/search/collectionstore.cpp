@@ -168,6 +168,65 @@ static std::string BuildCollectionMetaValue(size_t Count, time_t Timestamp)
      return std::to_string(Count) + ":" + std::to_string(Timestamp);
 }
 
+static std::string SerializeDocumentData(const Document &Doc, uint64_t Timestamp)
+{
+     nlohmann::json FieldsJSON = nlohmann::json::object();
+
+     for (const auto &[Key, Value] : Doc.Fields)
+     {
+          FieldsJSON[Key] = Value;
+     }
+
+     nlohmann::json Root = nlohmann::json::object();
+     Root["id"] = Doc.ID;
+     Root["title"] = Doc.Title;
+     Root["content"] = Doc.Content;
+     Root["fields"] = FieldsJSON;
+     Root["timestamp"] = Timestamp;
+     Root["score"] = Doc.Score;
+
+     return Root.dump();
+}
+
+static bool DeserializeDocumentJSON(const std::string &Data, Document &Doc)
+{
+     if (Data.empty() || Data.front() != '{')
+     {
+          return false;
+     }
+
+     nlohmann::json Root = nlohmann::json::parse(Data);
+
+     if (!Root.is_object())
+     {
+          return false;
+     }
+
+     Doc.ID = Root.value("id", "");
+     Doc.Title = Root.value("title", "");
+     Doc.Content = Root.value("content", "");
+     Doc.Timestamp = Root.value("timestamp", static_cast<uint64_t>(0));
+     Doc.Score = Root.value("score", 0.0);
+     Doc.Fields.clear();
+
+     if (Root.contains("fields") && Root["fields"].is_object())
+     {
+          for (const auto &[Key, Value] : Root["fields"].items())
+          {
+               if (Value.is_string())
+               {
+                    Doc.Fields[Key] = Value.get<std::string>();
+               }
+               else if (!Value.is_null())
+               {
+                    Doc.Fields[Key] = Value.dump();
+               }
+          }
+     }
+
+     return !Doc.ID.empty();
+}
+
 static std::string ExtractDocumentIDFromKey(const std::string &DocKey)
 {
      const size_t last_colon = DocKey.find_last_of(':');
@@ -1810,17 +1869,6 @@ bool HybridStorageManager::AddDocument(const std::string &collection, const Docu
 
      /* Serialize document: id|title|content|fields_json|timestamp|score */
 
-     /* Serialize fields map as JSON */
-
-     nlohmann::json fields_json;
-
-     for (const auto &[key, value] : doc.Fields)
-     {
-          fields_json[key] = value;
-     }
-
-     std::string fields_str = fields_json.dump();
-
      /* Use document timestamp if provided, otherwise use current time */
 
      uint64_t timestamp_to_store = doc.Timestamp;
@@ -1839,7 +1887,7 @@ bool HybridStorageManager::AddDocument(const std::string &collection, const Docu
           }
      }
 
-     std::string doc_data = doc.ID + "|" + doc.Title + "|" + doc.Content + "|" + fields_str + "|" + std::to_string(timestamp_to_store) + "|" + std::to_string(doc.Score);
+     std::string doc_data = SerializeDocumentData(doc, timestamp_to_store);
 
      /* Check if document already exists to determine if this is a new document or update */
 
@@ -2022,15 +2070,6 @@ size_t HybridStorageManager::AddDocumentsBatch(const std::string &collection, co
 
           /* Serialize document: id|title|content|fields_json|timestamp|score */
 
-          nlohmann::json fields_json;
-
-          for (const auto &[key, value] : doc.Fields)
-          {
-               fields_json[key] = value;
-          }
-
-          std::string fields_str = fields_json.dump();
-
           /* Use document timestamp if provided, otherwise use current time */
 
           uint64_t timestamp_to_store = doc.Timestamp;
@@ -2050,7 +2089,7 @@ size_t HybridStorageManager::AddDocumentsBatch(const std::string &collection, co
                }
           }
 
-          std::string doc_data = doc.ID + "|" + doc.Title + "|" + doc.Content + "|" + fields_str + "|" + std::to_string(timestamp_to_store) + "|" + std::to_string(doc.Score);
+          std::string doc_data = SerializeDocumentData(doc, timestamp_to_store);
 
           batch_data.push_back({doc_key, doc_data});
      }
@@ -2215,6 +2254,23 @@ Document HybridStorageManager::GetDocument(const std::string &collection, const 
                if (Instance && Instance->Logs)
                {
                     Instance->Logs->Normal("hybrid_storage", "GetDocument skipped oversized persisted entry during decode: " + WALEntryValidationMessage(validation) + ".");
+               }
+
+               return Document();
+          }
+
+          try
+          {
+               if (DeserializeDocumentJSON(doc_data, doc))
+               {
+                    return doc;
+               }
+          }
+          catch (const std::exception &e)
+          {
+               if (Instance && Instance->Logs)
+               {
+                    Instance->Logs->Normal("hybrid_storage", "Failed to parse JSON document " + document_id + ": " + e.what() + ".");
                }
 
                return Document();
@@ -2440,18 +2496,7 @@ Document HybridStorageManager::GetDocument(const std::string &collection, const 
                     doc.Timestamp = NowMs();
                }
 
-               /* Re-serialize document with new timestamp */
-
-               nlohmann::json fields_json;
-
-               for (const auto &[key, value] : doc.Fields)
-               {
-                    fields_json[key] = value;
-               }
-
-               std::string fields_str = fields_json.dump();
-
-               std::string updated_doc_data = doc.ID + "|" + doc.Title + "|" + doc.Content + "|" + fields_str + "|" + std::to_string(doc.Timestamp);
+               std::string updated_doc_data = SerializeDocumentData(doc, doc.Timestamp);
 
                /* Update in storage (this is a one-time migration per document) */
 
@@ -2484,15 +2529,14 @@ std::vector<Document> HybridStorageManager::ListDocuments(const std::string &col
 
      try
      {
-          std::string pattern = "doc:" + collection + ":*";
-
-          std::vector<std::string> keys = Instance->Database->Keys(pattern);
-
-          /* Apply offset and limit */
+          std::string prefix = "doc:" + collection + ":";
+          std::vector<std::string> keys = Instance->Database->PrefixKeys(prefix,
+                                                                         offset > 0 ? static_cast<size_t>(offset) : 0,
+                                                                         limit > 0 ? static_cast<size_t>(limit) : 0);
 
           int count = 0;
 
-          for (size_t i = offset; i < keys.size() && count < limit; ++i)
+          for (size_t i = 0; i < keys.size() && (limit <= 0 || count < limit); ++i)
           {
                std::string doc_id = keys[i].substr(keys[i].find_last_of(':') + 1);
 
@@ -2725,17 +2769,6 @@ bool HybridStorageManager::UpdateDocument(const std::string &collection, const D
           return AddDocument(collection, new_doc);
      }
 
-     /* Serialize new document */
-
-     nlohmann::json fields_json;
-
-     for (const auto &[key, value] : new_doc.Fields)
-     {
-          fields_json[key] = value;
-     }
-
-     std::string fields_str = fields_json.dump();
-
      /*
            * Preserve old timestamp if new document doesn't have one, otherwise use new timestamp.
            */
@@ -2763,7 +2796,7 @@ bool HybridStorageManager::UpdateDocument(const std::string &collection, const D
           }
      }
 
-     std::string new_doc_data = new_doc.ID + "|" + new_doc.Title + "|" + new_doc.Content + "|" + fields_str + "|" + std::to_string(timestamp_to_store) + "|" + std::to_string(new_doc.Score);
+     std::string new_doc_data = SerializeDocumentData(new_doc, timestamp_to_store);
 
      /* Update storage first */
 
@@ -2794,15 +2827,6 @@ bool HybridStorageManager::UpdateDocument(const std::string &collection, const D
 
           /* Rollback: restore old document */
 
-          nlohmann::json old_fields_json;
-
-          for (const auto &[key, value] : old_doc.Fields)
-          {
-               old_fields_json[key] = value;
-          }
-
-          std::string old_fields_str = old_fields_json.dump();
-
           /* Preserve old timestamp or use current time if not set */
 
           uint64_t old_timestamp = old_doc.Timestamp;
@@ -2819,7 +2843,7 @@ bool HybridStorageManager::UpdateDocument(const std::string &collection, const D
                }
           }
 
-          std::string old_doc_data = old_doc.ID + "|" + old_doc.Title + "|" + old_doc.Content + "|" + old_fields_str + "|" + std::to_string(old_timestamp) + "|" + std::to_string(old_doc.Score);
+          std::string old_doc_data = SerializeDocumentData(old_doc, old_timestamp);
 
           Instance->Database->Set(doc_key, old_doc_data);
 
@@ -3506,7 +3530,14 @@ void HybridStorageManager::IndexCollectionInBackground(const std::string &collec
           return;
      }
 
-     if (doc_keys.empty())
+     /* MEMORY SAFETY: Limit indexing to prevent OOM crashes with large datasets */
+
+     const size_t MaxIndexDocuments = 1000000;
+     const bool UsePagedKeys = doc_keys.empty();
+     const std::string DocPrefix = "doc:" + collection + ":";
+     const size_t TotalDocumentKeys = UsePagedKeys ? Instance->Database->CountKeys(DocPrefix) : doc_keys.size();
+
+     if (TotalDocumentKeys == 0)
      {
           guard.release();
           return;
@@ -3514,20 +3545,16 @@ void HybridStorageManager::IndexCollectionInBackground(const std::string &collec
 
      if (Instance && Instance->Logs)
      {
-          Instance->Logs->Normal("hybrid_storage", "LazyLoadCollectionIndex: Building index for collection '" + collection + "' with " + std::to_string(doc_keys.size()) + ".");
+          Instance->Logs->Normal("hybrid_storage", "LazyLoadCollectionIndex: Building index for collection '" + collection + "' with " + std::to_string(TotalDocumentKeys) + ".");
      }
 
-     /* MEMORY SAFETY: Limit indexing to prevent OOM crashes with large datasets */
+     size_t documents_to_index = std::min(TotalDocumentKeys, MaxIndexDocuments);
 
-     const size_t MaxIndexDocuments = 1000000;
-
-     size_t documents_to_index = std::min(doc_keys.size(), MaxIndexDocuments);
-
-     if (doc_keys.size() > MaxIndexDocuments)
+     if (TotalDocumentKeys > MaxIndexDocuments)
      {
           if (Instance && Instance->Logs)
           {
-               Instance->Logs->Normal("hybrid_storage", "LazyLoadCollectionIndex: Collection '" + collection + "' has " + std::to_string(doc_keys.size()) + ".");
+               Instance->Logs->Normal("hybrid_storage", "LazyLoadCollectionIndex: Collection '" + collection + "' has " + std::to_string(TotalDocumentKeys) + ".");
           }
      }
 
@@ -3542,10 +3569,20 @@ void HybridStorageManager::IndexCollectionInBackground(const std::string &collec
           for (size_t i = 0; i < documents_to_index && !memory_limit_reached; i += BatchSize)
           {
                size_t batch_end = std::min(i + BatchSize, documents_to_index);
+               std::vector<std::string> BatchKeys;
+
+               if (UsePagedKeys)
+               {
+                    BatchKeys = Instance->Database->PrefixKeys(DocPrefix, i, batch_end - i);
+                    if (BatchKeys.empty())
+                    {
+                         break;
+                    }
+               }
 
                for (size_t j = i; j < batch_end && !memory_limit_reached; j++)
                {
-                    const auto &doc_key = doc_keys[j];
+                    const auto &doc_key = UsePagedKeys ? BatchKeys[j - i] : doc_keys[j];
 
                     /* Extract document ID */
 
@@ -3731,20 +3768,18 @@ bool HybridStorageManager::LazyLoadCollectionIndex(const std::string &collection
           }
      }
 
-     /*
-           * Get all documents in this collection.
-           * PERFORMANCE: For very large collections, this could be slow, but necessary for indexing.
-           * Exception handling prevents crashes if Keys() fails.
-           */
-
-     std::string pattern = "doc:" + collection + ":*";
      std::vector<std::string> doc_keys;
+     const std::string doc_prefix = "doc:" + collection + ":";
+     const size_t stored_document_count = expected_count > 0 ? expected_count : Instance->Database->CountKeys(doc_prefix);
 
      /* Catch all exceptions from Database operations */
 
      try
      {
-          doc_keys = Instance->Database->Keys(pattern);
+          if (stored_document_count <= 10000)
+          {
+               doc_keys = Instance->Database->PrefixKeys(doc_prefix, 0, stored_document_count);
+          }
      }
      catch (const std::bad_alloc &e)
      {
@@ -3773,7 +3808,7 @@ bool HybridStorageManager::LazyLoadCollectionIndex(const std::string &collection
           return false;
      }
 
-     if (doc_keys.empty())
+     if (stored_document_count == 0)
      {
           return true;
      }
@@ -3782,7 +3817,7 @@ bool HybridStorageManager::LazyLoadCollectionIndex(const std::string &collection
 
      const size_t SyncIndexMaxDocs = 10000;
 
-     if (doc_keys.size() <= SyncIndexMaxDocs)
+     if (stored_document_count <= SyncIndexMaxDocs)
      {
           IndexCollectionInBackground(collection, doc_keys);
           return true;

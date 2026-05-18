@@ -161,6 +161,10 @@ class DBManager
 
      size_t CountKeys(const std::string& prefix);
 
+     /* PrefixKeys returns a bounded page of keys with a prefix. */
+
+     std::vector<std::string> PrefixKeys(const std::string& prefix, size_t offset = 0, size_t limit = 0);
+
      /* GetPrefixTotalSize returns total size for a prefix. */
 
      size_t GetPrefixTotalSize(const std::string& prefix);

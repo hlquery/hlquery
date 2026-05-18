@@ -694,6 +694,37 @@ size_t DBManager::CountKeys(const std::string &prefix)
      return count;
 }
 
+std::vector<std::string> DBManager::PrefixKeys(const std::string &prefix, size_t offset, size_t limit)
+{
+     std::vector<std::string> keys;
+
+     if (!DBValue)
+     {
+          return keys;
+     }
+
+     size_t skipped = 0;
+     std::unique_ptr<rocksdb::Iterator> it(DBValue->NewIterator(rocksdb::ReadOptions()));
+
+     for (it->Seek(prefix); it->Valid() && it->key().starts_with(prefix); it->Next())
+     {
+          if (skipped < offset)
+          {
+               skipped++;
+               continue;
+          }
+
+          keys.push_back(it->key().ToString());
+
+          if (limit > 0 && keys.size() >= limit)
+          {
+               break;
+          }
+     }
+
+     return keys;
+}
+
 /* Get total size of values for keys with prefix */
 
 size_t DBManager::GetPrefixTotalSize(const std::string &prefix)

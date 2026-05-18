@@ -2190,6 +2190,7 @@ HttpResponse SearchAPI::HandleGlobalSearch(const HttpRequest &Request)
      std::vector<SearchHit> AllHits;
      std::map<std::string, std::map<std::string, int>> FacetCounts;
      bool IndexingInProgress = false;
+     bool PartialResults = false;
      float MaxSearchTime = 0.0f;
      size_t ExecutedCollections = 0;
      std::string DistributedError;
@@ -2297,6 +2298,7 @@ HttpResponse SearchAPI::HandleGlobalSearch(const HttpRequest &Request)
           }
 
           IndexingInProgress = IndexingInProgress || CollectionResult.IndexingInProgress;
+          PartialResults = PartialResults || CollectionResult.PartialResults;
           MaxSearchTime = std::max(MaxSearchTime, CollectionResult.SearchTimeMS);
           ExecutedCollections++;
      }
@@ -2331,6 +2333,11 @@ HttpResponse SearchAPI::HandleGlobalSearch(const HttpRequest &Request)
      GlobalResult.Page = BaseQuery.Page < 1 ? 1 : BaseQuery.Page;
      GlobalResult.PerPage = BaseQuery.PerPage < 1 ? 10 : BaseQuery.PerPage;
      GlobalResult.IndexingInProgress = IndexingInProgress;
+     GlobalResult.PartialResults = PartialResults;
+     if (PartialResults)
+     {
+          GlobalResult.PartialReason = "one_or_more_collections_partial";
+     }
      GlobalResult.SearchTimeMS = MaxSearchTime;
      GlobalResult.DistributedDiagnostics = std::move(GlobalDistributedDiagnostics);
      GlobalResult.OutOf = (AllHits.size() > static_cast<std::size_t>(std::numeric_limits<int>::max()))
@@ -2687,12 +2694,15 @@ ComprehensiveSearchResult SearchAPI::PerformComprehensiveSearch(const std::strin
           }
 
           bool indexing = HybridStorageManagerInstance().IsCollectionIndexing(Collection);
+          const bool index_incomplete = collection_docs > 0 && indexed_count < collection_docs;
 
           /* Mark indexing-in-progress when searchable data exists but the lexical index is incomplete. */
 
-          if ((collection_docs > 0 && indexing) || (indexed_count == 0 && !Hits.empty()))
+          if ((collection_docs > 0 && indexing) || index_incomplete || (indexed_count == 0 && !Hits.empty()))
           {
                ResultObj.IndexingInProgress = true;
+               ResultObj.PartialResults = true;
+               ResultObj.PartialReason = indexing ? "indexing_in_progress" : "index_incomplete";
           }
      }
 

@@ -1506,7 +1506,19 @@ std::vector<SearchHit> SearchAPI::ProcessLexicalSearch(const std::string &Collec
      }
 
      int SafePerPage = (Query.PerPage > 0 && Query.PerPage <= 1000) ? Query.PerPage : 10;
-     int SearchLimit = std::min(1000, SafePerPage * 10);
+     long long RequiredRows = SafePerPage;
+
+     if (Query.Offset > 0)
+     {
+          RequiredRows = static_cast<long long>(Query.Offset) + static_cast<long long>(SafePerPage);
+     }
+     else if (Query.Page > 1)
+     {
+          RequiredRows = static_cast<long long>(Query.Page) * static_cast<long long>(SafePerPage);
+     }
+
+     RequiredRows = std::max<long long>(RequiredRows, static_cast<long long>(SafePerPage) * 10LL);
+     int SearchLimit = static_cast<int>(std::min<long long>(10000LL, RequiredRows));
 
      if (Query.ExhaustiveSearch)
      {
@@ -1515,7 +1527,7 @@ std::vector<SearchHit> SearchAPI::ProcessLexicalSearch(const std::string &Collec
 
      if (!quoted_phrases.empty())
      {
-          SearchLimit = 1000;
+          SearchLimit = std::max(SearchLimit, std::min(10000, static_cast<int>(std::min<long long>(10000LL, RequiredRows))));
      }
 
      auto &storage = HybridStorageManager::GetInstance();

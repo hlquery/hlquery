@@ -339,6 +339,8 @@ struct ComprehensiveSearchResult
      float SearchTimeMS = 0.0f;
      std::vector<std::string> GroupByHits;
      bool IndexingInProgress = false;
+     bool PartialResults = false;
+     std::string PartialReason;
      /* Error contains the error message when query execution fails. */
 
      std::string Error;

@@ -2018,6 +2018,29 @@ bool StreamSAMDebug(HLQueryCLI &cli,
 
 /* Resolve a numeric collection reference against the last listed names. */
 
+bool EnsureCachedCollectionNames(HLQueryCLI &cli,
+                                TalkState &state,
+                                const std::string &value,
+                                std::string &error_message)
+{
+     error_message.clear();
+
+     if (!IsUnsignedInteger(value) || !state.LastListedCollections.empty())
+     {
+          return true;
+     }
+
+     state.LastListedCollections = FetchCollectionNames(cli, 0, 1000);
+
+     if (state.LastListedCollections.empty())
+     {
+          error_message = "Failed to fetch collections; cannot resolve numeric reference. Run 'ls' to retry or use a collection name.";
+          return false;
+     }
+
+     return true;
+}
+
 bool ResolveCollectionReference(const std::string &value,
                                 const std::vector<std::string> &listed_collections,
                                 std::string &collection_name,
@@ -2799,6 +2822,12 @@ bool ExecuteTalkCommand(const std::string &line,
           std::string resolved_collection_name;
           std::string error_message;
 
+          if (!EnsureCachedCollectionNames(cli, state, collection_name, error_message))
+          {
+               TalkPrintError(error_message);
+               return true;
+          }
+
           if (!ResolveCollectionReference(collection_name, state.LastListedCollections, resolved_collection_name, error_message))
           {
                TalkPrintError(error_message);
@@ -2904,6 +2933,12 @@ bool ExecuteTalkCommand(const std::string &line,
           std::string collection_name = parts[1];
           std::string resolved_collection_name;
           std::string error_message;
+
+          if (!EnsureCachedCollectionNames(cli, state, collection_name, error_message))
+          {
+               TalkPrintError(error_message);
+               return true;
+          }
 
           if (!ResolveCollectionReference(collection_name, state.LastListedCollections, resolved_collection_name, error_message))
           {
