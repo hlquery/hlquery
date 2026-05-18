@@ -1523,30 +1523,40 @@ std::vector<SearchHit> SearchAPI::ProcessLexicalSearch(const std::string &Collec
      storage.LazyLoadCollectionIndex(Collection);
 
      size_t collection_docs = storage.GetCollectionDocumentCount(Collection);
+     bool collection_is_indexing = storage.IsCollectionIndexing(Collection);
 
-     if (collection_docs == 0)
+     if (collection_docs == 0 || collection_is_indexing)
      {
-          auto probe = storage.ListDocuments(Collection, 1, 0);
-          if (!probe.empty())
+          const size_t stored_docs = storage.CountStoredDocuments(Collection);
+          if (stored_docs > collection_docs)
           {
-               collection_docs = 1;
+               collection_docs = stored_docs;
           }
      }
 
      bool has_in_memory_index = Instance->SearchIndex->HasInMemoryIndex(Collection);
 
-     if (!has_in_memory_index && collection_docs > 0 && storage.IsCollectionIndexing(Collection))
+     if (!has_in_memory_index && collection_docs > 0 && collection_is_indexing)
      {
           auto start = Now();
-          const auto max_wait = std::chrono::milliseconds(800);
-          const auto bailout_after = std::chrono::milliseconds(200);
+          /*
+           * HasInMemoryIndex() becomes true as soon as the first document is
+           * indexed. For moderate collections, wait for lazy indexing to finish
+           * so a first search cannot miss documents later in the collection.
+           */
+          const bool small_or_moderate_collection = collection_docs <= 50000;
+          const auto max_wait = small_or_moderate_collection ? std::chrono::milliseconds(5000)
+                                                             : std::chrono::milliseconds(800);
+          const auto bailout_after = small_or_moderate_collection ? std::chrono::milliseconds(2500)
+                                                                  : std::chrono::milliseconds(200);
           const auto deadline = Now() + max_wait;
 
-          while (!has_in_memory_index && Now() < deadline)
+          while (Now() < deadline)
           {
                std::this_thread::sleep_for(std::chrono::milliseconds(50));
                has_in_memory_index = Instance->SearchIndex->HasInMemoryIndex(Collection);
-               if (has_in_memory_index || !storage.IsCollectionIndexing(Collection))
+               collection_is_indexing = storage.IsCollectionIndexing(Collection);
+               if (!collection_is_indexing || (!small_or_moderate_collection && has_in_memory_index))
                {
                     break;
                }

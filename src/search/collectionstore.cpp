@@ -3695,7 +3695,14 @@ bool HybridStorageManager::LazyLoadCollectionIndex(const std::string &collection
 
      size_t indexed_count = Instance->SearchIndex->GetDocumentCount(collection);
 
-     if (indexed_count > 0)
+     size_t expected_count = GetCollectionDocumentCount(collection);
+
+     if (expected_count == 0)
+     {
+          expected_count = CountStoredDocuments(collection);
+     }
+
+     if (indexed_count > 0 && (expected_count == 0 || indexed_count >= expected_count))
      {
           return true;
      }
