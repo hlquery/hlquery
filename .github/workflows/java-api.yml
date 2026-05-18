@@ -1,0 +1,37 @@
+name: Java API build
+
+on:
+  push:
+    paths:
+      - 'etc/api/java/**'
+      - '.github/workflows/java-api.yml'
+  pull_request:
+    paths:
+      - 'etc/api/java/**'
+      - '.github/workflows/java-api.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: etc/api/java
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '11'
+          cache: maven
+          cache-dependency-path: etc/api/java/pom.xml
+
+      - name: Compile with Maven
+        run: mvn -B -ntp compile
+
+      - name: Compile with Makefile
+        run: make compile

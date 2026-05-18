@@ -321,6 +321,22 @@ void ServerConfig::ApplyConfiguration()
           return Tag->GetString("model", Fallback);
      };
 
+     auto HasLLMAttributes = [](const std::shared_ptr<ConfigTag> &Tag) -> bool
+     {
+          if (!Tag)
+          {
+               return false;
+          }
+
+          return Tag->HasAttribute("models_dir") ||
+                 Tag->HasAttribute("model_name") ||
+                 Tag->HasAttribute("model") ||
+                 Tag->HasAttribute("model_path") ||
+                 Tag->HasAttribute("model_file") ||
+                 Tag->HasAttribute("inference_command") ||
+                 Tag->HasAttribute("relative");
+     };
+
      if (AITag)
      {
           AIEnabled = AITag->GetBool("enabled", AIEnabled);
@@ -356,6 +372,27 @@ void ServerConfig::ApplyConfiguration()
      if (SAMTag)
      {
           SamEnabled = SAMTag->GetBool("enabled", SamEnabled);
+
+          if (HasLLMAttributes(SAMTag))
+          {
+               AIEnabled = SamEnabled;
+               AIModelsDirectory = SAMTag->GetString("models_dir", AIModelsDirectory);
+               AIModelName = ReadModelName(SAMTag, AIModelName);
+
+               if (ModelPathOverride.empty())
+               {
+                    ModelPathOverride = SAMTag->GetString("model_path", "");
+               }
+
+               if (ModelFileOverride.empty())
+               {
+                    ModelFileOverride = SAMTag->GetString("model_file", "");
+               }
+
+               AIInferenceCommand = SAMTag->GetString("inference_command", AIInferenceCommand);
+               ResolveLLMPathsRelativeToConfig = SAMTag->GetBool("relative", ResolveLLMPathsRelativeToConfig);
+          }
+
           SamDataDirectory = SAMTag->GetString("data_dir", SamDataDirectory);
           SamSearchIdeasCollection = SAMTag->GetString("sam_search_ideas", SamSearchIdeasCollection);
           SamIndexAll = SAMTag->GetBool("index_all", SamIndexAll);
@@ -800,7 +837,7 @@ void ServerConfig::ApplyConfiguration()
          }
     }
 
-    const bool HasExplicitLLMConfig = (AITag != nullptr) || (LLMTag != nullptr);
+    const bool HasExplicitLLMConfig = (AITag != nullptr) || (LLMTag != nullptr) || HasLLMAttributes(SAMTag);
 
     if (HasExplicitLLMConfig && AIEnabled)
     {
