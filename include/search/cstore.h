@@ -185,9 +185,9 @@ class HybridStorageManager
 
      std::string ResolveIndexDir() const;
 
-     /* FlushIndexesToDisk writes in-memory indexes to the resolved directory. */
+     /* FlushIndexesToDisk writes dirty in-memory indexes to the resolved directory. */
 
-     void FlushIndexesToDisk();
+     size_t FlushIndexesToDisk(uint64_t min_dirty_age_seconds = 0, size_t max_collections = 0);
 
      /* PersistStorageState flushes metadata, indexes, and optionally RocksDB. */
 

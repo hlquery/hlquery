@@ -272,12 +272,14 @@ std::string HybridStorageManager::ResolveIndexDir() const
      return ResolveStorageRootDir() + "/indices";
 }
 
-void HybridStorageManager::FlushIndexesToDisk()
+size_t HybridStorageManager::FlushIndexesToDisk(uint64_t min_dirty_age_seconds, size_t max_collections)
 {
      if (Instance && Instance->SearchIndex)
      {
-          Instance->SearchIndex->FlushToDisk(ResolveIndexDir());
+          return Instance->SearchIndex->FlushToDisk(ResolveIndexDir(), min_dirty_age_seconds, max_collections);
      }
+
+     return 0;
 }
 
 void HybridStorageManager::PersistStorageState(bool update_counters, bool sync_database, bool log_flush_errors)
@@ -3276,9 +3278,11 @@ void HybridStorageManager::StartBackgroundFlushThread()
 
 void HybridStorageManager::BackgroundFlushThread()
 {
-     /* Flush every 5 minutes */
+     /* Check every minute, but only flush collections that have been idle for at least 5 minutes. */
 
-     const int FlushIntervalSeconds = 300;
+     const int FlushIntervalSeconds = 60;
+     const uint64_t MinDirtyAgeSeconds = 300;
+     const size_t MaxCollectionsPerTick = 8;
 
      while (FlushThreadRunning.load())
      {
@@ -3296,11 +3300,11 @@ void HybridStorageManager::BackgroundFlushThread()
 
           try
           {
-               FlushIndexesToDisk();
+               const size_t FlushedCollections = FlushIndexesToDisk(MinDirtyAgeSeconds, MaxCollectionsPerTick);
 
-               if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
+               if (FlushedCollections > 0 && Instance && Instance->Logs && Instance->Logs->GetDebugMode())
                {
-                    Instance->Logs->Debug("hybrid_storage", "Background flush: Indexes flushed to disk.");
+                    Instance->Logs->Debug("hybrid_storage", "Background flush: " + std::to_string(FlushedCollections) + " dirty index collection(s) flushed to disk.");
                }
           }
           catch (const std::exception &e)

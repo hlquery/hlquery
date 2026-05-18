@@ -38,6 +38,7 @@
 #include "common/searchpool.h"
 #include "common/listenmanager.h"
 #include "core/config.h"
+#include "core/helpers.h"
 #include "runtime/daemon.h"
 #include "runtime/exitmanager.h"
 #include "core/hlquery.h"
@@ -248,156 +249,13 @@ void hlquery::RunListeners()
      }
 }
 
-/* Helper function to check if the main processing loop should terminate */
-
-static inline bool ShouldExitLoop()
-{
-     return ForceExit != 0 || ShuttingDown != 0;
-}
-
-/* Helper function to perform periodic database flush with robust error handling */
-
-static void SafePeriodicFlush()
-{
-     if (!Instance || !Instance->Database)
-     {
-          return;
-     }
-
-     /* Perform the periodic flush operation */
-
-     try
-     {
-          Instance->Database->Flush();
-     }
-     catch (const std::exception &e)
-     {
-          if (Instance->Logs)
-          {
-               Instance->Logs->Debug("hlquery", "Periodic flush failed: " + std::string(e.what()) + ".");
-          }
-     }
-     catch (...)
-     {
-          if (Instance->Logs)
-          {
-               Instance->Logs->Debug("hlquery", "Periodic flush failed with unknown exception.");
-          }
-     }
-}
-
-/* Helper function to process background tasks and management operations */
-
-static void ProcessPeriodicTasks()
-{
-     /* Execute lazy processing operations for performance optimization */
-
-     try
-     {
-          DaemonHandler::ProcessLazyOperations();
-     }
-     catch (const std::exception &e)
-     {
-          if (Instance && Instance->Logs)
-          {
-               Instance->Logs->Debug("hlquery", "Lazy operations failed: " + std::string(e.what()) + ".");
-          }
-     }
-     catch (...)
-     {
-          if (Instance && Instance->Logs)
-          {
-               Instance->Logs->Debug("hlquery", "Lazy operations failed with unknown exception.");
-          }
-     }
-
-     /* Advance the timer management subsystem */
-
-     if (Instance && Instance->Timers)
-     {
-          try
-          {
-               Instance->Timers->Tick();
-          }
-          catch (const std::exception &e)
-          {
-               if (Instance->Logs)
-               {
-                    Instance->Logs->Debug("hlquery", "Timer tick failed: " + std::string(e.what()) + ".");
-               }
-          }
-          catch (...)
-          {
-               if (Instance->Logs)
-               {
-                    Instance->Logs->Debug("hlquery", "Timer tick failed with unknown exception.");
-               }
-          }
-     }
-}
-
-static bool PreflightSSLConfig(ServerConfig *ConfigPtr)
-{
-     if (!ConfigPtr)
-     {
-          return true;
-     }
-
-     const std::string &ConfigFileLoc = ConfigPtr->GetConfigFile();
-
-     if (ConfigFileLoc.empty())
-     {
-          return true;
-     }
-
-     if (!ConfigPtr->IsValid())
-     {
-          if (!ConfigPtr->LoadConfig(ConfigFileLoc))
-          {
-               const std::string &ErrorMsg = ConfigPtr->GetError();
-
-               if (!ErrorMsg.empty())
-               {
-                    print_error("{}", ErrorMsg);
-               }
-               else
-               {
-                    print_error("Failed to load configuration file: {}.", ConfigFileLoc);
-               }
-
-               return false;
-          }
-     }
-
-     const auto &BindConfigs = ConfigPtr->GetBindConfigs();
-
-     for (const auto &BindConfigVal : BindConfigs)
-     {
-          if (!BindConfigVal.ssl)
-          {
-               continue;
-          }
-
-          std::string ErrorMsg;
-
-          if (!ValidateSSLConfig(BindConfigVal, &ErrorMsg))
-          {
-               print_error("SSL preflight failed for {}:{} ({}): {}", BindConfigVal.address, BindConfigVal.port, BindConfigVal.type, ErrorMsg);
-
-               return false;
-          }
-     }
-
-     return true;
-}
-
 /* Core execution method that manages the main application life cycle */
 
 void hlquery::Run()
 {
      /* Handle daemonization process if configured for background operation */
 
-     if (!PreflightSSLConfig(Config.get()))
+     if (!CoreHelpers::PreflightSSLConfig(Config.get()))
      {
           ExitManager::Exit(1);
      }
@@ -463,7 +321,7 @@ void hlquery::Run()
 
      while (true)
      {
-          if (ShouldExitLoop())
+          if (CoreHelpers::ShouldExitLoop())
           {
                break;
           }
@@ -489,7 +347,7 @@ void hlquery::Run()
 
           if (NowTimeVal != old_time)
           {
-               SafePeriodicFlush();
+               CoreHelpers::SafePeriodicFlush();
                old_time = NowTimeVal;
           }
 
@@ -518,7 +376,7 @@ void hlquery::Run()
 
           SocketEngine::DispatchEvents();
 
-          if (ShouldExitLoop())
+          if (CoreHelpers::ShouldExitLoop())
           {
                break;
           }
@@ -527,7 +385,7 @@ void hlquery::Run()
 
           SocketEngine::DispatchTrialWrites();
 
-          if (ShouldExitLoop())
+          if (CoreHelpers::ShouldExitLoop())
           {
                break;
           }
@@ -536,7 +394,7 @@ void hlquery::Run()
 
           ActionList::ProcessActions();
 
-          if (ShouldExitLoop())
+          if (CoreHelpers::ShouldExitLoop())
           {
                if (Logs)
                {
@@ -560,14 +418,14 @@ void hlquery::Run()
 
           /* Process other recurring server tasks */
 
-          ProcessPeriodicTasks();
+          CoreHelpers::ProcessPeriodicTasks();
 
           if (Instance && Instance->Modules)
           {
                FOREACH_MOD(OnIdleTick, NowTimeVal);
           }
 
-          if (ShouldExitLoop())
+          if (CoreHelpers::ShouldExitLoop())
           {
                break;
           }

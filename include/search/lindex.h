@@ -13,6 +13,7 @@
 #pragma once
 
 #include <atomic>
+#include <chrono>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -96,9 +97,33 @@ class InvertedIndex
 
      std::unordered_map<std::string, std::unique_ptr<MMapIndex>> MMapIndexes;
 
+     /* DirtyCollections tracks collections with unflushed in-memory mutations. */
+
+     std::unordered_set<std::string> DirtyCollections;
+
+     /* CollectionLastMutation tracks the last in-memory mutation time per collection. */
+
+     std::unordered_map<std::string, std::chrono::steady_clock::time_point> CollectionLastMutation;
+
+     /* CollectionLastFlush tracks the last successful flush time per collection. */
+
+     std::unordered_map<std::string, std::chrono::steady_clock::time_point> CollectionLastFlush;
+
      /* IndexMutex guards index state. */
 
      mutable std::mutex IndexMutex;
+
+     /* MarkCollectionDirtyLocked records a collection mutation while IndexMutex is held. */
+
+     void MarkCollectionDirtyLocked(const std::string& Collection);
+
+     /* SelectFlushCollectionsLocked chooses dirty collections old enough to flush. */
+
+     std::vector<std::string> SelectFlushCollectionsLocked(uint64_t MinDirtyAgeSeconds, size_t MaxCollections) const;
+
+     /* FlushCollectionToDiskLocked writes one collection while IndexMutex is held. */
+
+     bool FlushCollectionToDiskLocked(const std::string& IndexDir, const std::string& Collection);
 
      /* RemoveDocumentFromIndex removes a document from term postings. */
 
@@ -182,9 +207,9 @@ class InvertedIndex
 
     size_t GetDocumentCount(const std::string& Collection) const;
 
-    /* FlushToDisk writes mmap index data to disk. */
+    /* FlushToDisk writes dirty mmap index data to disk. */
 
-    void FlushToDisk(const std::string& IndexDir);
+    size_t FlushToDisk(const std::string& IndexDir, uint64_t MinDirtyAgeSeconds = 0, size_t MaxCollections = 0);
 
     /* Returns true if the in-memory index contains documents for the collection. */
 

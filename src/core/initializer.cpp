@@ -24,6 +24,7 @@
 #include "common/health.h"
 #include "common/searchpool.h"
 #include "core/config.h"
+#include "core/helpers.h"
 #include "runtime/daemon.h"
 #include "core/modulemanager.h"
 #include "vendor/json/json.hpp"
@@ -36,23 +37,6 @@
 #include "utils/infos.h"
 #include "utils/tools.h"
 
-/* Prints a startup section with one module name per line. */
-
-static void PrintStartupModuleList(const std::string &Heading, const std::vector<std::string> &ModuleNames)
-{
-     ConsoleWriter::WriteStartup(Heading + ":", true, false);
-
-     if (ModuleNames.empty())
-     {
-          ConsoleWriter::WriteStartup("No optional modules loaded.", true, false);
-          return;
-     }
-
-     for (const auto &ModuleName : ModuleNames)
-     {
-          ConsoleWriter::WriteStartupPlain("       - " + ModuleName, false);
-     }
-}
 /* Handles core server logic initialization and early setup tasks */
 
 bool hlquery::InitializeServer()
@@ -320,8 +304,8 @@ bool hlquery::InitializeServer()
           return false;
      }
 
-     PrintStartupModuleList("Loaded optional modules", Modules->GetLoadedOptionalModuleNames());
-     PrintStartupModuleList("Loaded core modules", Modules->GetLoadedCoreModuleNames());
+     CoreHelpers::PrintStartupModuleList("Loaded optional modules", Modules->GetLoadedOptionalModuleNames());
+     CoreHelpers::PrintStartupModuleList("Loaded core modules", Modules->GetLoadedCoreModuleNames());
 
      /* Handle special validation modes if requested via configuration or flags */
 

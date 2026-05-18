@@ -113,6 +113,121 @@ static bool FieldNameHasToken(const std::string &field_name, const std::initiali
      return false;
 }
 
+void InvertedIndex::MarkCollectionDirtyLocked(const std::string &Collection)
+{
+     DirtyCollections.insert(Collection);
+     CollectionLastMutation[Collection] = std::chrono::steady_clock::now();
+}
+
+std::vector<std::string> InvertedIndex::SelectFlushCollectionsLocked(uint64_t MinDirtyAgeSeconds, size_t MaxCollections) const
+{
+     std::vector<std::string> CollectionsToFlush;
+     const auto Now = std::chrono::steady_clock::now();
+
+     for (const auto &Collection : DirtyCollections)
+     {
+          auto IndexIt = Index.find(Collection);
+
+          if (IndexIt == Index.end() || IndexIt->second.empty())
+          {
+               continue;
+          }
+
+          if (MinDirtyAgeSeconds > 0)
+          {
+               auto MutationIt = CollectionLastMutation.find(Collection);
+
+               if (MutationIt != CollectionLastMutation.end())
+               {
+                    const auto DirtyAge = std::chrono::duration_cast<std::chrono::seconds>(Now - MutationIt->second).count();
+
+                    if (DirtyAge < static_cast<long long>(MinDirtyAgeSeconds))
+                    {
+                         continue;
+                    }
+               }
+          }
+
+          CollectionsToFlush.push_back(Collection);
+
+          if (MaxCollections > 0 && CollectionsToFlush.size() >= MaxCollections)
+          {
+               break;
+          }
+     }
+
+     return CollectionsToFlush;
+}
+
+bool InvertedIndex::FlushCollectionToDiskLocked(const std::string &IndexDir, const std::string &Collection)
+{
+     auto IndexIt = Index.find(Collection);
+
+     if (IndexIt == Index.end() || IndexIt->second.empty())
+     {
+          DirtyCollections.erase(Collection);
+          return false;
+     }
+
+     auto ExistingMMapIt = MMapIndexes.find(Collection);
+
+     if (ExistingMMapIt != MMapIndexes.end() &&
+         ExistingMMapIt->second &&
+         ExistingMMapIt->second->IsValid() &&
+         CollectionLastFlush.find(Collection) == CollectionLastFlush.end())
+     {
+          if (Instance && Instance->Logs)
+          {
+               Instance->Logs->Normal("inverted_index", "FlushToDisk: Deferred collection '" + Collection + "' because it has a loaded mmap snapshot and only partial in-memory mutations; segment merge or rebuild is required before overwriting the snapshot.");
+          }
+
+          return false;
+     }
+
+     const std::string FlushMarker = "flush_pending:" + Collection;
+
+     if (Instance && Instance->Database)
+     {
+          Instance->Database->Set(FlushMarker, "1");
+     }
+
+     IndexWriter CollectionWriter(IndexDir, Collection);
+     std::unordered_map<std::string, std::unordered_map<std::string, std::vector<Posting>>> SingleCollection;
+     SingleCollection[Collection] = IndexIt->second;
+
+     if (!CollectionWriter.WriteIndex(SingleCollection))
+     {
+          if (Instance && Instance->Logs)
+          {
+               Instance->Logs->Normal("inverted_index", "FlushToDisk: Failed to flush collection '" + Collection + "'.");
+          }
+
+          return false;
+     }
+
+     auto MMapIdx = MMapIndex::Open(IndexDir, Collection);
+
+     if (MMapIdx && MMapIdx->IsValid())
+     {
+          MMapIndexes[Collection] = std::move(MMapIdx);
+     }
+
+     DirtyCollections.erase(Collection);
+     CollectionLastFlush[Collection] = std::chrono::steady_clock::now();
+
+     if (Instance && Instance->Database)
+     {
+          Instance->Database->Del(FlushMarker);
+     }
+
+     if (Instance && Instance->Logs)
+     {
+          Instance->Logs->Normal("inverted_index", "FlushToDisk: Flushed collection '" + Collection + "' to disk.");
+     }
+
+     return true;
+}
+
 /* InvertedIndex::ExtractTerms - Extracts normalized terms from text. */
 
 std::vector<std::string> InvertedIndex::ExtractTerms(const std::string &Text)
@@ -903,6 +1018,8 @@ bool InvertedIndex::AddDocument(const std::string &Collection, const Document &D
           Instance->Logs->Debug("inverted_index", "AddDocument: Indexed " + std::to_string(AllTermsSet.size()) + " unique terms for document '" + Doc.ID + "' (length: " + std::to_string(DocLength) + ").");
      }
 
+     MarkCollectionDirtyLocked(Collection);
+
      return true;
 }
 
@@ -920,6 +1037,8 @@ bool InvertedIndex::DeleteDocument(const std::string &Collection, const std::str
      }
 
      RemoveDocumentFromIndex(Collection, DocID);
+
+     MarkCollectionDirtyLocked(Collection);
 
      return true;
 }
@@ -1158,62 +1277,68 @@ bool InvertedIndex::UpdateDocument(const std::string &Collection, const Document
           Instance->Logs->Debug("inverted_index", "UpdateDocument: Updated document '" + NewDoc.ID + "' with " + std::to_string(AllTerms.size()) + " terms.");
      }
 
+     MarkCollectionDirtyLocked(Collection);
+
      return true;
 }
 
 /*
- * InvertedIndex::SearchTerm - Resolves a normalized term from memory first and then from the mmap snapshot if needed.
+ * InvertedIndex::SearchTerm - Resolves a normalized term from mmap and in-memory indexes.
  */
 
 std::vector<Posting> InvertedIndex::SearchTerm(const std::string &Collection, const std::string &Term)
 {
      std::string NormalizedTerm = NormalizeTerm(Term);
+     std::unordered_map<std::string, Posting> TermDocs;
 
+     std::lock_guard<std::mutex> Lock(IndexMutex);
+
+     auto MMapIt = MMapIndexes.find(Collection);
+
+     if (MMapIt != MMapIndexes.end() && MMapIt->second && MMapIt->second->IsValid() && MMapIt->second->GetTermCount() > 0)
      {
-          std::lock_guard<std::mutex> Lock(IndexMutex);
-
-          auto CollectionIt = Index.find(Collection);
-
-          bool HasMemoryIndex = (CollectionIt != Index.end() && !CollectionIt->second.empty());
-
-          if (HasMemoryIndex)
-          {
-               auto TermIt = CollectionIt->second.find(NormalizedTerm);
-
-               if (TermIt != CollectionIt->second.end())
-               {
-                    return TermIt->second;
-               }
-          }
-     }
-
-     MMapIndex *MMapIdx = nullptr;
-
-     {
-          auto MMapIt = MMapIndexes.find(Collection);
-
-          if (MMapIt != MMapIndexes.end() && MMapIt->second && MMapIt->second->IsValid())
-          {
-               if (MMapIt->second->GetTermCount() > 0)
-               {
-                    MMapIdx = MMapIt->second.get();
-               }
-          }
-     }
-
-     if (MMapIdx)
-     {
-          auto Results = MMapIdx->SearchTerm(NormalizedTerm);
+          auto Results = MMapIt->second->SearchTerm(NormalizedTerm);
 
           for (auto &Post : Results)
           {
                Post.Collection = Collection;
+               TermDocs[Post.DocumentID] = Post;
           }
-
-          return Results;
      }
 
-     return {};
+     auto CollectionIt = Index.find(Collection);
+
+     if (CollectionIt != Index.end() && !CollectionIt->second.empty())
+     {
+          auto TermIt = CollectionIt->second.find(NormalizedTerm);
+
+          if (TermIt != CollectionIt->second.end())
+          {
+               for (const auto &Post : TermIt->second)
+               {
+                    auto ExistingIt = TermDocs.find(Post.DocumentID);
+
+                    if (ExistingIt == TermDocs.end())
+                    {
+                         TermDocs[Post.DocumentID] = Post;
+                    }
+                    else
+                    {
+                         ExistingIt->second.Score += Post.Score;
+                    }
+               }
+          }
+     }
+
+     std::vector<Posting> Results;
+     Results.reserve(TermDocs.size());
+
+     for (auto &Pair : TermDocs)
+     {
+          Results.push_back(Pair.second);
+     }
+
+     return Results;
 }
 
 /*
@@ -1246,8 +1371,6 @@ std::vector<Posting> InvertedIndex::Search(const std::string &Collection, const 
 
      bool UseMMap = false;
 
-     MMapIndex *MMapIdx = nullptr;
-
      {
           std::lock_guard<std::mutex> Lock(IndexMutex);
 
@@ -1258,7 +1381,6 @@ std::vector<Posting> InvertedIndex::Search(const std::string &Collection, const 
                if (MMapIt->second->GetTermCount() > 0)
                {
                     UseMMap = true;
-                    MMapIdx = MMapIt->second.get();
                }
           }
      }
@@ -1303,8 +1425,16 @@ std::vector<Posting> InvertedIndex::Search(const std::string &Collection, const 
           return ScopedKeys;
      };
 
-     if (UseMMap && MMapIdx)
      {
+          std::lock_guard<std::mutex> Lock(IndexMutex);
+          auto CollectionIt = Index.find(Collection);
+          auto MMapIt = MMapIndexes.find(Collection);
+          const bool HasMMapIndex = MMapIt != MMapIndexes.end() &&
+                                    MMapIt->second &&
+                                    MMapIt->second->IsValid() &&
+                                    MMapIt->second->GetTermCount() > 0;
+          const bool HasMemoryIndex = CollectionIt != Index.end() && !CollectionIt->second.empty();
+
           for (const auto &TermValue : QueryTerms)
           {
                std::string Normalized = NormalizeTerm(TermValue);
@@ -1317,28 +1447,31 @@ std::vector<Posting> InvertedIndex::Search(const std::string &Collection, const 
                std::vector<Posting> Postings;
                const std::vector<std::string> ScopedKeys = BuildScopedKeys(Normalized);
 
-               for (const auto &ScopedKey : ScopedKeys)
+               if (HasMMapIndex)
                {
-                    std::vector<Posting> ScopedPostings;
-
-                    if (IsWildcardTerm(Normalized))
+                    for (const auto &ScopedKey : ScopedKeys)
                     {
-                         if (IsPrefixWildcardTerm(Normalized) && ScopedKey.size() > 1)
+                         std::vector<Posting> ScopedPostings;
+
+                         if (IsWildcardTerm(Normalized))
                          {
-                              std::string Prefix = ScopedKey.substr(0, ScopedKey.size() - 1);
-                              ScopedPostings = MMapIdx->SearchPrefix(Prefix, 0);
+                              if (IsPrefixWildcardTerm(Normalized) && ScopedKey.size() > 1)
+                              {
+                                   std::string Prefix = ScopedKey.substr(0, ScopedKey.size() - 1);
+                                   ScopedPostings = MMapIt->second->SearchPrefix(Prefix, 0);
+                              }
+                              else
+                              {
+                                   ScopedPostings = MMapIt->second->SearchWildcard(ScopedKey, 0);
+                              }
                          }
                          else
                          {
-                              ScopedPostings = MMapIdx->SearchWildcard(ScopedKey, 0);
+                              ScopedPostings = MMapIt->second->SearchTerm(ScopedKey);
                          }
-                    }
-                    else
-                    {
-                         ScopedPostings = MMapIdx->SearchTerm(ScopedKey);
-                    }
 
-                    Postings.insert(Postings.end(), ScopedPostings.begin(), ScopedPostings.end());
+                         Postings.insert(Postings.end(), ScopedPostings.begin(), ScopedPostings.end());
+                    }
                }
 
                std::unordered_map<std::string, Posting> TermDocs;
@@ -1357,61 +1490,46 @@ std::vector<Posting> InvertedIndex::Search(const std::string &Collection, const 
                     }
                }
 
-               if (!TermDocs.empty())
+               if (HasMemoryIndex)
                {
-                    TermResults.push_back(TermDocs);
-               }
-               else
-               {
-                    if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
+                    if (IsWildcardTerm(Normalized))
                     {
-                         Instance->Logs->Debug("inverted_index", "Search: Term '" + Normalized + "' has no matches, returning empty results (AND logic).");
-                    }
-
-                    return {};
-               }
-          }
-     }
-     else
-     {
-          std::lock_guard<std::mutex> Lock(IndexMutex);
-
-          for (const auto &TermValue : QueryTerms)
-          {
-               std::string Normalized = NormalizeTerm(TermValue);
-
-               if (Normalized.empty())
-               {
-                    continue;
-               }
-
-               auto CollectionIt = Index.find(Collection);
-
-               if (CollectionIt == Index.end())
-               {
-                    if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
-                    {
-                         Instance->Logs->Debug("inverted_index", "Search: Collection not found in index, returning empty results (AND logic).");
-                    }
-
-                    return {};
-               }
-
-               std::unordered_map<std::string, Posting> TermDocs;
-               const std::vector<std::string> ScopedKeys = BuildScopedKeys(Normalized);
-
-               if (IsWildcardTerm(Normalized))
-               {
-                    for (const auto &ScopedKey : ScopedKeys)
-                    {
-                         for (const auto &[IndexedTerm, Postings] : CollectionIt->second)
+                         for (const auto &ScopedKey : ScopedKeys)
                          {
-                              if (!Wildcard::Match(IndexedTerm, ScopedKey))
+                              for (const auto &[IndexedTerm, MemoryPostings] : CollectionIt->second)
+                              {
+                                   if (!Wildcard::Match(IndexedTerm, ScopedKey))
+                                   {
+                                        continue;
+                                   }
+
+                                   for (const auto &Post : MemoryPostings)
+                                   {
+                                        auto It = TermDocs.find(Post.DocumentID);
+                                        if (It == TermDocs.end())
+                                        {
+                                             TermDocs[Post.DocumentID] = Post;
+                                        }
+                                        else
+                                        {
+                                             It->second.Score += Post.Score;
+                                        }
+                                   }
+                              }
+                         }
+                    }
+                    else
+                    {
+                         for (const auto &ScopedKey : ScopedKeys)
+                         {
+                              auto TermIt = CollectionIt->second.find(ScopedKey);
+
+                              if (TermIt == CollectionIt->second.end())
                               {
                                    continue;
                               }
 
-                              for (const auto &Post : Postings)
+                              for (const auto &Post : TermIt->second)
                               {
                                    auto It = TermDocs.find(Post.DocumentID);
                                    if (It == TermDocs.end())
@@ -1426,31 +1544,6 @@ std::vector<Posting> InvertedIndex::Search(const std::string &Collection, const 
                          }
                     }
                }
-               else
-               {
-                    for (const auto &ScopedKey : ScopedKeys)
-                    {
-                         auto TermIt = CollectionIt->second.find(ScopedKey);
-
-                         if (TermIt == CollectionIt->second.end())
-                         {
-                              continue;
-                         }
-
-                         for (const auto &Post : TermIt->second)
-                         {
-                              auto It = TermDocs.find(Post.DocumentID);
-                              if (It == TermDocs.end())
-                              {
-                                   TermDocs[Post.DocumentID] = Post;
-                              }
-                              else
-                              {
-                                   It->second.Score += Post.Score;
-                              }
-                         }
-                    }
-               }
 
                if (TermDocs.empty())
                {
@@ -1461,6 +1554,7 @@ std::vector<Posting> InvertedIndex::Search(const std::string &Collection, const 
 
                     return {};
                }
+
                TermResults.push_back(TermDocs);
           }
      }
@@ -1861,6 +1955,12 @@ void InvertedIndex::DeleteCollection(const std::string &Collection)
 
      MMapIndexes.erase(Collection);
 
+     DirtyCollections.erase(Collection);
+
+     CollectionLastMutation.erase(Collection);
+
+     CollectionLastFlush.erase(Collection);
+
      if (Instance && Instance->Database)
      {
           Instance->Database->Del("flush_pending:" + Collection);
@@ -1887,6 +1987,12 @@ void InvertedIndex::Clear()
      DocumentTerms.clear();
 
      MMapIndexes.clear();
+
+     DirtyCollections.clear();
+
+     CollectionLastMutation.clear();
+
+     CollectionLastFlush.clear();
 }
 
 /*
@@ -2020,7 +2126,7 @@ std::string InvertedIndex::GetIndexDir() const
 
 /* InvertedIndex::FlushToDisk - Writes index data to disk. */
 
-void InvertedIndex::FlushToDisk(const std::string &IndexDir)
+size_t InvertedIndex::FlushToDisk(const std::string &IndexDir, uint64_t MinDirtyAgeSeconds, size_t MaxCollections)
 {
      std::lock_guard<std::mutex> Lock(IndexMutex);
 
@@ -2029,50 +2135,24 @@ void InvertedIndex::FlushToDisk(const std::string &IndexDir)
           Instance->Logs->Normal("inverted_index", "FlushToDisk: Flushing indexes to disk.");
      }
 
-     for (const auto &[Collection, TermMap] : Index)
+     const std::vector<std::string> CollectionsToFlush = SelectFlushCollectionsLocked(MinDirtyAgeSeconds, MaxCollections);
+
+     size_t FlushedCollections = 0;
+
+     for (const auto &Collection : CollectionsToFlush)
      {
-          if (TermMap.empty())
+          if (FlushCollectionToDiskLocked(IndexDir, Collection))
           {
-               continue;
-          }
-
-          std::string FlushMarker = "flush_pending:" + Collection;
-
-          if (Instance && Instance->Database)
-          {
-               Instance->Database->Set(FlushMarker, "1");
-
-               Instance->Database->FlushAndSync();
-          }
-
-          IndexWriter CollectionWriter(IndexDir, Collection);
-
-          std::unordered_map<std::string, std::unordered_map<std::string, std::vector<Posting>>> SingleCollection;
-
-          SingleCollection[Collection] = TermMap;
-
-          if (CollectionWriter.WriteIndex(SingleCollection))
-          {
-               if (Instance && Instance->Database)
-               {
-                    Instance->Database->Del(FlushMarker);
-
-                    Instance->Database->FlushAndSync();
-               }
-
-               if (Instance && Instance->Logs)
-               {
-                    Instance->Logs->Normal("inverted_index", "FlushToDisk: Flushed collection '" + Collection + "' to disk.");
-               }
-          }
-          else
-          {
-               if (Instance && Instance->Logs)
-               {
-                    Instance->Logs->Normal("inverted_index", "FlushToDisk: Failed to flush collection '" + Collection + "'.");
-               }
+               FlushedCollections++;
           }
      }
+
+     if (Instance && Instance->Database && FlushedCollections > 0)
+     {
+          Instance->Database->FlushAndSync();
+     }
+
+     return FlushedCollections;
 }
 
 /*
