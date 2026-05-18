@@ -24,7 +24,7 @@ my @catalog = (
           repo               => 'bartowski/Qwen2.5-1.5B-Instruct-GGUF',
           file               => 'Qwen2.5-1.5B-Instruct-Q4_K_M.gguf',
           description        => 'Balanced local Qwen profile for general use.',
-          default            => 0,
+          default            => 1,
           default_max_tokens => 4096,
      },
      {
@@ -41,8 +41,8 @@ my @catalog = (
           family             => 'Qwen2.5 Instruct',
           repo               => 'bartowski/Qwen2.5-14B-Instruct-GGUF',
           file               => 'Qwen2.5-14B-Instruct-Q4_K_M.gguf',
-          description        => 'Largest shipped general Qwen profile and the default local model download.',
-          default            => 1,
+          description        => 'Largest shipped general Qwen profile (higher quality, larger download).',
+          default            => 0,
           default_max_tokens => 4096,
      },
      {
@@ -150,7 +150,7 @@ Usage: $script_name [options]
 
 Downloads local GGUF models into run/models for hlquery.
 
-By default this script downloads the biggest shipped general Qwen model:
+By default this script downloads a balanced shipped Qwen model:
   $default_models
 
 Options:
