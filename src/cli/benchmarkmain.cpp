@@ -655,7 +655,7 @@ bool CreateFakeCollections(const std::string &base_url, const std::string &auth_
 
      for (const auto &spec : specs)
      {
-          const std::string collection_name = reuse_collections ? spec.Name : (g_collection_prefix + "fake_" + spec.Name);
+          const std::string collection_name = spec.Name;
 
           if (verbose)
           {
