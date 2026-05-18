@@ -22,15 +22,12 @@
 #include "utils/tools.h"
 #include "search/storageengine.h"
 
-namespace CoreHelpers
-{
-
-bool ShouldExitLoop()
+bool CoreHelpers::ShouldExitLoop()
 {
      return ForceExit != 0 || ShuttingDown != 0;
 }
 
-void SafePeriodicFlush()
+void CoreHelpers::SafePeriodicFlush()
 {
      if (!Instance || !Instance->Database)
      {
@@ -57,7 +54,7 @@ void SafePeriodicFlush()
      }
 }
 
-void ProcessPeriodicTasks()
+void CoreHelpers::ProcessPeriodicTasks()
 {
      try
      {
@@ -101,7 +98,7 @@ void ProcessPeriodicTasks()
      }
 }
 
-bool PreflightSSLConfig(ServerConfig *ConfigPtr)
+bool CoreHelpers::PreflightSSLConfig(ServerConfig *ConfigPtr)
 {
      if (!ConfigPtr)
      {
@@ -160,7 +157,7 @@ bool PreflightSSLConfig(ServerConfig *ConfigPtr)
      return true;
 }
 
-void PrintStartupModuleList(const std::string &Heading, const std::vector<std::string> &ModuleNames)
+void CoreHelpers::PrintStartupModuleList(const std::string &Heading, const std::vector<std::string> &ModuleNames)
 {
      ConsoleWriter::WriteStartup(Heading + ":", true, false);
 
@@ -175,5 +172,3 @@ void PrintStartupModuleList(const std::string &Heading, const std::vector<std::s
           ConsoleWriter::WriteStartupPlain("       - " + ModuleName, false);
      }
 }
-
-} /* namespace CoreHelpers */
