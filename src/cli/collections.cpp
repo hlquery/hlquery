@@ -861,7 +861,6 @@ void HLQueryCLI::CreateCollection(const std::string &name, const std::vector<std
 
      config["enable_typos"] = true;
      config["enable_synonyms"] = true;
-     config["language"] = "en";
 
      std::string json_str = config.dump();
 

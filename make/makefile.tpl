@@ -384,7 +384,18 @@ DEPS += $(MODULE_OBJS:.o=.d)
 FMT_OBJ := $(OBJ_DIR)/vendor/fmt/format.o
 SHA2_OBJ := $(OBJ_DIR)/vendor/sha2/sha2.o
 MD5_OBJ := $(OBJ_DIR)/vendor/md5/md5.o
-REGULAR_ALL_OBJS = $(REGULAR_OBJS) $(FMT_OBJ) $(SHA2_OBJ) $(MD5_OBJ)
+CLD2_SRCS := $(addprefix $(VENDOR_DIR)/cld2/internal/, \
+              cldutil.cc cldutil_shared.cc compact_lang_det.cc compact_lang_det_hint_code.cc \
+              compact_lang_det_impl.cc debug.cc fixunicodevalue.cc generated_entities.cc \
+              generated_language.cc generated_ulscript.cc getonescriptspan.cc lang_script.cc \
+              offsetmap.cc scoreonescriptspan.cc tote.cc utf8statetable.cc \
+              cld_generated_cjk_uni_prop_80.cc cld2_generated_cjk_compatible.cc \
+              cld_generated_cjk_delta_bi_4.cc generated_distinct_bi_0.cc \
+              cld2_generated_quadchrome_2.cc cld2_generated_deltaoctachrome.cc \
+              cld2_generated_distinctoctachrome.cc cld_generated_score_quad_octa_2.cc)
+CLD2_OBJS := $(patsubst $(VENDOR_DIR)/%.cc,$(OBJ_DIR)/vendor/%.o,$(CLD2_SRCS))
+DEPS += $(CLD2_OBJS:.o=.d)
+REGULAR_ALL_OBJS = $(REGULAR_OBJS) $(FMT_OBJ) $(SHA2_OBJ) $(MD5_OBJ) $(CLD2_OBJS)
 ALL_OBJS = $(REGULAR_ALL_OBJS) $(HTTP_OBJS)
 
 # BUILD TARGETS
@@ -530,6 +541,12 @@ $(FMT_OBJ): $(VENDOR_DIR)/fmt/format.cc | $(OBJ_DIR)
 	@chmod -R u+w $(dir $@) $(OBJ_DIR) 2>/dev/null || true
 	@([ "$$(id -u)" != "0" ] && chown -R $$(id -u):$$(id -g) $(dir $@) 2>/dev/null || true) || true
 	$(CXX) $(BASE_CXXFLAGS) $(OPT_FLAGS) $(VENDOR_CXX_WARNING_FLAGS) $(LTO_CXXFLAGS) -MMD -MP -c $< -o $@
+
+$(OBJ_DIR)/vendor/cld2/internal/%.o: $(VENDOR_DIR)/cld2/internal/%.cc | $(OBJ_DIR)
+	@mkdir -p $(dir $@)
+	@chmod -R u+w $(dir $@) $(OBJ_DIR) 2>/dev/null || true
+	@([ "$$(id -u)" != "0" ] && chown -R $$(id -u):$$(id -g) $(dir $@) 2>/dev/null || true) || true
+	$(CXX) $(BASE_CXXFLAGS) $(OPT_FLAGS) $(VENDOR_CXX_WARNING_FLAGS) -Wno-old-style-cast -Wno-cast-qual -Wno-narrowing -Wno-implicit-fallthrough -Wno-sign-compare -Wno-ignored-qualifiers -Wno-unused-variable -Wno-unused-but-set-variable -Wno-char-subscripts $(LTO_CXXFLAGS) -MMD -MP -c $< -o $@
 
 # Universal pattern rule for source compilation with auto-deps
 # Use order-only prerequisite (|) for directory creation to avoid race conditions in parallel builds
@@ -744,11 +761,11 @@ install:
 		echo "  Run as daemon:     ./run/hlquery start"; \
 		echo ""; \
 		echo "To run benchmarks, run:"; \
-		echo "  ./run/bin/hlquery-benchmark"; \
+		echo "  ./run/hlquery benchmark"; \
 		echo ""; \
 		echo "To run the command line, run:"; \
-		echo "  ./run/bin/hlquery-cli"; \
-		echo "  ./run/bin/hlquery-talk"; \
+		echo "  ./run/hlquery cli"; \
+		echo "  ./run/hlquery talk"; \
 		echo ""; \
 	else \
 		echo "$(CYAN)Staging tree ready at $(STAGED_RUN_DIR)$(NC)"; \
@@ -790,12 +807,12 @@ synonyms-check:
 # Use $(sort ...) to deduplicate object files (important for LTO to avoid duplicate symbols)
 # Explicitly depend on ALL_OBJS and ROCKSDB_LIB to ensure proper dependency tracking
 # This prevents the linker from starting before all object files are compiled AND RocksDB is built
-# Note: ALL_OBJS includes REGULAR_OBJS, HTTP_OBJS, FMT_OBJ, SHA2_OBJ, MD5_OBJ
-$(BIN_DIR)/hlquery: $(REGULAR_OBJS) $(HTTP_OBJS) $(FMT_OBJ) $(SHA2_OBJ) $(MD5_OBJ) | $(ROCKSDB_LIB)
+# Note: ALL_OBJS includes REGULAR_OBJS, HTTP_OBJS, FMT_OBJ, SHA2_OBJ, MD5_OBJ, CLD2_OBJS
+$(BIN_DIR)/hlquery: $(REGULAR_OBJS) $(HTTP_OBJS) $(FMT_OBJ) $(SHA2_OBJ) $(MD5_OBJ) $(CLD2_OBJS) | $(ROCKSDB_LIB)
 	@mkdir -p $(BIN_DIR)
 	@echo "$(CYAN)Linking hlquery...$(NC)"
 	$(CXX) $(CXXFLAGS) \
-		$(sort $(REGULAR_OBJS) $(HTTP_OBJS) $(FMT_OBJ) $(SHA2_OBJ) $(MD5_OBJ)) \
+		$(sort $(REGULAR_OBJS) $(HTTP_OBJS) $(FMT_OBJ) $(SHA2_OBJ) $(MD5_OBJ) $(CLD2_OBJS)) \
 		-o $@ \
 		$(LDFLAGS) $(RDYNAMIC)
 

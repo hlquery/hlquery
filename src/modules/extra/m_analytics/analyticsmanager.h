@@ -20,6 +20,7 @@
 #include <mutex>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 #include "api/httpserver.h"
 #include "core/modules.h"
@@ -118,6 +119,21 @@ struct AnalyticsBucket
      uint64_t ClickRankSum = 0;
 };
 
+struct AnalyticsQueryEvent
+{
+     std::string Action;
+     std::string Collection;
+     std::string Query;
+     std::string DocumentID;
+     std::string RequesterIP;
+     std::string RequesterUser;
+     uint64_t SearchTimeMS = 0;
+     uint64_t Found = 0;
+     uint64_t Returned = 0;
+     uint64_t DocumentCount = 0;
+     bool Authenticated = false;
+};
+
 /* Aggregates and flushes module analytics events to a remote endpoint. */
 
 class AnalyticsManager
@@ -199,6 +215,7 @@ class AnalyticsManager
      /* Builds the regular usage payload. */
 
      std::string BuildPayload(const std::unordered_map<AnalyticsBucketKey, AnalyticsBucket, AnalyticsBucketKeyHash> &Snapshot,
+                              const std::vector<AnalyticsQueryEvent> &QuerySnapshot,
                               uint64_t WindowStartMS,
                               uint64_t WindowEndMS);
 
@@ -278,6 +295,10 @@ class AnalyticsManager
 
      std::unordered_map<AnalyticsBucketKey, AnalyticsBucket, AnalyticsBucketKeyHash> Buckets;
 
+     /* Buffered query-bearing events flushed alongside usage buckets. */
+
+     std::vector<AnalyticsQueryEvent> QueryEvents;
+
      /* Start time of the current usage window. */
 
      uint64_t WindowStartMS = 0;
@@ -310,6 +331,14 @@ class AnalyticsManager
 
      static constexpr size_t MaxBufferedBytes = 10 * 1024 * 1024;
 
+     /* Cap for buffered query-bearing events per window. */
+
+     static constexpr size_t MaxQueryEvents = 2048;
+
+     /* Truncate stored query strings to this length. */
+
+     static constexpr size_t MaxQueryLength = 512;
+
    public:
 
      /* Initialize the analytics manager with endpoint and tracking settings. */
@@ -334,6 +363,63 @@ class AnalyticsManager
      bool IsEnabled() const
      {
           return Enabled.load(std::memory_order_acquire);
+     }
+
+     /* Returns whether the worker was started. */
+
+     bool IsStarted() const
+     {
+          return Started.load(std::memory_order_acquire);
+     }
+
+     /* Returns whether the worker loop should be running. */
+
+     bool IsRunning() const
+     {
+          return Running.load(std::memory_order_acquire);
+     }
+
+     /* Returns the configured remote endpoint URL. */
+
+     const std::string &GetEndpointURL() const
+     {
+          return EndpointURL;
+     }
+
+     /* Returns the configured flush interval in seconds. */
+
+     int GetFlushIntervalSeconds() const
+     {
+          return FlushIntervalSeconds;
+     }
+
+     /* Returns the configured connect and I/O timeout in milliseconds. */
+
+     int GetConnectTimeoutMS() const
+     {
+          return ConnectTimeoutMS;
+     }
+
+     /* Returns the cumulative count of dropped events. */
+
+     uint64_t GetDroppedEventsTotal() const
+     {
+          return DroppedEvents.load(std::memory_order_relaxed);
+     }
+
+     /* Returns the cumulative count of failed outbound posts. */
+
+     uint64_t GetFailedPostsTotal() const
+     {
+          return FailedPosts.load(std::memory_order_relaxed);
+     }
+
+     /* Returns the current number of buffered analytics buckets. */
+
+     size_t GetBufferedBucketCount() const
+     {
+          std::lock_guard<std::mutex> Lock(BucketsMutex);
+          return Buckets.size();
      }
 
      /* Starts the analytics worker. */
@@ -366,6 +452,10 @@ class AnalyticsManager
                             const std::string &RequesterIP,
                             const std::string &RequesterUser,
                             bool Authenticated);
+
+     /* Records one query-bearing event such as a search query or SAM query signal. */
+
+     void RecordQueryEvent(const AnalyticsQueryEvent &Event);
 
      /* Records a successful click analytics event. */
 

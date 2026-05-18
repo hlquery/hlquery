@@ -111,6 +111,12 @@ void AppendSemanticProfileHits(std::unordered_map<std::string, SAMAggregatedHit>
                }
 
                const SAMSemanticCandidate Match = ScoreSemanticProfileMatch(QueryPlan, Profile);
+
+               if (Match.ProfileScore < 0.35)
+               {
+                    return;
+               }
+
                const double CombinedSemantic = std::max(Match.ProfileScore, Match.VectorScore * 0.92);
 
                ++Scored;
@@ -382,7 +388,15 @@ bool ShouldRejectWeakSearchIdeaHit(const SAM::LookupHit& Hit)
 
 bool HasStrongSourceSupport(const SAM::LookupHit& Hit)
 {
-     return Hit.Breakdown.SourceDocScore > 0.0 || Hit.Breakdown.SourceDocBonus > 0.0;
+     if (Hit.Breakdown.SourceDocScore > 0.0)
+     {
+          return true;
+     }
+
+     return Hit.Breakdown.SourceDocBonus > 0.0 &&
+            (Hit.MatchedPath == "source_doc" ||
+             Hit.MatchedPath == "source_doc_fallback" ||
+             Hit.MatchedPath == "hybrid");
 }
 
 bool IsSemanticLikeSAMHit(const SAM::LookupHit& Hit)
@@ -423,6 +437,129 @@ bool ShouldSuppressLowConfidenceSAMResultSet(const std::vector<SAM::LookupHit>& 
      }
 
      return TopHit.Breakdown.FinalScore < 1.30;
+}
+
+bool HasEnoughLiteralSAMCoverage(const SAM::LookupHit& Hit,
+                                 const SAMQueryTokenViews& QueryViews)
+{
+     if (HasStrongSourceSupport(Hit))
+     {
+          return true;
+     }
+
+     const double ConfiguredMinCoverage = (Instance && Instance->Config
+          ? Instance->Config->GetSam25MinCoverage()
+          : 0.50);
+     const double RequiredCoverage = GetSAM25RequiredCoverage(QueryViews, ConfiguredMinCoverage);
+
+     auto CoverageFor = [&](const std::string& Value)
+     {
+          std::vector<std::string> Tokens = TokenizeNormalized(Value);
+
+          for (auto& Token : Tokens)
+          {
+               Token = SingularizeToken(Token);
+          }
+
+          return ComputeSAMLiteralQueryTokenCoverage(QueryViews, Tokens);
+     };
+
+     const double BestCoverage = std::max(CoverageFor(Hit.MatchedTerm), CoverageFor(Hit.Title));
+
+     if (QueryViews.CoreTokens.size() <= 1)
+     {
+          return BestCoverage >= 1.0;
+     }
+
+     return BestCoverage >= RequiredCoverage;
+}
+
+std::vector<float> BuildHitSemanticVector(rocksdb::DB* Database,
+                                          const SAM::LookupHit& Hit)
+{
+     if (Database && !Hit.Collection.empty() && !Hit.DocumentID.empty())
+     {
+          std::string ManifestValue;
+          const rocksdb::Status Status =
+               Database->Get(rocksdb::ReadOptions(),
+                             BuildDocManifestKey(Hit.Collection, Hit.DocumentID),
+                             &ManifestValue);
+
+          if (Status.ok())
+          {
+               try
+               {
+                    const nlohmann::json Root = nlohmann::json::parse(ManifestValue);
+                    SAMSemanticProfile Profile;
+
+                    if (ParseSemanticProfileJSON(Root, Profile) && !Profile.Vector.empty())
+                    {
+                         return Profile.Vector;
+                    }
+
+                    SAM::DocumentEntry Entry;
+
+                    if (ParseManifestValue(ManifestValue, Entry))
+                    {
+                         return BuildSemanticProfile(Entry.Title.empty() ? Entry.DocumentID : Entry.Title,
+                                                     Entry.Terms).Vector;
+                    }
+               }
+               catch (...)
+               {
+               }
+          }
+     }
+
+     return BuildHashedSemanticVector({
+          Hit.Title,
+          Hit.MatchedTerm,
+          Hit.MatchedKind,
+          Hit.MatchedSource
+     });
+}
+
+bool HasEnoughSemanticLinearAlgebraCoherence(rocksdb::DB* Database,
+                                             const SAM::LookupHit& Hit,
+                                             const SAMQueryTokenViews& QueryViews)
+{
+     if (HasStrongSourceSupport(Hit) || !IsSemanticLikeSAMHit(Hit))
+     {
+          return true;
+     }
+
+     const std::string QueryText = QueryViews.NormalizedPhrase.empty()
+          ? QueryViews.NormalizedQuery
+          : QueryViews.NormalizedPhrase;
+     const std::vector<float> QueryVector = BuildHashedSemanticVector({QueryText});
+     const std::vector<float> HitVector = BuildHitSemanticVector(Database, Hit);
+
+     if (QueryVector.empty() || HitVector.empty())
+     {
+          return false;
+     }
+
+     const double Cosine = ComputeSemanticVectorCosine(QueryVector, HitVector);
+     const double Projection = ComputeSemanticVectorProjection(QueryVector, HitVector);
+     const double ResidualRatio = ComputeSemanticVectorResidualRatio(QueryVector, HitVector);
+     const double VectorScore = Hit.Breakdown.SemanticVectorScore > 0.0
+          ? Hit.Breakdown.SemanticVectorScore
+          : ComputeSemanticVectorSimilarity(QueryVector, HitVector);
+     const double LiteralCoverage = std::max(
+          ComputeSAMLiteralQueryTokenCoverage(QueryViews, NormalizeSAMTokens(Hit.MatchedTerm, true)),
+          ComputeSAMLiteralQueryTokenCoverage(QueryViews, NormalizeSAMTokens(Hit.Title, true)));
+
+     if (LiteralCoverage >= 1.0)
+     {
+          return Cosine >= 0.18 || VectorScore >= 0.59;
+     }
+
+     if (QueryViews.CoreTokens.size() <= 1)
+     {
+          return Cosine >= 0.42 && Projection >= 0.18 && ResidualRatio <= 0.92;
+     }
+
+     return Cosine >= 0.34 && Projection >= 0.14 && ResidualRatio <= 0.96 && VectorScore >= 0.58;
 }
 
 void ReplaceWithGuaranteedSourceDocFallback(std::vector<SAM::LookupHit>& Hits)
@@ -481,6 +618,7 @@ void ReplaceWithGuaranteedSourceDocFallback(std::vector<SAM::LookupHit>& Hits)
 void FinalizeSAMAggregatedHits(std::vector<SAM::LookupHit>& Hits,
                                const std::unordered_map<std::string, SAMAggregatedHit>& AggregatedHits,
                                const SAMQueryTokenViews& QueryViews,
+                               rocksdb::DB* Database,
                                size_t Limit)
 {
      Hits.clear();
@@ -531,6 +669,14 @@ void FinalizeSAMAggregatedHits(std::vector<SAM::LookupHit>& Hits,
                FinalHit.TermOrigin = FinalHit.MatchedSource;
           }
           if (ShouldRejectWeakSearchIdeaHit(FinalHit))
+          {
+               continue;
+          }
+          if (!HasEnoughLiteralSAMCoverage(FinalHit, QueryViews))
+          {
+               continue;
+          }
+          if (!HasEnoughSemanticLinearAlgebraCoherence(Database, FinalHit, QueryViews))
           {
                continue;
           }
@@ -588,7 +734,7 @@ void FinalizeSAMAggregatedHits(std::vector<SAM::LookupHit>& Hits,
 
      if (ShouldSuppressLowConfidenceSAMResultSet(Hits))
      {
-          ReplaceWithGuaranteedSourceDocFallback(Hits);
+          Hits.clear();
      }
 }
 
@@ -618,6 +764,7 @@ double ComputeSAM25TermScore(rocksdb::DB* Database,
      }
 
      size_t Matched = 0;
+     size_t LiteralMatches = 0;
      size_t DistancePenalty = 0;
      size_t SynonymMatches = 0;
 
@@ -644,12 +791,13 @@ double ComputeSAM25TermScore(rocksdb::DB* Database,
                if (BestMatch.Matched)
                {
                     Matched++;
+                    LiteralMatches += BestMatch.UsedSynonym ? 0U : 1U;
                     DistancePenalty += BestMatch.Distance.value_or(0U);
                     SynonymMatches += BestMatch.UsedSynonym ? 1U : 0U;
                }
      }
 
-     if (Matched == 0)
+     if (Matched == 0 || LiteralMatches == 0)
      {
           return -1.0;
      }
@@ -664,7 +812,8 @@ double ComputeSAM25TermScore(rocksdb::DB* Database,
      const double BaseTermScore = ClampSAMScore(Term.Score);
      const double SignalScore = ClampSAMScore(Term.Signal);
      const double QueryPhraseWeight = GetSAM25QueryPhraseWeight(QueryViews);
-     const double MinCoverage = (Instance && Instance->Config ? Instance->Config->GetSam25MinCoverage() : 0.50);
+     const double ConfiguredMinCoverage = (Instance && Instance->Config ? Instance->Config->GetSam25MinCoverage() : 0.50);
+     const double MinCoverage = GetSAM25RequiredCoverage(QueryViews, ConfiguredMinCoverage);
      const double MinOrderedBoostForPhrase = (Instance && Instance->Config ?
           Instance->Config->GetSam25MinOrderedBoostForPhrase() : 0.20);
      const double MinFinalScore = (Instance && Instance->Config ? Instance->Config->GetSam25MinFinalScore() : 0.35);

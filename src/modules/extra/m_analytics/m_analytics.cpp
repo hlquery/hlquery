@@ -157,6 +157,21 @@ class AnalyticsRuntimeModule final : public AutoRuntimeModule<AnalyticsRuntimeMo
           if (manager)
           {
                manager->RecordSearchEvent("CollectionSearch", Event.Collection, Event.SearchTimeMS, Event.Found, Event.Returned, Event.RequesterIP, Event.RequesterUser, Event.Authenticated);
+
+               if (!Event.Query.empty() && Event.Query != "*")
+               {
+                    AnalyticsQueryEvent QueryEvent;
+                    QueryEvent.Action = "CollectionSearch";
+                    QueryEvent.Collection = Event.Collection;
+                    QueryEvent.Query = Event.Query;
+                    QueryEvent.SearchTimeMS = Event.SearchTimeMS;
+                    QueryEvent.Found = Event.Found;
+                    QueryEvent.Returned = Event.Returned;
+                    QueryEvent.RequesterIP = Event.RequesterIP;
+                    QueryEvent.RequesterUser = Event.RequesterUser;
+                    QueryEvent.Authenticated = Event.Authenticated;
+                    manager->RecordQueryEvent(QueryEvent);
+               }
           }
      }
 
@@ -169,6 +184,71 @@ class AnalyticsRuntimeModule final : public AutoRuntimeModule<AnalyticsRuntimeMo
           if (manager)
           {
                manager->RecordSearchEvent("DocumentSearch", Event.Collection, Event.SearchTimeMS, Event.Found, Event.Returned, Event.RequesterIP, Event.RequesterUser, Event.Authenticated);
+
+               if (!Event.Query.empty() && Event.Query != "*")
+               {
+                    AnalyticsQueryEvent QueryEvent;
+                    QueryEvent.Action = "DocumentSearch";
+                    QueryEvent.Collection = Event.Collection;
+                    QueryEvent.Query = Event.Query;
+                    QueryEvent.SearchTimeMS = Event.SearchTimeMS;
+                    QueryEvent.Found = Event.Found;
+                    QueryEvent.Returned = Event.Returned;
+                    QueryEvent.RequesterIP = Event.RequesterIP;
+                    QueryEvent.RequesterUser = Event.RequesterUser;
+                    QueryEvent.Authenticated = Event.Authenticated;
+                    manager->RecordQueryEvent(QueryEvent);
+               }
+          }
+     }
+
+     void OnSamSearch(const std::string &Collection,
+                      const std::string &Query,
+                      uint64_t DocumentCount,
+                      const std::string &RequesterIP,
+                      const std::string &RequesterUser,
+                      bool Authenticated) override
+     {
+          EnsureStarted();
+
+          if (manager && !Query.empty())
+          {
+               AnalyticsQueryEvent QueryEvent;
+               QueryEvent.Action = "SamSearch";
+               QueryEvent.Collection = Collection;
+               QueryEvent.Query = Query;
+               QueryEvent.DocumentCount = DocumentCount;
+               QueryEvent.RequesterIP = RequesterIP;
+               QueryEvent.RequesterUser = RequesterUser;
+               QueryEvent.Authenticated = Authenticated;
+               manager->RecordQueryEvent(QueryEvent);
+
+               manager->RecordCountedEvent("SamSearch", Collection, 1, RequesterIP, RequesterUser, Authenticated);
+          }
+     }
+
+     void OnSamInteraction(const std::string &Collection,
+                           const std::string &Query,
+                           const std::string &DocumentID,
+                           const std::string &RequesterIP,
+                           const std::string &RequesterUser,
+                           bool Authenticated) override
+     {
+          EnsureStarted();
+
+          if (manager && !Query.empty())
+          {
+               AnalyticsQueryEvent QueryEvent;
+               QueryEvent.Action = "SamInteraction";
+               QueryEvent.Collection = Collection;
+               QueryEvent.Query = Query;
+               QueryEvent.DocumentID = DocumentID;
+               QueryEvent.RequesterIP = RequesterIP;
+               QueryEvent.RequesterUser = RequesterUser;
+               QueryEvent.Authenticated = Authenticated;
+               manager->RecordQueryEvent(QueryEvent);
+
+               manager->RecordCountedEvent("SamInteraction", Collection, 1, RequesterIP, RequesterUser, Authenticated);
           }
      }
 
@@ -468,12 +548,25 @@ class AnalyticsRuntimeModule final : public AutoRuntimeModule<AnalyticsRuntimeMo
           {
                ModuleCommandResponse response;
                response.Success = true;
-               response.Body = JsonBuilder()
-                    .Add("module", "analytics")
+               JsonBuilder builder;
+               builder.Add("module", "analytics")
                     .Add("loaded", static_cast<bool>(manager))
                     .Add("enabled", manager && manager->IsEnabled())
-                    .Add("message", manager ? "Analytics module is loaded." : "Analytics module is not configured.")
-                    .ToString();
+                    .Add("message", manager ? "Analytics module is loaded." : "Analytics module is not configured.");
+
+               if (manager)
+               {
+                    builder.Add("started", manager->IsStarted())
+                         .Add("running", manager->IsRunning())
+                         .Add("endpoint", manager->GetEndpointURL())
+                         .Add("flush_interval_seconds", manager->GetFlushIntervalSeconds())
+                         .Add("connect_timeout_ms", manager->GetConnectTimeoutMS())
+                         .Add("buffered_buckets", static_cast<unsigned long long>(manager->GetBufferedBucketCount()))
+                         .Add("dropped_events_total", static_cast<unsigned long long>(manager->GetDroppedEventsTotal()))
+                         .Add("failed_posts_total", static_cast<unsigned long long>(manager->GetFailedPostsTotal()));
+               }
+
+               response.Body = builder.ToString();
                return response;
           }
 

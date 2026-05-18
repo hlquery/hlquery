@@ -478,7 +478,7 @@ void ListenManager::OnEventHandlerRead()
 
           /* Grow kernel socket buffers for high-bandwidth transfers */
 
-          int BufSize = 8 * 1024 * 1024; /* 8MB */
+          int BufSize = HLQUERY_SOCKET_BUFFER_SIZE;
 
           if (setsockopt(ClientFD, SOL_SOCKET, SO_SNDBUF, &BufSize, sizeof(BufSize)) < 0)
           {

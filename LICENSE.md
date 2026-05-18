@@ -1,3 +1,7 @@
+<div align="center">
+  <img src="https://docs.hlquery.com/img/hlquery/2.png" alt="hlquery logo" width="200">
+</div>
+
 BSD 3-Clause License
 
 Copyright (c) 2021-2026, Carlos F. Ferry

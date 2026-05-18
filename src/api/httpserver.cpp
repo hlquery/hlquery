@@ -1523,7 +1523,7 @@ void HttpConnection::SetAdvancedSocketOptions(int FDValue)
 
      /* Set large send/receive buffers for high throughput. */
 
-     int BufSize = 1024 * 1024;
+     int BufSize = HLQUERY_SOCKET_BUFFER_SIZE;
 
      setsockopt(FDValue, SOL_SOCKET, SO_SNDBUF, &BufSize, sizeof(BufSize));
      setsockopt(FDValue, SOL_SOCKET, SO_RCVBUF, &BufSize, sizeof(BufSize));

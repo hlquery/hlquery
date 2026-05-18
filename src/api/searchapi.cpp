@@ -2263,6 +2263,26 @@ bool SearchAPI::ParseCollectionConfigFromJSON(const std::string &Json, Collectio
                }
           }
 
+          if (Parsed.contains("language") && Parsed["language"].is_string())
+          {
+               const std::string Language = Parsed["language"].get<std::string>();
+
+               if (!Language.empty() && Language != "auto")
+               {
+                    Config.Metadata["_lang"] = Language;
+               }
+          }
+
+          if (Parsed.contains("lang") && Parsed["lang"].is_string())
+          {
+               const std::string Language = Parsed["lang"].get<std::string>();
+
+               if (!Language.empty() && Language != "auto")
+               {
+                    Config.Metadata["_lang"] = Language;
+               }
+          }
+
           if (Parsed.is_object())
           {
                for (auto It = Parsed.begin(); It != Parsed.end(); ++It)

@@ -31,7 +31,7 @@
 
 enum class LogLevel
 {
-     LOG_NONE 	    =  0,
+     LOG_NONE       =  0,
      LOG_CRITICAL   =  1,
      LOG_SPARSE     =  2,
      LOG_NORMAL     =  3,

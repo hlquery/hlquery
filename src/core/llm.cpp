@@ -1127,6 +1127,8 @@ void llm::EnqueueContextualization(const std::string& Collection, const Document
      PendingContextJobs.push_back(ContextJob{Collection, Doc});
 }
 
+/* Processes queued context-generation jobs while respecting the configured batch size. */
+
 size_t llm::ProcessPendingContextJobs(size_t MaxJobs)
 {
      if (!Enabled)
@@ -1140,9 +1142,9 @@ size_t llm::ProcessPendingContextJobs(size_t MaxJobs)
 
      if (DebugEnabled)
      {
-          Instance->Logs->Debug("llm", "ProcessPendingContextJobs: starting with max_jobs=" +
-                                         std::to_string(MaxJobs) + ", pending=" +
-                                         std::to_string(GetPendingContextJobs()) + ".");
+          const std::string StartMessage = "ProcessPendingContextJobs: starting with max_jobs=" + std::to_string(MaxJobs) + ", pending=" + std::to_string(GetPendingContextJobs()) + ".";
+
+          Instance->Logs->Debug("llm", StartMessage);
      }
 
      while (Processed < MaxJobs)
@@ -1166,8 +1168,9 @@ size_t llm::ProcessPendingContextJobs(size_t MaxJobs)
 
           if (DebugEnabled)
           {
-               Instance->Logs->Debug("llm", "ProcessPendingContextJobs: processing '" +
-                                              Job.Collection + "/" + Job.Doc.ID + "'.");
+               const std::string ProcessingMessage = "ProcessPendingContextJobs: processing '" + Job.Collection + "/" + Job.Doc.ID + "'.";
+
+               Instance->Logs->Debug("llm", ProcessingMessage);
           }
 
           std::vector<ContextSuggestion> Suggestions =
@@ -1189,11 +1192,9 @@ size_t llm::ProcessPendingContextJobs(size_t MaxJobs)
                     Summary += Suggestions[I].Kind + "=" + Suggestions[I].Text;
                }
 
-               Instance->Logs->Debug("llm", "ProcessPendingContextJobs: stored " +
-                                              std::to_string(Suggestions.size()) +
-                                              " suggestion(s) for '" + Job.Collection + "/" +
-                                              Job.Doc.ID + "'" +
-                                              (Summary.empty() ? "." : ": " + Summary + "."));
+               const std::string StoredMessage = "ProcessPendingContextJobs: stored " + std::to_string(Suggestions.size()) + " suggestion(s) for '" + Job.Collection + "/" + Job.Doc.ID + "'" + (Summary.empty() ? "." : ": " + Summary + ".");
+
+               Instance->Logs->Debug("llm", StoredMessage);
           }
 
           ++Processed;
@@ -1201,9 +1202,9 @@ size_t llm::ProcessPendingContextJobs(size_t MaxJobs)
 
      if (DebugEnabled)
      {
-          Instance->Logs->Debug("llm", "ProcessPendingContextJobs: finished processed=" +
-                                         std::to_string(Processed) + ", pending=" +
-                                         std::to_string(GetPendingContextJobs()) + ".");
+          const std::string FinishedMessage = "ProcessPendingContextJobs: finished processed=" + std::to_string(Processed) + ", pending=" + std::to_string(GetPendingContextJobs()) + ".";
+
+          Instance->Logs->Debug("llm", FinishedMessage);
      }
 
      return Processed;

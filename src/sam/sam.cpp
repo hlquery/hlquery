@@ -667,6 +667,89 @@ double ComputeSemanticVectorSimilarity(const std::vector<float>& Left,
      return ClampSAMScore((Dot + 1.0) * 0.5);
 }
 
+double ComputeSemanticVectorCosine(const std::vector<float>& Left,
+                                   const std::vector<float>& Right)
+{
+     if (Left.empty() || Right.empty() || Left.size() != Right.size())
+     {
+          return 0.0;
+     }
+
+     double Dot = 0.0;
+     double LeftNormSq = 0.0;
+     double RightNormSq = 0.0;
+
+     for (size_t Index = 0; Index < Left.size(); ++Index)
+     {
+          const double L = static_cast<double>(Left[Index]);
+          const double R = static_cast<double>(Right[Index]);
+          Dot += L * R;
+          LeftNormSq += L * L;
+          RightNormSq += R * R;
+     }
+
+     if (LeftNormSq <= 0.0 || RightNormSq <= 0.0)
+     {
+          return 0.0;
+     }
+
+     return Dot / std::sqrt(LeftNormSq * RightNormSq);
+}
+
+double ComputeSemanticVectorProjection(const std::vector<float>& Query,
+                                       const std::vector<float>& Document)
+{
+     if (Query.empty() || Document.empty() || Query.size() != Document.size())
+     {
+          return 0.0;
+     }
+
+     double Dot = 0.0;
+     double QueryNormSq = 0.0;
+
+     for (size_t Index = 0; Index < Query.size(); ++Index)
+     {
+          const double Q = static_cast<double>(Query[Index]);
+          Dot += Q * static_cast<double>(Document[Index]);
+          QueryNormSq += Q * Q;
+     }
+
+     if (QueryNormSq <= 0.0)
+     {
+          return 0.0;
+     }
+
+     return Dot / QueryNormSq;
+}
+
+double ComputeSemanticVectorResidualRatio(const std::vector<float>& Query,
+                                          const std::vector<float>& Document)
+{
+     if (Query.empty() || Document.empty() || Query.size() != Document.size())
+     {
+          return 1.0;
+     }
+
+     const double Projection = ComputeSemanticVectorProjection(Query, Document);
+     double ResidualNormSq = 0.0;
+     double QueryNormSq = 0.0;
+
+     for (size_t Index = 0; Index < Query.size(); ++Index)
+     {
+          const double Q = static_cast<double>(Query[Index]);
+          const double Residual = Q - (Projection * static_cast<double>(Document[Index]));
+          ResidualNormSq += Residual * Residual;
+          QueryNormSq += Q * Q;
+     }
+
+     if (QueryNormSq <= 0.0)
+     {
+          return 1.0;
+     }
+
+     return std::sqrt(ResidualNormSq / QueryNormSq);
+}
+
 struct SAMQueryTokenViews
 {
      bool Quoted = false;
@@ -1133,12 +1216,26 @@ std::vector<std::string> GetSAMTokenAlternatives(const SAMQueryTokenViews& Query
      std::vector<std::string> Alternatives;
      Alternatives.push_back(Token);
 
+     if (Instance && Instance->Config && !Instance->Config->GetSam25EnableSynonymExpansion())
+     {
+          return Alternatives;
+     }
+
      const auto It = QueryViews.SynonymGraph.find(Token);
 
      if (It != QueryViews.SynonymGraph.end())
      {
+          const size_t MaxSynonyms = (Instance && Instance->Config)
+               ? static_cast<size_t>(std::max(0, Instance->Config->GetSam25MaxSynonymsPerToken()))
+               : 4U;
+
           for (const auto& Candidate : It->second)
           {
+               if (Alternatives.size() > MaxSynonyms)
+               {
+                    break;
+               }
+
                if (Candidate != Token)
                {
                     Alternatives.push_back(Candidate);
@@ -1171,7 +1268,7 @@ SAMTokenMatchResult MatchSAMQueryTokenToTermToken(const SAMQueryTokenViews& Quer
           if (Index == 0)
           {
                const size_t Distance = EditDistance(Candidate, TermToken);
-               const size_t MaxDistance = Candidate.size() >= 8 ? 2 : 1;
+               const size_t MaxDistance = Candidate.size() >= 5 ? 2 : 1;
 
                if (Distance <= MaxDistance)
                {
@@ -1184,6 +1281,113 @@ SAMTokenMatchResult MatchSAMQueryTokenToTermToken(const SAMQueryTokenViews& Quer
      }
 
      return Result;
+}
+
+bool IsSAMLiteralTokenMatch(const std::string& QueryToken,
+                            const std::string& CandidateToken)
+{
+     if (QueryToken == CandidateToken)
+     {
+          return true;
+     }
+
+     const size_t Distance = EditDistance(QueryToken, CandidateToken);
+     const size_t MaxDistance = QueryToken.size() >= 5 ? 2 : 1;
+     return Distance <= MaxDistance;
+}
+
+size_t CountSAMLiteralMatchedQueryTokens(const SAMQueryTokenViews& QueryViews,
+                                         const std::vector<std::string>& CandidateTokens)
+{
+     if (QueryViews.CoreTokens.empty() || CandidateTokens.empty())
+     {
+          return 0;
+     }
+
+     size_t Matched = 0;
+
+     for (const auto& QueryToken : QueryViews.CoreTokens)
+     {
+          for (const auto& CandidateToken : CandidateTokens)
+          {
+               if (IsSAMLiteralTokenMatch(QueryToken, CandidateToken))
+               {
+                    ++Matched;
+                    break;
+               }
+          }
+     }
+
+     return Matched;
+}
+
+size_t CountSAMMatchedQueryTokens(const SAMQueryTokenViews& QueryViews,
+                                  const std::vector<std::string>& CandidateTokens)
+{
+     if (QueryViews.CoreTokens.empty() || CandidateTokens.empty())
+     {
+          return 0;
+     }
+
+     size_t Matched = 0;
+
+     for (const auto& QueryToken : QueryViews.CoreTokens)
+     {
+          for (const auto& CandidateToken : CandidateTokens)
+          {
+               if (MatchSAMQueryTokenToTermToken(QueryViews, QueryToken, CandidateToken).Matched)
+               {
+                    ++Matched;
+                    break;
+               }
+          }
+     }
+
+     return Matched;
+}
+
+double ComputeSAMQueryTokenCoverage(const SAMQueryTokenViews& QueryViews,
+                                    const std::vector<std::string>& CandidateTokens)
+{
+     if (QueryViews.CoreTokens.empty())
+     {
+          return 0.0;
+     }
+
+     return static_cast<double>(CountSAMMatchedQueryTokens(QueryViews, CandidateTokens)) /
+            static_cast<double>(QueryViews.CoreTokens.size());
+}
+
+double ComputeSAMLiteralQueryTokenCoverage(const SAMQueryTokenViews& QueryViews,
+                                           const std::vector<std::string>& CandidateTokens)
+{
+     if (QueryViews.CoreTokens.empty())
+     {
+          return 0.0;
+     }
+
+     return static_cast<double>(CountSAMLiteralMatchedQueryTokens(QueryViews, CandidateTokens)) /
+            static_cast<double>(QueryViews.CoreTokens.size());
+}
+
+double GetSAM25RequiredCoverage(const SAMQueryTokenViews& QueryViews,
+                                double ConfiguredMinCoverage)
+{
+     const size_t QuerySize = QueryViews.CoreTokens.size();
+
+     if (QuerySize <= 1)
+     {
+          return ConfiguredMinCoverage;
+     }
+
+     if (QuerySize == 2)
+     {
+          return std::max(ConfiguredMinCoverage, 1.0);
+     }
+
+     const double AllButOneCoverage =
+          static_cast<double>(QuerySize - 1) / static_cast<double>(QuerySize);
+     return std::max(ConfiguredMinCoverage, AllButOneCoverage);
 }
 
 SAMQueryTokenViews NormalizeSAMQueryTokenViews(rocksdb::DB* Database,
@@ -2742,6 +2946,7 @@ double ComputeSAM25SourceFieldScore(const SAMQueryTokenViews& QueryViews,
      }
 
      size_t Matched = 0;
+     size_t LiteralMatches = 0;
      size_t DistancePenalty = 0;
      size_t SynonymMatches = 0;
 
@@ -2768,12 +2973,13 @@ double ComputeSAM25SourceFieldScore(const SAMQueryTokenViews& QueryViews,
                if (BestMatch.Matched)
                {
                     Matched++;
+                    LiteralMatches += BestMatch.UsedSynonym ? 0U : 1U;
                     DistancePenalty += BestMatch.Distance.value_or(0U);
                     SynonymMatches += BestMatch.UsedSynonym ? 1U : 0U;
                }
           }
 
-     if (Matched == 0)
+     if (Matched == 0 || LiteralMatches == 0)
      {
           return -1.0;
      }
@@ -2786,7 +2992,8 @@ double ComputeSAM25SourceFieldScore(const SAMQueryTokenViews& QueryViews,
      const double SynonymCoverage = ClampSAMScore(static_cast<double>(SynonymMatches) /
           static_cast<double>(std::max<size_t>(1, QueryTokens.size())));
      const double QueryPhraseWeight = GetSAM25QueryPhraseWeight(QueryViews);
-     const double MinCoverage = (Instance && Instance->Config ? Instance->Config->GetSam25MinCoverage() : 0.50);
+     const double ConfiguredMinCoverage = (Instance && Instance->Config ? Instance->Config->GetSam25MinCoverage() : 0.50);
+     const double MinCoverage = GetSAM25RequiredCoverage(QueryViews, ConfiguredMinCoverage);
      const double MinOrderedBoostForPhrase = (Instance && Instance->Config ?
           Instance->Config->GetSam25MinOrderedBoostForPhrase() : 0.20);
      const double MinFinalScore = (Instance && Instance->Config ? Instance->Config->GetSam25SourceDocMinScore() : 0.32);
@@ -3253,6 +3460,12 @@ std::vector<SAMMatchedSearchIdea> BuildMatchedSearchIdeas(rocksdb::DB* Database,
 
           const double CoverageScore = ClampSAMScore(static_cast<double>(Overlap) /
                static_cast<double>(std::max<size_t>(1, QueryViews.CoreTokens.size())));
+
+          if (CoverageScore <= 0.0)
+          {
+               continue;
+          }
+
           const double SemanticScore = ComputeSemanticVectorSimilarity(QueryVector, Entry.Vector);
           const double PopularityScore = ClampSAMScore(std::log1p(static_cast<double>(Entry.Uses)) / std::log(12.0));
           const double FreshnessScore = GetSAMIdeaFreshness(Entry.LastSeenMS, NowMS);

@@ -103,8 +103,6 @@ struct RocksDBOptions
 
      std::string BottommostCompression = "none";
 
-     /* Block cache and bloom filter */
-
      /* Block cache size in bytes. */
 
      size_t BlockCacheSize = 256 * 1024 * 1024; /* 256MB */

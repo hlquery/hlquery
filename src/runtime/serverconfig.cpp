@@ -436,7 +436,7 @@ void ServerConfig::ApplyConfiguration()
                SamDataDirectory = SAMTag->GetString("sam_data_dir", SamDataDirectory);
           }
 
-          if (SAMTag->HasAttribute("SAMID"))
+          if (!SAMTag->HasAttribute("sam_search_ideas") && SAMTag->HasAttribute("SAMID"))
           {
                SamSearchIdeasCollection = SAMTag->GetString("SAMID", SamSearchIdeasCollection);
           }
@@ -1552,13 +1552,12 @@ void ServerConfig::ApplyConfiguration()
                const std::filesystem::path ConfigDirValue = ConfigPathValue.parent_path();
                if (!ConfigDirValue.empty())
                {
+                    /* Development configs live under run/conf and should log to run/logs.
+                     * System packages are configured with HLQUERY_LOG_DIR=/var/log/hlquery;
+                     * do not derive /etc/hlquery/logs from /etc/hlquery/hlquery.conf. */
                     if (ConfigDirValue.filename() == "conf" && !ConfigDirValue.parent_path().empty())
                     {
                          ResolvedLogDir = ConfigDirValue.parent_path() / "logs";
-                    }
-                    else
-                    {
-                         ResolvedLogDir = ConfigDirValue / "logs";
                     }
                }
           }
@@ -1902,65 +1901,40 @@ void ServerConfig::ApplyConfiguration()
                               return static_cast<char>(std::tolower(C));
                          });
 
-          std::string Token;
-          auto FlushToken = [&](std::string *OutTokenError)
+          /* role= must be a single value, not a comma/pipe/whitespace-separated list. */
+          for (unsigned char C : Role)
           {
-               Token = ClusterTrimCopy(Token);
-               if (Token.empty())
+               if (C == ',' || C == '|' || std::isspace(C))
                {
-                    return true;
-               }
-
-               if (Token == "distributed" || Token == "search" || Token == "master")
-               {
-                    *OutCluster = true;
-               }
-               else if (Token == "slave" || Token == "replica")
-               {
-                    *OutSlave = true;
-               }
-               else if (Token == "both" || Token == "all")
-               {
-                    *OutCluster = true;
-                    *OutSlave = true;
-               }
-               else
-               {
-                    if (OutTokenError)
+                    if (OutError)
                     {
-                         *OutTokenError = "Unknown node role '" + Token + "'";
+                         *OutError = "Node role must be a single value (distributed/search/master or slave/replica). If you need both purposes, add two <node ...> entries (or use legacy <slave ...> for replication).";
                     }
                     return false;
                }
-
-               Token.clear();
-               return true;
-          };
-
-          for (char C : Role)
-          {
-               if (C == ',' || C == '|' || std::isspace(static_cast<unsigned char>(C)))
-               {
-                    if (!FlushToken(OutError))
-                    {
-                         return false;
-                    }
-                    continue;
-               }
-
-               Token.push_back(C);
           }
 
-          if (!FlushToken(OutError))
+          if (Role == "distributed" || Role == "search" || Role == "master")
           {
-               return false;
+               *OutCluster = true;
           }
-
-          if (!*OutCluster && !*OutSlave)
+          else if (Role == "slave" || Role == "replica")
+          {
+               *OutSlave = true;
+          }
+          else if (Role == "both" || Role == "all")
           {
                if (OutError)
                {
-                    *OutError = "Node role does not enable any link purpose";
+                    *OutError = "Node role '" + Role + "' is not supported; use either distributed/search/master or slave/replica";
+               }
+               return false;
+          }
+          else
+          {
+               if (OutError)
+               {
+                    *OutError = "Unknown node role '" + Role + "'";
                }
                return false;
           }

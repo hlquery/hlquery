@@ -11,11 +11,14 @@
  */
 
 #include <algorithm>
+#include <cerrno>
 #include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <fcntl.h>
 #include <iostream>
 #include <sstream>
+#include <unistd.h>
 
 #include "api/apikeys.h"
 #include "common/cryptoutils.h"
@@ -25,6 +28,77 @@
 
 namespace
 {
+constexpr size_t kMaxKeysDatSize = 64 * 1024 * 1024;
+constexpr uint32_t kMaxKeyCount = 100000;
+constexpr uint32_t kMaxScopeCount = 10000;
+constexpr uint32_t kMaxActionCount = 1024;
+constexpr uint32_t kMaxKeyIdLen = 256;
+constexpr uint32_t kMaxKeyHashLen = 256;
+constexpr uint32_t kMaxKeyDescriptionLen = 4096;
+constexpr uint32_t kMaxCollectionNameLen = 256;
+constexpr uint32_t kMaxEmbeddedFiltersLen = 64 * 1024;
+
+/* WriteFileAtomic writes data to a temp file, fsyncs, then renames into place. */
+
+bool WriteFileAtomic(const std::string &FilePath, const std::string &Contents)
+{
+     std::error_code EC;
+
+     std::filesystem::create_directories(std::filesystem::path(FilePath).parent_path(), EC);
+
+     std::string DirPath = std::filesystem::path(FilePath).parent_path().string();
+
+     std::string TmpPath = FilePath + ".tmp." + std::to_string(static_cast<long long>(getpid())) + "." + std::to_string(::NowMs());
+
+     int FD = open(TmpPath.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0600);
+
+     if (FD < 0)
+     {
+          return false;
+     }
+
+     size_t Offset = 0;
+
+     while (Offset < Contents.size())
+     {
+          ssize_t Written = write(FD, Contents.data() + Offset, Contents.size() - Offset);
+
+          if (Written <= 0)
+          {
+               close(FD);
+               unlink(TmpPath.c_str());
+               return false;
+          }
+
+          Offset += static_cast<size_t>(Written);
+     }
+
+     if (fsync(FD) < 0)
+     {
+          close(FD);
+          unlink(TmpPath.c_str());
+          return false;
+     }
+
+     close(FD);
+
+     if (::rename(TmpPath.c_str(), FilePath.c_str()) != 0)
+     {
+          unlink(TmpPath.c_str());
+          return false;
+     }
+
+     int DirFD = open(DirPath.c_str(), O_RDONLY | O_DIRECTORY);
+
+     if (DirFD >= 0)
+     {
+          (void)fsync(DirFD);
+          close(DirFD);
+     }
+
+     return true;
+}
+
 /* Encryption key for keys.dat. */
 
 std::string GetKeysEncryptionKey()
@@ -366,17 +440,7 @@ bool APIKeyManager::SaveKeysToEncryptedFile(const std::string &FilePath)
 
      std::filesystem::create_directories(std::filesystem::path(FilePath).parent_path());
 
-     std::ofstream File(FilePath, std::ios::binary);
-
-     if (!File.is_open())
-     {
-          return false;
-     }
-
-     File.write(Encrypted.data(), Encrypted.size());
-     File.close();
-
-     return File.good();
+     return WriteFileAtomic(FilePath, Encrypted);
 }
 
 bool APIKeyManager::LoadKeysFromEncryptedFile(const std::string &FilePath)
@@ -388,7 +452,31 @@ bool APIKeyManager::LoadKeysFromEncryptedFile(const std::string &FilePath)
           return false;
      }
 
-     std::string Encrypted((std::istreambuf_iterator<char>(File)), std::istreambuf_iterator<char>());
+     File.seekg(0, std::ios::end);
+
+     std::streampos FileSizePos = File.tellg();
+
+     File.seekg(0, std::ios::beg);
+
+     if (FileSizePos <= 0)
+     {
+          return false;
+     }
+
+     if (FileSizePos > static_cast<std::streampos>(kMaxKeysDatSize))
+     {
+          return false;
+     }
+
+     size_t FileSize = static_cast<size_t>(FileSizePos);
+     std::string Encrypted(FileSize, '\0');
+
+     if (!File.read(Encrypted.data(), FileSize))
+     {
+          File.close();
+
+          return false;
+     }
 
      File.close();
 
@@ -406,27 +494,48 @@ bool APIKeyManager::LoadKeysFromEncryptedFile(const std::string &FilePath)
 
      std::istringstream ISS(Plaintext, std::ios::binary);
 
-     auto ReadValue = [&](auto &Val)
+     auto ReadValue = [&](auto &Val) -> bool
      {
-          ISS.read(reinterpret_cast<char *>(&Val), sizeof(Val));
+          return static_cast<bool>(ISS.read(reinterpret_cast<char *>(&Val), sizeof(Val)));
      };
 
-     auto ReadString = [&]() -> std::string
+     auto ReadString = [&](std::string &Out, uint32_t MaxLen) -> bool
      {
           uint32_t Len = 0;
 
-          ReadValue(Len);
+          if (!ReadValue(Len))
+          {
+               return false;
+          }
 
-          std::string S(Len, '\0');
+          if (Len > MaxLen)
+          {
+               return false;
+          }
 
-          ISS.read(&S[0], Len);
+          if (Len == 0)
+          {
+               Out.clear();
 
-          return S;
+               return true;
+          }
+
+          Out.resize(Len);
+
+          return static_cast<bool>(ISS.read(&Out[0], Len));
      };
 
      uint32_t KeyCount = 0;
 
-     ReadValue(KeyCount);
+     if (!ReadValue(KeyCount))
+     {
+          return false;
+     }
+
+     if (KeyCount > kMaxKeyCount)
+     {
+          return false;
+     }
 
      std::unique_lock<std::shared_mutex> Lock(MutexValue);
 
@@ -437,48 +546,103 @@ bool APIKeyManager::LoadKeysFromEncryptedFile(const std::string &FilePath)
      {
           APIKey KeyObj;
 
-          KeyObj.ID = ReadString();
-          KeyObj.KeyHash = ReadString();
-          KeyObj.Description = ReadString();
+          if (!ReadString(KeyObj.ID, kMaxKeyIdLen))
+          {
+               return false;
+          }
+
+          if (!ReadString(KeyObj.KeyHash, kMaxKeyHashLen))
+          {
+               return false;
+          }
+
+          if (!ReadString(KeyObj.Description, kMaxKeyDescriptionLen))
+          {
+               return false;
+          }
 
           uint32_t ScopeCount = 0;
 
-          ReadValue(ScopeCount);
+          if (!ReadValue(ScopeCount))
+          {
+               return false;
+          }
+
+          if (ScopeCount > kMaxScopeCount)
+          {
+               return false;
+          }
 
           for (uint32_t J = 0; J < ScopeCount; ++J)
           {
-               std::string ColName = ReadString();
+               std::string ColName;
+
+               if (!ReadString(ColName, kMaxCollectionNameLen))
+               {
+                    return false;
+               }
 
                CollectionScope Scope;
 
                uint32_t ActionCount = 0;
 
-               ReadValue(ActionCount);
+               if (!ReadValue(ActionCount))
+               {
+                    return false;
+               }
+
+               if (ActionCount > kMaxActionCount)
+               {
+                    return false;
+               }
 
                for (uint32_t K = 0; K < ActionCount; ++K)
                {
                     uint32_t ActionVal = 0;
 
-                    ReadValue(ActionVal);
+                    if (!ReadValue(ActionVal))
+                    {
+                         return false;
+                    }
                     Scope.Actions.insert(static_cast<APIKeyAction>(ActionVal));
                }
 
-               Scope.EmbeddedFilters = ReadString();
+               if (!ReadString(Scope.EmbeddedFilters, kMaxEmbeddedFiltersLen))
+               {
+                    return false;
+               }
 
                KeyObj.Scopes[ColName] = Scope;
           }
 
-          ReadValue(KeyObj.HasExpiration);
+          if (!ReadValue(KeyObj.HasExpiration))
+          {
+               return false;
+          }
 
           long long ExpiresAtTime = 0;
 
-          ReadValue(ExpiresAtTime);
+          if (!ReadValue(ExpiresAtTime))
+          {
+               return false;
+          }
 
           KeyObj.ExpiresAt = std::chrono::system_clock::time_point(std::chrono::system_clock::duration(ExpiresAtTime));
 
-          ReadValue(KeyObj.RateLimitPerMinute);
-          ReadValue(KeyObj.AllowHanalyzer);
-          ReadValue(KeyObj.UseCount);
+          if (!ReadValue(KeyObj.RateLimitPerMinute))
+          {
+               return false;
+          }
+
+          if (!ReadValue(KeyObj.AllowHanalyzer))
+          {
+               return false;
+          }
+
+          if (!ReadValue(KeyObj.UseCount))
+          {
+               return false;
+          }
 
           Keys[KeyObj.ID] = KeyObj;
           HashToID[KeyObj.KeyHash] = KeyObj.ID;

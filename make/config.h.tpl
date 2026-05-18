@@ -21,6 +21,8 @@
 /* Build Information */
 
 #define HLQUERY_VERSION "${HLQUERY_VERSION}"
+#define HLQUERY_RELEASE_STAGE "${HLQUERY_RELEASE_STAGE}"
+#define HLQUERY_RELEASE_CANDIDATE ${HLQUERY_RELEASE_CANDIDATE}
 #define HLQUERY_SYSTEM "${HLQUERY_SYSTEM}"
 
 /* Installation paths */
@@ -398,6 +400,10 @@ ${HLQUERY_SSL_DEFINES}
 /* HTTP read buffer size in bytes (increased from 4096) */
 
 #define HTTP_READ_BUFFER_SIZE 8192
+
+/* Kernel send/receive socket buffer size in bytes (8MB) */
+
+#define HLQUERY_SOCKET_BUFFER_SIZE (8 * 1024 * 1024)
 
 /* RocksDB Default Configuration Constants */
 /* Create database if missing */

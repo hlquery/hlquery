@@ -2323,6 +2323,14 @@ HttpResponse SearchAPI::HandleSAMRebuild(const HttpRequest &Request)
                                     ErrorMessage.empty() ? std::string("Unable to start SAM rebuild.") : ErrorMessage);
      }
 
+     FOREACH_MOD(OnSamIndexing,
+                 CollectionName,
+                 "rebuild",
+                 AlreadyRunning,
+                 Request.RemoteAddress,
+                 Request.APIKeyID,
+                 !Request.APIKeyID.empty());
+
      nlohmann::json Root;
      Root["ok"] = true;
      Root["collection"] = CollectionName;
@@ -3548,6 +3556,14 @@ HttpResponse SearchAPI::HandleSAMGetDocument(const HttpRequest &Request)
           {
                Root["interaction_recorded"] = true;
                Root["interaction_query"] = InteractionQuery;
+
+               FOREACH_MOD(OnSamInteraction,
+                           CollectionName,
+                           InteractionQuery,
+                           Entry.DocumentID,
+                           Request.RemoteAddress,
+                           Request.APIKeyID,
+                           !Request.APIKeyID.empty());
           }
      }
 

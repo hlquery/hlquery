@@ -1769,64 +1769,14 @@ bool SAM::RecordSearchIdea(const std::string& Collection,
                            const std::vector<SearchIdeaDocumentRef>& Documents,
                            std::string* ErrorMessage)
 {
-     FlushPendingSearchInteractions(2);
-     FlushPendingSearchIdeas(2);
-
-     constexpr size_t MaxAttempts = 4;
-     constexpr auto RetryDelay = std::chrono::milliseconds(2);
-
-     for (size_t Attempt = 0; Attempt < MaxAttempts; ++Attempt)
+     if (!EnqueuePendingSearchIdea(Collection, Query, Documents, ErrorMessage))
      {
-          std::unique_lock<std::mutex> Lock(DBMutex, std::try_to_lock);
-
-          if (Lock.owns_lock())
-          {
-               if (!Database)
-               {
-                    if (ErrorMessage)
-                    {
-                         *ErrorMessage = "SAM database is not open.";
-                    }
-
-                    return false;
-               }
-
-               const bool Recorded = RecordSearchIdeaLocked(Collection, Query, Documents, ErrorMessage);
-
-               if (Recorded)
-               {
-                    FlushPendingSearchIdeas(1);
-               }
-
-               return Recorded;
-          }
-
-          if ((Attempt + 1) < MaxAttempts)
-          {
-               std::this_thread::sleep_for(RetryDelay);
-          }
+          return false;
      }
 
-     const std::string FailureMessage = "SAM history recording skipped because the database remained busy.";
-
-     if (ErrorMessage)
-     {
-          *ErrorMessage = FailureMessage;
-     }
-
-     if (EnqueuePendingSearchIdea(Collection, Query, Documents, nullptr))
-     {
-          RecordDebugEvent(Collection,
-                           "deferred SAM search-idea recording for query '" + TrimCopy(Query) +
-                                "' because the database remained busy");
-          return true;
-     }
-
-     RecordDebugEvent(Collection,
-                      "skipped SAM search-idea recording for query '" + TrimCopy(Query) +
-                           "' because the database remained busy");
-
-     return false;
+     /* Wake background SAM workers so the queued idea can be flushed soon. */
+     QueueCV.notify_one();
+     return true;
 }
 
 bool SAM::RecordSearchInteraction(const std::string& Collection,
@@ -3384,7 +3334,7 @@ static std::vector<SAM::LookupHit> LookupDirectTermOnly(std::shared_ptr<rocksdb:
           }
      }
 
-     FinalizeSAMAggregatedHits(Hits, AggregatedHits, QueryViews, Limit);
+     FinalizeSAMAggregatedHits(Hits, AggregatedHits, QueryViews, DatabaseHandle.get(), Limit);
      return Hits;
 }
 
@@ -3495,7 +3445,7 @@ std::vector<SAM::LookupHit> SAM::Lookup(const std::string& Query, size_t Limit) 
      AppendSemanticProfileHits(AggregatedHits, DatabaseHandle.get(), "", SemanticPlan,
                                std::max<size_t>(256, Limit * 24));
 
-     FinalizeSAMAggregatedHits(Hits, AggregatedHits, QueryViews, Limit);
+     FinalizeSAMAggregatedHits(Hits, AggregatedHits, QueryViews, DatabaseHandle.get(), Limit);
      CaptureLookupEvaluation(DatabaseHandle.get(), "__global__", Query, Hits, nullptr);
 
      EmitSAM25DebugLog(Query, Hits);
@@ -3690,7 +3640,7 @@ std::vector<SAM::LookupHit> SAM::Lookup(const std::string& Collection, const std
                                         std::max<size_t>(6, std::min<size_t>(Limit * 3, 12)));
      AppendCollectionLearnedHits(AggregatedHits, DatabaseHandle.get(), Collection, SeededVariants);
 
-     FinalizeSAMAggregatedHits(Hits, AggregatedHits, QueryViews, Limit);
+     FinalizeSAMAggregatedHits(Hits, AggregatedHits, QueryViews, DatabaseHandle.get(), Limit);
      CaptureLookupEvaluation(DatabaseHandle.get(), Collection, Query, Hits, nullptr);
 
      EmitSAM25DebugLog(Query, Hits);

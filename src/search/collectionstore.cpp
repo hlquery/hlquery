@@ -26,6 +26,7 @@
 #include "search/cstore.h"
 #include "search/lindex.h"
 #include "sam/sam.h"
+#include "sam/lang.h"
 #include "search/writeaheadlogvalidator.h"
 #include "utils/consolewriter.h"
 
@@ -34,9 +35,72 @@
 static std::vector<std::thread> IndexingThreads;
 static std::mutex IndexingThreadsMutex;
 
+static bool IsSAMAutoIndexPaused()
+{
+     if (!Instance || !Instance->Sam)
+     {
+          return false;
+     }
+
+     const uint64_t pause_until_ms = Instance->Sam->GetAutoIndexPauseUntilMS();
+
+     if (pause_until_ms == 0)
+     {
+          return false;
+     }
+
+     return static_cast<uint64_t>(Instance->NowMs()) < pause_until_ms;
+}
+
 static std::string GetCollectionConfigKey(const std::string &Name)
 {
      return "collection_config:" + Name;
+}
+
+static bool CollectionNeedsLanguageDetection(const std::string &Name)
+{
+     CollectionConfig config;
+
+     if (!HybridStorageManagerInstance().GetCollectionConfig(Name, config))
+     {
+          return false;
+     }
+
+     const auto it = config.Metadata.find("_lang");
+
+     if (it == config.Metadata.end())
+     {
+          return true;
+     }
+
+     const std::string value = it->second;
+     return value.empty() || value == "auto" || value == "und";
+}
+
+static void RefreshCollectionLanguageIfNeeded(const std::string &Collection,
+                                              const Document *SeedDocument = nullptr)
+{
+     if (Collection.empty() || !CollectionNeedsLanguageDetection(Collection))
+     {
+          return;
+     }
+
+     std::string language = "und";
+
+     if (SeedDocument)
+     {
+          language = sam::lang::DetectDocumentLanguage(Collection, *SeedDocument);
+     }
+
+     if (language.empty() || language == "und")
+     {
+          language = sam::lang::DetectCollectionLanguage(Collection, 128);
+     }
+
+     if (!language.empty() && language != "und")
+     {
+          HybridStorageManagerInstance().UpdateCollectionMetadata(Collection, "_lang", language);
+     }
 }
 
 static std::string SerializeCollectionConfig(const CollectionConfig &Config)
@@ -225,12 +289,14 @@ std::string HybridStorageManager::ResolveIndexDir() const
      return ResolveStorageRootDir() + "/indices";
 }
 
-void HybridStorageManager::FlushIndexesToDisk()
+size_t HybridStorageManager::FlushIndexesToDisk(uint64_t min_dirty_age_seconds, size_t max_collections)
 {
      if (Instance && Instance->SearchIndex)
      {
-          Instance->SearchIndex->FlushToDisk(ResolveIndexDir());
+          return Instance->SearchIndex->FlushToDisk(ResolveIndexDir(), min_dirty_age_seconds, max_collections);
      }
+
+     return 0;
 }
 
 void HybridStorageManager::PersistStorageState(bool update_counters, bool sync_database, bool log_flush_errors)
@@ -1899,7 +1965,7 @@ bool HybridStorageManager::AddDocument(const std::string &collection, const Docu
                }
           }
 
-          if (Instance && Instance->Sam && Instance->Sam->IsOpen())
+          if (Instance && Instance->Sam && Instance->Sam->IsOpen() && !IsSAMAutoIndexPaused())
           {
                std::string sam_error;
 
@@ -1912,6 +1978,8 @@ bool HybridStorageManager::AddDocument(const std::string &collection, const Docu
                                                 (sam_error.empty() ? std::string("unknown error") : sam_error) + ".");
                }
           }
+
+          RefreshCollectionLanguageIfNeeded(collection, &doc);
      }
 
      /* Document write complete */
@@ -1934,8 +2002,6 @@ size_t HybridStorageManager::AddDocumentsBatch(const std::string &collection, co
      {
           return 0;
      }
-
-     std::lock_guard<std::mutex> collection_lock(GetCollectionMutex(collection));
 
      /* Prepare all documents for batch write (upsert: includes both new and existing) */
 
@@ -2015,6 +2081,8 @@ size_t HybridStorageManager::AddDocumentsBatch(const std::string &collection, co
 
      if (Instance && Instance->Database)
      {
+          std::lock_guard<std::mutex> collection_lock(GetCollectionMutex(collection));
+
           /*
            * Keep collection counters crash-safe without rescanning the whole collection.
            * We estimate the delta by checking existence for keys in this batch while
@@ -2082,7 +2150,7 @@ size_t HybridStorageManager::AddDocumentsBatch(const std::string &collection, co
           }
      }
 
-     if (count > 0 && Instance && Instance->Sam && Instance->Sam->IsOpen())
+     if (count > 0 && Instance && Instance->Sam && Instance->Sam->IsOpen() && !IsSAMAutoIndexPaused())
      {
           for (const auto &doc : documents)
           {
@@ -2109,6 +2177,11 @@ size_t HybridStorageManager::AddDocumentsBatch(const std::string &collection, co
                                                 (sam_error.empty() ? std::string("unknown error") : sam_error) + ".");
                }
           }
+     }
+
+     if (count > 0)
+     {
+          RefreshCollectionLanguageIfNeeded(collection, nullptr);
      }
 
      /* Batch write complete */
@@ -3222,9 +3295,11 @@ void HybridStorageManager::StartBackgroundFlushThread()
 
 void HybridStorageManager::BackgroundFlushThread()
 {
-     /* Flush every 5 minutes */
+     /* Check every minute, but only flush collections that have been idle for at least 5 minutes. */
 
-     const int FlushIntervalSeconds = 300;
+     const int FlushIntervalSeconds = 60;
+     const uint64_t MinDirtyAgeSeconds = 300;
+     const size_t MaxCollectionsPerTick = 8;
 
      while (FlushThreadRunning.load())
      {
@@ -3242,11 +3317,11 @@ void HybridStorageManager::BackgroundFlushThread()
 
           try
           {
-               FlushIndexesToDisk();
+               const size_t FlushedCollections = FlushIndexesToDisk(MinDirtyAgeSeconds, MaxCollectionsPerTick);
 
-               if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
+               if (FlushedCollections > 0 && Instance && Instance->Logs && Instance->Logs->GetDebugMode())
                {
-                    Instance->Logs->Debug("hybrid_storage", "Background flush: Indexes flushed to disk.");
+                    Instance->Logs->Debug("hybrid_storage", "Background flush: " + std::to_string(FlushedCollections) + " dirty index collection(s) flushed to disk.");
                }
           }
           catch (const std::exception &e)

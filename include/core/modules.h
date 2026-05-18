@@ -321,83 +321,79 @@ struct ModulePreCheckResult
      std::string Details;
 };
 
-/* Single source of truth for every lifecycle and policy hook supported by RuntimeModule. */
-
-#define HLQUERY_MODULE_HOOK_METHODS(X)                                                                                 \
-     X(OnStartup)                                                                                                       \
-     X(OnThreadPoolsReady)                                                                                              \
-     X(OnEveryOneMinute)                                                                                                \
-     X(OnIdleTick)                                                                                                      \
-     X(OnNewTimer)                                                                                                      \
-     X(OnRequestAnalytics)                                                                                              \
-     X(OnAuthenticatedRequest)                                                                                          \
-     X(OnPingRequest)                                                                                                   \
-     X(OnDBRequest)                                                                                                     \
-     X(OnSearchCollection)                                                                                              \
-     X(OnSearchDocument)                                                                                                \
-     X(ComputeSearchWeightMultiplier)                                                                                   \
-     X(OnPreCreateCollection)                                                                                           \
-     X(OnPreUpdateCollection)                                                                                           \
-     X(OnPreDeleteCollection)                                                                                           \
-     X(OnPreAddDocument)                                                                                                \
-     X(OnPreUpdateDocument)                                                                                             \
-     X(OnPreBulkImportDocuments)                                                                                        \
-     X(OnPreDeleteDocument)                                                                                             \
-     X(OnPreDeleteDocuments)                                                                                            \
-     X(OnPreUpdateByQuery)                                                                                              \
-     X(OnPreDeleteByQuery)                                                                                              \
-     X(OnPreUpsertAlias)                                                                                                \
-     X(OnPreDeleteAlias)                                                                                                \
-     X(OnPreUpsertSynonym)                                                                                              \
-     X(OnPreDeleteSynonym)                                                                                              \
-     X(OnPreCreateStopword)                                                                                             \
-     X(OnPreDeleteStopword)                                                                                             \
-     X(OnPreUpsertOverride)                                                                                             \
-     X(OnPreDeleteOverride)                                                                                             \
-     X(OnPreCreateUser)                                                                                                 \
-     X(OnPreUpdateUser)                                                                                                 \
-     X(OnPreDeleteUser)                                                                                                 \
-     X(OnPreCreateKey)                                                                                                  \
-     X(OnPreUpdateKey)                                                                                                  \
-     X(OnPreDeleteKey)                                                                                                  \
-     X(OnPreLinksConnect)                                                                                               \
-     X(OnPreLinksDisconnect)                                                                                            \
-     X(OnPreFlush)                                                                                                      \
-     X(OnPreRepair)                                                                                                     \
-     X(OnCreateCollection)                                                                                              \
-     X(OnUpdateCollection)                                                                                              \
-     X(OnDeleteCollection)                                                                                              \
-     X(OnAddDocument)                                                                                                   \
-     X(OnUpdateDocument)                                                                                                \
-     X(OnDeleteDocument)                                                                                                \
-     X(OnDeleteDocuments)                                                                                               \
-     X(OnBulkImportDocuments)                                                                                           \
-     X(OnUpdateByQuery)                                                                                                 \
-     X(OnDeleteByQuery)                                                                                                 \
-     X(OnGlobalSynAdd)                                                                                                  \
-     X(OnGlobalSynDel)                                                                                                  \
-     X(OnUpsertSynonym)                                                                                                 \
-     X(OnDeleteSynonym)                                                                                                 \
-     X(OnGlobalStopwordAdd)                                                                                             \
-     X(OnCreateStopword)                                                                                                \
-     X(OnDeleteStopword)                                                                                                \
-     X(OnUpsertOverride)                                                                                                \
-     X(OnDeleteOverride)                                                                                                \
-     X(OnUpsertAlias)                                                                                                   \
-     X(OnDeleteAlias)                                                                                                   \
-     X(OnFlush)                                                                                                         \
-     X(OnLinksConnect)                                                                                                  \
-     X(OnLinksDisconnect)                                                                                               \
-     X(OnRepair)                                                                                                        \
-     X(OnAnalyticsClick)
-
 /* Enumerates every lifecycle and policy hook supported by RuntimeModule. */
 
 enum class ModuleHook : size_t
 {
-#define HLQUERY_MODULE_HOOK_ENUM_ENTRY(Method) Method,
-     HLQUERY_MODULE_HOOK_METHODS(HLQUERY_MODULE_HOOK_ENUM_ENTRY)
-#undef HLQUERY_MODULE_HOOK_ENUM_ENTRY
+     OnStartup,
+     OnThreadPoolsReady,
+     OnEveryOneMinute,
+     OnIdleTick,
+     OnNewTimer,
+     OnRequestAnalytics,
+     OnAuthenticatedRequest,
+     OnPingRequest,
+     OnDBRequest,
+     OnSearchCollection,
+     OnSearchDocument,
+     OnSamSearch,
+     OnSamIndexing,
+     OnSamInteraction,
+     ComputeSearchWeightMultiplier,
+     OnPreCreateCollection,
+     OnPreUpdateCollection,
+     OnPreDeleteCollection,
+     OnPreAddDocument,
+     OnPreUpdateDocument,
+     OnPreBulkImportDocuments,
+     OnPreDeleteDocument,
+     OnPreDeleteDocuments,
+     OnPreUpdateByQuery,
+     OnPreDeleteByQuery,
+     OnPreUpsertAlias,
+     OnPreDeleteAlias,
+     OnPreUpsertSynonym,
+     OnPreDeleteSynonym,
+     OnPreCreateStopword,
+     OnPreDeleteStopword,
+     OnPreUpsertOverride,
+     OnPreDeleteOverride,
+     OnPreCreateUser,
+     OnPreUpdateUser,
+     OnPreDeleteUser,
+     OnPreCreateKey,
+     OnPreUpdateKey,
+     OnPreDeleteKey,
+     OnPreLinksConnect,
+     OnPreLinksDisconnect,
+     OnPreFlush,
+     OnPreRepair,
+     OnCreateCollection,
+     OnUpdateCollection,
+     OnDeleteCollection,
+     OnAddDocument,
+     OnUpdateDocument,
+     OnDeleteDocument,
+     OnDeleteDocuments,
+     OnBulkImportDocuments,
+     OnUpdateByQuery,
+     OnDeleteByQuery,
+     OnGlobalSynAdd,
+     OnGlobalSynDel,
+     OnUpsertSynonym,
+     OnDeleteSynonym,
+     OnGlobalStopwordAdd,
+     OnCreateStopword,
+     OnDeleteStopword,
+     OnUpsertOverride,
+     OnDeleteOverride,
+     OnUpsertAlias,
+     OnDeleteAlias,
+     OnFlush,
+     OnLinksConnect,
+     OnLinksDisconnect,
+     OnRepair,
+     OnAnalyticsClick,
 
      /* Sentinel used to size hook tracking storage. */
 
@@ -439,11 +435,144 @@ class RuntimeModule
      {
           std::array<bool, HookCount> Hooks{};
 
- #define HLQUERY_SET_AUTO_HOOK(Method)                                                                                  \
-          Hooks[static_cast<size_t>(ModuleHook::Method)] =                                                              \
-               !std::is_same_v<decltype(&Derived::Method), decltype(&RuntimeModule::Method)>;
-          HLQUERY_MODULE_HOOK_METHODS(HLQUERY_SET_AUTO_HOOK)
- #undef HLQUERY_SET_AUTO_HOOK
+          Hooks[static_cast<size_t>(ModuleHook::OnStartup)] =
+               !std::is_same_v<decltype(&Derived::OnStartup), decltype(&RuntimeModule::OnStartup)>;
+          Hooks[static_cast<size_t>(ModuleHook::OnThreadPoolsReady)] =
+               !std::is_same_v<decltype(&Derived::OnThreadPoolsReady), decltype(&RuntimeModule::OnThreadPoolsReady)>;
+          Hooks[static_cast<size_t>(ModuleHook::OnEveryOneMinute)] =
+               !std::is_same_v<decltype(&Derived::OnEveryOneMinute), decltype(&RuntimeModule::OnEveryOneMinute)>;
+          Hooks[static_cast<size_t>(ModuleHook::OnIdleTick)] =
+               !std::is_same_v<decltype(&Derived::OnIdleTick), decltype(&RuntimeModule::OnIdleTick)>;
+          Hooks[static_cast<size_t>(ModuleHook::OnNewTimer)] =
+               !std::is_same_v<decltype(&Derived::OnNewTimer), decltype(&RuntimeModule::OnNewTimer)>;
+          Hooks[static_cast<size_t>(ModuleHook::OnRequestAnalytics)] =
+               !std::is_same_v<decltype(&Derived::OnRequestAnalytics), decltype(&RuntimeModule::OnRequestAnalytics)>;
+          Hooks[static_cast<size_t>(ModuleHook::OnAuthenticatedRequest)] =
+               !std::is_same_v<decltype(&Derived::OnAuthenticatedRequest), decltype(&RuntimeModule::OnAuthenticatedRequest)>;
+          Hooks[static_cast<size_t>(ModuleHook::OnPingRequest)] =
+               !std::is_same_v<decltype(&Derived::OnPingRequest), decltype(&RuntimeModule::OnPingRequest)>;
+          Hooks[static_cast<size_t>(ModuleHook::OnDBRequest)] =
+               !std::is_same_v<decltype(&Derived::OnDBRequest), decltype(&RuntimeModule::OnDBRequest)>;
+          Hooks[static_cast<size_t>(ModuleHook::OnSearchCollection)] =
+               !std::is_same_v<decltype(&Derived::OnSearchCollection), decltype(&RuntimeModule::OnSearchCollection)>;
+          Hooks[static_cast<size_t>(ModuleHook::OnSearchDocument)] =
+               !std::is_same_v<decltype(&Derived::OnSearchDocument), decltype(&RuntimeModule::OnSearchDocument)>;
+          Hooks[static_cast<size_t>(ModuleHook::OnSamSearch)] =
+               !std::is_same_v<decltype(&Derived::OnSamSearch), decltype(&RuntimeModule::OnSamSearch)>;
+          Hooks[static_cast<size_t>(ModuleHook::OnSamIndexing)] =
+               !std::is_same_v<decltype(&Derived::OnSamIndexing), decltype(&RuntimeModule::OnSamIndexing)>;
+          Hooks[static_cast<size_t>(ModuleHook::OnSamInteraction)] =
+               !std::is_same_v<decltype(&Derived::OnSamInteraction), decltype(&RuntimeModule::OnSamInteraction)>;
+          Hooks[static_cast<size_t>(ModuleHook::ComputeSearchWeightMultiplier)] =
+               !std::is_same_v<decltype(&Derived::ComputeSearchWeightMultiplier), decltype(&RuntimeModule::ComputeSearchWeightMultiplier)>;
+          Hooks[static_cast<size_t>(ModuleHook::OnPreCreateCollection)] =
+               !std::is_same_v<decltype(&Derived::OnPreCreateCollection), decltype(&RuntimeModule::OnPreCreateCollection)>;
+          Hooks[static_cast<size_t>(ModuleHook::OnPreUpdateCollection)] =
+               !std::is_same_v<decltype(&Derived::OnPreUpdateCollection), decltype(&RuntimeModule::OnPreUpdateCollection)>;
+          Hooks[static_cast<size_t>(ModuleHook::OnPreDeleteCollection)] =
+               !std::is_same_v<decltype(&Derived::OnPreDeleteCollection), decltype(&RuntimeModule::OnPreDeleteCollection)>;
+          Hooks[static_cast<size_t>(ModuleHook::OnPreAddDocument)] =
+               !std::is_same_v<decltype(&Derived::OnPreAddDocument), decltype(&RuntimeModule::OnPreAddDocument)>;
+          Hooks[static_cast<size_t>(ModuleHook::OnPreUpdateDocument)] =
+               !std::is_same_v<decltype(&Derived::OnPreUpdateDocument), decltype(&RuntimeModule::OnPreUpdateDocument)>;
+          Hooks[static_cast<size_t>(ModuleHook::OnPreBulkImportDocuments)] =
+               !std::is_same_v<decltype(&Derived::OnPreBulkImportDocuments), decltype(&RuntimeModule::OnPreBulkImportDocuments)>;
+          Hooks[static_cast<size_t>(ModuleHook::OnPreDeleteDocument)] =
+               !std::is_same_v<decltype(&Derived::OnPreDeleteDocument), decltype(&RuntimeModule::OnPreDeleteDocument)>;
+          Hooks[static_cast<size_t>(ModuleHook::OnPreDeleteDocuments)] =
+               !std::is_same_v<decltype(&Derived::OnPreDeleteDocuments), decltype(&RuntimeModule::OnPreDeleteDocuments)>;
+          Hooks[static_cast<size_t>(ModuleHook::OnPreUpdateByQuery)] =
+               !std::is_same_v<decltype(&Derived::OnPreUpdateByQuery), decltype(&RuntimeModule::OnPreUpdateByQuery)>;
+          Hooks[static_cast<size_t>(ModuleHook::OnPreDeleteByQuery)] =
+               !std::is_same_v<decltype(&Derived::OnPreDeleteByQuery), decltype(&RuntimeModule::OnPreDeleteByQuery)>;
+          Hooks[static_cast<size_t>(ModuleHook::OnPreUpsertAlias)] =
+               !std::is_same_v<decltype(&Derived::OnPreUpsertAlias), decltype(&RuntimeModule::OnPreUpsertAlias)>;
+          Hooks[static_cast<size_t>(ModuleHook::OnPreDeleteAlias)] =
+               !std::is_same_v<decltype(&Derived::OnPreDeleteAlias), decltype(&RuntimeModule::OnPreDeleteAlias)>;
+          Hooks[static_cast<size_t>(ModuleHook::OnPreUpsertSynonym)] =
+               !std::is_same_v<decltype(&Derived::OnPreUpsertSynonym), decltype(&RuntimeModule::OnPreUpsertSynonym)>;
+          Hooks[static_cast<size_t>(ModuleHook::OnPreDeleteSynonym)] =
+               !std::is_same_v<decltype(&Derived::OnPreDeleteSynonym), decltype(&RuntimeModule::OnPreDeleteSynonym)>;
+          Hooks[static_cast<size_t>(ModuleHook::OnPreCreateStopword)] =
+               !std::is_same_v<decltype(&Derived::OnPreCreateStopword), decltype(&RuntimeModule::OnPreCreateStopword)>;
+          Hooks[static_cast<size_t>(ModuleHook::OnPreDeleteStopword)] =
+               !std::is_same_v<decltype(&Derived::OnPreDeleteStopword), decltype(&RuntimeModule::OnPreDeleteStopword)>;
+          Hooks[static_cast<size_t>(ModuleHook::OnPreUpsertOverride)] =
+               !std::is_same_v<decltype(&Derived::OnPreUpsertOverride), decltype(&RuntimeModule::OnPreUpsertOverride)>;
+          Hooks[static_cast<size_t>(ModuleHook::OnPreDeleteOverride)] =
+               !std::is_same_v<decltype(&Derived::OnPreDeleteOverride), decltype(&RuntimeModule::OnPreDeleteOverride)>;
+          Hooks[static_cast<size_t>(ModuleHook::OnPreCreateUser)] =
+               !std::is_same_v<decltype(&Derived::OnPreCreateUser), decltype(&RuntimeModule::OnPreCreateUser)>;
+          Hooks[static_cast<size_t>(ModuleHook::OnPreUpdateUser)] =
+               !std::is_same_v<decltype(&Derived::OnPreUpdateUser), decltype(&RuntimeModule::OnPreUpdateUser)>;
+          Hooks[static_cast<size_t>(ModuleHook::OnPreDeleteUser)] =
+               !std::is_same_v<decltype(&Derived::OnPreDeleteUser), decltype(&RuntimeModule::OnPreDeleteUser)>;
+          Hooks[static_cast<size_t>(ModuleHook::OnPreCreateKey)] =
+               !std::is_same_v<decltype(&Derived::OnPreCreateKey), decltype(&RuntimeModule::OnPreCreateKey)>;
+          Hooks[static_cast<size_t>(ModuleHook::OnPreUpdateKey)] =
+               !std::is_same_v<decltype(&Derived::OnPreUpdateKey), decltype(&RuntimeModule::OnPreUpdateKey)>;
+          Hooks[static_cast<size_t>(ModuleHook::OnPreDeleteKey)] =
+               !std::is_same_v<decltype(&Derived::OnPreDeleteKey), decltype(&RuntimeModule::OnPreDeleteKey)>;
+          Hooks[static_cast<size_t>(ModuleHook::OnPreLinksConnect)] =
+               !std::is_same_v<decltype(&Derived::OnPreLinksConnect), decltype(&RuntimeModule::OnPreLinksConnect)>;
+          Hooks[static_cast<size_t>(ModuleHook::OnPreLinksDisconnect)] =
+               !std::is_same_v<decltype(&Derived::OnPreLinksDisconnect), decltype(&RuntimeModule::OnPreLinksDisconnect)>;
+          Hooks[static_cast<size_t>(ModuleHook::OnPreFlush)] =
+               !std::is_same_v<decltype(&Derived::OnPreFlush), decltype(&RuntimeModule::OnPreFlush)>;
+          Hooks[static_cast<size_t>(ModuleHook::OnPreRepair)] =
+               !std::is_same_v<decltype(&Derived::OnPreRepair), decltype(&RuntimeModule::OnPreRepair)>;
+          Hooks[static_cast<size_t>(ModuleHook::OnCreateCollection)] =
+               !std::is_same_v<decltype(&Derived::OnCreateCollection), decltype(&RuntimeModule::OnCreateCollection)>;
+          Hooks[static_cast<size_t>(ModuleHook::OnUpdateCollection)] =
+               !std::is_same_v<decltype(&Derived::OnUpdateCollection), decltype(&RuntimeModule::OnUpdateCollection)>;
+          Hooks[static_cast<size_t>(ModuleHook::OnDeleteCollection)] =
+               !std::is_same_v<decltype(&Derived::OnDeleteCollection), decltype(&RuntimeModule::OnDeleteCollection)>;
+          Hooks[static_cast<size_t>(ModuleHook::OnAddDocument)] =
+               !std::is_same_v<decltype(&Derived::OnAddDocument), decltype(&RuntimeModule::OnAddDocument)>;
+          Hooks[static_cast<size_t>(ModuleHook::OnUpdateDocument)] =
+               !std::is_same_v<decltype(&Derived::OnUpdateDocument), decltype(&RuntimeModule::OnUpdateDocument)>;
+          Hooks[static_cast<size_t>(ModuleHook::OnDeleteDocument)] =
+               !std::is_same_v<decltype(&Derived::OnDeleteDocument), decltype(&RuntimeModule::OnDeleteDocument)>;
+          Hooks[static_cast<size_t>(ModuleHook::OnDeleteDocuments)] =
+               !std::is_same_v<decltype(&Derived::OnDeleteDocuments), decltype(&RuntimeModule::OnDeleteDocuments)>;
+          Hooks[static_cast<size_t>(ModuleHook::OnBulkImportDocuments)] =
+               !std::is_same_v<decltype(&Derived::OnBulkImportDocuments), decltype(&RuntimeModule::OnBulkImportDocuments)>;
+          Hooks[static_cast<size_t>(ModuleHook::OnUpdateByQuery)] =
+               !std::is_same_v<decltype(&Derived::OnUpdateByQuery), decltype(&RuntimeModule::OnUpdateByQuery)>;
+          Hooks[static_cast<size_t>(ModuleHook::OnDeleteByQuery)] =
+               !std::is_same_v<decltype(&Derived::OnDeleteByQuery), decltype(&RuntimeModule::OnDeleteByQuery)>;
+          Hooks[static_cast<size_t>(ModuleHook::OnGlobalSynAdd)] =
+               !std::is_same_v<decltype(&Derived::OnGlobalSynAdd), decltype(&RuntimeModule::OnGlobalSynAdd)>;
+          Hooks[static_cast<size_t>(ModuleHook::OnGlobalSynDel)] =
+               !std::is_same_v<decltype(&Derived::OnGlobalSynDel), decltype(&RuntimeModule::OnGlobalSynDel)>;
+          Hooks[static_cast<size_t>(ModuleHook::OnUpsertSynonym)] =
+               !std::is_same_v<decltype(&Derived::OnUpsertSynonym), decltype(&RuntimeModule::OnUpsertSynonym)>;
+          Hooks[static_cast<size_t>(ModuleHook::OnDeleteSynonym)] =
+               !std::is_same_v<decltype(&Derived::OnDeleteSynonym), decltype(&RuntimeModule::OnDeleteSynonym)>;
+          Hooks[static_cast<size_t>(ModuleHook::OnGlobalStopwordAdd)] =
+               !std::is_same_v<decltype(&Derived::OnGlobalStopwordAdd), decltype(&RuntimeModule::OnGlobalStopwordAdd)>;
+          Hooks[static_cast<size_t>(ModuleHook::OnCreateStopword)] =
+               !std::is_same_v<decltype(&Derived::OnCreateStopword), decltype(&RuntimeModule::OnCreateStopword)>;
+          Hooks[static_cast<size_t>(ModuleHook::OnDeleteStopword)] =
+               !std::is_same_v<decltype(&Derived::OnDeleteStopword), decltype(&RuntimeModule::OnDeleteStopword)>;
+          Hooks[static_cast<size_t>(ModuleHook::OnUpsertOverride)] =
+               !std::is_same_v<decltype(&Derived::OnUpsertOverride), decltype(&RuntimeModule::OnUpsertOverride)>;
+          Hooks[static_cast<size_t>(ModuleHook::OnDeleteOverride)] =
+               !std::is_same_v<decltype(&Derived::OnDeleteOverride), decltype(&RuntimeModule::OnDeleteOverride)>;
+          Hooks[static_cast<size_t>(ModuleHook::OnUpsertAlias)] =
+               !std::is_same_v<decltype(&Derived::OnUpsertAlias), decltype(&RuntimeModule::OnUpsertAlias)>;
+          Hooks[static_cast<size_t>(ModuleHook::OnDeleteAlias)] =
+               !std::is_same_v<decltype(&Derived::OnDeleteAlias), decltype(&RuntimeModule::OnDeleteAlias)>;
+          Hooks[static_cast<size_t>(ModuleHook::OnFlush)] =
+               !std::is_same_v<decltype(&Derived::OnFlush), decltype(&RuntimeModule::OnFlush)>;
+          Hooks[static_cast<size_t>(ModuleHook::OnLinksConnect)] =
+               !std::is_same_v<decltype(&Derived::OnLinksConnect), decltype(&RuntimeModule::OnLinksConnect)>;
+          Hooks[static_cast<size_t>(ModuleHook::OnLinksDisconnect)] =
+               !std::is_same_v<decltype(&Derived::OnLinksDisconnect), decltype(&RuntimeModule::OnLinksDisconnect)>;
+          Hooks[static_cast<size_t>(ModuleHook::OnRepair)] =
+               !std::is_same_v<decltype(&Derived::OnRepair), decltype(&RuntimeModule::OnRepair)>;
+          Hooks[static_cast<size_t>(ModuleHook::OnAnalyticsClick)] =
+               !std::is_same_v<decltype(&Derived::OnAnalyticsClick), decltype(&RuntimeModule::OnAnalyticsClick)>;
 
           return Hooks;
      }
@@ -631,6 +760,59 @@ class RuntimeModule
      virtual void OnSearchDocument(const SearchEvent& Event)
      {
           (void)Event;
+     }
+
+     /* SAM hooks begin here. */
+
+     /* Called after hlquery records one search idea into SAM. */
+
+     virtual void OnSamSearch(const std::string& Collection,
+                              const std::string& Query,
+                              uint64_t DocumentCount,
+                              const std::string& RequesterIP,
+                              const std::string& RequesterUser,
+                              bool Authenticated)
+     {
+          (void)Collection;
+          (void)Query;
+          (void)DocumentCount;
+          (void)RequesterIP;
+          (void)RequesterUser;
+          (void)Authenticated;
+     }
+
+     /* Called after hlquery starts or resumes SAM indexing work for one collection. */
+
+     virtual void OnSamIndexing(const std::string& Collection,
+                                const std::string& Operation,
+                                bool AlreadyRunning,
+                                const std::string& RequesterIP,
+                                const std::string& RequesterUser,
+                                bool Authenticated)
+     {
+          (void)Collection;
+          (void)Operation;
+          (void)AlreadyRunning;
+          (void)RequesterIP;
+          (void)RequesterUser;
+          (void)Authenticated;
+     }
+
+     /* Called after hlquery records one explicit SAM search interaction signal. */
+
+     virtual void OnSamInteraction(const std::string& Collection,
+                                   const std::string& Query,
+                                   const std::string& DocumentID,
+                                   const std::string& RequesterIP,
+                                   const std::string& RequesterUser,
+                                   bool Authenticated)
+     {
+          (void)Collection;
+          (void)Query;
+          (void)DocumentID;
+          (void)RequesterIP;
+          (void)RequesterUser;
+          (void)Authenticated;
      }
 
      /* Returns a multiplier used to adjust one hit after retrieval and before final ranking. */

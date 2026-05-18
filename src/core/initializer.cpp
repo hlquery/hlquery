@@ -24,16 +24,10 @@
 #include "common/health.h"
 #include "common/searchpool.h"
 #include "core/config.h"
+#include "core/helpers.h"
 #include "runtime/daemon.h"
 #include "core/modulemanager.h"
 #include "vendor/json/json.hpp"
-
-/* Static container to store background threads for joining at shutdown */
-
-std::vector<std::thread> BackgroundThreads;
-
-std::mutex BackgroundThreadsMutex;
-
 #include "core/hlquery.h"
 #include "core/socketengine.h"
 #include "runtime/threadlimit.h"
@@ -43,43 +37,6 @@ std::mutex BackgroundThreadsMutex;
 #include "utils/infos.h"
 #include "utils/tools.h"
 
-/* Helper macro to safely call LogManager methods */
-
-#define SAFE_LOG(Level, Type, Msg)                                           \
-     do                                                                      \
-     {                                                                       \
-          if (Logs)                                                          \
-          {                                                                  \
-               LogManager *LogsPtr = Logs.get();                             \
-               if (LogsPtr)                                                  \
-               {                                                             \
-                    try                                                      \
-                    {                                                        \
-                         LogManager::SafeLog(LogsPtr, Level, Type, Msg);     \
-                    }                                                        \
-                    catch (...)                                              \
-                    {                                                        \
-                         /* Silently fail - don't crash on logging errors */ \
-                    }                                                        \
-               }                                                             \
-          }                                                                  \
-     } while (0)
-
-static void PrintStartupModuleList(const std::string &Heading, const std::vector<std::string> &ModuleNames)
-{
-     ConsoleWriter::WriteStartup(Heading + ":", true, false);
-
-     if (ModuleNames.empty())
-     {
-          ConsoleWriter::WriteStartup("No optional modules loaded.", true, false);
-          return;
-     }
-
-     for (const auto &ModuleName : ModuleNames)
-     {
-          ConsoleWriter::WriteStartupPlain("       - " + ModuleName, false);
-     }
-}
 /* Handles core server logic initialization and early setup tasks */
 
 bool hlquery::InitializeServer()
@@ -151,33 +108,35 @@ bool hlquery::InitializeServer()
           }
      }
 
-	     /* Check for dirty shutdown using the runtime data directory for this instance. */
+     /* Check for dirty shutdown using the runtime data directory for this instance. */
 
-	     {
-	          std::string ShutdownMarker = RuntimePaths::ResolveRuntimeDataDir(Config.get()) + "/.clean_shutdown";
+     {
+          std::string ShutdownMarker = RuntimePaths::ResolveRuntimeDataDir(Config.get()) + "/.clean_shutdown";
 
-	          std::error_code EC;
-	          bool CleanShutdownFlag = std::filesystem::exists(ShutdownMarker, EC);
-	          if (EC)
-	          {
-	               /* If we can't inspect the marker (permissions/IO), treat it as a dirty shutdown. */
-	               CleanShutdownFlag = false;
-	          }
+          std::error_code EC;
+          bool CleanShutdownFlag = std::filesystem::exists(ShutdownMarker, EC);
 
-	          if (!CleanShutdownFlag)
-	          {
-	               StatsVal.SetDirtyShutdown(true);
-	          }
-	          else
-	          {
-	               try
-	               {
-	                    std::filesystem::remove(ShutdownMarker, EC);
-	               }
-	               catch (...)
-	               {
-	               }
-	          }
+          if (EC)
+          {
+               /* If the marker cannot be inspected, treat the shutdown as dirty. */
+
+               CleanShutdownFlag = false;
+          }
+
+          if (!CleanShutdownFlag)
+          {
+               StatsVal.SetDirtyShutdown(true);
+          }
+          else
+          {
+               try
+               {
+                    std::filesystem::remove(ShutdownMarker, EC);
+               }
+               catch (...)
+               {
+               }
+          }
 
           StatsVal.IncrementRestartCount();
      }
@@ -197,12 +156,13 @@ bool hlquery::InitializeServer()
 
           std::string ExistingPIDInfo = "";
 
-	          try
-	          {
-	               std::error_code EC;
-	               if (std::filesystem::exists(PIDFilePath, EC))
-	               {
-	                    std::ifstream PIDFileStream(PIDFilePath);
+          try
+          {
+               std::error_code EC;
+
+               if (std::filesystem::exists(PIDFilePath, EC))
+               {
+                    std::ifstream PIDFileStream(PIDFilePath);
 
                     if (PIDFileStream.is_open())
                     {
@@ -217,12 +177,12 @@ bool hlquery::InitializeServer()
                               ExistingPIDInfo = " (PID: " + PIDStrValue + ")";
                          }
                     }
-	               }
-	          }
-	          catch (...)
-	          {
-	               /* Ignore errors during PID file inspection */
-	          }
+               }
+          }
+          catch (...)
+          {
+               /* Ignore errors during PID file inspection. */
+          }
 
           ConsoleWriter::WriteError("[FATAL] CheckExistingProcessInternal() failed - another instance may be running" + ExistingPIDInfo + ".", true);
           ConsoleWriter::WriteError("[FATAL] To stop the existing instance, run: ./etc/scripts/debug_daemon.sh stop.", true);
@@ -344,8 +304,8 @@ bool hlquery::InitializeServer()
           return false;
      }
 
-     PrintStartupModuleList("Loaded optional modules", Modules->GetLoadedOptionalModuleNames());
-     PrintStartupModuleList("Loaded core modules", Modules->GetLoadedCoreModuleNames());
+     CoreHelpers::PrintStartupModuleList("Loaded optional modules", Modules->GetLoadedOptionalModuleNames());
+     CoreHelpers::PrintStartupModuleList("Loaded core modules", Modules->GetLoadedCoreModuleNames());
 
      /* Handle special validation modes if requested via configuration or flags */
 
@@ -363,61 +323,63 @@ bool hlquery::InitializeServer()
 
                bool ValidationPassedFlag = true;
 
-	               std::string ValidationErrorsMsg;
+               std::string ValidationErrorsMsg;
 
-	               std::string DataDirPath = std::string(HLQUERY_DATA_DIR);
+               std::string DataDirPath = std::string(HLQUERY_DATA_DIR);
 
-	               std::error_code EC;
-	               const bool DataDirExists = std::filesystem::exists(DataDirPath, EC);
-	               if (EC)
-	               {
-	                    ValidationPassedFlag = false;
-	                    ValidationErrorsMsg += "Data directory check failed: " + DataDirPath + " (" + EC.message() + ")\n";
-	               }
-	               else if (!DataDirExists)
-	               {
-	                    ValidationPassedFlag = false;
+               std::error_code EC;
+               const bool DataDirExists = std::filesystem::exists(DataDirPath, EC);
 
-	                    ValidationErrorsMsg += "Data directory does not exist: " + DataDirPath + "\n";
-	               }
-	               else if (!std::filesystem::is_directory(DataDirPath, EC))
-	               {
-	                    if (EC)
-	                    {
-	                         ValidationPassedFlag = false;
-	                         ValidationErrorsMsg += "Data directory type check failed: " + DataDirPath + " (" + EC.message() + ")\n";
-	                    }
-	                    else
-	                    {
-	                    ValidationPassedFlag = false;
+               if (EC)
+               {
+                    ValidationPassedFlag = false;
+                    ValidationErrorsMsg += "Data directory check failed: " + DataDirPath + " (" + EC.message() + ")\n";
+               }
+               else if (!DataDirExists)
+               {
+                    ValidationPassedFlag = false;
 
-	                    ValidationErrorsMsg += "Data directory is not a directory: " + DataDirPath + "\n";
-	                    }
-	               }
+                    ValidationErrorsMsg += "Data directory does not exist: " + DataDirPath + "\n";
+               }
+               else if (!std::filesystem::is_directory(DataDirPath, EC))
+               {
+                    if (EC)
+                    {
+                         ValidationPassedFlag = false;
+                         ValidationErrorsMsg += "Data directory type check failed: " + DataDirPath + " (" + EC.message() + ")\n";
+                    }
+                    else
+                    {
+                         ValidationPassedFlag = false;
 
-	               std::string CollectionsDirPath = DataDirPath + "/collections";
+                         ValidationErrorsMsg += "Data directory is not a directory: " + DataDirPath + "\n";
+                    }
+               }
 
-	               EC.clear();
-	               const bool CollectionsExists = std::filesystem::exists(CollectionsDirPath, EC);
-	               if (EC)
-	               {
-	                    ValidationPassedFlag = false;
-	                    ValidationErrorsMsg += "Collections path check failed: " + CollectionsDirPath + " (" + EC.message() + ")\n";
-	               }
-	               else if (CollectionsExists && !std::filesystem::is_directory(CollectionsDirPath, EC))
-	               {
-	                    if (EC)
-	                    {
-	                         ValidationPassedFlag = false;
-	                         ValidationErrorsMsg += "Collections path type check failed: " + CollectionsDirPath + " (" + EC.message() + ")\n";
-	                    }
-	                    else
-	                    {
-	                    ValidationPassedFlag = false;
+               std::string CollectionsDirPath = DataDirPath + "/collections";
 
-	                    ValidationErrorsMsg += "Collections path is not a directory: " + CollectionsDirPath + "\n";
-	                    }
-	               }
+               EC.clear();
+               const bool CollectionsExists = std::filesystem::exists(CollectionsDirPath, EC);
+
+               if (EC)
+               {
+                    ValidationPassedFlag = false;
+                    ValidationErrorsMsg += "Collections path check failed: " + CollectionsDirPath + " (" + EC.message() + ")\n";
+               }
+               else if (CollectionsExists && !std::filesystem::is_directory(CollectionsDirPath, EC))
+               {
+                    if (EC)
+                    {
+                         ValidationPassedFlag = false;
+                         ValidationErrorsMsg += "Collections path type check failed: " + CollectionsDirPath + " (" + EC.message() + ")\n";
+                    }
+                    else
+                    {
+                         ValidationPassedFlag = false;
+
+                         ValidationErrorsMsg += "Collections path is not a directory: " + CollectionsDirPath + "\n";
+                    }
+               }
 
                if (ValidationPassedFlag)
                {
@@ -1556,9 +1518,10 @@ void hlquery::WaitForMetadataScan()
                                                                                        });
 
                                                    {
-                                                        std::lock_guard<std::mutex> Lock(BackgroundThreadsMutex);
-
-                                                        BackgroundThreads.push_back(std::move(LoadThreadInstanceFinal));
+                                                        if (Instance)
+                                                        {
+                                                             Instance->AddBackgroundThread(std::move(LoadThreadInstanceFinal));
+                                                        }
                                                    }
                                               }
                                               else
@@ -1660,9 +1623,10 @@ void hlquery::WaitForMetadataScan()
                                          });
 
           {
-               std::lock_guard<std::mutex> Lock(BackgroundThreadsMutex);
-
-               BackgroundThreads.push_back(std::move(WaitThreadInstance));
+               if (Instance)
+               {
+                    Instance->AddBackgroundThread(std::move(WaitThreadInstance));
+               }
           }
      }
      else

@@ -197,12 +197,15 @@
  */
 
 #include <algorithm>
+#include <cerrno>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <fcntl.h>
 #include <iostream>
 #include <regex>
 #include <sstream>
+#include <unistd.h>
 
 #include "api/userauth.h"
 #include "common/cryptoutils.h"
@@ -219,6 +222,67 @@ constexpr size_t kMaxUserTokenLen = 1024;
 constexpr size_t kMaxUserDescLen = 4096;
 constexpr uint32_t kMaxUserFlagsCount = 16;
 constexpr size_t kMaxUsersDatSize = 64 * 1024 * 1024;
+
+/* WriteFileAtomic writes data to a temp file, fsyncs, then renames into place. */
+
+bool WriteFileAtomic(const std::string &FilePath, const std::string &Contents)
+{
+     std::error_code EC;
+
+     std::filesystem::create_directories(std::filesystem::path(FilePath).parent_path(), EC);
+
+     std::string DirPath = std::filesystem::path(FilePath).parent_path().string();
+
+     std::string TmpPath = FilePath + ".tmp." + std::to_string(static_cast<long long>(getpid())) + "." + std::to_string(::NowMs());
+
+     int FD = open(TmpPath.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0600);
+
+     if (FD < 0)
+     {
+          return false;
+     }
+
+     size_t Offset = 0;
+
+     while (Offset < Contents.size())
+     {
+          ssize_t Written = write(FD, Contents.data() + Offset, Contents.size() - Offset);
+
+          if (Written <= 0)
+          {
+               close(FD);
+               unlink(TmpPath.c_str());
+               return false;
+          }
+
+          Offset += static_cast<size_t>(Written);
+     }
+
+     if (fsync(FD) < 0)
+     {
+          close(FD);
+          unlink(TmpPath.c_str());
+          return false;
+     }
+
+     close(FD);
+
+     if (::rename(TmpPath.c_str(), FilePath.c_str()) != 0)
+     {
+          unlink(TmpPath.c_str());
+          return false;
+     }
+
+     int DirFD = open(DirPath.c_str(), O_RDONLY | O_DIRECTORY);
+
+     if (DirFD >= 0)
+     {
+          (void)fsync(DirFD);
+          close(DirFD);
+     }
+
+     return true;
+}
 
 /* GetUsersEncryptionKey returns encryption key for users data. */
 
@@ -921,24 +985,7 @@ bool UserAuthManager::SaveUsersToEncryptedFile(const std::string &FilePath)
           return false;
      }
 
-     std::ofstream File(FilePath, std::ios::binary);
-
-     if (!File.is_open())
-     {
-          return false;
-     }
-
-     File.write(Encrypted.data(), Encrypted.size());
-     File.flush();
-
-     if (File.rdbuf())
-     {
-          File.rdbuf()->pubsync();
-     }
-
-     File.close();
-
-     return File.good();
+     return WriteFileAtomic(FilePath, Encrypted);
 }
 
 /* LoadUsersFromEncryptedFile loads users from an encrypted file. */

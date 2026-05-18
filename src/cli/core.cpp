@@ -211,7 +211,8 @@ bool HLQueryCLI::CheckRequestFailed(const HTTPResponse &response, bool silent_on
      {
           if (!silent_on_connection_failure)
           {
-               std::string error_msg = "Request failed: Could not connect to server";
+               const bool is_timeout = (response.Body.find("timed out") != std::string::npos);
+               std::string error_msg = is_timeout ? "Request failed: Timed out" : "Request failed: Could not connect to server";
 
                std::string hint = "Check if server is running at " + BaseURL;
                if (!response.Body.empty())
@@ -222,6 +223,11 @@ bool HLQueryCLI::CheckRequestFailed(const HTTPResponse &response, bool silent_on
                          reason.pop_back();
                     }
                     hint += " (transport: " + reason + ")";
+               }
+
+               if (is_timeout)
+               {
+                    hint += " (try increasing client timeout (hlquery-cli: --timeout=" + std::to_string(std::max(1, DefaultTimeoutSeconds * 2)) + ") or reduce limit/use pagination)";
                }
 
                if (!endpoint.empty())

@@ -92,6 +92,9 @@ Commands:
     kill        Force stop the hlquery server (SIGKILL)
     restart     Restart the hlquery server
     status      Show server status
+    cli         Run hlquery CLI tool (hlquery-cli)
+    benchmark   Run benchmark tool (hlquery-benchmark)
+    talk        Run interactive talk tool (hlquery-talk)
     reload      Reload configuration
     test        Test configuration
     sslgen      Generate SSL certificates
@@ -117,6 +120,9 @@ Examples:
     $0 start --debug --nofork   # Start with debug in foreground
     $0 stop                     # Stop server gracefully
     $0 status                   # Check server status
+    $0 cli help                 # Run CLI help
+    $0 benchmark                # Run benchmarks
+    $0 talk                     # Run interactive talk
 
 EOF
 }
@@ -143,6 +149,46 @@ sub find_binary {
     }
     
     return undef;
+}
+
+sub find_named_binary {
+    my ($name) = @_;
+
+    # Check fixed location from configure first
+    my $fixed_binary = "${HLQUERY_BIN_DIR}/" . $name;
+    if (-x $fixed_binary) {
+        return $fixed_binary;
+    }
+
+    my $script_dir = dirname(File::Spec->rel2abs($0));
+    my $possible_paths = [
+        File::Spec->catfile($script_dir, "bin", $name),
+        File::Spec->catfile($script_dir, "..", "build", "bin", $name),
+        File::Spec->catfile($script_dir, "..", "run", "bin", $name),
+        $name  # Try PATH
+    ];
+
+    foreach my $path (@$possible_paths) {
+        if (-x $path) {
+            return File::Spec->rel2abs($path);
+        }
+    }
+
+    return undef;
+}
+
+sub exec_tool {
+    my ($tool_name, @args) = @_;
+    my $tool_path = find_named_binary($tool_name);
+    unless ($tool_path) {
+        print_error("Could not find $tool_name binary. Please ensure it's installed correctly.");
+        exit 1;
+    }
+
+    exec { $tool_path } ($tool_path, @args) or do {
+        print_error("Failed to exec $tool_path: $!");
+        exit 1;
+    };
 }
 
 sub setup_paths {
@@ -499,6 +545,48 @@ sub is_running {
     return $pid;
 }
 
+sub read_pid_file {
+    my $pid_file_to_check = resolve_pid_file();
+    return undef unless -f $pid_file_to_check;
+
+    open my $fh, '<', $pid_file_to_check or return undef;
+    my $pid = <$fh>;
+    close $fh;
+
+    return undef unless defined $pid;
+    chomp $pid;
+
+    return $pid =~ /^\d+$/ ? $pid : undef;
+}
+
+sub unlink_pid_file_if_matches {
+    my ($expected_pid) = @_;
+    return unless defined $expected_pid;
+
+    my $pid_file_to_check = resolve_pid_file();
+    return unless -f $pid_file_to_check;
+
+    my $current_pid = read_pid_file();
+    return unless defined $current_pid && $current_pid == $expected_pid;
+
+    unlink $pid_file_to_check;
+}
+
+sub wait_for_running_pid {
+    my ($timeout_seconds) = @_;
+    my $deadline = time + $timeout_seconds;
+    my $last_pid = 0;
+
+    while (time < $deadline) {
+        my $pid = is_running();
+        return $pid if $pid && $pid == $last_pid;
+        $last_pid = $pid || 0;
+        select(undef, undef, undef, 0.1);
+    }
+
+    return is_running();
+}
+
 sub start_server {
     my ($nofork, $debug, $skip_auth, @extra_args) = @_;
     my $startup_offset = startup_log_size();
@@ -572,8 +660,7 @@ sub start_server {
             exit 1;
         } elsif ($fork_pid > 0) {
             $SIG{CHLD} = 'IGNORE';
-            select(undef, undef, undef, 0.5);
-            my $pid = is_running();
+            my $pid = wait_for_running_pid(5);
             my $startup_output = read_startup_delta($startup_offset);
             my $startup = parse_startup_output($startup_output);
             my $port = configured_port();
@@ -610,7 +697,8 @@ sub stop_server {
     my $pid = is_running();
     unless ($pid) {
         print_info("hlquery is not running.");
-        unlink $pid_file_path if -f $pid_file_path;
+        my $stale_pid = read_pid_file();
+        unlink_pid_file_if_matches($stale_pid) if defined $stale_pid;
         return {
             action => 'stop',
             success => '__JSON_TRUE__',
@@ -639,7 +727,10 @@ sub stop_server {
     if (is_running()) {
         print_warning("Graceful shutdown timed out, sending KILL signal...");
         kill('KILL', $pid);
-        sleep 2;
+        my $kill_deadline = time + 2;
+        while (time < $kill_deadline && is_running()) {
+            select(undef, undef, undef, 0.1);
+        }
     }
     
     if (is_running()) {
@@ -652,7 +743,7 @@ sub stop_server {
             exit_code => 1,
         };
     } else {
-        unlink $pid_file_path if -f $pid_file_path;
+        unlink_pid_file_if_matches($pid);
         print_success("hlquery stopped successfully.");
         return {
             action => 'stop',
@@ -667,7 +758,8 @@ sub kill_server {
     my $pid = is_running();
     unless ($pid) {
         print_info("hlquery is not running.");
-        unlink $pid_file_path if -f $pid_file_path;
+        my $stale_pid = read_pid_file();
+        unlink_pid_file_if_matches($stale_pid) if defined $stale_pid;
         return {
             action => 'kill',
             success => '__JSON_TRUE__',
@@ -697,7 +789,7 @@ sub kill_server {
             exit_code => 1,
         };
     } else {
-        unlink $pid_file_path if -f $pid_file_path;
+        unlink_pid_file_if_matches($pid);
         print_success("hlquery killed successfully.");
         return {
             action => 'kill',
@@ -759,6 +851,21 @@ sub main {
     my $skip_auth = 0;
     my $help = 0;
     my $version_opt = 0;
+    my $command;
+
+    if (@ARGV && $ARGV[0] !~ /^-/) {
+        $command = shift @ARGV;
+        if ($command eq 'cli') {
+            exec_tool("hlquery-cli", @ARGV);
+        }
+        if ($command eq 'talk') {
+            exec_tool("hlquery-talk", @ARGV);
+        }
+        if ($command eq 'benchmark' || $command eq 'bench') {
+            exec_tool("hlquery-benchmark", @ARGV);
+        }
+    }
+
     Configure('pass_through');
 
     GetOptions(
@@ -772,8 +879,8 @@ sub main {
         'help' => \$help,
         'version' => \$version_opt
     );
-    
-    my $command = shift @ARGV;
+
+    $command ||= shift @ARGV;
     
     if ($help || ($command && $command eq 'help')) {
         print_banner() unless $json_output;
