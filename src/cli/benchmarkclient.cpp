@@ -450,6 +450,7 @@ HTTPResponse BenchmarkClient::MakeRequest(const std::string &method, const std::
           std::string request_str = request.str();
 
           size_t sent = 0;
+          bool retry_after_write_failure = false;
 
           while (sent < request_str.length())
           {
@@ -507,12 +508,19 @@ HTTPResponse BenchmarkClient::MakeRequest(const std::string &method, const std::
 
                if (attempt < max_retries - 1)
                {
-                    continue;
+                    retry_after_write_failure = true;
+                    break;
                }
 
                response.StatusCode = -1;
+               response.ErrorMessage = "Failed to write HTTP request to server.";
 
                return response;
+          }
+
+          if (retry_after_write_failure)
+          {
+               continue;
           }
 
           char buffer[8192];

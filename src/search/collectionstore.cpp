@@ -35,6 +35,23 @@
 static std::vector<std::thread> IndexingThreads;
 static std::mutex IndexingThreadsMutex;
 
+static bool IsSAMAutoIndexPaused()
+{
+     if (!Instance || !Instance->Sam)
+     {
+          return false;
+     }
+
+     const uint64_t pause_until_ms = Instance->Sam->GetAutoIndexPauseUntilMS();
+
+     if (pause_until_ms == 0)
+     {
+          return false;
+     }
+
+     return static_cast<uint64_t>(Instance->NowMs()) < pause_until_ms;
+}
+
 static std::string GetCollectionConfigKey(const std::string &Name)
 {
      return "collection_config:" + Name;
@@ -1948,7 +1965,7 @@ bool HybridStorageManager::AddDocument(const std::string &collection, const Docu
                }
           }
 
-          if (Instance && Instance->Sam && Instance->Sam->IsOpen())
+          if (Instance && Instance->Sam && Instance->Sam->IsOpen() && !IsSAMAutoIndexPaused())
           {
                std::string sam_error;
 
@@ -1985,8 +2002,6 @@ size_t HybridStorageManager::AddDocumentsBatch(const std::string &collection, co
      {
           return 0;
      }
-
-     std::lock_guard<std::mutex> collection_lock(GetCollectionMutex(collection));
 
      /* Prepare all documents for batch write (upsert: includes both new and existing) */
 
@@ -2066,6 +2081,8 @@ size_t HybridStorageManager::AddDocumentsBatch(const std::string &collection, co
 
      if (Instance && Instance->Database)
      {
+          std::lock_guard<std::mutex> collection_lock(GetCollectionMutex(collection));
+
           /*
            * Keep collection counters crash-safe without rescanning the whole collection.
            * We estimate the delta by checking existence for keys in this batch while
@@ -2133,7 +2150,7 @@ size_t HybridStorageManager::AddDocumentsBatch(const std::string &collection, co
           }
      }
 
-     if (count > 0 && Instance && Instance->Sam && Instance->Sam->IsOpen())
+     if (count > 0 && Instance && Instance->Sam && Instance->Sam->IsOpen() && !IsSAMAutoIndexPaused())
      {
           for (const auto &doc : documents)
           {
