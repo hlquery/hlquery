@@ -3354,13 +3354,27 @@ void HLQueryCLI::CopyDocument(const std::string &collection_name, const std::str
      nlohmann::json import_payload;
      import_payload["documents"] = nlohmann::json::array({doc});
 
-     const std::string import_path = "/collections/" + hlquery_cli::UrlEncode(collection_name) + "/documents/import?distributed=off";
+     const std::string import_path = "/collections/" + hlquery_cli::UrlEncode(collection_name) + "/documents/import";
      HTTPResponse import_response = MakeRequest("POST", import_path, import_payload.dump(), DefaultTimeoutSeconds);
 
      if (import_response.StatusCode != 200 && import_response.StatusCode != 201)
      {
-          CheckRequestFailed(import_response);
-          return;
+          if (import_response.StatusCode == 404)
+          {
+               const std::string insert_path = "/collections/" + hlquery_cli::UrlEncode(collection_name) + "/documents";
+               HTTPResponse insert_response = MakeRequest("POST", insert_path, doc.dump(), DefaultTimeoutSeconds);
+
+               if (insert_response.StatusCode != 201)
+               {
+                    CheckRequestFailed(insert_response);
+                    return;
+               }
+          }
+          else
+          {
+               CheckRequestFailed(import_response);
+               return;
+          }
      }
 
      PrintSuccess("Copied document '" + source_id + "' to '" + target_id + "' in collection '" + collection_name + "'");

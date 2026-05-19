@@ -75,6 +75,7 @@ nlohmann::json BuildCreatePayloadFromCollectionInfo(const nlohmann::json &source
 
      return create_payload;
 }
+
 }
 
 /* Lists collections. */
@@ -994,6 +995,14 @@ void HLQueryCLI::MigrateCollection(const std::string &source_name, const std::st
 
           HTTPResponse list_response = MakeRequest("GET", list_path, "", DefaultTimeoutSeconds);
 
+          if (list_response.StatusCode == 400)
+          {
+               const std::string fallback_list_path = "/collections/" + hlquery_cli::UrlEncode(source_name) +
+                                                     "/documents?offset=" + std::to_string(offset) +
+                                                     "&limit=" + std::to_string(batch_size);
+               list_response = MakeRequest("GET", fallback_list_path, "", DefaultTimeoutSeconds);
+          }
+
           if (list_response.StatusCode != 200)
           {
                CheckRequestFailed(list_response);
@@ -1028,20 +1037,50 @@ void HLQueryCLI::MigrateCollection(const std::string &source_name, const std::st
                break;
           }
 
+          int imported = 0;
+
           nlohmann::json import_payload;
           import_payload["documents"] = documents;
 
-          const std::string import_path = "/collections/" + hlquery_cli::UrlEncode(target_name) + "/documents/import?distributed=off";
+          const std::string import_path = "/collections/" + hlquery_cli::UrlEncode(target_name) + "/documents/import";
           HTTPResponse import_response = MakeRequest("POST", import_path, import_payload.dump(), DefaultTimeoutSeconds);
 
-          if (import_response.StatusCode != 200 && import_response.StatusCode != 201)
+          if (import_response.StatusCode == 200 || import_response.StatusCode == 201)
+          {
+               imported = static_cast<int>(documents.size());
+          }
+          else if (import_response.StatusCode == 404)
+          {
+               for (const auto &doc : documents)
+               {
+                    if (!doc.is_object())
+                    {
+                         continue;
+                    }
+
+                    HTTPResponse single_response = MakeRequest("POST",
+                                                              "/collections/" + hlquery_cli::UrlEncode(target_name) + "/documents",
+                                                              doc.dump(),
+                                                              DefaultTimeoutSeconds);
+
+                    if (single_response.StatusCode != 201)
+                    {
+                         CheckRequestFailed(single_response);
+                         hlquery_cli::PrintWarning("Target collection '" + target_name + "' was created before the copy failed");
+                         return;
+                    }
+
+                    imported++;
+               }
+          }
+          else
           {
                CheckRequestFailed(import_response);
                hlquery_cli::PrintWarning("Target collection '" + target_name + "' was created before the copy failed");
                return;
           }
 
-          migrated_count += static_cast<int>(documents.size());
+          migrated_count += imported;
           offset += static_cast<int>(documents.size());
      }
 
@@ -1142,6 +1181,14 @@ void HLQueryCLI::CopyCollection(const std::string &source_name, const std::strin
 
           HTTPResponse list_response = MakeRequest("GET", list_path, "", DefaultTimeoutSeconds);
 
+          if (list_response.StatusCode == 400)
+          {
+               const std::string fallback_list_path = "/collections/" + hlquery_cli::UrlEncode(source_name) +
+                                                     "/documents?offset=" + std::to_string(offset) +
+                                                     "&limit=" + std::to_string(batch_size);
+               list_response = MakeRequest("GET", fallback_list_path, "", DefaultTimeoutSeconds);
+          }
+
           if (list_response.StatusCode != 200)
           {
                CheckRequestFailed(list_response);
@@ -1176,20 +1223,50 @@ void HLQueryCLI::CopyCollection(const std::string &source_name, const std::strin
                break;
           }
 
+          int imported = 0;
+
           nlohmann::json import_payload;
           import_payload["documents"] = documents;
 
-          const std::string import_path = "/collections/" + hlquery_cli::UrlEncode(target_name) + "/documents/import?distributed=off";
+          const std::string import_path = "/collections/" + hlquery_cli::UrlEncode(target_name) + "/documents/import";
           HTTPResponse import_response = MakeRequest("POST", import_path, import_payload.dump(), DefaultTimeoutSeconds);
 
-          if (import_response.StatusCode != 200 && import_response.StatusCode != 201)
+          if (import_response.StatusCode == 200 || import_response.StatusCode == 201)
+          {
+               imported = static_cast<int>(documents.size());
+          }
+          else if (import_response.StatusCode == 404)
+          {
+               for (const auto &doc : documents)
+               {
+                    if (!doc.is_object())
+                    {
+                         continue;
+                    }
+
+                    HTTPResponse single_response = MakeRequest("POST",
+                                                              "/collections/" + hlquery_cli::UrlEncode(target_name) + "/documents",
+                                                              doc.dump(),
+                                                              DefaultTimeoutSeconds);
+
+                    if (single_response.StatusCode != 201)
+                    {
+                         CheckRequestFailed(single_response);
+                         hlquery_cli::PrintWarning("Target collection '" + target_name + "' was created before the copy failed");
+                         return;
+                    }
+
+                    imported++;
+               }
+          }
+          else
           {
                CheckRequestFailed(import_response);
                hlquery_cli::PrintWarning("Target collection '" + target_name + "' was created before the copy failed");
                return;
           }
 
-          copied_count += static_cast<int>(documents.size());
+          copied_count += imported;
           offset += static_cast<int>(documents.size());
      }
 
