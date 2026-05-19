@@ -713,6 +713,11 @@ bool CreateFakeCollections(const std::string &base_url, const std::string &auth_
                continue;
           }
 
+          if (verbose)
+          {
+               LogOutput("  ↳ Collection '" + collection_name + "' is ready; importing fake documents...\n");
+          }
+
           std::vector<std::tuple<std::string, std::string, std::string>> docs;
           docs.reserve(10);
           std::vector<nlohmann::json> enriched_docs;
