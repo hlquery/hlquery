@@ -1680,10 +1680,11 @@ std::vector<SearchHit> SearchAPI::ProcessLexicalSearch(const std::string &Collec
                                             !query_variant_terms_list.empty());
 
      const bool prefer_storage_scan_while_indexing = collection_indexing && collection_docs > 0;
+     const bool needs_zero_hit_storage_fallback = Query.AllowScanFallback && Postings.empty() && collection_docs > 0 && !query_variant_terms_list.empty();
 
-     if ((Query.AllowScanFallback || prefer_storage_scan_while_indexing || force_structured_scan || needs_typo_scan_fallback) &&
+     if ((Query.AllowScanFallback || prefer_storage_scan_while_indexing || force_structured_scan || needs_typo_scan_fallback || needs_zero_hit_storage_fallback) &&
          (Postings.empty() || prefer_storage_scan_while_indexing || force_structured_scan || needs_typo_scan_fallback) &&
-         (!has_in_memory_index || prefer_storage_scan_while_indexing || force_structured_scan || needs_typo_scan_fallback))
+         (!has_in_memory_index || needs_zero_hit_storage_fallback || prefer_storage_scan_while_indexing || force_structured_scan || needs_typo_scan_fallback))
      {
           const bool allow_prefix_match = Query.Prefix;
 
@@ -1694,11 +1695,11 @@ std::vector<SearchHit> SearchAPI::ProcessLexicalSearch(const std::string &Collec
                int offset = 0;
 
                const size_t max_scan_docs = (collection_docs > 0)
-                                                ? std::min<size_t>(collection_docs, Query.ExhaustiveSearch ? 50000 : 10000)
-                                                : (Query.ExhaustiveSearch ? 50000 : 10000);
+                                                ? std::min<size_t>(collection_docs, (Query.ExhaustiveSearch || needs_zero_hit_storage_fallback) ? collection_docs : 10000)
+                                                : ((Query.ExhaustiveSearch || needs_zero_hit_storage_fallback) ? 50000 : 10000);
                const auto scan_deadline =
                     Now() +
-                    (Query.ExhaustiveSearch
+                    ((Query.ExhaustiveSearch || needs_zero_hit_storage_fallback)
                          ? std::chrono::milliseconds(2500)
                          : (collection_docs > 2000 ? std::chrono::milliseconds(1200) : std::chrono::milliseconds(800)));
                int scan_iterations = 0;
@@ -1925,6 +1926,96 @@ std::vector<SearchHit> SearchAPI::ProcessLexicalSearch(const std::string &Collec
                HitObj.Weight = CalculateWeight(HitObj);
 
                Hits.push_back(HitObj);
+          }
+     }
+
+     if (Hits.empty() && Query.AllowScanFallback && collection_docs > 0 && !query_variant_terms_list.empty())
+     {
+          const bool allow_prefix_match = Query.Prefix;
+          const int scan_batch = 200;
+          size_t scanned = 0;
+          int offset = 0;
+          const size_t max_scan_docs = collection_docs;
+          const auto scan_deadline = Now() + std::chrono::milliseconds(collection_docs <= 50000 ? 5000 : 2500);
+
+          while (scanned < max_scan_docs && static_cast<int>(Hits.size()) < SearchLimit)
+          {
+               if (Now() >= scan_deadline)
+               {
+                    break;
+               }
+
+               auto docs = storage.ListDocuments(Collection, scan_batch, offset);
+               if (docs.empty())
+               {
+                    break;
+               }
+
+               for (const auto &doc : docs)
+               {
+                    if (scanned >= max_scan_docs || static_cast<int>(Hits.size()) >= SearchLimit)
+                    {
+                         break;
+                    }
+
+                    scanned++;
+
+                    std::vector<std::pair<std::string, std::string>> fields;
+                    AppendRequestedFieldValues(doc, restrict_to_query_fields ? Query.QueryBy : std::vector<std::string>{}, fields, Query.CaseSensitive);
+
+                    int matched_terms = 0;
+                    bool query_matches = ParsedExpression.UsesStructuredSemantics
+                                             ? EvaluateParsedQueryExpression(doc,
+                                                                             ParsedExpression,
+                                                                             restrict_to_query_fields ? Query.QueryBy : std::vector<std::string>{},
+                                                                             allow_prefix_match,
+                                                                             effective_max_typos,
+                                                                             Query.CaseSensitive)
+                                             : MatchesAnyQueryVariant(fields,
+                                                                      query_variant_terms_list,
+                                                                      allow_prefix_match,
+                                                                      effective_max_typos,
+                                                                      Query.CaseSensitive,
+                                                                      &matched_terms);
+
+                    if (!query_matches)
+                    {
+                         continue;
+                    }
+
+                    if (!ParsedExpression.UsesStructuredSemantics &&
+                        !quoted_phrases.empty() &&
+                        !AllQuotedPhrasesMatchRequestedFields(fields, quoted_phrases))
+                    {
+                         continue;
+                    }
+
+                    SearchHit HitObj;
+                    HitObj.Document["id"] = doc.ID;
+                    HitObj.Document["title"] = doc.Title;
+                    HitObj.Document["content"] = doc.Content;
+                    HitObj.Document["score"] = std::to_string(doc.Score);
+                    HitObj.Document["timestamp"] = std::to_string(doc.Timestamp);
+
+                    for (const auto &Field : doc.Fields)
+                    {
+                         HitObj.Document[Field.first] = Field.second;
+                    }
+
+                    HitObj.TextMatch = static_cast<float>(std::max(1, matched_terms));
+                    HitObj.Weight = CalculateWeight(HitObj);
+                    Hits.push_back(HitObj);
+               }
+
+               offset += scan_batch;
+          }
+
+          if (!Hits.empty())
+          {
+               std::sort(Hits.begin(), Hits.end(), [](const SearchHit &A, const SearchHit &B)
+                         {
+                              return A.TextMatch > B.TextMatch;
+                         });
           }
      }
 
