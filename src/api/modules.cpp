@@ -15,7 +15,9 @@
 
 #include "api/searchapi.h"
 #include "api/common.h"
+#include "api/userauth.h"
 #include "core/hlquery.h"
+#include "core/modulemanager.h"
 #include "utils/protocol.h"
 #include "vendor/json/json.hpp"
 
@@ -153,6 +155,76 @@ std::string ExtractControlledModuleName(const HttpRequest &Request)
      return "";
 }
 
+std::string ExtractAuthTokenFromRequest(const HttpRequest &Request)
+{
+     auto AuthIt = Request.Headers.find("Authorization");
+     if (AuthIt == Request.Headers.end())
+     {
+          AuthIt = Request.Headers.find("authorization");
+     }
+
+     if (AuthIt == Request.Headers.end())
+     {
+          return "";
+     }
+
+     std::string Token = AuthIt->second;
+
+     if (Token.rfind("Bearer ", 0) == 0)
+     {
+          Token = Token.substr(7);
+     }
+
+     return Token;
+}
+
+bool RequestHasAdminPrivileges(const HttpRequest &Request)
+{
+     if (!Instance)
+     {
+          return false;
+     }
+
+     if (!Instance->Users)
+     {
+          return true;
+     }
+
+     if (!Instance->Users->IsAuthEnabled())
+     {
+          return true;
+     }
+
+     const std::string Token = ExtractAuthTokenFromRequest(Request);
+
+     return !Token.empty() && Instance->Users->IsAdmin(Token);
+}
+
+bool ValidateControlledModuleName(const std::string &ModuleName, HttpResponse *Response)
+{
+     if (ModuleName.empty())
+     {
+          if (Response)
+          {
+               *Response = BuildErrorResponse(Status::BAD_REQUEST, Code::VALIDATION_INVALID_JSON, "Invalid module request.", "Module name is required.");
+          }
+
+          return false;
+     }
+
+     if (!ModuleManager::IsValidModuleName(ModuleName))
+     {
+          if (Response)
+          {
+               *Response = BuildErrorResponse(Status::BAD_REQUEST, Code::VALIDATION_INVALID_JSON, "Invalid module request.", "Module name contains unsupported characters.");
+          }
+
+          return false;
+     }
+
+     return true;
+}
+
 nlohmann::json BuildModuleDescriptionJSON(const ModuleAPIDescription &Description)
 {
      nlohmann::json module_json;
@@ -268,6 +340,11 @@ HttpResponse SearchAPI::HandleModuleSyntax(const HttpRequest &Request)
           return BuildErrorResponse(Status::BAD_REQUEST, Code::VALIDATION_INVALID_JSON, "Invalid module path.", "Module name is required.");
      }
 
+     if (!ModuleManager::IsValidModuleName(module_name))
+     {
+          return BuildErrorResponse(Status::BAD_REQUEST, Code::VALIDATION_INVALID_JSON, "Invalid module path.", "Module name contains unsupported characters.");
+     }
+
      if (!Instance || !Instance->Modules)
      {
           return BuildErrorResponse(Status::SERVICE_UNAVAILABLE, MODULE_UNAVAILABLE, "Module manager unavailable.", "Runtime modules are not available.");
@@ -310,6 +387,11 @@ HttpResponse SearchAPI::HandleModuleAPI(const HttpRequest &Request)
      if (module_name.empty())
      {
           return BuildErrorResponse(Status::BAD_REQUEST, Code::VALIDATION_INVALID_JSON, "Invalid module path.", "Module name is required.");
+     }
+
+     if (!ModuleManager::IsValidModuleName(module_name))
+     {
+          return BuildErrorResponse(Status::BAD_REQUEST, Code::VALIDATION_INVALID_JSON, "Invalid module path.", "Module name contains unsupported characters.");
      }
 
      if (!Instance || !Instance->Modules)
@@ -356,11 +438,17 @@ HttpResponse SearchAPI::HandleModuleLoad(const HttpRequest &Request)
           return BuildErrorResponse(Status::SERVICE_UNAVAILABLE, MODULE_UNAVAILABLE, "Module manager unavailable.", "Runtime modules are not available.");
      }
 
-     const std::string target_module = ExtractControlledModuleName(Request);
-
-     if (target_module.empty())
+     if (!RequestHasAdminPrivileges(Request))
      {
-          return BuildErrorResponse(Status::BAD_REQUEST, Code::VALIDATION_INVALID_JSON, "Invalid module request.", "Module name is required.");
+          return BuildErrorResponse(Status::FORBIDDEN, Code::VALIDATION_INVALID_JSON, "Forbidden.", "Only administrators can load runtime modules.");
+     }
+
+     const std::string target_module = ExtractControlledModuleName(Request);
+     HttpResponse validation_response;
+
+     if (!ValidateControlledModuleName(target_module, &validation_response))
+     {
+          return validation_response;
      }
 
      std::string ErrorMessage;
@@ -395,11 +483,17 @@ HttpResponse SearchAPI::HandleModuleUnload(const HttpRequest &Request)
           return BuildErrorResponse(Status::SERVICE_UNAVAILABLE, MODULE_UNAVAILABLE, "Module manager unavailable.", "Runtime modules are not available.");
      }
 
-     const std::string target_module = ExtractControlledModuleName(Request);
-
-     if (target_module.empty())
+     if (!RequestHasAdminPrivileges(Request))
      {
-          return BuildErrorResponse(Status::BAD_REQUEST, Code::VALIDATION_INVALID_JSON, "Invalid module request.", "Module name is required.");
+          return BuildErrorResponse(Status::FORBIDDEN, Code::VALIDATION_INVALID_JSON, "Forbidden.", "Only administrators can unload runtime modules.");
+     }
+
+     const std::string target_module = ExtractControlledModuleName(Request);
+     HttpResponse validation_response;
+
+     if (!ValidateControlledModuleName(target_module, &validation_response))
+     {
+          return validation_response;
      }
 
      std::string ErrorMessage;

@@ -303,6 +303,7 @@ static bool ExtractAuthTokenFromRequest(const HttpRequest &Request, std::string 
 static RouteAction ResolveRouteWithFallback(const HttpRequest &Request);
 static bool IsPublicRouteAction(RouteAction ActionVal);
 static bool IsAdminOnlyRouteAction(RouteAction ActionVal);
+static bool IsModuleControlRoute(const HttpRequest &Request);
 APIKeyAction MapRouteToKeyAction(RouteAction ActionVal);
 
 /* HttpConnection implementation. */
@@ -2318,6 +2319,14 @@ void HttpConnection::ProcessSingleRequest(const std::string &RequestStr)
                SendResponse(Response);
                return;
           }
+     }
+
+     if (IsModuleControlRoute(Request) && !IsAdminVal)
+     {
+          Response = HttpResponse(403, "Forbidden", "application/json");
+          Response.Body = "{\"error\":\"Only administrators can access this endpoint\"}";
+          SendResponse(Response);
+          return;
      }
 
      /* Scoped search: inject key metadata into request. */
@@ -4909,6 +4918,31 @@ static bool IsAdminOnlyRouteAction(RouteAction ActionVal)
              ActionVal == RouteAction::SamFlushActorMetadata);
 }
 
+static bool IsModuleControlRoute(const HttpRequest &Request)
+{
+     std::string Path = Request.Path;
+     const size_t QueryPos = Path.find('?');
+
+     if (QueryPos != std::string::npos)
+     {
+          Path = Path.substr(0, QueryPos);
+     }
+
+     if (Path.size() > 1 && Path.back() == '/')
+     {
+          Path.pop_back();
+     }
+
+     return Path == "/loadmodule" ||
+            Path == "/unloadmodule" ||
+            Path.rfind("/loadmodule/", 0) == 0 ||
+            Path.rfind("/unloadmodule/", 0) == 0 ||
+            Path == "/modules/load" ||
+            Path == "/modules/unload" ||
+            Path.rfind("/modules/load/", 0) == 0 ||
+            Path.rfind("/modules/unload/", 0) == 0;
+}
+
 /* ProcessRequestWithAPI handles requests with SearchAPI. */
 
 HttpResponse ProcessRequestWithAPI(SearchAPI &API, const HttpRequest &Request)
@@ -4981,6 +5015,12 @@ HttpResponse ProcessRequestWithAPI(SearchAPI &API, const HttpRequest &Request)
                     LogAccessControl("Forbidden: non-admin attempted admin-only operation", Request);
                     return HttpResponse(403, "Forbidden", "{\"error\":\"Only administrators can access this endpoint\"}");
                }
+          }
+
+          if (IsModuleControlRoute(Request) && !IsAdminVal)
+          {
+               LogAccessControl("Forbidden: non-admin attempted module control operation", Request);
+               return HttpResponse(403, "Forbidden", "{\"error\":\"Only administrators can access this endpoint\"}");
           }
 
           if (!IsAdminVal && !IsPublicRouteAction(ActionVal))

@@ -31,6 +31,7 @@
 #endif
 
 #include "core/logmanager.h"
+#include "core/modulemanager.h"
 #include "runtime/serverconfig.h"
 #include "utils/consolewriter.h"
 #include "utils/tools.h"
@@ -270,6 +271,22 @@ void ServerConfig::ApplyConfiguration()
           if (ModuleName.empty())
           {
                throw std::runtime_error("Invalid <module> tag: missing required 'name' attribute.");
+          }
+
+          if (!ModuleManager::IsValidModuleName(ModuleName))
+          {
+               throw std::runtime_error("Invalid <module> tag: module name '" + ModuleName + "' contains unsupported characters.");
+          }
+
+          const auto ExistingIt = std::find_if(ModuleLoads.begin(), ModuleLoads.end(),
+                                               [&](const ModuleLoadEntry &Existing)
+                                               {
+                                                    return Existing.Name == ModuleName;
+                                               });
+
+          if (ExistingIt != ModuleLoads.end())
+          {
+               continue;
           }
 
           ModulePath = ModuleTag->GetString("path", "");

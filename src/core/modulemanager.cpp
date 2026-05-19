@@ -11,6 +11,7 @@
  */
 
 #include <algorithm>
+#include <cctype>
 #include <dlfcn.h>
 #include <exception>
 #include <filesystem>
@@ -94,6 +95,11 @@ static std::filesystem::path ResolveRelativeToConfig(const ServerConfig &Config,
      return (ConfigDir / RelativePath).lexically_normal();
 }
 
+static bool ModuleRuntimeNameMatchesRequest(const RuntimeModule &Module, const std::string &RequestedName)
+{
+     return Module.GetName() == RequestedName;
+}
+
 /* Stores the process-wide demo mode status derived from loaded modules. */
 
 void ModuleManager::SetDemoModeState(bool Active, const std::string &Message)
@@ -117,6 +123,26 @@ ModuleManager::~ModuleManager()
 {
      OnUnloadModules();
      UnloadAll(nullptr);
+}
+
+bool ModuleManager::IsValidModuleName(const std::string &Name)
+{
+     if (Name.empty())
+     {
+          return false;
+     }
+
+     for (unsigned char Char : Name)
+     {
+          if (std::isalnum(Char) || Char == '_' || Char == '-')
+          {
+               continue;
+          }
+
+          return false;
+     }
+
+     return true;
 }
 
 /* Waits for shared storage before starting any runtime module. */
@@ -152,15 +178,23 @@ bool ModuleManager::LoadModule(const ServerConfig &Config,
           return false;
      }
 
-     std::unique_lock<std::shared_mutex> Lock(ModulesMutex);
-     ReapRetiredModules(Logger);
-
-     for (const auto &Loaded : Modules)
+     if (!IsValidModuleName(ModuleName))
      {
-          if (Loaded.Name == ModuleName && Loaded.Instance)
+          ErrorMessage = "Module name '" + ModuleName + "' contains unsupported characters.";
+          return false;
+     }
+
+     {
+          std::unique_lock<std::shared_mutex> Lock(ModulesMutex);
+          ReapRetiredModules(Logger);
+
+          for (const auto &Loaded : Modules)
           {
-               ErrorMessage = "Module '" + ModuleName + "' is already loaded.";
-               return false;
+               if (Loaded.Name == ModuleName && Loaded.Instance)
+               {
+                    ErrorMessage = "Module '" + ModuleName + "' is already loaded.";
+                    return false;
+               }
           }
      }
 
@@ -222,6 +256,15 @@ bool ModuleManager::LoadModule(const ServerConfig &Config,
           return false;
      }
 
+     if (!ModuleRuntimeNameMatchesRequest(*Module, ModuleName))
+     {
+          const std::string ActualName = Module->GetName();
+          Module.reset();
+          dlclose(Handle);
+          ErrorMessage = "Module '" + ModuleName + "' created runtime module '" + ActualName + "'.";
+          return false;
+     }
+
      std::string StartError;
      bool Started = false;
 
@@ -263,6 +306,29 @@ bool ModuleManager::LoadModule(const ServerConfig &Config,
      Loaded.Instance = std::move(Module);
      Loaded.ExecutionState = std::make_shared<ModuleExecutionState>();
      Loaded.UnloadNotified = false;
+
+     std::unique_lock<std::shared_mutex> Lock(ModulesMutex);
+
+     for (const auto &Existing : Modules)
+     {
+          if (Existing.Name == ModuleName && Existing.Instance)
+          {
+               Lock.unlock();
+
+               try
+               {
+                    Loaded.Instance->Stop();
+               }
+               catch (...)
+               {
+               }
+
+               Loaded.Instance.reset();
+               dlclose(Loaded.Handle);
+               ErrorMessage = "Module '" + ModuleName + "' is already loaded.";
+               return false;
+          }
+     }
 
      Modules.push_back(std::move(Loaded));
      RebuildHookRegistriesLocked();
@@ -524,12 +590,19 @@ std::string ModuleManager::ResolveModulePath(const ServerConfig &Config, const S
 
 bool ModuleManager::LoadConfiguredModules(const ServerConfig &Config, LogManager *Logger, std::string &ErrorMessage)
 {
-     std::unique_lock<std::shared_mutex> Lock(ModulesMutex);
-     ReapRetiredModules(Logger);
      std::vector<LoadedModule> StagedModules;
+     bool PreviousDemoModeActive = false;
+     std::string PreviousDemoModeMessage;
+
+     {
+          std::unique_lock<std::shared_mutex> Lock(ModulesMutex);
+          ReapRetiredModules(Logger);
+     }
 
      {
           std::lock_guard<std::mutex> DemoLock(DemoStateMutex);
+          PreviousDemoModeActive = DemoModeActive;
+          PreviousDemoModeMessage = DemoModeMessage;
           DemoModeActive = false;
           DemoModeMessage.clear();
      }
@@ -561,6 +634,10 @@ bool ModuleManager::LoadConfiguredModules(const ServerConfig &Config, LogManager
           }
 
           StagedModules.clear();
+
+          std::lock_guard<std::mutex> DemoLock(DemoStateMutex);
+          DemoModeActive = PreviousDemoModeActive;
+          DemoModeMessage = PreviousDemoModeMessage;
      };
 
      /* Modules are created, started, and validated off to the side before replacing the live registry. */
@@ -570,6 +647,26 @@ bool ModuleManager::LoadConfiguredModules(const ServerConfig &Config, LogManager
           const std::string &ModuleName = ModuleEntry.Name;
           std::string ModulePath = ResolveModulePath(Config, ModuleEntry);
           const bool IsCoreModule = ModuleName.rfind("core_", 0) == 0;
+
+          if (!IsValidModuleName(ModuleName))
+          {
+               ErrorMessage = "Configured module '" + ModuleName + "' contains unsupported characters.";
+               RollbackStagedModules();
+               return false;
+          }
+
+          const auto ExistingIt = std::find_if(StagedModules.begin(), StagedModules.end(),
+                                               [&](const LoadedModule &Existing)
+                                               {
+                                                    return Existing.Name == ModuleName;
+                                               });
+
+          if (ExistingIt != StagedModules.end())
+          {
+               ErrorMessage = "Configured module '" + ModuleName + "' is listed more than once.";
+               RollbackStagedModules();
+               return false;
+          }
 
           std::error_code EC;
 
@@ -622,6 +719,16 @@ bool ModuleManager::LoadConfiguredModules(const ServerConfig &Config, LogManager
           {
                dlclose(Handle);
                ErrorMessage = "Module '" + ModuleName + "' returned a null module instance.";
+               RollbackStagedModules();
+               return false;
+          }
+
+          if (!ModuleRuntimeNameMatchesRequest(*Module, ModuleName))
+          {
+               const std::string ActualName = Module->GetName();
+               Module.reset();
+               dlclose(Handle);
+               ErrorMessage = "Configured module '" + ModuleName + "' created runtime module '" + ActualName + "'.";
                RollbackStagedModules();
                return false;
           }
@@ -686,10 +793,15 @@ bool ModuleManager::LoadConfiguredModules(const ServerConfig &Config, LogManager
 
      /* Swap in the new module set under lock, then tear down the previous set after releasing the registry lock. */
 
-     std::vector<LoadedModule> PreviousModules = std::move(Modules);
-     Modules = std::move(StagedModules);
-     RebuildHookRegistriesLocked();
-     Lock.unlock();
+     std::vector<LoadedModule> PreviousModules;
+
+     {
+          std::unique_lock<std::shared_mutex> Lock(ModulesMutex);
+          PreviousModules = std::move(Modules);
+          Modules = std::move(StagedModules);
+          RebuildHookRegistriesLocked();
+     }
+
      UnloadModuleList(std::move(PreviousModules), Logger);
 
      return true;
@@ -874,10 +986,14 @@ void ModuleManager::UnloadModuleList(std::vector<LoadedModule> ModulesToUnload, 
                {
                }
 
-               if (Logger && It->Instance.use_count() > 1)
+               if (It->Instance.use_count() > 1)
                {
-                    Logger->Normal("modules",
-                                   "Module '" + It->Name + "' still has external references during unload; deferring final destruction and dlclose() until those references are released.");
+                    if (Logger)
+                    {
+                         Logger->Normal("modules",
+                                        "Module '" + It->Name + "' still has external references during unload; deferring final destruction and dlclose() until those references are released.");
+                    }
+
                     std::unique_lock<std::shared_mutex> Lock(ModulesMutex);
                     RetiredModules.push_back(std::move(*It));
                     continue;
@@ -994,21 +1110,40 @@ bool ModuleManager::GetModuleReference(const std::string &Name, ModuleReference 
 
 std::vector<ModuleAPIDescription> ModuleManager::GetModuleAPIDescriptions() const
 {
-     std::shared_lock<std::shared_mutex> Lock(ModulesMutex);
+     struct NamedModuleReference
+     {
+          std::string Name;
+          ModuleReference Reference;
+     };
+
+     std::vector<NamedModuleReference> Snapshot;
+
+     {
+          std::shared_lock<std::shared_mutex> Lock(ModulesMutex);
+
+          Snapshot.reserve(Modules.size());
+
+          for (const auto &Module : Modules)
+          {
+               ModuleReference ModuleRef{Module.Instance, Module.ExecutionState};
+
+               if (!ModuleRef.Instance || !ModuleRef.Instance->IsAPIRouteEnabled())
+               {
+                    continue;
+               }
+
+               Snapshot.push_back({Module.Name, ModuleRef});
+          }
+     }
 
      std::vector<ModuleAPIDescription> Descriptions;
-     Descriptions.reserve(Modules.size());
+     Descriptions.reserve(Snapshot.size());
 
-     for (const auto &Module : Modules)
+     for (const auto &Module : Snapshot)
      {
-          ModuleReference ModuleRef{Module.Instance, Module.ExecutionState};
+          const ModuleReference &ModuleRef = Module.Reference;
 
           if (!ModuleRef.Instance)
-          {
-               continue;
-          }
-
-          if (!ModuleRef.Instance->IsAPIRouteEnabled())
           {
                continue;
           }
@@ -1059,55 +1194,48 @@ bool ModuleManager::GetModuleAPIDescription(const std::string &ModuleName, Modul
           return false;
      }
 
-     std::shared_lock<std::shared_mutex> Lock(ModulesMutex);
+     ModuleReference ModuleRef;
 
-     for (const auto &Module : Modules)
+     if (!GetModuleReference(ModuleName, &ModuleRef) || !ModuleRef.Instance)
      {
-          ModuleReference ModuleRef{Module.Instance, Module.ExecutionState};
-
-          if (Module.Name != ModuleName || !ModuleRef.Instance)
-          {
-               continue;
-          }
-
-          if (!ModuleRef.Instance->IsAPIRouteEnabled())
-          {
-               return false;
-          }
-
-          if (!BeginModuleCallback(ModuleRef))
-          {
-               return false;
-          }
-
-          try
-          {
-               *Description = ModuleRef.Instance->GetAPIDescription();
-               Description->RequirementFlags = ModuleRef.Instance->GetRequirementFlags();
-               EndModuleCallback(ModuleRef);
-          }
-          catch (const std::exception &Ex)
-          {
-               EndModuleCallback(ModuleRef);
-               LogModuleDispatchFailure(ModuleRef.Instance.get(), "GetAPIDescription", Ex.what());
-               return false;
-          }
-          catch (...)
-          {
-               EndModuleCallback(ModuleRef);
-               LogUnknownModuleDispatchFailure(ModuleRef.Instance.get(), "GetAPIDescription");
-               return false;
-          }
-
-          if (Description->Name.empty())
-          {
-               Description->Name = Module.Name;
-          }
-
-          return true;
+          return false;
      }
 
-     return false;
+     if (!ModuleRef.Instance->IsAPIRouteEnabled())
+     {
+          return false;
+     }
+
+     if (!BeginModuleCallback(ModuleRef))
+     {
+          return false;
+     }
+
+     try
+     {
+          *Description = ModuleRef.Instance->GetAPIDescription();
+          Description->RequirementFlags = ModuleRef.Instance->GetRequirementFlags();
+          EndModuleCallback(ModuleRef);
+     }
+     catch (const std::exception &Ex)
+     {
+          EndModuleCallback(ModuleRef);
+          LogModuleDispatchFailure(ModuleRef.Instance.get(), "GetAPIDescription", Ex.what());
+          return false;
+     }
+     catch (...)
+     {
+          EndModuleCallback(ModuleRef);
+          LogUnknownModuleDispatchFailure(ModuleRef.Instance.get(), "GetAPIDescription");
+          return false;
+     }
+
+     if (Description->Name.empty())
+     {
+          Description->Name = ModuleName;
+     }
+
+     return true;
 }
 
 /* Returns the shared command surface declared by one API-enabled module. */
@@ -1119,49 +1247,42 @@ bool ModuleManager::GetModuleCommandSpecs(const std::string &ModuleName, std::ve
           return false;
      }
 
-     std::shared_lock<std::shared_mutex> Lock(ModulesMutex);
+     ModuleReference ModuleRef;
 
-     for (const auto &Module : Modules)
+     if (!GetModuleReference(ModuleName, &ModuleRef) || !ModuleRef.Instance)
      {
-          ModuleReference ModuleRef{Module.Instance, Module.ExecutionState};
-
-          if (Module.Name != ModuleName || !ModuleRef.Instance)
-          {
-               continue;
-          }
-
-          if (!ModuleRef.Instance->IsAPIRouteEnabled())
-          {
-               return false;
-          }
-
-          if (!BeginModuleCallback(ModuleRef))
-          {
-               return false;
-          }
-
-          try
-          {
-               *Commands = ModuleRef.Instance->GetCommandSpecs();
-               EndModuleCallback(ModuleRef);
-          }
-          catch (const std::exception &Ex)
-          {
-               EndModuleCallback(ModuleRef);
-               LogModuleDispatchFailure(ModuleRef.Instance.get(), "GetCommandSpecs", Ex.what());
-               return false;
-          }
-          catch (...)
-          {
-               EndModuleCallback(ModuleRef);
-               LogUnknownModuleDispatchFailure(ModuleRef.Instance.get(), "GetCommandSpecs");
-               return false;
-          }
-
-          return true;
+          return false;
      }
 
-     return false;
+     if (!ModuleRef.Instance->IsAPIRouteEnabled())
+     {
+          return false;
+     }
+
+     if (!BeginModuleCallback(ModuleRef))
+     {
+          return false;
+     }
+
+     try
+     {
+          *Commands = ModuleRef.Instance->GetCommandSpecs();
+          EndModuleCallback(ModuleRef);
+     }
+     catch (const std::exception &Ex)
+     {
+          EndModuleCallback(ModuleRef);
+          LogModuleDispatchFailure(ModuleRef.Instance.get(), "GetCommandSpecs", Ex.what());
+          return false;
+     }
+     catch (...)
+     {
+          EndModuleCallback(ModuleRef);
+          LogUnknownModuleDispatchFailure(ModuleRef.Instance.get(), "GetCommandSpecs");
+          return false;
+     }
+
+     return true;
 }
 
 /* Forwards one normalized shared command request into the target runtime module. */

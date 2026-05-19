@@ -296,6 +296,13 @@ class ModuleManager
 
    public:
 
+     /*
+      * Validates the logical module name used for config entries and runtime
+      * load/unload requests. Paths belong in ModuleLoadEntry::Path, not Name.
+      */
+
+     static bool IsValidModuleName(const std::string& Name);
+
      /* 
       * Destroys the module manager and releases any remaining resources.
       * Remaining modules are unloaded before process shutdown completes.
