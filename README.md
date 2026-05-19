@@ -79,7 +79,7 @@ $ cd hlquery/
 $ ./configure
 ```
 
-On Linux:
+On GNU/Linux:
 
 ```
 $ make -j4

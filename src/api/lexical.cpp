@@ -1548,7 +1548,7 @@ std::vector<SearchHit> SearchAPI::ProcessLexicalSearch(const std::string &Collec
 
      bool has_in_memory_index = Instance->SearchIndex->HasInMemoryIndex(Collection);
 
-     if (!has_in_memory_index && collection_docs > 0 && collection_is_indexing)
+     if (collection_docs > 0 && collection_is_indexing)
      {
           auto start = Now();
           /*
@@ -1573,7 +1573,7 @@ std::vector<SearchHit> SearchAPI::ProcessLexicalSearch(const std::string &Collec
                     break;
                }
 
-               if (Now() - start >= bailout_after)
+               if (!small_or_moderate_collection && Now() - start >= bailout_after)
                {
                     break;
                }
