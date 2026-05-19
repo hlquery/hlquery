@@ -606,6 +606,49 @@ void HLQueryCLI::ShowCollectionInfo(const std::string &collection_name)
      PrintTable(headers, rows);
 }
 
+void HLQueryCLI::ShowCollectionLanguage(const std::string &collection_name, bool json_output)
+{
+     if (collection_name.empty())
+     {
+          PrintError("Collection name is required", "Usage: lang <collection> [--json]");
+          return;
+     }
+
+     HLQueryCLI::HTTPResponse response =
+          MakeRequest("GET", "/collections/" + hlquery_cli::UrlEncode(collection_name) + "/lang");
+
+     if (CheckRequestFailed(response))
+     {
+          return;
+     }
+
+     nlohmann::json root;
+
+     try
+     {
+          root = nlohmann::json::parse(response.Body);
+     }
+     catch (...)
+     {
+          PrintError("Failed to parse JSON response");
+          return;
+     }
+
+     if (json_output || RawMode)
+     {
+          std::cout << root.dump(2) << "\n";
+          return;
+     }
+
+     std::string lang = root.value("lang", "");
+     if (lang.empty())
+     {
+          lang = "und";
+     }
+
+     std::cout << lang << "\n";
+}
+
 void HLQueryCLI::ShowInfo(const std::string &target)
 {
      if (target.empty())

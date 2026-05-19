@@ -68,6 +68,10 @@ class HLQueryCLI
 
      void ShowCollectionInfo(const std::string &collection_name);
 
+     /* Prints detected language for a collection. */
+
+     void ShowCollectionLanguage(const std::string &collection_name, bool json_output = false);
+
      /* Shows collection or document information depending on the target string. */
 
      void ShowInfo(const std::string &target);

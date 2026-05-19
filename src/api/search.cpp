@@ -17,6 +17,7 @@
 #include <iomanip>
 #include <iostream>
 #include <limits>
+#include <deque>
 #include <list>
 #include <map>
 #include <mutex>
@@ -35,6 +36,80 @@
 #include "sql/sql.h"
 #include "utils/protocol.h"
 #include "vendor/json/json.hpp"
+
+namespace
+{
+     class SAMTrainingDedupe
+     {
+       public:
+         explicit SAMTrainingDedupe(size_t MaxEntries)
+             : Max(MaxEntries)
+         {
+         }
+
+         bool ShouldAllow(const std::string& Key, uint64_t NowMS, uint64_t WindowMS)
+         {
+              if (WindowMS == 0 || Key.empty())
+              {
+                   return true;
+              }
+
+              std::lock_guard<std::mutex> Lock(Mutex);
+
+              auto It = LastSeen.find(Key);
+              if (It != LastSeen.end())
+              {
+                   if (NowMS >= It->second && (NowMS - It->second) < WindowMS)
+                   {
+                        return false;
+                   }
+                   It->second = NowMS;
+                   return true;
+              }
+
+              LastSeen.emplace(Key, NowMS);
+              Order.push_back(Key);
+
+              while (Order.size() > Max)
+              {
+                   LastSeen.erase(Order.front());
+                   Order.pop_front();
+              }
+
+              return true;
+         }
+
+       private:
+         const size_t Max;
+         std::mutex Mutex;
+         std::unordered_map<std::string, uint64_t> LastSeen;
+         std::deque<std::string> Order;
+     };
+
+     static SAMTrainingDedupe gSearchIdeaDedupe(16384);
+
+     bool ShouldRecordSAMSearchIdea(const HttpRequest& Request,
+                                   const std::string& Collection,
+                                   const std::string& Query)
+     {
+          if (!Instance || !Instance->Config || !Instance->Config->GetSamRecordSearchIdeas())
+          {
+               return false;
+          }
+
+          const int WindowMs = Instance->Config->GetSamSearchIdeaDedupeWindowMs();
+          if (WindowMs <= 0)
+          {
+               return true;
+          }
+
+          const uint64_t NowMS = static_cast<uint64_t>(NowMs());
+          const uint64_t WindowMS = static_cast<uint64_t>(WindowMs);
+          const std::string ActorKey = Request.APIKeyID.empty() ? Request.RemoteAddress : Request.APIKeyID;
+          const std::string Key = ActorKey + "\n" + Collection + "\n" + Query;
+          return gSearchIdeaDedupe.ShouldAllow(Key, NowMS, WindowMS);
+     }
+}
 
 /* Stores the maybe-suggestion policy for a document search response. */
 
@@ -1778,7 +1853,8 @@ HttpResponse SearchAPI::HandleSearch(const HttpRequest &Request)
                AttachSearchResponseMeta(Response, SearchQueryObj, Request, CollectionName);
 
                if (!SearchQueryObj.Q.empty() && SearchQueryObj.Q != "*" &&
-                   Instance && Instance->Sam && Instance->Sam->IsOpen())
+                   Instance && Instance->Sam && Instance->Sam->IsOpen() &&
+                   ShouldRecordSAMSearchIdea(Request, CollectionName, SearchQueryObj.Q))
                {
                     const auto IdeaDocuments = BuildSAMSearchIdeaDocuments(SearchResultObj.Hits);
                     if (Instance->Sam->RecordSearchIdea(CollectionName, SearchQueryObj.Q, IdeaDocuments))
@@ -1924,7 +2000,8 @@ HttpResponse SearchAPI::HandleSearch(const HttpRequest &Request)
      /* Analytics are emitted after the response body is finalized so counts match the payload. */
 
      if (!SearchQueryObj.Q.empty() && SearchQueryObj.Q != "*" &&
-         Instance && Instance->Sam && Instance->Sam->IsOpen())
+         Instance && Instance->Sam && Instance->Sam->IsOpen() &&
+         ShouldRecordSAMSearchIdea(Request, CollectionName, SearchQueryObj.Q))
      {
           const auto IdeaDocuments = BuildSAMSearchIdeaDocuments(SearchResultObj.Hits);
           if (Instance->Sam->RecordSearchIdea(CollectionName, SearchQueryObj.Q, IdeaDocuments))

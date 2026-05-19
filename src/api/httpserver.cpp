@@ -2603,6 +2603,10 @@ void HttpConnection::ProcessSingleRequest(const std::string &RequestStr)
      {
           Response = API.HandleSAMImprove(Request);
      }
+     else if (NormalizedPath == "/sam/flush_actor_metadata" && Request.Method == "POST")
+     {
+          Response = API.HandleSAMFlushActorMetadata(Request);
+     }
      else if (NormalizedPath == "/sam/documents" && Request.Method == "GET")
      {
           Response = API.HandleSAMListDocuments(Request);
@@ -2807,6 +2811,13 @@ void HttpConnection::ProcessSingleRequest(const std::string &RequestStr)
      else if (Request.Path.find("/collections/") == 0 && (Request.Path.find("/vector_search") != std::string::npos || VectorSearchAlias) && (Request.Method == "GET" || Request.Method == "POST"))
      {
           Response = API.HandleVectorSearch(Request);
+     }
+     else if (Request.Path.find("/collections/") == 0 &&
+              NormalizedPath.size() > std::string("/collections/").size() &&
+              NormalizedPath.rfind("/lang") == (NormalizedPath.size() - std::string("/lang").size()) &&
+              Request.Method == "GET")
+     {
+          Response = API.HandleGetCollectionLanguage(Request);
      }
      else if (Request.Path.find("/collections/") == 0 && NormalizedPath.find("/search") == std::string::npos && Request.Path.find("/documents") == std::string::npos && Request.Path.find("/synonyms") == std::string::npos && Request.Path.find("/stopwords") == std::string::npos && Request.Path.find("/overrides") == std::string::npos && Request.Method == "GET")
      {
@@ -4761,6 +4772,7 @@ APIKeyAction MapRouteToKeyAction(RouteAction ActionVal)
           case RouteAction::ListCollections:
           case RouteAction::ListCollectionsDistributed:
           case RouteAction::GetCollection:
+          case RouteAction::GetCollectionLanguage:
           case RouteAction::ListSynonyms:
           case RouteAction::ListGlobalSynonyms:
           case RouteAction::GetSynonym:
@@ -4800,6 +4812,8 @@ APIKeyAction MapRouteToKeyAction(RouteAction ActionVal)
                return APIKeyAction::UPDATE;
           case RouteAction::SamImprove:
                return APIKeyAction::UPDATE;
+          case RouteAction::SamFlushActorMetadata:
+               return APIKeyAction::ALL;
 
           default:
                return APIKeyAction::SEARCH;
@@ -4891,7 +4905,8 @@ static bool IsAdminOnlyRouteAction(RouteAction ActionVal)
              ActionVal == RouteAction::LinksDisconnect ||
              ActionVal == RouteAction::Flush ||
              ActionVal == RouteAction::Repair ||
-             ActionVal == RouteAction::StorageStatus);
+             ActionVal == RouteAction::StorageStatus ||
+             ActionVal == RouteAction::SamFlushActorMetadata);
 }
 
 /* ProcessRequestWithAPI handles requests with SearchAPI. */
@@ -5268,6 +5283,9 @@ HttpResponse ProcessRequestWithAPI(SearchAPI &API, const HttpRequest &Request)
                case RouteAction::GetCollection:
                     return API.HandleGetCollection(Request);
 
+               case RouteAction::GetCollectionLanguage:
+                    return API.HandleGetCollectionLanguage(Request);
+
                case RouteAction::DeleteCollection:
                     return API.HandleDeleteCollection(Request);
 
@@ -5331,6 +5349,9 @@ HttpResponse ProcessRequestWithAPI(SearchAPI &API, const HttpRequest &Request)
 
                case RouteAction::SamImprove:
                     return API.HandleSAMImprove(Request);
+
+               case RouteAction::SamFlushActorMetadata:
+                    return API.HandleSAMFlushActorMetadata(Request);
 
                case RouteAction::SamListDocuments:
                     return API.HandleSAMListDocuments(Request);

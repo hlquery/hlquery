@@ -574,9 +574,49 @@ class ServerConfig
          return SamSearchIdeasCollection;
     }
 
-    bool GetSamIndexAll() const
+    bool GetSamRecordSearchIdeas() const
+    {
+         return SamRecordSearchIdeas;
+    }
+
+     bool GetSamRecordInteractions() const
      {
-         return SamIndexAll;
+          return SamRecordInteractions;
+     }
+
+     int GetSamSearchIdeaDedupeWindowMs() const
+     {
+          return SamSearchIdeaDedupeWindowMs;
+     }
+
+     int GetSamInteractionDedupeWindowMs() const
+     {
+          return SamInteractionDedupeWindowMs;
+     }
+
+     int GetSamActorMetadataRetentionDays() const
+     {
+          return SamActorMetadataRetentionDays;
+     }
+
+     int GetSamInteractionMaxPerMinute() const
+     {
+          return SamInteractionMaxPerMinute;
+     }
+
+     int GetSamInteractionMaxPerHour() const
+     {
+          return SamInteractionMaxPerHour;
+     }
+
+     int GetSamInteractionMaxPerDocQueryPerHour() const
+     {
+          return SamInteractionMaxPerDocQueryPerHour;
+     }
+
+     bool GetSamIndexAll() const
+     {
+          return SamIndexAll;
      }
 
      bool GetSamSmartBackground() const
@@ -2060,6 +2100,14 @@ class ServerConfig
     bool SamEnabled = false;
     std::string SamDataDirectory = HLQUERY_SAM_DATA_DIR;
     std::string SamSearchIdeasCollection;
+    bool SamRecordSearchIdeas = true;
+    bool SamRecordInteractions = true;
+    int SamSearchIdeaDedupeWindowMs = 0;
+    int SamInteractionDedupeWindowMs = 0;
+    int SamActorMetadataRetentionDays = 30;
+    int SamInteractionMaxPerMinute = 0;
+    int SamInteractionMaxPerHour = 0;
+    int SamInteractionMaxPerDocQueryPerHour = 0;
     bool SamIndexAll = false;
     bool SamSmartBackground = true;
     int SamBackgroundImprovementIntervalMs = 60000;

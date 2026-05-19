@@ -1121,6 +1121,32 @@ int main(int argc, char *argv[])
 
           /* Dispatch CLI commands to their handlers. */
 
+          if (command_str == "lang")
+          {
+               bool json_output_flag = false;
+               std::vector<std::string> positional;
+
+               for (size_t i = 1; i < args_vec.size(); i++)
+               {
+                    if (args_vec[i] == "--json")
+                    {
+                         json_output_flag = true;
+                         continue;
+                    }
+
+                    positional.push_back(args_vec[i]);
+               }
+
+               if (positional.size() != 1)
+               {
+                    ConsoleWriter::WriteError("Usage: " + program_name + " lang <collection> [--json].", true);
+                    return 1;
+               }
+
+               cli_instance.ShowCollectionLanguage(positional[0], json_output_flag);
+               return cli_instance.GetExitCode();
+          }
+
           if (command_str == "cols")
           {
                /* cols accepts both explicit flags and the older positional offset/limit form. */

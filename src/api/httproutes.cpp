@@ -74,6 +74,7 @@ struct CollectionRouteInfo
      std::vector<std::string> Segments;
      bool IsCollectionPath = false;
      bool IsCollectionRoot = false;
+     bool IsCollectionLang = false;
      bool IsCollectionUpdate = false;
      bool IsDocumentsRoot = false;
      bool IsDocumentsChild = false;
@@ -151,6 +152,7 @@ static CollectionRouteInfo BuildCollectionRouteInfo(const std::string &Normalize
 
      Info.IsCollectionPath = Info.Segments.size() >= 2 && Info.SegmentEquals(0, "collections");
      Info.IsCollectionRoot = Info.IsCollectionPath && Info.Segments.size() == 2;
+     Info.IsCollectionLang = Info.IsCollectionPath && Info.Segments.size() == 3 && Info.SegmentEquals(2, "lang");
      Info.IsCollectionUpdate = Info.IsCollectionPath && Info.Segments.size() == 3 && Info.SegmentEquals(2, "update");
      Info.IsDocumentsRoot = Info.IsCollectionPath && Info.Segments.size() == 3 && Info.SegmentEquals(2, "documents");
      Info.IsDocumentsChild = Info.IsCollectionPath && Info.Segments.size() >= 4 && Info.SegmentEquals(2, "documents");
@@ -237,6 +239,11 @@ RouteAction ResolveHttpRoute(const HttpRequest &Request)
           if (NormalizedPath == "/sam/improve" && Request.Method == "POST")
           {
                return RouteAction::SamImprove;
+          }
+
+          if (NormalizedPath == "/sam/flush_actor_metadata" && Request.Method == "POST")
+          {
+               return RouteAction::SamFlushActorMetadata;
           }
 
           if (NormalizedPath == "/sam/documents" && Request.Method == "GET")
@@ -516,6 +523,11 @@ RouteAction ResolveHttpRoute(const HttpRequest &Request)
           if (RouteInfo.IsDocumentsSearch && (Method == "GET" || Method == "POST"))
           {
                return RouteAction::DocumentSearch;
+          }
+
+          if (RouteInfo.IsCollectionLang && Method == "GET")
+          {
+               return RouteAction::GetCollectionLanguage;
           }
 
           if (RouteInfo.IsCollectionRoot && Method == "GET")
@@ -821,6 +833,8 @@ const char *RouteActionName(RouteAction ActionVal)
                return "CreateCollection";
           case RouteAction::GetCollection:
                return "GetCollection";
+          case RouteAction::GetCollectionLanguage:
+               return "GetCollectionLanguage";
           case RouteAction::UpdateCollection:
                return "UpdateCollection";
           case RouteAction::DeleteCollection:
@@ -853,6 +867,8 @@ const char *RouteActionName(RouteAction ActionVal)
                return "SamPause";
           case RouteAction::SamImprove:
                return "SamImprove";
+          case RouteAction::SamFlushActorMetadata:
+               return "SamFlushActorMetadata";
           case RouteAction::SamListDocuments:
                return "SamListDocuments";
           case RouteAction::SamGetDocument:

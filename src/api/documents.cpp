@@ -20,17 +20,20 @@
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
+#include <deque>
 #include <fcntl.h>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
 #include <map>
+#include <mutex>
 #include <pthread.h>
 #include <regex>
 #include <sstream>
 #include <thread>
 #include <unistd.h>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -49,6 +52,369 @@
 #include "utils/protocol.h"
 #include "utils/wildcard.h"
 #include "vendor/json/json.hpp"
+
+namespace
+{
+     class SAMTrainingDedupe
+     {
+       public:
+         explicit SAMTrainingDedupe(size_t MaxEntries)
+             : Max(MaxEntries)
+         {
+         }
+
+         size_t Size()
+         {
+              std::lock_guard<std::mutex> Lock(Mutex);
+              return LastSeen.size();
+         }
+
+         void Clear()
+         {
+              std::lock_guard<std::mutex> Lock(Mutex);
+              LastSeen.clear();
+              Order.clear();
+              LastPurgeMS = 0;
+         }
+
+         bool ShouldAllow(const std::string& Key, uint64_t NowMS, uint64_t WindowMS, uint64_t RetentionMS = 0)
+         {
+              if (WindowMS == 0 || Key.empty())
+              {
+                   return true;
+              }
+
+              std::lock_guard<std::mutex> Lock(Mutex);
+
+              PurgeExpiredLocked(NowMS, RetentionMS);
+
+              auto It = LastSeen.find(Key);
+              if (It != LastSeen.end())
+              {
+                   if (NowMS >= It->second && (NowMS - It->second) < WindowMS)
+                   {
+                        return false;
+                   }
+                   It->second = NowMS;
+                   return true;
+              }
+
+              LastSeen.emplace(Key, NowMS);
+              Order.push_back(Key);
+
+              while (Order.size() > Max)
+              {
+                   LastSeen.erase(Order.front());
+                   Order.pop_front();
+              }
+
+              return true;
+         }
+
+       private:
+         const size_t Max;
+         std::mutex Mutex;
+         std::unordered_map<std::string, uint64_t> LastSeen;
+         std::deque<std::string> Order;
+         uint64_t LastPurgeMS = 0;
+
+         void PurgeExpiredLocked(uint64_t NowMS, uint64_t RetentionMS)
+         {
+              if (RetentionMS == 0)
+              {
+                   return;
+              }
+
+              constexpr uint64_t kMinPurgeIntervalMS = 60ULL * 1000ULL;
+              if (LastPurgeMS > 0 && NowMS > LastPurgeMS && (NowMS - LastPurgeMS) < kMinPurgeIntervalMS)
+              {
+                   return;
+              }
+
+              LastPurgeMS = NowMS;
+              const uint64_t ExpireBefore = NowMS > RetentionMS ? (NowMS - RetentionMS) : 0ULL;
+
+              for (auto It = Order.begin(); It != Order.end();)
+              {
+                   const auto SeenIt = LastSeen.find(*It);
+                   if (SeenIt == LastSeen.end())
+                   {
+                        It = Order.erase(It);
+                        continue;
+                   }
+
+                   if (SeenIt->second > 0 && SeenIt->second < ExpireBefore)
+                   {
+                        LastSeen.erase(SeenIt);
+                        It = Order.erase(It);
+                        continue;
+                   }
+
+                   ++It;
+              }
+         }
+     };
+
+     static SAMTrainingDedupe gSearchIdeaDedupe(32768);
+     static SAMTrainingDedupe gInteractionDedupe(32768);
+
+     class SAMInteractionAbuseGuard
+     {
+       public:
+         struct StatsSnapshot
+         {
+              size_t ActorMinute = 0;
+              size_t ActorHour = 0;
+              size_t DocQueryHour = 0;
+         };
+
+         StatsSnapshot Snapshot()
+         {
+              std::lock_guard<std::mutex> Lock(Mutex);
+              StatsSnapshot S;
+              S.ActorMinute = ActorMinute.size();
+              S.ActorHour = ActorHour.size();
+              S.DocQueryHour = DocQueryHour.size();
+              return S;
+         }
+
+         void Clear()
+         {
+              std::lock_guard<std::mutex> Lock(Mutex);
+              ActorMinute.clear();
+              ActorHour.clear();
+              DocQueryHour.clear();
+              LastPurgeMS = 0;
+         }
+
+         bool ShouldAllow(const std::string& ActorKey,
+                          const std::string& Collection,
+                          const std::string& Query,
+                          const std::string& DocumentID,
+                          uint64_t NowMS,
+                          int RetentionDays,
+                          int MaxPerMinute,
+                          int MaxPerHour,
+                          int MaxPerDocQueryPerHour)
+         {
+              if (ActorKey.empty() || Collection.empty() || Query.empty() || DocumentID.empty())
+              {
+                   return true;
+              }
+
+              PurgeExpiredLocked(NowMS, RetentionDays);
+
+              if (!ApplyActorLimitsLocked(ActorKey, NowMS, MaxPerMinute, MaxPerHour))
+              {
+                   return false;
+              }
+
+              if (!ApplyDocQueryBurstLimitLocked(Collection, Query, DocumentID, NowMS, MaxPerDocQueryPerHour))
+              {
+                   return false;
+              }
+
+              return true;
+         }
+
+       private:
+         struct TimeWindowCounter
+         {
+              std::deque<uint64_t> Samples;
+              uint64_t LastSeenMS = 0;
+         };
+
+         std::mutex Mutex;
+         uint64_t LastPurgeMS = 0;
+         std::unordered_map<std::string, TimeWindowCounter> ActorMinute;
+         std::unordered_map<std::string, TimeWindowCounter> ActorHour;
+         std::unordered_map<std::string, TimeWindowCounter> DocQueryHour;
+
+         static void PruneDeque(std::deque<uint64_t>& Values, uint64_t NowMS, uint64_t WindowMS)
+         {
+              while (!Values.empty())
+              {
+                   const uint64_t TS = Values.front();
+                   if (TS > NowMS)
+                   {
+                        Values.pop_front();
+                        continue;
+                   }
+                   if ((NowMS - TS) < WindowMS)
+                   {
+                        break;
+                   }
+                   Values.pop_front();
+              }
+         }
+
+         void PurgeExpiredLocked(uint64_t NowMS, int RetentionDays)
+         {
+              std::lock_guard<std::mutex> Lock(Mutex);
+
+              constexpr uint64_t kMinPurgeIntervalMS = 60ULL * 1000ULL;
+              if (LastPurgeMS > 0 && NowMS > LastPurgeMS && (NowMS - LastPurgeMS) < kMinPurgeIntervalMS)
+              {
+                   return;
+              }
+
+              LastPurgeMS = NowMS;
+
+              const uint64_t RetentionMS =
+                   RetentionDays <= 0 ? 0ULL : static_cast<uint64_t>(RetentionDays) * 24ULL * 60ULL * 60ULL * 1000ULL;
+              const uint64_t ExpireBefore = RetentionMS == 0 ? 0ULL : (NowMS > RetentionMS ? (NowMS - RetentionMS) : 0ULL);
+
+              auto PurgeMap = [&](auto& Map)
+              {
+                   for (auto It = Map.begin(); It != Map.end();)
+                   {
+                        const uint64_t LastSeen = It->second.LastSeenMS;
+                        if (RetentionMS > 0 && LastSeen > 0 && LastSeen < ExpireBefore)
+                        {
+                             It = Map.erase(It);
+                             continue;
+                        }
+                        ++It;
+                   }
+              };
+
+              PurgeMap(ActorMinute);
+              PurgeMap(ActorHour);
+              PurgeMap(DocQueryHour);
+         }
+
+         bool ApplyActorLimitsLocked(const std::string& ActorKey, uint64_t NowMS, int MaxPerMinute, int MaxPerHour)
+         {
+              std::lock_guard<std::mutex> Lock(Mutex);
+
+              if (MaxPerMinute > 0)
+              {
+                   TimeWindowCounter& Counter = ActorMinute[ActorKey];
+                   Counter.LastSeenMS = NowMS;
+                   PruneDeque(Counter.Samples, NowMS, 60ULL * 1000ULL);
+                   if (Counter.Samples.size() >= static_cast<size_t>(MaxPerMinute))
+                   {
+                        return false;
+                   }
+                   Counter.Samples.push_back(NowMS);
+              }
+
+              if (MaxPerHour > 0)
+              {
+                   TimeWindowCounter& Counter = ActorHour[ActorKey];
+                   Counter.LastSeenMS = NowMS;
+                   PruneDeque(Counter.Samples, NowMS, 60ULL * 60ULL * 1000ULL);
+                   if (Counter.Samples.size() >= static_cast<size_t>(MaxPerHour))
+                   {
+                        return false;
+                   }
+                   Counter.Samples.push_back(NowMS);
+              }
+
+              return true;
+         }
+
+         bool ApplyDocQueryBurstLimitLocked(const std::string& Collection,
+                                           const std::string& Query,
+                                           const std::string& DocumentID,
+                                           uint64_t NowMS,
+                                           int MaxPerDocQueryPerHour)
+         {
+              if (MaxPerDocQueryPerHour <= 0)
+              {
+                   return true;
+              }
+
+              std::lock_guard<std::mutex> Lock(Mutex);
+
+              const std::string Key = Collection + "\n" + Query + "\n" + DocumentID;
+              TimeWindowCounter& Counter = DocQueryHour[Key];
+              Counter.LastSeenMS = NowMS;
+              PruneDeque(Counter.Samples, NowMS, 60ULL * 60ULL * 1000ULL);
+              if (Counter.Samples.size() >= static_cast<size_t>(MaxPerDocQueryPerHour))
+              {
+                   return false;
+              }
+              Counter.Samples.push_back(NowMS);
+              return true;
+         }
+     };
+
+     static SAMInteractionAbuseGuard gSamInteractionAbuseGuard;
+
+     bool ShouldRecordSAMSearchIdea(const HttpRequest& Request,
+                                   const std::string& Collection,
+                                   const std::string& Query)
+     {
+          if (!Instance || !Instance->Config || !Instance->Config->GetSamRecordSearchIdeas())
+          {
+               return false;
+          }
+
+          const int WindowMs = Instance->Config->GetSamSearchIdeaDedupeWindowMs();
+          if (WindowMs <= 0)
+          {
+               return true;
+          }
+
+          const uint64_t NowMS = static_cast<uint64_t>(NowMs());
+          const uint64_t WindowMS = static_cast<uint64_t>(WindowMs);
+          const int RetentionDays = Instance->Config->GetSamActorMetadataRetentionDays();
+          const uint64_t RetentionMS =
+               RetentionDays <= 0 ? 0ULL : static_cast<uint64_t>(RetentionDays) * 24ULL * 60ULL * 60ULL * 1000ULL;
+          const std::string ActorKey = Request.APIKeyID.empty() ? Request.RemoteAddress : Request.APIKeyID;
+          const std::string Key = ActorKey + "\n" + Collection + "\n" + Query;
+          return gSearchIdeaDedupe.ShouldAllow(Key, NowMS, WindowMS, RetentionMS);
+     }
+
+     bool ShouldRecordSAMInteraction(const HttpRequest& Request,
+                                     const std::string& Collection,
+                                     const std::string& Query,
+                                     const std::string& DocumentID)
+     {
+          if (!Instance || !Instance->Config || !Instance->Config->GetSamRecordInteractions())
+          {
+               return false;
+          }
+
+          {
+               const uint64_t NowMS = static_cast<uint64_t>(NowMs());
+               const int RetentionDays = Instance->Config->GetSamActorMetadataRetentionDays();
+               const int MaxPerMinute = Instance->Config->GetSamInteractionMaxPerMinute();
+               const int MaxPerHour = Instance->Config->GetSamInteractionMaxPerHour();
+               const int MaxPerDocQueryPerHour = Instance->Config->GetSamInteractionMaxPerDocQueryPerHour();
+               const std::string ActorKey = Request.APIKeyID.empty() ? Request.RemoteAddress : Request.APIKeyID;
+
+               if (!gSamInteractionAbuseGuard.ShouldAllow(ActorKey,
+                                                         Collection,
+                                                         Query,
+                                                         DocumentID,
+                                                         NowMS,
+                                                         RetentionDays,
+                                                         MaxPerMinute,
+                                                         MaxPerHour,
+                                                         MaxPerDocQueryPerHour))
+               {
+                    return false;
+               }
+          }
+
+          const int WindowMs = Instance->Config->GetSamInteractionDedupeWindowMs();
+          if (WindowMs <= 0)
+          {
+               return true;
+          }
+
+          const uint64_t NowMS = static_cast<uint64_t>(NowMs());
+          const uint64_t WindowMS = static_cast<uint64_t>(WindowMs);
+          const int RetentionDays = Instance->Config->GetSamActorMetadataRetentionDays();
+          const uint64_t RetentionMS =
+               RetentionDays <= 0 ? 0ULL : static_cast<uint64_t>(RetentionDays) * 24ULL * 60ULL * 60ULL * 1000ULL;
+          const std::string ActorKey = Request.APIKeyID.empty() ? Request.RemoteAddress : Request.APIKeyID;
+          const std::string Key = ActorKey + "\n" + Collection + "\n" + Query + "\n" + DocumentID;
+          return gInteractionDedupe.ShouldAllow(Key, NowMS, WindowMS, RetentionMS);
+     }
+}
 
 static std::vector<SAM::SearchIdeaDocumentRef> BuildSAMIdeaDocumentsFromLookupHits(const std::vector<SAM::LookupHit> &Hits,
                                                                                    size_t MaxDocuments = 6)
@@ -2638,7 +3004,8 @@ HttpResponse SearchAPI::HandleSAMSearch(const HttpRequest &Request)
           const std::vector<SAM::LookupHit> LocalHits = Instance->Sam->Lookup(CollectionName, Query, static_cast<size_t>(LimitVal));
           AggregateHits.insert(AggregateHits.end(), LocalHits.begin(), LocalHits.end());
 
-          if (Instance->Sam->IsOpen() && !SkipRecord)
+          if (Instance->Sam->IsOpen() && !SkipRecord &&
+              ShouldRecordSAMSearchIdea(Request, CollectionName, Query))
           {
                const auto IdeaDocuments = BuildSAMIdeaDocumentsFromLookupHits(LocalHits);
                std::string RecordError;
@@ -3100,6 +3467,37 @@ HttpResponse SearchAPI::HandleSAMImprove(const HttpRequest &Request)
      return Response;
 }
 
+HttpResponse SearchAPI::HandleSAMFlushActorMetadata(const HttpRequest &Request)
+{
+     if (Request.Method != "POST")
+     {
+          return HttpResponse(Status::METHOD_NOT_ALLOWED, StatusText(Status::METHOD_NOT_ALLOWED), "application/json");
+     }
+
+     nlohmann::json Root;
+     Root["ok"] = true;
+     Root["cleared"] = nlohmann::json::object();
+
+     const size_t SearchIdeaEntries = gSearchIdeaDedupe.Size();
+     const size_t InteractionEntries = gInteractionDedupe.Size();
+     const auto AbuseSnapshot = gSamInteractionAbuseGuard.Snapshot();
+
+     gSearchIdeaDedupe.Clear();
+     gInteractionDedupe.Clear();
+     gSamInteractionAbuseGuard.Clear();
+
+     Root["cleared"]["search_idea_dedupe_entries"] = SearchIdeaEntries;
+     Root["cleared"]["interaction_dedupe_entries"] = InteractionEntries;
+     Root["cleared"]["actor_minute_entries"] = AbuseSnapshot.ActorMinute;
+     Root["cleared"]["actor_hour_entries"] = AbuseSnapshot.ActorHour;
+     Root["cleared"]["doc_query_hour_entries"] = AbuseSnapshot.DocQueryHour;
+     Root["message"] = "Cleared in-memory SAM actor metadata caches.";
+
+     HttpResponse Response(Status::OK, StatusText(Status::OK), "application/json");
+     Response.Body = Root.dump();
+     return Response;
+}
+
 HttpResponse SearchAPI::HandleSAMHistory(const HttpRequest &Request)
 {
      if (Request.Method != "GET")
@@ -3534,7 +3932,9 @@ HttpResponse SearchAPI::HandleSAMGetDocument(const HttpRequest &Request)
           ? TrimCopy(InteractionQueryIt->second)
           : std::string();
 
-     if (!InteractionQuery.empty())
+     if (!InteractionQuery.empty() &&
+         Instance && Instance->Sam && Instance->Sam->IsOpen() &&
+         ShouldRecordSAMInteraction(Request, CollectionName, InteractionQuery, Entry.DocumentID))
      {
           SAM::SearchIdeaDocumentRef InteractionDocument;
           InteractionDocument.DocumentID = Entry.DocumentID;

@@ -1463,6 +1463,88 @@ std::vector<std::string> FetchSAMSearchDocumentIds(HLQueryCLI &cli,
      return document_ids;
 }
 
+static bool CollectionLikelyMultiLanguage(HLQueryCLI &cli,
+                                          const std::string &collection_name,
+                                          std::string &language_out,
+                                          int max_documents_to_sample = 200)
+{
+     language_out.clear();
+
+     if (collection_name.empty() || max_documents_to_sample <= 0)
+     {
+          return false;
+     }
+
+     std::string path = "/collections/" + hlquery_cli::UrlEncode(collection_name) + "/documents";
+     path += "?offset=0&limit=" + std::to_string(max_documents_to_sample);
+
+     HLQueryCLI::HTTPResponse response = cli.MakeRequest("GET", path);
+
+     if (response.StatusCode != 200)
+     {
+          return false;
+     }
+
+     try
+     {
+          nlohmann::json root = nlohmann::json::parse(response.Body);
+
+          if (!root.contains("documents") || !root["documents"].is_array())
+          {
+               return false;
+          }
+
+          std::string first_lang;
+          bool saw_any_lang = false;
+
+          for (const auto &doc : root["documents"])
+          {
+               if (!doc.is_object())
+               {
+                    continue;
+               }
+
+               if (!doc.contains("lang") || !doc["lang"].is_string())
+               {
+                    continue;
+               }
+
+               std::string lang = doc["lang"].get<std::string>();
+               lang = TrimWhitespace(lang);
+
+               if (lang.empty() || lang == "und")
+               {
+                    continue;
+               }
+
+               if (!saw_any_lang)
+               {
+                    first_lang = lang;
+                    saw_any_lang = true;
+                    continue;
+               }
+
+               if (!first_lang.empty() && lang != first_lang)
+               {
+                    language_out = "multi";
+                    return true;
+               }
+          }
+
+          if (saw_any_lang && !first_lang.empty())
+          {
+               language_out = first_lang;
+               return true;
+          }
+     }
+     catch (...)
+     {
+          return false;
+     }
+
+     return false;
+}
+
 /* Fetch one document ID by absolute 1-based position within a collection listing. */
 
 bool FetchDocumentIdAtPosition(HLQueryCLI &cli,
@@ -2127,6 +2209,7 @@ void PrintHelp()
      std::cout << "  id       Show the server id\n";
      std::cout << "  use COL|#  Select a collection context\n";
      std::cout << "  use      Show the active collection\n";
+     std::cout << "  lang [COL|#]  Print the detected language for a collection\n";
      std::cout << "  pwd      Show the current location\n";
      std::cout << "  cd [COL|#|..]  Change collection context or go back\n";
      std::cout << "  back     Go back to the previous collection\n";
@@ -2300,6 +2383,7 @@ std::vector<std::string> GetTalkCommands()
          "connect",
          "run",
          "use",
+         "lang",
          "pwd",
          "back",
          "cd",
@@ -2851,6 +2935,141 @@ bool ExecuteTalkCommand(const std::string &line,
 
           SetCurrentCollection(state, resolved_collection_name);
           TalkPrintSuccess("Using collection '" + state.CurrentCollection + "'");
+          return true;
+     }
+
+     if (command == "lang")
+     {
+          if (parts.size() > 2)
+          {
+               TalkPrintError("Usage: lang [COL|#]");
+               return true;
+          }
+
+          std::string collection_name = state.CurrentCollection;
+
+          if (parts.size() == 2)
+          {
+               collection_name = parts[1];
+          }
+
+          if (collection_name.empty())
+          {
+               TalkPrintError("No active collection. Usage: lang COL|#");
+               return true;
+          }
+
+          std::string resolved_collection_name;
+          std::string error_message;
+
+          if (!EnsureCachedCollectionNames(cli, state, collection_name, error_message))
+          {
+               TalkPrintError(error_message);
+               return true;
+          }
+
+          if (!ResolveCollectionReference(collection_name, state.LastListedCollections, resolved_collection_name, error_message))
+          {
+               TalkPrintError(error_message);
+               return true;
+          }
+
+          if (!cli.CollectionExists(resolved_collection_name))
+          {
+               std::string alias_collection;
+
+               if (ResolveTalkAliasCollection(state, cli, resolved_collection_name, alias_collection))
+               {
+                    resolved_collection_name = alias_collection;
+               }
+               else
+               {
+                    TalkPrintError("Collection not found: " + resolved_collection_name);
+                    return true;
+               }
+          }
+
+          HLQueryCLI::HTTPResponse response = cli.MakeRequest(
+               "GET",
+               "/collections/" + hlquery_cli::UrlEncode(resolved_collection_name) + "/lang");
+
+          if (response.StatusCode == 200)
+          {
+               try
+               {
+                    nlohmann::json root = nlohmann::json::parse(response.Body);
+                    if (root.contains("lang") && root["lang"].is_string())
+                    {
+                         std::string language = root["lang"].get<std::string>();
+                         language = TrimWhitespace(language);
+                         if (language.empty())
+                         {
+                              language = "und";
+                         }
+                         std::cout << language << "\n";
+                         return true;
+                    }
+               }
+               catch (...)
+               {
+               }
+          }
+
+          std::string likely_language;
+          if (CollectionLikelyMultiLanguage(cli, resolved_collection_name, likely_language))
+          {
+               if (likely_language.empty())
+               {
+                    likely_language = "und";
+               }
+
+               std::cout << likely_language << "\n";
+               return true;
+          }
+
+          response = cli.MakeRequest("GET", "/collections/" + hlquery_cli::UrlEncode(resolved_collection_name));
+
+          if (response.StatusCode == 404)
+          {
+               TalkPrintError("Collection not found: " + resolved_collection_name);
+               return true;
+          }
+          else if (response.StatusCode != 200)
+          {
+               TalkPrintError("Request failed (" + std::to_string(response.StatusCode) + ")");
+               return true;
+          }
+
+          nlohmann::json col;
+
+          try
+          {
+               col = nlohmann::json::parse(response.Body);
+          }
+          catch (...)
+          {
+               TalkPrintError("Failed to parse JSON response");
+               return true;
+          }
+
+          std::string language = "und";
+
+          if (col.contains("metadata") && col["metadata"].is_object())
+          {
+               const auto &meta = col["metadata"];
+
+               if (meta.contains("_lang") && meta["_lang"].is_string())
+               {
+                    language = meta["_lang"].get<std::string>();
+               }
+          }
+
+          if (language.empty())
+          {
+               language = "und";
+          }
+
+          std::cout << language << "\n";
           return true;
      }
 

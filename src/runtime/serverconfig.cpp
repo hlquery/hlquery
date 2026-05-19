@@ -395,6 +395,38 @@ void ServerConfig::ApplyConfiguration()
 
           SamDataDirectory = SAMTag->GetString("data_dir", SamDataDirectory);
           SamSearchIdeasCollection = SAMTag->GetString("sam_search_ideas", SamSearchIdeasCollection);
+          SamRecordSearchIdeas = SAMTag->GetBool("record_search_ideas", SamRecordSearchIdeas);
+          SamRecordInteractions = SAMTag->GetBool("record_interactions", SamRecordInteractions);
+          SamSearchIdeaDedupeWindowMs =
+               SAMTag->GetIntRange("search_idea_dedupe_window_ms",
+                                    SamSearchIdeaDedupeWindowMs,
+                                    0,
+                                    7 * 24 * 60 * 60 * 1000);
+          SamInteractionDedupeWindowMs =
+               SAMTag->GetIntRange("interaction_dedupe_window_ms",
+                                    SamInteractionDedupeWindowMs,
+                                    0,
+                                    7 * 24 * 60 * 60 * 1000);
+          SamActorMetadataRetentionDays =
+               SAMTag->GetIntRange("actor_metadata_retention_days",
+                                    SamActorMetadataRetentionDays,
+                                    0,
+                                    3650);
+          SamInteractionMaxPerMinute =
+               SAMTag->GetIntRange("interaction_max_per_minute",
+                                    SamInteractionMaxPerMinute,
+                                    0,
+                                    1000000);
+          SamInteractionMaxPerHour =
+               SAMTag->GetIntRange("interaction_max_per_hour",
+                                    SamInteractionMaxPerHour,
+                                    0,
+                                    10000000);
+          SamInteractionMaxPerDocQueryPerHour =
+               SAMTag->GetIntRange("interaction_max_per_doc_query_per_hour",
+                                    SamInteractionMaxPerDocQueryPerHour,
+                                    0,
+                                    10000000);
           SamIndexAll = SAMTag->GetBool("index_all", SamIndexAll);
           SamSmartBackground = SAMTag->GetBool("background_improvements",
                                                SAMTag->GetBool("smart_sam", SamSmartBackground));

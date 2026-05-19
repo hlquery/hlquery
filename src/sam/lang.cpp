@@ -23,9 +23,7 @@
 #include "sam/lang.h"
 #include "cld2/public/compact_lang_det.h"
 
-namespace
-{
-std::string TrimCopy(const std::string& Value)
+static std::string TrimCopy(const std::string& Value)
 {
      const size_t Start = Value.find_first_not_of(" \t\r\n");
 
@@ -38,7 +36,7 @@ std::string TrimCopy(const std::string& Value)
      return Value.substr(Start, End - Start + 1);
 }
 
-std::string ToLowerASCII(std::string Value)
+static std::string ToLowerASCII(std::string Value)
 {
      std::transform(Value.begin(), Value.end(), Value.begin(),
                     [](unsigned char C)
@@ -48,12 +46,12 @@ std::string ToLowerASCII(std::string Value)
      return Value;
 }
 
-std::string TrimLowerCopy(const std::string& Value)
+static std::string TrimLowerCopy(const std::string& Value)
 {
      return ToLowerASCII(TrimCopy(Value));
 }
 
-bool LooksLikeLanguageCode(const std::string& Value)
+static bool LooksLikeLanguageCode(const std::string& Value)
 {
      if (Value.size() < 2 || Value.size() > 3)
      {
@@ -67,7 +65,7 @@ bool LooksLikeLanguageCode(const std::string& Value)
                         });
 }
 
-std::string NormalizeLanguageHint(const std::string& Value)
+static std::string NormalizeLanguageHint(const std::string& Value)
 {
      std::string Candidate = TrimLowerCopy(Value);
 
@@ -124,7 +122,7 @@ std::string NormalizeLanguageHint(const std::string& Value)
      return "";
 }
 
-std::string NormalizeCLD2LanguageCode(const CLD2::Language Language)
+static std::string NormalizeCLD2LanguageCode(const CLD2::Language Language)
 {
      if (Language == CLD2::UNKNOWN_LANGUAGE)
      {
@@ -155,7 +153,7 @@ std::string NormalizeCLD2LanguageCode(const CLD2::Language Language)
      return Normalized;
 }
 
-std::vector<std::pair<std::string, std::string>> CollectDocumentTextFields(const Document& Doc)
+static std::vector<std::pair<std::string, std::string>> CollectDocumentTextFields(const Document& Doc)
 {
      std::vector<std::pair<std::string, std::string>> Fields;
 
@@ -182,7 +180,7 @@ std::vector<std::pair<std::string, std::string>> CollectDocumentTextFields(const
      return Fields;
 }
 
-std::string ResolveDocumentLanguageOverride(const std::string& Collection, const Document& Doc)
+static std::string ResolveDocumentLanguageOverride(const std::string& Collection, const Document& Doc)
 {
      static const std::array<std::string, 4> LanguageFieldNames = {"lang", "language", "_lang", "locale"};
 
@@ -223,7 +221,7 @@ std::string ResolveDocumentLanguageOverride(const std::string& Collection, const
      return "";
 }
 
-std::string NormalizeTextForCLD2(std::string Value)
+static std::string NormalizeTextForCLD2(std::string Value)
 {
      std::transform(Value.begin(), Value.end(), Value.begin(),
                     [](unsigned char C)
@@ -258,7 +256,7 @@ std::string NormalizeTextForCLD2(std::string Value)
      return Value;
 }
 
-std::string BuildDocumentLanguageSample(const Document& Doc, size_t MaxBytes = 8192)
+static std::string BuildDocumentLanguageSample(const Document& Doc, size_t MaxBytes = 8192)
 {
      const std::vector<std::pair<std::string, std::string>> TextFields = CollectDocumentTextFields(Doc);
      std::string Combined;
@@ -282,7 +280,7 @@ std::string BuildDocumentLanguageSample(const Document& Doc, size_t MaxBytes = 8
      return NormalizeTextForCLD2(Combined);
 }
 
-bool IsUsefulCLD2Result(const CLD2::Language Language,
+static bool IsUsefulCLD2Result(const CLD2::Language Language,
                         const int Percent,
                         const double NormalizedScore,
                         const int TextBytes,
@@ -311,7 +309,7 @@ bool IsUsefulCLD2Result(const CLD2::Language Language,
      return false;
 }
 
-std::string DetectLanguageWithCld2(const std::string& Text)
+static std::string DetectLanguageWithCld2(const std::string& Text)
 {
      const std::string Normalized = NormalizeTextForCLD2(Text);
 
@@ -367,7 +365,7 @@ std::string DetectLanguageWithCld2(const std::string& Text)
      return "und";
 }
 
-std::string DetectDocumentLanguageInternal(const std::string& Collection,
+static std::string DetectDocumentLanguageInternal(const std::string& Collection,
                                            const Document& Doc,
                                            bool AllowCollectionOverride)
 {
@@ -404,8 +402,6 @@ std::string DetectDocumentLanguageInternal(const std::string& Collection,
 
      return DetectLanguageWithCld2(BuildDocumentLanguageSample(Doc));
 }
-}
-
 namespace sam::lang
 {
 std::string DetectTextLanguage(const std::string& Text)
