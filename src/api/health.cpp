@@ -104,7 +104,9 @@ static bool HealthParseBoolParam(const std::map<std::string, std::string> &Param
 
      std::string normalized = HealthTrimWhitespace(it->second);
      std::transform(normalized.begin(), normalized.end(), normalized.begin(), [](unsigned char ch)
-                    { return static_cast<char>(std::tolower(ch)); });
+                    {
+                         return static_cast<char>(std::tolower(ch));
+                    });
 
      if (normalized.empty())
      {
@@ -142,10 +144,13 @@ static bool HealthBindMatchesHost(const std::string &BindAddress, const std::str
 
 static bool HealthIsLocalHttpBind(const std::string &Host, int Port)
 {
-     if (!HealthIsLoopbackHost(Host) || Port <= 0 || !Instance || !Instance->Config)
+     if (Port <= 0 || !Instance || !Instance->Config)
      {
           return false;
      }
+
+     const bool IsLoopback = HealthIsLoopbackHost(Host);
+     const bool IsWildcard = (Host == "0.0.0.0" || Host == "::");
 
      const auto &BindConfigs = Instance->Config->GetBindConfigs();
      for (const auto &Bind : BindConfigs)
@@ -160,7 +165,22 @@ static bool HealthIsLocalHttpBind(const std::string &Host, int Port)
                continue;
           }
 
-          if (HealthBindMatchesHost(Bind.address, Host))
+          if (IsWildcard)
+          {
+               if (Bind.address == "0.0.0.0" || Bind.address == "::")
+               {
+                    return true;
+               }
+
+               continue;
+          }
+
+          if (Bind.address == Host)
+          {
+               return true;
+          }
+
+          if (IsLoopback && HealthBindMatchesHost(Bind.address, Host))
           {
                return true;
           }
@@ -336,7 +356,7 @@ static HttpResponse BuildLinksErrorResponse(Status StatusVal,
      return BuildJSONResponse(StatusVal, Body);
 }
 
-static nlohmann::json BuildLinksResponseBody()
+static nlohmann::json BuildLinksResponseBody(bool PingNodes)
 {
      nlohmann::json LinksJSON;
      LinksJSON["status"] = "ok";
@@ -351,11 +371,11 @@ static nlohmann::json BuildLinksResponseBody()
           LinksJSON["replication_mode"] = Instance->Config->GetReplicationMode();
           LinksJSON["replication_timeout_ms"] = Instance->Config->GetReplicationTimeoutMS();
 
-          auto NodesArray = BuildLinksNodesJSON(Instance->Config->GetClusterNodes(), true);
+          auto NodesArray = BuildLinksNodesJSON(Instance->Config->GetClusterNodes(), PingNodes);
           LinksJSON["nodes"] = NodesArray;
           LinksJSON["node_count"] = NodesArray.size();
 
-          auto SlaveArray = BuildLinksNodesJSON(Instance->Config->GetSlaveNodes(), true);
+          auto SlaveArray = BuildLinksNodesJSON(Instance->Config->GetSlaveNodes(), PingNodes);
           LinksJSON["slaves"] = SlaveArray;
           LinksJSON["slave_count"] = SlaveArray.size();
      }
@@ -741,7 +761,7 @@ static bool HealthValidateRemoteModules(const std::string &ResponseBody, std::st
           return false;
      }
 }
-}
+} // namespace
 /* HandlePing responds to ping request. */
 
 HttpResponse SearchAPI::HandlePing(const HttpRequest &Request)
@@ -1019,10 +1039,9 @@ HttpResponse SearchAPI::HandleStats(const HttpRequest &Request)
                {"available", SamAvailable},
                {"smart_background", Instance->Config ? Instance->Config->GetSamSmartBackground() : true},
                {"background_improvement_interval_ms",
-                    Instance->Config ? Instance->Config->GetSamBackgroundImprovementIntervalMs() : 60000},
+                Instance->Config ? Instance->Config->GetSamBackgroundImprovementIntervalMs() : 60000},
                {"background_improvement_poll_ms",
-                    Instance->Config ? Instance->Config->GetSamBackgroundImprovementPollMs() : 15000}
-          };
+                Instance->Config ? Instance->Config->GetSamBackgroundImprovementPollMs() : 15000}};
           if (!DemoMessage.empty())
           {
                StatsJSON["demo_message"] = DemoMessage;
@@ -1373,7 +1392,8 @@ HttpResponse SearchAPI::HandleLinksList(const HttpRequest &Request)
 {
      (void)Request;
 
-     return BuildJSONResponse(Status::OK, BuildLinksResponseBody());
+     const bool ping_nodes = HealthParseBoolParam(Request.QueryParams, "ping", false);
+     return BuildJSONResponse(Status::OK, BuildLinksResponseBody(ping_nodes));
 }
 
 /* HandleLinksPing pings configured cluster links. */
@@ -1385,7 +1405,7 @@ HttpResponse SearchAPI::HandleLinksPing(const HttpRequest &Request)
           Instance->Logs->Normal("links", "Received /links/ping request.");
      }
 
-     return HandleLinksList(Request);
+     return BuildJSONResponse(Status::OK, BuildLinksResponseBody(true));
 }
 
 /* HandleLinksConnect adds a cluster link at runtime. */
