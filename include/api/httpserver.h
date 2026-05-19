@@ -57,6 +57,8 @@ struct HttpRequest
      bool Authenticated = false;
      std::function<bool()> IsCancelled;
 
+     /* Initialize an empty request with sane defaults. */
+
      HttpRequest() : RemotePort(0)
      {
      
@@ -71,6 +73,8 @@ struct HttpResponse
      std::string StatusText;
      std::map<std::string, std::string> Headers;
      std::string Body;
+
+     /* Build an HTTP response with headers pre-populated for this server. */
 
      HttpResponse(int Code = 200, const std::string& Text = "OK", const std::string& ContentType = "text/plain")
          : StatusCode(Code), StatusText(Text)
@@ -258,10 +262,14 @@ class HttpConnection : public EventHandler
 
 #ifdef HLQUERY_HAS_OPENSSL
 
+     /* Attach the negotiated SSL session for this connection. */
+
      void SetSSL(SSL* SSLVal)
      {
           SSLValue = SSLVal;
      }
+
+     /* Return the SSL session currently attached to this connection. */
 
      SSL* GetSSL() const
      {
@@ -349,6 +357,8 @@ class HttpConnection : public EventHandler
 
    public:
 
+     /* Indicate whether there are in-flight asynchronous requests. */
+
      bool HasActiveRequests() const
      {
           return ActiveRequestTasks.load(std::memory_order_acquire) > 0;
@@ -373,62 +383,78 @@ class HttpServer : public EventHandler
 
      virtual ~HttpServer();
 
-     /* Server lifecycle. */
+     /* Start the HTTP listener and begin accepting connections. */
 
      bool Start();
 
+     /* Stop accepting new connections and close active ones. */
+
      void Stop();
+
+     /* Return whether the server is currently running. */
 
      bool IsRunning() const
      {
           return Running;
      }
 
-     /* Thread pool integration. */
+     /* Assign a thread pool used for request processing. */
 
      void SetThreadPool(SearchThreadPool* Pool)
      {
           ThreadPoolValue = Pool;
      }
 
-     /* Server readiness control. */
+     /* Toggle whether the server should accept new connections. */
 
      void SetReadyToAccept(bool Ready);
+
+     /* Return whether the server currently accepts new connections. */
 
      bool IsReadyToAccept() const
      {
           return ReadyToAcceptValue.load();
      }
 
-     /* Loading state control. */
+     /* Toggle whether the server is blocking requests for loading. */
 
      void SetLoading(bool Loading);
+
+     /* Return whether the server is currently blocking requests for loading. */
 
      bool IsLoading() const
      {
           return IsLoadingValue.load();
      }
 
-     /* Route registration. */
+     /* Register one handler for the given method and path. */
 
      void RegisterRoute(const std::string& Method, const std::string& Path,
                         std::function<HttpResponse(const HttpRequest&)> Handler);
 
-     /* Default handlers. */
+     /* Default handler used when no route matches the request. */
 
      HttpResponse HandleNotFound(const HttpRequest& Request);
 
+     /* Default handler for health probes. */
+
      HttpResponse HandleHealth(const HttpRequest& Request);
+
+     /* Default handler for readiness probes. */
 
      HttpResponse HandleReady(const HttpRequest& Request);
 
-     /* EventHandler interface. */
+     /* Accept and process pending socket events for the listener. */
 
      void OnEventHandlerRead() override;
+
+     /* No-op write handler because the server socket is read-only. */
 
      void OnEventHandlerWrite() override
      {
      }
+
+     /* Handle listener socket errors reported by the event engine. */
 
      void OnEventHandlerError(int ErrorNum) override;
 
@@ -462,7 +488,11 @@ class HttpServer : public EventHandler
 
 #endif
 
+     /* Accept new TCP connections from the listener. */
+
      void AcceptConnection();
+
+     /* Remove and destroy closed connections from the active set. */
 
      void CleanupConnections();
 
