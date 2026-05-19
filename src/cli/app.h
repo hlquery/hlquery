@@ -258,6 +258,10 @@ class HLQueryCLI
 
      void MigrateCollection(const std::string &source_name, const std::string &target_name, bool drop_source = false);
 
+     /* Copies one collection into a new collection name (schema + documents). */
+
+     void CopyCollection(const std::string &source_name, const std::string &target_name);
+
      /* Confirms a destructive action. */
 
      bool ConfirmDestructiveAction(const std::string &action, const std::string &target);
@@ -299,6 +303,10 @@ class HLQueryCLI
      /* Adds a document. */
 
      void AddDocument(const std::string &collection_name, const std::string &id, const std::string &title, const std::string &content, const std::map<std::string, std::string> &fields = {});
+
+     /* Copies one document into a new document id within the same collection. */
+
+     void CopyDocument(const std::string &collection_name, const std::string &source_id, const std::string &target_id);
 
      /* Shows usage examples. */
 

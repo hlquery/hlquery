@@ -1051,6 +1051,8 @@ int main(int argc, char *argv[])
                std::cout << "  " << program_name << " doctor                  # Run a compact readiness/health/config diagnosis\n";
                std::cout << "  " << program_name << " update <field> <col>/<doc> <value>    # Partially update one document field\n";
                std::cout << "  " << program_name << " migrate <source> <target> [--drop-old]    # Clone a collection into a new name and copy documents\n";
+               std::cout << "  " << program_name << " copy <source> <target>    # Copy a collection (schema + documents) into a new name\n";
+               std::cout << "  " << program_name << " copy <collection> <doc> <new_doc>    # Copy a document to a new id in the same collection\n";
                std::cout << "  " << program_name << " stats                   # Check server stats\n";
                std::cout << "  " << program_name << " links                   # List distributed links\n";
                std::cout << "  " << program_name << " links ping              # Ping all distributed links\n";
@@ -1669,6 +1671,24 @@ int main(int argc, char *argv[])
                }
 
                cli_instance.MigrateCollection(args_vec[1], args_vec[2], drop_old_flag);
+          }
+          else if (command_str == "copy")
+          {
+               if (args_vec.size() == 3)
+               {
+                    cli_instance.CopyCollection(args_vec[1], args_vec[2]);
+               }
+               else if (args_vec.size() == 4)
+               {
+                    cli_instance.CopyDocument(args_vec[1], args_vec[2], args_vec[3]);
+               }
+               else
+               {
+                    ConsoleWriter::WriteError("Error: 'copy' command requires either <source> <target> or <collection> <doc> <new_doc>.", true);
+                    ConsoleWriter::WriteError("Usage: " + program_name + " copy <source_collection> <target_collection>.", true);
+                    ConsoleWriter::WriteError("   or: " + program_name + " copy <collection> <source_doc_id> <target_doc_id>.", true);
+                    return 1;
+               }
           }
           else if (command_str == "delete")
           {

@@ -1074,6 +1074,137 @@ void HLQueryCLI::MigrateCollection(const std::string &source_name, const std::st
      PrintSuccess(message);
 }
 
+void HLQueryCLI::CopyCollection(const std::string &source_name, const std::string &target_name)
+{
+     if (source_name.empty() || target_name.empty())
+     {
+          PrintError("Invalid copy arguments", "Source and target collection names are required");
+          return;
+     }
+
+     if (source_name == target_name)
+     {
+          PrintError("Invalid copy arguments", "Source and target collection names must differ");
+          return;
+     }
+
+     if (!CollectionExists(source_name))
+     {
+          PrintError("Collection '" + source_name + "' not found");
+          return;
+     }
+
+     if (CollectionExists(target_name))
+     {
+          PrintError("Collection '" + target_name + "' already exists");
+          return;
+     }
+
+     HTTPResponse info_response = MakeRequest("GET", "/collections/" + hlquery_cli::UrlEncode(source_name), "", DefaultTimeoutSeconds);
+
+     if (info_response.StatusCode != 200)
+     {
+          CheckRequestFailed(info_response);
+          return;
+     }
+
+     nlohmann::json source_info;
+
+     try
+     {
+          source_info = nlohmann::json::parse(info_response.Body);
+     }
+     catch (const std::exception &e)
+     {
+          PrintError("Failed to parse source collection information", e.what());
+          return;
+     }
+
+     nlohmann::json create_payload = BuildCreatePayloadFromCollectionInfo(source_info, target_name);
+     HTTPResponse create_response = MakeRequest("POST", "/collections", create_payload.dump(), DefaultTimeoutSeconds);
+
+     if (create_response.StatusCode != 201)
+     {
+          CheckRequestFailed(create_response);
+          return;
+     }
+
+     const int batch_size = 500;
+     int offset = 0;
+     int copied_count = 0;
+
+     while (true)
+     {
+          const std::string list_path = "/collections/" + hlquery_cli::UrlEncode(source_name) +
+                                        "/documents?offset=" + std::to_string(offset) +
+                                        "&limit=" + std::to_string(batch_size) +
+                                        "&distributed=off";
+
+          HTTPResponse list_response = MakeRequest("GET", list_path, "", DefaultTimeoutSeconds);
+
+          if (list_response.StatusCode != 200)
+          {
+               CheckRequestFailed(list_response);
+               hlquery_cli::PrintWarning("Target collection '" + target_name + "' was created before the copy failed");
+               return;
+          }
+
+          nlohmann::json list_json;
+
+          try
+          {
+               list_json = nlohmann::json::parse(list_response.Body);
+          }
+          catch (const std::exception &e)
+          {
+               PrintError("Failed to parse source documents", e.what());
+               hlquery_cli::PrintWarning("Target collection '" + target_name + "' was created before the copy failed");
+               return;
+          }
+
+          if (!list_json.contains("documents") || !list_json["documents"].is_array())
+          {
+               PrintError("Invalid source document list", "Response missing 'documents' array");
+               hlquery_cli::PrintWarning("Target collection '" + target_name + "' was created before the copy failed");
+               return;
+          }
+
+          const nlohmann::json &documents = list_json["documents"];
+
+          if (documents.empty())
+          {
+               break;
+          }
+
+          nlohmann::json import_payload;
+          import_payload["documents"] = documents;
+
+          const std::string import_path = "/collections/" + hlquery_cli::UrlEncode(target_name) + "/documents/import?distributed=off";
+          HTTPResponse import_response = MakeRequest("POST", import_path, import_payload.dump(), DefaultTimeoutSeconds);
+
+          if (import_response.StatusCode != 200 && import_response.StatusCode != 201)
+          {
+               CheckRequestFailed(import_response);
+               hlquery_cli::PrintWarning("Target collection '" + target_name + "' was created before the copy failed");
+               return;
+          }
+
+          copied_count += static_cast<int>(documents.size());
+          offset += static_cast<int>(documents.size());
+     }
+
+     std::string message = "Copied collection '" + source_name + "' to '" + target_name + "' (" + std::to_string(copied_count) + " document";
+
+     if (copied_count != 1)
+     {
+          message += "s";
+     }
+
+     message += ")";
+
+     PrintSuccess(message);
+}
+
 /* Deletes a collection. */
 
 void HLQueryCLI::DeleteCollection(const std::string &name)

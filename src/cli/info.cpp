@@ -63,6 +63,12 @@ void HLQueryCLI::ShowExamples()
      PrintBoxLine("  • Migrate collection into a new name:");
      PrintBoxLine("    " + program_name + " migrate products products_v2");
      PrintBoxLine("");
+     PrintBoxLine("  • Copy collection into a new name:");
+     PrintBoxLine("    " + program_name + " copy products products_copy");
+     PrintBoxLine("");
+     PrintBoxLine("  • Copy document into a new id:");
+     PrintBoxLine("    " + program_name + " copy products 123 123_copy");
+     PrintBoxLine("");
      PrintBoxLine("  • Delete document:");
      PrintBoxLine("    " + program_name + " delete products 123");
      PrintBoxLine("");
@@ -704,6 +710,8 @@ void HLQueryCLI::ShowHelp()
      std::cout << "    select <field> <col>/<doc>  Select and display a specific field value.\n\n";
      std::cout << "    update <field> <col>/<doc> <value>  Partially update one field in a document.\n\n";
      std::cout << "    migrate <source> <target> [--drop-old]  Create a new collection and copy documents into it.\n\n";
+     std::cout << "    copy <source> <target>   Copy a collection into a new name (schema + documents).\n";
+     std::cout << "    copy <col> <doc> <newdoc> Copy a document into a new id in the same collection.\n\n";
 
      std::cout << "LSM/ENGINE:.\n";
      std::cout << "    lsm                     Show deep RocksDB engine statistics.\n";

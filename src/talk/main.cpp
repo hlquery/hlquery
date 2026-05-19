@@ -2251,6 +2251,8 @@ void PrintHelp()
      std::cout << "  update ID FIELD VALUE  Update one field in a document from the active collection\n";
      std::cout << "  count [COL|#]  Show the document count for one collection\n";
      std::cout << "  migrate COL NEWCOL [--drop-old]  Copy one collection into a new name\n";
+     std::cout << "  copy COL NEWCOL  Copy one collection into a new name\n";
+     std::cout << "  copy ID NEWID  Copy one document in the active collection\n";
      std::cout << "  delete ID  Delete a document from the active collection\n";
      std::cout << "  delete COL|#  Delete a collection when no collection is active\n";
      std::cout << "  links    Show distributed links\n";
@@ -2398,6 +2400,7 @@ std::vector<std::string> GetTalkCommands()
          "select",
          "update",
          "count",
+         "copy",
          "maybe",
          "stats",
          "ping",
@@ -3388,6 +3391,51 @@ bool ExecuteTalkCommand(const std::string &line,
                state.CollectionHistory.clear();
           }
 
+          return true;
+     }
+
+     if (command == "copy")
+     {
+          if (state.CurrentCollection.empty())
+          {
+               if (parts.size() != 3)
+               {
+                    TalkPrintError("Usage: copy <collection-name|number> <new-collection-name>");
+                    return true;
+               }
+
+               std::string source_collection;
+               std::string error_message;
+
+               if (!ResolveCollectionReference(parts[1], state.LastListedCollections, source_collection, error_message))
+               {
+                    TalkPrintError(error_message);
+                    return true;
+               }
+
+               cli.CopyCollection(source_collection, parts[2]);
+               state.LastListedCollections.clear();
+               state.LastListedDocumentIds.clear();
+               return true;
+          }
+
+          if (parts.size() != 3)
+          {
+               TalkPrintError("Usage: copy <document-id|number> <new-document-id>");
+               return true;
+          }
+
+          std::string source_document_id;
+          std::string error_message;
+
+          if (!ResolveCollectionDocumentReference(cli, state.CurrentCollection, parts[1], state.LastListedDocumentIds, source_document_id, error_message))
+          {
+               TalkPrintError(error_message);
+               return true;
+          }
+
+          cli.CopyDocument(state.CurrentCollection, source_document_id, parts[2]);
+          state.LastListedDocumentIds.clear();
           return true;
      }
 
