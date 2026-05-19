@@ -2379,6 +2379,7 @@ std::vector<std::string> GetTalkCommands()
 {
      return {
          "alias",
+         "aliases",
          "uname",
          "id",
          "help",
@@ -2400,8 +2401,11 @@ std::vector<std::string> GetTalkCommands()
          "select",
          "update",
          "count",
+         "migrate",
          "copy",
+         "delete",
          "maybe",
+         "sam",
          "stats",
          "ping",
          "links",
@@ -2421,6 +2425,23 @@ std::vector<std::string> GetTalkCommands()
          "exit",
          "quit",
          "sql:"};
+}
+
+std::vector<std::string> GetTalkSAMCommands()
+{
+     return {
+         "help",
+         "run",
+         "search",
+         "status",
+         "history",
+         "int",
+         "inst",
+         "interactions",
+         "debug",
+         "ls",
+         "list",
+         "open"};
 }
 
 bool IsBuiltinTalkCommand(const std::string &command)
@@ -2559,24 +2580,17 @@ bool FetchServerIdentity(HLQueryCLI &cli, std::string &server_name, std::string 
      }
 }
 
-int CompleteTalkCommandLine(const char *line, char *buffer, size_t buffer_size)
+/* Complete the current token using the supplied command candidates. */
+
+int CompleteTalkCandidate(const std::string &current,
+                          const std::vector<std::string> &candidates,
+                          char *buffer,
+                          size_t buffer_size)
 {
-     if (line == nullptr || buffer == nullptr || buffer_size == 0)
-     {
-          return 0;
-     }
-
-     const std::string current = line;
-
-     if (current.empty() || current.find_first_of(" \t") != std::string::npos)
-     {
-          return 0;
-     }
-
      const std::string current_lower = ToLower(current);
      std::vector<std::string> matches;
 
-     for (const std::string &command : GetTalkCommands())
+     for (const std::string &command : candidates)
      {
           if (command.rfind(current_lower, 0) == 0)
           {
@@ -2611,6 +2625,69 @@ int CompleteTalkCommandLine(const char *line, char *buffer, size_t buffer_size)
                completion.resize(prefix_length);
           }
      }
+
+     if (completion.size() <= current.size() || completion.size() >= buffer_size)
+     {
+          return 0;
+     }
+
+     std::memcpy(buffer, completion.c_str(), completion.size() + 1);
+     return 1;
+}
+
+int CompleteTalkCommandLine(const char *line, char *buffer, size_t buffer_size)
+{
+     if (line == nullptr || buffer == nullptr || buffer_size == 0)
+     {
+          return 0;
+     }
+
+     const std::string current = line;
+
+     if (current.empty())
+     {
+          return 0;
+     }
+
+     if (current.find_first_of(" \t") == std::string::npos)
+     {
+          return CompleteTalkCandidate(current, GetTalkCommands(), buffer, buffer_size);
+     }
+
+     std::istringstream parser(current);
+     std::string command;
+     std::string subcommand;
+
+     parser >> command;
+
+     if (ToLower(command) != "sam")
+     {
+          return 0;
+     }
+
+     parser >> subcommand;
+
+     std::string remaining;
+     std::getline(parser, remaining);
+
+     if (!remaining.empty())
+     {
+          return 0;
+     }
+
+     if (std::isspace(static_cast<unsigned char>(current.back())) != 0)
+     {
+          subcommand.clear();
+     }
+
+     char subcommand_buffer[256] = {0};
+
+     if (CompleteTalkCandidate(subcommand, GetTalkSAMCommands(), subcommand_buffer, sizeof(subcommand_buffer)) == 0)
+     {
+          return 0;
+     }
+
+     const std::string completion = "sam " + std::string(subcommand_buffer);
 
      if (completion.size() <= current.size() || completion.size() >= buffer_size)
      {

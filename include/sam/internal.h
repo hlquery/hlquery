@@ -10,6 +10,19 @@
  * For more details, please visit: https://docs.hlquery.com
  */
 
+/*
+ * CODE STYLE AND FORMATTING RULES
+ *
+ * Use block comments only. Never use line comments.
+ * Put opening braces on their own line for functions, loops, conditionals, classes, structs, and namespaces.
+ * Indent with spaces only, using exactly five spaces per nested block level.
+ * Keep system includes before local includes.
+ * Use PascalCase for function names and avoid trailing underscores in variable names.
+ * Keep log messages on one physical line and end each message with a period.
+ * Do not add comments to namespace closing braces.
+ * Place a blank line between a comment and the following code element.
+ */
+
 #pragma once
 
 #include <cstdint>
@@ -21,6 +34,8 @@
 #include "sam/sam.h"
 #include "vendor/json/json.hpp"
 
+/* Semantic profile persisted for one SAM term/document relationship. */
+
 struct SAMSemanticProfile
 {
      std::string Subject;
@@ -31,11 +46,15 @@ struct SAMSemanticProfile
      std::vector<float> Vector;
 };
 
+/* Text payload and semantic category used while scanning profile records. */
+
 struct SAMSemanticIndexEntry
 {
      std::string Text;
      std::string Kind;
 };
+
+/* Persisted rebuild and mutation tracking state for one collection. */
 
 struct SAMCollectionState
 {
@@ -44,6 +63,8 @@ struct SAMCollectionState
      bool RebuildRequested = false;
      uint64_t RequestedMutationVersion = 0;
 };
+
+/* Adaptive lookup calibration derived from recent SAM evaluation samples. */
 
 struct SAMEvaluationCalibration
 {

@@ -10,11 +10,10 @@
  * For more details, please visit: https://docs.hlquery.com
  */
 
-#include "core/helpers.h"
-
 #include <exception>
 
 #include "api/httpserver.h"
+#include "core/helpers.h"
 #include "core/hlquery.h"
 #include "runtime/daemon.h"
 #include "utils/consolewriter.h"
