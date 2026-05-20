@@ -35,11 +35,23 @@ You can use hlquery for classic full-text search, hybrid retrieval, vector simil
 
 ### SAM: Search that gets smarter over time
 
-hlquery includes **SAM**, the **Secondary Assistant Manager**. SAM adds a second retrieval layer for natural-language intent, search assistance, and learned query behavior, helping hlquery move beyond strict keyword matching when users do not know the exact terms in your data.
+hlquery includes **SAM**, the **Secondary Assistant Manager**, as an optional feature. SAM adds a second retrieval layer for natural-language intent, search assistance, and learned query behavior, but hlquery can run normally without it.
 
-That makes SAM a strong option for support search, internal knowledge tools, copilots, and AI-assisted workflows. It expands documents into broader lookup phrases, records repeated search ideas, and can build collection-level intent profiles over time. The result is a search experience that needs less reformulation and handles messier queries more naturally.
+To use SAM, enable it in `run/conf/hlquery.conf` and point it at a local Qwen model:
 
-Just as important, SAM runs inside hlquery. You do not need a separate service to experiment with smarter retrieval, and you do not have to give up lexical or hybrid precision to use it. Queries like "the error about invalid session token" or "cheap gaming laptop for travel" are exactly where SAM can help close the gap between how people search and how data is stored.
+```xml
+<sam enabled="true"
+     models_dir="run/models"
+     model_name="qwen_1_5">
+```
+
+Download the matching model with the bundled helper:
+
+```bash
+$ ./tools/download --model qwen_1_5
+```
+
+`tools/download` stores model files under `run/models` by default. The shipped Qwen presets include `qwen_0_5`, `qwen_1_5`, `qwen_3`, `qwen_14`, and `qwen_coder_1_5`; the `model_name` in `hlquery.conf` should match the preset you download.
 
 ---
 
