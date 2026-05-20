@@ -2759,6 +2759,280 @@ HttpResponse SearchAPI::HandleSAMSearch(const HttpRequest &Request)
      const bool Distributed = ShouldAttemptDistributedSearch(Request);
      const bool IncludeExplain = Instance->Config && Instance->Config->GetSam25DebugExplain();
 
+     struct SAMCoreQueryPlan
+     {
+          bool Active = false;
+          std::string LookupQuery;
+          std::unordered_set<std::string> AllowedDocumentIDs;
+          std::vector<SAM::LookupHit> FallbackHits;
+     };
+
+     auto QueryUsesCoreSyntax = [](const std::string &QueryText) -> bool
+     {
+          if (QueryText.empty())
+          {
+               return false;
+          }
+
+          if (QueryText.find_first_of(":~^[]{}!*?") != std::string::npos)
+          {
+               return true;
+          }
+
+          const std::regex BooleanRegex(R"((^|\s)(AND|OR|NOT|TO)(\s|$))",
+                                        std::regex_constants::icase);
+          return std::regex_search(QueryText, BooleanRegex);
+     };
+
+     auto StripSAMCoreSyntaxForLookup = [](const std::string &QueryText) -> std::string
+     {
+          std::stringstream Stream(QueryText);
+          std::string Token;
+          std::vector<std::string> Terms;
+          bool SkipNext = false;
+          bool SkippingRange = false;
+
+          while (Stream >> Token)
+          {
+               std::string Lower = ToLowerCopy(Token);
+
+               if (SkippingRange)
+               {
+                    if (Token.find(']') != std::string::npos || Token.find('}') != std::string::npos)
+                    {
+                         SkippingRange = false;
+                    }
+
+                    continue;
+               }
+
+               if (Lower == "and" || Lower == "or" || Lower == "to")
+               {
+                    continue;
+               }
+
+               if (Lower == "not")
+               {
+                    SkipNext = true;
+                    continue;
+               }
+
+               if (Lower == "is:casesensitive" || Lower == "is:case_sensitive" || Lower == "is:case-sensitive" ||
+                   Lower == "do:casesensitive" || Lower == "do:case_sensitive" || Lower == "do:case-sensitive")
+               {
+                    continue;
+               }
+
+               bool Prohibited = false;
+               while (!Token.empty() && (Token.front() == '!' || Token.front() == '-' || Token.front() == '+'))
+               {
+                    if (Token.front() == '!' || Token.front() == '-')
+                    {
+                         Prohibited = true;
+                    }
+
+                    Token.erase(0, 1);
+               }
+
+               if (SkipNext || Prohibited)
+               {
+                    SkipNext = false;
+                    continue;
+               }
+
+               const size_t ColonPos = Token.find(':');
+               if (ColonPos != std::string::npos)
+               {
+                    const std::string Value = Token.substr(ColonPos + 1);
+                    if (!Value.empty() && (Value.front() == '[' || Value.front() == '{'))
+                    {
+                         if (Value.find(']') == std::string::npos && Value.find('}') == std::string::npos)
+                         {
+                              SkippingRange = true;
+                         }
+
+                         continue;
+                    }
+
+                    Token = Value;
+               }
+
+               const size_t BoostPos = Token.find('^');
+               if (BoostPos != std::string::npos)
+               {
+                    Token = Token.substr(0, BoostPos);
+               }
+
+               const size_t FuzzyPos = Token.find('~');
+               if (FuzzyPos != std::string::npos)
+               {
+                    Token = Token.substr(0, FuzzyPos);
+               }
+
+               Token = TrimCopy(Token);
+               while (!Token.empty() && (Token.front() == '"' || Token.front() == '\''))
+               {
+                    Token.erase(0, 1);
+               }
+
+               while (!Token.empty() && (Token.back() == '"' || Token.back() == '\'' ||
+                                         Token.back() == ')' || Token.back() == '('))
+               {
+                    Token.pop_back();
+               }
+
+               if (!Token.empty())
+               {
+                    Terms.push_back(Token);
+               }
+          }
+
+          std::ostringstream Lookup;
+          for (size_t Index = 0; Index < Terms.size(); ++Index)
+          {
+               if (Index > 0)
+               {
+                    Lookup << ' ';
+               }
+
+               Lookup << Terms[Index];
+          }
+
+          return Lookup.str();
+     };
+
+     auto BuildCoreCompatibleSAMHit = [](const std::string &Collection,
+                                         const std::string &MatchedTerm,
+                                         const SearchHit &CoreHit) -> SAM::LookupHit
+     {
+          SAM::LookupHit Hit;
+          Hit.Collection = Collection;
+
+          auto IDIt = CoreHit.Document.find("id");
+          if (IDIt != CoreHit.Document.end())
+          {
+               Hit.DocumentID = IDIt->second;
+          }
+
+          auto TitleIt = CoreHit.Document.find("title");
+          if (TitleIt != CoreHit.Document.end())
+          {
+               Hit.Title = TitleIt->second;
+          }
+
+          Hit.MatchedTerm = MatchedTerm;
+          Hit.MatchedKind = "core_search";
+          Hit.MatchedSource = "core_search";
+          Hit.TermOrigin = "core_search";
+          Hit.MatchedPath = "core_search_compat";
+          Hit.EvidenceCount = 1;
+
+          const double CoreScore = std::max<double>(0.05,
+               std::max({static_cast<double>(CoreHit.HybridScore),
+                         static_cast<double>(CoreHit.VectorScore),
+                         static_cast<double>(CoreHit.TextMatch)}));
+          Hit.MatchedScore = CoreScore;
+          Hit.MatchedSignal = 1.0;
+          Hit.Breakdown.SourceDocScore = CoreScore;
+          Hit.Breakdown.FinalScore = CoreScore;
+          return Hit;
+     };
+
+     auto BuildSAMCoreQueryPlan = [&](const std::string &Collection,
+                                      const std::string &RawQuery,
+                                      size_t Limit) -> SAMCoreQueryPlan
+     {
+          SAMCoreQueryPlan Plan;
+
+          if (Collection.empty() || !QueryUsesCoreSyntax(RawQuery))
+          {
+               return Plan;
+          }
+
+          Plan.Active = true;
+          Plan.LookupQuery = StripSAMCoreSyntaxForLookup(RawQuery);
+
+          std::unordered_map<std::string, std::string> Params;
+          Params["q"] = RawQuery;
+          Params["limit"] = std::to_string(std::max<size_t>(Limit, 1000));
+          Params["exhaustive_search"] = "true";
+
+          ComprehensiveSearchQuery CoreQuery = ParseComprehensiveSearchQuery(Params);
+          CoreQuery.EnableAnalytics = false;
+          CoreQuery.PreserveMatchedHits = true;
+          CoreQuery.PerPage = std::max<int>(CoreQuery.PerPage, static_cast<int>(std::min<size_t>(1000, std::max<size_t>(Limit, 1000))));
+
+          ComprehensiveSearchResult CoreResult = PerformComprehensiveSearch(Collection, CoreQuery);
+          const std::string MatchedTerm = Plan.LookupQuery.empty() ? RawQuery : Plan.LookupQuery;
+
+          for (const auto &CoreHit : CoreResult.Hits)
+          {
+               auto IDIt = CoreHit.Document.find("id");
+               if (IDIt == CoreHit.Document.end() || IDIt->second.empty())
+               {
+                    continue;
+               }
+
+               if (!Plan.AllowedDocumentIDs.insert(IDIt->second).second)
+               {
+                    continue;
+               }
+
+               if (Plan.FallbackHits.size() < Limit)
+               {
+                    Plan.FallbackHits.push_back(BuildCoreCompatibleSAMHit(Collection, MatchedTerm, CoreHit));
+               }
+          }
+
+          return Plan;
+     };
+
+     auto ApplySAMCoreQueryPlan = [](std::vector<SAM::LookupHit> &Hits,
+                                     const SAMCoreQueryPlan &Plan,
+                                     size_t Limit)
+     {
+          if (!Plan.Active)
+          {
+               return;
+          }
+
+          std::unordered_set<std::string> Seen;
+          std::vector<SAM::LookupHit> Filtered;
+          Filtered.reserve(Hits.size() + Plan.FallbackHits.size());
+
+          for (const auto &Hit : Hits)
+          {
+               if (Plan.AllowedDocumentIDs.find(Hit.DocumentID) == Plan.AllowedDocumentIDs.end())
+               {
+                    continue;
+               }
+
+               if (!Seen.insert(Hit.DocumentID).second)
+               {
+                    continue;
+               }
+
+               Filtered.push_back(Hit);
+          }
+
+          for (const auto &Hit : Plan.FallbackHits)
+          {
+               if (Limit > 0 && Filtered.size() >= Limit)
+               {
+                    break;
+               }
+
+               if (!Seen.insert(Hit.DocumentID).second)
+               {
+                    continue;
+               }
+
+               Filtered.push_back(Hit);
+          }
+
+          Hits.swap(Filtered);
+     };
+
      auto BuildSAMIndexingJSON = [&]()
      {
           nlohmann::json StatusJSON;
@@ -3001,7 +3275,18 @@ HttpResponse SearchAPI::HandleSAMSearch(const HttpRequest &Request)
 
      if (IncludeLocal)
      {
-          const std::vector<SAM::LookupHit> LocalHits = Instance->Sam->Lookup(CollectionName, Query, static_cast<size_t>(LimitVal));
+          const SAMCoreQueryPlan CoreQueryPlan =
+               BuildSAMCoreQueryPlan(CollectionName, Query, static_cast<size_t>(LimitVal));
+          std::vector<SAM::LookupHit> LocalHits;
+
+          if (!CoreQueryPlan.Active || !CoreQueryPlan.LookupQuery.empty())
+          {
+               LocalHits = Instance->Sam->Lookup(CollectionName,
+                                                 CoreQueryPlan.Active ? CoreQueryPlan.LookupQuery : Query,
+                                                 static_cast<size_t>(LimitVal));
+          }
+
+          ApplySAMCoreQueryPlan(LocalHits, CoreQueryPlan, static_cast<size_t>(LimitVal));
           AggregateHits.insert(AggregateHits.end(), LocalHits.begin(), LocalHits.end());
 
           if (Instance->Sam->IsOpen() && !SkipRecord &&

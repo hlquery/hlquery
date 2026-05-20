@@ -9,10 +9,10 @@
 **A modular, high-performance search engine built for modern applications.**
 
 [![Follow hlquery](https://img.shields.io/badge/Follow-%40hlquery-blue?logo=x&logoColor=white&labelColor=000000)](https://x.com/hlquery)
+[![GitHub](https://img.shields.io/badge/GitHub-hlquery-blue?logo=github&logoColor=white&labelColor=000000)](https://github.com/hlquery/hlquery/)
 [![Linux Build](https://img.shields.io/badge/Linux%20Build-passing-brightgreen?logo=linux&logoColor=white&labelColor=000000)](https://github.com/hlquery/hlquery/actions)
 [![macOS Build](https://img.shields.io/badge/macOS%20Build-passing-brightgreen?logo=apple&logoColor=white&labelColor=000000)](https://github.com/hlquery/hlquery/actions)
 [![FreeBSD Build](https://img.shields.io/badge/FreeBSD%20Build-passing-brightgreen?logo=freebsd&logoColor=white&labelColor=000000)](https://github.com/hlquery/hlquery/actions)
-[![GitHub](https://img.shields.io/badge/GitHub-hlquery-blue?logo=github&logoColor=white&labelColor=000000)](https://github.com/hlquery/hlquery/stargazers)
 [![Demo](https://img.shields.io/badge/Demo-live-0ea5e9?logo=google-chrome&logoColor=white&labelColor=000000)](https://demo.hlquery.com/)
 [![License](https://img.shields.io/badge/License-BSD%203--Clause-a35a0f?logo=open-source-initiative&logoColor=white&labelColor=000000)](https://opensource.org/licenses/BSD-3-Clause)
 
@@ -178,7 +178,7 @@ Collection 'products' created successfully
 require_once __DIR__ . '/vendor/autoload.php'; 
 use Hlquery\Client; 
 
-$client = new Client('http://localhost:9200'));
+$client = new Client('http://localhost:9200');
 
 /* Get the collections service from the client. */
 
@@ -188,9 +188,6 @@ $collections = $client->collections();
 
 $schema = [ 
     'fields' => [ 
-        /* Store the document id as a string field.    */
-        ['name' => 'id', 'type' => 'string'],        
-
         /* Keep the main product title searchable.     */
         ['name' => 'title', 'type' => 'string'],     
 
@@ -204,6 +201,40 @@ $schema = [
 
 $response = $collections->create('products', $schema); 
 $body = $response->getBody(); 
+```
+
+Small end-to-end product test:
+
+```php
+<?php
+
+require_once __DIR__ . '/vendor/autoload.php';
+
+use Hlquery\Client;
+
+$client = new Client('http://localhost:9200');
+
+$client->collections()->create('products', [
+    'fields' => [
+        ['name' => 'title', 'type' => 'string'],
+        ['name' => 'content', 'type' => 'string'],
+        ['name' => 'price', 'type' => 'float'],
+    ],
+]);
+
+$client->documents()->add('products', [
+    'id' => 'product1',
+    'title' => 'Wireless Keyboard',
+    'content' => 'Compact Bluetooth keyboard for daily work.',
+    'price' => 49.99,
+]);
+
+$client->documents()->add('products', [
+    'id' => 'product2',
+    'title' => 'USB-C Hub',
+    'content' => 'Seven-port adapter with HDMI and card reader.',
+    'price' => 39.50,
+]);
 ```
 
 ### Index Documents
