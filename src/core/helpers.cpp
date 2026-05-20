@@ -11,6 +11,10 @@
  */
 
 #include <exception>
+#include <mutex>
+#include <thread>
+#include <utility>
+#include <vector>
 
 #include "api/httpserver.h"
 #include "core/helpers.h"
@@ -24,6 +28,23 @@
 bool CoreHelpers::ShouldExitLoop()
 {
      return ForceExit != 0 || ShuttingDown != 0;
+}
+
+void hlquery::AddBackgroundThread(std::thread &&ThreadVal)
+{
+     std::lock_guard<std::mutex> Lock(BackgroundThreadsMutex);
+     BackgroundThreads.push_back(std::move(ThreadVal));
+}
+
+std::vector<std::thread> hlquery::TakeBackgroundThreads()
+{
+     std::vector<std::thread> ThreadsToJoin;
+     {
+          std::lock_guard<std::mutex> Lock(BackgroundThreadsMutex);
+          ThreadsToJoin.swap(BackgroundThreads);
+     }
+
+     return ThreadsToJoin;
 }
 
 void CoreHelpers::SafePeriodicFlush()
