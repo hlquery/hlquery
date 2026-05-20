@@ -2899,6 +2899,10 @@ void HttpConnection::ProcessSingleRequest(const std::string &RequestStr)
      {
           Response = API.HandleDeleteOverride(Request);
      }
+     else if (Request.Path.find("/collections/") == 0 && NormalizedPath.rfind("/aliases") == NormalizedPath.size() - 8 && Request.Method == "GET")
+     {
+          Response = API.HandleListAliases(Request);
+     }
      else if (Request.Path == "/aliases" && Request.Method == "GET")
      {
           Response = API.HandleListAliases(Request);

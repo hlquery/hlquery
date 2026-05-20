@@ -47,6 +47,22 @@
 #include "utils/wildcard.h"
 #include "vendor/json/json.hpp"
 
+namespace
+{
+std::string ExtractAliasCollectionFromPath(const std::string &Path)
+{
+     std::regex AliasCollectionRegex(R"(/collections/([^/]+)/aliases)");
+     std::smatch Match;
+
+     if (std::regex_search(Path, Match, AliasCollectionRegex))
+     {
+          return Match[1].str();
+     }
+
+     return "";
+}
+}
+
 /* HandleListAliases lists all collection aliases. */
 
 /*
@@ -66,6 +82,10 @@ HttpResponse SearchAPI::HandleListAliases(const HttpRequest &Request)
      if (FilterIt != Request.QueryParams.end())
      {
           FilterCollection = FilterIt->second;
+     }
+     else
+     {
+          FilterCollection = ExtractAliasCollectionFromPath(Request.Path);
      }
 
      nlohmann::json AliasesArray = nlohmann::json::array();

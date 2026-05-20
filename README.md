@@ -33,11 +33,11 @@ hlquery is built for teams that want strong search capabilities without taking o
 
 You can use hlquery for classic full-text search, hybrid retrieval, vector similarity, and AI-assisted search workflows while keeping deployment and integration straightforward. The project also ships with official client libraries, command-line tools, and modular runtime extensions, which makes it practical both for local development and production services.
 
-### SAM: Search that gets smarter over time
+### SAM (optional): Search that gets smarter over time
 
-hlquery includes **SAM**, the **Secondary Assistant Manager**, as an optional feature. SAM adds a second retrieval layer for natural-language intent, search assistance, and learned query behavior, but hlquery can run normally without it.
+hlquery includes **SAM**, the **Secondary Assistant Manager**, as a 100% optional feature. SAM adds a second retrieval layer for natural-language intent, search assistance, and learned query behavior, but hlquery can run normally without it.
 
-To use SAM, enable it in `run/conf/hlquery.conf` and point it at a local Qwen model:
+To use SAM, enable it in [run/conf/hlquery.conf](run/conf/hlquery.conf) and point it at a local Qwen model:
 
 ```xml
 <sam enabled="true"
@@ -216,7 +216,7 @@ $client->documents()->add('products', [
 
 ### Index Documents
 
-Each document `id` must be unique within its collection. Use a stable value such as a SKU, database primary key, or generated UUID.
+Each document id must be unique within its collection:
 
 ```bash
 $ hlquery-cli add products prod_laptop_001 "Laptop Computer" "High-performance laptop with 16GB RAM"

@@ -856,6 +856,7 @@ std::vector<Posting> MMapIndex::SearchWildcard(const std::string &PatternValue, 
      if (LimitVal > 0)
      {
           const std::size_t LimitSize = static_cast<std::size_t>(LimitVal);
+
           if (ResultsList.size() > LimitSize)
           {
                ResultsList.resize(LimitSize);

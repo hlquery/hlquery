@@ -46,17 +46,29 @@ struct SQLTranslationResult
      };
 
      StatementType Type = StatementType::Unknown;
+
      bool Valid = false;
+
      bool AggregateOnly = false;
+
      bool GroupedAggregates = false;
+
      bool Distinct = false;
+
      bool HasExplicitLimit = false;
+
      std::string Error;
+
      std::string Collection;
+
      std::string HavingFilter;
+
      nlohmann::json InsertDocument = nlohmann::json::object();
+
      ComprehensiveSearchQuery Query;
+
      std::vector<SQLSelectField> SelectFields;
+
      std::vector<SQLAggregateSpec> AggregateSpecs;
 };
 

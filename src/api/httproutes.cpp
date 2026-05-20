@@ -495,6 +495,11 @@ RouteAction ResolveHttpRoute(const HttpRequest &Request)
                return RouteAction::CreateCollection;
           }
 
+          if (RouteInfo.IsCollectionPath && RouteInfo.Segments.size() == 3 && RouteInfo.SegmentEquals(2, "aliases") && Method == "GET")
+          {
+               return RouteAction::ListAliases;
+          }
+
           if (RouteInfo.IsCollectionPath && (RouteInfo.SegmentEquals(2, "vector_search") || RouteInfo.IsVectorSearchAlias) && (Method == "GET" || Method == "POST"))
           {
                return RouteAction::VectorSearch;

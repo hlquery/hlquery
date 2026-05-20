@@ -25,8 +25,8 @@
 struct Posting;
 
 /*
-      * MMapIndex - Memory-mapped inverted index.
-      */
+ * MMapIndex - Memory-mapped inverted index.
+ */
 
 class MMapIndex
 {
