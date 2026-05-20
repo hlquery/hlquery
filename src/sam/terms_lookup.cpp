@@ -1801,29 +1801,43 @@ bool SAM::EnqueuePendingSearchIdea(const std::string& Collection,
           return false;
      }
 
-     std::lock_guard<std::mutex> Lock(SearchIdeaQueueMutex);
-
-     for (auto& Existing : PendingSearchIdeaJobs)
      {
-          if (Existing.Collection == Collection && NormalizeTerm(Existing.Query) == NormalizedQuery)
+          std::vector<PendingSearchIdeaJob> DroppedJobs;
+
           {
-               Existing.Query = Query;
-               Existing.Documents = Documents;
-               Existing.Attempts = std::min<size_t>(Existing.Attempts + 1, 16);
-               return true;
+               std::lock_guard<std::mutex> Lock(SearchIdeaQueueMutex);
+
+               for (auto& Existing : PendingSearchIdeaJobs)
+               {
+                    if (Existing.Collection == Collection && NormalizeTerm(Existing.Query) == NormalizedQuery)
+                    {
+                         Existing.Query = Query;
+                         Existing.Documents = Documents;
+                         Existing.Attempts = std::min<size_t>(Existing.Attempts + 1, 16);
+                         return true;
+                    }
+               }
+
+               PendingSearchIdeaJob Job;
+               Job.Collection = Collection;
+               Job.Query = Query;
+               Job.Documents = Documents;
+               PendingSearchIdeaJobs.push_back(std::move(Job));
+
+               constexpr size_t MaxPendingSearchIdeaJobs = 256;
+               while (PendingSearchIdeaJobs.size() > MaxPendingSearchIdeaJobs)
+               {
+                    DroppedJobs.push_back(PendingSearchIdeaJobs.front());
+                    PendingSearchIdeaJobs.pop_front();
+                    ++DroppedPendingSearchIdeaJobs;
+               }
           }
-     }
 
-     PendingSearchIdeaJob Job;
-     Job.Collection = Collection;
-     Job.Query = Query;
-     Job.Documents = Documents;
-     PendingSearchIdeaJobs.push_back(std::move(Job));
-
-     constexpr size_t MaxPendingSearchIdeaJobs = 256;
-     while (PendingSearchIdeaJobs.size() > MaxPendingSearchIdeaJobs)
-     {
-          PendingSearchIdeaJobs.pop_front();
+          for (const auto& DroppedJob : DroppedJobs)
+          {
+               RecordDebugEvent(DroppedJob.Collection,
+                                "dropped pending search idea for '" + NormalizeTerm(DroppedJob.Query) + "' because the queue limit was reached.");
+          }
      }
 
      return true;
@@ -1901,36 +1915,50 @@ bool SAM::EnqueuePendingSearchInteraction(const std::string& Collection,
           return false;
      }
 
-     std::lock_guard<std::mutex> Lock(SearchInteractionQueueMutex);
-
-     for (auto& Existing : PendingSearchInteractionJobs)
      {
-          if (Existing.Collection == Collection &&
-              NormalizeTerm(Existing.Query) == NormalizedQuery &&
-              Existing.Document.DocumentID == Document.DocumentID)
+          std::vector<PendingSearchInteractionJob> DroppedJobs;
+
           {
-               Existing.Query = Query;
-               Existing.Document.Title = Document.Title.empty() ? Existing.Document.Title : Document.Title;
-               Existing.Document.Score = std::max(Existing.Document.Score, Document.Score);
-               Existing.Document.InteractionUses += std::max<uint64_t>(1, Document.InteractionUses);
-               Existing.Document.LastInteractionMS = std::max(Existing.Document.LastInteractionMS,
-                                                              Document.LastInteractionMS);
-               Existing.Attempts = std::min<size_t>(Existing.Attempts + 1, 16);
-               return true;
+               std::lock_guard<std::mutex> Lock(SearchInteractionQueueMutex);
+
+               for (auto& Existing : PendingSearchInteractionJobs)
+               {
+                    if (Existing.Collection == Collection &&
+                        NormalizeTerm(Existing.Query) == NormalizedQuery &&
+                        Existing.Document.DocumentID == Document.DocumentID)
+                    {
+                         Existing.Query = Query;
+                         Existing.Document.Title = Document.Title.empty() ? Existing.Document.Title : Document.Title;
+                         Existing.Document.Score = std::max(Existing.Document.Score, Document.Score);
+                         Existing.Document.InteractionUses += std::max<uint64_t>(1, Document.InteractionUses);
+                         Existing.Document.LastInteractionMS = std::max(Existing.Document.LastInteractionMS,
+                                                                        Document.LastInteractionMS);
+                         Existing.Attempts = std::min<size_t>(Existing.Attempts + 1, 16);
+                         return true;
+                    }
+               }
+
+               PendingSearchInteractionJob Job;
+               Job.Collection = Collection;
+               Job.Query = Query;
+               Job.Document = Document;
+               Job.Document.InteractionUses = std::max<uint64_t>(1, Job.Document.InteractionUses);
+               PendingSearchInteractionJobs.push_back(std::move(Job));
+
+               constexpr size_t MaxPendingSearchInteractionJobs = 512;
+               while (PendingSearchInteractionJobs.size() > MaxPendingSearchInteractionJobs)
+               {
+                    DroppedJobs.push_back(PendingSearchInteractionJobs.front());
+                    PendingSearchInteractionJobs.pop_front();
+                    ++DroppedPendingSearchInteractionJobs;
+               }
           }
-     }
 
-     PendingSearchInteractionJob Job;
-     Job.Collection = Collection;
-     Job.Query = Query;
-     Job.Document = Document;
-     Job.Document.InteractionUses = std::max<uint64_t>(1, Job.Document.InteractionUses);
-     PendingSearchInteractionJobs.push_back(std::move(Job));
-
-     constexpr size_t MaxPendingSearchInteractionJobs = 512;
-     while (PendingSearchInteractionJobs.size() > MaxPendingSearchInteractionJobs)
-     {
-          PendingSearchInteractionJobs.pop_front();
+          for (const auto& DroppedJob : DroppedJobs)
+          {
+               RecordDebugEvent(DroppedJob.Collection,
+                                "dropped pending search interaction for '" + NormalizeTerm(DroppedJob.Query) + "' because the queue limit was reached.");
+          }
      }
 
      return true;
@@ -2736,6 +2764,9 @@ bool SAM::OptimizeSearchIdeaIntentLocked(const std::string& Collection,
 
           const std::string ManifestPrefix = "sam:doc:" + Collection + ":";
           std::unique_ptr<rocksdb::Iterator> Iterator(Database->NewIterator(rocksdb::ReadOptions()));
+          const double MinIntentDocMatchScore = Instance && Instance->Config
+               ? Instance->Config->GetSam25IntentDocMatchMinScore()
+               : 0.65;
 
           for (Iterator->Seek(ManifestPrefix);
                Iterator->Valid() && Iterator->key().starts_with(ManifestPrefix);
@@ -2754,7 +2785,7 @@ bool SAM::OptimizeSearchIdeaIntentLocked(const std::string& Collection,
                                                   Entry.ResolvedCandidates,
                                                   Entry.ResolvedRankedTerms);
 
-               if (MatchScore < 0.65)
+               if (MatchScore < MinIntentDocMatchScore)
                {
                     continue;
                }
@@ -4334,6 +4365,20 @@ uint64_t SAM::GetLatestDebugSequence() const
      }
 
      return DebugEvents.back().Sequence;
+}
+
+size_t SAM::GetDroppedPendingSearchIdeaJobs() const
+{
+     std::lock_guard<std::mutex> Lock(SearchIdeaQueueMutex);
+
+     return DroppedPendingSearchIdeaJobs;
+}
+
+size_t SAM::GetDroppedPendingSearchInteractionJobs() const
+{
+     std::lock_guard<std::mutex> Lock(SearchInteractionQueueMutex);
+
+     return DroppedPendingSearchInteractionJobs;
 }
 
 #endif /* HLQUERY_SAM_SPLIT_INCLUDE */

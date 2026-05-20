@@ -1102,7 +1102,7 @@ void SAM::RunIndexWorker()
                ScheduleRetryRebuild(Job.Collection);
           }
 
-          FlushPendingSearchIdeas(1);
+          FlushPendingSearchIdeas(8);
           FinishTask();
 
           if (Success)

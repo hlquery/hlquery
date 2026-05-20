@@ -3419,6 +3419,8 @@ HttpResponse SearchAPI::HandleSAMStatus(const HttpRequest &Request)
      Root["collections"] = nlohmann::json::array();
      Root["running_collections"] = nlohmann::json::array();
      Root["active_searches"] = nlohmann::json::array();
+     Root["dropped_pending_search_ideas"] = Instance->Sam->GetDroppedPendingSearchIdeaJobs();
+     Root["dropped_pending_search_interactions"] = Instance->Sam->GetDroppedPendingSearchInteractionJobs();
 
      const std::map<std::string, SAM::CollectionJobStatus> AllStatuses = Instance->Sam->GetAllCollectionJobStatuses();
      const std::vector<SAM::SearchActivityEntry> ActiveSearches = Instance->Sam->GetActiveSearchActivities(CollectionName);

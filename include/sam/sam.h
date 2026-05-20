@@ -210,6 +210,8 @@ class SAM
      std::unordered_set<std::string> PendingIndexKeys;
      std::deque<PendingSearchIdeaJob> PendingSearchIdeaJobs;
      std::deque<PendingSearchInteractionJob> PendingSearchInteractionJobs;
+     size_t DroppedPendingSearchIdeaJobs = 0;
+     size_t DroppedPendingSearchInteractionJobs = 0;
      std::unordered_map<std::string, size_t> ActiveCollectionTasks;
      std::unordered_map<std::string, uint64_t> LastBackgroundImprovementMS;
      std::unordered_set<std::string> CancelledCollections;
@@ -641,4 +643,12 @@ class SAM
      /* Return the latest emitted SAM debug sequence number. */
 
      uint64_t GetLatestDebugSequence() const;
+
+     /* Return the number of search idea jobs dropped by queue pressure. */
+
+     size_t GetDroppedPendingSearchIdeaJobs() const;
+
+     /* Return the number of search interaction jobs dropped by queue pressure. */
+
+     size_t GetDroppedPendingSearchInteractionJobs() const;
 };

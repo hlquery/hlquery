@@ -504,6 +504,7 @@ void ServerConfig::ApplyConfiguration()
           Sam25MinOrderedBoostForPhrase = SAMTag->GetDoubleRange("sam25_min_ordered_boost_for_phrase",
                Sam25MinOrderedBoostForPhrase, 0.0, 1.0);
           Sam25MinFinalScore = SAMTag->GetDoubleRange("sam25_min_final_score", Sam25MinFinalScore, 0.0, 1.0);
+          Sam25IntentDocMatchMinScore = SAMTag->GetDoubleRange("sam25_intent_doc_match_min_score", Sam25IntentDocMatchMinScore, 0.0, 1.0);
           Sam25EnableSourceDocMerge = SAMTag->GetBool("sam25_enable_source_doc_merge", Sam25EnableSourceDocMerge);
           Sam25SourceDocWeight = SAMTag->GetDoubleRange("sam25_source_doc_weight", Sam25SourceDocWeight, 0.0, 5.0);
           Sam25SourceDocTitleWeight = SAMTag->GetDoubleRange("sam25_source_doc_title_weight", Sam25SourceDocTitleWeight, 0.0, 5.0);

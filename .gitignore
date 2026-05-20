@@ -10,6 +10,8 @@ bin/
 lib/
 !etc/api/node/lib/
 !etc/api/node/lib/*.js
+!etc/api/python/lib/
+!etc/api/python/lib/*.py
 obj/
 *.o
 *.a
