@@ -17,6 +17,7 @@
 #endif
 
 #include <atomic>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <rocksdb/cache.h>
@@ -164,6 +165,10 @@ class DBManager
      /* PrefixKeys returns a bounded page of keys with a prefix. */
 
      std::vector<std::string> PrefixKeys(const std::string& prefix, size_t offset = 0, size_t limit = 0);
+
+     /* ForEachPrefixKeySnapshot iterates keys with a prefix over one RocksDB snapshot. */
+
+     bool ForEachPrefixKeySnapshot(const std::string& prefix, size_t limit, const std::function<bool(const std::string&)>& callback);
 
      /* GetPrefixTotalSize returns total size for a prefix. */
 

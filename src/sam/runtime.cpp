@@ -10,19 +10,6 @@
  * For more details, please visit: https://docs.hlquery.com
  */
 
-/*
- * CODE STYLE AND FORMATTING RULES
- *
- * Use block comments only. Never use line comments.
- * Put opening braces on their own line for functions, loops, conditionals, classes, structs, and namespaces.
- * Indent with spaces only, using exactly five spaces per nested block level.
- * Keep system includes before local includes.
- * Use PascalCase for function names and avoid trailing underscores in variable names.
- * Keep log messages on one physical line and end each message with a period.
- * Do not add comments to namespace closing braces.
- * Place a blank line between a comment and the following code element.
- */
-
 #include <algorithm>
 #include <filesystem>
 #include <rocksdb/write_batch.h>

@@ -1547,8 +1547,9 @@ std::vector<SearchHit> SearchAPI::ProcessLexicalSearch(const std::string &Collec
      }
 
      bool has_in_memory_index = Instance->SearchIndex->HasInMemoryIndex(Collection);
+     bool collection_index_complete = storage.IsCollectionIndexComplete(Collection, collection_docs);
 
-     if (collection_docs > 0 && collection_is_indexing)
+     if (collection_docs > 0 && (collection_is_indexing || !collection_index_complete))
      {
           auto start = Now();
           /*
@@ -1568,7 +1569,8 @@ std::vector<SearchHit> SearchAPI::ProcessLexicalSearch(const std::string &Collec
                std::this_thread::sleep_for(std::chrono::milliseconds(50));
                has_in_memory_index = Instance->SearchIndex->HasInMemoryIndex(Collection);
                collection_is_indexing = storage.IsCollectionIndexing(Collection);
-               if (!collection_is_indexing || (!small_or_moderate_collection && has_in_memory_index))
+               collection_index_complete = storage.IsCollectionIndexComplete(Collection, collection_docs);
+               if (collection_index_complete || (!collection_is_indexing && has_in_memory_index) || (!small_or_moderate_collection && has_in_memory_index))
                {
                     break;
                }
@@ -1580,6 +1582,7 @@ std::vector<SearchHit> SearchAPI::ProcessLexicalSearch(const std::string &Collec
           }
 
           has_in_memory_index = Instance->SearchIndex->HasInMemoryIndex(Collection);
+          collection_index_complete = storage.IsCollectionIndexComplete(Collection, collection_docs);
      }
 
      std::vector<std::string> QueryVariants;
@@ -1673,13 +1676,14 @@ std::vector<SearchHit> SearchAPI::ProcessLexicalSearch(const std::string &Collec
 
      has_in_memory_index = Instance->SearchIndex->HasInMemoryIndex(Collection);
      bool collection_indexing = storage.IsCollectionIndexing(Collection);
+     collection_index_complete = storage.IsCollectionIndexComplete(Collection, collection_docs);
 
      const bool needs_typo_scan_fallback = (Query.NumTyposExplicit &&
                                             effective_max_typos > 0 &&
                                             (Postings.empty() || Query.InlineFuzzy) &&
                                             !query_variant_terms_list.empty());
 
-     const bool prefer_storage_scan_while_indexing = collection_indexing && collection_docs > 0;
+     const bool prefer_storage_scan_while_indexing = (collection_indexing || !collection_index_complete) && collection_docs > 0;
      const bool needs_zero_hit_storage_fallback = Query.AllowScanFallback && Postings.empty() && collection_docs > 0 && !query_variant_terms_list.empty();
 
      if ((Query.AllowScanFallback || prefer_storage_scan_while_indexing || force_structured_scan || needs_typo_scan_fallback || needs_zero_hit_storage_fallback) &&
@@ -1694,13 +1698,14 @@ std::vector<SearchHit> SearchAPI::ProcessLexicalSearch(const std::string &Collec
                size_t scanned = 0;
                int offset = 0;
 
+               const bool require_complete_scan = prefer_storage_scan_while_indexing || Query.ExhaustiveSearch || needs_zero_hit_storage_fallback;
                const size_t max_scan_docs = (collection_docs > 0)
-                                                ? std::min<size_t>(collection_docs, (Query.ExhaustiveSearch || needs_zero_hit_storage_fallback) ? collection_docs : 10000)
+                                                ? std::min<size_t>(collection_docs, require_complete_scan ? collection_docs : 10000)
                                                 : ((Query.ExhaustiveSearch || needs_zero_hit_storage_fallback) ? 50000 : 10000);
                const auto scan_deadline =
                     Now() +
-                    ((Query.ExhaustiveSearch || needs_zero_hit_storage_fallback)
-                         ? std::chrono::milliseconds(2500)
+                    (require_complete_scan
+                         ? std::chrono::milliseconds(collection_docs <= 50000 ? 5000 : 10000)
                          : (collection_docs > 2000 ? std::chrono::milliseconds(1200) : std::chrono::milliseconds(800)));
                int scan_iterations = 0;
                const int max_scan_iterations = std::max<int>(5, static_cast<int>(max_scan_docs / scan_batch) + 4);

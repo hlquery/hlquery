@@ -100,6 +100,27 @@ struct IntegrityReport
      std::vector<CollectionIntegrityStatus> Collections;
 };
 
+enum class LazyIndexBuildState
+{
+     None,
+     Building,
+     Complete,
+     Failed
+};
+
+struct LazyIndexState
+{
+     LazyIndexBuildState State = LazyIndexBuildState::None;
+
+     size_t SourceCount = 0;
+
+     size_t IndexedCount = 0;
+
+     uint64_t Generation = 0;
+
+     std::string Error;
+};
+
 /*
       * HybridStorageManager - RocksDB-based storage and search manager.
       * Provides the same interface as the LSM-based version.
@@ -148,6 +169,10 @@ class HybridStorageManager
      /* CollectionsBeingIndexed tracks collections being indexed. */
 
      std::unordered_set<std::string> CollectionsBeingIndexed;
+
+     /* LazyIndexStates tracks explicit lazy index build completeness. */
+
+     std::unordered_map<std::string, LazyIndexState> LazyIndexStates;
 
      /* IndexingMutex guards CollectionsBeingIndexed. */
 
@@ -200,6 +225,10 @@ class HybridStorageManager
      /* IndexCollectionInBackground builds indexes asynchronously. */
 
      void IndexCollectionInBackground(const std::string& collection, const std::vector<std::string>& doc_keys);
+
+     /* MarkCollectionIndexDirty invalidates lazy index completion state after writes. */
+
+     void MarkCollectionIndexDirty(const std::string& collection);
 
    public:
 
@@ -382,6 +411,10 @@ class HybridStorageManager
      /* IsCollectionIndexing reports whether a collection is currently being indexed. */
 
      bool IsCollectionIndexing(const std::string& collection);
+
+     /* IsCollectionIndexComplete reports whether lazy indexing finished for the current collection generation. */
+
+     bool IsCollectionIndexComplete(const std::string& collection, size_t expected_count);
 
      /* GetCollectionMutex returns the collection mutex. */
 
