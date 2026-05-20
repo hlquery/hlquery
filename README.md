@@ -186,62 +186,41 @@ $collections = $client->collections();
 
 /* Build the schema payload sent to hlquery. */
 
-$schema = [ 
-    'fields' => [ 
+$schema = [
+    'fields' => [
         /* Keep the main product title searchable.     */
-        ['name' => 'title', 'type' => 'string'],     
+
+        ['name' => 'title', 'type' => 'string'],
 
         /* Index the longer product description text.  */
-        ['name' => 'content', 'type' => 'string'],  
+
+        ['name' => 'content', 'type' => 'string'],
 
         /* Save a numeric price for filters and sorts. */
-        ['name' => 'price', 'type' => 'float'],  
-    ], 
-]; 
+
+        ['name' => 'price', 'type' => 'float'],
+    ],
+];
 
 $response = $collections->create('products', $schema); 
 $body = $response->getBody(); 
-```
-
-Small end-to-end product test:
-
-```php
-<?php
-
-require_once __DIR__ . '/vendor/autoload.php';
-
-use Hlquery\Client;
-
-$client = new Client('http://localhost:9200');
-
-$client->collections()->create('products', [
-    'fields' => [
-        ['name' => 'title', 'type' => 'string'],
-        ['name' => 'content', 'type' => 'string'],
-        ['name' => 'price', 'type' => 'float'],
-    ],
-]);
 
 $client->documents()->add('products', [
-    'id' => 'product1',
+    'id' => 'prod_keyboard_001',
     'title' => 'Wireless Keyboard',
     'content' => 'Compact Bluetooth keyboard for daily work.',
     'price' => 49.99,
 ]);
 
-$client->documents()->add('products', [
-    'id' => 'product2',
-    'title' => 'USB-C Hub',
-    'content' => 'Seven-port adapter with HDMI and card reader.',
-    'price' => 39.50,
-]);
 ```
 
 ### Index Documents
 
+Each document `id` must be unique within its collection. Use a stable value such as a SKU, database primary key, or generated UUID.
+
 ```bash
-$ hlquery-cli add products product1 "Laptop Computer" "High-performance laptop with 16GB RAM"
-Document 'product1' added to collection 'products'
+$ hlquery-cli add products prod_laptop_001 "Laptop Computer" "High-performance laptop with 16GB RAM"
+Document 'prod_laptop_001' added to collection 'products'
 ```
 
 **Using the Node API:**
@@ -254,7 +233,7 @@ const documents = client.documents(); // Use the documents service for document 
 /* Send POST /collections/products/documents with the product payload. */
 
 const response = await documents.add('products', {
-  id: 'product1', // Primary document id used by later reads and updates.
+  id: 'prod_laptop_001', // Unique document id used by later reads and updates.
   title: 'Laptop Computer', // Searchable title field.
   content: 'High-performance laptop with 16GB RAM', // Main body text to index.
   price: 1299.99 // Numeric field for filtering and sorting.
@@ -273,11 +252,11 @@ $ hlquery-cli search products "laptop"
 Search results for 'laptop' in collection 'products':
 Found 1 document(s) (showing 1-1 of 1)
 
-+---+-------------+----------+-----------------+---------------------------------------+
-| # | Document ID | Score    | Title           | Content Preview                       | 
-+---+-------------+----------+-----------------+---------------------------------------+
-| 1 | product1    | 1.094500 | Laptop Computer | High-performance laptop with 16GB RAM |
-+---+-------------+----------+-----------------+---------------------------------------+
++---+-----------------+----------+-----------------+---------------------------------------+
+| # | Document ID     | Score    | Title           | Content Preview                       |
++---+-----------------+----------+-----------------+---------------------------------------+
+| 1 | prod_laptop_001 | 1.094500 | Laptop Computer | High-performance laptop with 16GB RAM |
++---+-----------------+----------+-----------------+---------------------------------------+
 ```
 
 **Using the C++ API:**

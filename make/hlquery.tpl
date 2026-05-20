@@ -508,7 +508,10 @@ sub is_running {
     return 0 unless $pid =~ /^\d+$/;
     
     # Check if process exists
-    return 0 unless kill(0, $pid);
+    unless (kill(0, $pid)) {
+        unlink $pid_file_to_check if defined $pid_file_to_check && -f $pid_file_to_check;
+        return 0;
+    }
 
     # Treat zombie/dead tasks as already stopped so stop doesn't wait for timeout.
     if (open my $sfh, '<', "/proc/$pid/stat") {
@@ -516,32 +519,46 @@ sub is_running {
         close $sfh;
         if (defined $stat && $stat =~ /^\d+\s+\(.+\)\s+([A-Z])/ ) {
             my $state = $1;
-            return 0 if $state eq 'Z' || $state eq 'X';
+            if ($state eq 'Z' || $state eq 'X') {
+                unlink $pid_file_to_check if -f $pid_file_to_check;
+                return 0;
+            }
         }
     }
 
     # Check if it's actually hlquery (Linux only)
-    if (-f "/proc/$pid/comm") {
-        open my $cfh, '<', "/proc/$pid/comm" or return $pid;
-        my $comm = <$cfh>;
-        close $cfh;
-        chomp $comm;
-        
-        if ($comm eq 'hlquery') {
-            return $pid;
-        }
-        
-        if (open my $cmd_fh, '<', "/proc/$pid/cmdline") {
-            my $cmdline = <$cmd_fh>;
-            close $cmd_fh;
-            if (defined $cmdline && $cmdline =~ /hlquery/) {
+    if (-d "/proc/$pid") {
+        if (open my $cfh, '<', "/proc/$pid/comm") {
+            my $comm = <$cfh>;
+            close $cfh;
+            chomp $comm if defined $comm;
+
+            if (defined $comm && $comm =~ /\bhlquery\b/) {
                 return $pid;
             }
         }
-        
+
+        if (my $exe = readlink("/proc/$pid/exe")) {
+            my ($basename) = $exe =~ m{([^/]+)$};
+            if (defined $basename && $basename =~ /\bhlquery\b/) {
+                return $pid;
+            }
+        }
+
+        if (open my $cmd_fh, '<', "/proc/$pid/cmdline") {
+            local $/;
+            my $cmdline = <$cmd_fh>;
+            close $cmd_fh;
+            if (defined $cmdline && $cmdline =~ /\bhlquery\b/) {
+                return $pid;
+            }
+        }
+
+        unlink $pid_file_to_check if -f $pid_file_to_check;
         return 0;
     }
-    
+
+    # Non-Linux fallback: kill(0) is the best signal-safe check available.
     return $pid;
 }
 
