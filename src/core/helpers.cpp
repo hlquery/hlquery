@@ -10,11 +10,14 @@
  * For more details, please visit: https://docs.hlquery.com
  */
 
-#include "core/helpers.h"
-
 #include <exception>
+#include <mutex>
+#include <thread>
+#include <utility>
+#include <vector>
 
 #include "api/httpserver.h"
+#include "core/helpers.h"
 #include "core/hlquery.h"
 #include "runtime/daemon.h"
 #include "utils/consolewriter.h"
@@ -25,6 +28,23 @@
 bool CoreHelpers::ShouldExitLoop()
 {
      return ForceExit != 0 || ShuttingDown != 0;
+}
+
+void hlquery::AddBackgroundThread(std::thread &&ThreadVal)
+{
+     std::lock_guard<std::mutex> Lock(BackgroundThreadsMutex);
+     BackgroundThreads.push_back(std::move(ThreadVal));
+}
+
+std::vector<std::thread> hlquery::TakeBackgroundThreads()
+{
+     std::vector<std::thread> ThreadsToJoin;
+     {
+          std::lock_guard<std::mutex> Lock(BackgroundThreadsMutex);
+          ThreadsToJoin.swap(BackgroundThreads);
+     }
+
+     return ThreadsToJoin;
 }
 
 void CoreHelpers::SafePeriodicFlush()

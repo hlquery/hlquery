@@ -15,7 +15,7 @@
 #include <ctime>
 #include <sstream>
 
-#include "sam/sam_internal.h"
+#include "sam/internal.h"
 
 namespace
 {

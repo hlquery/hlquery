@@ -15,6 +15,7 @@
 #include <cstdint>
 #include <fcntl.h>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <sys/mman.h>
 #include <unistd.h>
@@ -24,8 +25,8 @@
 struct Posting;
 
 /*
-      * MMapIndex - Memory-mapped inverted index.
-      */
+ * MMapIndex - Memory-mapped inverted index.
+ */
 
 class MMapIndex
 {
@@ -104,6 +105,14 @@ class MMapIndex
 
      uint32_t TermCount = 0;
 
+     /* Cached unique document count for the mmap index. */
+
+     mutable bool DocumentCountCached = false;
+
+     mutable size_t DocumentCount = 0;
+
+     mutable std::mutex DocumentCountMutex;
+
      /* IndexInterval stores the term index interval. */
 
      uint32_t IndexInterval = 16;
@@ -152,6 +161,10 @@ class MMapIndex
      {
           return TermCount;
      }
+
+     /* GetDocumentCount returns the number of unique indexed documents. */
+
+     size_t GetDocumentCount() const;
 
      /* IsValid reports whether the index is valid. */
 

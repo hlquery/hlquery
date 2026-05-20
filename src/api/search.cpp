@@ -17,6 +17,7 @@
 #include <iomanip>
 #include <iostream>
 #include <limits>
+#include <deque>
 #include <list>
 #include <map>
 #include <mutex>
@@ -35,6 +36,80 @@
 #include "sql/sql.h"
 #include "utils/protocol.h"
 #include "vendor/json/json.hpp"
+
+namespace
+{
+     class SAMTrainingDedupe
+     {
+       public:
+         explicit SAMTrainingDedupe(size_t MaxEntries)
+             : Max(MaxEntries)
+         {
+         }
+
+         bool ShouldAllow(const std::string& Key, uint64_t NowMS, uint64_t WindowMS)
+         {
+              if (WindowMS == 0 || Key.empty())
+              {
+                   return true;
+              }
+
+              std::lock_guard<std::mutex> Lock(Mutex);
+
+              auto It = LastSeen.find(Key);
+              if (It != LastSeen.end())
+              {
+                   if (NowMS >= It->second && (NowMS - It->second) < WindowMS)
+                   {
+                        return false;
+                   }
+                   It->second = NowMS;
+                   return true;
+              }
+
+              LastSeen.emplace(Key, NowMS);
+              Order.push_back(Key);
+
+              while (Order.size() > Max)
+              {
+                   LastSeen.erase(Order.front());
+                   Order.pop_front();
+              }
+
+              return true;
+         }
+
+       private:
+         const size_t Max;
+         std::mutex Mutex;
+         std::unordered_map<std::string, uint64_t> LastSeen;
+         std::deque<std::string> Order;
+     };
+
+     static SAMTrainingDedupe gSearchIdeaDedupe(16384);
+
+     bool ShouldRecordSAMSearchIdea(const HttpRequest& Request,
+                                   const std::string& Collection,
+                                   const std::string& Query)
+     {
+          if (!Instance || !Instance->Config || !Instance->Config->GetSamRecordSearchIdeas())
+          {
+               return false;
+          }
+
+          const int WindowMs = Instance->Config->GetSamSearchIdeaDedupeWindowMs();
+          if (WindowMs <= 0)
+          {
+               return true;
+          }
+
+          const uint64_t NowMS = static_cast<uint64_t>(NowMs());
+          const uint64_t WindowMS = static_cast<uint64_t>(WindowMs);
+          const std::string ActorKey = Request.APIKeyID.empty() ? Request.RemoteAddress : Request.APIKeyID;
+          const std::string Key = ActorKey + "\n" + Collection + "\n" + Query;
+          return gSearchIdeaDedupe.ShouldAllow(Key, NowMS, WindowMS);
+     }
+}
 
 /* Stores the maybe-suggestion policy for a document search response. */
 
@@ -1778,7 +1853,8 @@ HttpResponse SearchAPI::HandleSearch(const HttpRequest &Request)
                AttachSearchResponseMeta(Response, SearchQueryObj, Request, CollectionName);
 
                if (!SearchQueryObj.Q.empty() && SearchQueryObj.Q != "*" &&
-                   Instance && Instance->Sam && Instance->Sam->IsOpen())
+                   Instance && Instance->Sam && Instance->Sam->IsOpen() &&
+                   ShouldRecordSAMSearchIdea(Request, CollectionName, SearchQueryObj.Q))
                {
                     const auto IdeaDocuments = BuildSAMSearchIdeaDocuments(SearchResultObj.Hits);
                     if (Instance->Sam->RecordSearchIdea(CollectionName, SearchQueryObj.Q, IdeaDocuments))
@@ -1924,7 +2000,8 @@ HttpResponse SearchAPI::HandleSearch(const HttpRequest &Request)
      /* Analytics are emitted after the response body is finalized so counts match the payload. */
 
      if (!SearchQueryObj.Q.empty() && SearchQueryObj.Q != "*" &&
-         Instance && Instance->Sam && Instance->Sam->IsOpen())
+         Instance && Instance->Sam && Instance->Sam->IsOpen() &&
+         ShouldRecordSAMSearchIdea(Request, CollectionName, SearchQueryObj.Q))
      {
           const auto IdeaDocuments = BuildSAMSearchIdeaDocuments(SearchResultObj.Hits);
           if (Instance->Sam->RecordSearchIdea(CollectionName, SearchQueryObj.Q, IdeaDocuments))
@@ -2190,6 +2267,7 @@ HttpResponse SearchAPI::HandleGlobalSearch(const HttpRequest &Request)
      std::vector<SearchHit> AllHits;
      std::map<std::string, std::map<std::string, int>> FacetCounts;
      bool IndexingInProgress = false;
+     bool PartialResults = false;
      float MaxSearchTime = 0.0f;
      size_t ExecutedCollections = 0;
      std::string DistributedError;
@@ -2297,6 +2375,7 @@ HttpResponse SearchAPI::HandleGlobalSearch(const HttpRequest &Request)
           }
 
           IndexingInProgress = IndexingInProgress || CollectionResult.IndexingInProgress;
+          PartialResults = PartialResults || CollectionResult.PartialResults;
           MaxSearchTime = std::max(MaxSearchTime, CollectionResult.SearchTimeMS);
           ExecutedCollections++;
      }
@@ -2331,6 +2410,11 @@ HttpResponse SearchAPI::HandleGlobalSearch(const HttpRequest &Request)
      GlobalResult.Page = BaseQuery.Page < 1 ? 1 : BaseQuery.Page;
      GlobalResult.PerPage = BaseQuery.PerPage < 1 ? 10 : BaseQuery.PerPage;
      GlobalResult.IndexingInProgress = IndexingInProgress;
+     GlobalResult.PartialResults = PartialResults;
+     if (PartialResults)
+     {
+          GlobalResult.PartialReason = "one_or_more_collections_partial";
+     }
      GlobalResult.SearchTimeMS = MaxSearchTime;
      GlobalResult.DistributedDiagnostics = std::move(GlobalDistributedDiagnostics);
      GlobalResult.OutOf = (AllHits.size() > static_cast<std::size_t>(std::numeric_limits<int>::max()))
@@ -2687,12 +2771,15 @@ ComprehensiveSearchResult SearchAPI::PerformComprehensiveSearch(const std::strin
           }
 
           bool indexing = HybridStorageManagerInstance().IsCollectionIndexing(Collection);
+          const bool index_incomplete = collection_docs > 0 && indexed_count < collection_docs;
 
           /* Mark indexing-in-progress when searchable data exists but the lexical index is incomplete. */
 
-          if ((collection_docs > 0 && indexing) || (indexed_count == 0 && !Hits.empty()))
+          if ((collection_docs > 0 && indexing) || index_incomplete || (indexed_count == 0 && !Hits.empty()))
           {
                ResultObj.IndexingInProgress = true;
+               ResultObj.PartialResults = true;
+               ResultObj.PartialReason = indexing ? "indexing_in_progress" : "index_incomplete";
           }
      }
 

@@ -130,7 +130,8 @@ class CoreExport TimerManager
      ~TimerManager();
 
      /* 
-      * Add a timer.
+      * Add(): Creates a new timer.
+      *
       * The delay determines the first run and also the repeat interval
       * when the timer is configured to execute repeatedly.
       */

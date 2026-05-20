@@ -16,6 +16,8 @@
 #include <cctype>
 #include <cstdlib>
 
+/* Hard safety limits for tokenization and basic syntax sanity checks. */
+
 static constexpr size_t SQLMaxQueryBytes = 32768;
 static constexpr size_t SQLMaxTokens = 1024;
 static constexpr size_t SQLMaxParenthesisDepth = 64;
@@ -24,6 +26,8 @@ static constexpr size_t SQLMaxQuotedLiteralBytes = 4096;
 
 bool CanStartSignedNumber(const std::vector<SQLToken> &tokens)
 {
+     /* A leading + or - is treated as part of a numeric literal only in contexts where a value is expected. */
+
      if (tokens.empty())
      {
           return true;
@@ -39,6 +43,8 @@ bool CanStartSignedNumber(const std::vector<SQLToken> &tokens)
 
 static bool SQLContainsDisallowedControlCharacters(const std::string &sql_text, std::string *error)
 {
+     /* Reject non-whitespace control characters early. */
+
      for (size_t index = 0; index < sql_text.size(); ++index)
      {
           const unsigned char character = static_cast<unsigned char>(sql_text[index]);
@@ -59,6 +65,8 @@ static bool SQLContainsDisallowedControlCharacters(const std::string &sql_text, 
 
 static bool SQLCanAppendToken(const std::vector<SQLToken> &tokens, std::string *error)
 {
+     /* Keep worst-case parser work bounded by enforcing a maximum token count. */
+
      if (tokens.size() >= SQLMaxTokens)
      {
           if (error)
@@ -74,6 +82,8 @@ static bool SQLCanAppendToken(const std::vector<SQLToken> &tokens, std::string *
 
 std::string SQLTrimWhitespace(const std::string &value)
 {
+     /* Removes leading and trailing ASCII whitespace. */
+
      size_t start = 0;
 
      while (start < value.size() && std::isspace(static_cast<unsigned char>(value[start])) != 0)
@@ -93,6 +103,8 @@ std::string SQLTrimWhitespace(const std::string &value)
 
 std::string SQLToUpperASCII(std::string value)
 {
+     /* Converts ASCII letters to upper-case for keyword matching. */
+
      std::transform(value.begin(), value.end(), value.begin(), [](unsigned char character)
                     { return static_cast<char>(std::toupper(character)); });
      return value;
@@ -100,17 +112,23 @@ std::string SQLToUpperASCII(std::string value)
 
 bool SQLIsIdentifierStart(char character)
 {
+     /* Allows unquoted identifiers similar to common SQL dialects. */
+
      return std::isalpha(static_cast<unsigned char>(character)) != 0 || character == '_' || character == '$';
 }
 
 bool SQLIsIdentifierChar(char character)
 {
+     /* Allows a restricted identifier alphabet that is compatible with hlquery fields. */
+
      return std::isalnum(static_cast<unsigned char>(character)) != 0 ||
             character == '_' || character == '$' || character == '-' || character == '.';
 }
 
 bool SQLIsNumericLiteral(const std::string &value)
 {
+     /* Uses libc parsing rules; the parser later decides how to render numeric values. */
+
      if (value.empty())
      {
           return false;
@@ -123,6 +141,8 @@ bool SQLIsNumericLiteral(const std::string &value)
 
 std::string SQLStripQuotes(const std::string &value)
 {
+     /* Strips matching quotes when a token is already known to be quoted. */
+
      if (value.size() >= 2)
      {
           const char first = value.front();
@@ -130,7 +150,31 @@ std::string SQLStripQuotes(const std::string &value)
 
           if ((first == '\'' && last == '\'') || (first == '"' && last == '"') || (first == '`' && last == '`'))
           {
-               return value.substr(1, value.size() - 2);
+               const std::string inner = value.substr(1, value.size() - 2);
+
+               if (first == '`')
+               {
+                    return inner;
+               }
+
+               std::string unescaped;
+               unescaped.reserve(inner.size());
+
+               for (size_t index = 0; index < inner.size(); ++index)
+               {
+                    const char character = inner[index];
+
+                    if (character == first && index + 1 < inner.size() && inner[index + 1] == first)
+                    {
+                         unescaped.push_back(first);
+                         ++index;
+                         continue;
+                    }
+
+                    unescaped.push_back(character);
+               }
+
+               return unescaped;
           }
      }
 
@@ -139,13 +183,15 @@ std::string SQLStripQuotes(const std::string &value)
 
 bool SQLIsSafeFilterLiteral(const std::string &value)
 {
+     /* Prevents accidental injection of hlquery filter syntax via SQL string literals. */
+
      for (char character : value)
      {
           if (character == '&' || character == '|' ||
               character == '[' || character == ']' ||
               character == '{' || character == '}' ||
               character == '(' || character == ')' ||
-              character == ',')
+              character == ',' || character == ':')
           {
                return false;
           }
@@ -156,6 +202,8 @@ bool SQLIsSafeFilterLiteral(const std::string &value)
 
 std::vector<SQLToken> SQLTokenize(const std::string &sql_text, std::string *error)
 {
+     /* Converts a SQL query into a token stream suitable for the SQL parser. */
+
      std::vector<SQLToken> tokens;
      size_t parenthesis_depth = 0;
 
@@ -178,11 +226,15 @@ std::vector<SQLToken> SQLTokenize(const std::string &sql_text, std::string *erro
      {
           const char character = sql_text[index];
 
+          /* Skip whitespace without producing tokens. */
+
           if (std::isspace(static_cast<unsigned char>(character)) != 0)
           {
                ++index;
                continue;
           }
+
+          /* Quoted literals keep their quotes, so downstream code can distinguish types safely. */
 
           if (character == '\'' || character == '"' || character == '`')
           {
@@ -234,9 +286,13 @@ std::vector<SQLToken> SQLTokenize(const std::string &sql_text, std::string *erro
                     return {};
                }
 
+               /* Store an upper-cased variant for keyword matching (quoted tokens are matched by Text). */
+
                tokens.push_back({token_text, SQLToUpperASCII(token_text)});
                continue;
           }
+
+          /* Identifiers include keywords and field names. */
 
           if (SQLIsIdentifierStart(character))
           {
@@ -268,6 +324,8 @@ std::vector<SQLToken> SQLTokenize(const std::string &sql_text, std::string *erro
                continue;
           }
 
+          /* Numeric literals are parsed as a single token, including an optional leading sign. */
+
           if (std::isdigit(static_cast<unsigned char>(character)) != 0 ||
               ((character == '-' || character == '+') &&
                index + 1 < sql_text.size() &&
@@ -275,13 +333,26 @@ std::vector<SQLToken> SQLTokenize(const std::string &sql_text, std::string *erro
                CanStartSignedNumber(tokens)))
           {
                size_t start = index++;
+               bool seen_dot = false;
 
                while (index < sql_text.size())
                {
                     const char current = sql_text[index];
 
-                    if (std::isdigit(static_cast<unsigned char>(current)) != 0 || current == '.')
+                    if (std::isdigit(static_cast<unsigned char>(current)) != 0)
                     {
+                         ++index;
+                         continue;
+                    }
+
+                    if (current == '.')
+                    {
+                         if (seen_dot)
+                         {
+                              break;
+                         }
+
+                         seen_dot = true;
                          ++index;
                          continue;
                     }
@@ -291,6 +362,26 @@ std::vector<SQLToken> SQLTokenize(const std::string &sql_text, std::string *erro
 
                const std::string text = sql_text.substr(start, index - start);
 
+               if (text == "-" || text == "+")
+               {
+                    if (error)
+                    {
+                         *error = "Invalid numeric literal in SQL query.";
+                    }
+
+                    return {};
+               }
+
+               if (!text.empty() && text.back() == '.')
+               {
+                    if (error)
+                    {
+                         *error = "Invalid numeric literal in SQL query.";
+                    }
+
+                    return {};
+               }
+
                if (!SQLCanAppendToken(tokens, error))
                {
                     return {};
@@ -299,6 +390,8 @@ std::vector<SQLToken> SQLTokenize(const std::string &sql_text, std::string *erro
                tokens.push_back({text, SQLToUpperASCII(text)});
                continue;
           }
+
+          /* Two-character operators must be recognized before consuming one-character operators. */
 
           if (index + 1 < sql_text.size())
           {
@@ -320,6 +413,8 @@ std::vector<SQLToken> SQLTokenize(const std::string &sql_text, std::string *erro
           if (character == ',' || character == '(' || character == ')' || character == '*' ||
               character == ';' || character == '=' || character == '>' || character == '<')
           {
+               /* Parenthesis depth is tracked to provide friendly syntax errors early. */
+
                if (character == '(')
                {
                     ++parenthesis_depth;

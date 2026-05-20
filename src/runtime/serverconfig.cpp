@@ -31,6 +31,7 @@
 #endif
 
 #include "core/logmanager.h"
+#include "core/modulemanager.h"
 #include "runtime/serverconfig.h"
 #include "utils/consolewriter.h"
 #include "utils/tools.h"
@@ -272,6 +273,22 @@ void ServerConfig::ApplyConfiguration()
                throw std::runtime_error("Invalid <module> tag: missing required 'name' attribute.");
           }
 
+          if (!ModuleManager::IsValidModuleName(ModuleName))
+          {
+               throw std::runtime_error("Invalid <module> tag: module name '" + ModuleName + "' contains unsupported characters.");
+          }
+
+          const auto ExistingIt = std::find_if(ModuleLoads.begin(), ModuleLoads.end(),
+                                               [&](const ModuleLoadEntry &Existing)
+                                               {
+                                                    return Existing.Name == ModuleName;
+                                               });
+
+          if (ExistingIt != ModuleLoads.end())
+          {
+               continue;
+          }
+
           ModulePath = ModuleTag->GetString("path", "");
 
           ModuleLoadEntry Entry;
@@ -321,6 +338,22 @@ void ServerConfig::ApplyConfiguration()
           return Tag->GetString("model", Fallback);
      };
 
+     auto HasLLMAttributes = [](const std::shared_ptr<ConfigTag> &Tag) -> bool
+     {
+          if (!Tag)
+          {
+               return false;
+          }
+
+          return Tag->HasAttribute("models_dir") ||
+                 Tag->HasAttribute("model_name") ||
+                 Tag->HasAttribute("model") ||
+                 Tag->HasAttribute("model_path") ||
+                 Tag->HasAttribute("model_file") ||
+                 Tag->HasAttribute("inference_command") ||
+                 Tag->HasAttribute("relative");
+     };
+
      if (AITag)
      {
           AIEnabled = AITag->GetBool("enabled", AIEnabled);
@@ -356,8 +389,61 @@ void ServerConfig::ApplyConfiguration()
      if (SAMTag)
      {
           SamEnabled = SAMTag->GetBool("enabled", SamEnabled);
+
+          if (HasLLMAttributes(SAMTag))
+          {
+               AIEnabled = SamEnabled;
+               AIModelsDirectory = SAMTag->GetString("models_dir", AIModelsDirectory);
+               AIModelName = ReadModelName(SAMTag, AIModelName);
+
+               if (ModelPathOverride.empty())
+               {
+                    ModelPathOverride = SAMTag->GetString("model_path", "");
+               }
+
+               if (ModelFileOverride.empty())
+               {
+                    ModelFileOverride = SAMTag->GetString("model_file", "");
+               }
+
+               AIInferenceCommand = SAMTag->GetString("inference_command", AIInferenceCommand);
+               ResolveLLMPathsRelativeToConfig = SAMTag->GetBool("relative", ResolveLLMPathsRelativeToConfig);
+          }
+
           SamDataDirectory = SAMTag->GetString("data_dir", SamDataDirectory);
           SamSearchIdeasCollection = SAMTag->GetString("sam_search_ideas", SamSearchIdeasCollection);
+          SamRecordSearchIdeas = SAMTag->GetBool("record_search_ideas", SamRecordSearchIdeas);
+          SamRecordInteractions = SAMTag->GetBool("record_interactions", SamRecordInteractions);
+          SamSearchIdeaDedupeWindowMs =
+               SAMTag->GetIntRange("search_idea_dedupe_window_ms",
+                                    SamSearchIdeaDedupeWindowMs,
+                                    0,
+                                    7 * 24 * 60 * 60 * 1000);
+          SamInteractionDedupeWindowMs =
+               SAMTag->GetIntRange("interaction_dedupe_window_ms",
+                                    SamInteractionDedupeWindowMs,
+                                    0,
+                                    7 * 24 * 60 * 60 * 1000);
+          SamActorMetadataRetentionDays =
+               SAMTag->GetIntRange("actor_metadata_retention_days",
+                                    SamActorMetadataRetentionDays,
+                                    0,
+                                    3650);
+          SamInteractionMaxPerMinute =
+               SAMTag->GetIntRange("interaction_max_per_minute",
+                                    SamInteractionMaxPerMinute,
+                                    0,
+                                    1000000);
+          SamInteractionMaxPerHour =
+               SAMTag->GetIntRange("interaction_max_per_hour",
+                                    SamInteractionMaxPerHour,
+                                    0,
+                                    10000000);
+          SamInteractionMaxPerDocQueryPerHour =
+               SAMTag->GetIntRange("interaction_max_per_doc_query_per_hour",
+                                    SamInteractionMaxPerDocQueryPerHour,
+                                    0,
+                                    10000000);
           SamIndexAll = SAMTag->GetBool("index_all", SamIndexAll);
           SamSmartBackground = SAMTag->GetBool("background_improvements",
                                                SAMTag->GetBool("smart_sam", SamSmartBackground));
@@ -800,7 +886,7 @@ void ServerConfig::ApplyConfiguration()
          }
     }
 
-    const bool HasExplicitLLMConfig = (AITag != nullptr) || (LLMTag != nullptr);
+    const bool HasExplicitLLMConfig = (AITag != nullptr) || (LLMTag != nullptr) || HasLLMAttributes(SAMTag);
 
     if (HasExplicitLLMConfig && AIEnabled)
     {

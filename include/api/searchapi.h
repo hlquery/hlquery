@@ -339,6 +339,8 @@ struct ComprehensiveSearchResult
      float SearchTimeMS = 0.0f;
      std::vector<std::string> GroupByHits;
      bool IndexingInProgress = false;
+     bool PartialResults = false;
+     std::string PartialReason;
      /* Error contains the error message when query execution fails. */
 
      std::string Error;
@@ -811,6 +813,10 @@ class SearchAPI
 
      HttpResponse HandleGetCollection(const HttpRequest& Request);
 
+     /* HandleGetCollectionLanguage returns language info for a collection. */
+
+     HttpResponse HandleGetCollectionLanguage(const HttpRequest& Request);
+
      /* HandleUpdateCollection handles collection update requests. */
 
      HttpResponse HandleUpdateCollection(const HttpRequest& Request);
@@ -862,6 +868,10 @@ class SearchAPI
      /* HandleSAMImprove runs low-priority SAM improvement for idle collections. */
 
      HttpResponse HandleSAMImprove(const HttpRequest& Request);
+
+     /* HandleSAMFlushActorMetadata clears in-memory SAM actor metadata caches (IP/API key associations). */
+
+     HttpResponse HandleSAMFlushActorMetadata(const HttpRequest& Request);
 
      /* HandleSAMListDocuments lists SAM-indexed documents for one collection. */
 

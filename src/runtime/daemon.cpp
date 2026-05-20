@@ -334,6 +334,57 @@ static bool IsZombieProcess(pid_t PIDValue)
 
      return (StateValue == 'Z' || StateValue == 'X');
 }
+
+/* Determines whether a PID points at an hlquery process, not just any process. */
+
+static bool IsHLQueryProcess(pid_t PIDValue)
+{
+     if (PIDValue <= 1)
+     {
+          return false;
+     }
+
+     std::ifstream CommFile("/proc/" + std::to_string(PIDValue) + "/comm");
+
+     if (CommFile.is_open())
+     {
+          std::string CommValue;
+
+          if (std::getline(CommFile, CommValue) && CommValue.find("hlquery") != std::string::npos)
+          {
+               return true;
+          }
+     }
+
+     char ExePathBuffer[4096] = {0};
+     std::string ExeLinkPath = "/proc/" + std::to_string(PIDValue) + "/exe";
+     ssize_t ExePathLength = readlink(ExeLinkPath.c_str(), ExePathBuffer, sizeof(ExePathBuffer) - 1);
+
+     if (ExePathLength > 0)
+     {
+          ExePathBuffer[ExePathLength] = '\0';
+          std::string ExePathValue(ExePathBuffer);
+
+          if (ExePathValue.find("hlquery") != std::string::npos)
+          {
+               return true;
+          }
+     }
+
+     std::ifstream CmdLineFile("/proc/" + std::to_string(PIDValue) + "/cmdline", std::ios::binary);
+
+     if (CmdLineFile.is_open())
+     {
+          std::string CmdLineValue;
+
+          if (std::getline(CmdLineFile, CmdLineValue, '\0') && CmdLineValue.find("hlquery") != std::string::npos)
+          {
+               return true;
+          }
+     }
+
+     return false;
+}
 std::atomic<int> DaemonHandler::AdaptiveSleepMS(0);
 
 std::atomic<int> DaemonHandler::ConsecutiveBusyIterations(0);
@@ -962,6 +1013,13 @@ bool hlquery::CheckExistingProcess()
 
           if (fcntl(PIDFdGuard.get(), F_GETLK, &PIDFileLock) == 0 && PIDFileLock.l_type != F_UNLCK)
           {
+               if (PIDFileLock.l_pid > 1 && !IsHLQueryProcess(PIDFileLock.l_pid))
+               {
+                    unlink(PIDFilePath.c_str());
+
+                    return false;
+               }
+
                return true;
           }
 
@@ -1026,7 +1084,7 @@ bool hlquery::CheckExistingProcess()
                {
                     if (ExistingPIDValue != getpid())
                     {
-                         if (IsZombieProcess(ExistingPIDValue))
+                         if (IsZombieProcess(ExistingPIDValue) || !IsHLQueryProcess(ExistingPIDValue))
                          {
                               unlink(PIDFilePath.c_str());
 

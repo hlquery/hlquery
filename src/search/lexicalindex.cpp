@@ -2078,7 +2078,7 @@ size_t InvertedIndex::GetDocumentCount(const std::string &Collection) const
 
      if (MMapIt != MMapIndexes.end() && MMapIt->second && MMapIt->second->IsValid())
      {
-          return MMapIt->second->GetTermCount();
+          return MMapIt->second->GetDocumentCount();
      }
 
      return 0;

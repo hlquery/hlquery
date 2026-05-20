@@ -20,7 +20,7 @@
 #include "core/hlquery.h"
 #include "sam/lang.h"
 #include "sam/sam.h"
-#include "sam/sam_internal.h"
+#include "sam/internal.h"
 #include "search/storageengine.h"
 #include "vendor/json/json.hpp"
 

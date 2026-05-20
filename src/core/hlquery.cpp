@@ -25,7 +25,6 @@
 #include <sys/resource.h>
 #include <sys/time.h>
 #include <sys/wait.h>
-#include <thread>
 #include <unistd.h>
 #include <vector>
 
@@ -35,20 +34,20 @@
 #include "api/userauth.h"
 #include "common/actionlist.h"
 #include "common/health.h"
-#include "common/searchpool.h"
 #include "common/listenmanager.h"
-#include "core/config.h"
-#include "core/helpers.h"
+#include "common/searchpool.h"
 #include "runtime/daemon.h"
 #include "runtime/exitmanager.h"
+#include "runtime/threadlimit.h"
+#include "core/config.h"
+#include "core/helpers.h"
 #include "core/hlquery.h"
 #include "core/socketengine.h"
-#include "runtime/threadlimit.h"
 #include "core/typedefs.h"
-#include "search/storageengine.h"
 #include "sam/sam.h"
 #include "search/cstore.h"
 #include "search/lindex.h"
+#include "search/storageengine.h"
 #include "utils/consolewriter.h"
 #include "utils/infos.h"
 #include "utils/simdutils.h"
@@ -58,7 +57,7 @@ hlquery *Instance = nullptr;
 
 /* Entry point for the daemon. */
 
-int main(int argc, char** argv)
+int main(int argc, char **argv)
 {
      new hlquery(argc, argv);
      Instance->Run();
@@ -70,14 +69,14 @@ int main(int argc, char** argv)
 
 /* Constructor for the main hlquery class */
 
-hlquery::hlquery(int argc, char** argv)
+hlquery::hlquery(int argc, char **argv)
 {
      ThreadLimit::SetThreadName("hlquery");
 
-     Instance       =       this;
-     Metrics        =       std::make_unique<HLQueryMetrics>();
-     SQL            =       std::make_unique<SQLService>();
-     Config         =       std::make_unique<ServerConfig>(argc, argv);
+     Instance   =   this;
+     Metrics    =   std::make_unique<HLQueryMetrics>();
+     SQL        =   std::make_unique<SQLService>();
+     Config     =   std::make_unique<ServerConfig>(argc, argv);
 
      ParseArgs();
      StatsVal.Start();
@@ -86,10 +85,10 @@ hlquery::hlquery(int argc, char** argv)
 
      ExitManager::RegisterCleanup([]()
      {
-             if (Instance)
-             {
-                  Instance->Cleanup();
-             }
+            if (Instance)
+            {
+                 Instance->Cleanup();
+            }
      });
 }
 
@@ -97,27 +96,11 @@ hlquery::hlquery(int argc, char** argv)
 
 hlquery::~hlquery()
 {
-     API         =        nullptr;
-     ThreadPools =        nullptr;
-     Engine      =        nullptr;
+     API          =  nullptr;
+     ThreadPools  =  nullptr;
+     Engine       =  nullptr;
 
      HTTPServers.clear();
-}
-
-void hlquery::AddBackgroundThread(std::thread &&ThreadVal)
-{
-     std::lock_guard<std::mutex> Lock(BackgroundThreadsMutex);
-     BackgroundThreads.push_back(std::move(ThreadVal));
-}
-
-std::vector<std::thread> hlquery::TakeBackgroundThreads()
-{
-     std::vector<std::thread> ThreadsToJoin;
-     {
-          std::lock_guard<std::mutex> Lock(BackgroundThreadsMutex);
-          ThreadsToJoin.swap(BackgroundThreads);
-     }
-     return ThreadsToJoin;
 }
 
 /* Performs server initialization and sets up all core subsystems */

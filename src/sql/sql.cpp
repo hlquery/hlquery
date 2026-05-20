@@ -14,6 +14,8 @@
 
 bool SQLService::LooksLikeSelect(const std::string &sql_text) const
 {
+     /* This helper is intentionally lightweight and does not fully validate SQL syntax. */
+
      const std::string trimmed = SQLTrimWhitespace(sql_text);
 
      if (trimmed.size() < 6)
@@ -26,5 +28,7 @@ bool SQLService::LooksLikeSelect(const std::string &sql_text) const
 
 SQLTranslationResult SQLService::ParseSelect(const std::string &sql_text) const
 {
+     /* The service currently supports a subset of SQL and routes SELECT through the same parser entry point. */
+
      return Parse(sql_text);
 }

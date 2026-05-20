@@ -9,10 +9,10 @@
 **A modular, high-performance search engine built for modern applications.**
 
 [![Follow hlquery](https://img.shields.io/badge/Follow-%40hlquery-blue?logo=x&logoColor=white&labelColor=000000)](https://x.com/hlquery)
+[![GitHub](https://img.shields.io/badge/GitHub-hlquery-blue?logo=github&logoColor=white&labelColor=000000)](https://github.com/hlquery/hlquery/)
 [![Linux Build](https://img.shields.io/badge/Linux%20Build-passing-brightgreen?logo=linux&logoColor=white&labelColor=000000)](https://github.com/hlquery/hlquery/actions)
 [![macOS Build](https://img.shields.io/badge/macOS%20Build-passing-brightgreen?logo=apple&logoColor=white&labelColor=000000)](https://github.com/hlquery/hlquery/actions)
 [![FreeBSD Build](https://img.shields.io/badge/FreeBSD%20Build-passing-brightgreen?logo=freebsd&logoColor=white&labelColor=000000)](https://github.com/hlquery/hlquery/actions)
-[![GitHub](https://img.shields.io/badge/GitHub-hlquery-blue?logo=github&logoColor=white&labelColor=000000)](https://github.com/hlquery/hlquery/stargazers)
 [![Demo](https://img.shields.io/badge/Demo-live-0ea5e9?logo=google-chrome&logoColor=white&labelColor=000000)](https://demo.hlquery.com/)
 [![License](https://img.shields.io/badge/License-BSD%203--Clause-a35a0f?logo=open-source-initiative&logoColor=white&labelColor=000000)](https://opensource.org/licenses/BSD-3-Clause)
 
@@ -33,13 +33,25 @@ hlquery is built for teams that want strong search capabilities without taking o
 
 You can use hlquery for classic full-text search, hybrid retrieval, vector similarity, and AI-assisted search workflows while keeping deployment and integration straightforward. The project also ships with official client libraries, command-line tools, and modular runtime extensions, which makes it practical both for local development and production services.
 
-### SAM: Search that gets smarter over time
+### SAM (optional): Search that gets smarter over time
 
-hlquery includes **SAM**, the **Secondary Assistant Manager**. SAM adds a second retrieval layer for natural-language intent, search assistance, and learned query behavior, helping hlquery move beyond strict keyword matching when users do not know the exact terms in your data.
+hlquery includes **SAM**, the **Secondary Assistant Manager**, as a 100% optional feature. SAM adds a second retrieval layer for natural-language intent, search assistance, and learned query behavior, but hlquery can run normally without it.
 
-That makes SAM a strong option for support search, internal knowledge tools, copilots, and AI-assisted workflows. It expands documents into broader lookup phrases, records repeated search ideas, and can build collection-level intent profiles over time. The result is a search experience that needs less reformulation and handles messier queries more naturally.
+To use SAM, enable it in [run/conf/hlquery.conf](run/conf/hlquery.conf) and point it at a local Qwen model:
 
-Just as important, SAM runs inside hlquery. You do not need a separate service to experiment with smarter retrieval, and you do not have to give up lexical or hybrid precision to use it. Queries like "the error about invalid session token" or "cheap gaming laptop for travel" are exactly where SAM can help close the gap between how people search and how data is stored.
+```xml
+<sam enabled="true"
+     models_dir="run/models"
+     model_name="qwen_1_5">
+```
+
+Download the matching model with the bundled helper:
+
+```bash
+$ ./tools/download --model qwen_1_5
+```
+
+`tools/download` stores model files under `run/models` by default. The shipped Qwen presets include `qwen_0_5`, `qwen_1_5`, `qwen_3`, `qwen_14`, and `qwen_coder_1_5`; the `model_name` in `hlquery.conf` should match the preset you download.
 
 ---
 
@@ -79,7 +91,7 @@ $ cd hlquery/
 $ ./configure
 ```
 
-On Linux:
+On GNU/Linux:
 
 ```
 $ make -j4
@@ -166,7 +178,7 @@ Collection 'products' created successfully
 require_once __DIR__ . '/vendor/autoload.php'; 
 use Hlquery\Client; 
 
-$client = new Client('http://localhost:9200'));
+$client = new Client('http://localhost:9200');
 
 /* Get the collections service from the client. */
 
@@ -174,36 +186,41 @@ $collections = $client->collections();
 
 /* Build the schema payload sent to hlquery. */
 
-$schema = [ 
-    'fields' => [ 
-	
-	/* Store the document id as a string field.    */
+$schema = [
+    'fields' => [
+        /* Keep the main product title searchable.     */
 
-        ['name' => 'id', 'type' => 'string'],        
+        ['name' => 'title', 'type' => 'string'],
 
-	/* Keep the main product title searchable.     */
+        /* Index the longer product description text.  */
 
-        ['name' => 'title', 'type' => 'string'],     
-	
-	/* Index the longer product description text.  */	
+        ['name' => 'content', 'type' => 'string'],
 
-        ['name' => 'content', 'type' => 'string'],  
+        /* Save a numeric price for filters and sorts. */
 
-	/* Save a numeric price for filters and sorts. */
-
-        ['name' => 'price', 'type' => 'float'],  
-    ], 
-]; 
+        ['name' => 'price', 'type' => 'float'],
+    ],
+];
 
 $response = $collections->create('products', $schema); 
 $body = $response->getBody(); 
+
+$client->documents()->add('products', [
+    'id' => 'prod_keyboard_001',
+    'title' => 'Wireless Keyboard',
+    'content' => 'Compact Bluetooth keyboard for daily work.',
+    'price' => 49.99,
+]);
+
 ```
 
 ### Index Documents
 
+Each document id must be unique within its collection:
+
 ```bash
-$ hlquery-cli add products product1 "Laptop Computer" "High-performance laptop with 16GB RAM"
-Document 'product1' added to collection 'products'
+$ hlquery-cli add products prod_laptop_001 "Laptop Computer" "High-performance laptop with 16GB RAM"
+Document 'prod_laptop_001' added to collection 'products'
 ```
 
 **Using the Node API:**
@@ -216,7 +233,7 @@ const documents = client.documents(); // Use the documents service for document 
 /* Send POST /collections/products/documents with the product payload. */
 
 const response = await documents.add('products', {
-  id: 'product1', // Primary document id used by later reads and updates.
+  id: 'prod_laptop_001', // Unique document id used by later reads and updates.
   title: 'Laptop Computer', // Searchable title field.
   content: 'High-performance laptop with 16GB RAM', // Main body text to index.
   price: 1299.99 // Numeric field for filtering and sorting.
@@ -235,11 +252,11 @@ $ hlquery-cli search products "laptop"
 Search results for 'laptop' in collection 'products':
 Found 1 document(s) (showing 1-1 of 1)
 
-+---+-------------+----------+-----------------+---------------------------------------+
-| # | Document ID | Score    | Title           | Content Preview                       | 
-+---+-------------+----------+-----------------+---------------------------------------+
-| 1 | product1    | 1.094500 | Laptop Computer | High-performance laptop with 16GB RAM |
-+---+-------------+----------+-----------------+---------------------------------------+
++---+-----------------+----------+-----------------+---------------------------------------+
+| # | Document ID     | Score    | Title           | Content Preview                       |
++---+-----------------+----------+-----------------+---------------------------------------+
+| 1 | prod_laptop_001 | 1.094500 | Laptop Computer | High-performance laptop with 16GB RAM |
++---+-----------------+----------+-----------------+---------------------------------------+
 ```
 
 **Using the C++ API:**

@@ -694,6 +694,85 @@ size_t DBManager::CountKeys(const std::string &prefix)
      return count;
 }
 
+std::vector<std::string> DBManager::PrefixKeys(const std::string &prefix, size_t offset, size_t limit)
+{
+     std::vector<std::string> keys;
+
+     if (!DBValue)
+     {
+          return keys;
+     }
+
+     size_t skipped = 0;
+     std::unique_ptr<rocksdb::Iterator> it(DBValue->NewIterator(rocksdb::ReadOptions()));
+
+     for (it->Seek(prefix); it->Valid() && it->key().starts_with(prefix); it->Next())
+     {
+          if (skipped < offset)
+          {
+               skipped++;
+               continue;
+          }
+
+          keys.push_back(it->key().ToString());
+
+          if (limit > 0 && keys.size() >= limit)
+          {
+               break;
+          }
+     }
+
+     return keys;
+}
+
+bool DBManager::ForEachPrefixKeySnapshot(const std::string &prefix, size_t limit, const std::function<bool(const std::string&)> &callback)
+{
+     if (!DBValue || !callback)
+     {
+          return false;
+     }
+
+     rocksdb::ReadOptions read_options;
+     const rocksdb::Snapshot *snapshot = DBValue->GetSnapshot();
+
+     if (!snapshot)
+     {
+          return false;
+     }
+
+     read_options.snapshot = snapshot;
+     size_t processed = 0;
+     bool completed = true;
+
+     {
+          std::unique_ptr<rocksdb::Iterator> it(DBValue->NewIterator(read_options));
+
+          for (it->Seek(prefix); it->Valid() && it->key().starts_with(prefix); it->Next())
+          {
+               if (limit > 0 && processed >= limit)
+               {
+                    break;
+               }
+
+               processed++;
+
+               if (!callback(it->key().ToString()))
+               {
+                    completed = false;
+                    break;
+               }
+          }
+
+          if (!it->status().ok())
+          {
+               completed = false;
+          }
+     }
+
+     DBValue->ReleaseSnapshot(snapshot);
+     return completed;
+}
+
 /* Get total size of values for keys with prefix */
 
 size_t DBManager::GetPrefixTotalSize(const std::string &prefix)

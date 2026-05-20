@@ -21,6 +21,8 @@
 #include "sam/sam.h"
 #include "vendor/json/json.hpp"
 
+/* Semantic profile persisted for one SAM term/document relationship. */
+
 struct SAMSemanticProfile
 {
      std::string Subject;
@@ -31,11 +33,15 @@ struct SAMSemanticProfile
      std::vector<float> Vector;
 };
 
+/* Text payload and semantic category used while scanning profile records. */
+
 struct SAMSemanticIndexEntry
 {
      std::string Text;
      std::string Kind;
 };
+
+/* Persisted rebuild and mutation tracking state for one collection. */
 
 struct SAMCollectionState
 {
@@ -44,6 +50,8 @@ struct SAMCollectionState
      bool RebuildRequested = false;
      uint64_t RequestedMutationVersion = 0;
 };
+
+/* Adaptive lookup calibration derived from recent SAM evaluation samples. */
 
 struct SAMEvaluationCalibration
 {

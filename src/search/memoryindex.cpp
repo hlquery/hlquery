@@ -16,6 +16,7 @@
 #include <filesystem>
 #include <fstream>
 #include <unordered_map>
+#include <unordered_set>
 
 #include "core/hlquery.h"
 #include "search/lindex.h"
@@ -758,6 +759,51 @@ std::vector<Posting> MMapIndex::SearchPrefix(const std::string &PrefixValue, int
      return ResultsList;
 }
 
+size_t MMapIndex::GetDocumentCount() const
+{
+     if (!Valid)
+     {
+          return 0;
+     }
+
+     std::lock_guard<std::mutex> Lock(DocumentCountMutex);
+
+     if (DocumentCountCached)
+     {
+          return DocumentCount;
+     }
+
+     std::unordered_set<std::string> DocumentIDs;
+     const char *Ptr = reinterpret_cast<const char *>(TermsData);
+     const char *End = reinterpret_cast<const char *>(TermsData + TermsSize);
+
+     while (Ptr < End)
+     {
+          std::string TermVal(Ptr);
+
+          if (TermVal.empty())
+          {
+               break;
+          }
+
+          auto Postings = SearchTerm(TermVal);
+
+          for (const auto &Post : Postings)
+          {
+               if (!Post.DocumentID.empty())
+               {
+                    DocumentIDs.insert(Post.DocumentID);
+               }
+          }
+
+          Ptr += TermVal.length() + 1;
+     }
+
+     DocumentCount = DocumentIDs.size();
+     DocumentCountCached = true;
+     return DocumentCount;
+}
+
 std::vector<Posting> MMapIndex::SearchWildcard(const std::string &PatternValue, int LimitVal) const
 {
      std::vector<Posting> ResultsList;
@@ -810,6 +856,7 @@ std::vector<Posting> MMapIndex::SearchWildcard(const std::string &PatternValue, 
      if (LimitVal > 0)
      {
           const std::size_t LimitSize = static_cast<std::size_t>(LimitVal);
+
           if (ResultsList.size() > LimitSize)
           {
                ResultsList.resize(LimitSize);

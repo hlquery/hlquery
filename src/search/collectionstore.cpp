@@ -168,6 +168,65 @@ static std::string BuildCollectionMetaValue(size_t Count, time_t Timestamp)
      return std::to_string(Count) + ":" + std::to_string(Timestamp);
 }
 
+static std::string SerializeDocumentData(const Document &Doc, uint64_t Timestamp)
+{
+     nlohmann::json FieldsJSON = nlohmann::json::object();
+
+     for (const auto &[Key, Value] : Doc.Fields)
+     {
+          FieldsJSON[Key] = Value;
+     }
+
+     nlohmann::json Root = nlohmann::json::object();
+     Root["id"] = Doc.ID;
+     Root["title"] = Doc.Title;
+     Root["content"] = Doc.Content;
+     Root["fields"] = FieldsJSON;
+     Root["timestamp"] = Timestamp;
+     Root["score"] = Doc.Score;
+
+     return Root.dump();
+}
+
+static bool DeserializeDocumentJSON(const std::string &Data, Document &Doc)
+{
+     if (Data.empty() || Data.front() != '{')
+     {
+          return false;
+     }
+
+     nlohmann::json Root = nlohmann::json::parse(Data);
+
+     if (!Root.is_object())
+     {
+          return false;
+     }
+
+     Doc.ID = Root.value("id", "");
+     Doc.Title = Root.value("title", "");
+     Doc.Content = Root.value("content", "");
+     Doc.Timestamp = Root.value("timestamp", static_cast<uint64_t>(0));
+     Doc.Score = Root.value("score", 0.0);
+     Doc.Fields.clear();
+
+     if (Root.contains("fields") && Root["fields"].is_object())
+     {
+          for (const auto &[Key, Value] : Root["fields"].items())
+          {
+               if (Value.is_string())
+               {
+                    Doc.Fields[Key] = Value.get<std::string>();
+               }
+               else if (!Value.is_null())
+               {
+                    Doc.Fields[Key] = Value.dump();
+               }
+          }
+     }
+
+     return !Doc.ID.empty();
+}
+
 static std::string ExtractDocumentIDFromKey(const std::string &DocKey)
 {
      const size_t last_colon = DocKey.find_last_of(':');
@@ -1529,6 +1588,12 @@ bool HybridStorageManager::DeleteCollection(const std::string &name)
 
      Collections.erase(name);
 
+     {
+          std::lock_guard<std::mutex> indexing_lock(IndexingMutex);
+          LazyIndexStates.erase(name);
+          CollectionsBeingIndexed.erase(name);
+     }
+
      return true;
 }
 
@@ -1810,17 +1875,6 @@ bool HybridStorageManager::AddDocument(const std::string &collection, const Docu
 
      /* Serialize document: id|title|content|fields_json|timestamp|score */
 
-     /* Serialize fields map as JSON */
-
-     nlohmann::json fields_json;
-
-     for (const auto &[key, value] : doc.Fields)
-     {
-          fields_json[key] = value;
-     }
-
-     std::string fields_str = fields_json.dump();
-
      /* Use document timestamp if provided, otherwise use current time */
 
      uint64_t timestamp_to_store = doc.Timestamp;
@@ -1839,7 +1893,7 @@ bool HybridStorageManager::AddDocument(const std::string &collection, const Docu
           }
      }
 
-     std::string doc_data = doc.ID + "|" + doc.Title + "|" + doc.Content + "|" + fields_str + "|" + std::to_string(timestamp_to_store) + "|" + std::to_string(doc.Score);
+     std::string doc_data = SerializeDocumentData(doc, timestamp_to_store);
 
      /* Check if document already exists to determine if this is a new document or update */
 
@@ -1918,6 +1972,8 @@ bool HybridStorageManager::AddDocument(const std::string &collection, const Docu
 
      if (success)
      {
+          MarkCollectionIndexDirty(collection);
+
           /*
                 * Index new document immediately so it's searchable right away.
                 * This ensures synonyms work with newly added documents.
@@ -2022,15 +2078,6 @@ size_t HybridStorageManager::AddDocumentsBatch(const std::string &collection, co
 
           /* Serialize document: id|title|content|fields_json|timestamp|score */
 
-          nlohmann::json fields_json;
-
-          for (const auto &[key, value] : doc.Fields)
-          {
-               fields_json[key] = value;
-          }
-
-          std::string fields_str = fields_json.dump();
-
           /* Use document timestamp if provided, otherwise use current time */
 
           uint64_t timestamp_to_store = doc.Timestamp;
@@ -2050,7 +2097,7 @@ size_t HybridStorageManager::AddDocumentsBatch(const std::string &collection, co
                }
           }
 
-          std::string doc_data = doc.ID + "|" + doc.Title + "|" + doc.Content + "|" + fields_str + "|" + std::to_string(timestamp_to_store) + "|" + std::to_string(doc.Score);
+          std::string doc_data = SerializeDocumentData(doc, timestamp_to_store);
 
           batch_data.push_back({doc_key, doc_data});
      }
@@ -2150,6 +2197,11 @@ size_t HybridStorageManager::AddDocumentsBatch(const std::string &collection, co
           }
      }
 
+     if (count > 0)
+     {
+          MarkCollectionIndexDirty(collection);
+     }
+
      if (count > 0 && Instance && Instance->Sam && Instance->Sam->IsOpen() && !IsSAMAutoIndexPaused())
      {
           for (const auto &doc : documents)
@@ -2215,6 +2267,23 @@ Document HybridStorageManager::GetDocument(const std::string &collection, const 
                if (Instance && Instance->Logs)
                {
                     Instance->Logs->Normal("hybrid_storage", "GetDocument skipped oversized persisted entry during decode: " + WALEntryValidationMessage(validation) + ".");
+               }
+
+               return Document();
+          }
+
+          try
+          {
+               if (DeserializeDocumentJSON(doc_data, doc))
+               {
+                    return doc;
+               }
+          }
+          catch (const std::exception &e)
+          {
+               if (Instance && Instance->Logs)
+               {
+                    Instance->Logs->Normal("hybrid_storage", "Failed to parse JSON document " + document_id + ": " + e.what() + ".");
                }
 
                return Document();
@@ -2440,18 +2509,7 @@ Document HybridStorageManager::GetDocument(const std::string &collection, const 
                     doc.Timestamp = NowMs();
                }
 
-               /* Re-serialize document with new timestamp */
-
-               nlohmann::json fields_json;
-
-               for (const auto &[key, value] : doc.Fields)
-               {
-                    fields_json[key] = value;
-               }
-
-               std::string fields_str = fields_json.dump();
-
-               std::string updated_doc_data = doc.ID + "|" + doc.Title + "|" + doc.Content + "|" + fields_str + "|" + std::to_string(doc.Timestamp);
+               std::string updated_doc_data = SerializeDocumentData(doc, doc.Timestamp);
 
                /* Update in storage (this is a one-time migration per document) */
 
@@ -2484,15 +2542,14 @@ std::vector<Document> HybridStorageManager::ListDocuments(const std::string &col
 
      try
      {
-          std::string pattern = "doc:" + collection + ":*";
-
-          std::vector<std::string> keys = Instance->Database->Keys(pattern);
-
-          /* Apply offset and limit */
+          std::string prefix = "doc:" + collection + ":";
+          std::vector<std::string> keys = Instance->Database->PrefixKeys(prefix,
+                                                                         offset > 0 ? static_cast<size_t>(offset) : 0,
+                                                                         limit > 0 ? static_cast<size_t>(limit) : 0);
 
           int count = 0;
 
-          for (size_t i = offset; i < keys.size() && count < limit; ++i)
+          for (size_t i = 0; i < keys.size() && (limit <= 0 || count < limit); ++i)
           {
                std::string doc_id = keys[i].substr(keys[i].find_last_of(':') + 1);
 
@@ -2573,6 +2630,8 @@ bool HybridStorageManager::DeleteDocument(const std::string &collection, const s
 
      if (deleted)
      {
+          MarkCollectionIndexDirty(collection);
+
           bool partial_cleanup_failed = false;
 
           try
@@ -2725,17 +2784,6 @@ bool HybridStorageManager::UpdateDocument(const std::string &collection, const D
           return AddDocument(collection, new_doc);
      }
 
-     /* Serialize new document */
-
-     nlohmann::json fields_json;
-
-     for (const auto &[key, value] : new_doc.Fields)
-     {
-          fields_json[key] = value;
-     }
-
-     std::string fields_str = fields_json.dump();
-
      /*
            * Preserve old timestamp if new document doesn't have one, otherwise use new timestamp.
            */
@@ -2763,7 +2811,7 @@ bool HybridStorageManager::UpdateDocument(const std::string &collection, const D
           }
      }
 
-     std::string new_doc_data = new_doc.ID + "|" + new_doc.Title + "|" + new_doc.Content + "|" + fields_str + "|" + std::to_string(timestamp_to_store) + "|" + std::to_string(new_doc.Score);
+     std::string new_doc_data = SerializeDocumentData(new_doc, timestamp_to_store);
 
      /* Update storage first */
 
@@ -2794,15 +2842,6 @@ bool HybridStorageManager::UpdateDocument(const std::string &collection, const D
 
           /* Rollback: restore old document */
 
-          nlohmann::json old_fields_json;
-
-          for (const auto &[key, value] : old_doc.Fields)
-          {
-               old_fields_json[key] = value;
-          }
-
-          std::string old_fields_str = old_fields_json.dump();
-
           /* Preserve old timestamp or use current time if not set */
 
           uint64_t old_timestamp = old_doc.Timestamp;
@@ -2819,11 +2858,16 @@ bool HybridStorageManager::UpdateDocument(const std::string &collection, const D
                }
           }
 
-          std::string old_doc_data = old_doc.ID + "|" + old_doc.Title + "|" + old_doc.Content + "|" + old_fields_str + "|" + std::to_string(old_timestamp) + "|" + std::to_string(old_doc.Score);
+          std::string old_doc_data = SerializeDocumentData(old_doc, old_timestamp);
 
           Instance->Database->Set(doc_key, old_doc_data);
 
           return false;
+     }
+
+     if (index_success)
+     {
+          MarkCollectionIndexDirty(collection);
      }
 
      if (index_success && Instance && Instance->Logs)
@@ -3107,6 +3151,15 @@ bool HybridStorageManager::RebuildCollectionIndex(const std::string &collection,
      if (reindexed_documents)
      {
           *reindexed_documents = indexed_documents;
+     }
+
+     {
+          std::lock_guard<std::mutex> lock(IndexingMutex);
+          LazyIndexState &State = LazyIndexStates[collection];
+          State.State = LazyIndexBuildState::Complete;
+          State.SourceCount = indexed_documents;
+          State.IndexedCount = indexed_documents;
+          State.Error.clear();
      }
 
      return true;
@@ -3506,142 +3559,162 @@ void HybridStorageManager::IndexCollectionInBackground(const std::string &collec
           return;
      }
 
-     if (doc_keys.empty())
+     /* MEMORY SAFETY: Limit indexing to prevent OOM crashes with large datasets */
+
+     const size_t MaxIndexDocuments = 1000000;
+     const bool UsePagedKeys = doc_keys.empty();
+     const std::string DocPrefix = "doc:" + collection + ":";
+     const size_t TotalDocumentKeys = UsePagedKeys ? Instance->Database->CountKeys(DocPrefix) : doc_keys.size();
+     uint64_t BuildGeneration = 0;
+
+     if (TotalDocumentKeys == 0)
      {
           guard.release();
           return;
      }
 
-     if (Instance && Instance->Logs)
      {
-          Instance->Logs->Normal("hybrid_storage", "LazyLoadCollectionIndex: Building index for collection '" + collection + "' with " + std::to_string(doc_keys.size()) + ".");
+          std::lock_guard<std::mutex> lock(IndexingMutex);
+          LazyIndexState &State = LazyIndexStates[collection];
+          State.State = LazyIndexBuildState::Building;
+          State.SourceCount = TotalDocumentKeys;
+          State.IndexedCount = 0;
+          State.Error.clear();
+          BuildGeneration = State.Generation;
      }
 
-     /* MEMORY SAFETY: Limit indexing to prevent OOM crashes with large datasets */
+     if (Instance && Instance->Logs)
+     {
+          Instance->Logs->Normal("hybrid_storage", "LazyLoadCollectionIndex: Building index for collection '" + collection + "' with " + std::to_string(TotalDocumentKeys) + ".");
+     }
 
-     const size_t MaxIndexDocuments = 1000000;
+     size_t documents_to_index = std::min(TotalDocumentKeys, MaxIndexDocuments);
+     const bool document_cap_reached = TotalDocumentKeys > MaxIndexDocuments;
 
-     size_t documents_to_index = std::min(doc_keys.size(), MaxIndexDocuments);
-
-     if (doc_keys.size() > MaxIndexDocuments)
+     if (document_cap_reached)
      {
           if (Instance && Instance->Logs)
           {
-               Instance->Logs->Normal("hybrid_storage", "LazyLoadCollectionIndex: Collection '" + collection + "' has " + std::to_string(doc_keys.size()) + ".");
+               Instance->Logs->Normal("hybrid_storage", "LazyLoadCollectionIndex: Collection '" + collection + "' has " + std::to_string(TotalDocumentKeys) + ".");
           }
      }
 
      size_t indexed = 0;
      const size_t BatchSize = 100;
      bool memory_limit_reached = false;
+     bool scan_completed = true;
+
+     auto IndexDocumentKey = [&](const std::string &doc_key) -> bool
+     {
+          size_t last_colon = doc_key.find_last_of(':');
+
+          if (last_colon == std::string::npos || last_colon + 1 >= doc_key.size())
+          {
+               return true;
+          }
+
+          std::string doc_id = doc_key.substr(last_colon + 1);
+          Document doc;
+
+          try
+          {
+               doc = GetDocument(collection, doc_id);
+          }
+          catch (const std::exception &e)
+          {
+               if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
+               {
+                    Instance->Logs->Debug("hybrid_storage", "LazyLoadCollectionIndex: Exception getting document '" + doc_id + "' in collection '" + collection + "': " + e.what() + ".");
+               }
+               return true;
+          }
+          catch (...)
+          {
+               if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
+               {
+                    Instance->Logs->Debug("hybrid_storage", "LazyLoadCollectionIndex: Unknown exception getting document '" + doc_id + "' in collection '" + collection + "'.");
+               }
+               return true;
+          }
+
+          if (doc.ID.empty())
+          {
+               return true;
+          }
+
+          try
+          {
+               if (Instance->SearchIndex->AddDocument(collection, doc))
+               {
+                    indexed++;
+                    return true;
+               }
+
+               memory_limit_reached = true;
+               if (Instance && Instance->Logs)
+               {
+                    Instance->Logs->Normal("hybrid_storage", "LazyLoadCollectionIndex: Memory limit reached for collection '" + collection + "', indexed " + std::to_string(indexed) + ".");
+               }
+               return false;
+          }
+          catch (const std::bad_alloc &e)
+          {
+               memory_limit_reached = true;
+               if (Instance && Instance->Logs)
+               {
+                    Instance->Logs->Critical("hybrid_storage", "LazyLoadCollectionIndex: Out of memory while indexing collection '" + collection + "', indexed " + std::to_string(indexed) + ".");
+               }
+               return false;
+          }
+          catch (const std::exception &e)
+          {
+               if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
+               {
+                    Instance->Logs->Debug("hybrid_storage", "LazyLoadCollectionIndex: Exception indexing document '" + doc.ID + "' in collection '" + collection + "': " + e.what() + ".");
+               }
+          }
+          catch (...)
+          {
+               if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
+               {
+                    Instance->Logs->Debug("hybrid_storage", "LazyLoadCollectionIndex: Unknown exception indexing document '" + doc.ID + "' in collection '" + collection + "'.");
+               }
+          }
+
+          return true;
+     };
 
      /* Comprehensive exception handling and early exit on memory pressure */
 
      try
      {
-          for (size_t i = 0; i < documents_to_index && !memory_limit_reached; i += BatchSize)
+          if (UsePagedKeys)
           {
-               size_t batch_end = std::min(i + BatchSize, documents_to_index);
-
-               for (size_t j = i; j < batch_end && !memory_limit_reached; j++)
+               size_t yielded = 0;
+               scan_completed = Instance->Database->ForEachPrefixKeySnapshot(DocPrefix, documents_to_index, [&](const std::string &doc_key)
                {
-                    const auto &doc_key = doc_keys[j];
-
-                    /* Extract document ID */
-
-                    size_t last_colon = doc_key.find_last_of(':');
-
-                    if (last_colon != std::string::npos && last_colon + 1 < doc_key.size())
+                    const bool keep_going = IndexDocumentKey(doc_key);
+                    yielded++;
+                    if ((yielded % (BatchSize * 10)) == 0)
                     {
-                         std::string doc_id = doc_key.substr(last_colon + 1);
-
-                         /* Catch all exceptions from GetDocument */
-
-                         Document doc;
-
-                         try
-                         {
-                              doc = GetDocument(collection, doc_id);
-                         }
-                         catch (const std::exception &e)
-                         {
-                              if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
-                              {
-                                   Instance->Logs->Debug("hybrid_storage", "LazyLoadCollectionIndex: Exception getting document '" + doc_id + "' in collection '" + collection + "': " + e.what() + ".");
-                              }
-                              continue;
-                         }
-                         catch (...)
-                         {
-                              if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
-                              {
-                                   Instance->Logs->Debug("hybrid_storage", "LazyLoadCollectionIndex: Unknown exception getting document '" + doc_id + "' in collection '" + collection + "'.");
-                              }
-                              continue;
-                         }
-
-                         if (!doc.ID.empty())
-                         {
-                              try
-                              {
-                                   if (Instance->SearchIndex->AddDocument(collection, doc))
-                                   {
-                                        indexed++;
-                                   }
-                                   else
-                                   {
-                                        memory_limit_reached = true;
-                                        if (Instance && Instance->Logs)
-                                        {
-                                             Instance->Logs->Normal("hybrid_storage", "LazyLoadCollectionIndex: Memory limit reached for collection '" + collection + "', indexed " + std::to_string(indexed) + ".");
-                                        }
-                                        break;
-                                   }
-                              }
-                              catch (const std::bad_alloc &e)
-                              {
-                                   memory_limit_reached = true;
-                                   if (Instance && Instance->Logs)
-                                   {
-                                        Instance->Logs->Critical("hybrid_storage", "LazyLoadCollectionIndex: Out of memory while indexing collection '" + collection + "', indexed " + std::to_string(indexed) + ".");
-                                   }
-                                   break;
-                              }
-                              catch (const std::exception &e)
-                              {
-                                   if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
-                                   {
-                                        Instance->Logs->Debug("hybrid_storage", "LazyLoadCollectionIndex: Exception indexing document '" + doc.ID + "' in collection '" + collection + "': " + e.what() + ".");
-                                   }
-                              }
-                              catch (...)
-                              {
-                                   if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
-                                   {
-                                        Instance->Logs->Debug("hybrid_storage", "LazyLoadCollectionIndex: Unknown exception indexing document '" + doc.ID + "' in collection '" + collection + "'.");
-                                   }
-                              }
-                         }
+                         std::this_thread::yield();
                     }
-               }
-
-               /* Early exit if memory limit reached */
-
-               if (memory_limit_reached)
+                    return keep_going;
+               });
+          }
+          else
+          {
+               for (size_t i = 0; i < documents_to_index && !memory_limit_reached; ++i)
                {
-                    break;
-               }
+                    if (!IndexDocumentKey(doc_keys[i]))
+                    {
+                         break;
+                    }
 
-               if (indexed >= MaxIndexDocuments)
-               {
-                    break;
-               }
-
-               /* Yield periodically to avoid blocking other operations */
-
-               if (i % (BatchSize * 10) == 0)
-               {
-                    std::this_thread::yield();
+                    if (i > 0 && (i % (BatchSize * 10)) == 0)
+                    {
+                         std::this_thread::yield();
+                    }
                }
           }
      }
@@ -3653,6 +3726,18 @@ void HybridStorageManager::IndexCollectionInBackground(const std::string &collec
           }
 
           guard.release();
+
+          {
+               std::lock_guard<std::mutex> lock(IndexingMutex);
+               LazyIndexState &State = LazyIndexStates[collection];
+               if (State.Generation == BuildGeneration)
+               {
+                    State.State = LazyIndexBuildState::Failed;
+                    State.IndexedCount = indexed;
+                    State.SourceCount = TotalDocumentKeys;
+                    State.Error = e.what();
+               }
+          }
           return;
      }
      catch (...)
@@ -3663,12 +3748,49 @@ void HybridStorageManager::IndexCollectionInBackground(const std::string &collec
           }
 
           guard.release();
+
+          {
+               std::lock_guard<std::mutex> lock(IndexingMutex);
+               LazyIndexState &State = LazyIndexStates[collection];
+               if (State.Generation == BuildGeneration)
+               {
+                    State.State = LazyIndexBuildState::Failed;
+                    State.IndexedCount = indexed;
+                    State.SourceCount = TotalDocumentKeys;
+                    State.Error = "Unknown lazy indexing error.";
+               }
+          }
           return;
      }
 
      if (Instance && Instance->Logs)
      {
           Instance->Logs->Normal("hybrid_storage", "LazyLoadCollectionIndex: Indexed " + std::to_string(indexed) + " documents for collection '" + collection + "'.");
+     }
+
+     {
+          std::lock_guard<std::mutex> lock(IndexingMutex);
+          LazyIndexState &State = LazyIndexStates[collection];
+          State.IndexedCount = indexed;
+          State.SourceCount = TotalDocumentKeys;
+
+          if (State.Generation != BuildGeneration)
+          {
+               State.State = LazyIndexBuildState::None;
+               State.Error = "Collection changed while lazy indexing was running.";
+          }
+          else if (document_cap_reached || memory_limit_reached || !scan_completed)
+          {
+               State.State = LazyIndexBuildState::Failed;
+               State.Error = document_cap_reached ? "Document cap reached during lazy indexing."
+                                                   : (memory_limit_reached ? "Memory limit reached during lazy indexing."
+                                                                           : "Snapshot scan did not complete.");
+          }
+          else
+          {
+               State.State = LazyIndexBuildState::Complete;
+               State.Error.clear();
+          }
      }
 
      /* Guard destructor will automatically remove from indexing set */
@@ -3695,8 +3817,34 @@ bool HybridStorageManager::LazyLoadCollectionIndex(const std::string &collection
 
      size_t indexed_count = Instance->SearchIndex->GetDocumentCount(collection);
 
-     if (indexed_count > 0)
+     size_t expected_count = GetCollectionDocumentCount(collection);
+
+     if (expected_count == 0)
      {
+          expected_count = CountStoredDocuments(collection);
+     }
+
+     bool explicit_dirty_state = false;
+
+     {
+          std::lock_guard<std::mutex> lock(IndexingMutex);
+          auto StateIt = LazyIndexStates.find(collection);
+          explicit_dirty_state = StateIt != LazyIndexStates.end() &&
+                                 StateIt->second.Generation > 0 &&
+                                 StateIt->second.State != LazyIndexBuildState::Complete;
+     }
+
+     if (!explicit_dirty_state && indexed_count > 0 && (expected_count == 0 || indexed_count >= expected_count))
+     {
+          std::lock_guard<std::mutex> lock(IndexingMutex);
+          LazyIndexState &State = LazyIndexStates[collection];
+          if (State.State != LazyIndexBuildState::Building)
+          {
+               State.State = LazyIndexBuildState::Complete;
+               State.SourceCount = indexed_count;
+               State.IndexedCount = indexed_count;
+               State.Error.clear();
+          }
           return true;
      }
 
@@ -3724,20 +3872,18 @@ bool HybridStorageManager::LazyLoadCollectionIndex(const std::string &collection
           }
      }
 
-     /*
-           * Get all documents in this collection.
-           * PERFORMANCE: For very large collections, this could be slow, but necessary for indexing.
-           * Exception handling prevents crashes if Keys() fails.
-           */
-
-     std::string pattern = "doc:" + collection + ":*";
      std::vector<std::string> doc_keys;
+     const std::string doc_prefix = "doc:" + collection + ":";
+     const size_t stored_document_count = expected_count > 0 ? expected_count : Instance->Database->CountKeys(doc_prefix);
 
      /* Catch all exceptions from Database operations */
 
      try
      {
-          doc_keys = Instance->Database->Keys(pattern);
+          if (stored_document_count <= 10000)
+          {
+               doc_keys = Instance->Database->PrefixKeys(doc_prefix, 0, stored_document_count);
+          }
      }
      catch (const std::bad_alloc &e)
      {
@@ -3766,7 +3912,7 @@ bool HybridStorageManager::LazyLoadCollectionIndex(const std::string &collection
           return false;
      }
 
-     if (doc_keys.empty())
+     if (stored_document_count == 0)
      {
           return true;
      }
@@ -3775,7 +3921,7 @@ bool HybridStorageManager::LazyLoadCollectionIndex(const std::string &collection
 
      const size_t SyncIndexMaxDocs = 10000;
 
-     if (doc_keys.size() <= SyncIndexMaxDocs)
+     if (stored_document_count <= SyncIndexMaxDocs)
      {
           IndexCollectionInBackground(collection, doc_keys);
           return true;
@@ -3809,6 +3955,48 @@ bool HybridStorageManager::IsCollectionIndexing(const std::string &collection)
      std::lock_guard<std::mutex> lock(IndexingMutex);
 
      return CollectionsBeingIndexed.find(collection) != CollectionsBeingIndexed.end();
+}
+
+bool HybridStorageManager::IsCollectionIndexComplete(const std::string &collection, size_t expected_count)
+{
+     std::lock_guard<std::mutex> lock(IndexingMutex);
+
+     auto It = LazyIndexStates.find(collection);
+
+     if (It == LazyIndexStates.end())
+     {
+          return false;
+     }
+
+     const LazyIndexState &State = It->second;
+
+     if (State.State != LazyIndexBuildState::Complete)
+     {
+          return false;
+     }
+
+     return expected_count == 0 || State.SourceCount >= expected_count;
+}
+
+void HybridStorageManager::MarkCollectionIndexDirty(const std::string &collection)
+{
+     if (collection.empty())
+     {
+          return;
+     }
+
+     std::lock_guard<std::mutex> lock(IndexingMutex);
+     LazyIndexState &State = LazyIndexStates[collection];
+
+     State.Generation++;
+     State.SourceCount = 0;
+     State.IndexedCount = 0;
+     State.Error.clear();
+
+     if (CollectionsBeingIndexed.find(collection) == CollectionsBeingIndexed.end())
+     {
+          State.State = LazyIndexBuildState::None;
+     }
 }
 
 /* GetStats - Returns storage and index statistics. */

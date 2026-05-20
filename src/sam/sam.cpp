@@ -32,7 +32,7 @@
 #include "common/cryptoutils.h"
 #include "sam/lang.h"
 #include "sam/sam.h"
-#include "sam/sam_internal.h"
+#include "sam/internal.h"
 #include "search/storageengine.h"
 #include "utils/tools.h"
 #include "utils/wildcard.h"
@@ -3622,9 +3622,9 @@ void AppendSearchIdeaHits(std::unordered_map<std::string, SAMAggregatedHit>& Agg
 /* Include the semantic/profile implementation shard. */
 
 #define HLQUERY_SAM_SPLIT_INCLUDE
-#include "sam_semantic.cpp"
+#include "semantic.cpp"
 
 /* Include the term-expansion and lookup implementation shard. */
 
-#include "sam_terms_lookup.cpp"
+#include "terms_lookup.cpp"
 #undef HLQUERY_SAM_SPLIT_INCLUDE

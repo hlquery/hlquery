@@ -1690,6 +1690,7 @@ bool SearchAPI::TryDistributedSearch(const HttpRequest &Request,
      int FoundTotal = 0;
      int OutOfTotal = 0;
      bool IndexingInProgress = false;
+     bool PartialResults = false;
      float MaxSearchTime = 0.0f;
 
      auto AddLocal = [&](const ComprehensiveSearchResult &LocalRes)
@@ -1719,6 +1720,7 @@ bool SearchAPI::TryDistributedSearch(const HttpRequest &Request,
           FoundTotal += LocalRes.Found;
           OutOfTotal += LocalRes.OutOf;
           IndexingInProgress = IndexingInProgress || LocalRes.IndexingInProgress;
+          PartialResults = PartialResults || LocalRes.PartialResults;
           MaxSearchTime = std::max(MaxSearchTime, LocalRes.SearchTimeMS);
           for (const auto &FacetPair : LocalRes.Facets)
           {
@@ -1869,6 +1871,7 @@ bool SearchAPI::TryDistributedSearch(const HttpRequest &Request,
           FoundTotal += ResponseJSON.value("found", 0);
           OutOfTotal += ResponseJSON.value("out_of", 0);
           IndexingInProgress = IndexingInProgress || ResponseJSON.value("indexing_in_progress", false);
+          PartialResults = PartialResults || ResponseJSON.value("partial_results", false);
           MaxSearchTime = std::max(MaxSearchTime, ResponseJSON.value("search_time_ms", 0.0f));
           if (ResponseJSON.contains("facets"))
           {
@@ -2029,6 +2032,11 @@ bool SearchAPI::TryDistributedSearch(const HttpRequest &Request,
      OutResult->PerPage = PerPage;
      OutResult->SearchTimeMS = MaxSearchTime;
      OutResult->IndexingInProgress = IndexingInProgress;
+     OutResult->PartialResults = PartialResults;
+     if (PartialResults)
+     {
+          OutResult->PartialReason = "one_or_more_nodes_partial";
+     }
      OutResult->DistributedDiagnostics = std::move(NodeDiagnostics);
 
      OutResult->Facets.clear();

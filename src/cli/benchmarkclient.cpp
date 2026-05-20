@@ -451,9 +451,19 @@ HTTPResponse BenchmarkClient::MakeRequest(const std::string &method, const std::
 
           size_t sent = 0;
           bool retry_after_write_failure = false;
+          auto write_start = Now();
 
           while (sent < request_str.length())
           {
+               if (ElapsedMs(write_start) > timeout_ms)
+               {
+                    CloseSocket();
+                    response.StatusCode = -1;
+                    response.ErrorMessage = "Timed out while writing HTTP request to server.";
+
+                    return response;
+               }
+
                int write_result = 0;
 
                if (UseSSL)
@@ -500,6 +510,24 @@ HTTPResponse BenchmarkClient::MakeRequest(const std::string &method, const std::
                     {
 
 #endif
+                         fd_set write_fds;
+                         FD_ZERO(&write_fds);
+                         FD_SET(sock, &write_fds);
+
+                         struct timeval write_timeout;
+                         write_timeout.tv_sec = 0;
+                         write_timeout.tv_usec = 100000;
+
+                         int select_result = select(sock + 1, NULL, &write_fds, NULL, &write_timeout);
+                         if (select_result < 0 && errno != EINTR)
+                         {
+                              CloseSocket();
+                              response.StatusCode = -1;
+                              response.ErrorMessage = "Failed while waiting to write HTTP request to server.";
+
+                              return response;
+                         }
+
                          continue;
                     }
                }
@@ -570,6 +598,7 @@ HTTPResponse BenchmarkClient::MakeRequest(const std::string &method, const std::
                     }
 
                     response.StatusCode = -1;
+                    response.ErrorMessage = "Timed out waiting for HTTP response from server.";
 
                     return response;
                }
@@ -1722,7 +1751,7 @@ bool BenchmarkClient::AddSynonym(const std::string &collection, const std::strin
      std::string encoded_collection = UrlEncode(collection);
      std::string encoded_id = UrlEncode(synonym_id);
 
-     HTTPResponse response = MakeRequest("POST", "/collections/" + encoded_collection + "/synonyms/" + encoded_id, json_str);
+     HTTPResponse response = MakeRequest("POST", "/collections/" + encoded_collection + "/synonyms/" + encoded_id, json_str, 1, false, 5000);
 
      return response.StatusCode == 200 || response.StatusCode == 201;
 }
@@ -1739,7 +1768,7 @@ bool BenchmarkClient::AddStopword(const std::string &collection, const std::stri
 
      std::string encoded_collection = UrlEncode(collection);
 
-     HTTPResponse response = MakeRequest("POST", "/collections/" + encoded_collection + "/stopwords", json_str);
+     HTTPResponse response = MakeRequest("POST", "/collections/" + encoded_collection + "/stopwords", json_str, 1, false, 5000);
 
      return response.StatusCode == 200 || response.StatusCode == 201;
 }
@@ -1767,7 +1796,7 @@ int BenchmarkClient::InsertDocumentsBulkRequest(const std::string &collection, c
 
      std::string encoded_collection = UrlEncode(collection);
 
-     const int import_timeout_ms = std::max(30000, static_cast<int>(docs.size()) * 100);
+     const int import_timeout_ms = std::max(5000, static_cast<int>(docs.size()) * 100);
 
      response = MakeRequest("POST",
                             "/collections/" + encoded_collection + "/documents/import?assume_new=true&batch_size=" + std::to_string(docs.size()),
@@ -1970,7 +1999,7 @@ int BenchmarkClient::InsertDocumentsBulkLocal(const std::string &collection, con
 
      std::string encoded_collection = UrlEncode(collection);
 
-     const int import_timeout_ms = std::max(30000, static_cast<int>(docs.size()) * 100);
+     const int import_timeout_ms = std::max(5000, static_cast<int>(docs.size()) * 100);
 
      HTTPResponse response = MakeRequest("POST",
                                          AppendLocalOnlyQuery("/collections/" + encoded_collection + "/documents/import?assume_new=true&batch_size=" + std::to_string(docs.size()), true),

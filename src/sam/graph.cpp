@@ -18,7 +18,7 @@
 #include <unordered_set>
 #include <utility>
 
-#include "sam/sam_internal.h"
+#include "sam/internal.h"
 
 namespace
 {

@@ -12,8 +12,6 @@
 
 #ifdef HLQUERY_SAM_SPLIT_INCLUDE
 
-namespace
-{
 /* Detect tokens that are only numeric characters. */
 
 bool IsNumericLikeSAMToken(const std::string& Token)
@@ -1075,7 +1073,6 @@ std::unordered_map<std::string, double> BuildSAMLLMFeedbackBoosts(rocksdb::DB* D
      }
 
      return Boosts;
-}
 }
 
 std::vector<SAM::TermEntry> SAM::GenerateLLMTerms(const std::string& Collection,

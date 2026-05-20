@@ -3264,3 +3264,118 @@ void HLQueryCLI::AddDocument(const std::string &collection_name, const std::stri
           }
      }
 }
+
+void HLQueryCLI::CopyDocument(const std::string &collection_name, const std::string &source_id, const std::string &target_id)
+{
+     if (collection_name.empty() || source_id.empty() || target_id.empty())
+     {
+          PrintError("Invalid copy arguments", "Collection name, source id, and target id are required");
+          return;
+     }
+
+     if (source_id == target_id)
+     {
+          PrintError("Invalid copy arguments", "Source and target document ids must differ");
+          return;
+     }
+
+     if (!CollectionExists(collection_name))
+     {
+          PrintError("Collection '" + collection_name + "' not found");
+          return;
+     }
+
+     {
+          const std::string target_path = "/collections/" + hlquery_cli::UrlEncode(collection_name) +
+                                         "/documents/" + hlquery_cli::UrlEncode(target_id);
+          HTTPResponse target_response = MakeRequest("GET", target_path, "", DefaultTimeoutSeconds);
+
+          if (target_response.StatusCode == 200)
+          {
+               PrintError("Document '" + target_id + "' already exists in collection '" + collection_name + "'");
+               return;
+          }
+          else if (target_response.StatusCode != 404)
+          {
+               CheckRequestFailed(target_response);
+               return;
+          }
+     }
+
+     const std::string source_path = "/collections/" + hlquery_cli::UrlEncode(collection_name) +
+                                    "/documents/" + hlquery_cli::UrlEncode(source_id);
+     HTTPResponse source_response = MakeRequest("GET", source_path, "", DefaultTimeoutSeconds);
+
+     if (source_response.StatusCode == 404)
+     {
+          PrintError("Document '" + source_id + "' not found in collection '" + collection_name + "'");
+          return;
+     }
+     else if (source_response.StatusCode != 200)
+     {
+          CheckRequestFailed(source_response);
+          return;
+     }
+
+     nlohmann::json doc;
+
+     try
+     {
+          doc = nlohmann::json::parse(source_response.Body);
+
+          if (doc.contains("_topics") && doc.contains("_topic"))
+          {
+               doc.erase("_topic");
+          }
+          else if (!doc.contains("_topics") && doc.contains("_topic"))
+          {
+               doc["_topics"] = doc["_topic"];
+               doc.erase("_topic");
+          }
+     }
+     catch (const std::exception &e)
+     {
+          PrintError("Failed to parse source document", e.what());
+          return;
+     }
+
+     if (doc.contains("collection_id"))
+     {
+          doc.erase("collection_id");
+     }
+
+     if (doc.contains("score"))
+     {
+          doc.erase("score");
+     }
+
+     doc["id"] = target_id;
+
+     nlohmann::json import_payload;
+     import_payload["documents"] = nlohmann::json::array({doc});
+
+     const std::string import_path = "/collections/" + hlquery_cli::UrlEncode(collection_name) + "/documents/import";
+     HTTPResponse import_response = MakeRequest("POST", import_path, import_payload.dump(), DefaultTimeoutSeconds);
+
+     if (import_response.StatusCode != 200 && import_response.StatusCode != 201)
+     {
+          if (import_response.StatusCode == 404)
+          {
+               const std::string insert_path = "/collections/" + hlquery_cli::UrlEncode(collection_name) + "/documents";
+               HTTPResponse insert_response = MakeRequest("POST", insert_path, doc.dump(), DefaultTimeoutSeconds);
+
+               if (insert_response.StatusCode != 201)
+               {
+                    CheckRequestFailed(insert_response);
+                    return;
+               }
+          }
+          else
+          {
+               CheckRequestFailed(import_response);
+               return;
+          }
+     }
+
+     PrintSuccess("Copied document '" + source_id + "' to '" + target_id + "' in collection '" + collection_name + "'");
+}

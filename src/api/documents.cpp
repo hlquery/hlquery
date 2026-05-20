@@ -20,17 +20,20 @@
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
+#include <deque>
 #include <fcntl.h>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
 #include <map>
+#include <mutex>
 #include <pthread.h>
 #include <regex>
 #include <sstream>
 #include <thread>
 #include <unistd.h>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -49,6 +52,369 @@
 #include "utils/protocol.h"
 #include "utils/wildcard.h"
 #include "vendor/json/json.hpp"
+
+namespace
+{
+     class SAMTrainingDedupe
+     {
+       public:
+         explicit SAMTrainingDedupe(size_t MaxEntries)
+             : Max(MaxEntries)
+         {
+         }
+
+         size_t Size()
+         {
+              std::lock_guard<std::mutex> Lock(Mutex);
+              return LastSeen.size();
+         }
+
+         void Clear()
+         {
+              std::lock_guard<std::mutex> Lock(Mutex);
+              LastSeen.clear();
+              Order.clear();
+              LastPurgeMS = 0;
+         }
+
+         bool ShouldAllow(const std::string& Key, uint64_t NowMS, uint64_t WindowMS, uint64_t RetentionMS = 0)
+         {
+              if (WindowMS == 0 || Key.empty())
+              {
+                   return true;
+              }
+
+              std::lock_guard<std::mutex> Lock(Mutex);
+
+              PurgeExpiredLocked(NowMS, RetentionMS);
+
+              auto It = LastSeen.find(Key);
+              if (It != LastSeen.end())
+              {
+                   if (NowMS >= It->second && (NowMS - It->second) < WindowMS)
+                   {
+                        return false;
+                   }
+                   It->second = NowMS;
+                   return true;
+              }
+
+              LastSeen.emplace(Key, NowMS);
+              Order.push_back(Key);
+
+              while (Order.size() > Max)
+              {
+                   LastSeen.erase(Order.front());
+                   Order.pop_front();
+              }
+
+              return true;
+         }
+
+       private:
+         const size_t Max;
+         std::mutex Mutex;
+         std::unordered_map<std::string, uint64_t> LastSeen;
+         std::deque<std::string> Order;
+         uint64_t LastPurgeMS = 0;
+
+         void PurgeExpiredLocked(uint64_t NowMS, uint64_t RetentionMS)
+         {
+              if (RetentionMS == 0)
+              {
+                   return;
+              }
+
+              constexpr uint64_t kMinPurgeIntervalMS = 60ULL * 1000ULL;
+              if (LastPurgeMS > 0 && NowMS > LastPurgeMS && (NowMS - LastPurgeMS) < kMinPurgeIntervalMS)
+              {
+                   return;
+              }
+
+              LastPurgeMS = NowMS;
+              const uint64_t ExpireBefore = NowMS > RetentionMS ? (NowMS - RetentionMS) : 0ULL;
+
+              for (auto It = Order.begin(); It != Order.end();)
+              {
+                   const auto SeenIt = LastSeen.find(*It);
+                   if (SeenIt == LastSeen.end())
+                   {
+                        It = Order.erase(It);
+                        continue;
+                   }
+
+                   if (SeenIt->second > 0 && SeenIt->second < ExpireBefore)
+                   {
+                        LastSeen.erase(SeenIt);
+                        It = Order.erase(It);
+                        continue;
+                   }
+
+                   ++It;
+              }
+         }
+     };
+
+     static SAMTrainingDedupe gSearchIdeaDedupe(32768);
+     static SAMTrainingDedupe gInteractionDedupe(32768);
+
+     class SAMInteractionAbuseGuard
+     {
+       public:
+         struct StatsSnapshot
+         {
+              size_t ActorMinute = 0;
+              size_t ActorHour = 0;
+              size_t DocQueryHour = 0;
+         };
+
+         StatsSnapshot Snapshot()
+         {
+              std::lock_guard<std::mutex> Lock(Mutex);
+              StatsSnapshot S;
+              S.ActorMinute = ActorMinute.size();
+              S.ActorHour = ActorHour.size();
+              S.DocQueryHour = DocQueryHour.size();
+              return S;
+         }
+
+         void Clear()
+         {
+              std::lock_guard<std::mutex> Lock(Mutex);
+              ActorMinute.clear();
+              ActorHour.clear();
+              DocQueryHour.clear();
+              LastPurgeMS = 0;
+         }
+
+         bool ShouldAllow(const std::string& ActorKey,
+                          const std::string& Collection,
+                          const std::string& Query,
+                          const std::string& DocumentID,
+                          uint64_t NowMS,
+                          int RetentionDays,
+                          int MaxPerMinute,
+                          int MaxPerHour,
+                          int MaxPerDocQueryPerHour)
+         {
+              if (ActorKey.empty() || Collection.empty() || Query.empty() || DocumentID.empty())
+              {
+                   return true;
+              }
+
+              PurgeExpiredLocked(NowMS, RetentionDays);
+
+              if (!ApplyActorLimitsLocked(ActorKey, NowMS, MaxPerMinute, MaxPerHour))
+              {
+                   return false;
+              }
+
+              if (!ApplyDocQueryBurstLimitLocked(Collection, Query, DocumentID, NowMS, MaxPerDocQueryPerHour))
+              {
+                   return false;
+              }
+
+              return true;
+         }
+
+       private:
+         struct TimeWindowCounter
+         {
+              std::deque<uint64_t> Samples;
+              uint64_t LastSeenMS = 0;
+         };
+
+         std::mutex Mutex;
+         uint64_t LastPurgeMS = 0;
+         std::unordered_map<std::string, TimeWindowCounter> ActorMinute;
+         std::unordered_map<std::string, TimeWindowCounter> ActorHour;
+         std::unordered_map<std::string, TimeWindowCounter> DocQueryHour;
+
+         static void PruneDeque(std::deque<uint64_t>& Values, uint64_t NowMS, uint64_t WindowMS)
+         {
+              while (!Values.empty())
+              {
+                   const uint64_t TS = Values.front();
+                   if (TS > NowMS)
+                   {
+                        Values.pop_front();
+                        continue;
+                   }
+                   if ((NowMS - TS) < WindowMS)
+                   {
+                        break;
+                   }
+                   Values.pop_front();
+              }
+         }
+
+         void PurgeExpiredLocked(uint64_t NowMS, int RetentionDays)
+         {
+              std::lock_guard<std::mutex> Lock(Mutex);
+
+              constexpr uint64_t kMinPurgeIntervalMS = 60ULL * 1000ULL;
+              if (LastPurgeMS > 0 && NowMS > LastPurgeMS && (NowMS - LastPurgeMS) < kMinPurgeIntervalMS)
+              {
+                   return;
+              }
+
+              LastPurgeMS = NowMS;
+
+              const uint64_t RetentionMS =
+                   RetentionDays <= 0 ? 0ULL : static_cast<uint64_t>(RetentionDays) * 24ULL * 60ULL * 60ULL * 1000ULL;
+              const uint64_t ExpireBefore = RetentionMS == 0 ? 0ULL : (NowMS > RetentionMS ? (NowMS - RetentionMS) : 0ULL);
+
+              auto PurgeMap = [&](auto& Map)
+              {
+                   for (auto It = Map.begin(); It != Map.end();)
+                   {
+                        const uint64_t LastSeen = It->second.LastSeenMS;
+                        if (RetentionMS > 0 && LastSeen > 0 && LastSeen < ExpireBefore)
+                        {
+                             It = Map.erase(It);
+                             continue;
+                        }
+                        ++It;
+                   }
+              };
+
+              PurgeMap(ActorMinute);
+              PurgeMap(ActorHour);
+              PurgeMap(DocQueryHour);
+         }
+
+         bool ApplyActorLimitsLocked(const std::string& ActorKey, uint64_t NowMS, int MaxPerMinute, int MaxPerHour)
+         {
+              std::lock_guard<std::mutex> Lock(Mutex);
+
+              if (MaxPerMinute > 0)
+              {
+                   TimeWindowCounter& Counter = ActorMinute[ActorKey];
+                   Counter.LastSeenMS = NowMS;
+                   PruneDeque(Counter.Samples, NowMS, 60ULL * 1000ULL);
+                   if (Counter.Samples.size() >= static_cast<size_t>(MaxPerMinute))
+                   {
+                        return false;
+                   }
+                   Counter.Samples.push_back(NowMS);
+              }
+
+              if (MaxPerHour > 0)
+              {
+                   TimeWindowCounter& Counter = ActorHour[ActorKey];
+                   Counter.LastSeenMS = NowMS;
+                   PruneDeque(Counter.Samples, NowMS, 60ULL * 60ULL * 1000ULL);
+                   if (Counter.Samples.size() >= static_cast<size_t>(MaxPerHour))
+                   {
+                        return false;
+                   }
+                   Counter.Samples.push_back(NowMS);
+              }
+
+              return true;
+         }
+
+         bool ApplyDocQueryBurstLimitLocked(const std::string& Collection,
+                                           const std::string& Query,
+                                           const std::string& DocumentID,
+                                           uint64_t NowMS,
+                                           int MaxPerDocQueryPerHour)
+         {
+              if (MaxPerDocQueryPerHour <= 0)
+              {
+                   return true;
+              }
+
+              std::lock_guard<std::mutex> Lock(Mutex);
+
+              const std::string Key = Collection + "\n" + Query + "\n" + DocumentID;
+              TimeWindowCounter& Counter = DocQueryHour[Key];
+              Counter.LastSeenMS = NowMS;
+              PruneDeque(Counter.Samples, NowMS, 60ULL * 60ULL * 1000ULL);
+              if (Counter.Samples.size() >= static_cast<size_t>(MaxPerDocQueryPerHour))
+              {
+                   return false;
+              }
+              Counter.Samples.push_back(NowMS);
+              return true;
+         }
+     };
+
+     static SAMInteractionAbuseGuard gSamInteractionAbuseGuard;
+
+     bool ShouldRecordSAMSearchIdea(const HttpRequest& Request,
+                                   const std::string& Collection,
+                                   const std::string& Query)
+     {
+          if (!Instance || !Instance->Config || !Instance->Config->GetSamRecordSearchIdeas())
+          {
+               return false;
+          }
+
+          const int WindowMs = Instance->Config->GetSamSearchIdeaDedupeWindowMs();
+          if (WindowMs <= 0)
+          {
+               return true;
+          }
+
+          const uint64_t NowMS = static_cast<uint64_t>(NowMs());
+          const uint64_t WindowMS = static_cast<uint64_t>(WindowMs);
+          const int RetentionDays = Instance->Config->GetSamActorMetadataRetentionDays();
+          const uint64_t RetentionMS =
+               RetentionDays <= 0 ? 0ULL : static_cast<uint64_t>(RetentionDays) * 24ULL * 60ULL * 60ULL * 1000ULL;
+          const std::string ActorKey = Request.APIKeyID.empty() ? Request.RemoteAddress : Request.APIKeyID;
+          const std::string Key = ActorKey + "\n" + Collection + "\n" + Query;
+          return gSearchIdeaDedupe.ShouldAllow(Key, NowMS, WindowMS, RetentionMS);
+     }
+
+     bool ShouldRecordSAMInteraction(const HttpRequest& Request,
+                                     const std::string& Collection,
+                                     const std::string& Query,
+                                     const std::string& DocumentID)
+     {
+          if (!Instance || !Instance->Config || !Instance->Config->GetSamRecordInteractions())
+          {
+               return false;
+          }
+
+          {
+               const uint64_t NowMS = static_cast<uint64_t>(NowMs());
+               const int RetentionDays = Instance->Config->GetSamActorMetadataRetentionDays();
+               const int MaxPerMinute = Instance->Config->GetSamInteractionMaxPerMinute();
+               const int MaxPerHour = Instance->Config->GetSamInteractionMaxPerHour();
+               const int MaxPerDocQueryPerHour = Instance->Config->GetSamInteractionMaxPerDocQueryPerHour();
+               const std::string ActorKey = Request.APIKeyID.empty() ? Request.RemoteAddress : Request.APIKeyID;
+
+               if (!gSamInteractionAbuseGuard.ShouldAllow(ActorKey,
+                                                         Collection,
+                                                         Query,
+                                                         DocumentID,
+                                                         NowMS,
+                                                         RetentionDays,
+                                                         MaxPerMinute,
+                                                         MaxPerHour,
+                                                         MaxPerDocQueryPerHour))
+               {
+                    return false;
+               }
+          }
+
+          const int WindowMs = Instance->Config->GetSamInteractionDedupeWindowMs();
+          if (WindowMs <= 0)
+          {
+               return true;
+          }
+
+          const uint64_t NowMS = static_cast<uint64_t>(NowMs());
+          const uint64_t WindowMS = static_cast<uint64_t>(WindowMs);
+          const int RetentionDays = Instance->Config->GetSamActorMetadataRetentionDays();
+          const uint64_t RetentionMS =
+               RetentionDays <= 0 ? 0ULL : static_cast<uint64_t>(RetentionDays) * 24ULL * 60ULL * 60ULL * 1000ULL;
+          const std::string ActorKey = Request.APIKeyID.empty() ? Request.RemoteAddress : Request.APIKeyID;
+          const std::string Key = ActorKey + "\n" + Collection + "\n" + Query + "\n" + DocumentID;
+          return gInteractionDedupe.ShouldAllow(Key, NowMS, WindowMS, RetentionMS);
+     }
+}
 
 static std::vector<SAM::SearchIdeaDocumentRef> BuildSAMIdeaDocumentsFromLookupHits(const std::vector<SAM::LookupHit> &Hits,
                                                                                    size_t MaxDocuments = 6)
@@ -2393,6 +2759,280 @@ HttpResponse SearchAPI::HandleSAMSearch(const HttpRequest &Request)
      const bool Distributed = ShouldAttemptDistributedSearch(Request);
      const bool IncludeExplain = Instance->Config && Instance->Config->GetSam25DebugExplain();
 
+     struct SAMCoreQueryPlan
+     {
+          bool Active = false;
+          std::string LookupQuery;
+          std::unordered_set<std::string> AllowedDocumentIDs;
+          std::vector<SAM::LookupHit> FallbackHits;
+     };
+
+     auto QueryUsesCoreSyntax = [](const std::string &QueryText) -> bool
+     {
+          if (QueryText.empty())
+          {
+               return false;
+          }
+
+          if (QueryText.find_first_of(":~^[]{}!*?") != std::string::npos)
+          {
+               return true;
+          }
+
+          const std::regex BooleanRegex(R"((^|\s)(AND|OR|NOT|TO)(\s|$))",
+                                        std::regex_constants::icase);
+          return std::regex_search(QueryText, BooleanRegex);
+     };
+
+     auto StripSAMCoreSyntaxForLookup = [](const std::string &QueryText) -> std::string
+     {
+          std::stringstream Stream(QueryText);
+          std::string Token;
+          std::vector<std::string> Terms;
+          bool SkipNext = false;
+          bool SkippingRange = false;
+
+          while (Stream >> Token)
+          {
+               std::string Lower = ToLowerCopy(Token);
+
+               if (SkippingRange)
+               {
+                    if (Token.find(']') != std::string::npos || Token.find('}') != std::string::npos)
+                    {
+                         SkippingRange = false;
+                    }
+
+                    continue;
+               }
+
+               if (Lower == "and" || Lower == "or" || Lower == "to")
+               {
+                    continue;
+               }
+
+               if (Lower == "not")
+               {
+                    SkipNext = true;
+                    continue;
+               }
+
+               if (Lower == "is:casesensitive" || Lower == "is:case_sensitive" || Lower == "is:case-sensitive" ||
+                   Lower == "do:casesensitive" || Lower == "do:case_sensitive" || Lower == "do:case-sensitive")
+               {
+                    continue;
+               }
+
+               bool Prohibited = false;
+               while (!Token.empty() && (Token.front() == '!' || Token.front() == '-' || Token.front() == '+'))
+               {
+                    if (Token.front() == '!' || Token.front() == '-')
+                    {
+                         Prohibited = true;
+                    }
+
+                    Token.erase(0, 1);
+               }
+
+               if (SkipNext || Prohibited)
+               {
+                    SkipNext = false;
+                    continue;
+               }
+
+               const size_t ColonPos = Token.find(':');
+               if (ColonPos != std::string::npos)
+               {
+                    const std::string Value = Token.substr(ColonPos + 1);
+                    if (!Value.empty() && (Value.front() == '[' || Value.front() == '{'))
+                    {
+                         if (Value.find(']') == std::string::npos && Value.find('}') == std::string::npos)
+                         {
+                              SkippingRange = true;
+                         }
+
+                         continue;
+                    }
+
+                    Token = Value;
+               }
+
+               const size_t BoostPos = Token.find('^');
+               if (BoostPos != std::string::npos)
+               {
+                    Token = Token.substr(0, BoostPos);
+               }
+
+               const size_t FuzzyPos = Token.find('~');
+               if (FuzzyPos != std::string::npos)
+               {
+                    Token = Token.substr(0, FuzzyPos);
+               }
+
+               Token = TrimCopy(Token);
+               while (!Token.empty() && (Token.front() == '"' || Token.front() == '\''))
+               {
+                    Token.erase(0, 1);
+               }
+
+               while (!Token.empty() && (Token.back() == '"' || Token.back() == '\'' ||
+                                         Token.back() == ')' || Token.back() == '('))
+               {
+                    Token.pop_back();
+               }
+
+               if (!Token.empty())
+               {
+                    Terms.push_back(Token);
+               }
+          }
+
+          std::ostringstream Lookup;
+          for (size_t Index = 0; Index < Terms.size(); ++Index)
+          {
+               if (Index > 0)
+               {
+                    Lookup << ' ';
+               }
+
+               Lookup << Terms[Index];
+          }
+
+          return Lookup.str();
+     };
+
+     auto BuildCoreCompatibleSAMHit = [](const std::string &Collection,
+                                         const std::string &MatchedTerm,
+                                         const SearchHit &CoreHit) -> SAM::LookupHit
+     {
+          SAM::LookupHit Hit;
+          Hit.Collection = Collection;
+
+          auto IDIt = CoreHit.Document.find("id");
+          if (IDIt != CoreHit.Document.end())
+          {
+               Hit.DocumentID = IDIt->second;
+          }
+
+          auto TitleIt = CoreHit.Document.find("title");
+          if (TitleIt != CoreHit.Document.end())
+          {
+               Hit.Title = TitleIt->second;
+          }
+
+          Hit.MatchedTerm = MatchedTerm;
+          Hit.MatchedKind = "core_search";
+          Hit.MatchedSource = "core_search";
+          Hit.TermOrigin = "core_search";
+          Hit.MatchedPath = "core_search_compat";
+          Hit.EvidenceCount = 1;
+
+          const double CoreScore = std::max<double>(0.05,
+               std::max({static_cast<double>(CoreHit.HybridScore),
+                         static_cast<double>(CoreHit.VectorScore),
+                         static_cast<double>(CoreHit.TextMatch)}));
+          Hit.MatchedScore = CoreScore;
+          Hit.MatchedSignal = 1.0;
+          Hit.Breakdown.SourceDocScore = CoreScore;
+          Hit.Breakdown.FinalScore = CoreScore;
+          return Hit;
+     };
+
+     auto BuildSAMCoreQueryPlan = [&](const std::string &Collection,
+                                      const std::string &RawQuery,
+                                      size_t Limit) -> SAMCoreQueryPlan
+     {
+          SAMCoreQueryPlan Plan;
+
+          if (Collection.empty() || !QueryUsesCoreSyntax(RawQuery))
+          {
+               return Plan;
+          }
+
+          Plan.Active = true;
+          Plan.LookupQuery = StripSAMCoreSyntaxForLookup(RawQuery);
+
+          std::unordered_map<std::string, std::string> Params;
+          Params["q"] = RawQuery;
+          Params["limit"] = std::to_string(std::max<size_t>(Limit, 1000));
+          Params["exhaustive_search"] = "true";
+
+          ComprehensiveSearchQuery CoreQuery = ParseComprehensiveSearchQuery(Params);
+          CoreQuery.EnableAnalytics = false;
+          CoreQuery.PreserveMatchedHits = true;
+          CoreQuery.PerPage = std::max<int>(CoreQuery.PerPage, static_cast<int>(std::min<size_t>(1000, std::max<size_t>(Limit, 1000))));
+
+          ComprehensiveSearchResult CoreResult = PerformComprehensiveSearch(Collection, CoreQuery);
+          const std::string MatchedTerm = Plan.LookupQuery.empty() ? RawQuery : Plan.LookupQuery;
+
+          for (const auto &CoreHit : CoreResult.Hits)
+          {
+               auto IDIt = CoreHit.Document.find("id");
+               if (IDIt == CoreHit.Document.end() || IDIt->second.empty())
+               {
+                    continue;
+               }
+
+               if (!Plan.AllowedDocumentIDs.insert(IDIt->second).second)
+               {
+                    continue;
+               }
+
+               if (Plan.FallbackHits.size() < Limit)
+               {
+                    Plan.FallbackHits.push_back(BuildCoreCompatibleSAMHit(Collection, MatchedTerm, CoreHit));
+               }
+          }
+
+          return Plan;
+     };
+
+     auto ApplySAMCoreQueryPlan = [](std::vector<SAM::LookupHit> &Hits,
+                                     const SAMCoreQueryPlan &Plan,
+                                     size_t Limit)
+     {
+          if (!Plan.Active)
+          {
+               return;
+          }
+
+          std::unordered_set<std::string> Seen;
+          std::vector<SAM::LookupHit> Filtered;
+          Filtered.reserve(Hits.size() + Plan.FallbackHits.size());
+
+          for (const auto &Hit : Hits)
+          {
+               if (Plan.AllowedDocumentIDs.find(Hit.DocumentID) == Plan.AllowedDocumentIDs.end())
+               {
+                    continue;
+               }
+
+               if (!Seen.insert(Hit.DocumentID).second)
+               {
+                    continue;
+               }
+
+               Filtered.push_back(Hit);
+          }
+
+          for (const auto &Hit : Plan.FallbackHits)
+          {
+               if (Limit > 0 && Filtered.size() >= Limit)
+               {
+                    break;
+               }
+
+               if (!Seen.insert(Hit.DocumentID).second)
+               {
+                    continue;
+               }
+
+               Filtered.push_back(Hit);
+          }
+
+          Hits.swap(Filtered);
+     };
+
      auto BuildSAMIndexingJSON = [&]()
      {
           nlohmann::json StatusJSON;
@@ -2635,10 +3275,22 @@ HttpResponse SearchAPI::HandleSAMSearch(const HttpRequest &Request)
 
      if (IncludeLocal)
      {
-          const std::vector<SAM::LookupHit> LocalHits = Instance->Sam->Lookup(CollectionName, Query, static_cast<size_t>(LimitVal));
+          const SAMCoreQueryPlan CoreQueryPlan =
+               BuildSAMCoreQueryPlan(CollectionName, Query, static_cast<size_t>(LimitVal));
+          std::vector<SAM::LookupHit> LocalHits;
+
+          if (!CoreQueryPlan.Active || !CoreQueryPlan.LookupQuery.empty())
+          {
+               LocalHits = Instance->Sam->Lookup(CollectionName,
+                                                 CoreQueryPlan.Active ? CoreQueryPlan.LookupQuery : Query,
+                                                 static_cast<size_t>(LimitVal));
+          }
+
+          ApplySAMCoreQueryPlan(LocalHits, CoreQueryPlan, static_cast<size_t>(LimitVal));
           AggregateHits.insert(AggregateHits.end(), LocalHits.begin(), LocalHits.end());
 
-          if (Instance->Sam->IsOpen() && !SkipRecord)
+          if (Instance->Sam->IsOpen() && !SkipRecord &&
+              ShouldRecordSAMSearchIdea(Request, CollectionName, Query))
           {
                const auto IdeaDocuments = BuildSAMIdeaDocumentsFromLookupHits(LocalHits);
                std::string RecordError;
@@ -3100,6 +3752,37 @@ HttpResponse SearchAPI::HandleSAMImprove(const HttpRequest &Request)
      return Response;
 }
 
+HttpResponse SearchAPI::HandleSAMFlushActorMetadata(const HttpRequest &Request)
+{
+     if (Request.Method != "POST")
+     {
+          return HttpResponse(Status::METHOD_NOT_ALLOWED, StatusText(Status::METHOD_NOT_ALLOWED), "application/json");
+     }
+
+     nlohmann::json Root;
+     Root["ok"] = true;
+     Root["cleared"] = nlohmann::json::object();
+
+     const size_t SearchIdeaEntries = gSearchIdeaDedupe.Size();
+     const size_t InteractionEntries = gInteractionDedupe.Size();
+     const auto AbuseSnapshot = gSamInteractionAbuseGuard.Snapshot();
+
+     gSearchIdeaDedupe.Clear();
+     gInteractionDedupe.Clear();
+     gSamInteractionAbuseGuard.Clear();
+
+     Root["cleared"]["search_idea_dedupe_entries"] = SearchIdeaEntries;
+     Root["cleared"]["interaction_dedupe_entries"] = InteractionEntries;
+     Root["cleared"]["actor_minute_entries"] = AbuseSnapshot.ActorMinute;
+     Root["cleared"]["actor_hour_entries"] = AbuseSnapshot.ActorHour;
+     Root["cleared"]["doc_query_hour_entries"] = AbuseSnapshot.DocQueryHour;
+     Root["message"] = "Cleared in-memory SAM actor metadata caches.";
+
+     HttpResponse Response(Status::OK, StatusText(Status::OK), "application/json");
+     Response.Body = Root.dump();
+     return Response;
+}
+
 HttpResponse SearchAPI::HandleSAMHistory(const HttpRequest &Request)
 {
      if (Request.Method != "GET")
@@ -3534,7 +4217,9 @@ HttpResponse SearchAPI::HandleSAMGetDocument(const HttpRequest &Request)
           ? TrimCopy(InteractionQueryIt->second)
           : std::string();
 
-     if (!InteractionQuery.empty())
+     if (!InteractionQuery.empty() &&
+         Instance && Instance->Sam && Instance->Sam->IsOpen() &&
+         ShouldRecordSAMInteraction(Request, CollectionName, InteractionQuery, Entry.DocumentID))
      {
           SAM::SearchIdeaDocumentRef InteractionDocument;
           InteractionDocument.DocumentID = Entry.DocumentID;

@@ -11,6 +11,7 @@
  */
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <cctype>
 #include <charconv>
@@ -2303,6 +2304,109 @@ HttpResponse SearchAPI::HandleGetCollection(const HttpRequest &Request)
 
           return Response;
      }
+}
+
+HttpResponse SearchAPI::HandleGetCollectionLanguage(const HttpRequest &Request)
+{
+     if (Request.Method != "GET")
+     {
+          return HttpResponse(Status::METHOD_NOT_ALLOWED, StatusText(Status::METHOD_NOT_ALLOWED), "application/json");
+     }
+
+     const std::string CollectionName = ExtractCollectionFromPath(Request.Path);
+
+     if (CollectionName.empty())
+     {
+          return HttpResponse(Status::BAD_REQUEST, StatusText(Status::BAD_REQUEST), "application/json");
+     }
+
+     if (!HybridStorageManagerInstance().CollectionExists(CollectionName))
+     {
+          return BuildErrorResponse(Status::NOT_FOUND, Code::COLLECTION_NOT_FOUND, "Collection not found", "The specified collection does not exist.");
+     }
+
+     auto ReadDocLanguage = [](const Document& Doc) -> std::string
+     {
+          static const std::array<const char*, 4> LanguageFields = {"lang", "language", "_lang", "locale"};
+
+          for (const char* Field : LanguageFields)
+          {
+               auto It = Doc.Fields.find(Field);
+               if (It == Doc.Fields.end())
+               {
+                    continue;
+               }
+
+               std::string Value = DistTrimCopy(It->second);
+               if (Value.empty() || Value == "und")
+               {
+                    continue;
+               }
+
+               return Value;
+          }
+
+          return "";
+     };
+
+     const size_t SampleLimit = 200;
+     const std::vector<Document> Docs = HybridStorageManagerInstance().ListDocuments(CollectionName, static_cast<int>(SampleLimit), 0);
+
+     std::string Language;
+     std::string FirstLang;
+     bool SawAny = false;
+
+     for (const auto& Doc : Docs)
+     {
+          std::string DocLang = ReadDocLanguage(Doc);
+          if (DocLang.empty())
+          {
+               continue;
+          }
+
+          if (!SawAny)
+          {
+               FirstLang = DocLang;
+               SawAny = true;
+               continue;
+          }
+
+          if (!FirstLang.empty() && DocLang != FirstLang)
+          {
+               Language = "multi";
+               break;
+          }
+     }
+
+     if (Language.empty() && SawAny)
+     {
+          Language = FirstLang;
+     }
+
+     if (Language.empty())
+     {
+          CollectionConfig ConfigVal;
+          HybridStorageManagerInstance().GetCollectionConfig(CollectionName, ConfigVal);
+          auto It = ConfigVal.Metadata.find("_lang");
+          if (It != ConfigVal.Metadata.end())
+          {
+               Language = DistTrimCopy(It->second);
+          }
+     }
+
+     if (Language.empty())
+     {
+          Language = "und";
+     }
+
+     nlohmann::json Root;
+     Root["ok"] = true;
+     Root["collection"] = CollectionName;
+     Root["lang"] = Language;
+
+     HttpResponse Response(Status::OK, StatusText(Status::OK), "application/json");
+     Response.Body = Root.dump();
+     return Response;
 }
 
 /* HandleUpdateCollection updates an existing collection. */

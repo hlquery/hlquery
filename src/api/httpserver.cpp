@@ -303,6 +303,7 @@ static bool ExtractAuthTokenFromRequest(const HttpRequest &Request, std::string 
 static RouteAction ResolveRouteWithFallback(const HttpRequest &Request);
 static bool IsPublicRouteAction(RouteAction ActionVal);
 static bool IsAdminOnlyRouteAction(RouteAction ActionVal);
+static bool IsModuleControlRoute(const HttpRequest &Request);
 APIKeyAction MapRouteToKeyAction(RouteAction ActionVal);
 
 /* HttpConnection implementation. */
@@ -2320,6 +2321,14 @@ void HttpConnection::ProcessSingleRequest(const std::string &RequestStr)
           }
      }
 
+     if (IsModuleControlRoute(Request) && !IsAdminVal)
+     {
+          Response = HttpResponse(403, "Forbidden", "application/json");
+          Response.Body = "{\"error\":\"Only administrators can access this endpoint\"}";
+          SendResponse(Response);
+          return;
+     }
+
      /* Scoped search: inject key metadata into request. */
 
      if (!KeyIDVal.empty() || AuthenticatedRequest)
@@ -2603,6 +2612,10 @@ void HttpConnection::ProcessSingleRequest(const std::string &RequestStr)
      {
           Response = API.HandleSAMImprove(Request);
      }
+     else if (NormalizedPath == "/sam/flush_actor_metadata" && Request.Method == "POST")
+     {
+          Response = API.HandleSAMFlushActorMetadata(Request);
+     }
      else if (NormalizedPath == "/sam/documents" && Request.Method == "GET")
      {
           Response = API.HandleSAMListDocuments(Request);
@@ -2808,6 +2821,13 @@ void HttpConnection::ProcessSingleRequest(const std::string &RequestStr)
      {
           Response = API.HandleVectorSearch(Request);
      }
+     else if (Request.Path.find("/collections/") == 0 &&
+              NormalizedPath.size() > std::string("/collections/").size() &&
+              NormalizedPath.rfind("/lang") == (NormalizedPath.size() - std::string("/lang").size()) &&
+              Request.Method == "GET")
+     {
+          Response = API.HandleGetCollectionLanguage(Request);
+     }
      else if (Request.Path.find("/collections/") == 0 && NormalizedPath.find("/search") == std::string::npos && Request.Path.find("/documents") == std::string::npos && Request.Path.find("/synonyms") == std::string::npos && Request.Path.find("/stopwords") == std::string::npos && Request.Path.find("/overrides") == std::string::npos && Request.Method == "GET")
      {
           Response = API.HandleGetCollection(Request);
@@ -2878,6 +2898,10 @@ void HttpConnection::ProcessSingleRequest(const std::string &RequestStr)
      else if (Request.Path.find("/collections/") == 0 && Request.Path.find("/overrides/") != std::string::npos && Request.Method == "DELETE")
      {
           Response = API.HandleDeleteOverride(Request);
+     }
+     else if (Request.Path.find("/collections/") == 0 && NormalizedPath.rfind("/aliases") == NormalizedPath.size() - 8 && Request.Method == "GET")
+     {
+          Response = API.HandleListAliases(Request);
      }
      else if (Request.Path == "/aliases" && Request.Method == "GET")
      {
@@ -4761,6 +4785,7 @@ APIKeyAction MapRouteToKeyAction(RouteAction ActionVal)
           case RouteAction::ListCollections:
           case RouteAction::ListCollectionsDistributed:
           case RouteAction::GetCollection:
+          case RouteAction::GetCollectionLanguage:
           case RouteAction::ListSynonyms:
           case RouteAction::ListGlobalSynonyms:
           case RouteAction::GetSynonym:
@@ -4800,6 +4825,8 @@ APIKeyAction MapRouteToKeyAction(RouteAction ActionVal)
                return APIKeyAction::UPDATE;
           case RouteAction::SamImprove:
                return APIKeyAction::UPDATE;
+          case RouteAction::SamFlushActorMetadata:
+               return APIKeyAction::ALL;
 
           default:
                return APIKeyAction::SEARCH;
@@ -4891,7 +4918,33 @@ static bool IsAdminOnlyRouteAction(RouteAction ActionVal)
              ActionVal == RouteAction::LinksDisconnect ||
              ActionVal == RouteAction::Flush ||
              ActionVal == RouteAction::Repair ||
-             ActionVal == RouteAction::StorageStatus);
+             ActionVal == RouteAction::StorageStatus ||
+             ActionVal == RouteAction::SamFlushActorMetadata);
+}
+
+static bool IsModuleControlRoute(const HttpRequest &Request)
+{
+     std::string Path = Request.Path;
+     const size_t QueryPos = Path.find('?');
+
+     if (QueryPos != std::string::npos)
+     {
+          Path = Path.substr(0, QueryPos);
+     }
+
+     if (Path.size() > 1 && Path.back() == '/')
+     {
+          Path.pop_back();
+     }
+
+     return Path == "/loadmodule" ||
+            Path == "/unloadmodule" ||
+            Path.rfind("/loadmodule/", 0) == 0 ||
+            Path.rfind("/unloadmodule/", 0) == 0 ||
+            Path == "/modules/load" ||
+            Path == "/modules/unload" ||
+            Path.rfind("/modules/load/", 0) == 0 ||
+            Path.rfind("/modules/unload/", 0) == 0;
 }
 
 /* ProcessRequestWithAPI handles requests with SearchAPI. */
@@ -4966,6 +5019,12 @@ HttpResponse ProcessRequestWithAPI(SearchAPI &API, const HttpRequest &Request)
                     LogAccessControl("Forbidden: non-admin attempted admin-only operation", Request);
                     return HttpResponse(403, "Forbidden", "{\"error\":\"Only administrators can access this endpoint\"}");
                }
+          }
+
+          if (IsModuleControlRoute(Request) && !IsAdminVal)
+          {
+               LogAccessControl("Forbidden: non-admin attempted module control operation", Request);
+               return HttpResponse(403, "Forbidden", "{\"error\":\"Only administrators can access this endpoint\"}");
           }
 
           if (!IsAdminVal && !IsPublicRouteAction(ActionVal))
@@ -5268,6 +5327,9 @@ HttpResponse ProcessRequestWithAPI(SearchAPI &API, const HttpRequest &Request)
                case RouteAction::GetCollection:
                     return API.HandleGetCollection(Request);
 
+               case RouteAction::GetCollectionLanguage:
+                    return API.HandleGetCollectionLanguage(Request);
+
                case RouteAction::DeleteCollection:
                     return API.HandleDeleteCollection(Request);
 
@@ -5331,6 +5393,9 @@ HttpResponse ProcessRequestWithAPI(SearchAPI &API, const HttpRequest &Request)
 
                case RouteAction::SamImprove:
                     return API.HandleSAMImprove(Request);
+
+               case RouteAction::SamFlushActorMetadata:
+                    return API.HandleSAMFlushActorMetadata(Request);
 
                case RouteAction::SamListDocuments:
                     return API.HandleSAMListDocuments(Request);

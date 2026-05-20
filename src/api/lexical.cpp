@@ -1506,7 +1506,19 @@ std::vector<SearchHit> SearchAPI::ProcessLexicalSearch(const std::string &Collec
      }
 
      int SafePerPage = (Query.PerPage > 0 && Query.PerPage <= 1000) ? Query.PerPage : 10;
-     int SearchLimit = std::min(1000, SafePerPage * 10);
+     long long RequiredRows = SafePerPage;
+
+     if (Query.Offset > 0)
+     {
+          RequiredRows = static_cast<long long>(Query.Offset) + static_cast<long long>(SafePerPage);
+     }
+     else if (Query.Page > 1)
+     {
+          RequiredRows = static_cast<long long>(Query.Page) * static_cast<long long>(SafePerPage);
+     }
+
+     RequiredRows = std::max<long long>(RequiredRows, static_cast<long long>(SafePerPage) * 10LL);
+     int SearchLimit = static_cast<int>(std::min<long long>(10000LL, RequiredRows));
 
      if (Query.ExhaustiveSearch)
      {
@@ -1515,7 +1527,7 @@ std::vector<SearchHit> SearchAPI::ProcessLexicalSearch(const std::string &Collec
 
      if (!quoted_phrases.empty())
      {
-          SearchLimit = 1000;
+          SearchLimit = std::max(SearchLimit, std::min(10000, static_cast<int>(std::min<long long>(10000LL, RequiredRows))));
      }
 
      auto &storage = HybridStorageManager::GetInstance();
@@ -1523,41 +1535,54 @@ std::vector<SearchHit> SearchAPI::ProcessLexicalSearch(const std::string &Collec
      storage.LazyLoadCollectionIndex(Collection);
 
      size_t collection_docs = storage.GetCollectionDocumentCount(Collection);
+     bool collection_is_indexing = storage.IsCollectionIndexing(Collection);
 
-     if (collection_docs == 0)
+     if (collection_docs == 0 || collection_is_indexing)
      {
-          auto probe = storage.ListDocuments(Collection, 1, 0);
-          if (!probe.empty())
+          const size_t stored_docs = storage.CountStoredDocuments(Collection);
+          if (stored_docs > collection_docs)
           {
-               collection_docs = 1;
+               collection_docs = stored_docs;
           }
      }
 
      bool has_in_memory_index = Instance->SearchIndex->HasInMemoryIndex(Collection);
+     bool collection_index_complete = storage.IsCollectionIndexComplete(Collection, collection_docs);
 
-     if (!has_in_memory_index && collection_docs > 0 && storage.IsCollectionIndexing(Collection))
+     if (collection_docs > 0 && (collection_is_indexing || !collection_index_complete))
      {
           auto start = Now();
-          const auto max_wait = std::chrono::milliseconds(800);
-          const auto bailout_after = std::chrono::milliseconds(200);
+          /*
+           * HasInMemoryIndex() becomes true as soon as the first document is
+           * indexed. For moderate collections, wait for lazy indexing to finish
+           * so a first search cannot miss documents later in the collection.
+           */
+          const bool small_or_moderate_collection = collection_docs <= 50000;
+          const auto max_wait = small_or_moderate_collection ? std::chrono::milliseconds(5000)
+                                                             : std::chrono::milliseconds(800);
+          const auto bailout_after = small_or_moderate_collection ? std::chrono::milliseconds(2500)
+                                                                  : std::chrono::milliseconds(200);
           const auto deadline = Now() + max_wait;
 
-          while (!has_in_memory_index && Now() < deadline)
+          while (Now() < deadline)
           {
                std::this_thread::sleep_for(std::chrono::milliseconds(50));
                has_in_memory_index = Instance->SearchIndex->HasInMemoryIndex(Collection);
-               if (has_in_memory_index || !storage.IsCollectionIndexing(Collection))
+               collection_is_indexing = storage.IsCollectionIndexing(Collection);
+               collection_index_complete = storage.IsCollectionIndexComplete(Collection, collection_docs);
+               if (collection_index_complete || (!collection_is_indexing && has_in_memory_index) || (!small_or_moderate_collection && has_in_memory_index))
                {
                     break;
                }
 
-               if (Now() - start >= bailout_after)
+               if (!small_or_moderate_collection && Now() - start >= bailout_after)
                {
                     break;
                }
           }
 
           has_in_memory_index = Instance->SearchIndex->HasInMemoryIndex(Collection);
+          collection_index_complete = storage.IsCollectionIndexComplete(Collection, collection_docs);
      }
 
      std::vector<std::string> QueryVariants;
@@ -1651,17 +1676,19 @@ std::vector<SearchHit> SearchAPI::ProcessLexicalSearch(const std::string &Collec
 
      has_in_memory_index = Instance->SearchIndex->HasInMemoryIndex(Collection);
      bool collection_indexing = storage.IsCollectionIndexing(Collection);
+     collection_index_complete = storage.IsCollectionIndexComplete(Collection, collection_docs);
 
      const bool needs_typo_scan_fallback = (Query.NumTyposExplicit &&
                                             effective_max_typos > 0 &&
                                             (Postings.empty() || Query.InlineFuzzy) &&
                                             !query_variant_terms_list.empty());
 
-     const bool prefer_storage_scan_while_indexing = collection_indexing && collection_docs > 0;
+     const bool prefer_storage_scan_while_indexing = (collection_indexing || !collection_index_complete) && collection_docs > 0;
+     const bool needs_zero_hit_storage_fallback = Query.AllowScanFallback && Postings.empty() && collection_docs > 0 && !query_variant_terms_list.empty();
 
-     if ((Query.AllowScanFallback || prefer_storage_scan_while_indexing || force_structured_scan || needs_typo_scan_fallback) &&
+     if ((Query.AllowScanFallback || prefer_storage_scan_while_indexing || force_structured_scan || needs_typo_scan_fallback || needs_zero_hit_storage_fallback) &&
          (Postings.empty() || prefer_storage_scan_while_indexing || force_structured_scan || needs_typo_scan_fallback) &&
-         (!has_in_memory_index || prefer_storage_scan_while_indexing || force_structured_scan || needs_typo_scan_fallback))
+         (!has_in_memory_index || needs_zero_hit_storage_fallback || prefer_storage_scan_while_indexing || force_structured_scan || needs_typo_scan_fallback))
      {
           const bool allow_prefix_match = Query.Prefix;
 
@@ -1671,13 +1698,14 @@ std::vector<SearchHit> SearchAPI::ProcessLexicalSearch(const std::string &Collec
                size_t scanned = 0;
                int offset = 0;
 
+               const bool require_complete_scan = prefer_storage_scan_while_indexing || Query.ExhaustiveSearch || needs_zero_hit_storage_fallback;
                const size_t max_scan_docs = (collection_docs > 0)
-                                                ? std::min<size_t>(collection_docs, Query.ExhaustiveSearch ? 50000 : 10000)
-                                                : (Query.ExhaustiveSearch ? 50000 : 10000);
+                                                ? std::min<size_t>(collection_docs, require_complete_scan ? collection_docs : 10000)
+                                                : ((Query.ExhaustiveSearch || needs_zero_hit_storage_fallback) ? 50000 : 10000);
                const auto scan_deadline =
                     Now() +
-                    (Query.ExhaustiveSearch
-                         ? std::chrono::milliseconds(2500)
+                    (require_complete_scan
+                         ? std::chrono::milliseconds(collection_docs <= 50000 ? 5000 : 10000)
                          : (collection_docs > 2000 ? std::chrono::milliseconds(1200) : std::chrono::milliseconds(800)));
                int scan_iterations = 0;
                const int max_scan_iterations = std::max<int>(5, static_cast<int>(max_scan_docs / scan_batch) + 4);
@@ -1903,6 +1931,96 @@ std::vector<SearchHit> SearchAPI::ProcessLexicalSearch(const std::string &Collec
                HitObj.Weight = CalculateWeight(HitObj);
 
                Hits.push_back(HitObj);
+          }
+     }
+
+     if (Hits.empty() && Query.AllowScanFallback && collection_docs > 0 && !query_variant_terms_list.empty())
+     {
+          const bool allow_prefix_match = Query.Prefix;
+          const int scan_batch = 200;
+          size_t scanned = 0;
+          int offset = 0;
+          const size_t max_scan_docs = collection_docs;
+          const auto scan_deadline = Now() + std::chrono::milliseconds(collection_docs <= 50000 ? 5000 : 2500);
+
+          while (scanned < max_scan_docs && static_cast<int>(Hits.size()) < SearchLimit)
+          {
+               if (Now() >= scan_deadline)
+               {
+                    break;
+               }
+
+               auto docs = storage.ListDocuments(Collection, scan_batch, offset);
+               if (docs.empty())
+               {
+                    break;
+               }
+
+               for (const auto &doc : docs)
+               {
+                    if (scanned >= max_scan_docs || static_cast<int>(Hits.size()) >= SearchLimit)
+                    {
+                         break;
+                    }
+
+                    scanned++;
+
+                    std::vector<std::pair<std::string, std::string>> fields;
+                    AppendRequestedFieldValues(doc, restrict_to_query_fields ? Query.QueryBy : std::vector<std::string>{}, fields, Query.CaseSensitive);
+
+                    int matched_terms = 0;
+                    bool query_matches = ParsedExpression.UsesStructuredSemantics
+                                             ? EvaluateParsedQueryExpression(doc,
+                                                                             ParsedExpression,
+                                                                             restrict_to_query_fields ? Query.QueryBy : std::vector<std::string>{},
+                                                                             allow_prefix_match,
+                                                                             effective_max_typos,
+                                                                             Query.CaseSensitive)
+                                             : MatchesAnyQueryVariant(fields,
+                                                                      query_variant_terms_list,
+                                                                      allow_prefix_match,
+                                                                      effective_max_typos,
+                                                                      Query.CaseSensitive,
+                                                                      &matched_terms);
+
+                    if (!query_matches)
+                    {
+                         continue;
+                    }
+
+                    if (!ParsedExpression.UsesStructuredSemantics &&
+                        !quoted_phrases.empty() &&
+                        !AllQuotedPhrasesMatchRequestedFields(fields, quoted_phrases))
+                    {
+                         continue;
+                    }
+
+                    SearchHit HitObj;
+                    HitObj.Document["id"] = doc.ID;
+                    HitObj.Document["title"] = doc.Title;
+                    HitObj.Document["content"] = doc.Content;
+                    HitObj.Document["score"] = std::to_string(doc.Score);
+                    HitObj.Document["timestamp"] = std::to_string(doc.Timestamp);
+
+                    for (const auto &Field : doc.Fields)
+                    {
+                         HitObj.Document[Field.first] = Field.second;
+                    }
+
+                    HitObj.TextMatch = static_cast<float>(std::max(1, matched_terms));
+                    HitObj.Weight = CalculateWeight(HitObj);
+                    Hits.push_back(HitObj);
+               }
+
+               offset += scan_batch;
+          }
+
+          if (!Hits.empty())
+          {
+               std::sort(Hits.begin(), Hits.end(), [](const SearchHit &A, const SearchHit &B)
+                         {
+                              return A.TextMatch > B.TextMatch;
+                         });
           }
      }
 

@@ -186,6 +186,13 @@ std::string SearchAPI::GenerateComprehensiveSearchResponse(const ComprehensiveSe
 
      JSON << "\"indexing_in_progress\":" << (Result.IndexingInProgress ? "true" : "false") << ",";
 
+     JSON << "\"partial_results\":" << (Result.PartialResults ? "true" : "false") << ",";
+
+     if (Result.PartialResults && !Result.PartialReason.empty())
+     {
+          JSON << "\"partial_reason\":\"" << EscapeJSONString(Result.PartialReason) << "\",";
+     }
+
      if (!Result.Facets.empty())
      {
           JSON << "\"facets\":{";

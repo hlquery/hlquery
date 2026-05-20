@@ -24,20 +24,20 @@
 #include <unordered_map>
 #include <vector>
 
-#include "common/searchpool.h"
 #include "common/listenmanager.h"
-#include "core/config.h"
-#include "core/metrics.h"
-#include "core/logmanager.h"
-#include "core/llm.h"
-#include "core/modulemanager.h"
-#include "runtime/startup.h"
-#include "core/stats.h"
+#include "common/searchpool.h"
 #include "runtime/clock.h"
+#include "runtime/serverconfig.h"
+#include "runtime/startup.h"
 #include "runtime/threadlimit.h"
 #include "runtime/timers.h"
+#include "core/config.h"
 #include "core/forwards.h"
-#include "runtime/serverconfig.h"
+#include "core/llm.h"
+#include "core/logmanager.h"
+#include "core/metrics.h"
+#include "core/modulemanager.h"
+#include "core/stats.h"
 #include "sql/sql.h"
 #include "utils/tools.h"
 
@@ -116,10 +116,9 @@ class CoreExport hlquery
      std::mutex BackgroundThreadsMutex;
 
    public:
-
      /* Constructor */
 
-     hlquery(int argc, char** argv);
+     hlquery(int argc, char **argv);
 
      /* Destructor */
 
@@ -276,7 +275,7 @@ class CoreExport hlquery
 
      /* HTTP Servers */
 
-     std::vector<HttpServer*> HTTPServers;
+     std::vector<HttpServer *> HTTPServers;
 
      /* Non-owning convenience alias for the singleton SearchAPI instance */
 
@@ -322,7 +321,7 @@ class CoreExport hlquery
 
      /* Get the mutex used to serialize sync operations */
 
-     std::mutex& GetSyncMutex()
+     std::mutex &GetSyncMutex()
      {
           return SyncMutex;
      }
@@ -342,7 +341,7 @@ class CoreExport hlquery
      }
 };
 
-int main(int argc, char** argv);
+int main(int argc, char **argv);
 
 /* Flag indicating the server should begin graceful shutdown */
 
