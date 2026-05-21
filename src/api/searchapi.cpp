@@ -945,14 +945,15 @@ void SearchAPI::FinalizeReplicationResyncRequest(const HttpRequest &Request,
           TrackReplicationResyncCollection(SessionID, CollectionName);
      }
 
+     if (GetReplicationResyncStageHeader(Request) != "complete")
+     {
+          return;
+     }
+
      const std::string ActiveState = Instance->Database->Get(kReplicationResyncStateKey);
      if (ActiveState.empty())
      {
-          if (GetReplicationResyncStageHeader(Request) == "complete")
-          {
-               ClearReplicationResyncCollections(SessionID);
-          }
-
+          ClearReplicationResyncCollections(SessionID);
           return;
      }
 

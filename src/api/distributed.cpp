@@ -2734,7 +2734,17 @@ bool SearchAPI::ReplicateWriteRequest(const HttpRequest &Request,
      HttpRequest ReplicationRequest = Request;
      EnsureReplicationOperationID(ReplicationRequest);
 
-     auto ExecuteReplication = [this, ReplicationRequest, OperationLabel, RemoteSlaves]() -> std::pair<bool, std::string>
+     size_t RequiredAcks = RemoteSlaves.size();
+     if (Mode == "sync_one")
+     {
+          RequiredAcks = 1;
+     }
+     else if (Mode == "quorum")
+     {
+          RequiredAcks = (RemoteSlaves.size() / 2) + 1;
+     }
+
+     auto ExecuteReplication = [this, ReplicationRequest, OperationLabel, RemoteSlaves, RequiredAcks]() -> std::pair<bool, std::string>
      {
           size_t Acked = 0;
           std::vector<std::string> Errors;
@@ -2825,7 +2835,7 @@ bool SearchAPI::ReplicateWriteRequest(const HttpRequest &Request,
                }
           }
 
-          if (Acked == RemoteSlaves.size())
+          if (Acked >= RequiredAcks)
           {
                RecordReplicationSuccess(Acked);
                return {true, ""};
@@ -2833,7 +2843,7 @@ bool SearchAPI::ReplicateWriteRequest(const HttpRequest &Request,
 
           std::ostringstream ErrorStream;
           ErrorStream << "Replication " << OperationLabel << " degraded: acked " << Acked
-                      << "/" << RemoteSlaves.size() << " replicas";
+                      << "/" << RemoteSlaves.size() << " replicas, required " << RequiredAcks;
           if (!Errors.empty())
           {
                ErrorStream << " (" << Errors.front();
