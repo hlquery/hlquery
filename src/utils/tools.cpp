@@ -317,7 +317,8 @@ bool Tools::IsValidIdentifier(const std::string &Str, bool AllowNumbers, bool Al
 
 std::string Tools::GetTimestamp(const std::string &Format)
 {
-     auto Now = std::chrono::system_clock::now();
+     const auto NowMS = Instance ? Instance->NowMs() : NowMs();
+     auto Now = std::chrono::system_clock::time_point(std::chrono::milliseconds(NowMS));
 
      auto TimeVal = std::chrono::system_clock::to_time_t(Now);
 

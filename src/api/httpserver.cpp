@@ -2828,11 +2828,11 @@ void HttpConnection::ProcessSingleRequest(const std::string &RequestStr)
      {
           Response = API.HandleGetCollectionLanguage(Request);
      }
-     else if (Request.Path.find("/collections/") == 0 && NormalizedPath.find("/search") == std::string::npos && Request.Path.find("/documents") == std::string::npos && Request.Path.find("/synonyms") == std::string::npos && Request.Path.find("/stopwords") == std::string::npos && Request.Path.find("/overrides") == std::string::npos && Request.Method == "GET")
+     else if (Request.Path.find("/collections/") == 0 && NormalizedPath.find("/search") == std::string::npos && Request.Path.find("/documents") == std::string::npos && Request.Path.find("/synonyms") == std::string::npos && Request.Path.find("/stopwords") == std::string::npos && Request.Path.find("/overrides") == std::string::npos && Request.Path.find("/aliases") == std::string::npos && Request.Method == "GET")
      {
           Response = API.HandleGetCollection(Request);
      }
-     else if (Request.Path.find("/collections/") == 0 && Request.Path.find("/documents") == std::string::npos && Request.Path.find("/synonyms") == std::string::npos && Request.Path.find("/stopwords") == std::string::npos && Request.Path.find("/overrides") == std::string::npos && Request.Method == "DELETE")
+     else if (Request.Path.find("/collections/") == 0 && Request.Path.find("/documents") == std::string::npos && Request.Path.find("/synonyms") == std::string::npos && Request.Path.find("/stopwords") == std::string::npos && Request.Path.find("/overrides") == std::string::npos && Request.Path.find("/aliases") == std::string::npos && Request.Method == "DELETE")
      {
           Response = API.HandleDeleteCollection(Request);
      }

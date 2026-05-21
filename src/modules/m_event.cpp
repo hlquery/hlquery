@@ -82,7 +82,7 @@ class EventRuntimeModule final : public AutoRuntimeModule<EventRuntimeModule>
 
      std::string CurrentDayString() const
      {
-          const std::time_t Now = std::time(nullptr);
+          const std::time_t Now = Instance ? Instance->Time() : Time();
 
           std::tm LocalTime{};
 
@@ -106,7 +106,8 @@ class EventRuntimeModule final : public AutoRuntimeModule<EventRuntimeModule>
 
      std::string CurrentTimestampString() const
      {
-          const auto Now = std::chrono::system_clock::now();
+          const auto NowMS = Instance ? Instance->NowMs() : NowMs();
+          const auto Now = std::chrono::system_clock::time_point(std::chrono::milliseconds(NowMS));
           const auto Millis = std::chrono::duration_cast<std::chrono::milliseconds>(Now.time_since_epoch()) % 1000;
           const std::time_t NowTime = std::chrono::system_clock::to_time_t(Now);
 
@@ -139,7 +140,7 @@ class EventRuntimeModule final : public AutoRuntimeModule<EventRuntimeModule>
 
      std::string BuildDocumentID(const std::string& Day)
      {
-          const uint64_t NowSeconds = static_cast<uint64_t>(std::time(nullptr));
+          const uint64_t NowSeconds = static_cast<uint64_t>(Instance ? Instance->Time() : Time());
           const uint64_t LocalSequence = Sequence.fetch_add(1, std::memory_order_relaxed);
           return Day + "-" + std::to_string(NowSeconds) + "-" + std::to_string(LocalSequence);
      }
@@ -230,7 +231,7 @@ class EventRuntimeModule final : public AutoRuntimeModule<EventRuntimeModule>
 
                Document Doc;
 
-               Doc.Timestamp = static_cast<uint64_t>(std::time(nullptr));
+               Doc.Timestamp = static_cast<uint64_t>(Instance ? Instance->Time() : Time());
                Doc.ID = BuildDocumentID(Day);
                Doc.Title = Record.EventType;
                Doc.Content = Record.Payload.dump();

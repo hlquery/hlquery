@@ -175,10 +175,12 @@ void hlquery::WriteStartupBanner()
 {
      newline();
      std::vector<std::string> loaded_modules;
+     
      if (Modules)
      {
           loaded_modules = Modules->GetLoadedModuleNames();
      }
+     
      ConsoleWriter::WriteStartup(Tools::FormatStartupMessage(loaded_modules), true, false);
 }
 
