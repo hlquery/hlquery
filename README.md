@@ -37,7 +37,7 @@ You can use hlquery for classic full-text search, hybrid retrieval, vector simil
 
 hlquery includes **SAM**, the **Secondary Assistant Manager**, as a 100% optional feature. SAM adds a second retrieval layer for natural-language intent, search assistance, and learned query behavior, but hlquery can run normally without it.
 
-To use SAM, enable it in [run/conf/hlquery.conf](run/conf/hlquery.conf) and point it at a local Qwen model:
+To use SAM, enable it in [run/conf/sam.conf](run/conf/sam.conf) and point it at a local Qwen model. The main [run/conf/hlquery.conf](run/conf/hlquery.conf) includes `sam.conf` during startup:
 
 ```xml
 <sam enabled="true"
@@ -51,7 +51,7 @@ Download the matching model with the bundled helper:
 $ ./tools/download --model qwen_1_5
 ```
 
-`tools/download` stores model files under `run/models` by default. The shipped Qwen presets include `qwen_0_5`, `qwen_1_5`, `qwen_3`, `qwen_14`, and `qwen_coder_1_5`; the `model_name` in `hlquery.conf` should match the preset you download.
+`tools/download` stores model files under `run/models` by default. The shipped Qwen presets include `qwen_0_5`, `qwen_1_5`, `qwen_3`, `qwen_14`, and `qwen_coder_1_5`; the `model_name` in `sam.conf` should match the preset you download.
 
 ---
 

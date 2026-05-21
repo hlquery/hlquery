@@ -1007,7 +1007,7 @@ install-system: all
 	@echo "$(GREEN)✓ System-wide installation complete!$(NC)"
 
 # Package builder helpers
-PACKAGE_DIR ?= etc/package
+PACKAGE_DIR ?= etc/package-builder
 PACKAGE_SCRIPT ?= $(PACKAGE_DIR)/build.sh
 PACKAGE_TYPE ?= all
 PACKAGE_VERSION ?= $(shell sh src/version.sh | sed 's|^hlquery-||')
