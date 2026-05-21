@@ -1756,6 +1756,24 @@ bool BenchmarkClient::AddSynonym(const std::string &collection, const std::strin
      return response.StatusCode == 200 || response.StatusCode == 201;
 }
 
+/* Creates or updates an alias. */
+
+bool BenchmarkClient::CreateAlias(const std::string &alias_name, const std::string &collection)
+{
+     nlohmann::json alias_data;
+
+     alias_data["collection_name"] = collection;
+     alias_data["collection"] = collection;
+
+     std::string json_str = alias_data.dump();
+
+     std::string encoded_alias = UrlEncode(alias_name);
+
+     HTTPResponse response = MakeRequest("PUT", "/aliases/" + encoded_alias, json_str, 1, false, 5000);
+
+     return response.StatusCode == 200 || response.StatusCode == 201;
+}
+
 /* Adds a stopword to a collection. */
 
 bool BenchmarkClient::AddStopword(const std::string &collection, const std::string &word)

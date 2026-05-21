@@ -158,6 +158,10 @@ class BenchmarkClient
 
      bool AddSynonym(const std::string &collection, const std::string &synonym_id, const std::string &root_term, const std::vector<std::string> &synonyms);
 
+     /* Creates or updates an alias. */
+
+     bool CreateAlias(const std::string &alias_name, const std::string &collection);
+
      /* Adds a stopword. */
 
      bool AddStopword(const std::string &collection, const std::string &word);

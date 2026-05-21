@@ -645,6 +645,7 @@ bool CreateFakeCollections(const std::string &base_url, const std::string &auth_
           {"universities", {"california", "michigan", "ohio", "texas", "washington", "florida", "illinois", "georgia", "pennsylvania", "massachusetts"}}};
 
      BenchmarkClient client(base_url, auth_token, reuse_collections);
+     std::vector<std::string> inserted_fake_collections;
 
      std::string conn_error = client.TestConnection();
      if (!conn_error.empty())
@@ -1184,6 +1185,10 @@ bool CreateFakeCollections(const std::string &base_url, const std::string &auth_
           {
                std::cerr << "✗ Fake collection '" << collection_name << "' imported " << inserted << " of " << docs.size() << " local documents.\n";
           }
+          if (inserted > 0)
+          {
+               inserted_fake_collections.push_back(collection_name);
+          }
           if (verbose)
           {
                LogOutput("  ↳ Enriched " + std::to_string(enriched_updated) + " fake documents with description and labels.\n");
@@ -1226,6 +1231,28 @@ bool CreateFakeCollections(const std::string &base_url, const std::string &auth_
                          " fake synonym group(s) and " + std::to_string(collection_stopwords_added) +
                          " fake stopword(s) to '" + spec.Name + "'.\n");
           }
+     }
+
+     size_t aliases_added = 0;
+     const size_t alias_limit = std::min<size_t>(3, inserted_fake_collections.size());
+     for (size_t i = 0; i < alias_limit; ++i)
+     {
+          const std::string &target_collection = inserted_fake_collections[i];
+          const std::string alias_name = "fake_alias_" + std::to_string(i + 1);
+
+          if (client.CreateAlias(alias_name, target_collection))
+          {
+               aliases_added++;
+          }
+          else
+          {
+               std::cerr << "✗ Failed to create fake alias '" << alias_name << "' for collection '" << target_collection << "'.\n";
+          }
+     }
+
+     if (aliases_added > 0)
+     {
+          LogOutput("✓ Added " + std::to_string(aliases_added) + " fake aliases for inserted fake collections.\n");
      }
 
      LogOutput("✓ Skipped global fake synonyms and stopwords to keep collection themes isolated.\n");
