@@ -237,11 +237,11 @@ void SocketEngine::InitializeAdvancedIO()
 void SocketEngine::InitializeZeroCopyBuffers()
 {
      /*
-     * Lazy allocation: only allocate if actually needed (saves 1MB if unused)
-     * Buffers will be allocated on first GetZeroCopyBuffer() call
-     */
+      * Lazy allocation: only allocate if actually needed (saves 1MB if unused)
+      * Buffers will be allocated on first GetZeroCopyBuffer() call
+      */
 
-     ZeroCopyBuffersAllocated.store(false);
+      ZeroCopyBuffersAllocated.store(false);
 }
 
 /* Cleans up zero-copy buffers */
@@ -317,10 +317,10 @@ void SocketEngine::AdaptTimeout()
 void SocketEngine::SetOptimalSocketOptions()
 {
      /*
-     * Note: Socket options are set per-connection in HttpConnection::SetAdvancedSocketOptions()
-     * The epoll file descriptor itself doesn't support TCP socket options
-     * This method is kept for future system-level optimizations
-     */
+      * Note: Socket options are set per-connection in HttpConnection::SetAdvancedSocketOptions()
+      * The epoll file descriptor itself doesn't support TCP socket options
+      * This method is kept for future system-level optimizations
+      */
 
      if (Instance && Instance->Logs)
      {
@@ -714,7 +714,7 @@ int SocketEngine::DispatchEvents()
      }
      else
      {
-          /*
+        /*
          * Wake periodically for time-based work even when there is no socket activity.
          * This keeps timers and wall-clock hooks such as OnEveryOneMinute progressing
          * without requiring an external request to wake the event loop.
@@ -725,18 +725,11 @@ int SocketEngine::DispatchEvents()
           CurrentTimeoutMS.store(timeout_ms, std::memory_order_relaxed);
      }
 
-     /* HLQuery-style high-throughput event processing */
-
      /*
-     * CRITICAL FIX: Reduce debug log verbosity - only log every 10000th call to reduce log spam.
-     * Don't log every infinite timeout call - that's too verbose.
-     * This dramatically reduces log noise during operations like ping that call DispatchEvents frequently.
-     */
-
-     /*
-     * CRITICAL FIX: Re-check EpollFD validity right before epoll_wait to prevent race condition.
-     * Another thread could have closed EpollFD between the check above and this call.
-     */
+      * Reduce debug log verbosity - only log every 10000th call to reduce log spam.
+      * Don't log every infinite timeout call - that's too verbose.
+      * This dramatically reduces log noise during operations like ping that call DispatchEvents frequently.
+      */
 
      int local_EpollFD = EpollFD;
 

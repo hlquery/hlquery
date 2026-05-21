@@ -402,7 +402,7 @@ void RunSearches(const std::string &base_url, const std::string &auth_token)
           nlohmann::json Search_params;
 
           Search_params["q"] = query;
-          Search_params["query_by"] = "title,content";
+          Search_params["query_by"] = "title,content,document_id";
           Search_params["limit"] = 5;
 
           if (i % 2 == 0)
@@ -429,7 +429,7 @@ void RunSearches(const std::string &base_url, const std::string &auth_token)
           nlohmann::json Search_params;
 
           Search_params["q"] = query;
-          Search_params["query_by"] = "title,content";
+          Search_params["query_by"] = "title,content,document_id";
           Search_params["limit"] = 5;
 
           auto response = client.SearchPost(collection, Search_params);
@@ -446,7 +446,7 @@ void RunSearches(const std::string &base_url, const std::string &auth_token)
           nlohmann::json Search_params;
 
           Search_params["q"] = query;
-          Search_params["query_by"] = "title,content";
+          Search_params["query_by"] = "title,content,document_id";
           Search_params["limit"] = 5;
 
           auto response = client.SearchPost(collection, Search_params);
@@ -496,7 +496,7 @@ void RunSearches(const std::string &base_url, const std::string &auth_token)
 
                search_item["collection"] = collection;
                search_item["q"] = query;
-               search_item["query_by"] = "title,content";
+               search_item["query_by"] = "title,content,document_id";
                search_item["per_page"] = 3;
 
                multi_search_json["Searches"].push_back(search_item);
@@ -549,7 +549,7 @@ void RunSearches(const std::string &base_url, const std::string &auth_token)
 
           search1["collection"] = collection;
           search1["q"] = wildcard_suffix[i % wildcard_suffix.size()];
-          search1["query_by"] = "title,content";
+          search1["query_by"] = "title,content,document_id";
           search1["per_page"] = 3;
 
           multi_search_json["Searches"].push_back(search1);
@@ -558,7 +558,7 @@ void RunSearches(const std::string &base_url, const std::string &auth_token)
 
           search2["collection"] = collection;
           search2["q"] = quoted_phrases[i % quoted_phrases.size()];
-          search2["query_by"] = "title,content";
+          search2["query_by"] = "title,content,document_id";
           search2["per_page"] = 3;
 
           multi_search_json["Searches"].push_back(search2);
@@ -598,7 +598,7 @@ void RunSearches(const std::string &base_url, const std::string &auth_token)
           nlohmann::json Search_params;
 
           Search_params["q"] = query;
-          Search_params["query_by"] = "title,content";
+          Search_params["query_by"] = "title,content,document_id";
           Search_params["limit"] = 3;
           Search_params["highlight"] = true;
           Search_params["highlight_fields"] = "title,content";
@@ -617,7 +617,7 @@ void RunSearches(const std::string &base_url, const std::string &auth_token)
           nlohmann::json Search_params;
 
           Search_params["q"] = query;
-          Search_params["query_by"] = "title,content";
+          Search_params["query_by"] = "title,content,document_id";
           Search_params["limit"] = 3;
           Search_params["highlight"] = true;
           Search_params["highlight_fields"] = "title,content";
@@ -636,7 +636,7 @@ void RunSearches(const std::string &base_url, const std::string &auth_token)
           nlohmann::json Search_params;
 
           Search_params["q"] = query;
-          Search_params["query_by"] = "title,content";
+          Search_params["query_by"] = "title,content,document_id";
           Search_params["limit"] = 3;
           Search_params["highlight"] = true;
           Search_params["highlight_fields"] = "title,content";
@@ -655,7 +655,7 @@ void RunSearches(const std::string &base_url, const std::string &auth_token)
           nlohmann::json Search_params;
 
           Search_params["q"] = query;
-          Search_params["query_by"] = "title,content";
+          Search_params["query_by"] = "title,content,document_id";
           Search_params["limit"] = 3;
           Search_params["highlight"] = true;
           Search_params["highlight_fields"] = "title,content";
@@ -674,7 +674,7 @@ void RunSearches(const std::string &base_url, const std::string &auth_token)
           nlohmann::json Search_params;
 
           Search_params["q"] = query;
-          Search_params["query_by"] = "title,content";
+          Search_params["query_by"] = "title,content,document_id";
           Search_params["limit"] = 3;
           Search_params["highlight"] = true;
           Search_params["highlight_fields"] = "title,content";
@@ -693,7 +693,7 @@ void RunSearches(const std::string &base_url, const std::string &auth_token)
           nlohmann::json Search_params;
 
           Search_params["q"] = query;
-          Search_params["query_by"] = "title,content";
+          Search_params["query_by"] = "title,content,document_id";
           Search_params["limit"] = 3;
           Search_params["highlight"] = true;
           Search_params["highlight_fields"] = "title,content";
@@ -712,7 +712,7 @@ void RunSearches(const std::string &base_url, const std::string &auth_token)
           nlohmann::json Search_params;
 
           Search_params["q"] = query;
-          Search_params["query_by"] = "title,content";
+          Search_params["query_by"] = "title,content,document_id";
           Search_params["limit"] = 3;
           Search_params["highlight"] = true;
           Search_params["highlight_fields"] = "title,content";
@@ -731,7 +731,7 @@ void RunSearches(const std::string &base_url, const std::string &auth_token)
           nlohmann::json Search_params;
 
           Search_params["q"] = query;
-          Search_params["query_by"] = "title,content";
+          Search_params["query_by"] = "title,content,document_id";
           Search_params["limit"] = 3;
           Search_params["highlight"] = true;
           Search_params["highlight_fields"] = "title,content";
@@ -750,7 +750,7 @@ void RunSearches(const std::string &base_url, const std::string &auth_token)
           nlohmann::json Search_params;
 
           Search_params["q"] = query;
-          Search_params["query_by"] = "title,content";
+          Search_params["query_by"] = "title,content,document_id";
           Search_params["limit"] = 3;
           Search_params["highlight"] = true;
           Search_params["highlight_fields"] = "title";
@@ -769,7 +769,7 @@ void RunSearches(const std::string &base_url, const std::string &auth_token)
           nlohmann::json Search_params;
 
           Search_params["q"] = query;
-          Search_params["query_by"] = "title,content";
+          Search_params["query_by"] = "title,content,document_id";
           Search_params["limit"] = 3;
           Search_params["highlight"] = true;
           Search_params["highlight_fields"] = "content";
@@ -788,7 +788,7 @@ void RunSearches(const std::string &base_url, const std::string &auth_token)
           nlohmann::json Search_params;
 
           Search_params["q"] = query;
-          Search_params["query_by"] = "title,content";
+          Search_params["query_by"] = "title,content,document_id";
           Search_params["limit"] = 3;
           Search_params["highlight"] = true;
           Search_params["highlight_fields"] = "title,content";
@@ -807,7 +807,7 @@ void RunSearches(const std::string &base_url, const std::string &auth_token)
           nlohmann::json Search_params;
 
           Search_params["q"] = query;
-          Search_params["query_by"] = "title,content";
+          Search_params["query_by"] = "title,content,document_id";
           Search_params["limit"] = 3;
           Search_params["highlight"] = true;
           Search_params["highlight_fields"] = "title,content";

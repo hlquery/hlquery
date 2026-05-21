@@ -1028,6 +1028,7 @@ bool CreateFakeCollections(const std::string &base_url, const std::string &auth_
 
                nlohmann::json enriched_doc;
                enriched_doc["id"] = doc_id;
+               enriched_doc["document_id"] = doc_id;
                enriched_doc["title"] = safe_title;
                enriched_doc["content"] = safe_content;
                enriched_doc["description"] = safe_description;
@@ -1956,6 +1957,7 @@ int main(int argc, char *argv[])
                               nlohmann::json doc;
 
                               doc["id"] = std::to_string(10000 + i);
+                              doc["document_id"] = doc["id"];
                               doc["name"] = "Unorganized Item #" + std::to_string(i);
                               doc["identifier"] = "item_" + std::to_string(i);
                               doc["info"] = "Unorganized info entry " + std::to_string(i) + ". This document tests Hanalyzer ability to adapt to non-standard schemas where title and content are missing. It should still display meaningful information from other fields.";

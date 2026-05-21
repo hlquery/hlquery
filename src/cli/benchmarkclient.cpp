@@ -1023,6 +1023,32 @@ static std::string LowercaseCopy(std::string value)
      return value;
 }
 
+static void AddBenchmarkDocumentIdField(nlohmann::json &fields)
+{
+     if (!fields.is_array())
+     {
+          fields = nlohmann::json::array();
+     }
+
+     for (const auto &field : fields)
+     {
+          if (field.is_object() && field.value("name", "") == "document_id")
+          {
+               return;
+          }
+     }
+
+     fields.insert(fields.begin(), {{"name", "document_id"}, {"type", "string"}});
+}
+
+static void AddBenchmarkDocumentIdValue(nlohmann::json &doc)
+{
+     if (doc.is_object() && doc.contains("id") && !doc.contains("document_id"))
+     {
+          doc["document_id"] = doc["id"];
+     }
+}
+
 bool BenchmarkClient::CreateCollection(const std::string &name)
 {
      return CreateCollection(name, 10000);
@@ -1044,6 +1070,8 @@ bool BenchmarkClient::CreateCollectionLocal(const std::string &name, int timeout
 
      schema["name"] = name;
      schema["fields"] = nlohmann::json::array();
+
+     AddBenchmarkDocumentIdField(schema["fields"]);
 
      nlohmann::json title_field;
 
@@ -1235,6 +1263,7 @@ bool BenchmarkClient::CreateCollectionWithSchemaLocal(const std::string &name, c
 
      schema["name"] = name;
      schema["fields"] = fields;
+     AddBenchmarkDocumentIdField(schema["fields"]);
 
      if (!default_sorting_field.empty())
      {
@@ -1401,6 +1430,7 @@ bool BenchmarkClient::InsertDocument(const std::string &collection, const std::s
      doc["id"] = doc_id;
      doc["title"] = title;
      doc["content"] = content;
+     AddBenchmarkDocumentIdValue(doc);
 
      std::string json_str = doc.dump();
 
@@ -1459,7 +1489,10 @@ bool BenchmarkClient::InsertDocument(const std::string &collection, const std::s
 
 bool BenchmarkClient::UpsertDocumentWithFields(const std::string &collection, const nlohmann::json &doc)
 {
-     std::string json_str = doc.dump();
+     nlohmann::json payload = doc;
+     AddBenchmarkDocumentIdValue(payload);
+
+     std::string json_str = payload.dump();
 
      HTTPResponse response = MakeRequest("POST", "/collections/" + collection + "/documents", json_str, 3, false);
 
@@ -1475,7 +1508,7 @@ bool BenchmarkClient::UpsertDocumentWithFields(const std::string &collection, co
 
      if (response.StatusCode == 409)
      {
-          std::string doc_id = doc.contains("id") ? doc["id"].get<std::string>() : "";
+          std::string doc_id = payload.contains("id") ? payload["id"].get<std::string>() : "";
 
           if (!doc_id.empty())
           {
@@ -1485,7 +1518,7 @@ bool BenchmarkClient::UpsertDocumentWithFields(const std::string &collection, co
 
      if (response.StatusCode != 201 && response.StatusCode != 200)
      {
-          std::string doc_id = doc.contains("id") ? doc["id"].get<std::string>() : "";
+          std::string doc_id = payload.contains("id") ? payload["id"].get<std::string>() : "";
           std::string error_msg = "  [ERROR] Failed to upsert document '" + doc_id + "' in collection '" + collection + "': HTTP " + std::to_string(response.StatusCode);
 
           if (!response.Body.empty())
@@ -1502,7 +1535,10 @@ bool BenchmarkClient::UpsertDocumentWithFields(const std::string &collection, co
 
 bool BenchmarkClient::UpsertDocumentWithFieldsLocal(const std::string &collection, const nlohmann::json &doc)
 {
-     std::string json_str = doc.dump();
+     nlohmann::json payload = doc;
+     AddBenchmarkDocumentIdValue(payload);
+
+     std::string json_str = payload.dump();
 
      HTTPResponse response = MakeRequest("POST", AppendLocalOnlyQuery("/collections/" + collection + "/documents", true), json_str, 3, false);
 
@@ -1518,7 +1554,7 @@ bool BenchmarkClient::UpsertDocumentWithFieldsLocal(const std::string &collectio
 
      if (response.StatusCode == 409)
      {
-          std::string doc_id = doc.contains("id") ? doc["id"].get<std::string>() : "";
+          std::string doc_id = payload.contains("id") ? payload["id"].get<std::string>() : "";
 
           if (!doc_id.empty())
           {
@@ -1528,7 +1564,7 @@ bool BenchmarkClient::UpsertDocumentWithFieldsLocal(const std::string &collectio
 
      if (response.StatusCode != 201 && response.StatusCode != 200)
      {
-          std::string doc_id = doc.contains("id") ? doc["id"].get<std::string>() : "";
+          std::string doc_id = payload.contains("id") ? payload["id"].get<std::string>() : "";
           std::string error_msg = "  [ERROR] Failed to upsert document '" + doc_id + "' in collection '" + collection + "': HTTP " + std::to_string(response.StatusCode);
 
           if (!response.Body.empty())
@@ -1552,6 +1588,7 @@ bool BenchmarkClient::UpdateDocument(const std::string &collection, const std::s
      doc["id"] = doc_id;
      doc["title"] = title;
      doc["content"] = content;
+     AddBenchmarkDocumentIdValue(doc);
 
      std::string json_str = doc.dump();
 
@@ -1586,6 +1623,7 @@ bool BenchmarkClient::UpsertDocument(const std::string &collection, const std::s
      doc["id"] = doc_id;
      doc["title"] = title;
      doc["content"] = content;
+     AddBenchmarkDocumentIdValue(doc);
 
      std::string json_str = doc.dump();
 
@@ -1806,6 +1844,7 @@ int BenchmarkClient::InsertDocumentsBulkRequest(const std::string &collection, c
           doc["id"] = std::get<0>(doc_tuple);
           doc["title"] = std::get<1>(doc_tuple);
           doc["content"] = std::get<2>(doc_tuple);
+          AddBenchmarkDocumentIdValue(doc);
 
           payload["documents"].push_back(doc);
      }
@@ -2009,6 +2048,7 @@ int BenchmarkClient::InsertDocumentsBulkLocal(const std::string &collection, con
           doc["id"] = std::get<0>(doc_tuple);
           doc["title"] = std::get<1>(doc_tuple);
           doc["content"] = std::get<2>(doc_tuple);
+          AddBenchmarkDocumentIdValue(doc);
 
           payload["documents"].push_back(doc);
      }
@@ -2117,7 +2157,7 @@ int BenchmarkClient::InsertDocumentsBulkLocal(const std::string &collection, con
 HTTPResponse BenchmarkClient::Search(const std::string &collection, const std::string &query, const std::map<std::string, std::string> &params)
 {
      std::string path = "/collections/" + collection + "/documents/search";
-     std::string query_string = "q=" + UrlEncode(query) + "&query_by=title,content";
+     std::string query_string = "q=" + UrlEncode(query) + "&query_by=title,content,document_id";
 
      for (const auto &param : params)
      {

@@ -679,7 +679,7 @@ void RunDetailedBenchmark(const std::string &base_url, const std::string &auth_t
           nlohmann::json search_params_json;
 
           search_params_json["q"] = complex_query_terms[i % complex_query_terms.size()];
-          search_params_json["query_by"] = "title,content";
+          search_params_json["query_by"] = "title,content,document_id";
           search_params_json["filter_by"] = "title:" + simple_query_terms[i % simple_query_terms.size()];
           search_params_json["sort_by"] = "title:asc";
           search_params_json["limit"] = 10;
@@ -732,7 +732,7 @@ void RunDetailedBenchmark(const std::string &base_url, const std::string &auth_t
 
                search_req["collection"] = test_collections[i];
                search_req["q"] = "Document";
-               search_req["query_by"] = "title,content";
+               search_req["query_by"] = "title,content,document_id";
 
                multi_search_json["Searches"].push_back(search_req);
           }

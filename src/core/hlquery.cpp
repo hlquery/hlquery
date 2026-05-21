@@ -191,10 +191,6 @@ void hlquery::RunListeners()
      if (Logs)
      {
           Logs->Debug("hlquery", "Socket engine verified/initialized for listeners.");
-     }
-
-     if (Logs)
-     {
           Logs->Debug("hlquery", "Starting " + std::to_string(Listeners.size()) + " listeners.");
      }
 
