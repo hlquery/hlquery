@@ -134,6 +134,7 @@ enum class RouteAction
      SamFlushActorMetadata,
      SamListDocuments,
      SamGetDocument,
+     SamAddDocumentLabel,
      AddDocument,
      BulkImportDocuments,
      UpdateDocument,

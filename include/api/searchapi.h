@@ -881,6 +881,10 @@ class SearchAPI
 
      HttpResponse HandleSAMGetDocument(const HttpRequest& Request);
 
+     /* HandleSAMAddDocumentLabel appends a manual label to a stored document and SAM index. */
+
+     HttpResponse HandleSAMAddDocumentLabel(const HttpRequest& Request);
+
      /* HandleBulkImportDocuments handles bulk document imports. */
 
      HttpResponse HandleBulkImportDocuments(const HttpRequest& Request);

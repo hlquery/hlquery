@@ -226,6 +226,38 @@ static std::vector<std::string> HealthGetLocalLoadedModules();
 
 static bool HealthValidateRemoteModules(const std::string &ResponseBody, std::string *OutError);
 
+static bool HealthRemoteHasSAMEnabled(const nlohmann::json &Root, const std::vector<std::string> &RemoteModules)
+{
+     bool HasExplicitSAMState = false;
+     bool ExplicitSAMEnabled = false;
+
+     auto ReadSAMBool = [&](const nlohmann::json &Value)
+     {
+          if (Value.is_boolean())
+          {
+               HasExplicitSAMState = true;
+               ExplicitSAMEnabled = ExplicitSAMEnabled || Value.get<bool>();
+          }
+     };
+
+     if (Root.contains("sam_enabled"))
+     {
+          ReadSAMBool(Root["sam_enabled"]);
+     }
+
+     if (Root.contains("sam") && Root["sam"].is_object() && Root["sam"].contains("enabled"))
+     {
+          ReadSAMBool(Root["sam"]["enabled"]);
+     }
+
+     if (HasExplicitSAMState)
+     {
+          return ExplicitSAMEnabled;
+     }
+
+     return std::binary_search(RemoteModules.begin(), RemoteModules.end(), "core_sam");
+}
+
 static void HealthProbeEndpoint(LinkEndpointInfo &Info, bool PingNode)
 {
      if (!Info.IsValid || !PingNode)
@@ -690,6 +722,16 @@ static bool HealthValidateRemoteModules(const std::string &ResponseBody, std::st
           std::sort(RemoteModules.begin(), RemoteModules.end());
           RemoteModules.erase(std::unique(RemoteModules.begin(), RemoteModules.end()), RemoteModules.end());
 
+          const bool LocalSAMEnabled = Instance && Instance->Config && Instance->Config->GetSamEnabled();
+          if (LocalSAMEnabled && !HealthRemoteHasSAMEnabled(Root, RemoteModules))
+          {
+               if (OutError)
+               {
+                    *OutError = "Remote server has SAM disabled; linked child servers must enable SAM when the master has SAM enabled";
+               }
+               return false;
+          }
+
           if (RemoteModules == LocalModules)
           {
                return true;
@@ -882,6 +924,13 @@ HttpResponse SearchAPI::HandleHealth(const HttpRequest &Request)
      {
           HealthJSON["demo_message"] = DemoMessage;
      }
+     const bool SamEnabled = Instance && Instance->Config && Instance->Config->GetSamEnabled();
+     const bool SamAvailable = SamEnabled && Instance && Instance->Sam && Instance->Sam->IsOpen();
+     HealthJSON["sam_enabled"] = SamEnabled;
+     HealthJSON["sam_available"] = SamAvailable;
+     HealthJSON["sam"] = {
+          {"enabled", SamEnabled},
+          {"available", SamAvailable}};
      HealthJSON["loaded_modules"] = nlohmann::json::array();
      if (Modules)
      {
@@ -1431,6 +1480,37 @@ HttpResponse SearchAPI::HandleLinksConnect(const HttpRequest &Request)
           if (PreCheck.Action == ModulePreCheckAction::Deny)
           {
                return BuildErrorResponse(PreCheck.HttpStatus, PreCheck.ProtocolCode, PreCheck.Message, PreCheck.Details);
+          }
+     }
+
+     LinkEndpointInfo Info = HealthBuildEndpointInfo(Endpoint);
+     if (!Info.IsValid)
+     {
+          return BuildLinksErrorResponse(Status::BAD_REQUEST, "Invalid request", Info.Error.empty() ? "Invalid endpoint format" : Info.Error);
+     }
+
+     if (!Info.IsLocal)
+     {
+          const int TimeoutMS = Instance->Config ? Instance->Config->GetDistributedSearchTimeoutMS() : 0;
+          if (Instance->Logs)
+          {
+               Instance->Logs->Normal("links", "Preflight check for link " + Info.Host + ":" + std::to_string(Info.Port) + ".");
+          }
+
+          const bool ProbeOK = HealthSendPingRequest(Info.Host, Info.Port, TimeoutMS, &Info.StatusCode, &Info.LatencyMS, &Info.Error);
+          if (!ProbeOK || Info.StatusCode < 200 || Info.StatusCode >= 300)
+          {
+               std::ostringstream Message;
+               Message << "Preflight failed for " << Info.Host << ":" << Info.Port;
+               if (Info.StatusCode > 0)
+               {
+                    Message << " status=" << Info.StatusCode;
+               }
+               if (!Info.Error.empty())
+               {
+                    Message << " error=" << Info.Error;
+               }
+               return BuildLinksErrorResponse(Status::BAD_REQUEST, "Failed to add link", Message.str());
           }
      }
 

@@ -2620,6 +2620,10 @@ void HttpConnection::ProcessSingleRequest(const std::string &RequestStr)
      {
           Response = API.HandleSAMListDocuments(Request);
      }
+     else if (NormalizedPath.find("/sam/label/add/") == 0 && Request.Method == "POST")
+     {
+          Response = API.HandleSAMAddDocumentLabel(Request);
+     }
      else if (NormalizedPath.find("/sam/documents/") == 0 && Request.Method == "GET")
      {
           Response = API.HandleSAMGetDocument(Request);
@@ -4825,6 +4829,8 @@ APIKeyAction MapRouteToKeyAction(RouteAction ActionVal)
                return APIKeyAction::UPDATE;
           case RouteAction::SamImprove:
                return APIKeyAction::UPDATE;
+          case RouteAction::SamAddDocumentLabel:
+               return APIKeyAction::UPDATE;
           case RouteAction::SamFlushActorMetadata:
                return APIKeyAction::ALL;
 
@@ -5402,6 +5408,9 @@ HttpResponse ProcessRequestWithAPI(SearchAPI &API, const HttpRequest &Request)
 
                case RouteAction::SamGetDocument:
                     return API.HandleSAMGetDocument(Request);
+
+               case RouteAction::SamAddDocumentLabel:
+                    return API.HandleSAMAddDocumentLabel(Request);
 
                case RouteAction::AddDocument:
                     return API.HandleAddDocument(Request);

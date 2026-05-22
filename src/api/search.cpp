@@ -88,10 +88,83 @@ namespace
 
      static SAMTrainingDedupe gSearchIdeaDedupe(16384);
 
+     std::string NormalizeControlToken(std::string Value)
+     {
+          const size_t Start = Value.find_first_not_of(" \t\r\n");
+
+          if (Start == std::string::npos)
+          {
+               return "";
+          }
+
+          const size_t End = Value.find_last_not_of(" \t\r\n");
+          Value = Value.substr(Start, End - Start + 1);
+
+          std::transform(Value.begin(), Value.end(), Value.begin(),
+                         [](unsigned char C)
+                         {
+                              return static_cast<char>(std::tolower(C));
+                         });
+
+          return Value;
+     }
+
+     bool IsTruthyControlToken(const std::string& Value)
+     {
+          const std::string Token = NormalizeControlToken(Value);
+          return Token == "1" || Token == "true" || Token == "yes" || Token == "on" || Token == "skip";
+     }
+
+     bool IsFalsyControlToken(const std::string& Value)
+     {
+          const std::string Token = NormalizeControlToken(Value);
+          return Token == "0" || Token == "false" || Token == "no" || Token == "off";
+     }
+
+     bool ShouldSkipSAMRecording(const HttpRequest& Request)
+     {
+          const auto SkipIt = Request.QueryParams.find("skip");
+          if (SkipIt != Request.QueryParams.end() && IsTruthyControlToken(SkipIt->second))
+          {
+               return true;
+          }
+
+          const auto SkipRecordIt = Request.QueryParams.find("skip_record");
+          if (SkipRecordIt != Request.QueryParams.end() && IsTruthyControlToken(SkipRecordIt->second))
+          {
+               return true;
+          }
+
+          const auto NoRecordIt = Request.QueryParams.find("no_record");
+          if (NoRecordIt != Request.QueryParams.end() && IsTruthyControlToken(NoRecordIt->second))
+          {
+               return true;
+          }
+
+          const auto RecordIt = Request.QueryParams.find("record");
+          if (RecordIt != Request.QueryParams.end() && IsFalsyControlToken(RecordIt->second))
+          {
+               return true;
+          }
+
+          auto HeaderIt = Request.Headers.find("X-HLQ-Skip-SAM-Record");
+          if (HeaderIt == Request.Headers.end())
+          {
+               HeaderIt = Request.Headers.find("x-hlq-skip-sam-record");
+          }
+
+          return HeaderIt != Request.Headers.end() && IsTruthyControlToken(HeaderIt->second);
+     }
+
      bool ShouldRecordSAMSearchIdea(const HttpRequest& Request,
                                    const std::string& Collection,
                                    const std::string& Query)
      {
+          if (ShouldSkipSAMRecording(Request))
+          {
+               return false;
+          }
+
           if (!Instance || !Instance->Config || !Instance->Config->GetSamRecordSearchIdeas())
           {
                return false;

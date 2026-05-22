@@ -342,10 +342,83 @@ namespace
 
      static SAMInteractionAbuseGuard gSamInteractionAbuseGuard;
 
+     std::string NormalizeControlToken(std::string Value)
+     {
+          const size_t Start = Value.find_first_not_of(" \t\r\n");
+
+          if (Start == std::string::npos)
+          {
+               return "";
+          }
+
+          const size_t End = Value.find_last_not_of(" \t\r\n");
+          Value = Value.substr(Start, End - Start + 1);
+
+          std::transform(Value.begin(), Value.end(), Value.begin(),
+                         [](unsigned char C)
+                         {
+                              return static_cast<char>(std::tolower(C));
+                         });
+
+          return Value;
+     }
+
+     bool IsTruthyControlToken(const std::string& Value)
+     {
+          const std::string Token = NormalizeControlToken(Value);
+          return Token == "1" || Token == "true" || Token == "yes" || Token == "on" || Token == "skip";
+     }
+
+     bool IsFalsyControlToken(const std::string& Value)
+     {
+          const std::string Token = NormalizeControlToken(Value);
+          return Token == "0" || Token == "false" || Token == "no" || Token == "off";
+     }
+
+     bool ShouldSkipSAMRecording(const HttpRequest& Request)
+     {
+          const auto SkipIt = Request.QueryParams.find("skip");
+          if (SkipIt != Request.QueryParams.end() && IsTruthyControlToken(SkipIt->second))
+          {
+               return true;
+          }
+
+          const auto SkipRecordIt = Request.QueryParams.find("skip_record");
+          if (SkipRecordIt != Request.QueryParams.end() && IsTruthyControlToken(SkipRecordIt->second))
+          {
+               return true;
+          }
+
+          const auto NoRecordIt = Request.QueryParams.find("no_record");
+          if (NoRecordIt != Request.QueryParams.end() && IsTruthyControlToken(NoRecordIt->second))
+          {
+               return true;
+          }
+
+          const auto RecordIt = Request.QueryParams.find("record");
+          if (RecordIt != Request.QueryParams.end() && IsFalsyControlToken(RecordIt->second))
+          {
+               return true;
+          }
+
+          auto HeaderIt = Request.Headers.find("X-HLQ-Skip-SAM-Record");
+          if (HeaderIt == Request.Headers.end())
+          {
+               HeaderIt = Request.Headers.find("x-hlq-skip-sam-record");
+          }
+
+          return HeaderIt != Request.Headers.end() && IsTruthyControlToken(HeaderIt->second);
+     }
+
      bool ShouldRecordSAMSearchIdea(const HttpRequest& Request,
                                    const std::string& Collection,
                                    const std::string& Query)
      {
+          if (ShouldSkipSAMRecording(Request))
+          {
+               return false;
+          }
+
           if (!Instance || !Instance->Config || !Instance->Config->GetSamRecordSearchIdeas())
           {
                return false;
@@ -372,6 +445,11 @@ namespace
                                      const std::string& Query,
                                      const std::string& DocumentID)
      {
+          if (ShouldSkipSAMRecording(Request))
+          {
+               return false;
+          }
+
           if (!Instance || !Instance->Config || !Instance->Config->GetSamRecordInteractions())
           {
                return false;
@@ -873,6 +951,250 @@ static bool ExtractSAMDocumentPathParts(const std::string &Path,
      Collection = Remainder.substr(0, SlashPos);
      DocumentID = Remainder.substr(SlashPos + 1);
      return !Collection.empty() && !DocumentID.empty();
+}
+
+static bool ExtractSAMLabelAddPathParts(const std::string &Path,
+                                        std::string &Collection,
+                                        std::string &DocumentID)
+{
+     Collection.clear();
+     DocumentID.clear();
+
+     std::string Normalized = Path;
+     const size_t QueryPos = Normalized.find('?');
+
+     if (QueryPos != std::string::npos)
+     {
+          Normalized = Normalized.substr(0, QueryPos);
+     }
+
+     if (Normalized.size() > 1 && Normalized.back() == '/')
+     {
+          Normalized.pop_back();
+     }
+
+     const std::string Prefix = "/sam/label/add/";
+
+     if (Normalized.rfind(Prefix, 0) != 0)
+     {
+          return false;
+     }
+
+     const std::string Remainder = Normalized.substr(Prefix.size());
+     const size_t SlashPos = Remainder.find('/');
+
+     if (SlashPos == std::string::npos || SlashPos == 0 || SlashPos + 1 >= Remainder.size())
+     {
+          return false;
+     }
+
+     Collection = Remainder.substr(0, SlashPos);
+     DocumentID = Remainder.substr(SlashPos + 1);
+     return !Collection.empty() && !DocumentID.empty();
+}
+
+static std::vector<std::string> SplitManualLabels(const std::string &RawValue)
+{
+     std::vector<std::string> Labels;
+     std::string Current;
+
+     for (char C : RawValue)
+     {
+          if (C == ',' || C == '\n' || C == '\r' || C == '\t')
+          {
+               std::string Label = TrimCopy(Current);
+
+               if (!Label.empty())
+               {
+                    Labels.push_back(Label);
+               }
+
+               Current.clear();
+               continue;
+          }
+
+          Current.push_back(C);
+     }
+
+     std::string Label = TrimCopy(Current);
+
+     if (!Label.empty())
+     {
+          Labels.push_back(Label);
+     }
+
+     return Labels;
+}
+
+static std::vector<std::string> ParseExistingLabels(const std::string &RawValue)
+{
+     const std::string Trimmed = TrimCopy(RawValue);
+
+     if (Trimmed.empty())
+     {
+          return {};
+     }
+
+     try
+     {
+          nlohmann::json Parsed = nlohmann::json::parse(Trimmed);
+
+          if (Parsed.is_array())
+          {
+               std::vector<std::string> Labels;
+
+               for (const auto &Item : Parsed)
+               {
+                    std::string Label;
+
+                    if (Item.is_string())
+                    {
+                         Label = TrimCopy(Item.get<std::string>());
+                    }
+                    else if (!Item.is_null())
+                    {
+                         Label = TrimCopy(Item.dump());
+                    }
+
+                    if (!Label.empty())
+                    {
+                         Labels.push_back(Label);
+                    }
+               }
+
+               return Labels;
+          }
+     }
+     catch (...)
+     {
+     }
+
+     return SplitManualLabels(Trimmed);
+}
+
+static std::vector<std::string> ExtractManualLabelsFromRequest(const HttpRequest &Request)
+{
+     std::vector<std::string> Labels;
+
+     const auto QueryLabelIt = Request.QueryParams.find("label");
+     if (QueryLabelIt != Request.QueryParams.end())
+     {
+          const std::vector<std::string> QueryLabels = SplitManualLabels(QueryLabelIt->second);
+          Labels.insert(Labels.end(), QueryLabels.begin(), QueryLabels.end());
+     }
+
+     const auto QueryLabelsIt = Request.QueryParams.find("labels");
+     if (QueryLabelsIt != Request.QueryParams.end())
+     {
+          const std::vector<std::string> QueryLabels = SplitManualLabels(QueryLabelsIt->second);
+          Labels.insert(Labels.end(), QueryLabels.begin(), QueryLabels.end());
+     }
+
+     const std::string Body = TrimCopy(Request.Body);
+
+     if (!Body.empty())
+     {
+          try
+          {
+               nlohmann::json Parsed = nlohmann::json::parse(Body);
+
+               if (Parsed.is_object())
+               {
+                    if (Parsed.contains("label"))
+                    {
+                         if (Parsed["label"].is_string())
+                         {
+                              const std::vector<std::string> BodyLabels = SplitManualLabels(Parsed["label"].get<std::string>());
+                              Labels.insert(Labels.end(), BodyLabels.begin(), BodyLabels.end());
+                         }
+                         else if (!Parsed["label"].is_null())
+                         {
+                              Labels.push_back(TrimCopy(Parsed["label"].dump()));
+                         }
+                    }
+
+                    if (Parsed.contains("labels"))
+                    {
+                         if (Parsed["labels"].is_array())
+                         {
+                              for (const auto &Item : Parsed["labels"])
+                              {
+                                   if (Item.is_string())
+                                   {
+                                        const std::vector<std::string> BodyLabels = SplitManualLabels(Item.get<std::string>());
+                                        Labels.insert(Labels.end(), BodyLabels.begin(), BodyLabels.end());
+                                   }
+                                   else if (!Item.is_null())
+                                   {
+                                        Labels.push_back(TrimCopy(Item.dump()));
+                                   }
+                              }
+                         }
+                         else if (Parsed["labels"].is_string())
+                         {
+                              const std::vector<std::string> BodyLabels = SplitManualLabels(Parsed["labels"].get<std::string>());
+                              Labels.insert(Labels.end(), BodyLabels.begin(), BodyLabels.end());
+                         }
+                    }
+               }
+               else if (Parsed.is_string())
+               {
+                    const std::vector<std::string> BodyLabels = SplitManualLabels(Parsed.get<std::string>());
+                    Labels.insert(Labels.end(), BodyLabels.begin(), BodyLabels.end());
+               }
+               else if (Parsed.is_array())
+               {
+                    for (const auto &Item : Parsed)
+                    {
+                         if (Item.is_string())
+                         {
+                              const std::vector<std::string> BodyLabels = SplitManualLabels(Item.get<std::string>());
+                              Labels.insert(Labels.end(), BodyLabels.begin(), BodyLabels.end());
+                         }
+                         else if (!Item.is_null())
+                         {
+                              Labels.push_back(TrimCopy(Item.dump()));
+                         }
+                    }
+               }
+          }
+          catch (...)
+          {
+               std::string Text = Body;
+               const size_t ColonPos = Text.find(':');
+               const size_t EqualsPos = Text.find('=');
+
+               if (ColonPos != std::string::npos &&
+                   ToLowerCopy(TrimCopy(Text.substr(0, ColonPos))) == "label")
+               {
+                    Text = Text.substr(ColonPos + 1);
+               }
+               else if (EqualsPos != std::string::npos &&
+                        ToLowerCopy(TrimCopy(Text.substr(0, EqualsPos))) == "label")
+               {
+                    Text = Text.substr(EqualsPos + 1);
+               }
+
+               const std::vector<std::string> BodyLabels = SplitManualLabels(Text);
+               Labels.insert(Labels.end(), BodyLabels.begin(), BodyLabels.end());
+          }
+     }
+
+     std::vector<std::string> CleanLabels;
+     std::unordered_set<std::string> Seen;
+
+     for (const std::string &LabelValue : Labels)
+     {
+          const std::string Label = TrimCopy(LabelValue);
+          const std::string Key = ToLowerCopy(Label);
+
+          if (!Label.empty() && Seen.insert(Key).second)
+          {
+               CleanLabels.push_back(Label);
+          }
+     }
+
+     return CleanLabels;
 }
 
 /* HandleListDocuments lists documents in a collection with pagination and sorting. */
@@ -4256,6 +4578,205 @@ HttpResponse SearchAPI::HandleSAMGetDocument(const HttpRequest &Request)
 
      HttpResponse Response(Status::OK, StatusText(Status::OK), "application/json");
      Response.Body = Root.dump();
+     return Response;
+}
+
+HttpResponse SearchAPI::HandleSAMAddDocumentLabel(const HttpRequest &Request)
+{
+     if (Request.Method != "POST")
+     {
+          return HttpResponse(Status::METHOD_NOT_ALLOWED, StatusText(Status::METHOD_NOT_ALLOWED), "application/json");
+     }
+
+     std::string CollectionName;
+     std::string DocumentID;
+
+     if (!ExtractSAMLabelAddPathParts(Request.Path, CollectionName, DocumentID))
+     {
+          return BuildErrorResponse(Status::BAD_REQUEST,
+                                    Code::SEARCH_INVALID_PARAMETER,
+                                    "Invalid SAM label path",
+                                    "Expected /sam/label/add/<collection>/<document-id>.");
+     }
+
+     if (!HybridStorageManagerInstance().CollectionExists(CollectionName))
+     {
+          return BuildErrorResponse(Status::NOT_FOUND,
+                                    Code::COLLECTION_NOT_FOUND,
+                                    "Collection not found",
+                                    "The specified collection does not exist.");
+     }
+
+     if (ShouldAttemptDistributedIngest(Request))
+     {
+          std::string TargetHost;
+          int TargetPort = 0;
+          bool IsLocal = false;
+
+          if (SelectDistributedNodeForKey(DocumentID, &TargetHost, &TargetPort, &IsLocal) && !IsLocal)
+          {
+               HttpResponse ProxyResp;
+               std::string ProxyError;
+
+               if (ProxyDistributedRequest(Request, TargetHost, TargetPort, &ProxyResp, &ProxyError))
+               {
+                    return ProxyResp;
+               }
+
+               return BuildErrorResponse(Status::SERVICE_UNAVAILABLE,
+                                         Code::SEARCH_INVALID_PARAMETER,
+                                         "Distributed ingest unavailable.",
+                                         ProxyError.empty() ? "Failed to forward SAM label update to target node." : ProxyError);
+          }
+     }
+
+     const std::vector<std::string> RequestedLabels = ExtractManualLabelsFromRequest(Request);
+
+     if (RequestedLabels.empty())
+     {
+          return BuildErrorResponse(Status::BAD_REQUEST,
+                                    Code::SEARCH_INVALID_PARAMETER,
+                                    "Missing label",
+                                    "Provide a label with ?label=..., JSON {\"label\":\"...\"}, or a body like label:queen of pop.");
+     }
+
+     Document StorageDoc;
+
+     try
+     {
+          StorageDoc = HybridStorageManagerInstance().GetDocument(CollectionName, DocumentID);
+     }
+     catch (const std::exception &E)
+     {
+          return BuildErrorResponse(Status::INTERNAL_SERVER_ERROR,
+                                    Code::SEARCH_INVALID_PARAMETER,
+                                    "Document lookup failed",
+                                    std::string("Failed to retrieve document: ") + E.what());
+     }
+     catch (...)
+     {
+          return BuildErrorResponse(Status::INTERNAL_SERVER_ERROR,
+                                    Code::SEARCH_INVALID_PARAMETER,
+                                    "Document lookup failed",
+                                    "Unknown error occurred while retrieving document.");
+     }
+
+     if (StorageDoc.ID.empty())
+     {
+          return BuildErrorResponse(Status::NOT_FOUND,
+                                    Code::DOCUMENT_NOT_FOUND,
+                                    "Document not found",
+                                    "The specified document does not exist in this collection.");
+     }
+
+     std::vector<std::string> Labels = ParseExistingLabels(StorageDoc.Fields["labels"]);
+     std::unordered_set<std::string> ExistingKeys;
+
+     for (const std::string &Label : Labels)
+     {
+          ExistingKeys.insert(ToLowerCopy(TrimCopy(Label)));
+     }
+
+     std::vector<std::string> AddedLabels;
+
+     for (const std::string &Label : RequestedLabels)
+     {
+          std::string LabelError;
+
+          if (!ValidateFieldValue(Label, &LabelError, "label"))
+          {
+               return BuildErrorResponse(Status::BAD_REQUEST,
+                                         Code::SEARCH_INVALID_PARAMETER,
+                                         "Invalid label",
+                                         LabelError.empty() ? "The label value is invalid." : LabelError);
+          }
+
+          const std::string Key = ToLowerCopy(TrimCopy(Label));
+
+          if (ExistingKeys.insert(Key).second)
+          {
+               Labels.push_back(Label);
+               AddedLabels.push_back(Label);
+          }
+     }
+
+     nlohmann::json LabelsJSON = nlohmann::json::array();
+
+     for (const std::string &Label : Labels)
+     {
+          LabelsJSON.push_back(Label);
+     }
+
+     StorageDoc.Fields["labels"] = LabelsJSON.dump();
+     StorageDoc.Timestamp = Instance ? Instance->NowMs() : static_cast<uint64_t>(time(nullptr) * 1000);
+
+     if (Instance && Instance->Modules)
+     {
+          ModulePreCheckResult PreCheck = RUN_MODULE_PRECHECK(OnPreUpdateDocument,
+                                                              CollectionName,
+                                                              StorageDoc,
+                                                              Request.RemoteAddress,
+                                                              Request.APIKeyID,
+                                                              !Request.APIKeyID.empty());
+
+          if (PreCheck.Action == ModulePreCheckAction::Deny)
+          {
+               return BuildErrorResponse(PreCheck.HttpStatus, PreCheck.ProtocolCode, PreCheck.Message, PreCheck.Details);
+          }
+     }
+
+     std::string ReplicationOutboxID;
+     std::string ReplicationJournalError;
+     if (!PrepareReplicationOutboxRecord(Request, "sam_add_document_label", &ReplicationOutboxID, &ReplicationJournalError))
+     {
+          return BuildErrorResponse(Status::SERVICE_UNAVAILABLE,
+                                    Code::SEARCH_INVALID_PARAMETER,
+                                    "Replication journal unavailable.",
+                                    ReplicationJournalError.empty() ? "Failed to persist replication intent before local write." : ReplicationJournalError);
+     }
+
+     if (!HybridStorageManagerInstance().AddDocument(CollectionName, StorageDoc))
+     {
+          ClearReplicationOutboxRecord(ReplicationOutboxID);
+
+          return BuildErrorResponse(Status::INTERNAL_SERVER_ERROR,
+                                    Code::SEARCH_INVALID_PARAMETER,
+                                    "Label update failed",
+                                    "Failed to persist the updated document.");
+     }
+
+     MaybeTriggerCrashInjection("replication_after_local_write");
+
+     if (!MarkReplicationOutboxCommitted(ReplicationOutboxID, Request, "sam_add_document_label", &ReplicationJournalError))
+     {
+          HttpResponse JournalResponse(Status::SERVICE_UNAVAILABLE, StatusText(Status::SERVICE_UNAVAILABLE), "application/json");
+          JournalResponse.Body = "{\"error\":\"Replication journal incomplete\",\"message\":\"Document label was updated locally but replication state was not committed durably\",\"details\":\"" + EscapeJSONString(ReplicationJournalError) + "\",\"id\":\"" + EscapeJSONString(DocumentID) + "\"}";
+          return JournalResponse;
+     }
+
+     FOREACH_MOD(OnUpdateDocument, CollectionName, DocumentID, Request.RemoteAddress, Request.APIKeyID, !Request.APIKeyID.empty());
+     BumpCollectionMutationVersion(CollectionName);
+
+     nlohmann::json Root;
+     Root["ok"] = true;
+     Root["collection"] = CollectionName;
+     Root["id"] = DocumentID;
+     Root["added"] = AddedLabels;
+     Root["labels"] = Labels;
+     Root["sam_index_requested"] = Instance && Instance->Sam && Instance->Sam->IsOpen();
+
+     HttpResponse Response(Status::OK, StatusText(Status::OK), "application/json");
+     Response.Body = Root.dump();
+
+     std::string ReplicationError;
+     if (!ReplicateWriteRequest(Request, "sam_add_document_label", &ReplicationError))
+     {
+          HttpResponse ReplicationResponse(Status::SERVICE_UNAVAILABLE, StatusText(Status::SERVICE_UNAVAILABLE), "application/json");
+          ReplicationResponse.Body = "{\"error\":\"Replication incomplete\",\"message\":\"Document label was updated locally but replica acknowledgement failed\",\"details\":\"" + EscapeJSONString(ReplicationError) + "\",\"id\":\"" + EscapeJSONString(DocumentID) + "\"}";
+          return ReplicationResponse;
+     }
+
+     ClearReplicationOutboxRecord(ReplicationOutboxID);
      return Response;
 }
 

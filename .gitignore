@@ -12,6 +12,8 @@ lib/
 !etc/api/node/lib/*.js
 !etc/api/python/lib/
 !etc/api/python/lib/*.py
+!etc/api/php/lib/
+!etc/api/php/lib/*.php
 obj/
 *.o
 *.a
