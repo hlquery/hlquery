@@ -1728,7 +1728,7 @@ print "\n"
 
     # Recommend the same RAM-aware default used by the generated Makefile.
     my $make_jobs = get_default_build_jobs();
-    my $build_cmd = "$make_cmd BUILD_JOBS=$make_jobs ROCKSDB_JOBS=$make_jobs";
+    my $build_cmd = "$make_cmd";
 
     print "  " . $char_map{'asterisk'} . " To build the project, run:\n";
     print "  " . $bold_start . "\$ " . $build_cmd . $reset_end . "\n\n";

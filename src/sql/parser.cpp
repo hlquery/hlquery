@@ -837,6 +837,11 @@ bool Parser::ParseComparison(std::string &out, std::string *error, bool allow_ag
                return ParseLike(field_name, true, true, out, error);
           }
 
+          if (MatchKeyword("CONTAINS"))
+          {
+               return ParseContains(field_name, true, out, error);
+          }
+
           if (error)
           {
                *error = "Unsupported SQL predicate after NOT for field '" + field_name + "'.";
@@ -862,6 +867,11 @@ bool Parser::ParseComparison(std::string &out, std::string *error, bool allow_ag
      if (MatchKeyword("ILIKE"))
      {
           return ParseLike(field_name, true, false, out, error);
+     }
+
+     if (MatchKeyword("CONTAINS"))
+     {
+          return ParseContains(field_name, false, out, error);
      }
 
      if (MatchKeyword("IS"))
@@ -1634,6 +1644,37 @@ bool Parser::ParseLike(const std::string &field_name,
      }
 
      out = field_name + ":" + (negate ? "NOT_" : "") + (case_insensitive ? "ILIKE:" : "LIKE:") + pattern;
+     return true;
+}
+
+bool Parser::ParseContains(const std::string &field_name, bool negate, std::string &out, std::string *error)
+{
+     std::string value;
+
+     if (!ParseValue(value))
+     {
+          if (error)
+          {
+               *error = "CONTAINS expects a string or scalar value.";
+          }
+          return false;
+     }
+
+     if (!ValidateFilterLiteral(value, error))
+     {
+          return false;
+     }
+
+     if (value.empty())
+     {
+          if (error)
+          {
+               *error = "CONTAINS value cannot be empty.";
+          }
+          return false;
+     }
+
+     out = field_name + ":" + (negate ? "NOT_LIKE:" : "LIKE:") + "*" + value + "*";
      return true;
 }
 

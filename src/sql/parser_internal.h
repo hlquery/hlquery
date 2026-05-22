@@ -104,6 +104,7 @@ class Parser
 
      bool ParseBetween(const std::string &field_name, bool negate, std::string &out, std::string *error);
      bool ParseLike(const std::string &field_name, bool case_insensitive, bool negate, std::string &out, std::string *error);
+     bool ParseContains(const std::string &field_name, bool negate, std::string &out, std::string *error);
      bool ParseIsPredicate(const std::string &field_name, std::string &out, std::string *error);
      bool ParseInList(const std::string &field_name, bool negate, std::string &out, std::string *error);
 
