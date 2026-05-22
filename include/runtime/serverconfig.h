@@ -619,6 +619,11 @@ class ServerConfig
           return SamIndexAll;
      }
 
+     bool GetSamAutoDetectCollectionLanguage() const
+     {
+          return SamAutoDetectCollectionLanguage;
+     }
+
      bool GetSamSmartBackground() const
      {
           return SamSmartBackground;
@@ -2168,6 +2173,10 @@ class ServerConfig
      /* Toggle SAM indexing for all collections. */
 
      bool SamIndexAll = false;
+
+     /* Toggle automatic collection language metadata detection. */
+
+     bool SamAutoDetectCollectionLanguage = true;
 
      /* Toggle SAM background improvement scheduling. */
 

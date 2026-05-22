@@ -59,6 +59,11 @@ static std::string GetCollectionConfigKey(const std::string &Name)
 
 static bool CollectionNeedsLanguageDetection(const std::string &Name)
 {
+     if (Instance && Instance->Config && !Instance->Config->GetSamAutoDetectCollectionLanguage())
+     {
+          return false;
+     }
+
      CollectionConfig config;
 
      if (!HybridStorageManagerInstance().GetCollectionConfig(Name, config))

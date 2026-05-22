@@ -445,6 +445,10 @@ void ServerConfig::ApplyConfiguration()
                                     0,
                                     10000000);
           SamIndexAll = SAMTag->GetBool("index_all", SamIndexAll);
+          SamAutoDetectCollectionLanguage =
+               SAMTag->GetBool("auto_detect_collection_language",
+                                SAMTag->GetBool("auto_language_detection",
+                                                SamAutoDetectCollectionLanguage));
           SamSmartBackground = SAMTag->GetBool("background_improvements",
                                                SAMTag->GetBool("smart_sam", SamSmartBackground));
           SamBackgroundImprovementIntervalMs =
