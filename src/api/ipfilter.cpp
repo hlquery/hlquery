@@ -659,7 +659,6 @@ bool IPFilter::Reload(const std::string &AllowedIPsConfig, const std::string &De
 void IPFilter::FlushDNSCache()
 {
      size_t DNSCount = 0;
-
      size_t ReverseCount = 0;
 
      {
@@ -676,7 +675,6 @@ void IPFilter::FlushDNSCache()
      if (HasHostnames && !RegularHostnames.empty())
      {
           std::lock_guard<std::mutex> Lock(MutexValue);
-
           AllowedIPs = DirectIPs;
 
           for (const auto &Hostname : RegularHostnames)
@@ -1128,7 +1126,6 @@ std::vector<std::string> IPFilter::ParseIPList(const std::string &AllowedIPsConf
      while (std::getline(SS, Item, ','))
      {
           Item.erase(0, Item.find_first_not_of(" \t\n\r"));
-
           Item.erase(Item.find_last_not_of(" \t\n\r") + 1);
 
           if (!Item.empty())
