@@ -453,6 +453,12 @@ static const std::unordered_map<std::string, std::vector<FakeSynonymSeed>> kFake
            {"team", {"squad", "lineup", "club", "roster"}},
            {"match", {"contest", "playoff", "tournament", "final"}},
       }},
+     {"stocks",
+      {
+           {"ticker", {"symbol", "cashtag", "equity", "fund"}},
+           {"stock", {"share", "equity", "exchange", "price"}},
+           {"portfolio", {"allocation", "holding", "basket", "exposure"}},
+      }},
      {"technology",
       {
            {"software", {"platform", "service", "application", "stack"}},
@@ -479,6 +485,7 @@ static const std::unordered_map<std::string, std::vector<std::string>> kFakeColl
      {"food", {"food", "dish", "kitchen", "flavor"}},
      {"history", {"history", "era", "archive", "empire"}},
      {"math", {"math", "proof", "equation", "theorem"}},
+     {"stocks", {"stock", "session", "portfolio", "watchlist"}},
      {"movies", {"film", "scene", "director", "cinema"}},
      {"music", {"music", "song", "album", "artist"}},
      {"science", {"study", "lab", "data", "theory"}},
@@ -628,6 +635,29 @@ bool CreateFakeCollections(const std::string &base_url, const std::string &auth_
                 {"University of Massachusetts Amherst",
                  "Massachusetts public flagship with strong computer science, public health, engineering, sustainability, and social-science research in the New England region."},
            }},
+          {"stocks",
+           {
+                {"Demo Stock News: $SPY Breadth Watch",
+                 "Synthetic demo article for $SPY: desk notes describe a steady index-tracking session where breadth, sector rotation, and risk appetite matter more than any single headline."},
+                {"Demo Stock News: $QQQ Growth Pulse",
+                 "Synthetic demo article for $QQQ: the watchlist focuses on growth-stock momentum, software demand, chip supply, and whether buyers keep supporting large-cap technology themes."},
+                {"Demo Stock News: $DIA Blue-Chip Rotation",
+                 "Synthetic demo article for $DIA: market observers frame the session around blue-chip durability, dividend sensitivity, and defensive demand after a mixed macro morning."},
+                {"Demo Stock News: $IWM Small-Cap Tape",
+                 "Synthetic demo article for $IWM: the small-cap basket draws attention from traders watching credit conditions, local-bank tone, and domestic cyclical participation."},
+                {"Demo Stock News: $TLT Duration Desk",
+                 "Synthetic demo article for $TLT: bond-market commentary highlights duration exposure, rate expectations, and portfolio hedging as yields move through a narrow range."},
+                {"Demo Stock News: $GLD Safe-Haven Flow",
+                 "Synthetic demo article for $GLD: the metals note tracks inflation hedging, real-yield pressure, and cautious allocation choices during a quieter risk session."},
+                {"Demo Stock News: $USO Energy Tape",
+                 "Synthetic demo article for $USO: the energy desk follows crude-linked sentiment, supply commentary, refinery margins, and the way commodity moves affect inflation narratives."},
+                {"Demo Stock News: $AAPL Product Cycle",
+                 "Synthetic demo article for $AAPL: the company note studies device demand, services mix, margin discipline, and index weight without making a live investment call."},
+                {"Demo Stock News: $MSFT Cloud Demand",
+                 "Synthetic demo article for $MSFT: the watchlist centers on cloud backlog, enterprise software renewals, AI infrastructure cost, and platform spending discipline."},
+                {"Demo Stock News: $NVDA AI Supply Chain",
+                 "Synthetic demo article for $NVDA: the desk brief follows accelerator demand, data-center orders, supply-chain capacity, and growth-stock positioning."},
+           }},
      };
 
      std::vector<FakeCollectionSpec> specs = {
@@ -642,6 +672,7 @@ bool CreateFakeCollections(const std::string &base_url, const std::string &auth_
           {"history", {"era", "archive", "ancient", "modern", "war", "empire", "documentary", "timeline", "heritage", "biography"}},
           {"technology", {"software", "hardware", "ai", "network", "security", "startup", "gadget", "cloud", "robotics", "mobile"}},
           {"math", {"algebra", "geometry", "calculus", "probability", "prime", "matrix", "vector", "theorem", "equation", "integral"}},
+          {"stocks", {"spy", "qqq", "dia", "iwm", "tlt", "gld", "uso", "aapl", "msft", "nvda"}},
           {"universities", {"california", "michigan", "ohio", "texas", "washington", "florida", "illinois", "georgia", "pennsylvania", "massachusetts"}}};
 
      BenchmarkClient client(base_url, auth_token, reuse_collections);
@@ -702,6 +733,20 @@ bool CreateFakeCollections(const std::string &base_url, const std::string &auth_
                math_fields.push_back({{"name", "equation_index"}, {"type", "int32"}});
                math_fields.push_back({{"name", "prime_candidate"}, {"type", "int32"}});
                collection_created = client.CreateCollectionWithSchemaLocal(collection_name, math_fields, "value");
+          }
+          else if (spec.Name == "stocks")
+          {
+               nlohmann::json stock_fields = nlohmann::json::array();
+               stock_fields.push_back({{"name", "title"}, {"type", "string"}});
+               stock_fields.push_back({{"name", "content"}, {"type", "string"}});
+               stock_fields.push_back({{"name", "description"}, {"type", "string"}});
+               stock_fields.push_back({{"name", "labels"}, {"type", "string"}});
+               stock_fields.push_back({{"name", "ticker"}, {"type", "string"}});
+               stock_fields.push_back({{"name", "cashtag"}, {"type", "string"}});
+               stock_fields.push_back({{"name", "asset_class"}, {"type", "string"}});
+               stock_fields.push_back({{"name", "watchlist"}, {"type", "string"}});
+               stock_fields.push_back({{"name", "source"}, {"type", "string"}});
+               collection_created = client.CreateCollectionWithSchemaLocal(collection_name, stock_fields, "");
           }
           else
           {
@@ -1180,6 +1225,37 @@ bool CreateFakeCollections(const std::string &base_url, const std::string &auth_
                     LogOutput("  ↳ Added numeric fields to " + std::to_string(math_updated) + " math documents.\n");
                }
           }
+          else if (spec.Name == "stocks")
+          {
+               size_t stocks_updated = 0;
+
+               for (size_t i = 0; i < docs.size(); ++i)
+               {
+                    const auto &doc_tuple = docs[i];
+                    const std::string &ticker = spec.Tags[i % spec.Tags.size()];
+                    const std::string cashtag = "$" + std::string(ticker);
+
+                    nlohmann::json stock_doc = enriched_docs[i];
+                    stock_doc["id"] = std::get<0>(doc_tuple);
+                    stock_doc["title"] = std::get<1>(doc_tuple);
+                    stock_doc["content"] = std::get<2>(doc_tuple) + " Demo search examples include " + cashtag + ", " + ticker + ", ticker " + ticker + ", and cashtag " + cashtag + ".";
+                    stock_doc["ticker"] = ticker;
+                    stock_doc["cashtag"] = cashtag;
+                    stock_doc["asset_class"] = (i < 4) ? "equity_etf" : ((i < 7) ? "commodity_or_bond_etf" : "single_stock");
+                    stock_doc["watchlist"] = "stocks tickers cashtags finance demo";
+                    stock_doc["source"] = "synthetic_demo_news";
+
+                    if (client.UpsertDocumentWithFieldsLocal(collection_name, stock_doc))
+                    {
+                         stocks_updated++;
+                    }
+               }
+
+               if (verbose)
+               {
+                    LogOutput("  ↳ Added ticker and cashtag metadata to " + std::to_string(stocks_updated) + " stock news documents.\n");
+               }
+          }
 
           LogOutput("✓ Inserted " + std::to_string(inserted) + " fake documents into '" + collection_name + "'.\n");
           if (inserted != docs.size())
@@ -1414,12 +1490,12 @@ static void PrintBenchmarkHelp(const char *program_name)
                << "                    and functionalities (includes --advanced)\n"
                << "  --Search           Run search benchmark on previously inserted data\n"
                << "  --dump             Dump all collections and their documents\n"
-               << "  --fake             Insert realistic sample data (food, music, science, etc.) for testing\n"
+               << "  --fake             Insert realistic sample data (food, stocks, music, science, etc.) for testing\n"
                << "  --flood            Flood server with continuous random data generation for stress testing\n"
                << "                    (runs until stopped with Ctrl+C, randomly creates collections and documents)\n"
                << "  --id ID            Run UUID/ID for correlation (default: auto-generated)\n"
                << "  --seed SEED        Seed for deterministic runs\n"
-               << "  --no-fake-collections  Disable fake helper collections (food, music, sports, etc.)\n"
+               << "  --no-fake-collections  Disable fake helper collections (food, stocks, music, sports, etc.)\n"
                << "  --verify-after-restart   Verify counts after server restart\n"
                << "  --check-consistency      Check consistency of /status, /stats, /metrics, /doctotal\n"
                << "  --dry-run          Generate collections/docs in memory but don't send to server\n"

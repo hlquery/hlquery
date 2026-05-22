@@ -854,20 +854,17 @@ bool IPFilter::ResolveHostname(const std::string &Hostname, std::vector<std::str
      if (UseCache && !ResolvedIPs.empty())
      {
           std::lock_guard<std::mutex> CacheLock(CacheMutex);
-
           auto It = DNSCache.find(Hostname);
 
           if (It != DNSCache.end())
           {
                ResolvedIPs = It->second;
-
                return !ResolvedIPs.empty();
           }
 
           if (DNSCache.size() >= DNSCacheMaxSize)
           {
                DNSCache.clear();
-
                DNSCacheOrder.clear();
 
                if (Instance && Instance->Logs)
@@ -930,7 +927,6 @@ bool IPFilter::IsCIDR(const std::string &CIDR) const
      }
 
      std::string IPPart = CIDR.substr(0, SlashPos);
-
      std::string MaskPart = CIDR.substr(SlashPos + 1);
 
      if (!IsValidIP(IPPart))
@@ -941,7 +937,6 @@ bool IPFilter::IsCIDR(const std::string &CIDR) const
      try
      {
           int MaskVal = std::stoi(MaskPart);
-
           return MaskVal >= 0 && MaskVal <= 32;
      }
      catch (...)
@@ -969,11 +964,8 @@ bool IPFilter::IsIPInCIDR(const std::string &IP, const std::string &CIDR) const
      }
 
      std::string NetworkStr = CIDR.substr(0, SlashPos);
-
      int MaskBits = std::stoi(CIDR.substr(SlashPos + 1));
-
      struct sockaddr_in NetworkAddr;
-
      struct sockaddr_in IPAddr;
 
      if (inet_pton(AF_INET, NetworkStr.c_str(), &(NetworkAddr.sin_addr)) != 1)

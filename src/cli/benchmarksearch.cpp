@@ -10,6 +10,7 @@
  * For more details, please visit: https://docs.hlquery.com
  */
 
+#include <algorithm>
 #include <chrono>
 #include <iostream>
 #include <map>
@@ -122,10 +123,15 @@ void RunSearches(const std::string &base_url, const std::string &auth_token)
      std::vector<std::string> all_collections = client.ListCollections();
 
      std::vector<std::string> bench_collections;
+     static const std::vector<std::string> fake_collections =
+          {"art", "books", "food", "history", "math", "movies", "music", "science", "sports", "stocks", "technology", "travel", "universities"};
 
      for (const auto &col : all_collections)
      {
-          if (col.find(g_collection_prefix) == 0 || col.find("random_") == 0 || col == "unorganized")
+          if (col.find(g_collection_prefix) == 0 ||
+              col.find("random_") == 0 ||
+              col == "unorganized" ||
+              std::find(fake_collections.begin(), fake_collections.end(), col) != fake_collections.end())
           {
                bench_collections.push_back(col);
           }
@@ -153,13 +159,13 @@ void RunSearches(const std::string &base_url, const std::string &auth_token)
           {
                "Document", "Collection", "content", "Lorem", "ipsum", "dolor",
                "consectetur", "adipiscing", "elit", "inserted", "thread",
-               "music", "science", "band", "cake", "discovery"};
+               "music", "science", "band", "cake", "discovery", "$SPY", "$QQQ", "ticker", "cashtag"};
 
-     for (int i = 0; i < 15; i++)
+     for (size_t i = 0; i < base_queries.size(); i++)
      {
           std::string collection = bench_collections[col_dist(Tools::GetRNG())];
 
-          std::string query = base_queries[i % base_queries.size()];
+          std::string query = base_queries[i];
 
           std::map<std::string, std::string> params;
 
@@ -168,6 +174,21 @@ void RunSearches(const std::string &base_url, const std::string &auth_token)
           auto response = client.Search(collection, query, params);
 
           PrintSearchResult(++search_count_val, "Basic Search: '" + query + "'", response, collection);
+     }
+
+     if (std::find(bench_collections.begin(), bench_collections.end(), "stocks") != bench_collections.end())
+     {
+          const std::vector<std::string> stock_queries = {"$SPY", "$QQQ", "SPY", "ticker"};
+
+          for (const auto &query : stock_queries)
+          {
+               std::map<std::string, std::string> params;
+               params["limit"] = "5";
+
+               auto response = client.Search("stocks", query, params);
+
+               PrintSearchResult(++search_count_val, "Stock ticker search: '" + query + "'", response, "stocks");
+          }
      }
 
      std::vector<std::string> wildcard_prefix =
