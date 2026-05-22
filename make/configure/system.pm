@@ -21,9 +21,11 @@ use File::Spec::Functions qw(catdir catfile);
 our @EXPORT_OK = qw(
     apply_install_layout
     default_cxx
+    get_default_build_jobs
     detect_packaging_layout
     get_cpu_count
     get_make_command
+    get_memory_mb
     get_os_release_info
     get_system_name
     get_version_from_script
@@ -53,6 +55,40 @@ sub get_cpu_count {
 
     chomp $count if defined $count;
     return ($count && $count =~ /^\d+$/ && $count > 0) ? $count : 1;
+}
+
+sub get_memory_mb {
+    my $memory_mb = 0;
+
+    if (open my $fh, '<', '/proc/meminfo') {
+        while (my $line = <$fh>) {
+            if ($line =~ /^MemTotal:\s+(\d+)\s+kB/) {
+                $memory_mb = int($1 / 1024);
+                last;
+            }
+        }
+        close $fh;
+    } elsif (get_system_name() =~ /^(FreeBSD|Darwin)$/) {
+        my $bytes = `sysctl -n hw.memsize 2>/dev/null`;
+        chomp $bytes if defined $bytes;
+        $memory_mb = int($bytes / 1024 / 1024) if $bytes && $bytes =~ /^\d+$/;
+    }
+
+    return ($memory_mb && $memory_mb > 0) ? $memory_mb : 0;
+}
+
+sub get_default_build_jobs {
+    my $cpus = get_cpu_count();
+    my $memory_mb = get_memory_mb();
+    my $jobs = $cpus;
+
+    if ($memory_mb > 0) {
+        my $memory_jobs = int($memory_mb / 1536);
+        $memory_jobs = 1 if $memory_jobs < 1;
+        $jobs = $memory_jobs if $memory_jobs < $jobs;
+    }
+
+    return $jobs > 0 ? $jobs : 1;
 }
 
 sub default_cxx {

@@ -88,11 +88,12 @@ endif
 ROCKSDB_DIR ?= vendor/rocksdb
 ROCKSDB_BUILD_DIR ?= $(ROCKSDB_DIR)/build
 ROCKSDB_LIB = $(ROCKSDB_BUILD_DIR)/librocksdb.a
-ROCKSDB_JOBS ?= $(shell nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
-ROCKSDB_BUILD_PARALLEL := -j$(ROCKSDB_JOBS)
-ifneq ($(findstring --jobserver-auth,$(MAKEFLAGS)),)
-  ROCKSDB_BUILD_PARALLEL :=
-endif
+CPU_COUNT ?= $(shell nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 1)
+MEMORY_MB ?= $(shell if [ -r /proc/meminfo ]; then awk '/MemTotal/ {print int($$2 / 1024)}' /proc/meminfo; else bytes=$$(sysctl -n hw.memsize 2>/dev/null || echo 0); echo $$((bytes / 1024 / 1024)); fi)
+AUTO_BUILD_JOBS ?= $(shell cpu="$(CPU_COUNT)"; mem="$(MEMORY_MB)"; [ "$$cpu" -gt 0 ] 2>/dev/null || cpu=1; if [ "$$mem" -gt 0 ] 2>/dev/null; then mem_jobs=$$((mem / 1536)); [ "$$mem_jobs" -ge 1 ] || mem_jobs=1; [ "$$cpu" -le "$$mem_jobs" ] && echo "$$cpu" || echo "$$mem_jobs"; else echo "$$cpu"; fi)
+BUILD_JOBS ?= $(AUTO_BUILD_JOBS)
+ROCKSDB_JOBS ?= $(AUTO_BUILD_JOBS)
+ROCKSDB_BUILD_PARALLEL := --parallel $(ROCKSDB_JOBS)
 ROCKSDB_INCLUDE = $(if $(wildcard $(ROCKSDB_DIR)/include),-I$(ROCKSDB_DIR)/include,)
 
 # Base compiler flags
@@ -256,7 +257,7 @@ else
 endif
 
 # Parallel compilation
-MAKEFLAGS += -j$(shell nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
+MAKEFLAGS += -j$(BUILD_JOBS)
 
 # FEATURE FLAGS
 
@@ -489,6 +490,7 @@ $(ROCKSDB_LIB):
 			elif $(CXX) --version 2>/dev/null | grep -qi clang; then \
 				ROCKSDB_WARN_FLAGS="-Wno-uninitialized -Wno-unknown-warning-option -Wno-error=unknown-warning-option"; \
 			fi; \
+			echo "$(CYAN)RocksDB build jobs: $(ROCKSDB_JOBS) (detected $(MEMORY_MB) MB RAM, $(CPU_COUNT) CPU; override with ROCKSDB_JOBS=N)$(NC)"; \
 			cmake --log-level=NOTICE -S $(ROCKSDB_DIR) -B $(ROCKSDB_BUILD_DIR) -DCMAKE_BUILD_TYPE=Release \
 			      -DCMAKE_CXX_COMPILER="$(CXX)" \
 			      -DWITH_TESTS=OFF \
@@ -508,7 +510,7 @@ $(ROCKSDB_LIB):
 			      -DWITH_BENCHMARK_TOOLS=OFF \
 			      -DCMAKE_CXX_FLAGS="-fPIC -Wno-error $$ROCKSDB_WARN_FLAGS" \
 			      || { echo "$(RED)Error: CMake configuration failed$(NC)" >&2; echo "$(YELLOW)Try: rm -rf $(ROCKSDB_BUILD_DIR) && make$(NC)" >&2; exit 1; }; \
-			cmake --build $(ROCKSDB_BUILD_DIR) --target rocksdb $(ROCKSDB_BUILD_PARALLEL) >/dev/null || { echo "$(RED)Error: RocksDB build failed$(NC)" >&2; exit 1; } && \
+			cmake --build $(ROCKSDB_BUILD_DIR) --target rocksdb $(ROCKSDB_BUILD_PARALLEL) >/dev/null || { echo "$(RED)Error: RocksDB build failed$(NC)" >&2; echo "$(YELLOW)If this VPS ran out of memory, retry with: make ROCKSDB_JOBS=1 BUILD_JOBS=1$(NC)" >&2; exit 1; } && \
 		([ "$$(id -u)" != "0" ] && chown -R $$(id -u):$$(id -g) $(ROCKSDB_BUILD_DIR) 2>/dev/null || true) && \
 		([ "$$(id -u)" != "0" ] && chmod -R u+w $(ROCKSDB_BUILD_DIR) 2>/dev/null || true) && \
 		cd $(ROCKSDB_BUILD_DIR) && \
@@ -939,7 +941,10 @@ build-info:
 	@echo "  Compiler:       $(CXX)"
 	@echo "  CXXFLAGS:       $(CXXFLAGS)"
 	@echo "  LDFLAGS:        $(LDFLAGS)"
-	@echo "  Parallel Jobs:  $(shell nproc 2>/dev/null || echo 4)"
+	@echo "  CPU Count:      $(CPU_COUNT)"
+	@echo "  Memory:         $(MEMORY_MB) MB"
+	@echo "  Parallel Jobs:  $(BUILD_JOBS)"
+	@echo "  RocksDB Jobs:   $(ROCKSDB_JOBS)"
 	@echo "  jemalloc:       $(if $(filter 1,$(WITH_JEMALLOC)),enabled,disabled)"
 	@echo "  tcmalloc:       $(if $(filter 1,$(WITH_TCMALLOC)),enabled,disabled)"
 	@echo "  PGO:            $(if $(USE_PGO),enabled ($(USE_PGO)),disabled)"

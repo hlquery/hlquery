@@ -34,8 +34,10 @@ use make::configure::extras qw(
 use make::configure::system qw(
     apply_install_layout
     default_cxx
+    get_default_build_jobs
     get_cpu_count
     get_make_command
+    get_memory_mb
     get_system_name
     get_version_from_script
 );
@@ -1549,6 +1551,8 @@ sub main {
     my $cpus = get_cpu_count();
     $config{MAX_THREADS} = $max_threads || $cpus;
     print_success('Max threads', $config{MAX_THREADS});
+    my $memory_mb = get_memory_mb();
+    print_success('Build memory', $memory_mb ? "${memory_mb} MB" : 'unknown');
 
     my $openssl_ok = check_openssl();
     my $gnutls_ok = check_gnutls();
@@ -1722,14 +1726,9 @@ print "\n"
     
     my $make_cmd = get_make_command();
 
-    # Get processor count for make -j recommendation
-    my $num_procs = get_cpu_count();
-    my $make_jobs = int($num_procs || 1);
-    my $build_cmd = $make_cmd;
-
-    if ($make_jobs > 1) {
-        $build_cmd = "$make_cmd -j$make_jobs";
-    }
+    # Recommend the same RAM-aware default used by the generated Makefile.
+    my $make_jobs = get_default_build_jobs();
+    my $build_cmd = "$make_cmd BUILD_JOBS=$make_jobs ROCKSDB_JOBS=$make_jobs";
 
     print "  " . $char_map{'asterisk'} . " To build the project, run:\n";
     print "  " . $bold_start . "\$ " . $build_cmd . $reset_end . "\n\n";
