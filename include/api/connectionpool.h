@@ -858,7 +858,6 @@ class ConnectionPoolManager
      void RemovePool(const std::string& HostVal, uint16_t PortVal)
      {
           std::string Key = HostVal + ":" + std::to_string(PortVal);
-
           std::lock_guard<std::mutex> Lock(ManagerMutex);
 
           Pools.erase(Key);

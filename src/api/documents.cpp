@@ -3101,9 +3101,20 @@ HttpResponse SearchAPI::HandleSAMSearch(const HttpRequest &Request)
                return true;
           }
 
-          const std::regex BooleanRegex(R"((^|\s)(AND|OR|NOT|TO)(\s|$))",
-                                        std::regex_constants::icase);
-          return std::regex_search(QueryText, BooleanRegex);
+          std::istringstream Stream(QueryText);
+          std::string Token;
+
+          while (Stream >> Token)
+          {
+               std::string Lower = ToLowerCopy(Token);
+
+               if (Lower == "and" || Lower == "or" || Lower == "not" || Lower == "to")
+               {
+                    return true;
+               }
+          }
+
+          return false;
      };
 
      auto StripSAMCoreSyntaxForLookup = [](const std::string &QueryText) -> std::string

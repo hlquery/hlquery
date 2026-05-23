@@ -29,6 +29,7 @@
  *
  * Manages IP address filtering with DNS resolution support.
  * Supports:
+ *
  * - Multiple IP addresses (IPv4).
  * - CIDR subnet notation (e.g., 192.168.1.0/24).
  * - Hostname resolution (DNS).

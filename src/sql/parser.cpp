@@ -1988,7 +1988,6 @@ bool Parser::ParseNonNegativeInt(int &out, const std::string &label, std::string
 SQLTranslationResult SQLService::Parse(const std::string &sql_text) const
 {
      SQLTranslationResult result;
-
      std::string error;
 
      const std::vector<SQLToken> tokens = SQLTokenize(sql_text, &error);

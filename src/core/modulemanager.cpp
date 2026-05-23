@@ -186,7 +186,7 @@ bool ModuleManager::LoadModule(const ServerConfig &Config,
 
      {
           std::unique_lock<std::shared_mutex> Lock(ModulesMutex);
-          ReapRetiredModules(Logger);
+          ReapRetiredModules();
 
           for (const auto &Loaded : Modules)
           {
@@ -344,8 +344,9 @@ bool ModuleManager::LoadModule(const ServerConfig &Config,
 
 /* Finalizes retired modules once no external shared_ptr references remain. */
 
-void ModuleManager::ReapRetiredModules(LogManager *Logger)
+void ModuleManager::ReapRetiredModules()
 {
+     LogManager *Logger = (Instance ? Instance->Logs.get() : nullptr);
      auto It = RetiredModules.begin();
 
      while (It != RetiredModules.end())
@@ -596,7 +597,7 @@ bool ModuleManager::LoadConfiguredModules(const ServerConfig &Config, LogManager
 
      {
           std::unique_lock<std::shared_mutex> Lock(ModulesMutex);
-          ReapRetiredModules(Logger);
+          ReapRetiredModules();
      }
 
      {
@@ -802,7 +803,7 @@ bool ModuleManager::LoadConfiguredModules(const ServerConfig &Config, LogManager
           RebuildHookRegistriesLocked();
      }
 
-     UnloadModuleList(std::move(PreviousModules), Logger);
+     UnloadModuleList(std::move(PreviousModules));
 
      return true;
 }
@@ -908,10 +909,10 @@ void ModuleManager::UnloadAll(LogManager *Logger)
           ModulesToUnload = std::move(Modules);
           Modules.clear();
           RebuildHookRegistriesLocked();
-          ReapRetiredModules(Logger);
+          ReapRetiredModules();
      }
 
-     UnloadModuleList(std::move(ModulesToUnload), Logger);
+     UnloadModuleList(std::move(ModulesToUnload));
 }
 
 bool ModuleManager::UnloadModule(const std::string &ModuleName, LogManager *Logger, std::string &ErrorMessage)
@@ -942,17 +943,18 @@ bool ModuleManager::UnloadModule(const std::string &ModuleName, LogManager *Logg
           ModulesToUnload.push_back(std::move(*It));
           Modules.erase(It);
           RebuildHookRegistriesLocked();
-          ReapRetiredModules(Logger);
+          ReapRetiredModules();
      }
 
-     UnloadModuleList(std::move(ModulesToUnload), Logger);
+     UnloadModuleList(std::move(ModulesToUnload));
      return true;
 }
 
 /* Stops modules in reverse load order and defers dlclose() when external references are still alive. */
 
-void ModuleManager::UnloadModuleList(std::vector<LoadedModule> ModulesToUnload, LogManager *Logger)
+void ModuleManager::UnloadModuleList(std::vector<LoadedModule> ModulesToUnload)
 {
+     LogManager *Logger = (Instance ? Instance->Logs.get() : nullptr);
      for (auto It = ModulesToUnload.rbegin(); It != ModulesToUnload.rend(); ++It)
      {
           ModuleReference ModuleRef{It->Instance, It->ExecutionState};

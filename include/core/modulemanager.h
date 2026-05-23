@@ -178,14 +178,14 @@ class ModuleManager
      * This finalizes deferred unload work after the active lists are updated.
      */
 
-    void ReapRetiredModules(LogManager* Logger);
+    void ReapRetiredModules();
 
     /* 
      * Unloads a specific list of modules using the provided logger.
      * The supplied list is detached from the active registry before cleanup.
      */
 
-    void UnloadModuleList(std::vector<LoadedModule> ModulesToUnload, LogManager* Logger);
+    void UnloadModuleList(std::vector<LoadedModule> ModulesToUnload);
 
      /* 
       * Captures the subscribers registered for one specific hook.

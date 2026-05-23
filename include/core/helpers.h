@@ -19,26 +19,27 @@ class ServerConfig;
 
 class CoreHelpers
 {
-public:
+   public:
+     
      CoreHelpers() = delete;
 
-/* Helper function to check if the main processing loop should terminate. */
+     /* Helper function to check if the main processing loop should terminate. */
 
      static bool ShouldExitLoop();
 
-/* Perform periodic database flush with robust error handling. */
+     /* Perform periodic database flush with robust error handling. */
 
      static void SafePeriodicFlush();
 
-/* Process background tasks and management operations. */
+     /* Process background tasks and management operations. */
 
      static void ProcessPeriodicTasks();
 
-/* Preflight SSL bind configuration before daemonization. */
+     /* Preflight SSL bind configuration before daemonization. */
 
      static bool PreflightSSLConfig(ServerConfig *ConfigPtr);
 
-/* Prints a startup section with one module name per line. */
+     /* Prints a startup section with one module name per line. */
 
      static void PrintStartupModuleList(const std::string &Heading, const std::vector<std::string> &ModuleNames);
 
