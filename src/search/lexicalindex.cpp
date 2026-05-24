@@ -264,20 +264,20 @@ std::vector<std::string> InvertedIndex::ExtractTerms(const std::string &Text)
 
      size_t TermCount = 0;
 
-     auto IsCashtagStart = [&](size_t Index) -> bool
+     auto IsCashtagStart = [&](size_t Offset) -> bool
      {
-          return TextToProcess[Index] == '$' &&
-                 Index + 1 < TextLen &&
-                 std::isalnum(static_cast<unsigned char>(TextToProcess[Index + 1]));
+          return TextToProcess[Offset] == '$' &&
+                 Offset + 1 < TextLen &&
+                 std::isalnum(static_cast<unsigned char>(TextToProcess[Offset + 1]));
      };
 
-     auto IsTermSeparator = [&](size_t Index) -> bool
+     auto IsTermSeparator = [&](size_t Offset) -> bool
      {
-          const char Ch = TextToProcess[Index];
+          const char Ch = TextToProcess[Offset];
 
           if (Ch == '$')
           {
-               return !IsCashtagStart(Index);
+               return !IsCashtagStart(Offset);
           }
 
           return std::isspace(static_cast<unsigned char>(Ch)) || Ch == '-' || Ch == '.' || Ch == ',' || Ch == ':' || Ch == '/' || Ch == '\\' || Ch == '(' || Ch == ')' || Ch == '[' || Ch == ']' || Ch == '{' || Ch == '}' || Ch == '@' || Ch == '#' || Ch == '%' || Ch == '&' || Ch == '+' || Ch == '=' || Ch == ';' || Ch == '|' || Ch == '!' || Ch == '?' || Ch == '~' || Ch == '^' || Ch == '`';

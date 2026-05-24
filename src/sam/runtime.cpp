@@ -1143,6 +1143,11 @@ bool SAM::FlushAndSync(std::string* ErrorMessage)
 {
      std::lock_guard<std::mutex> Lock(DBMutex);
 
+     if (ErrorMessage)
+     {
+          ErrorMessage->clear();
+     }
+
      if (!Database)
      {
           if (ErrorMessage)
@@ -1162,6 +1167,18 @@ bool SAM::FlushAndSync(std::string* ErrorMessage)
           if (ErrorMessage)
           {
                *ErrorMessage = Status.ToString();
+          }
+
+          return false;
+     }
+
+     const rocksdb::Status SyncStatus = Database->SyncWAL();
+
+     if (!SyncStatus.ok())
+     {
+          if (ErrorMessage)
+          {
+               *ErrorMessage = SyncStatus.ToString();
           }
 
           return false;

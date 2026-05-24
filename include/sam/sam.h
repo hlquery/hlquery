@@ -476,7 +476,7 @@ class SAM
 
      void Shutdown();
 
-     /* Flush SAM RocksDB state to disk. */
+     /* Flush SAM RocksDB memtables and sync the WAL to disk. */
 
      bool FlushAndSync(std::string* ErrorMessage = nullptr);
 
