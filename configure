@@ -34,7 +34,6 @@ use make::configure::extras qw(
 use make::configure::system qw(
     apply_install_layout
     default_cxx
-    get_default_build_jobs
     get_cpu_count
     get_make_command
     get_memory_mb
@@ -1726,9 +1725,8 @@ print "\n"
     
     my $make_cmd = get_make_command();
 
-    # Recommend the same RAM-aware default used by the generated Makefile.
-    my $make_jobs = get_default_build_jobs();
-    my $build_cmd = "$make_cmd";
+    my $make_jobs = get_cpu_count();
+    my $build_cmd = "$make_cmd -j$make_jobs";
 
     print "  " . $char_map{'asterisk'} . " To build the project, run:\n";
     print "  " . $bold_start . "\$ " . $build_cmd . $reset_end . "\n\n";
