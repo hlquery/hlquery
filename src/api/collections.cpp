@@ -1276,6 +1276,17 @@ HttpResponse SearchAPI::HandleFlush(const HttpRequest &Request)
      {
           std::string RecreateError;
           SamCleared = Instance->Sam->Recreate(&RecreateError);
+          if (SamCleared)
+          {
+               std::string FlushError;
+               SamCleared = Instance->Sam->FlushAndSync(&FlushError);
+
+               if (!SamCleared && RecreateError.empty())
+               {
+                    RecreateError = FlushError;
+               }
+          }
+
           if (SamFlushPauseStarted)
           {
                Instance->Sam->EndFlushPause();
@@ -1289,6 +1300,12 @@ HttpResponse SearchAPI::HandleFlush(const HttpRequest &Request)
                {
                     Instance->Logs->Normal("search_api", "HandleFlush: SAM flush cleanup failed: " + SamError + ".");
                }
+
+               ClearReplicationOutboxRecord(ReplicationOutboxID);
+               return BuildErrorResponse(Status::SERVICE_UNAVAILABLE,
+                                         Code::SEARCH_INVALID_PARAMETER,
+                                         "SAM flush sync failed",
+                                         SamError);
           }
      }
 
@@ -1324,6 +1341,9 @@ HttpResponse SearchAPI::HandleFlush(const HttpRequest &Request)
      ResponseJSON["sam_cancelled"] = SamCancelled;
      ResponseJSON["sam_queued_jobs_cleared"] = SamQueuedJobsCleared;
      ResponseJSON["sam_cleared"] = SamCleared;
+     ResponseJSON["database_synced"] = true;
+     ResponseJSON["sam_synced"] = !SamWasAvailable || SamCleared;
+     ResponseJSON["replica_flush_synced"] = true;
      ResponseJSON["sam_flush_unpaused"] = SamFlushPauseStarted;
      if (!SamError.empty())
      {
@@ -1333,6 +1353,7 @@ HttpResponse SearchAPI::HandleFlush(const HttpRequest &Request)
 
      HttpResponse Response(Status::OK, StatusText(Status::OK), "application/json");
 
+     Response.Headers["X-HLQ-Flush-Synced"] = "1";
      Response.Body = ResponseJSON.dump();
      FOREACH_MOD(OnFlush, static_cast<uint64_t>(CollectionsCount), Request.RemoteAddress, Request.APIKeyID, !Request.APIKeyID.empty());
      ResetCollectionMutationVersions();

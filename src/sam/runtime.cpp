@@ -1139,6 +1139,37 @@ bool SAM::IsOpen() const
      return DatabaseOpen.load(std::memory_order_acquire);
 }
 
+bool SAM::FlushAndSync(std::string* ErrorMessage)
+{
+     std::lock_guard<std::mutex> Lock(DBMutex);
+
+     if (!Database)
+     {
+          if (ErrorMessage)
+          {
+               *ErrorMessage = "SAM database is not open.";
+          }
+
+          return false;
+     }
+
+     rocksdb::FlushOptions FlushOptions;
+     FlushOptions.wait = true;
+     const rocksdb::Status Status = Database->Flush(FlushOptions);
+
+     if (!Status.ok())
+     {
+          if (ErrorMessage)
+          {
+               *ErrorMessage = Status.ToString();
+          }
+
+          return false;
+     }
+
+     return true;
+}
+
 std::string SAM::ResolveDBPath() const
 {
      return ResolveSamDataDir();

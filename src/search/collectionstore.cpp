@@ -20,6 +20,7 @@
 #include <thread>
 #include <vendor/json/json.hpp>
 
+#include "api/searchcache.h"
 #include "core/hlquery.h"
 #include "runtime/threadlimit.h"
 #include "search/storageengine.h"
@@ -34,23 +35,6 @@
 
 static std::vector<std::thread> IndexingThreads;
 static std::mutex IndexingThreadsMutex;
-
-static bool IsSAMAutoIndexPaused()
-{
-     if (!Instance || !Instance->Sam)
-     {
-          return false;
-     }
-
-     const uint64_t pause_until_ms = Instance->Sam->GetAutoIndexPauseUntilMS();
-
-     if (pause_until_ms == 0)
-     {
-          return false;
-     }
-
-     return static_cast<uint64_t>(Instance->NowMs()) < pause_until_ms;
-}
 
 static std::string GetCollectionConfigKey(const std::string &Name)
 {
@@ -1093,6 +1077,7 @@ bool HybridStorageManager::CreateCollection(const std::string &name, const Colle
                Instance->Logs->Normal("hybrid_storage", "[COLLECTION_FINAL] Collection '" + name + "' confirmed in map (size: " + std::to_string(Collections.size()) + ") - releasing lock.");
           }
 
+          SearchResponseCache::InvalidateCollection(name);
           return true;
      }
 
@@ -1130,6 +1115,7 @@ bool HybridStorageManager::CreateCollection(const std::string &name, const Colle
           }
      }
 
+     SearchResponseCache::InvalidateCollection(name);
      return true;
 }
 
@@ -1599,6 +1585,7 @@ bool HybridStorageManager::DeleteCollection(const std::string &name)
           CollectionsBeingIndexed.erase(name);
      }
 
+     SearchResponseCache::InvalidateCollection(name);
      return true;
 }
 
@@ -1978,6 +1965,7 @@ bool HybridStorageManager::AddDocument(const std::string &collection, const Docu
      if (success)
      {
           MarkCollectionIndexDirty(collection);
+          SearchResponseCache::InvalidateCollection(collection);
 
           /*
                 * Index new document immediately so it's searchable right away.
@@ -2026,7 +2014,7 @@ bool HybridStorageManager::AddDocument(const std::string &collection, const Docu
                }
           }
 
-          if (Instance && Instance->Sam && Instance->Sam->IsOpen() && !IsSAMAutoIndexPaused())
+          if (Instance && Instance->Sam && Instance->Sam->IsOpen())
           {
                std::string sam_error;
 
@@ -2205,9 +2193,10 @@ size_t HybridStorageManager::AddDocumentsBatch(const std::string &collection, co
      if (count > 0)
      {
           MarkCollectionIndexDirty(collection);
+          SearchResponseCache::InvalidateCollection(collection);
      }
 
-     if (count > 0 && Instance && Instance->Sam && Instance->Sam->IsOpen() && !IsSAMAutoIndexPaused())
+     if (count > 0 && Instance && Instance->Sam && Instance->Sam->IsOpen())
      {
           for (const auto &doc : documents)
           {
@@ -2636,6 +2625,7 @@ bool HybridStorageManager::DeleteDocument(const std::string &collection, const s
      if (deleted)
      {
           MarkCollectionIndexDirty(collection);
+          SearchResponseCache::InvalidateCollection(collection);
 
           bool partial_cleanup_failed = false;
 
@@ -2873,6 +2863,7 @@ bool HybridStorageManager::UpdateDocument(const std::string &collection, const D
      if (index_success)
      {
           MarkCollectionIndexDirty(collection);
+          SearchResponseCache::InvalidateCollection(collection);
      }
 
      if (index_success && Instance && Instance->Logs)
@@ -4248,15 +4239,21 @@ bool HybridStorageManager::FlushAll()
 
      /* Step 6: Flush and sync database to ensure all deletions are persisted */
 
+     bool DatabaseSynced = false;
+
      try
      {
           /* Use FlushAndSync() to ensure all deletions are written to disk */
 
-          Instance->Database->FlushAndSync();
+          DatabaseSynced = Instance->Database->FlushAndSync();
 
-          if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
+          if (DatabaseSynced && Instance && Instance->Logs && Instance->Logs->GetDebugMode())
           {
                Instance->Logs->Debug("hybrid_storage", "FlushAll: Database flushed and synced to disk.");
+          }
+          else if (!DatabaseSynced && Instance && Instance->Logs)
+          {
+               Instance->Logs->Normal("hybrid_storage", "FlushAll: FlushAndSync failed; flush cannot be acknowledged as durable.");
           }
      }
      catch (const std::exception &e)
@@ -4267,10 +4264,17 @@ bool HybridStorageManager::FlushAll()
           }
      }
 
+     if (!DatabaseSynced)
+     {
+          return false;
+     }
+
      if (Instance && Instance->Logs)
      {
           Instance->Logs->Normal("hybrid_storage", "FlushAll: Completed - cleared " + std::to_string(collection_count) + " collections, all indexes, caches, and data. System is now empty and ready for fresh start.");
      }
+
+     SearchResponseCache::InvalidateAll();
 
      return true;
 }

@@ -476,6 +476,10 @@ class SAM
 
      void Shutdown();
 
+     /* Flush SAM RocksDB state to disk. */
+
+     bool FlushAndSync(std::string* ErrorMessage = nullptr);
+
      /* Report whether the SAM database is currently open. */
 
      bool IsOpen() const;

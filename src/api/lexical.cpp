@@ -1505,7 +1505,7 @@ std::vector<SearchHit> SearchAPI::ProcessLexicalSearch(const std::string &Collec
           return Hits;
      }
 
-     int SafePerPage = (Query.PerPage > 0 && Query.PerPage <= 1000) ? Query.PerPage : 10;
+     int SafePerPage = (Query.PerPage > 0 && Query.PerPage <= 1000) ? Query.PerPage : 100;
      long long RequiredRows = SafePerPage;
 
      if (Query.Offset > 0)

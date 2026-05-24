@@ -39,6 +39,7 @@
 
 #include "api/searchapi.h"
 #include "api/common.h"
+#include "api/searchcache.h"
 #include "core/config.h"
 #include "core/hlquery.h"
 #include "core/modulemanager.h"
@@ -3068,9 +3069,9 @@ HttpResponse SearchAPI::HandleSAMSearch(const HttpRequest &Request)
                                     "Secondary Assistant Manager is not initialized.");
      }
 
-     int LimitVal = 20;
+     int LimitVal = 100;
 
-      if (!ParseNonNegativeIntParam(Request.QueryParams, "limit", 20, LimitVal) || LimitVal <= 0)
+      if (!ParseNonNegativeIntParam(Request.QueryParams, "limit", 100, LimitVal) || LimitVal <= 0)
       {
            return BuildErrorResponse(Status::BAD_REQUEST,
                                      Code::SEARCH_INVALID_PARAMETER,
@@ -3080,6 +3081,13 @@ HttpResponse SearchAPI::HandleSAMSearch(const HttpRequest &Request)
 
      const bool Distributed = ShouldAttemptDistributedSearch(Request);
      const bool IncludeExplain = Instance->Config && Instance->Config->GetSam25DebugExplain();
+     const std::string CacheCollection = SearchAll ? std::string("*") : CollectionName;
+
+     HttpResponse CachedResponse;
+     if (SearchResponseCache::Get("sam", Request, CacheCollection, CachedResponse))
+     {
+          return CachedResponse;
+     }
 
      struct SAMCoreQueryPlan
      {
@@ -3447,6 +3455,7 @@ HttpResponse SearchAPI::HandleSAMSearch(const HttpRequest &Request)
           HttpResponse Response(Status::OK, StatusText(Status::OK), "application/json");
           Response.Headers["X-HLQ-Execution-Mode"] = ExecutionMode;
           Response.Body = Root.dump();
+          SearchResponseCache::Put("sam", Request, CacheCollection, Response);
           return Response;
      };
 
@@ -4380,7 +4389,7 @@ HttpResponse SearchAPI::HandleSAMListDocuments(const HttpRequest &Request)
      }
 
      int OffsetVal = 0;
-     int LimitVal = 20;
+     int LimitVal = 100;
 
      if (!ParseNonNegativeIntParam(Request.QueryParams, "offset", 0, OffsetVal))
      {
@@ -4390,7 +4399,7 @@ HttpResponse SearchAPI::HandleSAMListDocuments(const HttpRequest &Request)
                                     "Query parameter 'offset' must be a non-negative integer.");
      }
 
-     if (!ParseNonNegativeIntParam(Request.QueryParams, "limit", 20, LimitVal) || LimitVal <= 0)
+     if (!ParseNonNegativeIntParam(Request.QueryParams, "limit", 100, LimitVal) || LimitVal <= 0)
      {
           return BuildErrorResponse(Status::BAD_REQUEST,
                                     Code::SEARCH_INVALID_PARAMETER,
