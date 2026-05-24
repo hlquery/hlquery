@@ -22,6 +22,7 @@
 
 #include "api/searchcache.h"
 #include "core/hlquery.h"
+#include "runtime/clock.h"
 #include "runtime/threadlimit.h"
 #include "search/storageengine.h"
 #include "search/cstore.h"
@@ -64,6 +65,25 @@ static bool CollectionNeedsLanguageDetection(const std::string &Name)
 
      const std::string value = it->second;
      return value.empty() || value == "auto" || value == "und";
+}
+
+static void NotifySAMCollectionChanged(const std::string &Collection)
+{
+     if (!Instance || !Instance->Sam || !Instance->Sam->IsOpen())
+     {
+          return;
+     }
+
+     std::string SamError;
+
+     if (!Instance->Sam->NotifyCollectionChanged(Collection, 0, &SamError) &&
+         Instance->Logs)
+     {
+          Instance->Logs->Normal("sam",
+                                 "Failed to mark collection '" + Collection +
+                                      "' dirty for automatic SAM rebuild: " +
+                                      (SamError.empty() ? std::string("unknown error") : SamError) + ".");
+     }
 }
 
 static void RefreshCollectionLanguageIfNeeded(const std::string &Collection,
@@ -2014,19 +2034,7 @@ bool HybridStorageManager::AddDocument(const std::string &collection, const Docu
                }
           }
 
-          if (Instance && Instance->Sam && Instance->Sam->IsOpen())
-          {
-               std::string sam_error;
-
-               if (!Instance->Sam->EnqueueIndexDocument(collection, doc, &sam_error) &&
-                   Instance->Logs)
-               {
-                    Instance->Logs->Normal("sam",
-                                           "Failed to queue incremental SAM index for '" +
-                                                collection + "/" + doc.ID + "': " +
-                                                (sam_error.empty() ? std::string("unknown error") : sam_error) + ".");
-               }
-          }
+          NotifySAMCollectionChanged(collection);
 
           RefreshCollectionLanguageIfNeeded(collection, &doc);
      }
@@ -2196,33 +2204,9 @@ size_t HybridStorageManager::AddDocumentsBatch(const std::string &collection, co
           SearchResponseCache::InvalidateCollection(collection);
      }
 
-     if (count > 0 && Instance && Instance->Sam && Instance->Sam->IsOpen())
+     if (count > 0)
      {
-          for (const auto &doc : documents)
-          {
-               if (doc.ID.empty())
-               {
-                    continue;
-               }
-
-               Document stored_doc = GetDocument(collection, doc.ID);
-
-               if (stored_doc.ID.empty())
-               {
-                    continue;
-               }
-
-               std::string sam_error;
-
-               if (!Instance->Sam->EnqueueIndexDocument(collection, stored_doc, &sam_error) &&
-                   Instance->Logs)
-               {
-                    Instance->Logs->Normal("sam",
-                                           "Failed to queue batch SAM index for '" +
-                                                collection + "/" + stored_doc.ID + "': " +
-                                                (sam_error.empty() ? std::string("unknown error") : sam_error) + ".");
-               }
-          }
+          NotifySAMCollectionChanged(collection);
      }
 
      if (count > 0)
@@ -2671,6 +2655,8 @@ bool HybridStorageManager::DeleteDocument(const std::string &collection, const s
                }
           }
 
+          NotifySAMCollectionChanged(collection);
+
           /*
                 * Update collection metadata counter after delete to ensure accuracy.
                 * Use collection mutex to prevent race conditions.
@@ -2871,18 +2857,9 @@ bool HybridStorageManager::UpdateDocument(const std::string &collection, const D
           Instance->Logs->Debug("hybrid_storage", "[UPDATE_SUCCESS] Updated document '" + new_doc.ID + "' in collection '" + collection + "'.");
      }
 
-     if (index_success && Instance && Instance->Sam && Instance->Sam->IsOpen())
+     if (index_success)
      {
-          std::string sam_error;
-
-          if (!Instance->Sam->EnqueueIndexDocument(collection, new_doc, &sam_error) &&
-              Instance->Logs)
-          {
-               Instance->Logs->Normal("sam",
-                                      "Failed to queue incremental SAM update for '" +
-                                           collection + "/" + new_doc.ID + "': " +
-                                           (sam_error.empty() ? std::string("unknown error") : sam_error) + ".");
-          }
+          NotifySAMCollectionChanged(collection);
      }
 
      /*

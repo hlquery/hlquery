@@ -29,6 +29,7 @@ namespace
 constexpr const char* kPendingIndexQueuePrefix = "sam:queue:index:";
 constexpr uint64_t kDefaultBackgroundImprovementIntervalMS = 60000;
 constexpr uint64_t kDefaultBackgroundImprovementPollMS = 15000;
+constexpr size_t kMaxPendingIndexJobs = 4096;
 
 /* Build the persisted queue key for one pending SAM index job. */
 
@@ -907,6 +908,7 @@ void SAM::RunIndexWorker()
                                                           BuildPendingIndexQueueKey(Job.Collection, Job.Doc.ID));
                               }
                          }
+                         QueueCV.notify_all();
                          break;
                     }
 
@@ -1612,6 +1614,54 @@ bool SAM::StartRecreateCollectionAsync(const std::string& Collection,
                }
 
                JobStateCV.notify_all();
+               QueueCV.notify_all();
+          };
+
+          auto CancelRebuildSetup = [this, &Collection](const std::string& Reason)
+          {
+               std::lock_guard<std::mutex> Lock(JobMutex);
+               CollectionJobStatus& JobStatus = CollectionJobs[Collection];
+               JobStatus.Running = false;
+               JobStatus.Completed = false;
+               JobStatus.PendingDocuments = 0;
+               if (JobStatus.ErrorMessage.empty())
+               {
+                    JobStatus.ErrorMessage = "Cancelled.";
+               }
+               RecordDebugEvent(Collection, Reason);
+          };
+
+          auto WaitForQueueCapacity = [this, &Collection, &CancelRebuildSetup]() -> bool
+          {
+               while (true)
+               {
+                    {
+                         std::lock_guard<std::mutex> QueueLock(QueueMutex);
+
+                         if (PendingIndexJobs.size() < kMaxPendingIndexJobs)
+                         {
+                              return true;
+                         }
+                    }
+
+                    bool Cancelled = false;
+
+                    {
+                         std::lock_guard<std::mutex> JobLock(JobMutex);
+                         Cancelled = ShuttingDown ||
+                                     IsCollectionCancelledLocked(Collection) ||
+                                     FlushInProgress.load(std::memory_order_acquire);
+                    }
+
+                    if (Cancelled)
+                    {
+                         CancelRebuildSetup("cancelled rebuild setup while waiting for SAM queue capacity");
+                         return false;
+                    }
+
+                    std::unique_lock<std::mutex> QueueLock(QueueMutex);
+                    QueueCV.wait_for(QueueLock, std::chrono::milliseconds(100));
+               }
           };
 
           std::vector<std::string> ExistingDocumentIDs;
@@ -1750,6 +1800,12 @@ bool SAM::StartRecreateCollectionAsync(const std::string& Collection,
                }
 
                if (Cancelled)
+               {
+                    FinishTask();
+                    return;
+               }
+
+               if (!WaitForQueueCapacity())
                {
                     FinishTask();
                     return;
@@ -1929,6 +1985,69 @@ bool SAM::StartRecreateCollectionAsync(const std::string& Collection,
           return false;
      }
 
+     return true;
+}
+
+bool SAM::NotifyCollectionChanged(const std::string& Collection,
+                                  uint64_t MutationVersion,
+                                  std::string* ErrorMessage)
+{
+     if (Collection.empty() || Collection == "*")
+     {
+          return true;
+     }
+
+     if (MutationVersion == 0)
+     {
+          MutationVersion = GetCurrentCollectionMutationVersion(Collection);
+     }
+
+     std::lock_guard<std::mutex> Lock(DBMutex);
+
+     if (!Database)
+     {
+          if (ErrorMessage)
+          {
+               *ErrorMessage = "SAM database is not open.";
+          }
+
+          return false;
+     }
+
+     SAMCollectionState State;
+     std::string StateError;
+
+     if (!ReadCollectionStateLocked(Database.get(), Collection, State, nullptr, &StateError))
+     {
+          if (ErrorMessage)
+          {
+               *ErrorMessage = StateError;
+          }
+
+          return false;
+     }
+
+     if (State.RebuildRequested && State.RequestedMutationVersion >= MutationVersion)
+     {
+          return true;
+     }
+
+     State.RebuildRequested = true;
+     State.RequestedMutationVersion = std::max(State.RequestedMutationVersion, MutationVersion);
+
+     if (!WriteCollectionStateLocked(Database.get(), Collection, State, &StateError))
+     {
+          if (ErrorMessage)
+          {
+               *ErrorMessage = StateError;
+          }
+
+          return false;
+     }
+
+     RecordDebugEvent(Collection,
+                      "marked collection dirty for automatic rebuild at mutation version " +
+                           std::to_string(State.RequestedMutationVersion));
      return true;
 }
 

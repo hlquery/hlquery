@@ -508,6 +508,12 @@ class SAM
                                        bool* AlreadyRunning = nullptr,
                                        std::string* ErrorMessage = nullptr);
 
+     /* Mark a source collection as changed so automatic SAM can rebuild it later. */
+
+     bool NotifyCollectionChanged(const std::string& Collection,
+                                  uint64_t MutationVersion = 0,
+                                  std::string* ErrorMessage = nullptr);
+
      /* Queue one document for background indexing. */
 
      bool EnqueueIndexDocument(const std::string& Collection,
