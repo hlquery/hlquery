@@ -79,6 +79,8 @@ static std::atomic<uint64_t> ActiveConnections{0};
 
 static std::atomic<bool> EngineInitialized{false};
 
+static std::atomic<int> EventCounter{0};
+
 static int GetTimedWorkWakeupMs()
 {
      if (Instance && Instance->Timers)
@@ -171,6 +173,7 @@ void SocketEngine::Deinit()
 
      SocketEngine::PendingWritesCount.store(0, std::memory_order_relaxed);
      SocketEngine::PendingMessageCount.store(0, std::memory_order_relaxed);
+     EventCounter.store(0, std::memory_order_relaxed);
      MaxFD = -1;
      EngineInitialized.store(false, std::memory_order_release);
 }
@@ -660,6 +663,8 @@ int SocketEngine::DispatchEvents()
 
      if (nfds > 0)
      {
+          EventCounter.fetch_add(nfds, std::memory_order_relaxed);
+
           /* Activity detected - immediately reset to non-blocking for high throughput */
 
           CurrentTimeoutMS.store(0, std::memory_order_relaxed);
@@ -1220,9 +1225,7 @@ void SocketEngine::IncrementBytesProcessed(uint64_t Bytes)
 
 int SocketEngine::GetEventCount()
 {
-     /* Event counting removed - use connection count instead */
-
-     return 0;
+     return EventCounter.load(std::memory_order_relaxed);
 }
 
 /* Increments pending message count */

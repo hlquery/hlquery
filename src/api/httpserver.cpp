@@ -67,7 +67,29 @@ static bool ShouldUseAsyncHttpDispatch()
           std::transform(Value.begin(), Value.end(), Value.begin(), [](unsigned char c)
                          { return static_cast<char>(std::tolower(c)); });
 
-          return Value == "1" || Value == "true" || Value == "yes" || Value == "on";
+          if (!(Value == "1" || Value == "true" || Value == "yes" || Value == "on"))
+          {
+               return false;
+          }
+
+          /*
+           * HttpConnection instances are owned by HttpServer::Connections and can be
+           * destroyed by the event loop. Until connection ownership is ref-counted,
+           * dispatching lambdas that capture `this` is unsafe.
+           */
+
+          const char *UnsafeValue = std::getenv("HLQUERY_HTTP_ALLOW_UNSAFE_ASYNC_CONNECTIONS");
+
+          if (!UnsafeValue)
+          {
+               return false;
+          }
+
+          std::string UnsafeFlag(UnsafeValue);
+          std::transform(UnsafeFlag.begin(), UnsafeFlag.end(), UnsafeFlag.begin(), [](unsigned char c)
+                         { return static_cast<char>(std::tolower(c)); });
+
+          return UnsafeFlag == "1" || UnsafeFlag == "true" || UnsafeFlag == "yes" || UnsafeFlag == "on";
      }();
 
      return UseThreadPool;
@@ -972,7 +994,9 @@ void HttpConnection::OnEventHandlerWrite()
 
      size_t OffsetCopy = 0;
 
-     size_t BufferSizeCopy = 0;
+     uint64_t SerialCopy = 0;
+
+     bool ContinueWriting = false;
 
      {
           std::lock_guard<std::mutex> Lock(ResponseMutex);
@@ -993,19 +1017,30 @@ void HttpConnection::OnEventHandlerWrite()
 
           if (ResponseSentOffset >= ResponseBuffer.size())
           {
-               ResponseBuffer.clear();
-               ResponseSentOffset = 0;
-               ResponsePending = false;
-               SocketEngine::UnregisterPendingWrite(this);
+               if (!ResponseQueue.empty())
+               {
+                    ResponseBuffer = std::move(ResponseQueue.front());
+                    ResponseQueue.pop_front();
+                    ResponseSentOffset = 0;
+                    ResponsePending = true;
+                    ResponseSerial++;
+               }
+               else
+               {
+                    ResponseBuffer.clear();
+                    ResponseSentOffset = 0;
+                    ResponsePending = false;
+                    SocketEngine::UnregisterPendingWrite(this);
 
-               return;
+                    return;
+               }
           }
 
           /* Copy buffer size and offset while holding lock (minimal time). */
           /* We'll work with a copy to avoid holding lock during send operations. */
 
-          BufferSizeCopy = ResponseBuffer.size();
           OffsetCopy = ResponseSentOffset;
+          SerialCopy = ResponseSerial;
 
           /* Copy buffer data - for large responses this is expensive but necessary. */
           /* to avoid holding lock during send. Alternative would be reference counting. */
@@ -1073,7 +1108,10 @@ void HttpConnection::OnEventHandlerWrite()
 
                     std::lock_guard<std::mutex> Lock(ResponseMutex);
 
-                    ResponseSentOffset = CurrentOffset;
+                    if (ResponseSerial == SerialCopy)
+                    {
+                         ResponseSentOffset = CurrentOffset;
+                    }
 
                     return;
                }
@@ -1093,30 +1131,8 @@ void HttpConnection::OnEventHandlerWrite()
                     {
                          std::lock_guard<std::mutex> Lock(ResponseMutex);
 
-                         /* Check if buffer was replaced (new response queued). */
-
-                         if (ResponseBuffer.size() != BufferSizeCopy || ResponseBuffer.empty())
+                         if (ResponseSerial == SerialCopy)
                          {
-                              /* Buffer was replaced or cleared - new response may be queued. */
-
-                              if (!ResponseBuffer.empty())
-                              {
-                                   /* New response is queued, offset should be 0. */
-
-                                   ResponseSentOffset = 0;
-                              }
-                              else
-                              {
-                                   /* Buffer was cleared but no new response - update offset for current buffer. */
-                                   /* This shouldn't happen normally, but handle it safely. */
-
-                                   ResponseSentOffset = CurrentOffset;
-                              }
-                         }
-                         else
-                         {
-                              /* Same buffer (same size), update offset to current position. */
-
                               ResponseSentOffset = CurrentOffset;
                          }
                     }
@@ -1178,37 +1194,34 @@ void HttpConnection::OnEventHandlerWrite()
      {
           std::lock_guard<std::mutex> Lock(ResponseMutex);
 
-          /* Check if new response was queued while we were sending. */
-
-          if (ResponseBuffer.empty() || ResponseBuffer.size() == 0)
+          if (ResponseSerial == SerialCopy)
           {
-               /* No new response - we're done with this response. */
-
-               ResponseSentOffset = 0;
-               ResponsePending = false;
-               SocketEngine::UnregisterPendingWrite(this);
-          }
-          else if (ResponseBuffer.size() != BufferSizeCopy)
-          {
-               /* New response was queued (different size) - keep write registered for new response. */
-
-               ResponseSentOffset = 0;
-          }
-          else
-          {
-               /* Same size buffer - could be same response or new one with same size. */
-               /* Check if offset is still valid - if it's >= size, we're done. */
-
-               if (ResponseSentOffset >= ResponseBuffer.size())
+               if (!ResponseQueue.empty())
                {
-                    /* We finished - clear and unregister. */
-
+                    ResponseBuffer = std::move(ResponseQueue.front());
+                    ResponseQueue.pop_front();
+                    ResponseSentOffset = 0;
+                    ResponsePending = true;
+                    ResponseSerial++;
+                    ContinueWriting = true;
+               }
+               else
+               {
                     ResponseBuffer.clear();
                     ResponseSentOffset = 0;
                     ResponsePending = false;
-                    SocketEngine::UnregisterPendingWrite(this);
                }
           }
+
+          if (!ResponsePending)
+          {
+               SocketEngine::UnregisterPendingWrite(this);
+          }
+     }
+
+     if (ContinueWriting)
+     {
+          SocketEngine::RegisterPendingWrite(this);
      }
 
      if (Instance && Instance->Logs)
@@ -1600,22 +1613,8 @@ void HttpConnection::ProcessMultipleRequests()
                ErrorResp.StatusText = "Request Header Fields Too Large";
                ErrorResp.Body = "{\"error\":\"Header size too large\"}";
 
+               KeepAlive = false;
                SendResponse(ErrorResp);
-
-               /* FIX: Cache fd before DelFD() to prevent use-after-free. */
-
-               int FDValue = GetFD();
-
-               ClosingValue.store(true);
-
-               SocketEngine::DelFD(this);
-
-               if (FDValue >= 0)
-               {
-                    close(FDValue);
-               }
-
-               SetFD(-1);
 
                return;
           }
@@ -1672,22 +1671,8 @@ void HttpConnection::ProcessMultipleRequests()
                                    ErrorResp.StatusText = "Payload Too Large";
                                    ErrorResp.Body = "{\"error\":\"Content-Length too large\"}";
 
+                                   KeepAlive = false;
                                    SendResponse(ErrorResp);
-
-                                   /* FIX: Cache fd before DelFD() to prevent use-after-free. */
-
-                                   int FDValue = GetFD();
-
-                                   ClosingValue.store(true);
-
-                                   SocketEngine::DelFD(this);
-
-                                   if (FDValue >= 0)
-                                   {
-                                        close(FDValue);
-                                   }
-
-                                   SetFD(-1);
 
                                    return;
                               }
@@ -1707,22 +1692,8 @@ void HttpConnection::ProcessMultipleRequests()
                                    ErrorResp.StatusText = "Payload Too Large";
                                    ErrorResp.Body = "{\"error\":\"Content-Length overflow\"}";
 
+                                   KeepAlive = false;
                                    SendResponse(ErrorResp);
-
-                                   /* FIX: Cache fd before DelFD() to prevent use-after-free. */
-
-                                   int FDValue = GetFD();
-
-                                   ClosingValue.store(true);
-
-                                   SocketEngine::DelFD(this);
-
-                                   if (FDValue >= 0)
-                                   {
-                                        close(FDValue);
-                                   }
-
-                                   SetFD(-1);
 
                                    return;
                               }
@@ -1731,9 +1702,20 @@ void HttpConnection::ProcessMultipleRequests()
                          }
                          catch (...)
                          {
-                              /* Invalid Content-Length, treat as no body. */
+                              if (Instance && Instance->Logs)
+                              {
+                                   Instance->Logs->Critical("http", "Invalid Content-Length in pipelined request: '" + LengthStr + "' - REJECTING!.");
+                              }
 
-                              BodyLength = 0;
+                              HttpResponse ErrorResp;
+                              ErrorResp.StatusCode = 400;
+                              ErrorResp.StatusText = "Bad Request";
+                              ErrorResp.Body = "{\"error\":\"Invalid Content-Length format\"}";
+
+                              KeepAlive = false;
+                              SendResponse(ErrorResp);
+
+                              return;
                          }
                     }
                }
@@ -3144,35 +3126,26 @@ void HttpConnection::SendResponse(const HttpResponse &Response)
      {
           std::lock_guard<std::mutex> Lock(ResponseMutex);
 
-          /*
-           * CRITICAL FIX: If there's already a pending response being written, we can still queue
-           * a new one - OnEventHandlerWrite will handle it correctly by checking if buffer changed.
-           */
-
           if (ResponsePending && !ResponseBuffer.empty())
           {
-         
-          /*
-           * Connection is busy sending previous response - queue new response.
-           * OnEventHandlerWrite will detect buffer change and handle new response.
-           */
-
                if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
                {
-                    Instance->Logs->Debug("http", "Response buffer busy, queuing new response (old size=." + std::to_string(ResponseBuffer.size()) + ", new size=" + std::to_string(ResponseStr.size()) + ").");
+                    Instance->Logs->Debug("http", "Response buffer busy, appending queued response (active size=" + std::to_string(ResponseBuffer.size()) + ", queued size=" + std::to_string(ResponseStr.size()) + ").");
                }
 
-               /* Reset offset when replacing buffer - new response starts from beginning. */
-
-               ResponseSentOffset = 0;
+               ResponseQueue.push_back(std::move(ResponseStr));
           }
-
-          ResponseBuffer = std::move(ResponseStr);
-          ResponsePending = true;
+          else
+          {
+               ResponseBuffer = std::move(ResponseStr);
+               ResponseSentOffset = 0;
+               ResponsePending = true;
+               ResponseSerial++;
+          }
 
           if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
           {
-               Instance->Logs->Debug("http_server", "SendResponse: Response queued - buffer_size=." + std::to_string(ResponseBuffer.size()) + ", response_pending=" + std::string(ResponsePending ? "true" : "false") + ".");
+               Instance->Logs->Debug("http_server", "SendResponse: Response queued - active_buffer_size=" + std::to_string(ResponseBuffer.size()) + ", queued_responses=" + std::to_string(ResponseQueue.size()) + ", response_pending=" + std::string(ResponsePending ? "true" : "false") + ".");
           }
      }
 
@@ -3278,6 +3251,14 @@ void HttpConnection::ForceClose()
      int FDValue = GetFD();
 
      ClosingValue.store(true);
+
+     {
+          std::lock_guard<std::mutex> Lock(ResponseMutex);
+          ResponseQueue.clear();
+          ResponseBuffer.clear();
+          ResponsePending = false;
+          ResponseSentOffset = 0;
+     }
 
      SocketEngine::DelFD(this);
 
@@ -4312,14 +4293,14 @@ void HttpServer::OnEventHandlerError(int ErrorNum)
 
 void HttpServer::AcceptConnection()
 {
-     if (!ReadyToAcceptValue.load())
+     const bool ReadyToAccept = ReadyToAcceptValue.load();
+
+     if (!ReadyToAccept)
      {
           if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
           {
-               Instance->Logs->Debug("http_server", "[AcceptConnection] Server not ready to accept connections yet - skipping.");
+               Instance->Logs->Debug("http_server", "[AcceptConnection] Server not ready; accepting and rejecting queued clients with 503.");
           }
-
-          return; /* Don't accept connections until server is ready. */
      }
 
      if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
@@ -4338,6 +4319,7 @@ void HttpServer::AcceptConnection()
 
      while (ConnectionsAccepted < HTTP_MAX_ACCEPTS_PER_TICK)
      {
+          ClientLen = sizeof(ClientAddr);
           int ClientFD = accept(GetFD(), reinterpret_cast<struct sockaddr *>(&ClientAddr), &ClientLen);
 
           if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
@@ -4396,6 +4378,18 @@ void HttpServer::AcceptConnection()
           std::string ClientIP = IPBuffer;
 
           int ClientPort = ntohs(ClientAddr.sin_port);
+
+          if (!ReadyToAccept)
+          {
+               const std::string ErrorResponse = BuildBackpressureRawResponse(
+                    "startup",
+                    "Server is still loading; retry shortly.");
+
+               send(ClientFD, ErrorResponse.c_str(), ErrorResponse.length(), MSG_NOSIGNAL);
+               close(ClientFD);
+               ConnectionsAccepted++;
+               continue;
+          }
 
           /* Check IP allow filter if enabled. */
 
@@ -4602,6 +4596,7 @@ void HttpServer::AcceptConnection()
 
      if (AcceptSliceLimitReached)
      {
+          ClientLen = sizeof(ClientAddr);
           int ProbeFD = accept(GetFD(), reinterpret_cast<struct sockaddr *>(&ClientAddr), &ClientLen);
 
           if (ProbeFD < 0)

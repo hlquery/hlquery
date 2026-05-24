@@ -14,6 +14,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <deque>
 #include <functional>
 #include <map>
 #include <memory>
@@ -304,9 +305,17 @@ class HttpConnection : public EventHandler
 
      std::string ResponseBuffer;
 
+     /* Additional complete responses waiting behind the active response. */
+
+     std::deque<std::string> ResponseQueue;
+
      /* Track offset to avoid O(N^2) buffer erasures. */
 
      size_t ResponseSentOffset = 0;
+
+     /* Monotonic id for the active response buffer. */
+
+     uint64_t ResponseSerial = 0;
 
      /* Indicates whether a response is currently pending for write */
 
