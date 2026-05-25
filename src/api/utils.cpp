@@ -11,6 +11,7 @@
  */
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cmath>
 #include <functional>
@@ -82,6 +83,45 @@ bool TryParseDoubleValue(const std::string &Value, double *Out)
      {
           return false;
      }
+}
+
+std::string FormatRankSignalValue(double Value)
+{
+     std::ostringstream Stream;
+     Stream << std::fixed << std::setprecision(6) << std::clamp(Value, 0.0, 1.0);
+     return Stream.str();
+}
+
+bool CompareRankTieBreak(const SearchHit &A, const SearchHit &B)
+{
+     auto ParseField = [](const SearchHit &Hit, const std::string &Field, double *Out) -> bool
+     {
+          auto It = Hit.Document.find(Field);
+          if (It == Hit.Document.end())
+          {
+               return false;
+          }
+
+          return TryParseDoubleValue(It->second, Out);
+     };
+
+     double ARankSignal = 0.0;
+     double BRankSignal = 0.0;
+     if (ParseField(A, "rank_signal", &ARankSignal) && ParseField(B, "rank_signal", &BRankSignal) && ARankSignal != BRankSignal)
+     {
+          return ARankSignal > BRankSignal;
+     }
+
+     double ARank = 0.0;
+     double BRank = 0.0;
+     if (ParseField(A, "rank", &ARank) && ParseField(B, "rank", &BRank) && ARank != BRank)
+     {
+          return ARank < BRank;
+     }
+
+     const auto AId = A.Document.find("id");
+     const auto BId = B.Document.find("id");
+     return (AId == A.Document.end() ? "" : AId->second) < (BId == B.Document.end() ? "" : BId->second);
 }
 
 bool TryParseISO8601TimestampToMs(const std::string &value, std::uint64_t *parsed_ms)
@@ -924,12 +964,15 @@ std::vector<SearchHit> SearchAPI::ApplySorting(const std::vector<SearchHit> &Hit
 
                          if (FieldName == "_text_match")
                          {
-                              if (A.TextMatch != B.TextMatch)
+                              const float ScoreA = GetEffectiveScore(A);
+                              const float ScoreB = GetEffectiveScore(B);
+
+                              if (ScoreA != ScoreB)
                               {
-                                   return Descending ? A.TextMatch > B.TextMatch : A.TextMatch < B.TextMatch;
+                                   return Descending ? ScoreA > ScoreB : ScoreA < ScoreB;
                               }
 
-                              continue;
+                              return CompareRankTieBreak(A, B);
                          }
 
                          if (FieldName == "_score" || FieldName == "score")
@@ -942,7 +985,7 @@ std::vector<SearchHit> SearchAPI::ApplySorting(const std::vector<SearchHit> &Hit
                                    return Descending ? ScoreA > ScoreB : ScoreA < ScoreB;
                               }
 
-                              continue;
+                              return CompareRankTieBreak(A, B);
                          }
 
                          std::string AVal = A.Document.count(FieldName) ? A.Document.at(FieldName) : "";
@@ -1076,6 +1119,72 @@ void SearchAPI::ApplyCollectionRankWeights(std::vector<SearchHit> &Hits, const s
           }
 
           Parsed.Signal = std::clamp(Signal, 0.0, 1.0);
+          Hits[Parsed.Index].Document["rank_signal"] = FormatRankSignalValue(Parsed.Signal);
+     }
+
+     if ((RankAlgorithm == "linear_algebra" || RankAlgorithm == "advanced_linear_algebra" || RankAlgorithm == "matrix") && ParsedRanks.size() >= 2)
+     {
+          const size_t Count = ParsedRanks.size();
+          std::vector<double> BaseSignals(Count, 0.0);
+          double BaseMin = std::numeric_limits<double>::max();
+          double BaseMax = std::numeric_limits<double>::lowest();
+
+          for (size_t I = 0; I < Count; ++I)
+          {
+               const SearchHit &Hit = Hits[ParsedRanks[I].Index];
+               const double BaseScore = static_cast<double>(Hit.HybridScore > 0.0f ? Hit.HybridScore : (Hit.VectorScore > 0.0f ? Hit.VectorScore : Hit.TextMatch));
+               BaseSignals[I] = std::isfinite(BaseScore) && BaseScore > 0.0 ? BaseScore : 0.0;
+               BaseMin = std::min(BaseMin, BaseSignals[I]);
+               BaseMax = std::max(BaseMax, BaseSignals[I]);
+          }
+
+          const double BaseRange = BaseMax - BaseMin;
+          std::array<double, 2> Vector = {0.7071067811865475, 0.7071067811865475};
+
+          for (int Iteration = 0; Iteration < 16; ++Iteration)
+          {
+               double M00 = 1e-6;
+               double M01 = 0.0;
+               double M11 = 1e-6;
+
+               for (size_t I = 0; I < Count; ++I)
+               {
+                    const double RelevanceSignal = BaseRange > 0.0 ? ((BaseSignals[I] - BaseMin) / BaseRange) : 1.0;
+                    const double RankSignal = ParsedRanks[I].Signal;
+                    M00 += RelevanceSignal * RelevanceSignal;
+                    M01 += RelevanceSignal * RankSignal;
+                    M11 += RankSignal * RankSignal;
+               }
+
+               const double Next0 = (M00 * Vector[0]) + (M01 * Vector[1]);
+               const double Next1 = (M01 * Vector[0]) + (M11 * Vector[1]);
+               const double Norm = std::sqrt((Next0 * Next0) + (Next1 * Next1));
+               if (Norm <= 0.0 || !std::isfinite(Norm))
+               {
+                    break;
+               }
+
+               Vector = {Next0 / Norm, Next1 / Norm};
+          }
+
+          const double IdealNorm = std::sqrt((Vector[0] * Vector[0]) + (Vector[1] * Vector[1]));
+          for (size_t I = 0; I < Count; ++I)
+          {
+               const double RelevanceSignal = BaseRange > 0.0 ? ((BaseSignals[I] - BaseMin) / BaseRange) : 1.0;
+               const double RankSignal = ParsedRanks[I].Signal;
+               const double HitNorm = std::sqrt((RelevanceSignal * RelevanceSignal) + (RankSignal * RankSignal));
+               const double Cosine = (HitNorm > 0.0 && IdealNorm > 0.0)
+                                          ? (((RelevanceSignal * Vector[0]) + (RankSignal * Vector[1])) / (HitNorm * IdealNorm))
+                                          : RankSignal;
+               const double BlendedSignal = std::clamp((0.65 * std::max(0.0, Cosine)) + (0.35 * RankSignal), 0.0, 1.0);
+               const double Multiplier = std::clamp(1.0 + (RankWeight * BlendedSignal), 0.05, 1.0 + (RankWeight * 2.0));
+               if (std::isfinite(Multiplier) && Multiplier > 0.0)
+               {
+                    Hits[ParsedRanks[I].Index].Weight *= static_cast<float>(Multiplier);
+               }
+          }
+
+          return;
      }
 
      if (RankAlgorithm == "spectral" && ParsedRanks.size() >= 2)

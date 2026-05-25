@@ -98,6 +98,14 @@ struct RealDocSeed
      std::string Content;
 };
 
+struct UniversityBenchmarkSeed
+{
+     const char *Name;
+     const char *State;
+     const char *City;
+     const char *Type;
+};
+
 struct FakeSynonymSeed
 {
      std::string Root;
@@ -133,6 +141,133 @@ static std::string RemoveCommas(const std::string &input)
      }
 
      return result;
+}
+
+static const std::vector<UniversityBenchmarkSeed> &GetUniversityBenchmarkSeeds()
+{
+     static const std::vector<UniversityBenchmarkSeed> seeds = {
+          {"Harvard University", "Massachusetts", "Cambridge", "private_research"},
+          {"Stanford University", "California", "Stanford", "private_research"},
+          {"Massachusetts Institute of Technology", "Massachusetts", "Cambridge", "private_research"},
+          {"University of California Berkeley", "California", "Berkeley", "public_research"},
+          {"University of Washington Seattle", "Washington", "Seattle", "public_research"},
+          {"University of Michigan Ann Arbor", "Michigan", "Ann Arbor", "public_research"},
+          {"Cornell University", "New York", "Ithaca", "private_research"},
+          {"Columbia University", "New York", "New York", "private_research"},
+          {"University of Pennsylvania", "Pennsylvania", "Philadelphia", "private_research"},
+          {"Yale University", "Connecticut", "New Haven", "private_research"},
+          {"Princeton University", "New Jersey", "Princeton", "private_research"},
+          {"University of California Los Angeles", "California", "Los Angeles", "public_research"},
+          {"University of Chicago", "Illinois", "Chicago", "private_research"},
+          {"Johns Hopkins University", "Maryland", "Baltimore", "private_research"},
+          {"University of California San Diego", "California", "La Jolla", "public_research"},
+          {"University of Wisconsin Madison", "Wisconsin", "Madison", "public_research"},
+          {"Duke University", "North Carolina", "Durham", "private_research"},
+          {"Northwestern University", "Illinois", "Evanston", "private_research"},
+          {"University of Illinois Urbana Champaign", "Illinois", "Urbana Champaign", "public_research"},
+          {"New York University", "New York", "New York", "private_research"},
+          {"University of Texas at Austin", "Texas", "Austin", "public_research"},
+          {"University of North Carolina Chapel Hill", "North Carolina", "Chapel Hill", "public_research"},
+          {"Pennsylvania State University", "Pennsylvania", "University Park", "public_research"},
+          {"University of Minnesota Twin Cities", "Minnesota", "Minneapolis", "public_research"},
+          {"University of Florida", "Florida", "Gainesville", "public_research"},
+          {"University of Southern California", "California", "Los Angeles", "private_research"},
+          {"Carnegie Mellon University", "Pennsylvania", "Pittsburgh", "private_research"},
+          {"Georgia Institute of Technology", "Georgia", "Atlanta", "public_research"},
+          {"Ohio State University", "Ohio", "Columbus", "public_research"},
+          {"Purdue University", "Indiana", "West Lafayette", "public_research"},
+          {"University of Maryland College Park", "Maryland", "College Park", "public_research"},
+          {"University of California Davis", "California", "Davis", "public_research"},
+          {"University of California Irvine", "California", "Irvine", "public_research"},
+          {"University of California Santa Barbara", "California", "Santa Barbara", "public_research"},
+          {"University of Colorado Boulder", "Colorado", "Boulder", "public_research"},
+          {"University of Virginia", "Virginia", "Charlottesville", "public_research"},
+          {"Vanderbilt University", "Tennessee", "Nashville", "private_research"},
+          {"Rice University", "Texas", "Houston", "private_research"},
+          {"Washington University in St Louis", "Missouri", "St Louis", "private_research"},
+          {"Emory University", "Georgia", "Atlanta", "private_research"},
+          {"University of Arizona", "Arizona", "Tucson", "public_research"},
+          {"Arizona State University", "Arizona", "Tempe", "public_research"},
+          {"Michigan State University", "Michigan", "East Lansing", "public_research"},
+          {"Rutgers University New Brunswick", "New Jersey", "New Brunswick", "public_research"},
+          {"Texas A and M University", "Texas", "College Station", "public_research"},
+          {"Indiana University Bloomington", "Indiana", "Bloomington", "public_research"},
+          {"University of Pittsburgh", "Pennsylvania", "Pittsburgh", "public_research"},
+          {"Boston University", "Massachusetts", "Boston", "private_research"},
+          {"Brown University", "Rhode Island", "Providence", "private_research"},
+          {"Dartmouth College", "New Hampshire", "Hanover", "private_research"},
+          {"University of Utah", "Utah", "Salt Lake City", "public_research"},
+          {"University of Iowa", "Iowa", "Iowa City", "public_research"},
+          {"Iowa State University", "Iowa", "Ames", "public_research"},
+          {"University of Oregon", "Oregon", "Eugene", "public_research"},
+          {"Oregon State University", "Oregon", "Corvallis", "public_research"},
+          {"University of California Santa Cruz", "California", "Santa Cruz", "public_research"},
+          {"University of California Riverside", "California", "Riverside", "public_research"},
+          {"University of California San Francisco", "California", "San Francisco", "public_health_sciences"},
+          {"University of Massachusetts Amherst", "Massachusetts", "Amherst", "public_research"},
+          {"University of Connecticut", "Connecticut", "Storrs", "public_research"},
+          {"University of Delaware", "Delaware", "Newark", "public_research"},
+          {"University of Georgia", "Georgia", "Athens", "public_research"},
+          {"University of Kansas", "Kansas", "Lawrence", "public_research"},
+          {"University of Kentucky", "Kentucky", "Lexington", "public_research"},
+          {"University of Missouri", "Missouri", "Columbia", "public_research"},
+          {"University of Nebraska Lincoln", "Nebraska", "Lincoln", "public_research"},
+          {"University of New Mexico", "New Mexico", "Albuquerque", "public_research"},
+          {"University of Oklahoma", "Oklahoma", "Norman", "public_research"},
+          {"University of South Carolina", "South Carolina", "Columbia", "public_research"},
+          {"University of Tennessee Knoxville", "Tennessee", "Knoxville", "public_research"},
+          {"University of Vermont", "Vermont", "Burlington", "public_research"},
+          {"Virginia Tech", "Virginia", "Blacksburg", "public_research"},
+          {"North Carolina State University", "North Carolina", "Raleigh", "public_research"},
+          {"Florida State University", "Florida", "Tallahassee", "public_research"},
+          {"University of Miami", "Florida", "Coral Gables", "private_research"},
+          {"Georgetown University", "District of Columbia", "Washington", "private_research"},
+          {"George Washington University", "District of Columbia", "Washington", "private_research"},
+          {"Tufts University", "Massachusetts", "Medford", "private_research"},
+          {"Northeastern University", "Massachusetts", "Boston", "private_research"},
+          {"Syracuse University", "New York", "Syracuse", "private_research"},
+          {"Rensselaer Polytechnic Institute", "New York", "Troy", "private_research"},
+          {"University at Buffalo", "New York", "Buffalo", "public_research"},
+          {"Stony Brook University", "New York", "Stony Brook", "public_research"},
+          {"Binghamton University", "New York", "Binghamton", "public_research"},
+          {"Temple University", "Pennsylvania", "Philadelphia", "public_research"},
+          {"Drexel University", "Pennsylvania", "Philadelphia", "private_research"},
+          {"Case Western Reserve University", "Ohio", "Cleveland", "private_research"},
+          {"University of Cincinnati", "Ohio", "Cincinnati", "public_research"},
+          {"University of Houston", "Texas", "Houston", "public_research"},
+          {"Baylor University", "Texas", "Waco", "private_research"},
+          {"Southern Methodist University", "Texas", "Dallas", "private_research"},
+          {"Tulane University", "Louisiana", "New Orleans", "private_research"},
+          {"Louisiana State University", "Louisiana", "Baton Rouge", "public_research"},
+          {"University of Alabama", "Alabama", "Tuscaloosa", "public_research"},
+          {"Auburn University", "Alabama", "Auburn", "public_research"},
+          {"Clemson University", "South Carolina", "Clemson", "public_research"},
+          {"Colorado State University", "Colorado", "Fort Collins", "public_research"},
+          {"Washington State University", "Washington", "Pullman", "public_research"},
+          {"University of Nevada Reno", "Nevada", "Reno", "public_research"},
+          {"Brigham Young University", "Utah", "Provo", "private_research"}};
+
+     return seeds;
+}
+
+static std::string BuildUniversityBenchmarkContent(const UniversityBenchmarkSeed &seed, size_t index)
+{
+     const std::vector<std::string> programs = {
+          "engineering", "computer science", "medicine", "business", "public policy",
+          "life sciences", "data science", "law", "education", "environmental research"};
+     const std::vector<std::string> campus_terms = {
+          "campus research labs", "student admissions", "faculty programs", "alumni networks",
+          "graduate degrees", "public service", "technology transfer", "library systems"};
+
+     const std::string &program_a = programs[index % programs.size()];
+     const std::string &program_b = programs[(index + 3U) % programs.size()];
+     const std::string &term_a = campus_terms[index % campus_terms.size()];
+     const std::string &term_b = campus_terms[(index + 5U) % campus_terms.size()];
+
+     return std::string(seed.Name) + " is a " + seed.Type + " institution in " + seed.City + ", " + seed.State +
+            " represented in this benchmark university ranking corpus. The profile covers " + program_a + ", " +
+            program_b + ", " + term_a + ", " + term_b +
+            ", enrollment context, research visibility, and campus discovery signals for relevance tests.";
 }
 
 static std::string Slugify(const std::string &input)
@@ -715,6 +850,7 @@ bool CreateFakeCollections(const std::string &base_url, const std::string &auth_
                university_fields.push_back({{"name", "city"}, {"type", "string"}});
                university_fields.push_back({{"name", "institution_type"}, {"type", "string"}});
                university_fields.push_back({{"name", "rank"}, {"type", "int32"}});
+               university_fields.push_back({{"name", "rank_signal"}, {"type", "float"}});
                university_fields.push_back({{"name", "rank_source"}, {"type", "string"}});
                university_fields.push_back({{"name", "rank_scope"}, {"type", "string"}});
                university_fields.push_back({{"name", "rank_edition"}, {"type", "string"}});
@@ -727,15 +863,15 @@ bool CreateFakeCollections(const std::string &base_url, const std::string &auth_
                nlohmann::json university_metadata = {
                     {"_rank_field", "rank"},
                     {"_rank_order", "asc"},
-                    {"_rank_source", "webometrics"},
-                    {"_rank_scope", "world"},
+                    {"_rank_source", "benchmark_university_rank"},
+                    {"_rank_scope", "benchmark"},
                     {"_rank_edition", "January 2026"},
-                    {"_rank_algorithm", "spectral"},
+                    {"_rank_algorithm", "linear_algebra"},
                     {"_rank_alpha", "0.85"},
                     {"_rank_beta", "4.0"},
-                    {"_rank_weight", "0.25"},
-                    {"_rank_methodology", "visibility_50_transparency_10_excellence_40"},
-                    {"_rank_url", "https://www.webometrics.org/united-states-of-america"}};
+                    {"_rank_weight", "0.75"},
+                    {"_rank_tiebreak", "rank_signal_desc_rank_asc"},
+                    {"_rank_methodology", "deterministic_benchmark_rank_1_to_100"}};
 
                collection_created = client.CreateCollectionWithSchemaLocal(collection_name, university_fields, "rank", university_metadata);
           }
@@ -784,10 +920,11 @@ bool CreateFakeCollections(const std::string &base_url, const std::string &auth_
                LogOutput("  ↳ Collection '" + collection_name + "' is ready; importing fake documents...\n");
           }
 
+          const size_t docs_to_create = spec.Name == "universities" ? GetUniversityBenchmarkSeeds().size() : 10U;
           std::vector<std::tuple<std::string, std::string, std::string>> docs;
-          docs.reserve(10);
+          docs.reserve(docs_to_create);
           std::vector<nlohmann::json> enriched_docs;
-          enriched_docs.reserve(10);
+          enriched_docs.reserve(docs_to_create);
           std::unordered_set<std::string> used_ids;
 
           auto BuildRealisticTitle = [&](const std::string &collection, const std::string &tag, int index) -> std::string
@@ -1059,26 +1196,32 @@ bool CreateFakeCollections(const std::string &base_url, const std::string &auth_
                return Pick(generic_intros) + " Document index: " + std::to_string(index + 1) + ".";
           };
 
-          for (int i = 0; i < 10; i++)
+          for (size_t i = 0; i < docs_to_create; i++)
           {
                const std::string &tag = spec.Tags[i % spec.Tags.size()];
                std::string title;
                std::string content;
                auto SeedIt = RealSeeds.find(spec.Name);
-               if (SeedIt != RealSeeds.end() && static_cast<size_t>(i) < SeedIt->second.size())
+               if (spec.Name == "universities" && i < GetUniversityBenchmarkSeeds().size())
                {
-                    title = SeedIt->second[static_cast<size_t>(i)].Title;
-                    content = SeedIt->second[static_cast<size_t>(i)].Content;
+                    const UniversityBenchmarkSeed &university_seed = GetUniversityBenchmarkSeeds()[i];
+                    title = university_seed.Name;
+                    content = BuildUniversityBenchmarkContent(university_seed, i);
+               }
+               else if (SeedIt != RealSeeds.end() && i < SeedIt->second.size())
+               {
+                    title = SeedIt->second[i].Title;
+                    content = SeedIt->second[i].Content;
                }
                else
                {
-                    title = BuildRealisticTitle(spec.Name, tag, i);
-                    content = BuildRealisticContent(spec.Name, tag, i);
+                    title = BuildRealisticTitle(spec.Name, tag, static_cast<int>(i));
+                    content = BuildRealisticContent(spec.Name, tag, static_cast<int>(i));
                }
 
-               content += BuildCollectionSynonymDocHint(spec.Name, i);
+               content += BuildCollectionSynonymDocHint(spec.Name, static_cast<int>(i));
 
-               std::string doc_id = MakeMeaningfulDocId(collection_name, title, content, i, used_ids);
+               std::string doc_id = MakeMeaningfulDocId(collection_name, title, content, static_cast<int>(i), used_ids);
                std::string safe_title = RemoveCommas(title);
                std::string safe_content = RemoveCommas(content);
                std::string description = BuildBenchmarkDescription(spec.Name, tag, content);
@@ -1160,35 +1303,13 @@ bool CreateFakeCollections(const std::string &base_url, const std::string &auth_
           }
           else if (spec.Name == "universities")
           {
-               struct UniversityProfile
-               {
-                    const char *State;
-                    const char *City;
-                    const char *Type;
-                    int CountryRank;
-                    int WorldRank;
-                    int ImpactRank;
-                    int OpennessRank;
-                    int ExcellenceRank;
-               };
-
-               static const std::vector<UniversityProfile> university_profiles = {
-                    {"California", "Berkeley", "public_research", 11, 15, 4, 5, 42},
-                    {"Michigan", "Ann Arbor", "public_research", 7, 9, 5, 34, 21},
-                    {"Ohio", "Columbus", "public_research", 22, 36, 52, 76, 68},
-                    {"Texas", "Austin", "public_research", 23, 41, 24, 30, 96},
-                    {"Washington", "Seattle", "public_research", 10, 14, 7, 84, 15},
-                    {"Florida", "Gainesville", "public_research", 19, 31, 27, 28, 72},
-                    {"Illinois", "Urbana Champaign", "public_research", 27, 48, 34, 44, 115},
-                    {"Georgia", "Atlanta", "public_research", 38, 67, 70, 69, 125},
-                    {"Pennsylvania", "University Park", "public_research", 20, 33, 17, 39, 79},
-                    {"Massachusetts", "Amherst", "public_research", 57, 152, 69, 110, 312}};
-
                size_t universities_updated = 0;
+               const std::vector<UniversityBenchmarkSeed> &university_profiles = GetUniversityBenchmarkSeeds();
                for (size_t i = 0; i < docs.size() && i < university_profiles.size(); ++i)
                {
                     const auto &doc_tuple = docs[i];
                     const auto &profile = university_profiles[i];
+                    const int rank = static_cast<int>(i + 1U);
 
                     nlohmann::json university_doc = enriched_docs[i];
                     university_doc["id"] = std::get<0>(doc_tuple);
@@ -1197,15 +1318,16 @@ bool CreateFakeCollections(const std::string &base_url, const std::string &auth_
                     university_doc["state"] = profile.State;
                     university_doc["city"] = profile.City;
                     university_doc["institution_type"] = profile.Type;
-                    university_doc["rank"] = profile.WorldRank;
-                    university_doc["rank_source"] = "webometrics";
-                    university_doc["rank_scope"] = "world";
+                    university_doc["rank"] = rank;
+                    university_doc["rank_signal"] = static_cast<double>(university_profiles.size() - i) / static_cast<double>(university_profiles.size());
+                    university_doc["rank_source"] = "benchmark_university_rank";
+                    university_doc["rank_scope"] = "benchmark";
                     university_doc["rank_edition"] = "January 2026";
-                    university_doc["webometrics_country_rank"] = profile.CountryRank;
-                    university_doc["webometrics_world_rank"] = profile.WorldRank;
-                    university_doc["webometrics_impact_rank"] = profile.ImpactRank;
-                    university_doc["webometrics_openness_rank"] = profile.OpennessRank;
-                    university_doc["webometrics_excellence_rank"] = profile.ExcellenceRank;
+                    university_doc["webometrics_country_rank"] = rank;
+                    university_doc["webometrics_world_rank"] = rank;
+                    university_doc["webometrics_impact_rank"] = 1 + static_cast<int>((i * 37U) % 100U);
+                    university_doc["webometrics_openness_rank"] = 1 + static_cast<int>((i * 53U) % 100U);
+                    university_doc["webometrics_excellence_rank"] = 1 + static_cast<int>((i * 71U) % 100U);
 
                     if (client.UpsertDocumentWithFieldsLocal(collection_name, university_doc))
                     {
@@ -1215,7 +1337,7 @@ bool CreateFakeCollections(const std::string &base_url, const std::string &auth_
 
                if (verbose)
                {
-                    LogOutput("  ↳ Added campus and Webometrics ranking metadata to " + std::to_string(universities_updated) + " university documents.\n");
+                    LogOutput("  ↳ Added campus and benchmark ranking metadata to " + std::to_string(universities_updated) + " university documents.\n");
                }
           }
           else if (spec.Name == "math")

@@ -191,6 +191,34 @@ void RunSearches(const std::string &base_url, const std::string &auth_token)
           }
      }
 
+     if (std::find(bench_collections.begin(), bench_collections.end(), "universities") != bench_collections.end())
+     {
+          const std::vector<std::string> university_queries = {
+               "research university",
+               "engineering campus",
+               "computer science university",
+               "public research university",
+               "student admissions faculty"};
+
+          for (const auto &query : university_queries)
+          {
+               std::map<std::string, std::string> params;
+               params["limit"] = "5";
+
+               auto response = client.Search("universities", query, params);
+
+               PrintSearchResult(++search_count_val, "University relevance ranking eval: '" + query + "'", response, "universities");
+          }
+
+          std::map<std::string, std::string> rank_params;
+          rank_params["limit"] = "5";
+          rank_params["sort_by"] = "rank:asc";
+
+          auto rank_response = client.Search("universities", "university", rank_params);
+
+          PrintSearchResult(++search_count_val, "University explicit rank baseline: 'university'", rank_response, "universities");
+     }
+
      std::vector<std::string> wildcard_prefix =
           {
                "*Document", "*Collection", "*content", "*Lorem", "*ipsum",
