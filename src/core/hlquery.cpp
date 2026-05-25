@@ -118,7 +118,7 @@ bool hlquery::Initialize()
 
      /* Initialize the core server logic */
 
-     if (!InitializeServer())
+     if (!StartServer())
      {
           return false;
      }

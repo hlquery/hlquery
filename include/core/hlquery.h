@@ -57,7 +57,7 @@ class CoreExport hlquery
 
      /* Internal initialization function */
 
-     bool InitializeServer();
+     bool StartServer();
 
      /* Check if another hlquery process is already running (internal) */
 
@@ -65,7 +65,7 @@ class CoreExport hlquery
 
      /* Initialize core server subsystems */
 
-     bool InitializeCoreSystems();
+     bool InitializeCore();
 
      /* Initialize optional runtime services after core startup. */
 

@@ -43,13 +43,13 @@
 
 /* Handles core server logic initialization and early setup tasks */
 
-bool hlquery::InitializeServer()
+bool hlquery::StartServer()
 {
      /* Verify Config exists before starting initialization */
 
      if (!Config)
      {
-          ConsoleWriter::WriteError("[FATAL] Config is null at start of InitializeServer().", true);
+          ConsoleWriter::WriteError("[FATAL] Config is null at start of StartServer().", true);
           return false;
      }
 
@@ -225,9 +225,9 @@ bool hlquery::InitializeServer()
           Config->ReportSearchAlgorithmOnce();
      }
 
-     if (!InitializeCoreSystems())
+     if (!InitializeCore())
      {
-          ConsoleWriter::WriteError("[FATAL] InitializeCoreSystems() failed.", true);
+          ConsoleWriter::WriteError("[FATAL] InitializeCore() failed.", true);
           return false;
      }
 
@@ -468,7 +468,7 @@ bool hlquery::CheckExistingProcessInternal()
 
 /* Initializes core server systems including timers and metrics tracking */
 
-bool hlquery::InitializeCoreSystems()
+bool hlquery::InitializeCore()
 {
      Timers = std::make_unique<TimerManager>();
 
