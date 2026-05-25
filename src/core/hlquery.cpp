@@ -175,10 +175,12 @@ void hlquery::WriteStartupBanner()
 {
      newline();
      std::vector<std::string> loaded_modules;
+     
      if (Modules)
      {
           loaded_modules = Modules->GetLoadedModuleNames();
      }
+     
      ConsoleWriter::WriteStartup(Tools::FormatStartupMessage(loaded_modules), true, false);
 }
 
@@ -189,10 +191,6 @@ void hlquery::RunListeners()
      if (Logs)
      {
           Logs->Debug("hlquery", "Socket engine verified/initialized for listeners.");
-     }
-
-     if (Logs)
-     {
           Logs->Debug("hlquery", "Starting " + std::to_string(Listeners.size()) + " listeners.");
      }
 

@@ -19,6 +19,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <cmath>
+#include <limits>
 #include <optional>
 #include <regex>
 #include <rocksdb/write_batch.h>
@@ -1246,6 +1247,27 @@ std::vector<std::string> GetSAMTokenAlternatives(const SAMQueryTokenViews& Query
      return Alternatives;
 }
 
+size_t GetSAMImplicitEditDistance(const std::string& Token)
+{
+     /*
+      * SAM's implicit typo matching is for natural-language recall. Short
+      * benchmark/code tokens such as ATYQE are dense enough that one edit can
+      * point at a different identifier, so keep those exact unless the caller
+      * uses explicit fuzzy syntax through the core search plan.
+      */
+     if (Token.size() <= 5)
+     {
+          return 0;
+     }
+
+     if (Token.size() <= 8)
+     {
+          return 1;
+     }
+
+     return 2;
+}
+
 SAMTokenMatchResult MatchSAMQueryTokenToTermToken(const SAMQueryTokenViews& QueryViews,
                                                   const std::string& QueryToken,
                                                   const std::string& TermToken)
@@ -1268,7 +1290,7 @@ SAMTokenMatchResult MatchSAMQueryTokenToTermToken(const SAMQueryTokenViews& Quer
           if (Index == 0)
           {
                const size_t Distance = EditDistance(Candidate, TermToken);
-               const size_t MaxDistance = Candidate.size() >= 5 ? 2 : 1;
+               const size_t MaxDistance = GetSAMImplicitEditDistance(Candidate);
 
                if (Distance <= MaxDistance)
                {
@@ -1292,7 +1314,7 @@ bool IsSAMLiteralTokenMatch(const std::string& QueryToken,
      }
 
      const size_t Distance = EditDistance(QueryToken, CandidateToken);
-     const size_t MaxDistance = QueryToken.size() >= 5 ? 2 : 1;
+     const size_t MaxDistance = GetSAMImplicitEditDistance(QueryToken);
      return Distance <= MaxDistance;
 }
 

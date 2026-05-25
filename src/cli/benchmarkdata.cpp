@@ -293,6 +293,7 @@ void InsertSampleDocuments(BenchmarkClient &client, const std::string &collectio
           }
 
           doc["id"] = doc_id;
+          doc["document_id"] = doc_id;
           doc["title"] = real_title;
 
           if (collection == "products")

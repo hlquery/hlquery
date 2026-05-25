@@ -24,6 +24,7 @@
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <sstream>
+#include <stdexcept>
 #include <string>
 #include <sys/select.h>
 #include <sys/socket.h>
@@ -722,23 +723,53 @@ HTTPResponse BenchmarkClient::MakeRequest(const std::string &method, const std::
                     return response;
                }
 
-               buffer[bytes] = '\0';
-
-               response_str += buffer;
+               response_str.append(buffer, static_cast<size_t>(bytes));
 
                size_t header_end = response_str.find("\r\n\r\n");
 
                if (header_end != std::string::npos)
                {
-                    size_t cl_pos = response_str.find("Content-Length: ");
+                    std::string headers_part = response_str.substr(0, header_end);
+                    std::string headers_lower = headers_part;
+                    std::transform(headers_lower.begin(), headers_lower.end(), headers_lower.begin(),
+                                   [](unsigned char C)
+                                   {
+                                        return static_cast<char>(std::tolower(C));
+                                   });
+
+                    size_t cl_pos = headers_lower.find("content-length:");
 
                     if (cl_pos != std::string::npos)
                     {
-                         size_t cl_end = response_str.find("\r\n", cl_pos);
+                         size_t colon_pos = headers_part.find(':', cl_pos);
+                         size_t value_start = colon_pos == std::string::npos ? std::string::npos : headers_part.find_first_not_of(" \t", colon_pos + 1);
+                         size_t cl_end = headers_part.find("\r\n", cl_pos);
+                         if (cl_end == std::string::npos)
+                         {
+                              cl_end = headers_part.size();
+                         }
 
                          try
                          {
-                              int len = std::stoi(response_str.substr(cl_pos + 16, cl_end - cl_pos - 16));
+                              if (value_start == std::string::npos || value_start > cl_end)
+                              {
+                                   throw std::invalid_argument("missing Content-Length value");
+                              }
+
+                              std::string length_value = headers_part.substr(value_start, cl_end - value_start);
+                              size_t value_end = length_value.find_last_not_of(" \t");
+                              if (value_end != std::string::npos)
+                              {
+                                   length_value.erase(value_end + 1);
+                              }
+
+                              size_t parsed = 0;
+                              int len = std::stoi(length_value, &parsed);
+
+                              if (parsed != length_value.size() || len < 0)
+                              {
+                                   throw std::invalid_argument("invalid Content-Length value");
+                              }
 
                               if (response_str.length() >= header_end + 4 + len)
                               {
@@ -1023,6 +1054,32 @@ static std::string LowercaseCopy(std::string value)
      return value;
 }
 
+static void AddBenchmarkDocumentIdField(nlohmann::json &fields)
+{
+     if (!fields.is_array())
+     {
+          fields = nlohmann::json::array();
+     }
+
+     for (const auto &field : fields)
+     {
+          if (field.is_object() && field.value("name", "") == "document_id")
+          {
+               return;
+          }
+     }
+
+     fields.insert(fields.begin(), {{"name", "document_id"}, {"type", "string"}});
+}
+
+static void AddBenchmarkDocumentIdValue(nlohmann::json &doc)
+{
+     if (doc.is_object() && doc.contains("id") && !doc.contains("document_id"))
+     {
+          doc["document_id"] = doc["id"];
+     }
+}
+
 bool BenchmarkClient::CreateCollection(const std::string &name)
 {
      return CreateCollection(name, 10000);
@@ -1044,6 +1101,8 @@ bool BenchmarkClient::CreateCollectionLocal(const std::string &name, int timeout
 
      schema["name"] = name;
      schema["fields"] = nlohmann::json::array();
+
+     AddBenchmarkDocumentIdField(schema["fields"]);
 
      nlohmann::json title_field;
 
@@ -1224,17 +1283,22 @@ bool BenchmarkClient::CreateCollectionLocal(const std::string &name, int timeout
 
 /* Creates a collection with custom schema. */
 
-bool BenchmarkClient::CreateCollectionWithSchema(const std::string &name, const nlohmann::json &fields, const std::string &default_sorting_field)
+bool BenchmarkClient::CreateCollectionWithSchema(const std::string &name, const nlohmann::json &fields, const std::string &default_sorting_field, const nlohmann::json &metadata)
 {
-     return CreateCollectionWithSchemaLocal(name, fields, default_sorting_field);
+     return CreateCollectionWithSchemaLocal(name, fields, default_sorting_field, metadata);
 }
 
-bool BenchmarkClient::CreateCollectionWithSchemaLocal(const std::string &name, const nlohmann::json &fields, const std::string &default_sorting_field)
+bool BenchmarkClient::CreateCollectionWithSchemaLocal(const std::string &name, const nlohmann::json &fields, const std::string &default_sorting_field, const nlohmann::json &metadata)
 {
      nlohmann::json schema;
 
      schema["name"] = name;
      schema["fields"] = fields;
+     AddBenchmarkDocumentIdField(schema["fields"]);
+     if (metadata.is_object() && !metadata.empty())
+     {
+          schema["metadata"] = metadata;
+     }
 
      if (!default_sorting_field.empty())
      {
@@ -1401,6 +1465,7 @@ bool BenchmarkClient::InsertDocument(const std::string &collection, const std::s
      doc["id"] = doc_id;
      doc["title"] = title;
      doc["content"] = content;
+     AddBenchmarkDocumentIdValue(doc);
 
      std::string json_str = doc.dump();
 
@@ -1459,7 +1524,10 @@ bool BenchmarkClient::InsertDocument(const std::string &collection, const std::s
 
 bool BenchmarkClient::UpsertDocumentWithFields(const std::string &collection, const nlohmann::json &doc)
 {
-     std::string json_str = doc.dump();
+     nlohmann::json payload = doc;
+     AddBenchmarkDocumentIdValue(payload);
+
+     std::string json_str = payload.dump();
 
      HTTPResponse response = MakeRequest("POST", "/collections/" + collection + "/documents", json_str, 3, false);
 
@@ -1475,7 +1543,7 @@ bool BenchmarkClient::UpsertDocumentWithFields(const std::string &collection, co
 
      if (response.StatusCode == 409)
      {
-          std::string doc_id = doc.contains("id") ? doc["id"].get<std::string>() : "";
+          std::string doc_id = payload.contains("id") ? payload["id"].get<std::string>() : "";
 
           if (!doc_id.empty())
           {
@@ -1485,7 +1553,7 @@ bool BenchmarkClient::UpsertDocumentWithFields(const std::string &collection, co
 
      if (response.StatusCode != 201 && response.StatusCode != 200)
      {
-          std::string doc_id = doc.contains("id") ? doc["id"].get<std::string>() : "";
+          std::string doc_id = payload.contains("id") ? payload["id"].get<std::string>() : "";
           std::string error_msg = "  [ERROR] Failed to upsert document '" + doc_id + "' in collection '" + collection + "': HTTP " + std::to_string(response.StatusCode);
 
           if (!response.Body.empty())
@@ -1502,7 +1570,10 @@ bool BenchmarkClient::UpsertDocumentWithFields(const std::string &collection, co
 
 bool BenchmarkClient::UpsertDocumentWithFieldsLocal(const std::string &collection, const nlohmann::json &doc)
 {
-     std::string json_str = doc.dump();
+     nlohmann::json payload = doc;
+     AddBenchmarkDocumentIdValue(payload);
+
+     std::string json_str = payload.dump();
 
      HTTPResponse response = MakeRequest("POST", AppendLocalOnlyQuery("/collections/" + collection + "/documents", true), json_str, 3, false);
 
@@ -1518,7 +1589,7 @@ bool BenchmarkClient::UpsertDocumentWithFieldsLocal(const std::string &collectio
 
      if (response.StatusCode == 409)
      {
-          std::string doc_id = doc.contains("id") ? doc["id"].get<std::string>() : "";
+          std::string doc_id = payload.contains("id") ? payload["id"].get<std::string>() : "";
 
           if (!doc_id.empty())
           {
@@ -1528,7 +1599,7 @@ bool BenchmarkClient::UpsertDocumentWithFieldsLocal(const std::string &collectio
 
      if (response.StatusCode != 201 && response.StatusCode != 200)
      {
-          std::string doc_id = doc.contains("id") ? doc["id"].get<std::string>() : "";
+          std::string doc_id = payload.contains("id") ? payload["id"].get<std::string>() : "";
           std::string error_msg = "  [ERROR] Failed to upsert document '" + doc_id + "' in collection '" + collection + "': HTTP " + std::to_string(response.StatusCode);
 
           if (!response.Body.empty())
@@ -1552,6 +1623,7 @@ bool BenchmarkClient::UpdateDocument(const std::string &collection, const std::s
      doc["id"] = doc_id;
      doc["title"] = title;
      doc["content"] = content;
+     AddBenchmarkDocumentIdValue(doc);
 
      std::string json_str = doc.dump();
 
@@ -1586,6 +1658,7 @@ bool BenchmarkClient::UpsertDocument(const std::string &collection, const std::s
      doc["id"] = doc_id;
      doc["title"] = title;
      doc["content"] = content;
+     AddBenchmarkDocumentIdValue(doc);
 
      std::string json_str = doc.dump();
 
@@ -1756,6 +1829,24 @@ bool BenchmarkClient::AddSynonym(const std::string &collection, const std::strin
      return response.StatusCode == 200 || response.StatusCode == 201;
 }
 
+/* Creates or updates an alias. */
+
+bool BenchmarkClient::CreateAlias(const std::string &alias_name, const std::string &collection)
+{
+     nlohmann::json alias_data;
+
+     alias_data["collection_name"] = collection;
+     alias_data["collection"] = collection;
+
+     std::string json_str = alias_data.dump();
+
+     std::string encoded_alias = UrlEncode(alias_name);
+
+     HTTPResponse response = MakeRequest("PUT", "/aliases/" + encoded_alias, json_str, 1, false, 5000);
+
+     return response.StatusCode == 200 || response.StatusCode == 201;
+}
+
 /* Adds a stopword to a collection. */
 
 bool BenchmarkClient::AddStopword(const std::string &collection, const std::string &word)
@@ -1788,6 +1879,7 @@ int BenchmarkClient::InsertDocumentsBulkRequest(const std::string &collection, c
           doc["id"] = std::get<0>(doc_tuple);
           doc["title"] = std::get<1>(doc_tuple);
           doc["content"] = std::get<2>(doc_tuple);
+          AddBenchmarkDocumentIdValue(doc);
 
           payload["documents"].push_back(doc);
      }
@@ -1991,6 +2083,7 @@ int BenchmarkClient::InsertDocumentsBulkLocal(const std::string &collection, con
           doc["id"] = std::get<0>(doc_tuple);
           doc["title"] = std::get<1>(doc_tuple);
           doc["content"] = std::get<2>(doc_tuple);
+          AddBenchmarkDocumentIdValue(doc);
 
           payload["documents"].push_back(doc);
      }
@@ -2099,7 +2192,7 @@ int BenchmarkClient::InsertDocumentsBulkLocal(const std::string &collection, con
 HTTPResponse BenchmarkClient::Search(const std::string &collection, const std::string &query, const std::map<std::string, std::string> &params)
 {
      std::string path = "/collections/" + collection + "/documents/search";
-     std::string query_string = "q=" + UrlEncode(query) + "&query_by=title,content";
+     std::string query_string = "q=" + UrlEncode(query) + "&query_by=title,content,document_id";
 
      for (const auto &param : params)
      {

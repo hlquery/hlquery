@@ -90,20 +90,15 @@ bool IPFilter::Initialize(const std::string &AllowedIPsConfig, const std::string
           std::lock_guard<std::mutex> CacheLock(CacheMutex);
 
           DNSCache.clear();
-
           ReverseDNSCache.clear();
-
           DNSCacheOrder.clear();
-
           ReverseDNSCacheOrder.clear();
      }
 
      /* Normalize allow list input. */
 
      std::string AllowTrimmed = AllowedIPsConfig;
-
      AllowTrimmed.erase(0, AllowTrimmed.find_first_not_of(" \t\n\r"));
-
      AllowTrimmed.erase(AllowTrimmed.find_last_not_of(" \t\n\r") + 1);
 
      if (AllowTrimmed.empty())
@@ -163,9 +158,7 @@ bool IPFilter::Initialize(const std::string &AllowedIPsConfig, const std::string
                if (IsHostname(Entry))
                {
                     RegularHostnames.push_back(Entry);
-
                     HasHostnames = true;
-
                     std::vector<std::string> ResolvedIPs;
 
                     if (ResolveHostname(Entry, ResolvedIPs, true))
@@ -206,7 +199,6 @@ bool IPFilter::Initialize(const std::string &AllowedIPsConfig, const std::string
                if (IsValidIP(Entry))
                {
                     AllowedIPs.insert(Entry);
-
                     DirectIPs.insert(Entry);
 
                     if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
@@ -228,7 +220,6 @@ bool IPFilter::Initialize(const std::string &AllowedIPsConfig, const std::string
 
      std::string DenyTrimmed = DeniedIPsConfig;
      DenyTrimmed.erase(0, DenyTrimmed.find_first_not_of(" \t\n\r"));
-
      DenyTrimmed.erase(DenyTrimmed.find_last_not_of(" \t\n\r") + 1);
 
      if (!DenyTrimmed.empty())
@@ -236,9 +227,7 @@ bool IPFilter::Initialize(const std::string &AllowedIPsConfig, const std::string
           if (DenyTrimmed == "*")
           {
                DenyAll = true;
-
                HasDenyEntries = true;
-
                DeniedOriginalEntries.push_back("*");
 
                if (Instance && Instance->Logs)
@@ -356,7 +345,6 @@ bool IPFilter::Initialize(const std::string &AllowedIPsConfig, const std::string
      /* Ensure deny hostnames also enable DNS support. */
 
      HasHostnames = HasHostnames || HasDenyHostnames;
-
      HasWildcardHostnames = HasWildcardHostnames || HasDenyWildcardHostnames;
 
      if (!AllowAll && !OriginalEntries.empty())
@@ -659,7 +647,6 @@ bool IPFilter::Reload(const std::string &AllowedIPsConfig, const std::string &De
 void IPFilter::FlushDNSCache()
 {
      size_t DNSCount = 0;
-
      size_t ReverseCount = 0;
 
      {
@@ -676,7 +663,6 @@ void IPFilter::FlushDNSCache()
      if (HasHostnames && !RegularHostnames.empty())
      {
           std::lock_guard<std::mutex> Lock(MutexValue);
-
           AllowedIPs = DirectIPs;
 
           for (const auto &Hostname : RegularHostnames)
@@ -856,20 +842,17 @@ bool IPFilter::ResolveHostname(const std::string &Hostname, std::vector<std::str
      if (UseCache && !ResolvedIPs.empty())
      {
           std::lock_guard<std::mutex> CacheLock(CacheMutex);
-
           auto It = DNSCache.find(Hostname);
 
           if (It != DNSCache.end())
           {
                ResolvedIPs = It->second;
-
                return !ResolvedIPs.empty();
           }
 
           if (DNSCache.size() >= DNSCacheMaxSize)
           {
                DNSCache.clear();
-
                DNSCacheOrder.clear();
 
                if (Instance && Instance->Logs)
@@ -932,7 +915,6 @@ bool IPFilter::IsCIDR(const std::string &CIDR) const
      }
 
      std::string IPPart = CIDR.substr(0, SlashPos);
-
      std::string MaskPart = CIDR.substr(SlashPos + 1);
 
      if (!IsValidIP(IPPart))
@@ -943,7 +925,6 @@ bool IPFilter::IsCIDR(const std::string &CIDR) const
      try
      {
           int MaskVal = std::stoi(MaskPart);
-
           return MaskVal >= 0 && MaskVal <= 32;
      }
      catch (...)
@@ -971,11 +952,8 @@ bool IPFilter::IsIPInCIDR(const std::string &IP, const std::string &CIDR) const
      }
 
      std::string NetworkStr = CIDR.substr(0, SlashPos);
-
      int MaskBits = std::stoi(CIDR.substr(SlashPos + 1));
-
      struct sockaddr_in NetworkAddr;
-
      struct sockaddr_in IPAddr;
 
      if (inet_pton(AF_INET, NetworkStr.c_str(), &(NetworkAddr.sin_addr)) != 1)
@@ -1128,7 +1106,6 @@ std::vector<std::string> IPFilter::ParseIPList(const std::string &AllowedIPsConf
      while (std::getline(SS, Item, ','))
      {
           Item.erase(0, Item.find_first_not_of(" \t\n\r"));
-
           Item.erase(Item.find_last_not_of(" \t\n\r") + 1);
 
           if (!Item.empty())

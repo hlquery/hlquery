@@ -251,6 +251,13 @@ RouteAction ResolveHttpRoute(const HttpRequest &Request)
                return RouteAction::SamListDocuments;
           }
 
+          if (NormalizedPath.rfind("/sam/label/add/", 0) == 0 &&
+              NormalizedPath.size() > std::string("/sam/label/add/").size() &&
+              Request.Method == "POST")
+          {
+               return RouteAction::SamAddDocumentLabel;
+          }
+
           if (NormalizedPath.rfind("/sam/documents/", 0) == 0 &&
               NormalizedPath.size() > std::string("/sam/documents/").size() &&
               Request.Method == "GET")
@@ -878,6 +885,8 @@ const char *RouteActionName(RouteAction ActionVal)
                return "SamListDocuments";
           case RouteAction::SamGetDocument:
                return "SamGetDocument";
+          case RouteAction::SamAddDocumentLabel:
+               return "SamAddDocumentLabel";
           case RouteAction::AddDocument:
                return "AddDocument";
           case RouteAction::BulkImportDocuments:

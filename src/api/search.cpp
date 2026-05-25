@@ -30,6 +30,7 @@
 #include "api/apikeys.h"
 #include "api/searchapi.h"
 #include "api/common.h"
+#include "api/searchcache.h"
 #include "core/hlquery.h"
 #include "core/modulemanager.h"
 #include "sam/sam.h"
@@ -88,10 +89,83 @@ namespace
 
      static SAMTrainingDedupe gSearchIdeaDedupe(16384);
 
+     std::string NormalizeControlToken(std::string Value)
+     {
+          const size_t Start = Value.find_first_not_of(" \t\r\n");
+
+          if (Start == std::string::npos)
+          {
+               return "";
+          }
+
+          const size_t End = Value.find_last_not_of(" \t\r\n");
+          Value = Value.substr(Start, End - Start + 1);
+
+          std::transform(Value.begin(), Value.end(), Value.begin(),
+                         [](unsigned char C)
+                         {
+                              return static_cast<char>(std::tolower(C));
+                         });
+
+          return Value;
+     }
+
+     bool IsTruthyControlToken(const std::string& Value)
+     {
+          const std::string Token = NormalizeControlToken(Value);
+          return Token == "1" || Token == "true" || Token == "yes" || Token == "on" || Token == "skip";
+     }
+
+     bool IsFalsyControlToken(const std::string& Value)
+     {
+          const std::string Token = NormalizeControlToken(Value);
+          return Token == "0" || Token == "false" || Token == "no" || Token == "off";
+     }
+
+     bool ShouldSkipSAMRecording(const HttpRequest& Request)
+     {
+          const auto SkipIt = Request.QueryParams.find("skip");
+          if (SkipIt != Request.QueryParams.end() && IsTruthyControlToken(SkipIt->second))
+          {
+               return true;
+          }
+
+          const auto SkipRecordIt = Request.QueryParams.find("skip_record");
+          if (SkipRecordIt != Request.QueryParams.end() && IsTruthyControlToken(SkipRecordIt->second))
+          {
+               return true;
+          }
+
+          const auto NoRecordIt = Request.QueryParams.find("no_record");
+          if (NoRecordIt != Request.QueryParams.end() && IsTruthyControlToken(NoRecordIt->second))
+          {
+               return true;
+          }
+
+          const auto RecordIt = Request.QueryParams.find("record");
+          if (RecordIt != Request.QueryParams.end() && IsFalsyControlToken(RecordIt->second))
+          {
+               return true;
+          }
+
+          auto HeaderIt = Request.Headers.find("X-HLQ-Skip-SAM-Record");
+          if (HeaderIt == Request.Headers.end())
+          {
+               HeaderIt = Request.Headers.find("x-hlq-skip-sam-record");
+          }
+
+          return HeaderIt != Request.Headers.end() && IsTruthyControlToken(HeaderIt->second);
+     }
+
      bool ShouldRecordSAMSearchIdea(const HttpRequest& Request,
                                    const std::string& Collection,
                                    const std::string& Query)
      {
+          if (ShouldSkipSAMRecording(Request))
+          {
+               return false;
+          }
+
           if (!Instance || !Instance->Config || !Instance->Config->GetSamRecordSearchIdeas())
           {
                return false;
@@ -940,7 +1014,7 @@ static std::string BuildSQLRowsResponse(const std::vector<SQLRow> &Rows,
                                         bool Grouped,
                                         const std::vector<std::string> &GroupBy)
 {
-     const int SafePerPage = PerPage > 0 ? PerPage : 10;
+     const int SafePerPage = PerPage > 0 ? PerPage : 100;
      const int SafeOffset = Offset >= 0 ? Offset : 0;
      const int SafePage = SafePerPage > 0 ? ((SafeOffset / SafePerPage) + 1) : (Page > 0 ? Page : 1);
 
@@ -1176,7 +1250,7 @@ static std::string BuildSelectSQLResponse(const SQLTranslationResult &SQLResult,
      SortSQLRows(Rows, SQLResult);
 
      const int TotalRows = static_cast<int>(Rows.size());
-     const int SafePerPage = Query.PerPage > 0 ? Query.PerPage : 10;
+     const int SafePerPage = Query.PerPage > 0 ? Query.PerPage : 100;
      const std::size_t StartOffset = static_cast<std::size_t>(std::max(0, Query.Offset));
      const std::size_t EndOffset = std::min<std::size_t>(StartOffset + static_cast<std::size_t>(SafePerPage), Rows.size());
      std::vector<SQLRow> PagedRows;
@@ -1265,7 +1339,7 @@ static std::string BuildGroupedSQLResponse(const SQLTranslationResult &SQLResult
      ApplySQLHaving(Rows, SQLResult);
      SortSQLRows(Rows, SQLResult);
      const int TotalRows = static_cast<int>(Rows.size());
-     const int SafePerPage = Query.PerPage > 0 ? Query.PerPage : 10;
+     const int SafePerPage = Query.PerPage > 0 ? Query.PerPage : 100;
      const std::size_t StartOffset = static_cast<std::size_t>(std::max(0, Query.Offset));
      const std::size_t EndOffset = std::min<std::size_t>(StartOffset + static_cast<std::size_t>(SafePerPage), Rows.size());
      std::vector<SQLRow> PagedRows;
@@ -1536,7 +1610,7 @@ static SQLParamApplyResult ApplySQLSearchParams(std::unordered_map<std::string, 
           Result.DerivedParams["aggregations"] = SQLResult.Query.Aggregations;
      }
 
-     if (SQLResult.Query.PerPage != 10)
+     if (SQLResult.Query.PerPage != 100)
      {
           Params["limit"] = std::to_string(SQLResult.Query.PerPage);
           Result.DerivedParams["limit"] = std::to_string(SQLResult.Query.PerPage);
@@ -1838,6 +1912,13 @@ HttpResponse SearchAPI::HandleSearch(const HttpRequest &Request)
      const bool SupportsDistributedExecution = !IsSQLSelectQuery &&
                                               (SearchQueryObj.Aggregations.empty() || HasExplicitDistributedOverride);
 
+     HttpResponse CachedResponse;
+     if (!NeedsCustomSQLExecution &&
+         SearchResponseCache::Get("search", Request, CollectionName, CachedResponse))
+     {
+          return CachedResponse;
+     }
+
      /* Try distributed execution first when routing policy requests cross-node search. */
 
      if (SupportsDistributedExecution && ShouldAttemptDistributedSearch(Request))
@@ -1851,6 +1932,7 @@ HttpResponse SearchAPI::HandleSearch(const HttpRequest &Request)
                ApplySQLDistinct(SearchResultObj, SQLApplyResult.Translation);
                Response.Body = GenerateComprehensiveSearchResponse(SearchResultObj, SearchQueryObj);
                AttachSearchResponseMeta(Response, SearchQueryObj, Request, CollectionName);
+               SearchResponseCache::Put("search", Request, CollectionName, Response);
 
                if (!SearchQueryObj.Q.empty() && SearchQueryObj.Q != "*" &&
                    Instance && Instance->Sam && Instance->Sam->IsOpen() &&
@@ -2037,6 +2119,11 @@ HttpResponse SearchAPI::HandleSearch(const HttpRequest &Request)
                false);
 
           FOREACH_MOD(OnSearchDocument, DocumentEvent);
+     }
+
+     if (!NeedsCustomSQLExecution)
+     {
+          SearchResponseCache::Put("search", Request, CollectionName, Response);
      }
 
      return Response;
@@ -2408,7 +2495,7 @@ HttpResponse SearchAPI::HandleGlobalSearch(const HttpRequest &Request)
 
      ComprehensiveSearchResult GlobalResult;
      GlobalResult.Page = BaseQuery.Page < 1 ? 1 : BaseQuery.Page;
-     GlobalResult.PerPage = BaseQuery.PerPage < 1 ? 10 : BaseQuery.PerPage;
+     GlobalResult.PerPage = BaseQuery.PerPage < 1 ? 100 : BaseQuery.PerPage;
      GlobalResult.IndexingInProgress = IndexingInProgress;
      GlobalResult.PartialResults = PartialResults;
      if (PartialResults)
@@ -2789,8 +2876,9 @@ ComprehensiveSearchResult SearchAPI::PerformComprehensiveSearch(const std::strin
                            : static_cast<int>(Hits.size());
      ResultObj.OutOf = ResultObj.Found;
 
-     /* Module weights are applied before sorting so custom ranking affects final order. */
+     /* Collection and module weights are applied before sorting so custom ranking affects final order. */
 
+     ApplyCollectionRankWeights(Hits, Collection);
      ApplyModuleWeights(Hits, Collection, Query, RankingMode);
 
      if (!Query.SortBy.empty())

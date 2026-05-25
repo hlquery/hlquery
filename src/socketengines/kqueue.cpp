@@ -78,6 +78,7 @@ static std::atomic<int> CurrentTimeoutMS{-1};
 static std::atomic<uint64_t> TotalBytesProcessed{0};
 static std::atomic<uint64_t> ActiveConnections{0};
 static std::atomic<bool> EngineInitialized{false};
+static std::atomic<int> EventCounter{0};
 
 static int GetTimedWorkWakeupMs()
 {
@@ -188,6 +189,7 @@ void SocketEngine::Deinit()
      }
 
      SocketEngine::PendingWritesCount.store(0, std::memory_order_relaxed);
+     EventCounter.store(0, std::memory_order_relaxed);
      SocketEngine::PendingMessageCount.store(0, std::memory_order_relaxed);
      EngineInitialized.store(false, std::memory_order_release);
 }
@@ -424,6 +426,11 @@ int SocketEngine::DispatchEvents()
                EH->OnEventHandlerWrite();
                events_processed++;
           }
+     }
+
+     if (events_processed > 0)
+     {
+          EventCounter.fetch_add(events_processed, std::memory_order_relaxed);
      }
 
      return events_processed;
@@ -684,7 +691,7 @@ void SocketEngine::IncrementBytesProcessed(uint64_t Bytes)
 
 int SocketEngine::GetEventCount()
 {
-     return 0;
+     return EventCounter.load(std::memory_order_relaxed);
 }
 
 /* Increments pending message count */

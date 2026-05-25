@@ -1671,7 +1671,7 @@ bool SearchAPI::TryDistributedSearch(const HttpRequest &Request,
      const bool AutoReconnect = Instance && Instance->Config ? Instance->Config->GetDistributedAutoReconnect() : true;
      const int ReconnectMS = Instance && Instance->Config ? Instance->Config->GetDistributedReconnectMS() : 1500;
      const int Page = Query.Page < 1 ? 1 : Query.Page;
-     const int PerPage = Query.PerPage < 1 ? 10 : Query.PerPage;
+     const int PerPage = Query.PerPage < 1 ? 100 : Query.PerPage;
      const std::size_t PageSize = static_cast<std::size_t>(Page);
      const std::size_t PerPageSize = static_cast<std::size_t>(PerPage);
      const std::size_t FanoutPerPageSize = (PageSize > (std::numeric_limits<std::size_t>::max() / PerPageSize))
@@ -2734,7 +2734,17 @@ bool SearchAPI::ReplicateWriteRequest(const HttpRequest &Request,
      HttpRequest ReplicationRequest = Request;
      EnsureReplicationOperationID(ReplicationRequest);
 
-     auto ExecuteReplication = [this, ReplicationRequest, OperationLabel, RemoteSlaves]() -> std::pair<bool, std::string>
+     size_t RequiredAcks = RemoteSlaves.size();
+     if (Mode == "sync_one")
+     {
+          RequiredAcks = 1;
+     }
+     else if (Mode == "quorum")
+     {
+          RequiredAcks = (RemoteSlaves.size() / 2) + 1;
+     }
+
+     auto ExecuteReplication = [this, ReplicationRequest, OperationLabel, RemoteSlaves, RequiredAcks]() -> std::pair<bool, std::string>
      {
           size_t Acked = 0;
           std::vector<std::string> Errors;
@@ -2791,6 +2801,35 @@ bool SearchAPI::ReplicateWriteRequest(const HttpRequest &Request,
 
                if (ReplicaResponse.StatusCode >= 200 && ReplicaResponse.StatusCode < 300)
                {
+                    if (OperationLabel == "flush")
+                    {
+                         bool ReplicaFlushSynced = false;
+
+                         try
+                         {
+                              const nlohmann::json ReplicaBody = nlohmann::json::parse(ReplicaResponse.Body);
+                              ReplicaFlushSynced =
+                                   ReplicaBody.value("success", false) &&
+                                   ReplicaBody.value("database_synced", false) &&
+                                   ReplicaBody.value("sam_synced", false) &&
+                                   ReplicaBody.value("replica_flush_synced", false);
+                         }
+                         catch (...)
+                         {
+                              ReplicaFlushSynced = false;
+                         }
+
+                         if (!ReplicaFlushSynced)
+                         {
+                              MarkSlaveDirty(Node.Endpoint);
+                              std::string QueueError;
+                              const bool Queued = QueuePendingReplication(Node.Endpoint, ReplicationRequest, false, &QueueError);
+                              Errors.push_back(Node.Endpoint + ": flush applied but replica did not confirm durable database/SAM sync" +
+                                               (Queued ? std::string("") : "; " + QueueError));
+                              continue;
+                         }
+                    }
+
                     Acked++;
                     MarkSlaveReachable(Node.Endpoint);
                }
@@ -2825,7 +2864,7 @@ bool SearchAPI::ReplicateWriteRequest(const HttpRequest &Request,
                }
           }
 
-          if (Acked == RemoteSlaves.size())
+          if (Acked >= RequiredAcks)
           {
                RecordReplicationSuccess(Acked);
                return {true, ""};
@@ -2833,7 +2872,7 @@ bool SearchAPI::ReplicateWriteRequest(const HttpRequest &Request,
 
           std::ostringstream ErrorStream;
           ErrorStream << "Replication " << OperationLabel << " degraded: acked " << Acked
-                      << "/" << RemoteSlaves.size() << " replicas";
+                      << "/" << RemoteSlaves.size() << " replicas, required " << RequiredAcks;
           if (!Errors.empty())
           {
                ErrorStream << " (" << Errors.front();

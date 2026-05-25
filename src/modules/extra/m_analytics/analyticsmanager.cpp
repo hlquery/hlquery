@@ -1415,6 +1415,5 @@ std::string AnalyticsManager::BuildStartupPayload() const
 
 uint64_t AnalyticsManager::NowMS() const
 {
-     auto NowValue = std::chrono::system_clock::now().time_since_epoch();
-     return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(NowValue).count());
+     return static_cast<uint64_t>(Instance ? Instance->NowMs() : NowMs());
 }

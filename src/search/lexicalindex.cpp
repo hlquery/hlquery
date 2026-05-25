@@ -37,6 +37,15 @@ static char ToLowerAsciiSafe(char ch)
      return static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
 }
 
+/* IsNormalizedCashtag - Returns true for normalized ticker-style cashtags such as $spy. */
+
+static bool IsNormalizedCashtag(const std::string &term)
+{
+     return term.size() > 1 &&
+            term.front() == '$' &&
+            std::isalnum(static_cast<unsigned char>(term[1]));
+}
+
 /* InvertedIndex::NormalizeTerm - Normalizes a term for indexing. */
 
 std::string InvertedIndex::NormalizeTerm(const std::string &Term)
@@ -47,7 +56,12 @@ std::string InvertedIndex::NormalizeTerm(const std::string &Term)
 
      /* Remove punctuation at start and end, but preserve wildcards and underscores. */
 
-     while (!Normalized.empty() && !std::isalnum(static_cast<unsigned char>(Normalized.front())) && Normalized.front() != '*' && Normalized.front() != '?' && Normalized.front() != '_')
+     while (!Normalized.empty() &&
+            !std::isalnum(static_cast<unsigned char>(Normalized.front())) &&
+            Normalized.front() != '*' &&
+            Normalized.front() != '?' &&
+            Normalized.front() != '_' &&
+            !IsNormalizedCashtag(Normalized))
      {
           Normalized.erase(0, 1);
      }
@@ -250,11 +264,30 @@ std::vector<std::string> InvertedIndex::ExtractTerms(const std::string &Text)
 
      size_t TermCount = 0;
 
+     auto IsCashtagStart = [&](size_t Offset) -> bool
+     {
+          return TextToProcess[Offset] == '$' &&
+                 Offset + 1 < TextLen &&
+                 std::isalnum(static_cast<unsigned char>(TextToProcess[Offset + 1]));
+     };
+
+     auto IsTermSeparator = [&](size_t Offset) -> bool
+     {
+          const char Ch = TextToProcess[Offset];
+
+          if (Ch == '$')
+          {
+               return !IsCashtagStart(Offset);
+          }
+
+          return std::isspace(static_cast<unsigned char>(Ch)) || Ch == '-' || Ch == '.' || Ch == ',' || Ch == ':' || Ch == '/' || Ch == '\\' || Ch == '(' || Ch == ')' || Ch == '[' || Ch == ']' || Ch == '{' || Ch == '}' || Ch == '@' || Ch == '#' || Ch == '%' || Ch == '&' || Ch == '+' || Ch == '=' || Ch == ';' || Ch == '|' || Ch == '!' || Ch == '?' || Ch == '~' || Ch == '^' || Ch == '`';
+     };
+
      while (Pos < TextLen && TermCount < MaxTerms)
      {
           /* Skip whitespace and punctuation that should be treated as separators. */
 
-          while (Pos < TextLen && (std::isspace(static_cast<unsigned char>(TextToProcess[Pos])) || TextToProcess[Pos] == '-' || TextToProcess[Pos] == '.' || TextToProcess[Pos] == ',' || TextToProcess[Pos] == ':' || TextToProcess[Pos] == '/' || TextToProcess[Pos] == '\\' || TextToProcess[Pos] == '(' || TextToProcess[Pos] == ')' || TextToProcess[Pos] == '[' || TextToProcess[Pos] == ']' || TextToProcess[Pos] == '{' || TextToProcess[Pos] == '}' || TextToProcess[Pos] == '@' || TextToProcess[Pos] == '#' || TextToProcess[Pos] == '$' || TextToProcess[Pos] == '%' || TextToProcess[Pos] == '&' || TextToProcess[Pos] == '+' || TextToProcess[Pos] == '=' || TextToProcess[Pos] == ';' || TextToProcess[Pos] == '|' || TextToProcess[Pos] == '!' || TextToProcess[Pos] == '?' || TextToProcess[Pos] == '~' || TextToProcess[Pos] == '^' || TextToProcess[Pos] == '`'))
+          while (Pos < TextLen && IsTermSeparator(Pos))
           {
                Pos++;
           }
@@ -268,8 +301,13 @@ std::vector<std::string> InvertedIndex::ExtractTerms(const std::string &Text)
 
           size_t WordStart = Pos;
 
-          while (Pos < TextLen && !std::isspace(static_cast<unsigned char>(TextToProcess[Pos])) && TextToProcess[Pos] != '-' && TextToProcess[Pos] != '.' && TextToProcess[Pos] != ',' && TextToProcess[Pos] != ':' && TextToProcess[Pos] != '/' && TextToProcess[Pos] != '\\' && TextToProcess[Pos] != '(' && TextToProcess[Pos] != ')' && TextToProcess[Pos] != '[' && TextToProcess[Pos] != ']' && TextToProcess[Pos] != '{' && TextToProcess[Pos] != '}' && TextToProcess[Pos] != '@' && TextToProcess[Pos] != '#' && TextToProcess[Pos] != '$' && TextToProcess[Pos] != '%' && TextToProcess[Pos] != '&' && TextToProcess[Pos] != '+' && TextToProcess[Pos] != '=' && TextToProcess[Pos] != ';' && TextToProcess[Pos] != '|' && TextToProcess[Pos] != '!' && TextToProcess[Pos] != '?' && TextToProcess[Pos] != '~' && TextToProcess[Pos] != '^' && TextToProcess[Pos] != '`')
+          while (Pos < TextLen && !IsTermSeparator(Pos))
           {
+               if (TextToProcess[Pos] == '$' && Pos != WordStart)
+               {
+                    break;
+               }
+
                Pos++;
           }
 
@@ -282,6 +320,11 @@ std::vector<std::string> InvertedIndex::ExtractTerms(const std::string &Text)
                if (!Normalized.empty() && Normalized.length() >= 1)
                {
                     UniqueTerms.insert(Normalized);
+
+                    if (IsNormalizedCashtag(Normalized))
+                    {
+                         UniqueTerms.insert(Normalized.substr(1));
+                    }
 
                     TermCount++;
                }

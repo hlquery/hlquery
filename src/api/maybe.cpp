@@ -818,47 +818,6 @@ static void CollectQuerySuggestionsFromSample(const std::string &collection,
      }
 }
 
-static bool IsNoiseCollection(const std::string &collection_name)
-{
-     std::string lower = ToLowerCopy(collection_name);
-     return lower.find("bench") != std::string::npos ||
-            lower.find("benchmark") != std::string::npos ||
-            lower.find("tmp") != std::string::npos ||
-            lower.find("temp") != std::string::npos ||
-            lower.find("_test") != std::string::npos;
-}
-
-static int CollectionAffinityScore(const std::string &collection_name, const std::string &candidate, const std::string &query)
-{
-     std::string a = ToLowerCopy(collection_name);
-     std::string b = ToLowerCopy(candidate);
-     std::string q = KeepAlphaNumSpaces(query);
-     int score = 0;
-
-     size_t prefix = 0;
-     while (prefix < a.size() && prefix < b.size() && a[prefix] == b[prefix])
-     {
-          prefix++;
-     }
-     score += static_cast<int>(prefix) * 4;
-
-     if (b.find(a) != std::string::npos || a.find(b) != std::string::npos)
-     {
-          score += 40;
-     }
-
-     std::vector<std::string> q_terms = TokenizeTerms(q);
-     std::string b_norm = KeepAlphaNumSpaces(b);
-     for (const auto &term : q_terms)
-     {
-          if (b_norm.find(term) != std::string::npos)
-          {
-               score += 12;
-          }
-     }
-
-     return score;
-}
 }
 HttpResponse SearchAPI::HandleMaybe(const HttpRequest &Request)
 {
@@ -935,7 +894,6 @@ HttpResponse SearchAPI::HandleMaybe(const HttpRequest &Request)
 
      std::vector<nlohmann::json> suggestions;
      std::unordered_set<std::string> dedupe;
-     std::vector<std::string> fallback_collections;
 
      CollectQuerySuggestionsFromSample(collection_name, query, limit, &suggestions, &dedupe);
 
@@ -955,58 +913,6 @@ HttpResponse SearchAPI::HandleMaybe(const HttpRequest &Request)
           CollectSuggestionsFromSample(collection_name, terms, query, 16.0, limit, &suggestions, &dedupe);
      }
 
-     bool fallback_used = suggestions.empty();
-     if (fallback_used)
-     {
-          std::vector<std::string> all_collections = HybridStorageManagerInstance().ListCollections();
-          std::vector<std::pair<int, std::string>> ranked_collections;
-          for (const auto &other : all_collections)
-          {
-               if (other == collection_name || IsNoiseCollection(other))
-               {
-                    continue;
-               }
-               ranked_collections.push_back({CollectionAffinityScore(collection_name, other, query), other});
-          }
-
-          std::sort(ranked_collections.begin(), ranked_collections.end(), [](const auto &a, const auto &b)
-                    {
-                         if (a.first != b.first)
-                         {
-                              return a.first > b.first;
-                         }
-                         return a.second < b.second;
-                    });
-
-          for (const auto &ranked : ranked_collections)
-          {
-               const std::string &other = ranked.second;
-
-               fallback_collections.push_back(other);
-
-               for (const auto &query_variant : query_variants)
-               {
-                    ComprehensiveSearchQuery fallback_query = BuildMaybeQuery(query_variant, per_collection_probe);
-                    ComprehensiveSearchResult fallback_result = PerformComprehensiveSearch(other, fallback_query);
-                    CollectSuggestions(fallback_result, other, terms, query, 16.0, limit, &suggestions, &dedupe);
-                    if (static_cast<int>(suggestions.size()) >= limit)
-                    {
-                         break;
-                    }
-               }
-
-               if (suggestions.empty())
-               {
-                    CollectSuggestionsFromSample(other, terms, query, 16.0, limit, &suggestions, &dedupe);
-               }
-
-               if (fallback_collections.size() >= 2 || static_cast<int>(suggestions.size()) >= limit)
-               {
-                    break;
-               }
-          }
-     }
-
      if (static_cast<int>(suggestions.size()) > limit)
      {
           suggestions.resize(static_cast<size_t>(limit));
@@ -1017,8 +923,8 @@ HttpResponse SearchAPI::HandleMaybe(const HttpRequest &Request)
      root["collection"] = collection_name;
      root["limit"] = limit;
      root["count"] = suggestions.size();
-     root["fallback_used"] = fallback_used;
-     root["fallback_collections"] = fallback_collections;
+     root["fallback_used"] = false;
+     root["fallback_collections"] = nlohmann::json::array();
      root["suggestions"] = nlohmann::json::array();
 
      for (const auto &s : suggestions)
@@ -1029,10 +935,6 @@ HttpResponse SearchAPI::HandleMaybe(const HttpRequest &Request)
      if (suggestions.empty())
      {
           root["message"] = "nothing man";
-     }
-     else if (fallback_used)
-     {
-          root["message"] = "best guess from nearby collections";
      }
      else
      {

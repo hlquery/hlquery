@@ -20,7 +20,9 @@
 #include <thread>
 #include <vendor/json/json.hpp>
 
+#include "api/searchcache.h"
 #include "core/hlquery.h"
+#include "runtime/clock.h"
 #include "runtime/threadlimit.h"
 #include "search/storageengine.h"
 #include "search/cstore.h"
@@ -35,23 +37,6 @@
 static std::vector<std::thread> IndexingThreads;
 static std::mutex IndexingThreadsMutex;
 
-static bool IsSAMAutoIndexPaused()
-{
-     if (!Instance || !Instance->Sam)
-     {
-          return false;
-     }
-
-     const uint64_t pause_until_ms = Instance->Sam->GetAutoIndexPauseUntilMS();
-
-     if (pause_until_ms == 0)
-     {
-          return false;
-     }
-
-     return static_cast<uint64_t>(Instance->NowMs()) < pause_until_ms;
-}
-
 static std::string GetCollectionConfigKey(const std::string &Name)
 {
      return "collection_config:" + Name;
@@ -59,6 +44,11 @@ static std::string GetCollectionConfigKey(const std::string &Name)
 
 static bool CollectionNeedsLanguageDetection(const std::string &Name)
 {
+     if (Instance && Instance->Config && !Instance->Config->GetSamAutoDetectCollectionLanguage())
+     {
+          return false;
+     }
+
      CollectionConfig config;
 
      if (!HybridStorageManagerInstance().GetCollectionConfig(Name, config))
@@ -75,6 +65,25 @@ static bool CollectionNeedsLanguageDetection(const std::string &Name)
 
      const std::string value = it->second;
      return value.empty() || value == "auto" || value == "und";
+}
+
+static void NotifySAMCollectionChanged(const std::string &Collection)
+{
+     if (!Instance || !Instance->Sam || !Instance->Sam->IsOpen())
+     {
+          return;
+     }
+
+     std::string SamError;
+
+     if (!Instance->Sam->NotifyCollectionChanged(Collection, 0, &SamError) &&
+         Instance->Logs)
+     {
+          Instance->Logs->Normal("sam",
+                                 "Failed to mark collection '" + Collection +
+                                      "' dirty for automatic SAM rebuild: " +
+                                      (SamError.empty() ? std::string("unknown error") : SamError) + ".");
+     }
 }
 
 static void RefreshCollectionLanguageIfNeeded(const std::string &Collection,
@@ -1088,6 +1097,7 @@ bool HybridStorageManager::CreateCollection(const std::string &name, const Colle
                Instance->Logs->Normal("hybrid_storage", "[COLLECTION_FINAL] Collection '" + name + "' confirmed in map (size: " + std::to_string(Collections.size()) + ") - releasing lock.");
           }
 
+          SearchResponseCache::InvalidateCollection(name);
           return true;
      }
 
@@ -1125,6 +1135,7 @@ bool HybridStorageManager::CreateCollection(const std::string &name, const Colle
           }
      }
 
+     SearchResponseCache::InvalidateCollection(name);
      return true;
 }
 
@@ -1594,6 +1605,7 @@ bool HybridStorageManager::DeleteCollection(const std::string &name)
           CollectionsBeingIndexed.erase(name);
      }
 
+     SearchResponseCache::InvalidateCollection(name);
      return true;
 }
 
@@ -1973,6 +1985,7 @@ bool HybridStorageManager::AddDocument(const std::string &collection, const Docu
      if (success)
      {
           MarkCollectionIndexDirty(collection);
+          SearchResponseCache::InvalidateCollection(collection);
 
           /*
                 * Index new document immediately so it's searchable right away.
@@ -2021,19 +2034,7 @@ bool HybridStorageManager::AddDocument(const std::string &collection, const Docu
                }
           }
 
-          if (Instance && Instance->Sam && Instance->Sam->IsOpen() && !IsSAMAutoIndexPaused())
-          {
-               std::string sam_error;
-
-               if (!Instance->Sam->EnqueueIndexDocument(collection, doc, &sam_error) &&
-                   Instance->Logs)
-               {
-                    Instance->Logs->Normal("sam",
-                                           "Failed to queue incremental SAM index for '" +
-                                                collection + "/" + doc.ID + "': " +
-                                                (sam_error.empty() ? std::string("unknown error") : sam_error) + ".");
-               }
-          }
+          NotifySAMCollectionChanged(collection);
 
           RefreshCollectionLanguageIfNeeded(collection, &doc);
      }
@@ -2200,35 +2201,12 @@ size_t HybridStorageManager::AddDocumentsBatch(const std::string &collection, co
      if (count > 0)
      {
           MarkCollectionIndexDirty(collection);
+          SearchResponseCache::InvalidateCollection(collection);
      }
 
-     if (count > 0 && Instance && Instance->Sam && Instance->Sam->IsOpen() && !IsSAMAutoIndexPaused())
+     if (count > 0)
      {
-          for (const auto &doc : documents)
-          {
-               if (doc.ID.empty())
-               {
-                    continue;
-               }
-
-               Document stored_doc = GetDocument(collection, doc.ID);
-
-               if (stored_doc.ID.empty())
-               {
-                    continue;
-               }
-
-               std::string sam_error;
-
-               if (!Instance->Sam->EnqueueIndexDocument(collection, stored_doc, &sam_error) &&
-                   Instance->Logs)
-               {
-                    Instance->Logs->Normal("sam",
-                                           "Failed to queue batch SAM index for '" +
-                                                collection + "/" + stored_doc.ID + "': " +
-                                                (sam_error.empty() ? std::string("unknown error") : sam_error) + ".");
-               }
-          }
+          NotifySAMCollectionChanged(collection);
      }
 
      if (count > 0)
@@ -2631,6 +2609,7 @@ bool HybridStorageManager::DeleteDocument(const std::string &collection, const s
      if (deleted)
      {
           MarkCollectionIndexDirty(collection);
+          SearchResponseCache::InvalidateCollection(collection);
 
           bool partial_cleanup_failed = false;
 
@@ -2675,6 +2654,8 @@ bool HybridStorageManager::DeleteDocument(const std::string &collection, const s
                     partial_cleanup_failed = true;
                }
           }
+
+          NotifySAMCollectionChanged(collection);
 
           /*
                 * Update collection metadata counter after delete to ensure accuracy.
@@ -2868,6 +2849,7 @@ bool HybridStorageManager::UpdateDocument(const std::string &collection, const D
      if (index_success)
      {
           MarkCollectionIndexDirty(collection);
+          SearchResponseCache::InvalidateCollection(collection);
      }
 
      if (index_success && Instance && Instance->Logs)
@@ -2875,18 +2857,9 @@ bool HybridStorageManager::UpdateDocument(const std::string &collection, const D
           Instance->Logs->Debug("hybrid_storage", "[UPDATE_SUCCESS] Updated document '" + new_doc.ID + "' in collection '" + collection + "'.");
      }
 
-     if (index_success && Instance && Instance->Sam && Instance->Sam->IsOpen())
+     if (index_success)
      {
-          std::string sam_error;
-
-          if (!Instance->Sam->EnqueueIndexDocument(collection, new_doc, &sam_error) &&
-              Instance->Logs)
-          {
-               Instance->Logs->Normal("sam",
-                                      "Failed to queue incremental SAM update for '" +
-                                           collection + "/" + new_doc.ID + "': " +
-                                           (sam_error.empty() ? std::string("unknown error") : sam_error) + ".");
-          }
+          NotifySAMCollectionChanged(collection);
      }
 
      /*
@@ -4243,15 +4216,21 @@ bool HybridStorageManager::FlushAll()
 
      /* Step 6: Flush and sync database to ensure all deletions are persisted */
 
+     bool DatabaseSynced = false;
+
      try
      {
           /* Use FlushAndSync() to ensure all deletions are written to disk */
 
-          Instance->Database->FlushAndSync();
+          DatabaseSynced = Instance->Database->FlushAndSync();
 
-          if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
+          if (DatabaseSynced && Instance && Instance->Logs && Instance->Logs->GetDebugMode())
           {
                Instance->Logs->Debug("hybrid_storage", "FlushAll: Database flushed and synced to disk.");
+          }
+          else if (!DatabaseSynced && Instance && Instance->Logs)
+          {
+               Instance->Logs->Normal("hybrid_storage", "FlushAll: FlushAndSync failed; flush cannot be acknowledged as durable.");
           }
      }
      catch (const std::exception &e)
@@ -4262,10 +4241,17 @@ bool HybridStorageManager::FlushAll()
           }
      }
 
+     if (!DatabaseSynced)
+     {
+          return false;
+     }
+
      if (Instance && Instance->Logs)
      {
           Instance->Logs->Normal("hybrid_storage", "FlushAll: Completed - cleared " + std::to_string(collection_count) + " collections, all indexes, caches, and data. System is now empty and ready for fresh start.");
      }
+
+     SearchResponseCache::InvalidateAll();
 
      return true;
 }

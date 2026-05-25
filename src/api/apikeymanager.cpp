@@ -48,7 +48,8 @@ bool WriteFileAtomic(const std::string &FilePath, const std::string &Contents)
 
      std::string DirPath = std::filesystem::path(FilePath).parent_path().string();
 
-     std::string TmpPath = FilePath + ".tmp." + std::to_string(static_cast<long long>(getpid())) + "." + std::to_string(::NowMs());
+     const auto TmpNowMS = ::Instance ? ::Instance->NowMs() : ::NowMs();
+     std::string TmpPath = FilePath + ".tmp." + std::to_string(static_cast<long long>(getpid())) + "." + std::to_string(TmpNowMS);
 
      int FD = open(TmpPath.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0600);
 
@@ -297,16 +298,8 @@ void APIKeyManager::UpdateLastUsed(const std::string &KeyID)
 
      if (It != Keys.end())
      {
-          if (::Instance)
-          {
-               auto NowMS = ::Instance->NowMs();
-
-               It->second.LastUsedAt = std::chrono::system_clock::time_point(std::chrono::milliseconds(NowMS));
-          }
-          else
-          {
-               It->second.LastUsedAt = std::chrono::system_clock::time_point(std::chrono::milliseconds(NowMs()));
-          }
+          const auto NowMS = ::Instance ? ::Instance->NowMs() : NowMs();
+          It->second.LastUsedAt = std::chrono::system_clock::time_point(std::chrono::milliseconds(NowMS));
 
           It->second.UseCount++;
      }
@@ -331,7 +324,8 @@ bool APIKeyManager::CheckRateLimit(const std::string &KeyID)
 
      std::lock_guard<std::mutex> RateLock(RateLimitMutex);
 
-     auto Now = std::chrono::system_clock::time_point(std::chrono::milliseconds(NowMs()));
+     const auto NowMS = ::Instance ? ::Instance->NowMs() : NowMs();
+     auto Now = std::chrono::system_clock::time_point(std::chrono::milliseconds(NowMS));
      auto &Tracker = RateLimits[KeyID];
 
      if (std::chrono::duration_cast<std::chrono::minutes>(Now - Tracker.WindowStart).count() >= 1)

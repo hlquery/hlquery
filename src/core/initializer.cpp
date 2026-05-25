@@ -1,9 +1,13 @@
 /*
  * hlquery - Search beyond keywords.
- * Initializer Implementation
+ * https://www.hlquery.com
  *
- * Provides organized initialization functions for hlquery server subsystems.
- * Breaks down the large Initialize() function into logical, manageable sections.
+ * Copyright (C) 2021-2026, Carlos F. Ferry <carlos.ferry@gmail.com>
+ *
+ * This file is part of hlquery, released under the BSD License version 3.
+ * You are free to redistribute and/or modify this software
+ * under the terms of the BSD License.
+ * For more details, please visit: https://docs.hlquery.com
  */
 
 #include <chrono>
@@ -46,7 +50,6 @@ bool hlquery::InitializeServer()
      if (!Config)
      {
           ConsoleWriter::WriteError("[FATAL] Config is null at start of InitializeServer().", true);
-
           return false;
      }
 
@@ -56,7 +59,6 @@ bool hlquery::InitializeServer()
       */
 
      setvbuf(stdout, nullptr, _IOLBF, 0);
-
      setvbuf(stderr, nullptr, _IOLBF, 0);
 
      /* Initialize startup state tracking structures */
@@ -206,7 +208,6 @@ bool hlquery::InitializeServer()
      if (!Logs)
      {
           ConsoleWriter::WriteError("[FATAL] LogManager::CreateAndInitialize() failed.", true);
-
           return false;
      }
 
@@ -227,7 +228,6 @@ bool hlquery::InitializeServer()
      if (!InitializeCoreSystems())
      {
           ConsoleWriter::WriteError("[FATAL] InitializeCoreSystems() failed.", true);
-
           return false;
      }
 
@@ -236,7 +236,6 @@ bool hlquery::InitializeServer()
      if (!ThreadLimit::Initialize(Config.get()))
      {
           ConsoleWriter::WriteError("[FATAL] ThreadLimit::Initialize() failed.", true);
-
           return false;
      }
 
@@ -1290,6 +1289,7 @@ void hlquery::WaitForMetadataScan()
                                               if (Instance && !Instance->HTTPServers.empty())
                                               {
                                                    bool all_not_loading = true;
+                                             
                                                    for (auto *server : Instance->HTTPServers)
                                                    {
                                                         if (server->IsLoading())

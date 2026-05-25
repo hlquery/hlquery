@@ -329,7 +329,7 @@ void HLQueryCLI::ShowRoutes()
      std::cout << "      filter_by (string, optional): Filter conditions (e.g., \"price:>=100\")\n";
      std::cout << "      sort_by (string, optional): Sort fields (e.g., \"price:asc,title:desc\")\n";
      std::cout << "      facet_by (string, optional): Comma-separated fields for faceting\n";
-     std::cout << "      per_page (integer, optional): Results per page (default: 10, max: 1000)\n";
+     std::cout << "      per_page (integer, optional): Results per page (default: 100, max: 1000)\n";
      std::cout << "      page (integer, optional): Page number (default: 1)\n";
      std::cout << "      limit (integer, optional): Alternative to per_page\n";
      std::cout << "      offset (integer, optional): Alternative to page (number to skip)\n";
@@ -379,7 +379,7 @@ void HLQueryCLI::ShowRoutes()
      std::cout << "      sort_by (string, optional): Sort fields (e.g., \"price:asc\")\n";
      std::cout << "      include_fields (string, optional): Comma-separated fields to include\n";
      std::cout << "      exclude_fields (string, optional): Comma-separated fields to exclude\n";
-     std::cout << "      per_page (integer, optional): Results per page (default: 10, max: 1000)\n";
+     std::cout << "      per_page (integer, optional): Results per page (default: 100, max: 1000)\n";
      std::cout << "      page (integer, optional): Page number (default: 1)\n";
      std::cout << "      offset (integer, optional): Number of results to skip\n";
      std::cout << "      Note: All search parameters from above are also supported\n\n";

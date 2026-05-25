@@ -178,7 +178,7 @@ class HLQueryCLI
 
      /* Searches one collection's SAM index. */
 
-     void SearchSAM(const std::string &collection_name,
+     bool SearchSAM(const std::string &collection_name,
                     const std::string &query,
                     int limit = 20,
                     bool json_output = false,
@@ -376,7 +376,7 @@ class HLQueryCLI
      bool RequestDryRunPrintCurl = false;
      std::string ProgramName;
 
-     int DefaultTimeoutSeconds = 5;
+     int DefaultTimeoutSeconds = 30;
 
      std::atomic<bool> Cancelled;
 

@@ -86,7 +86,7 @@ struct APIKey
           }
           else
           {
-               CreatedAt = std::chrono::system_clock::now();
+               CreatedAt = std::chrono::system_clock::time_point(std::chrono::milliseconds(NowMs()));
           }
 
           LastUsedAt = CreatedAt;
@@ -111,7 +111,7 @@ struct APIKey
           }
           else
           {
-               NowVal = std::chrono::system_clock::now();
+               NowVal = std::chrono::system_clock::time_point(std::chrono::milliseconds(NowMs()));
           }
 
           return NowVal > ExpiresAt;

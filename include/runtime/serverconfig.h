@@ -619,6 +619,11 @@ class ServerConfig
           return SamIndexAll;
      }
 
+     bool GetSamAutoDetectCollectionLanguage() const
+     {
+          return SamAutoDetectCollectionLanguage;
+     }
+
      bool GetSamSmartBackground() const
      {
           return SamSmartBackground;
@@ -787,6 +792,11 @@ class ServerConfig
     double GetSam25MinFinalScore() const
     {
          return Sam25MinFinalScore;
+    }
+
+    double GetSam25IntentDocMatchMinScore() const
+    {
+         return Sam25IntentDocMatchMinScore;
     }
 
     bool GetSam25EnableSourceDocMerge() const
@@ -2090,70 +2100,267 @@ class ServerConfig
 
      /* Names of modules configured for startup loading. */
 
-    std::vector<ModuleLoadEntry> ModuleLoads;
-    std::string AIModelsDirectory = "run/models";
-    std::string AIModelName;
-    std::string AIModelPath;
-    std::string AIInferenceCommand;
-    std::vector<AIModelDescriptor> AIModelCatalog;
-    bool AIEnabled = true;
-    bool SamEnabled = false;
-    std::string SamDataDirectory = HLQUERY_SAM_DATA_DIR;
-    std::string SamSearchIdeasCollection;
-    bool SamRecordSearchIdeas = true;
-    bool SamRecordInteractions = true;
-    int SamSearchIdeaDedupeWindowMs = 0;
-    int SamInteractionDedupeWindowMs = 0;
-    int SamActorMetadataRetentionDays = 30;
-    int SamInteractionMaxPerMinute = 0;
-    int SamInteractionMaxPerHour = 0;
-    int SamInteractionMaxPerDocQueryPerHour = 0;
-    bool SamIndexAll = false;
-    bool SamSmartBackground = true;
-    int SamBackgroundImprovementIntervalMs = 60000;
-    int SamBackgroundImprovementPollMs = 15000;
-    bool Sam25DynamicQueryWeight = true;
-    double Sam25ShortQueryPhraseBoost = 1.20;
-    double Sam25LongQueryPhraseBoost = 0.85;
-    double Sam25SourcePhraseBoostTitle = 1.25;
-    double Sam25SourcePhraseBoostLabelPair = 1.15;
+     std::vector<ModuleLoadEntry> ModuleLoads;
+
+     /* Directory containing local AI model files. */
+
+     std::string AIModelsDirectory = "run/models";
+
+     /* Name of the active AI model preset. */
+
+     std::string AIModelName;
+
+     /* Filesystem path to the active AI model. */
+
+     std::string AIModelPath;
+
+     /* Command used to run external AI inference. */
+
+     std::string AIInferenceCommand;
+
+     /* Catalog of AI model presets available to the server. */
+
+     std::vector<AIModelDescriptor> AIModelCatalog;
+
+     /* Toggle AI-assisted runtime features. */
+
+     bool AIEnabled = true;
+
+     /* Toggle SAM retrieval and learning features. */
+
+     bool SamEnabled = false;
+
+     /* Directory used for SAM persistent data. */
+
+     std::string SamDataDirectory = HLQUERY_SAM_DATA_DIR;
+
+     /* Collection used to store recorded SAM search ideas. */
+
+     std::string SamSearchIdeasCollection;
+
+     /* Toggle recording of SAM search ideas. */
+
+     bool SamRecordSearchIdeas = true;
+
+     /* Toggle recording of SAM document interactions. */
+
+     bool SamRecordInteractions = true;
+
+     /* Milliseconds used to deduplicate repeated SAM search ideas. */
+
+     int SamSearchIdeaDedupeWindowMs = 0;
+
+     /* Milliseconds used to deduplicate repeated SAM interactions. */
+
+     int SamInteractionDedupeWindowMs = 0;
+
+     /* Number of days to retain SAM actor metadata. */
+
+     int SamActorMetadataRetentionDays = 30;
+
+     /* Maximum SAM interactions accepted per actor each minute. */
+
+     int SamInteractionMaxPerMinute = 0;
+
+     /* Maximum SAM interactions accepted per actor each hour. */
+
+     int SamInteractionMaxPerHour = 0;
+
+     /* Maximum SAM interactions accepted for one document and query each hour. */
+
+     int SamInteractionMaxPerDocQueryPerHour = 0;
+
+     /* Toggle SAM indexing for all collections. */
+
+     bool SamIndexAll = false;
+
+     /* Toggle automatic collection language metadata detection. */
+
+     bool SamAutoDetectCollectionLanguage = true;
+
+     /* Toggle SAM background improvement scheduling. */
+
+     bool SamSmartBackground = true;
+
+     /* Milliseconds between SAM background improvement passes. */
+
+     int SamBackgroundImprovementIntervalMs = 60000;
+
+     /* Milliseconds between SAM background polling checks. */
+
+     int SamBackgroundImprovementPollMs = 15000;
+
+     /* Toggle dynamic SAM 2.5 query weighting. */
+
+     bool Sam25DynamicQueryWeight = true;
+
+     /* Phrase boost used for short SAM 2.5 queries. */
+
+     double Sam25ShortQueryPhraseBoost = 1.20;
+
+     /* Phrase boost used for long SAM 2.5 queries. */
+
+     double Sam25LongQueryPhraseBoost = 0.85;
+
+     /* Source phrase boost for title-derived SAM 2.5 ideas. */
+
+     double Sam25SourcePhraseBoostTitle = 1.25;
+
+     /* Source phrase boost for paired label-derived SAM 2.5 ideas. */
+
+     double Sam25SourcePhraseBoostLabelPair = 1.15;
+
+     /* Source phrase boost for label-derived SAM 2.5 ideas. */
+
      double Sam25SourcePhraseBoostLabel = 1.00;
+
+     /* Source phrase boost for LLM-derived SAM 2.5 ideas. */
+
      double Sam25SourcePhraseBoostLlm = 0.85;
+
+     /* Maximum number of ideas requested from SAM LLM expansion. */
+
      int SamLLMMaxIdeas = 6;
+
+     /* Maximum number of contextual ideas retained for SAM processing. */
+
      int SamContextMaxIdeas = 20;
+
+     /* Toggle SAM context logging. */
+
      bool SamLogContext = false;
+
+     /* Timeout in milliseconds for SAM LLM calls. */
+
      int SamLLMTimeoutMs = 20000;
+
+     /* Creativity mode used for SAM LLM prompt generation. */
+
      std::string SamLLMCreativityMode = "balanced";
-    bool Sam25EnableIdf = true;
-    double Sam25IdfFloor = 0.10;
-    double Sam25IdfCeiling = 2.50;
-    bool Sam25EnableDocPrior = false;
-    std::string Sam25DocPriorField = "popularity_score";
-    double Sam25DocPriorWeight = 0.08;
-    int Sam25OrderedSlop = 2;
-    int Sam25UnorderedWindowSlop = 3;
-    bool Sam25ExactPhraseRequiresStopwords = true;
-    bool Sam25ExactPhraseIgnoreOuterStopwords = true;
-    bool Sam25EnableSynonymExpansion = true;
-    double Sam25SynonymBoost = 0.72;
-    int Sam25MaxSynonymsPerToken = 4;
-    bool Sam25EnableNoisePenalty = true;
-    double Sam25NoisePenalty = 0.18;
-    double Sam25NoisePenaltyLlmExtra = 0.10;
-    double Sam25MinCoverage = 0.50;
-    double Sam25MinOrderedBoostForPhrase = 0.20;
-    double Sam25MinFinalScore = 0.35;
-    bool Sam25EnableSourceDocMerge = true;
-    double Sam25SourceDocWeight = 0.90;
-    double Sam25SourceDocTitleWeight = 1.20;
-    double Sam25SourceDocDescriptionWeight = 1.08;
-    double Sam25SourceDocLabelsWeight = 1.10;
-    double Sam25SourceDocContentWeight = 0.92;
-    double Sam25SourceDocMinScore = 0.32;
-    double Sam25SourceDocMergeBonus = 0.10;
-    bool Sam25DebugExplain = false;
-    int Sam25DebugLogTopK = 10;
-    bool Sam25DebugIncludeComponents = true;
+
+     /* Toggle inverse document frequency weighting in SAM 2.5. */
+
+     bool Sam25EnableIdf = true;
+
+     /* Minimum inverse document frequency multiplier for SAM 2.5. */
+
+     double Sam25IdfFloor = 0.10;
+
+     /* Maximum inverse document frequency multiplier for SAM 2.5. */
+
+     double Sam25IdfCeiling = 2.50;
+
+     /* Toggle document prior scoring in SAM 2.5. */
+
+     bool Sam25EnableDocPrior = false;
+
+     /* Field used as the SAM 2.5 document prior source. */
+
+     std::string Sam25DocPriorField = "popularity_score";
+
+     /* Weight applied to the SAM 2.5 document prior. */
+
+     double Sam25DocPriorWeight = 0.08;
+
+     /* Ordered token slop allowed for SAM 2.5 phrase matching. */
+
+     int Sam25OrderedSlop = 2;
+
+     /* Unordered token window slop allowed for SAM 2.5 matching. */
+
+     int Sam25UnorderedWindowSlop = 3;
+
+     /* Toggle stopword requirements for exact SAM 2.5 phrases. */
+
+     bool Sam25ExactPhraseRequiresStopwords = true;
+
+     /* Toggle trimming outer stopwords for exact SAM 2.5 phrases. */
+
+     bool Sam25ExactPhraseIgnoreOuterStopwords = true;
+
+     /* Toggle synonym expansion in SAM 2.5 scoring. */
+
+     bool Sam25EnableSynonymExpansion = true;
+
+     /* Boost applied to SAM 2.5 synonym matches. */
+
+     double Sam25SynonymBoost = 0.72;
+
+     /* Maximum number of synonyms expanded per SAM 2.5 token. */
+
+     int Sam25MaxSynonymsPerToken = 4;
+
+     /* Toggle noise penalty scoring in SAM 2.5. */
+
+     bool Sam25EnableNoisePenalty = true;
+
+     /* Base noise penalty applied in SAM 2.5 scoring. */
+
+     double Sam25NoisePenalty = 0.18;
+
+     /* Extra noise penalty applied to LLM-derived SAM 2.5 ideas. */
+
+     double Sam25NoisePenaltyLlmExtra = 0.10;
+
+     /* Minimum query coverage required for SAM 2.5 matches. */
+
+     double Sam25MinCoverage = 0.50;
+
+     /* Minimum ordered boost required for SAM 2.5 phrase scoring. */
+
+     double Sam25MinOrderedBoostForPhrase = 0.20;
+
+     /* Minimum final SAM 2.5 score required for a candidate. */
+
+     double Sam25MinFinalScore = 0.35;
+
+     /* Minimum score required when matching SAM intent ideas to documents. */
+
+     double Sam25IntentDocMatchMinScore = 0.65;
+
+     /* Toggle source document merge scoring in SAM 2.5. */
+
+     bool Sam25EnableSourceDocMerge = true;
+
+     /* Base weight for SAM 2.5 source document scores. */
+
+     double Sam25SourceDocWeight = 0.90;
+
+     /* Title weight for SAM 2.5 source document scoring. */
+
+     double Sam25SourceDocTitleWeight = 1.20;
+
+     /* Description weight for SAM 2.5 source document scoring. */
+
+     double Sam25SourceDocDescriptionWeight = 1.08;
+
+     /* Labels weight for SAM 2.5 source document scoring. */
+
+     double Sam25SourceDocLabelsWeight = 1.10;
+
+     /* Content weight for SAM 2.5 source document scoring. */
+
+     double Sam25SourceDocContentWeight = 0.92;
+
+     /* Minimum SAM 2.5 source document score required for merging. */
+
+     double Sam25SourceDocMinScore = 0.32;
+
+     /* Bonus applied when SAM 2.5 merges source document evidence. */
+
+     double Sam25SourceDocMergeBonus = 0.10;
+
+     /* Toggle detailed SAM 2.5 score explanations. */
+
+     bool Sam25DebugExplain = false;
+
+     /* Number of top SAM 2.5 candidates included in debug logs. */
+
+     int Sam25DebugLogTopK = 10;
+
+     /* Toggle component-level details in SAM 2.5 debug output. */
+
+     bool Sam25DebugIncludeComponents = true;
 
      /* Default ranking name. */
 

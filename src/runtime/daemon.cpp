@@ -1432,8 +1432,9 @@ void hlquery::ForceStop()
 
      if (!IsHLQueryProcess && kill(TargetPIDValue, 0) == 0)
      {
-          ConsoleWriter::WriteError("hlquery forcestop: WARNING: Could not verify process " + std::to_string(TargetPIDValue) + " is hlquery.", true);
-          ConsoleWriter::WriteError("hlquery forcestop: Process exists but cmdline check failed - proceeding anyway.", true);
+          ConsoleWriter::WriteError("hlquery forcestop: Could not verify process " + std::to_string(TargetPIDValue) + " is hlquery.", true);
+          ConsoleWriter::WriteError("hlquery forcestop: Refusing to signal an unverified process.", true);
+          ExitManager::Exit(1);
      }
 
      if (kill(TargetPIDValue, 0) != 0)
@@ -1848,6 +1849,20 @@ void hlquery::Cleanup()
           }
      }
 
+     /* Stop listeners before tearing down APIs, storage, and executors they may use. */
+
+     if (Instance)
+     {
+          LogCleanupStage("stopping http servers");
+
+          for (auto *server : Instance->HTTPServers)
+          {
+               ShutdownHttpServer(server);
+          }
+          Instance->HTTPServers.clear();
+          LogCleanupStage("http servers stopped");
+     }
+
      /* Shut down critical subsystems to join all background threads early. */
 
      if (Instance && Instance->API)
@@ -1888,20 +1903,6 @@ void hlquery::Cleanup()
           LogCleanupStage("stopping singleton thread pools");
           ThreadPoolManager::GetInstance().Shutdown();
           LogCleanupStage("singleton thread pools stopped");
-     }
-
-     if (Instance)
-     {
-          LogCleanupStage("stopping http servers");
-
-          for (auto *server : Instance->HTTPServers)
-          {
-               /* Each HTTP server shuts down independently before the vector is cleared. */
-
-               ShutdownHttpServer(server);
-          }
-          Instance->HTTPServers.clear();
-          LogCleanupStage("http servers stopped");
      }
 
      std::vector<std::thread> ThreadsToJoin;

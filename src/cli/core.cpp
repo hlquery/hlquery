@@ -930,7 +930,7 @@ HLQueryCLI::HTTPResponse HLQueryCLI::MakeRequest(const std::string &method, cons
                return response;
           }
 
-          response_str += buffer;
+          response_str.append(buffer, static_cast<size_t>(bytes_received));
 
           if (!has_headers && response_str.find("\r\n\r\n") != std::string::npos)
           {
@@ -939,17 +939,49 @@ HLQueryCLI::HTTPResponse HLQueryCLI::MakeRequest(const std::string &method, cons
                has_headers = true;
                header_end_pos = response_str.find("\r\n\r\n");
 
-               size_t content_length_pos = response_str.find("Content-Length: ");
+               std::string headers_part = response_str.substr(0, header_end_pos);
+               std::string headers_lower = headers_part;
+               std::transform(headers_lower.begin(), headers_lower.end(), headers_lower.begin(),
+                              [](unsigned char C)
+                              {
+                                   return static_cast<char>(std::tolower(C));
+                              });
+
+               size_t content_length_pos = headers_lower.find("content-length:");
 
                if (content_length_pos != std::string::npos)
                {
                     has_content_length = true;
 
-                    size_t content_length_end = response_str.find("\r\n", content_length_pos);
+                    size_t colon_pos = headers_part.find(':', content_length_pos);
+                    size_t value_start = colon_pos == std::string::npos ? std::string::npos : headers_part.find_first_not_of(" \t", colon_pos + 1);
+                    size_t content_length_end = headers_part.find("\r\n", content_length_pos);
+                    if (content_length_end == std::string::npos)
+                    {
+                         content_length_end = headers_part.size();
+                    }
 
                     try
                     {
-                         expected_content_length = std::stoi(response_str.substr(content_length_pos + 16, content_length_end - content_length_pos - 16));
+                         if (value_start == std::string::npos || value_start > content_length_end)
+                         {
+                              has_content_length = false;
+                              continue;
+                         }
+
+                         std::string length_value = headers_part.substr(value_start, content_length_end - value_start);
+                         size_t value_end = length_value.find_last_not_of(" \t");
+                         if (value_end != std::string::npos)
+                         {
+                              length_value.erase(value_end + 1);
+                         }
+
+                         size_t parsed = 0;
+                         expected_content_length = std::stoi(length_value, &parsed);
+                         if (parsed != length_value.size() || expected_content_length < 0)
+                         {
+                              has_content_length = false;
+                         }
                     }
                     catch (...)
                     {

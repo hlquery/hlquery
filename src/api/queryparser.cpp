@@ -390,7 +390,7 @@ std::vector<std::pair<std::string, ComprehensiveSearchQuery>> SearchAPI::ParseMu
                     }
                     catch (...)
                     {
-                         SearchQueryObj.PerPage = 10;
+                         SearchQueryObj.PerPage = 100;
                     }
                }
 
@@ -1026,7 +1026,7 @@ ComprehensiveSearchQuery SearchAPI::ParseComprehensiveSearchQuery(const std::uno
           }
           catch (...)
           {
-               QueryObj.PerPage = 10;
+               QueryObj.PerPage = 100;
           }
      }
 
@@ -1065,7 +1065,7 @@ ComprehensiveSearchQuery SearchAPI::ParseComprehensiveSearchQuery(const std::uno
           }
           catch (...)
           {
-               QueryObj.PerPage = 10;
+               QueryObj.PerPage = 100;
           }
      }
 
@@ -1096,7 +1096,7 @@ ComprehensiveSearchQuery SearchAPI::ParseComprehensiveSearchQuery(const std::uno
 
      if (QueryObj.PerPage <= 0)
      {
-          QueryObj.PerPage = 10;
+          QueryObj.PerPage = 100;
      }
 
      if (Params.count("sort_by"))

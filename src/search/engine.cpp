@@ -1016,9 +1016,7 @@ DBManager::Stats DBManager::GetRocksDBStats() const
           uint64_t index_and_filter_cache_usage = 0;
 
           DBValue->GetIntProperty("rocksdb.cur-size-all-mem-tables", &memtable_size);
-
           DBValue->GetIntProperty("rocksdb.block-cache-usage", &block_cache_usage);
-
           DBValue->GetIntProperty("rocksdb.estimate-table-readers-mem", &index_and_filter_cache_usage);
 
           stats.memtable_size = memtable_size;

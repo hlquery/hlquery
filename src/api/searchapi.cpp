@@ -945,14 +945,15 @@ void SearchAPI::FinalizeReplicationResyncRequest(const HttpRequest &Request,
           TrackReplicationResyncCollection(SessionID, CollectionName);
      }
 
+     if (GetReplicationResyncStageHeader(Request) != "complete")
+     {
+          return;
+     }
+
      const std::string ActiveState = Instance->Database->Get(kReplicationResyncStateKey);
      if (ActiveState.empty())
      {
-          if (GetReplicationResyncStageHeader(Request) == "complete")
-          {
-               ClearReplicationResyncCollections(SessionID);
-          }
-
+          ClearReplicationResyncCollections(SessionID);
           return;
      }
 
@@ -1110,8 +1111,24 @@ uint64_t SearchAPI::BumpCollectionMutationVersion(const std::string &Collection)
 {
      const uint64_t next_version = CollectionMutationClock.fetch_add(1, std::memory_order_relaxed) + 1;
 
-     std::lock_guard<std::mutex> lock(CollectionMutationMutex);
-     CollectionMutationVersions[Collection] = next_version;
+     {
+          std::lock_guard<std::mutex> lock(CollectionMutationMutex);
+          CollectionMutationVersions[Collection] = next_version;
+     }
+
+     if (Collection != "*" && Instance && Instance->Sam && Instance->Sam->IsOpen())
+     {
+          std::string SamError;
+
+          if (!Instance->Sam->NotifyCollectionChanged(Collection, next_version, &SamError) &&
+              Instance->Logs)
+          {
+               Instance->Logs->Normal("sam",
+                                      "Failed to mark collection '" + Collection +
+                                           "' dirty for automatic SAM rebuild: " +
+                                           (SamError.empty() ? std::string("unknown error") : SamError) + ".");
+          }
+     }
 
      return next_version;
 }

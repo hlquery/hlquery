@@ -14,6 +14,7 @@
 #include <string>
 
 #include "api/ipfilter.h"
+#include "api/searchcache.h"
 #include "common/health.h"
 #include "core/hlquery.h"
 #include "core/modules.h"
@@ -51,6 +52,7 @@ class CoreTimersModule final : public AutoRuntimeModule<CoreTimersModule>
 
      time_t LastSnapshot = 0;
      time_t LastFlush = 0;
+     time_t LastSearchCacheFlush = 0;
 
    public:
 
@@ -73,6 +75,11 @@ class CoreTimersModule final : public AutoRuntimeModule<CoreTimersModule>
                if (LastFlush == 0)
                {
                     LastFlush = NowTime;
+               }
+
+               if (LastSearchCacheFlush == 0)
+               {
+                    LastSearchCacheFlush = NowTime;
                }
 
           }
@@ -98,6 +105,30 @@ class CoreTimersModule final : public AutoRuntimeModule<CoreTimersModule>
           if (Instance && Instance->LLM)
           {
                Instance->LLM->ProcessPendingContextJobs(1);
+          }
+
+          if (Instance)
+          {
+               const time_t NowTime = Instance->Time();
+
+               if (NowTime > 0 && LastSearchCacheFlush == 0)
+               {
+                    LastSearchCacheFlush = NowTime;
+               }
+               else if (NowTime > 0 && NowTime - LastSearchCacheFlush >= 3600)
+               {
+                    SearchResponseCache::InvalidateAll();
+                    LastSearchCacheFlush = NowTime;
+
+                    if (Instance->Logs)
+                    {
+                         Instance->Logs->Debug("core_timers", "Search/SAM response cache flushed by hourly timer.");
+                    }
+               }
+               else if (NowTime > 0)
+               {
+                    SearchResponseCache::FlushExpired();
+               }
           }
 
           if (Instance && Instance->Config && Instance->Logs && Instance->Config->GetNoForkMode())
@@ -164,6 +195,71 @@ class CoreTimersModule final : public AutoRuntimeModule<CoreTimersModule>
                LastSnapshot = NowTime;
           }
 
+     }
+
+     void OnCreateCollection(const std::string& Collection, const std::string&, const std::string&, bool) override
+     {
+          SearchResponseCache::InvalidateCollection(Collection);
+     }
+
+     void OnUpdateCollection(const std::string& Collection, const std::string&, const std::string&, bool) override
+     {
+          SearchResponseCache::InvalidateCollection(Collection);
+     }
+
+     void OnDeleteCollection(const std::string& Collection, const std::string&, const std::string&, bool) override
+     {
+          SearchResponseCache::InvalidateCollection(Collection);
+     }
+
+     void OnAddDocument(const std::string& Collection, const std::string&, const std::string&, const std::string&, bool) override
+     {
+          SearchResponseCache::InvalidateCollection(Collection);
+     }
+
+     void OnUpdateDocument(const std::string& Collection, const std::string&, const std::string&, const std::string&, bool) override
+     {
+          SearchResponseCache::InvalidateCollection(Collection);
+     }
+
+     void OnDeleteDocument(const std::string& Collection, const std::string&, const std::string&, const std::string&, bool) override
+     {
+          SearchResponseCache::InvalidateCollection(Collection);
+     }
+
+     void OnDeleteDocuments(const std::string& Collection, uint64_t, const std::string&, const std::string&, bool) override
+     {
+          SearchResponseCache::InvalidateCollection(Collection);
+     }
+
+     void OnBulkImportDocuments(const std::string& Collection, uint64_t, const std::string&, const std::string&, bool) override
+     {
+          SearchResponseCache::InvalidateCollection(Collection);
+     }
+
+     void OnUpsertSynonym(const std::string& Collection, const std::string&, bool GlobalScope, const std::string&, const std::string&, bool) override
+     {
+          GlobalScope ? SearchResponseCache::InvalidateAll() : SearchResponseCache::InvalidateCollection(Collection);
+     }
+
+     void OnDeleteSynonym(const std::string& Collection, const std::string&, bool GlobalScope, const std::string&, const std::string&, bool) override
+     {
+          GlobalScope ? SearchResponseCache::InvalidateAll() : SearchResponseCache::InvalidateCollection(Collection);
+     }
+
+     void OnCreateStopword(const std::string& Collection, uint64_t, bool GlobalScope, const std::string&, const std::string&, bool) override
+     {
+          GlobalScope ? SearchResponseCache::InvalidateAll() : SearchResponseCache::InvalidateCollection(Collection);
+     }
+
+     void OnDeleteStopword(const std::string& Collection, const std::string&, bool GlobalScope, const std::string&, const std::string&, bool) override
+     {
+          GlobalScope ? SearchResponseCache::InvalidateAll() : SearchResponseCache::InvalidateCollection(Collection);
+     }
+
+     void OnFlush(uint64_t, const std::string&, const std::string&, bool) override
+     {
+          SearchResponseCache::InvalidateAll();
      }
 };
 

@@ -1668,7 +1668,7 @@ void HLQueryCLI::RebuildSAMCollection(const std::string &collection_name, bool j
      std::cout << "SAM rebuild is already running for collection '" << collection_name << "'.\n";
 }
 
-void HLQueryCLI::SearchSAM(const std::string &collection_name,
+bool HLQueryCLI::SearchSAM(const std::string &collection_name,
                            const std::string &query,
                            int limit,
                            bool json_output,
@@ -1681,7 +1681,7 @@ void HLQueryCLI::SearchSAM(const std::string &collection_name,
      if ((!all_collections && collection_name.empty()) || query.empty())
      {
           PrintError("Collection and query are required", "Usage: sam search <collection> <query> [limit] [--all] [--collections=col1,col2] [--distributed=on|off] [--route=local|host[:port]] [--skip]");
-          return;
+          return false;
      }
 
      if (limit <= 0)
@@ -1737,7 +1737,7 @@ void HLQueryCLI::SearchSAM(const std::string &collection_name,
 
      if (CheckRequestFailed(response))
      {
-          return;
+          return false;
      }
 
      nlohmann::json root;
@@ -1749,13 +1749,13 @@ void HLQueryCLI::SearchSAM(const std::string &collection_name,
      catch (const std::exception &)
      {
           PrintError("Failed to parse SAM search response");
-          return;
+          return false;
      }
 
      if (json_output || RawMode)
      {
           std::cout << root.dump(2) << "\n";
-          return;
+          return false;
      }
 
      const nlohmann::json &hits = root["hits"];
@@ -1766,7 +1766,14 @@ void HLQueryCLI::SearchSAM(const std::string &collection_name,
      if (!hits.is_array() || hits.empty())
      {
           std::cout << "No SAM matches found.\n";
-          return;
+
+          if (!all_collections)
+          {
+               std::cout << "Falling back to basic search.\n";
+               SearchDocuments(collection_name, query, limit, 0, "", false, false, "", distributed, route);
+          }
+
+          return false;
      }
 
      std::vector<std::vector<std::string>> rows;
@@ -1818,6 +1825,8 @@ void HLQueryCLI::SearchSAM(const std::string &collection_name,
 
           std::cout << detail.str() << "\n";
      }
+
+     return true;
 }
 
 void HLQueryCLI::ShowSAMStatus(const std::string &collection_name, bool json_output)

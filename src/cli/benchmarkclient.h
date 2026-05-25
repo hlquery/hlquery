@@ -132,9 +132,9 @@ class BenchmarkClient
 
      /* Creates a collection with custom schema. */
 
-     bool CreateCollectionWithSchema(const std::string &name, const nlohmann::json &fields, const std::string &default_sorting_field = "");
+     bool CreateCollectionWithSchema(const std::string &name, const nlohmann::json &fields, const std::string &default_sorting_field = "", const nlohmann::json &metadata = nlohmann::json::object());
 
-     bool CreateCollectionWithSchemaLocal(const std::string &name, const nlohmann::json &fields, const std::string &default_sorting_field = "");
+     bool CreateCollectionWithSchemaLocal(const std::string &name, const nlohmann::json &fields, const std::string &default_sorting_field = "", const nlohmann::json &metadata = nlohmann::json::object());
 
      /* Inserts a document. */
 
@@ -157,6 +157,10 @@ class BenchmarkClient
      /* Adds a synonym. */
 
      bool AddSynonym(const std::string &collection, const std::string &synonym_id, const std::string &root_term, const std::vector<std::string> &synonyms);
+
+     /* Creates or updates an alias. */
+
+     bool CreateAlias(const std::string &alias_name, const std::string &collection);
 
      /* Adds a stopword. */
 

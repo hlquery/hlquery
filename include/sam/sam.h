@@ -210,6 +210,8 @@ class SAM
      std::unordered_set<std::string> PendingIndexKeys;
      std::deque<PendingSearchIdeaJob> PendingSearchIdeaJobs;
      std::deque<PendingSearchInteractionJob> PendingSearchInteractionJobs;
+     size_t DroppedPendingSearchIdeaJobs = 0;
+     size_t DroppedPendingSearchInteractionJobs = 0;
      std::unordered_map<std::string, size_t> ActiveCollectionTasks;
      std::unordered_map<std::string, uint64_t> LastBackgroundImprovementMS;
      std::unordered_set<std::string> CancelledCollections;
@@ -376,6 +378,8 @@ class SAM
                double SemanticVectorScore = 0.0;
                double EvidenceBonus = 0.0;
                double DocPrior = 0.0;
+               double RankPriorScore = 0.0;
+               double RankPriorMultiplier = 1.0;
                double SemanticBonus = 0.0;
                double SourceDocBonus = 0.0;
                double FinalScore = 0.0;
@@ -474,6 +478,10 @@ class SAM
 
      void Shutdown();
 
+     /* Flush SAM RocksDB memtables and sync the WAL to disk. */
+
+     bool FlushAndSync(std::string* ErrorMessage = nullptr);
+
      /* Report whether the SAM database is currently open. */
 
      bool IsOpen() const;
@@ -501,6 +509,12 @@ class SAM
      bool StartRecreateCollectionAsync(const std::string& Collection,
                                        bool* AlreadyRunning = nullptr,
                                        std::string* ErrorMessage = nullptr);
+
+     /* Mark a source collection as changed so automatic SAM can rebuild it later. */
+
+     bool NotifyCollectionChanged(const std::string& Collection,
+                                  uint64_t MutationVersion = 0,
+                                  std::string* ErrorMessage = nullptr);
 
      /* Queue one document for background indexing. */
 
@@ -641,4 +655,12 @@ class SAM
      /* Return the latest emitted SAM debug sequence number. */
 
      uint64_t GetLatestDebugSequence() const;
+
+     /* Return the number of search idea jobs dropped by queue pressure. */
+
+     size_t GetDroppedPendingSearchIdeaJobs() const;
+
+     /* Return the number of search interaction jobs dropped by queue pressure. */
+
+     size_t GetDroppedPendingSearchInteractionJobs() const;
 };

@@ -30,6 +30,7 @@
 #include <pthread.h>
 #include <regex>
 #include <sstream>
+#include <system_error>
 #include <thread>
 #include <unistd.h>
 #include <unordered_set>
@@ -133,33 +134,77 @@ inline bool ParseSharedNodeEndpoint(const std::string &Raw,
      int Port = Options.DefaultPort;
      size_t ColonPos = Node.rfind(':');
 
-     if (ColonPos != std::string::npos)
+     if (!Node.empty() && Node.front() == '[')
      {
-          Host = Node.substr(0, ColonPos);
-          std::string PortStr = Node.substr(ColonPos + 1);
-          if (PortStr.empty())
+          size_t BracketPos = Node.find(']');
+          if (BracketPos == std::string::npos)
           {
-               if (!Options.AllowEmptyPort)
+               return false;
+          }
+
+          Host = Node.substr(1, BracketPos - 1);
+          std::string Rest = TrimNodeEndpointValue(Node.substr(BracketPos + 1));
+
+          if (!Rest.empty())
+          {
+               if (Rest.front() != ':')
                {
                     return false;
                }
+
+               std::string PortStr = Rest.substr(1);
+               if (PortStr.empty())
+               {
+                    if (!Options.AllowEmptyPort)
+                    {
+                         return false;
+                    }
+               }
+               else
+               {
+                    int ParsedPort = 0;
+                    auto [Ptr, EC] = std::from_chars(PortStr.data(), PortStr.data() + PortStr.size(), ParsedPort);
+                    if (EC != std::errc() || Ptr != PortStr.data() + PortStr.size())
+                    {
+                         return false;
+                    }
+                    Port = ParsedPort;
+               }
+          }
+     }
+     else if (ColonPos != std::string::npos)
+     {
+          if (Node.find(':') != ColonPos)
+          {
+               Host = Node;
           }
           else
           {
-               try
+               Host = Node.substr(0, ColonPos);
+               std::string PortStr = Node.substr(ColonPos + 1);
+               if (PortStr.empty())
                {
-                    Port = std::stoi(PortStr);
+                    if (!Options.AllowEmptyPort)
+                    {
+                         return false;
+                    }
                }
-               catch (...)
+               else
                {
-                    return false;
+                    int ParsedPort = 0;
+                    auto [Ptr, EC] = std::from_chars(PortStr.data(), PortStr.data() + PortStr.size(), ParsedPort);
+                    if (EC != std::errc() || Ptr != PortStr.data() + PortStr.size())
+                    {
+                         return false;
+                    }
+                    Port = ParsedPort;
                }
           }
      }
 
      Host = TrimNodeEndpointValue(Host);
 
-     if (Host.empty() || Port <= 0)
+     if (Host.empty() || Port <= 0 || Port > 65535)
      {
           return false;
      }

@@ -34,6 +34,17 @@ static int GetBenchmarkDocsForCollection(int collection_index, int docs_per_coll
      return docs_per_collection + ((collection_index < remaining_docs) ? 1 : 0);
 }
 
+static std::string MakeBenchmarkDocumentID(int collection_index, int document_index, const std::string &run_id, bool reuse_collections)
+{
+     if (!reuse_collections && !run_id.empty())
+     {
+          const std::string run_suffix = run_id.size() > 2 ? run_id.substr(2) : run_id;
+          return std::to_string(collection_index) + std::to_string(document_index) + run_suffix;
+     }
+
+     return std::to_string(collection_index) + "_" + std::to_string(document_index);
+}
+
 /* Deletes collections in a thread. */
 
 void DeleteCollectionsThread(const std::string &base_url, const std::string &auth_token, int start_idx, int end_idx, int total_collections, const std::set<std::string> &existing_collections)
@@ -173,12 +184,7 @@ void InsertAdditionalDocumentsThread(const std::string &base_url, const std::str
                {
                     int doc_idx = start_doc_idx + batch_idx;
 
-                    std::string doc_id = "doc_" + std::to_string(col_idx) + "_" + std::to_string(doc_idx);
-
-                    if (!reuse_collections && !run_id.empty())
-                    {
-                         doc_id += "_r" + run_id;
-                    }
+                    std::string doc_id = MakeBenchmarkDocumentID(col_idx, doc_idx, run_id, reuse_collections);
 
                     std::string title = "Document " + std::to_string(doc_idx) + " in Collection " + std::to_string(col_idx);
 
@@ -275,12 +281,7 @@ void InsertDocumentsThread(const std::string &base_url, const std::string &auth_
 
                for (int doc_idx = batch_start; doc_idx < batch_end; doc_idx++)
                {
-                    std::string doc_id = "doc_" + std::to_string(col_idx) + "_" + std::to_string(doc_idx);
-
-                    if (!reuse_collections && !run_id.empty())
-                    {
-                         doc_id += "_r" + run_id;
-                    }
+                    std::string doc_id = MakeBenchmarkDocumentID(col_idx, doc_idx, run_id, reuse_collections);
 
                     std::string title = "Document " + std::to_string(doc_idx) + " in Collection " + std::to_string(col_idx);
 

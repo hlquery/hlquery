@@ -21,6 +21,7 @@
 
 #include "core/config.h"
 #include "core/logmanager.h"
+#include "runtime/clock.h"
 #include "runtime/serverconfig.h"
 #include "utils/consolewriter.h"
 
@@ -45,8 +46,10 @@ static std::string EnsureLogPeriod(const std::string &Message)
 
 static std::time_t FileTimeToTimeT(const fs::file_time_type &WriteTimeVal)
 {
+     const auto NowMS = NowMs();
+     const auto SystemNow = std::chrono::system_clock::time_point(std::chrono::milliseconds(NowMS));
      auto SctpTimePoint = std::chrono::time_point_cast<std::chrono::system_clock::duration>(
-          WriteTimeVal - fs::file_time_type::clock::now() + std::chrono::system_clock::now());
+          WriteTimeVal - fs::file_time_type::clock::now() + SystemNow);
 
      return std::chrono::system_clock::to_time_t(SctpTimePoint);
 }

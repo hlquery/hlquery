@@ -62,6 +62,12 @@ static std::atomic<uint64_t> ActiveConnections{0};
 
 static std::atomic<bool> EngineInitialized{false};
 
+static std::atomic<int> EventCounter{0};
+
+static std::unordered_set<int> RegisteredFDs;
+
+static std::mutex RegisteredFDsMutex;
+
 /* NUMA-aware thread pools */
 
 /* Zero-copy optimizations - lazy allocation to save memory if unused */
@@ -175,6 +181,14 @@ void SocketEngine::Deinit()
           PendingWritesSet.clear();
      }
 
+     {
+          std::lock_guard<std::mutex> lock(RegisteredFDsMutex);
+          RegisteredFDs.clear();
+     }
+
+     PendingWritesCount.store(0, std::memory_order_relaxed);
+     EventCounter.store(0, std::memory_order_relaxed);
+
      if (EpollFD != -1)
      {
           close(EpollFD);
@@ -200,8 +214,14 @@ void SocketEngine::ResetAfterFork()
           PendingWritesSet.clear();
      }
 
+     {
+          std::lock_guard<std::mutex> lock(RegisteredFDsMutex);
+          RegisteredFDs.clear();
+     }
+
      PendingWritesCount.store(0, std::memory_order_relaxed);
      PendingMessageCount.store(0, std::memory_order_relaxed);
+     EventCounter.store(0, std::memory_order_relaxed);
      ZeroCopyBufferIndex.store(0, std::memory_order_relaxed);
 
      if (EpollFD != -1)
@@ -237,11 +257,11 @@ void SocketEngine::InitializeAdvancedIO()
 void SocketEngine::InitializeZeroCopyBuffers()
 {
      /*
-     * Lazy allocation: only allocate if actually needed (saves 1MB if unused)
-     * Buffers will be allocated on first GetZeroCopyBuffer() call
-     */
+      * Lazy allocation: only allocate if actually needed (saves 1MB if unused)
+      * Buffers will be allocated on first GetZeroCopyBuffer() call
+      */
 
-     ZeroCopyBuffersAllocated.store(false);
+      ZeroCopyBuffersAllocated.store(false);
 }
 
 /* Cleans up zero-copy buffers */
@@ -317,10 +337,10 @@ void SocketEngine::AdaptTimeout()
 void SocketEngine::SetOptimalSocketOptions()
 {
      /*
-     * Note: Socket options are set per-connection in HttpConnection::SetAdvancedSocketOptions()
-     * The epoll file descriptor itself doesn't support TCP socket options
-     * This method is kept for future system-level optimizations
-     */
+      * Note: Socket options are set per-connection in HttpConnection::SetAdvancedSocketOptions()
+      * The epoll file descriptor itself doesn't support TCP socket options
+      * This method is kept for future system-level optimizations
+      */
 
      if (Instance && Instance->Logs)
      {
@@ -520,9 +540,14 @@ bool SocketEngine::AddFD(EventHandler *EH, int EventsMask)
           return false;
      }
 
-     /* Increment active connections counter */
+     {
+          std::lock_guard<std::mutex> lock(RegisteredFDsMutex);
 
-     ActiveConnections.fetch_add(1, std::memory_order_relaxed);
+          if (RegisteredFDs.insert(fd).second)
+          {
+               ActiveConnections.fetch_add(1, std::memory_order_relaxed);
+          }
+     }
 
      if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
      {
@@ -572,7 +597,12 @@ void SocketEngine::DelFD(EventHandler *EH)
            * Use mutex if called from different thread (currently single-threaded, but prepare for future)
            */
 
-          /* Only decrement if fd was actually registered (epoll_ctl succeeds) */
+          bool WasRegistered = false;
+
+          {
+               std::lock_guard<std::mutex> lock(RegisteredFDsMutex);
+               WasRegistered = RegisteredFDs.erase(fd) > 0;
+          }
 
           int result = epoll_ctl(EpollFD, EPOLL_CTL_DEL, fd, nullptr);
 
@@ -587,9 +617,10 @@ void SocketEngine::DelFD(EventHandler *EH)
                     Instance->Logs->Debug("socketengine", "DelFD: Successfully removed fd=" + std::to_string(fd) + " from epoll (ActiveConnections=" + std::to_string(ActiveConnections.load() - 1) + ").");
                }
 
-               /* Decrement active connections counter */
-
-               ActiveConnections.fetch_sub(1, std::memory_order_relaxed);
+               if (WasRegistered)
+               {
+                    ActiveConnections.fetch_sub(1, std::memory_order_relaxed);
+               }
 
             /*
              * Ensure socket is closed properly - EventHandler destructor should handle this,
@@ -616,9 +647,10 @@ void SocketEngine::DelFD(EventHandler *EH)
                     Instance->Logs->Debug("socketengine", "DelFD: ENOENT - fd=" + std::to_string(fd) + " was not in epoll (already removed?).");
                }
 
-               /* Still decrement counter as the connection is being closed */
-
-               ActiveConnections.fetch_sub(1, std::memory_order_relaxed);
+               if (WasRegistered)
+               {
+                    ActiveConnections.fetch_sub(1, std::memory_order_relaxed);
+               }
           }
           else
           {
@@ -631,9 +663,10 @@ void SocketEngine::DelFD(EventHandler *EH)
                                                   ", errno=" + std::to_string(saved_errno) + " (" + std::string(strerror(saved_errno)) + ")).");
                }
 
-               /* Still try to decrement counter - connection is being closed regardless */
-
-               ActiveConnections.fetch_sub(1, std::memory_order_relaxed);
+               if (WasRegistered)
+               {
+                    ActiveConnections.fetch_sub(1, std::memory_order_relaxed);
+               }
           }
      }
      else
@@ -714,7 +747,7 @@ int SocketEngine::DispatchEvents()
      }
      else
      {
-          /*
+        /*
          * Wake periodically for time-based work even when there is no socket activity.
          * This keeps timers and wall-clock hooks such as OnEveryOneMinute progressing
          * without requiring an external request to wake the event loop.
@@ -725,18 +758,11 @@ int SocketEngine::DispatchEvents()
           CurrentTimeoutMS.store(timeout_ms, std::memory_order_relaxed);
      }
 
-     /* HLQuery-style high-throughput event processing */
-
      /*
-     * CRITICAL FIX: Reduce debug log verbosity - only log every 10000th call to reduce log spam.
-     * Don't log every infinite timeout call - that's too verbose.
-     * This dramatically reduces log noise during operations like ping that call DispatchEvents frequently.
-     */
-
-     /*
-     * CRITICAL FIX: Re-check EpollFD validity right before epoll_wait to prevent race condition.
-     * Another thread could have closed EpollFD between the check above and this call.
-     */
+      * Reduce debug log verbosity - only log every 10000th call to reduce log spam.
+      * Don't log every infinite timeout call - that's too verbose.
+      * This dramatically reduces log noise during operations like ping that call DispatchEvents frequently.
+      */
 
      int local_EpollFD = EpollFD;
 
@@ -801,6 +827,8 @@ int SocketEngine::DispatchEvents()
 
      if (nfds > 0)
      {
+          EventCounter.fetch_add(nfds, std::memory_order_relaxed);
+
           /* Activity detected - immediately reset to non-blocking for high throughput */
 
           CurrentTimeoutMS.store(0, std::memory_order_relaxed);
@@ -1449,77 +1477,74 @@ void SocketEngine::RegisterPendingWrite(EventHandler *EH)
 
      if (result == -1)
      {
-          /* BUG FIX: Handle epoll_ctl failure comprehensively - remove from pending writes if handler is invalid */
+          bool RemovedPendingWrite = false;
+
+          {
+               std::lock_guard<std::mutex> lock(PendingWritesMutex);
+
+               if (PendingWritesSet.erase(EH))
+               {
+                    auto it = std::find(PendingWrites.begin(), PendingWrites.end(), EH);
+
+                    if (it != PendingWrites.end())
+                    {
+                         if (it != PendingWrites.end() - 1)
+                         {
+                              std::iter_swap(it, PendingWrites.end() - 1);
+                         }
+
+                         PendingWrites.pop_back();
+                    }
+
+                    RemovedPendingWrite = true;
+               }
+          }
+
+          if (RemovedPendingWrite)
+          {
+               PendingWritesCount.fetch_sub(1, std::memory_order_relaxed);
+          }
+
+          if (saved_errno == EINVAL)
+          {
+               if (Instance && Instance->Logs)
+               {
+                    Instance->Logs->Critical("socketengine",
+                                             "epoll_ctl(EPOLL_CTL_MOD) failed with EINVAL - invalid arguments (fd=" +
+                                                  std::to_string(EH->GetFD()) + ").");
+               }
+          }
+          else if (saved_errno == EPERM)
+          {
+               if (Instance && Instance->Logs)
+               {
+                    Instance->Logs->Critical("socketengine",
+                                             "epoll_ctl(EPOLL_CTL_MOD) failed with EPERM - permission denied (fd=" +
+                                                  std::to_string(EH->GetFD()) + ").");
+               }
+          }
+          else if (saved_errno == ENOMEM)
+          {
+               if (Instance && Instance->Logs)
+               {
+                    Instance->Logs->Critical("socketengine",
+                                             "epoll_ctl(EPOLL_CTL_MOD) failed with ENOMEM - out of memory (fd=" +
+                                                  std::to_string(EH->GetFD()) + ").");
+               }
+          }
+          else if (Instance && Instance->Logs)
+          {
+               Instance->Logs->Critical("socketengine",
+                                        "epoll_ctl(EPOLL_CTL_MOD) failed in RegisterPendingWrite: " +
+                                             std::string(strerror(saved_errno)) + " (fd=" + std::to_string(EH->GetFD()) +
+                                             ", errno=" + std::to_string(saved_errno) + ").");
+          }
 
           if (saved_errno == EBADF || saved_errno == ENOENT)
           {
-               /*
-             * Handler was already removed or fd is invalid - clean up
-             * OPTIMIZATION: Check set first (O(1)), then remove from vector
-             */
-
+               if (EH->HasFD())
                {
-                    std::lock_guard<std::mutex> lock(PendingWritesMutex);
-
-                    if (PendingWritesSet.erase(EH))
-                    {
-                         /* Fast removal: swap with last element for O(1) removal */
-
-                         auto it = std::find(PendingWrites.begin(), PendingWrites.end(), EH);
-
-                         if (it != PendingWrites.end())
-                         {
-                              if (it != PendingWrites.end() - 1)
-                              {
-                                   /* Swap with last element for O(1) removal */
-
-                                   std::iter_swap(it, PendingWrites.end() - 1);
-                              }
-
-                              PendingWrites.pop_back();
-                         }
-                    }
-               }
-
-               PendingWritesCount.fetch_sub(1, std::memory_order_relaxed);
-          }
-          else
-          {
-               /* Handle other error codes */
-
-               if (saved_errno == EINVAL)
-               {
-                    if (Instance && Instance->Logs)
-                    {
-                         Instance->Logs->Critical("socketengine",
-                                                  "epoll_ctl(EPOLL_CTL_MOD) failed with EINVAL - invalid arguments (fd=" +
-                                                       std::to_string(EH->GetFD()) + ").");
-                    }
-               }
-               else if (saved_errno == EPERM)
-               {
-                    if (Instance && Instance->Logs)
-                    {
-                         Instance->Logs->Critical("socketengine",
-                                                  "epoll_ctl(EPOLL_CTL_MOD) failed with EPERM - permission denied (fd=" +
-                                                       std::to_string(EH->GetFD()) + ").");
-                    }
-               }
-               else if (saved_errno == ENOMEM)
-               {
-                    if (Instance && Instance->Logs)
-                    {
-                         Instance->Logs->Critical("socketengine",
-                                                  "epoll_ctl(EPOLL_CTL_MOD) failed with ENOMEM - out of memory (fd=" +
-                                                       std::to_string(EH->GetFD()) + ").");
-                    }
-               }
-               else if (Instance && Instance->Logs)
-               {
-                    Instance->Logs->Critical("socketengine",
-                                             "epoll_ctl(EPOLL_CTL_MOD) failed in RegisterPendingWrite: " +
-                                                  std::string(strerror(saved_errno)) + " (fd=" + std::to_string(EH->GetFD()) +
-                                                  ", errno=" + std::to_string(saved_errno) + ").");
+                    EH->OnEventHandlerError(saved_errno);
                }
           }
      }
@@ -1601,9 +1626,7 @@ void SocketEngine::UnregisterPendingWrite(EventHandler *EH)
 
 int SocketEngine::GetEventCount()
 {
-     /* Event counting removed - use connection count instead */
-
-     return 0;
+     return EventCounter.load(std::memory_order_relaxed);
 }
 
 /* Increments pending message count */

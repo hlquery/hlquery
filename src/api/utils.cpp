@@ -11,6 +11,7 @@
  */
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cmath>
 #include <functional>
@@ -32,6 +33,97 @@
 
 namespace
 {
+std::string TrimRankMetadataValue(const std::string &Value)
+{
+     const size_t Start = Value.find_first_not_of(" \t\r\n");
+     if (Start == std::string::npos)
+     {
+          return "";
+     }
+
+     const size_t End = Value.find_last_not_of(" \t\r\n");
+     return Value.substr(Start, End - Start + 1);
+}
+
+std::string LowerRankMetadataValue(std::string Value)
+{
+     std::transform(Value.begin(), Value.end(), Value.begin(), [](unsigned char C)
+                    {
+                         return static_cast<char>(std::tolower(C));
+                    });
+     return Value;
+}
+
+bool TryParseDoubleValue(const std::string &Value, double *Out)
+{
+     if (!Out)
+     {
+          return false;
+     }
+
+     const std::string Trimmed = TrimRankMetadataValue(Value);
+     if (Trimmed.empty())
+     {
+          return false;
+     }
+
+     try
+     {
+          size_t ParsedChars = 0;
+          const double Parsed = std::stod(Trimmed, &ParsedChars);
+          if (ParsedChars != Trimmed.size() || !std::isfinite(Parsed))
+          {
+               return false;
+          }
+
+          *Out = Parsed;
+          return true;
+     }
+     catch (...)
+     {
+          return false;
+     }
+}
+
+std::string FormatRankSignalValue(double Value)
+{
+     std::ostringstream Stream;
+     Stream << std::fixed << std::setprecision(6) << std::clamp(Value, 0.0, 1.0);
+     return Stream.str();
+}
+
+bool CompareRankTieBreak(const SearchHit &A, const SearchHit &B)
+{
+     auto ParseField = [](const SearchHit &Hit, const std::string &Field, double *Out) -> bool
+     {
+          auto It = Hit.Document.find(Field);
+          if (It == Hit.Document.end())
+          {
+               return false;
+          }
+
+          return TryParseDoubleValue(It->second, Out);
+     };
+
+     double ARankSignal = 0.0;
+     double BRankSignal = 0.0;
+     if (ParseField(A, "rank_signal", &ARankSignal) && ParseField(B, "rank_signal", &BRankSignal) && ARankSignal != BRankSignal)
+     {
+          return ARankSignal > BRankSignal;
+     }
+
+     double ARank = 0.0;
+     double BRank = 0.0;
+     if (ParseField(A, "rank", &ARank) && ParseField(B, "rank", &BRank) && ARank != BRank)
+     {
+          return ARank < BRank;
+     }
+
+     const auto AId = A.Document.find("id");
+     const auto BId = B.Document.find("id");
+     return (AId == A.Document.end() ? "" : AId->second) < (BId == B.Document.end() ? "" : BId->second);
+}
+
 bool TryParseISO8601TimestampToMs(const std::string &value, std::uint64_t *parsed_ms)
 {
      if (!parsed_ms || value.empty())
@@ -872,12 +964,15 @@ std::vector<SearchHit> SearchAPI::ApplySorting(const std::vector<SearchHit> &Hit
 
                          if (FieldName == "_text_match")
                          {
-                              if (A.TextMatch != B.TextMatch)
+                              const float ScoreA = GetEffectiveScore(A);
+                              const float ScoreB = GetEffectiveScore(B);
+
+                              if (ScoreA != ScoreB)
                               {
-                                   return Descending ? A.TextMatch > B.TextMatch : A.TextMatch < B.TextMatch;
+                                   return Descending ? ScoreA > ScoreB : ScoreA < ScoreB;
                               }
 
-                              continue;
+                              return CompareRankTieBreak(A, B);
                          }
 
                          if (FieldName == "_score" || FieldName == "score")
@@ -890,7 +985,7 @@ std::vector<SearchHit> SearchAPI::ApplySorting(const std::vector<SearchHit> &Hit
                                    return Descending ? ScoreA > ScoreB : ScoreA < ScoreB;
                               }
 
-                              continue;
+                              return CompareRankTieBreak(A, B);
                          }
 
                          std::string AVal = A.Document.count(FieldName) ? A.Document.at(FieldName) : "";
@@ -898,6 +993,13 @@ std::vector<SearchHit> SearchAPI::ApplySorting(const std::vector<SearchHit> &Hit
 
                          if (AVal != BVal)
                          {
+                              double ANumber = 0.0;
+                              double BNumber = 0.0;
+                              if (TryParseDoubleValue(AVal, &ANumber) && TryParseDoubleValue(BVal, &BNumber) && ANumber != BNumber)
+                              {
+                                   return Descending ? ANumber > BNumber : ANumber < BNumber;
+                              }
+
                               return Descending ? AVal > BVal : AVal < BVal;
                          }
                     }
@@ -926,6 +1028,280 @@ void SearchAPI::ApplyModuleWeights(std::vector<SearchHit> &Hits,
           if (std::isfinite(ModuleMultiplier) && ModuleMultiplier > 0.0f)
           {
                Hit.Weight *= ModuleMultiplier;
+          }
+     }
+}
+
+void SearchAPI::ApplyCollectionRankWeights(std::vector<SearchHit> &Hits, const std::string &Collection)
+{
+     if (Hits.empty())
+     {
+          return;
+     }
+
+     CollectionConfig Config;
+     if (!HybridStorageManagerInstance().GetCollectionConfig(Collection, Config))
+     {
+          return;
+     }
+
+     auto MetadataValue = [&](const std::string &Key) -> std::string
+     {
+          auto It = Config.Metadata.find(Key);
+          return It == Config.Metadata.end() ? "" : TrimRankMetadataValue(It->second);
+     };
+
+     const std::string RankField = MetadataValue("_rank_field");
+     if (RankField.empty())
+     {
+          return;
+     }
+
+     double RankWeight = 0.25;
+     const std::string RankWeightRaw = MetadataValue("_rank_weight");
+     if (!RankWeightRaw.empty() && (!TryParseDoubleValue(RankWeightRaw, &RankWeight) || RankWeight <= 0.0 || !std::isfinite(RankWeight)))
+     {
+          return;
+     }
+
+     RankWeight = std::min(RankWeight, 10.0);
+
+     const std::string RankOrder = LowerRankMetadataValue(MetadataValue("_rank_order"));
+     const bool Descending = (RankOrder == "desc" || RankOrder == "descending" || RankOrder == "higher" || RankOrder == "higher_is_better");
+     const std::string RankAlgorithm = LowerRankMetadataValue(MetadataValue("_rank_algorithm"));
+
+     struct ParsedRank
+     {
+          size_t Index = 0;
+          double Value = 0.0;
+          double Signal = 1.0;
+     };
+
+     std::vector<ParsedRank> ParsedRanks;
+     ParsedRanks.reserve(Hits.size());
+
+     double MinRank = std::numeric_limits<double>::max();
+     double MaxRank = std::numeric_limits<double>::lowest();
+
+     for (size_t Index = 0; Index < Hits.size(); ++Index)
+     {
+          auto FieldIt = Hits[Index].Document.find(RankField);
+          if (FieldIt == Hits[Index].Document.end())
+          {
+               continue;
+          }
+
+          double RankValue = 0.0;
+          if (!TryParseDoubleValue(FieldIt->second, &RankValue))
+          {
+               continue;
+          }
+
+          ParsedRanks.push_back({Index, RankValue, 1.0});
+          MinRank = std::min(MinRank, RankValue);
+          MaxRank = std::max(MaxRank, RankValue);
+     }
+
+     if (ParsedRanks.empty())
+     {
+          return;
+     }
+
+     const double Range = MaxRank - MinRank;
+     for (ParsedRank &Parsed : ParsedRanks)
+     {
+          double Signal = 1.0;
+          if (Range > 0.0)
+          {
+               Signal = Descending
+                    ? ((Parsed.Value - MinRank) / Range)
+                    : ((MaxRank - Parsed.Value) / Range);
+          }
+
+          Parsed.Signal = std::clamp(Signal, 0.0, 1.0);
+          Hits[Parsed.Index].Document["rank_signal"] = FormatRankSignalValue(Parsed.Signal);
+     }
+
+     if ((RankAlgorithm == "linear_algebra" || RankAlgorithm == "advanced_linear_algebra" || RankAlgorithm == "matrix") && ParsedRanks.size() >= 2)
+     {
+          const size_t Count = ParsedRanks.size();
+          std::vector<double> BaseSignals(Count, 0.0);
+          double BaseMin = std::numeric_limits<double>::max();
+          double BaseMax = std::numeric_limits<double>::lowest();
+
+          for (size_t I = 0; I < Count; ++I)
+          {
+               const SearchHit &Hit = Hits[ParsedRanks[I].Index];
+               const double BaseScore = static_cast<double>(Hit.HybridScore > 0.0f ? Hit.HybridScore : (Hit.VectorScore > 0.0f ? Hit.VectorScore : Hit.TextMatch));
+               BaseSignals[I] = std::isfinite(BaseScore) && BaseScore > 0.0 ? BaseScore : 0.0;
+               BaseMin = std::min(BaseMin, BaseSignals[I]);
+               BaseMax = std::max(BaseMax, BaseSignals[I]);
+          }
+
+          const double BaseRange = BaseMax - BaseMin;
+          std::array<double, 2> Vector = {0.7071067811865475, 0.7071067811865475};
+
+          for (int Iteration = 0; Iteration < 16; ++Iteration)
+          {
+               double M00 = 1e-6;
+               double M01 = 0.0;
+               double M11 = 1e-6;
+
+               for (size_t I = 0; I < Count; ++I)
+               {
+                    const double RelevanceSignal = BaseRange > 0.0 ? ((BaseSignals[I] - BaseMin) / BaseRange) : 1.0;
+                    const double RankSignal = ParsedRanks[I].Signal;
+                    M00 += RelevanceSignal * RelevanceSignal;
+                    M01 += RelevanceSignal * RankSignal;
+                    M11 += RankSignal * RankSignal;
+               }
+
+               const double Next0 = (M00 * Vector[0]) + (M01 * Vector[1]);
+               const double Next1 = (M01 * Vector[0]) + (M11 * Vector[1]);
+               const double Norm = std::sqrt((Next0 * Next0) + (Next1 * Next1));
+               if (Norm <= 0.0 || !std::isfinite(Norm))
+               {
+                    break;
+               }
+
+               Vector = {Next0 / Norm, Next1 / Norm};
+          }
+
+          const double IdealNorm = std::sqrt((Vector[0] * Vector[0]) + (Vector[1] * Vector[1]));
+          for (size_t I = 0; I < Count; ++I)
+          {
+               const double RelevanceSignal = BaseRange > 0.0 ? ((BaseSignals[I] - BaseMin) / BaseRange) : 1.0;
+               const double RankSignal = ParsedRanks[I].Signal;
+               const double HitNorm = std::sqrt((RelevanceSignal * RelevanceSignal) + (RankSignal * RankSignal));
+               const double Cosine = (HitNorm > 0.0 && IdealNorm > 0.0)
+                                          ? (((RelevanceSignal * Vector[0]) + (RankSignal * Vector[1])) / (HitNorm * IdealNorm))
+                                          : RankSignal;
+               const double BlendedSignal = std::clamp((0.65 * std::max(0.0, Cosine)) + (0.35 * RankSignal), 0.0, 1.0);
+               const double Multiplier = std::clamp(1.0 + (RankWeight * BlendedSignal), 0.05, 1.0 + (RankWeight * 2.0));
+               if (std::isfinite(Multiplier) && Multiplier > 0.0)
+               {
+                    Hits[ParsedRanks[I].Index].Weight *= static_cast<float>(Multiplier);
+               }
+          }
+
+          return;
+     }
+
+     if (RankAlgorithm == "spectral" && ParsedRanks.size() >= 2)
+     {
+          double Alpha = 0.85;
+          const std::string AlphaRaw = MetadataValue("_rank_alpha");
+          if (!AlphaRaw.empty())
+          {
+               double ParsedAlpha = 0.0;
+               if (TryParseDoubleValue(AlphaRaw, &ParsedAlpha) && ParsedAlpha > 0.0 && ParsedAlpha < 1.0)
+               {
+                    Alpha = ParsedAlpha;
+               }
+          }
+
+          double Beta = 4.0;
+          const std::string BetaRaw = MetadataValue("_rank_beta");
+          if (!BetaRaw.empty())
+          {
+               double ParsedBeta = 0.0;
+               if (TryParseDoubleValue(BetaRaw, &ParsedBeta) && ParsedBeta > 0.0 && std::isfinite(ParsedBeta))
+               {
+                    Beta = std::min(ParsedBeta, 20.0);
+               }
+          }
+
+          const size_t Count = ParsedRanks.size();
+          std::vector<double> BaseSignals(Count, 0.0);
+          double BaseMin = std::numeric_limits<double>::max();
+          double BaseMax = std::numeric_limits<double>::lowest();
+
+          for (size_t I = 0; I < Count; ++I)
+          {
+               const SearchHit &Hit = Hits[ParsedRanks[I].Index];
+               const double BaseScore = static_cast<double>(Hit.HybridScore > 0.0f ? Hit.HybridScore : (Hit.VectorScore > 0.0f ? Hit.VectorScore : Hit.TextMatch));
+               BaseSignals[I] = std::isfinite(BaseScore) && BaseScore > 0.0 ? BaseScore : 0.0;
+               BaseMin = std::min(BaseMin, BaseSignals[I]);
+               BaseMax = std::max(BaseMax, BaseSignals[I]);
+          }
+
+          const double BaseRange = BaseMax - BaseMin;
+          std::vector<double> Personalization(Count, 0.0);
+          double PersonalizationSum = 0.0;
+
+          for (size_t I = 0; I < Count; ++I)
+          {
+               const double RelevanceSignal = BaseRange > 0.0 ? ((BaseSignals[I] - BaseMin) / BaseRange) : 1.0;
+               Personalization[I] = std::max(1e-9, (0.70 * RelevanceSignal) + (0.30 * ParsedRanks[I].Signal));
+               PersonalizationSum += Personalization[I];
+          }
+
+          for (double &Value : Personalization)
+          {
+               Value /= PersonalizationSum;
+          }
+
+          std::vector<double> State = Personalization;
+          std::vector<double> Next(Count, 0.0);
+
+          for (int Iteration = 0; Iteration < 32; ++Iteration)
+          {
+               std::fill(Next.begin(), Next.end(), 0.0);
+
+               for (size_t From = 0; From < Count; ++From)
+               {
+                    double Denominator = 0.0;
+                    for (size_t To = 0; To < Count; ++To)
+                    {
+                         Denominator += std::exp(Beta * (ParsedRanks[To].Signal - ParsedRanks[From].Signal));
+                    }
+
+                    if (Denominator <= 0.0 || !std::isfinite(Denominator))
+                    {
+                         continue;
+                    }
+
+                    for (size_t To = 0; To < Count; ++To)
+                    {
+                         const double Transition = std::exp(Beta * (ParsedRanks[To].Signal - ParsedRanks[From].Signal)) / Denominator;
+                         Next[To] += Alpha * Transition * State[From];
+                    }
+               }
+
+               double Delta = 0.0;
+               for (size_t I = 0; I < Count; ++I)
+               {
+                    Next[I] += (1.0 - Alpha) * Personalization[I];
+                    Delta += std::abs(Next[I] - State[I]);
+               }
+
+               State.swap(Next);
+               if (Delta < 1e-8)
+               {
+                    break;
+               }
+          }
+
+          const double MeanState = 1.0 / static_cast<double>(Count);
+          for (size_t I = 0; I < Count; ++I)
+          {
+               const double RelativeInfluence = State[I] / MeanState;
+               const double Multiplier = std::clamp(1.0 + (RankWeight * (RelativeInfluence - 1.0)), 0.05, 1.0 + (RankWeight * 4.0));
+               if (std::isfinite(Multiplier) && Multiplier > 0.0)
+               {
+                    Hits[ParsedRanks[I].Index].Weight *= static_cast<float>(Multiplier);
+               }
+          }
+
+          return;
+     }
+
+     for (const ParsedRank &Parsed : ParsedRanks)
+     {
+          const double Multiplier = 1.0 + (RankWeight * Parsed.Signal);
+          if (std::isfinite(Multiplier) && Multiplier > 0.0)
+          {
+               Hits[Parsed.Index].Weight *= static_cast<float>(Multiplier);
           }
      }
 }

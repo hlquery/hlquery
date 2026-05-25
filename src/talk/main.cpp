@@ -691,7 +691,7 @@ bool ConnectTalkToEndpoint(HLQueryCLI &cli,
      current_host = target_host;
      current_port = target_port;
      cli.ReconfigureConnection(BuildBaseURL(current_host, current_port));
-     cli.SetDefaultTimeoutSeconds(5);
+     cli.SetDefaultTimeoutSeconds(30);
      return true;
 }
 
@@ -1451,6 +1451,60 @@ std::vector<std::string> FetchSAMSearchDocumentIds(HLQueryCLI &cli,
           for (const auto &hit : root["hits"])
           {
                if (hit.contains("id") && hit["id"].is_string())
+               {
+                    document_ids.push_back(hit["id"].get<std::string>());
+               }
+          }
+     }
+     catch (...)
+     {
+     }
+
+     return document_ids;
+}
+
+std::vector<std::string> FetchSearchDocumentIds(HLQueryCLI &cli,
+                                                const std::string &collection_name,
+                                                const std::string &query,
+                                                int limit = 1000)
+{
+     std::vector<std::string> document_ids;
+
+     if (collection_name.empty() || query.empty())
+     {
+          return document_ids;
+     }
+
+     std::string path = "/collections/" + collection_name + "/documents/search";
+     path += "?q=" + hlquery_cli::UrlEncode(query);
+     path += "&query_by=" + hlquery_cli::UrlEncode("title,content");
+     path += "&limit=" + std::to_string(limit);
+     path += "&offset=0";
+
+     HLQueryCLI::HTTPResponse response = cli.MakeRequest("GET", path);
+
+     if (response.StatusCode != 200)
+     {
+          return document_ids;
+     }
+
+     try
+     {
+          nlohmann::json root = nlohmann::json::parse(response.Body);
+
+          if (!root.contains("hits") || !root["hits"].is_array())
+          {
+               return document_ids;
+          }
+
+          for (const auto &hit : root["hits"])
+          {
+               if (hit.contains("document") && hit["document"].is_object() &&
+                   hit["document"].contains("id") && hit["document"]["id"].is_string())
+               {
+                    document_ids.push_back(hit["document"]["id"].get<std::string>());
+               }
+               else if (hit.contains("id") && hit["id"].is_string())
                {
                     document_ids.push_back(hit["id"].get<std::string>());
                }
@@ -3977,6 +4031,15 @@ bool ExecuteTalkCommand(const std::string &line,
                state.LastSAMSearchCollection = collection_name;
                state.LastSAMSearchQuery = query_text;
                state.LastListedSAMDocumentIds = FetchSAMSearchDocumentIds(cli, collection_name, query_text, limit_val);
+               if (state.LastListedSAMDocumentIds.empty())
+               {
+                    state.LastListedDocumentIds = FetchSearchDocumentIds(cli, collection_name, query_text, limit_val);
+               }
+               else
+               {
+                    state.LastListedDocumentIds.clear();
+               }
+
                cli.SearchSAM(collection_name, query_text, limit_val);
                return true;
           }

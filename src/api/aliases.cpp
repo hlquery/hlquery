@@ -61,6 +61,21 @@ std::string ExtractAliasCollectionFromPath(const std::string &Path)
 
      return "";
 }
+
+HttpResponse ApplyAliasPreCheck(const ModulePreCheckResult &PreCheck)
+{
+     if (PreCheck.Action == ModulePreCheckAction::Deny)
+     {
+          return BuildErrorResponse(PreCheck.HttpStatus, PreCheck.ProtocolCode, PreCheck.Message, PreCheck.Details);
+     }
+
+     return HttpResponse(Status::OK, StatusText(Status::OK), "application/json");
+}
+
+bool HasAliasPreCheckFailure(const HttpResponse &Response)
+{
+     return Response.StatusCode != Status::OK;
+}
 }
 
 /* HandleListAliases lists all collection aliases. */
@@ -164,6 +179,17 @@ HttpResponse SearchAPI::HandleCreateOrUpdateAlias(const HttpRequest &Request)
           return HttpResponse(Status::BAD_REQUEST, StatusText(Status::BAD_REQUEST), "application/json");
      }
 
+     if (Instance && Instance->Modules)
+     {
+          HttpResponse PreCheckResponse = ApplyAliasPreCheck(
+               RUN_MODULE_PRECHECK(OnPreUpsertAlias, AliasName, Request.RemoteAddress, Request.APIKeyID, !Request.APIKeyID.empty()));
+
+          if (HasAliasPreCheckFailure(PreCheckResponse))
+          {
+               return PreCheckResponse;
+          }
+     }
+
      /* Parse alias data from request body. */
 
      try
@@ -230,16 +256,6 @@ HttpResponse SearchAPI::HandleCreateOrUpdateAlias(const HttpRequest &Request)
           AliasJSON["collection"] = CollectionName;
           AliasJSON["created_at"] = CreatedAt;
           AliasJSON["updated_at"] = GetCurrentTimestamp();
-
-          if (Instance && Instance->Modules)
-          {
-               ModulePreCheckResult PreCheck = RUN_MODULE_PRECHECK(OnPreUpsertAlias, AliasName, Request.RemoteAddress, Request.APIKeyID, !Request.APIKeyID.empty());
-
-               if (PreCheck.Action == ModulePreCheckAction::Deny)
-               {
-                    return BuildErrorResponse(PreCheck.HttpStatus, PreCheck.ProtocolCode, PreCheck.Message, PreCheck.Details);
-               }
-          }
 
           /* Save to LSM storage. */
 
@@ -320,6 +336,17 @@ HttpResponse SearchAPI::HandleDeleteAlias(const HttpRequest &Request)
           return HttpResponse(Status::BAD_REQUEST, StatusText(Status::BAD_REQUEST), "application/json");
      }
 
+     if (Instance && Instance->Modules)
+     {
+          HttpResponse PreCheckResponse = ApplyAliasPreCheck(
+               RUN_MODULE_PRECHECK(OnPreDeleteAlias, AliasName, Request.RemoteAddress, Request.APIKeyID, !Request.APIKeyID.empty()));
+
+          if (HasAliasPreCheckFailure(PreCheckResponse))
+          {
+               return PreCheckResponse;
+          }
+     }
+
      std::string AliasKey = "alias:" + AliasName;
      std::string AliasJSON = HybridStorageManagerInstance().Get(AliasKey);
 
@@ -331,16 +358,6 @@ HttpResponse SearchAPI::HandleDeleteAlias(const HttpRequest &Request)
      if (!Instance || !Instance->Database)
      {
           return HttpResponse(Status::INTERNAL_SERVER_ERROR, StatusText(Status::INTERNAL_SERVER_ERROR), "application/json");
-     }
-
-     if (Instance && Instance->Modules)
-     {
-          ModulePreCheckResult PreCheck = RUN_MODULE_PRECHECK(OnPreDeleteAlias, AliasName, Request.RemoteAddress, Request.APIKeyID, !Request.APIKeyID.empty());
-
-          if (PreCheck.Action == ModulePreCheckAction::Deny)
-          {
-               return BuildErrorResponse(PreCheck.HttpStatus, PreCheck.ProtocolCode, PreCheck.Message, PreCheck.Details);
-          }
      }
 
      if (Instance->Database->Del(AliasKey) == 0)
