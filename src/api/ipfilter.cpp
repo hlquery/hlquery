@@ -90,20 +90,15 @@ bool IPFilter::Initialize(const std::string &AllowedIPsConfig, const std::string
           std::lock_guard<std::mutex> CacheLock(CacheMutex);
 
           DNSCache.clear();
-
           ReverseDNSCache.clear();
-
           DNSCacheOrder.clear();
-
           ReverseDNSCacheOrder.clear();
      }
 
      /* Normalize allow list input. */
 
      std::string AllowTrimmed = AllowedIPsConfig;
-
      AllowTrimmed.erase(0, AllowTrimmed.find_first_not_of(" \t\n\r"));
-
      AllowTrimmed.erase(AllowTrimmed.find_last_not_of(" \t\n\r") + 1);
 
      if (AllowTrimmed.empty())
@@ -163,9 +158,7 @@ bool IPFilter::Initialize(const std::string &AllowedIPsConfig, const std::string
                if (IsHostname(Entry))
                {
                     RegularHostnames.push_back(Entry);
-
                     HasHostnames = true;
-
                     std::vector<std::string> ResolvedIPs;
 
                     if (ResolveHostname(Entry, ResolvedIPs, true))
@@ -206,7 +199,6 @@ bool IPFilter::Initialize(const std::string &AllowedIPsConfig, const std::string
                if (IsValidIP(Entry))
                {
                     AllowedIPs.insert(Entry);
-
                     DirectIPs.insert(Entry);
 
                     if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
@@ -228,7 +220,6 @@ bool IPFilter::Initialize(const std::string &AllowedIPsConfig, const std::string
 
      std::string DenyTrimmed = DeniedIPsConfig;
      DenyTrimmed.erase(0, DenyTrimmed.find_first_not_of(" \t\n\r"));
-
      DenyTrimmed.erase(DenyTrimmed.find_last_not_of(" \t\n\r") + 1);
 
      if (!DenyTrimmed.empty())
@@ -236,9 +227,7 @@ bool IPFilter::Initialize(const std::string &AllowedIPsConfig, const std::string
           if (DenyTrimmed == "*")
           {
                DenyAll = true;
-
                HasDenyEntries = true;
-
                DeniedOriginalEntries.push_back("*");
 
                if (Instance && Instance->Logs)
@@ -356,7 +345,6 @@ bool IPFilter::Initialize(const std::string &AllowedIPsConfig, const std::string
      /* Ensure deny hostnames also enable DNS support. */
 
      HasHostnames = HasHostnames || HasDenyHostnames;
-
      HasWildcardHostnames = HasWildcardHostnames || HasDenyWildcardHostnames;
 
      if (!AllowAll && !OriginalEntries.empty())
