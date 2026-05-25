@@ -123,9 +123,34 @@ bool hlquery::Initialize()
           return false;
      }
 
-     LLM = std::make_unique<llm>(*Config);
+     if (!InitializeOptionalServices())
+     {
+          return false;
+     }
 
-     if (Config && Config->GetSamEnabled())
+     if (!ValidateInitializedSubsystems())
+     {
+          return false;
+     }
+
+     InitializeNetworkListeners();
+
+     Logs->Normal("hlquery", "HTTP servers initialized; readiness will follow startup loading state.");
+
+     return true;
+}
+
+bool hlquery::InitializeOptionalServices()
+{
+     if (!HasConfig())
+     {
+          print_error("Config is null during optional service initialization!");
+          return false;
+     }
+
+     LLM = std::make_unique<llm>(GetConfig());
+
+     if (GetConfig().GetSamEnabled())
      {
           Sam = std::make_unique<SAM>();
 
@@ -134,41 +159,40 @@ bool hlquery::Initialize()
                Sam.reset();
           }
      }
-     else if (Logs)
+     else if (HasLogs())
      {
           Logs->Normal("sam", "SAM disabled in configuration.");
      }
 
-     /* Verify that critical subsystems are initialized properly */
+     return true;
+}
 
+bool hlquery::ValidateInitializedSubsystems() const
+{
      if (HTTPServers.empty())
      {
           print_error("No HTTP/HTTPS servers initialized!");
           return false;
      }
 
-     if (!Logs)
+     if (!HasLogs())
      {
           print_error("Logs is null after initialization!");
           return false;
      }
 
-     if (Logs)
+     return true;
+}
+
+void hlquery::InitializeNetworkListeners()
+{
+     if (HasLogs())
      {
           Logs->Debug("hlquery", "Initializing network listeners for custom protocols.");
      }
 
-     /* Initialize network listeners for configured non-HTTP protocols. */
-
-     Listeners = ListenManager::CreateCustomProtocolListeners(*Config);
+     Listeners = ListenManager::CreateCustomProtocolListeners();
      RunListeners();
-
-     if (Logs)
-     {
-          Logs->Normal("hlquery", "HTTP servers initialized; readiness will follow startup loading state.");
-     }
-
-     return true;
 }
 
 void hlquery::WriteStartupBanner()
@@ -188,10 +212,15 @@ void hlquery::WriteStartupBanner()
 
 void hlquery::RunListeners()
 {
+     ConfiguredListenerCount = Listeners.size();
+     StartedListenerCount = 0;
+     SkippedListenerCount = 0;
+     LastListenerError.clear();
+
      if (Logs)
      {
           Logs->Debug("hlquery", "Socket engine verified/initialized for listeners.");
-          Logs->Debug("hlquery", "Starting " + std::to_string(Listeners.size()) + " listeners.");
+          Logs->Debug("hlquery", "Starting " + std::to_string(ConfiguredListenerCount) + " listeners.");
      }
 
      bool AnyListenerStartedValue = false;
@@ -206,6 +235,7 @@ void hlquery::RunListeners()
           if (ListenerVal->BindAndListen())
           {
                AnyListenerStartedValue = true;
+               StartedListenerCount++;
 
                if (Logs)
                {
@@ -214,6 +244,9 @@ void hlquery::RunListeners()
           }
           else
           {
+               SkippedListenerCount++;
+               LastListenerError = "A configured listener failed to bind or was skipped.";
+
                if (Logs)
                {
                     Logs->Debug("hlquery", "Listener skipped (port busy).");
@@ -225,6 +258,7 @@ void hlquery::RunListeners()
 
      if (!AnyListenerStartedValue && !Listeners.empty())
      {
+          LastListenerError = "Failed to start any listening socket.";
           print_failed("Failed to start any listening socket.");
           ExitManager::Exit(1);
      }

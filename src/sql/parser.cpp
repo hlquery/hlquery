@@ -16,6 +16,114 @@
 
 #include "sql/parser_internal.h"
 
+static bool SQLIsReservedValueKeyword(const std::string &upper)
+{
+     /* Keywords that mark SQL syntax must not be accepted as unquoted scalar values. */
+
+     static const std::set<std::string> reserved_keywords =
+     {
+          "AND",
+          "AS",
+          "BETWEEN",
+          "BY",
+          "CONTAINS",
+          "DELETE",
+          "DESC",
+          "DROP",
+          "FETCH",
+          "FIRST",
+          "FROM",
+          "GROUP",
+          "HAVING",
+          "ILIKE",
+          "IN",
+          "INSERT",
+          "INTO",
+          "IS",
+          "LIKE",
+          "LIMIT",
+          "NEXT",
+          "NOT",
+          "OFFSET",
+          "ONLY",
+          "OR",
+          "ORDER",
+          "ROW",
+          "ROWS",
+          "SELECT",
+          "SHOW",
+          "UPDATE",
+          "VALUES",
+          "WHERE"
+     };
+
+     return reserved_keywords.count(upper) > 0;
+}
+
+static bool SQLCanUseTokenAsValue(const SQLToken &token)
+{
+     /* Quoted tokens are always literal values, even when their contents look like syntax. */
+
+     if (!token.Text.empty() &&
+         (token.Text.front() == '\'' || token.Text.front() == '"' || token.Text.front() == '`'))
+     {
+          return true;
+     }
+
+     static const std::set<std::string> invalid_value_tokens =
+     {
+          ",",
+          "(",
+          ")",
+          "*",
+          ";",
+          "=",
+          "!=",
+          "<>",
+          ">",
+          ">=",
+          "<",
+          "<="
+     };
+
+     if (invalid_value_tokens.count(token.Text) > 0)
+     {
+          return false;
+     }
+
+     if (token.Upper == "TRUE" || token.Upper == "FALSE" || token.Upper == "NULL")
+     {
+          return true;
+     }
+
+     return !SQLIsReservedValueKeyword(token.Upper);
+}
+
+static bool SQLCanReadClause(const std::string &clause_name,
+                             int clause_rank,
+                             int &current_rank,
+                             std::set<std::string> &seen_clauses,
+                             std::string &error)
+{
+     /* SELECT and DELETE clauses must appear once and in SQL statement order. */
+
+     if (seen_clauses.count(clause_name) > 0)
+     {
+          error = "Duplicate SQL " + clause_name + " clause.";
+          return false;
+     }
+
+     if (clause_rank < current_rank)
+     {
+          error = "SQL " + clause_name + " clause appears out of order.";
+          return false;
+     }
+
+     seen_clauses.insert(clause_name);
+     current_rank = clause_rank;
+     return true;
+}
+
 /* AST to translation result conversion. */
 
 SQLTranslationResult Parser::BuildTranslationResultFromAST(const SQLTranslationResult &template_result,
@@ -170,10 +278,18 @@ SQLTranslationResult Parser::Parse()
 
      /* Consume optional clauses until the statement terminator. */
 
+     int clause_rank = 0;
+     std::set<std::string> seen_clauses;
+
      while (!AtEnd())
      {
           if (MatchKeyword("WHERE"))
           {
+               if (!SQLCanReadClause("WHERE", 1, clause_rank, seen_clauses, result.Error))
+               {
+                    return result;
+               }
+
                if (!ParseWhere(result))
                {
                     return result;
@@ -183,6 +299,11 @@ SQLTranslationResult Parser::Parse()
 
           if (MatchKeyword("ORDER"))
           {
+               if (!SQLCanReadClause("ORDER BY", 4, clause_rank, seen_clauses, result.Error))
+               {
+                    return result;
+               }
+
                if (!MatchKeyword("BY"))
                {
                     result.Error = "Expected BY after ORDER.";
@@ -199,6 +320,11 @@ SQLTranslationResult Parser::Parse()
 
           if (MatchKeyword("GROUP"))
           {
+               if (!SQLCanReadClause("GROUP BY", 2, clause_rank, seen_clauses, result.Error))
+               {
+                    return result;
+               }
+
                if (!MatchKeyword("BY"))
                {
                     result.Error = "Expected BY after GROUP.";
@@ -215,6 +341,11 @@ SQLTranslationResult Parser::Parse()
 
           if (MatchKeyword("HAVING"))
           {
+               if (!SQLCanReadClause("HAVING", 3, clause_rank, seen_clauses, result.Error))
+               {
+                    return result;
+               }
+
                if (!ParseHaving(result))
                {
                     return result;
@@ -225,6 +356,11 @@ SQLTranslationResult Parser::Parse()
 
           if (MatchKeyword("LIMIT"))
           {
+               if (!SQLCanReadClause("LIMIT", 5, clause_rank, seen_clauses, result.Error))
+               {
+                    return result;
+               }
+
                result.HasExplicitLimit = true;
                ParsedStatement.HasExplicitLimit = true;
 
@@ -242,6 +378,8 @@ SQLTranslationResult Parser::Parse()
                {
                     result.Query.Offset = parsed_offset;
                     ParsedStatement.Offset = parsed_offset;
+                    seen_clauses.insert("OFFSET");
+                    clause_rank = 6;
                }
 
                continue;
@@ -249,6 +387,11 @@ SQLTranslationResult Parser::Parse()
 
           if (MatchKeyword("OFFSET"))
           {
+               if (!SQLCanReadClause("OFFSET", 6, clause_rank, seen_clauses, result.Error))
+               {
+                    return result;
+               }
+
                if (!ParseNonNegativeInt(result.Query.Offset, "OFFSET", &result.Error))
                {
                     return result;
@@ -266,6 +409,17 @@ SQLTranslationResult Parser::Parse()
 
           if (MatchKeyword("FETCH"))
           {
+               if (seen_clauses.count("LIMIT") > 0)
+               {
+                    result.Error = "SQL FETCH cannot be combined with LIMIT.";
+                    return result;
+               }
+
+               if (!SQLCanReadClause("FETCH", 7, clause_rank, seen_clauses, result.Error))
+               {
+                    return result;
+               }
+
                result.HasExplicitLimit = true;
 
                ParsedStatement.HasExplicitLimit = true;
@@ -1122,12 +1276,19 @@ bool Parser::ParseValue(std::string &out)
           return false;
      }
 
-     const SQLToken *token = Advance();
+     const SQLToken *token = Peek();
 
      if (!token)
      {
           return false;
      }
+
+     if (!SQLCanUseTokenAsValue(*token))
+     {
+          return false;
+     }
+
+     Advance();
 
      if (!token->Text.empty() &&
          (token->Text.front() == '\'' || token->Text.front() == '"' || token->Text.front() == '`'))
@@ -1595,7 +1756,7 @@ bool Parser::ParseBetween(const std::string &field_name, bool negate, std::strin
 
      if (negate)
      {
-          out = field_name + ":<" + low_value + "||" + field_name + ":>" + high_value;
+          out = "(" + field_name + ":<" + low_value + "||" + field_name + ":>" + high_value + ")";
      }
      else
      {
@@ -1854,7 +2015,7 @@ bool Parser::ParseInList(const std::string &field_name, bool negate, std::string
           expression << rendered_terms[index];
      }
 
-     out = expression.str();
+     out = rendered_terms.size() > 1 ? "(" + expression.str() + ")" : expression.str();
      return true;
 }
 

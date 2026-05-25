@@ -458,7 +458,17 @@ void SAM::ScheduleRetryRebuild(const std::string& Collection)
           Status.RetryScheduled = true;
      }
 
-     std::thread([this, Collection]()
+     std::string RetrySource;
+     {
+          std::lock_guard<std::mutex> Lock(JobMutex);
+          const auto It = CollectionJobs.find(Collection);
+          if (It != CollectionJobs.end())
+          {
+               RetrySource = It->second.Source.empty() ? "retry rebuild" : It->second.Source;
+          }
+     }
+
+     std::thread([this, Collection, RetrySource]()
      {
           std::this_thread::sleep_for(std::chrono::seconds(5));
 
@@ -478,7 +488,7 @@ void SAM::ScheduleRetryRebuild(const std::string& Collection)
 
           bool AlreadyRunning = false;
           std::string ErrorMessage;
-          const bool Started = StartRecreateCollectionAsync(Collection, &AlreadyRunning, &ErrorMessage);
+          const bool Started = StartRecreateCollectionAsync(Collection, &AlreadyRunning, &ErrorMessage, RetrySource);
 
           {
                std::lock_guard<std::mutex> Lock(JobMutex);
@@ -1473,7 +1483,8 @@ bool SAM::RecreateCollection(const std::string& Collection,
 
 bool SAM::StartRecreateCollectionAsync(const std::string& Collection,
                                        bool* AlreadyRunning,
-                                       std::string* ErrorMessage)
+                                       std::string* ErrorMessage,
+                                       const std::string& Source)
 {
      if (AlreadyRunning)
      {
@@ -1566,6 +1577,11 @@ bool SAM::StartRecreateCollectionAsync(const std::string& Collection,
 
           if (ExistingIt != CollectionJobs.end() && ExistingIt->second.Running)
           {
+               if (!Source.empty() && ExistingIt->second.Source.empty())
+               {
+                    ExistingIt->second.Source = Source;
+               }
+
                if (AlreadyRunning)
                {
                     *AlreadyRunning = true;
@@ -1580,12 +1596,14 @@ bool SAM::StartRecreateCollectionAsync(const std::string& Collection,
           JobStatus.Completed = false;
           JobStatus.RetryScheduled = false;
           JobStatus.ErrorMessage.clear();
+          JobStatus.Source = Source;
           CancelledCollections.erase(Collection);
           ++ActiveCollectionTasks[Collection];
      }
 
      RecordDebugEvent(Collection,
-                      "queued background rebuild setup");
+                      Source.empty() ? "queued background rebuild setup"
+                                     : "queued background rebuild setup from " + Source);
 
      const bool HasExpectedMutationVersion = Instance && Instance->API;
      const uint64_t ExpectedMutationVersion =
@@ -1593,7 +1611,7 @@ bool SAM::StartRecreateCollectionAsync(const std::string& Collection,
 
      try
      {
-          std::thread([this, Collection, HasExpectedMutationVersion, ExpectedMutationVersion]()
+          std::thread([this, Collection, HasExpectedMutationVersion, ExpectedMutationVersion, Source]()
           {
           auto FinishTask = [this, &Collection]()
           {
@@ -1775,7 +1793,9 @@ bool SAM::StartRecreateCollectionAsync(const std::string& Collection,
           }
 
           RecordDebugEvent(Collection,
-                           "queued background rebuild with " + std::to_string(DocumentsToQueue.size()) + " document(s)");
+                           Source.empty()
+                                ? "queued background rebuild with " + std::to_string(DocumentsToQueue.size()) + " document(s)"
+                                : "queued background rebuild from " + Source + " with " + std::to_string(DocumentsToQueue.size()) + " document(s)");
 
           for (const auto& Doc : DocumentsToQueue)
           {

@@ -430,17 +430,51 @@ static void QueueSAMResyncReconciliation(const std::vector<std::string> &Collect
           return;
      }
 
+     std::unordered_set<std::string> SeenCollections;
+     const std::string RebuildSource = "replication resync session " + SessionID;
+
      for (const auto &Collection : Collections)
      {
-          if (Collection.empty() || !HybridStorageManagerInstance().CollectionExists(Collection))
+          if (Collection.empty())
           {
+               if (Instance->Logs)
+               {
+                    Instance->Logs->Debug("sam",
+                                          "Skipping SAM replication reconciliation for empty collection after resync session '" +
+                                               SessionID + "'.");
+               }
+
+               continue;
+          }
+
+          if (!SeenCollections.insert(Collection).second)
+          {
+               if (Instance->Logs)
+               {
+                    Instance->Logs->Debug("sam",
+                                          "Skipping duplicate SAM replication reconciliation for collection '" +
+                                               Collection + "' after resync session '" + SessionID + "'.");
+               }
+
+               continue;
+          }
+
+          if (!HybridStorageManagerInstance().CollectionExists(Collection))
+          {
+               if (Instance->Logs)
+               {
+                    Instance->Logs->Debug("sam",
+                                          "Skipping SAM replication reconciliation for missing collection '" +
+                                               Collection + "' after resync session '" + SessionID + "'.");
+               }
+
                continue;
           }
 
           bool AlreadyRunning = false;
           std::string ErrorMessage;
 
-          if (!Instance->Sam->StartRecreateCollectionAsync(Collection, &AlreadyRunning, &ErrorMessage))
+          if (!Instance->Sam->StartRecreateCollectionAsync(Collection, &AlreadyRunning, &ErrorMessage, RebuildSource))
           {
                if (Instance->Logs && !ErrorMessage.empty())
                {
@@ -1184,7 +1218,7 @@ void SearchAPI::SyncSAMLexicalChange(const std::string& Collection, bool GlobalS
           bool AlreadyRunning = false;
           ErrorMessage.clear();
 
-          if (!Instance->Sam->StartRecreateCollectionAsync(Target, &AlreadyRunning, &ErrorMessage))
+          if (!Instance->Sam->StartRecreateCollectionAsync(Target, &AlreadyRunning, &ErrorMessage, "lexical sync"))
           {
                if (Instance->Logs && !ErrorMessage.empty())
                {

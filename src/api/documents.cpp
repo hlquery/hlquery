@@ -3418,6 +3418,7 @@ HttpResponse SearchAPI::HandleSAMSearch(const HttpRequest &Request)
                StatusJSON["failed"] = JobStatus.FailedDocuments;
                StatusJSON["total"] = JobStatus.TotalDocuments;
                StatusJSON["error"] = JobStatus.ErrorMessage;
+               StatusJSON["source"] = JobStatus.Source;
           }
           else
           {
@@ -3812,7 +3813,8 @@ HttpResponse SearchAPI::HandleSAMStatus(const HttpRequest &Request)
                {"failed", Entry.second.FailedDocuments},
                {"pending", Entry.second.PendingDocuments},
                {"total", Entry.second.TotalDocuments},
-               {"error", Entry.second.ErrorMessage}
+               {"error", Entry.second.ErrorMessage},
+               {"source", Entry.second.Source}
           };
 
           Root["collections"].push_back(JobJson);
@@ -3859,6 +3861,7 @@ HttpResponse SearchAPI::HandleSAMStatus(const HttpRequest &Request)
           Root["needs_retry"] = Instance->Sam->HasPendingCollectionRebuild(CollectionName);
           Root["retry_scheduled"] = false;
           Root["error"] = std::string();
+          Root["source"] = std::string();
           Root["active_search_count"] = ActiveSearches.size();
           Root["search_running"] = !ActiveSearches.empty();
           Root["message"] = Root["needs_retry"].get<bool>()
@@ -3883,6 +3886,7 @@ HttpResponse SearchAPI::HandleSAMStatus(const HttpRequest &Request)
           Root["pending"] = JobStatus.PendingDocuments;
           Root["total"] = JobStatus.TotalDocuments;
           Root["error"] = JobStatus.ErrorMessage;
+          Root["source"] = JobStatus.Source;
           Root["active_search_count"] = ActiveSearches.size();
           Root["search_running"] = !ActiveSearches.empty();
 

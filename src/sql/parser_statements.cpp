@@ -12,6 +12,31 @@
 
 #include "sql/parser_internal.h"
 
+static bool SQLCanReadStatementClause(const std::string &clause_name,
+                                      int clause_rank,
+                                      int &current_rank,
+                                      std::set<std::string> &seen_clauses,
+                                      std::string &error)
+{
+     /* Statement clauses must appear once and in SQL statement order. */
+
+     if (seen_clauses.count(clause_name) > 0)
+     {
+          error = "Duplicate SQL " + clause_name + " clause.";
+          return false;
+     }
+
+     if (clause_rank < current_rank)
+     {
+          error = "SQL " + clause_name + " clause appears out of order.";
+          return false;
+     }
+
+     seen_clauses.insert(clause_name);
+     current_rank = clause_rank;
+     return true;
+}
+
 /* Statement-level parsing (INSERT / DELETE / UPDATE / DROP). */
 
 SQLTranslationResult Parser::ParseInsertStatement(SQLTranslationResult result)
@@ -185,10 +210,18 @@ SQLTranslationResult Parser::ParseDeleteStatement(SQLTranslationResult result)
      result.Query.Q = "*";
      result.Query.Highlight = false;
 
+     int clause_rank = 0;
+     std::set<std::string> seen_clauses;
+
      while (!AtEnd())
      {
           if (MatchKeyword("WHERE"))
           {
+               if (!SQLCanReadStatementClause("WHERE", 1, clause_rank, seen_clauses, result.Error))
+               {
+                    return result;
+               }
+
                if (!ParseWhere(result))
                {
                     return result;
@@ -198,6 +231,11 @@ SQLTranslationResult Parser::ParseDeleteStatement(SQLTranslationResult result)
 
           if (MatchKeyword("ORDER"))
           {
+               if (!SQLCanReadStatementClause("ORDER BY", 2, clause_rank, seen_clauses, result.Error))
+               {
+                    return result;
+               }
+
                if (!MatchKeyword("BY"))
                {
                     result.Error = "Expected BY after ORDER.";
@@ -214,6 +252,11 @@ SQLTranslationResult Parser::ParseDeleteStatement(SQLTranslationResult result)
 
           if (MatchKeyword("LIMIT"))
           {
+               if (!SQLCanReadStatementClause("LIMIT", 3, clause_rank, seen_clauses, result.Error))
+               {
+                    return result;
+               }
+
                result.HasExplicitLimit = true;
 
                int parsed_offset = 0;
@@ -228,6 +271,8 @@ SQLTranslationResult Parser::ParseDeleteStatement(SQLTranslationResult result)
                {
                     result.Query.Offset = parsed_offset;
                     ParsedStatement.Offset = parsed_offset;
+                    seen_clauses.insert("OFFSET");
+                    clause_rank = 4;
                }
 
                ParsedStatement.HasExplicitLimit = true;
@@ -238,6 +283,11 @@ SQLTranslationResult Parser::ParseDeleteStatement(SQLTranslationResult result)
 
           if (MatchKeyword("OFFSET"))
           {
+               if (!SQLCanReadStatementClause("OFFSET", 4, clause_rank, seen_clauses, result.Error))
+               {
+                    return result;
+               }
+
                int pending_offset = 0;
 
                if (!ParseNonNegativeInt(pending_offset, "OFFSET", &result.Error))
@@ -257,6 +307,17 @@ SQLTranslationResult Parser::ParseDeleteStatement(SQLTranslationResult result)
 
           if (MatchKeyword("FETCH"))
           {
+               if (seen_clauses.count("LIMIT") > 0)
+               {
+                    result.Error = "SQL FETCH cannot be combined with LIMIT.";
+                    return result;
+               }
+
+               if (!SQLCanReadStatementClause("FETCH", 5, clause_rank, seen_clauses, result.Error))
+               {
+                    return result;
+               }
+
                result.HasExplicitLimit = true;
                if (!ParseFetchClause(result.Query.PerPage, &result.Error))
                {

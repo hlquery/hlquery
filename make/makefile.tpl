@@ -136,6 +136,8 @@ VENDOR_CXX_WARNING_FLAGS = -Wall -Wextra \
                            -Wformat=2 -Wformat-security \
                            -Wno-unused-parameter -Wno-missing-field-initializers \
                            -Wno-pedantic -Wno-strict-overflow
+CLD2_CXX_WARNING_FLAGS = $(VENDOR_CXX_WARNING_FLAGS) \
+                         -Wno-non-c-typedef-for-linkage
 
 # Clang warns about infinity/NaN when -ffast-math is enabled.
 # This is expected for vendored json code and creates excessive noise.
@@ -548,7 +550,7 @@ $(OBJ_DIR)/vendor/cld2/internal/%.o: $(VENDOR_DIR)/cld2/internal/%.cc | $(OBJ_DI
 	@mkdir -p $(dir $@)
 	@chmod -R u+w $(dir $@) $(OBJ_DIR) 2>/dev/null || true
 	@([ "$$(id -u)" != "0" ] && chown -R $$(id -u):$$(id -g) $(dir $@) 2>/dev/null || true) || true
-	$(CXX) $(BASE_CXXFLAGS) $(OPT_FLAGS) $(VENDOR_CXX_WARNING_FLAGS) -Wno-old-style-cast -Wno-cast-qual -Wno-narrowing -Wno-implicit-fallthrough -Wno-sign-compare -Wno-ignored-qualifiers -Wno-unused-variable -Wno-unused-but-set-variable -Wno-char-subscripts $(LTO_CXXFLAGS) -MMD -MP -c $< -o $@
+	$(CXX) $(BASE_CXXFLAGS) $(OPT_FLAGS) $(CLD2_CXX_WARNING_FLAGS) -Wno-old-style-cast -Wno-cast-qual -Wno-narrowing -Wno-implicit-fallthrough -Wno-sign-compare -Wno-ignored-qualifiers -Wno-unused-variable -Wno-unused-but-set-variable -Wno-char-subscripts $(LTO_CXXFLAGS) -MMD -MP -c $< -o $@
 
 # Universal pattern rule for source compilation with auto-deps
 # Use order-only prerequisite (|) for directory creation to avoid race conditions in parallel builds

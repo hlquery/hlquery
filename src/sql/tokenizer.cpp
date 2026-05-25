@@ -360,6 +360,33 @@ std::vector<SQLToken> SQLTokenize(const std::string &sql_text, std::string *erro
                     break;
                }
 
+               if (index < sql_text.size() && (sql_text[index] == 'e' || sql_text[index] == 'E'))
+               {
+                    ++index;
+
+                    if (index < sql_text.size() && (sql_text[index] == '-' || sql_text[index] == '+'))
+                    {
+                         ++index;
+                    }
+
+                    const size_t exponent_start = index;
+
+                    while (index < sql_text.size() && std::isdigit(static_cast<unsigned char>(sql_text[index])) != 0)
+                    {
+                         ++index;
+                    }
+
+                    if (index == exponent_start)
+                    {
+                         if (error)
+                         {
+                              *error = "Invalid numeric literal in SQL query.";
+                         }
+
+                         return {};
+                    }
+               }
+
                const std::string text = sql_text.substr(start, index - start);
 
                if (text == "-" || text == "+")

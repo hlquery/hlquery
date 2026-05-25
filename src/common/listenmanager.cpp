@@ -54,10 +54,16 @@ ListenManager::~ListenManager()
      }
 }
 
-std::vector<std::unique_ptr<ListenManager>> ListenManager::CreateCustomProtocolListeners(const ServerConfig &Config)
+std::vector<std::unique_ptr<ListenManager>> ListenManager::CreateCustomProtocolListeners()
 {
-     const auto &BindConfigs = Config.GetBindConfigs();
      std::vector<std::unique_ptr<ListenManager>> Listeners;
+
+     if (!Instance || !Instance->HasConfig())
+     {
+          return Listeners;
+     }
+
+     const auto &BindConfigs = Instance->GetConfig().GetBindConfigs();
 
      Listeners.reserve(BindConfigs.size());
 

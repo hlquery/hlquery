@@ -67,6 +67,18 @@ class CoreExport hlquery
 
      bool InitializeCoreSystems();
 
+     /* Initialize optional runtime services after core startup. */
+
+     bool InitializeOptionalServices();
+
+     /* Verify critical startup subsystems before serving traffic. */
+
+     bool ValidateInitializedSubsystems() const;
+
+     /* Create and start custom protocol listeners. */
+
+     void InitializeNetworkListeners();
+
      /* Display server binding information */
 
      void DisplayBindingInfo();
@@ -114,6 +126,13 @@ class CoreExport hlquery
      /* Mutex guarding BackgroundThreads. */
 
      std::mutex BackgroundThreadsMutex;
+
+     /* Listener startup diagnostics. */
+
+     size_t ConfiguredListenerCount = 0;
+     size_t StartedListenerCount = 0;
+     size_t SkippedListenerCount = 0;
+     std::string LastListenerError;
 
    public:
      /* Constructor */
@@ -232,6 +251,51 @@ class CoreExport hlquery
      /* Parse command line arguments */
 
      void ParseArgs();
+
+     bool HasConfig() const
+     {
+          return Config != nullptr;
+     }
+
+     ServerConfig& GetConfig()
+     {
+          return *Config;
+     }
+
+     const ServerConfig& GetConfig() const
+     {
+          return *Config;
+     }
+
+     bool HasLogs() const
+     {
+          return Logs != nullptr;
+     }
+
+     bool HasSam() const
+     {
+          return Sam != nullptr;
+     }
+
+     size_t GetConfiguredListenerCount() const
+     {
+          return ConfiguredListenerCount;
+     }
+
+     size_t GetStartedListenerCount() const
+     {
+          return StartedListenerCount;
+     }
+
+     size_t GetSkippedListenerCount() const
+     {
+          return SkippedListenerCount;
+     }
+
+     const std::string& GetLastListenerError() const
+     {
+          return LastListenerError;
+     }
 
      /* Network listener managers */
 

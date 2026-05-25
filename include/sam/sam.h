@@ -444,6 +444,7 @@ class SAM
           size_t PendingDocuments = 0;
           size_t TotalDocuments = 0;
           std::string ErrorMessage;
+          std::string Source;
      };
 
      struct LexicalSyncInfo
@@ -508,7 +509,8 @@ class SAM
 
      bool StartRecreateCollectionAsync(const std::string& Collection,
                                        bool* AlreadyRunning = nullptr,
-                                       std::string* ErrorMessage = nullptr);
+                                       std::string* ErrorMessage = nullptr,
+                                       const std::string& Source = "");
 
      /* Mark a source collection as changed so automatic SAM can rebuild it later. */
 

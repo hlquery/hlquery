@@ -960,10 +960,33 @@ HttpResponse SearchAPI::HandleReady(const HttpRequest &Request)
      bool IsReady = IsInitialized();
      bool IsLoading = false;
      bool SyncInProgress = false;
+     bool SAMResyncPending = false;
+     size_t SAMResyncRunning = 0;
 
      if (Instance)
      {
           SyncInProgress = Instance->IsSyncInProgress();
+
+          if (Instance->Sam && Instance->Sam->IsOpen())
+          {
+               SAMResyncRunning = Instance->Sam->GetRunningCollectionJobCount();
+               const std::map<std::string, SAM::CollectionJobStatus> SAMStatuses =
+                    Instance->Sam->GetAllCollectionJobStatuses();
+
+               for (const auto &Entry : SAMStatuses)
+               {
+                    const SAM::CollectionJobStatus &Status = Entry.second;
+
+                    if (Status.Running ||
+                        Status.RetryScheduled ||
+                        Status.NeedsRetry ||
+                        Status.PendingDocuments > 0)
+                    {
+                         SAMResyncPending = true;
+                         break;
+                    }
+               }
+          }
 
           for (auto *ServerVal : Instance->HTTPServers)
           {
@@ -982,6 +1005,12 @@ HttpResponse SearchAPI::HandleReady(const HttpRequest &Request)
           ReadyJSON["initialized"] = IsReady;
           ReadyJSON["loading"] = IsLoading;
           ReadyJSON["sync_in_progress"] = SyncInProgress;
+          ReadyJSON["sam_resync_pending"] = SAMResyncPending;
+          ReadyJSON["sam_resync_running"] = SAMResyncRunning;
+          ReadyJSON["listeners_configured"] = Instance ? Instance->GetConfiguredListenerCount() : 0;
+          ReadyJSON["listeners_started"] = Instance ? Instance->GetStartedListenerCount() : 0;
+          ReadyJSON["listeners_skipped"] = Instance ? Instance->GetSkippedListenerCount() : 0;
+          ReadyJSON["listener_last_error"] = Instance ? Instance->GetLastListenerError() : std::string();
 
           HttpResponse Response(Status::SERVICE_UNAVAILABLE, StatusText(Status::SERVICE_UNAVAILABLE), "application/json");
           Response.Body = ReadyJSON.dump();
@@ -991,6 +1020,12 @@ HttpResponse SearchAPI::HandleReady(const HttpRequest &Request)
      ReadyJSON["initialized"] = true;
      ReadyJSON["loading"] = false;
      ReadyJSON["sync_in_progress"] = false;
+     ReadyJSON["sam_resync_pending"] = SAMResyncPending;
+     ReadyJSON["sam_resync_running"] = SAMResyncRunning;
+     ReadyJSON["listeners_configured"] = Instance ? Instance->GetConfiguredListenerCount() : 0;
+     ReadyJSON["listeners_started"] = Instance ? Instance->GetStartedListenerCount() : 0;
+     ReadyJSON["listeners_skipped"] = Instance ? Instance->GetSkippedListenerCount() : 0;
+     ReadyJSON["listener_last_error"] = Instance ? Instance->GetLastListenerError() : std::string();
 
      HttpResponse Response(Status::OK, StatusText(Status::OK), "application/json");
      Response.Body = ReadyJSON.dump();
@@ -1577,6 +1612,39 @@ HttpResponse SearchAPI::HandleStartup(const HttpRequest &Request)
 
           StartupJSON["collections_loaded"] = State.CollectionsLoadedCount;
           StartupJSON["sync_complete"] = State.SyncComplete;
+          StartupJSON["listeners_configured"] = Instance->GetConfiguredListenerCount();
+          StartupJSON["listeners_started"] = Instance->GetStartedListenerCount();
+          StartupJSON["listeners_skipped"] = Instance->GetSkippedListenerCount();
+          StartupJSON["listener_last_error"] = Instance->GetLastListenerError();
+
+          if (Instance->Sam && Instance->Sam->IsOpen())
+          {
+               bool SAMResyncPending = false;
+               const std::map<std::string, SAM::CollectionJobStatus> SAMStatuses =
+                    Instance->Sam->GetAllCollectionJobStatuses();
+
+               for (const auto &Entry : SAMStatuses)
+               {
+                    const SAM::CollectionJobStatus &Status = Entry.second;
+
+                    if (Status.Running ||
+                        Status.RetryScheduled ||
+                        Status.NeedsRetry ||
+                        Status.PendingDocuments > 0)
+                    {
+                         SAMResyncPending = true;
+                         break;
+                    }
+               }
+
+               StartupJSON["sam_resync_pending"] = SAMResyncPending;
+               StartupJSON["sam_resync_running"] = Instance->Sam->GetRunningCollectionJobCount();
+          }
+          else
+          {
+               StartupJSON["sam_resync_pending"] = false;
+               StartupJSON["sam_resync_running"] = 0;
+          }
 
           if (Instance->Modules)
           {
