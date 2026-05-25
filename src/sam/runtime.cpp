@@ -308,6 +308,7 @@ bool SAM::Initialize()
 void SAM::Shutdown()
 {
      std::vector<std::thread> ThreadsToJoin;
+     std::vector<std::thread> HelperThreadsToJoin;
      std::shared_ptr<rocksdb::DB> DatabaseToRelease;
 
      if (Instance && Instance->Logs)
@@ -355,6 +356,7 @@ void SAM::Shutdown()
      {
           std::lock_guard<std::mutex> Lock(JobMutex);
           ThreadsToJoin.swap(WorkerThreads);
+          HelperThreadsToJoin.swap(HelperThreads);
      }
 
      if (Instance && Instance->Logs)
@@ -375,6 +377,19 @@ void SAM::Shutdown()
           }
      }
 
+     for (auto& Helper : HelperThreadsToJoin)
+     {
+          if (Helper.joinable())
+          {
+               if (Helper.get_id() == std::this_thread::get_id())
+               {
+                    continue;
+               }
+
+               Helper.join();
+          }
+     }
+
      if (Instance && Instance->Logs)
      {
           Instance->Logs->Normal("sam", "SAM shutdown workers joined.");
@@ -390,6 +405,25 @@ void SAM::Shutdown()
      {
           Instance->Logs->Normal("sam", "SAM shutdown complete.");
      }
+}
+
+void SAM::StartHelperThread(std::thread Thread)
+{
+     if (!Thread.joinable())
+     {
+          return;
+     }
+
+     {
+          std::lock_guard<std::mutex> Lock(JobMutex);
+          if (!ShuttingDown)
+          {
+               HelperThreads.emplace_back(std::move(Thread));
+               return;
+          }
+     }
+
+     Thread.join();
 }
 
 std::string SAM::BuildPendingIndexKey(const std::string& Collection, const std::string& DocumentID)
@@ -450,6 +484,11 @@ void SAM::ScheduleRetryRebuild(const std::string& Collection)
           std::lock_guard<std::mutex> Lock(JobMutex);
           CollectionJobStatus& Status = CollectionJobs[Collection];
 
+          if (ShuttingDown)
+          {
+               return;
+          }
+
           if (Status.RetryScheduled)
           {
                return;
@@ -468,61 +507,89 @@ void SAM::ScheduleRetryRebuild(const std::string& Collection)
           }
      }
 
-     std::thread([this, Collection, RetrySource]()
+     try
      {
-          std::this_thread::sleep_for(std::chrono::seconds(5));
-
+          StartHelperThread(std::thread([this, Collection, RetrySource]()
           {
-               std::lock_guard<std::mutex> Lock(JobMutex);
-
-               if (ShuttingDown || IsCollectionCancelledLocked(Collection))
                {
+                    std::unique_lock<std::mutex> Lock(JobMutex);
+                    const bool Cancelled = JobStateCV.wait_for(Lock,
+                                                               std::chrono::seconds(5),
+                                                               [this, &Collection]()
+                                                               {
+                                                                    return ShuttingDown ||
+                                                                           IsCollectionCancelledLocked(Collection);
+                                                               });
+                    if (Cancelled)
+                    {
+                         auto It = CollectionJobs.find(Collection);
+                         if (It != CollectionJobs.end())
+                         {
+                              It->second.RetryScheduled = false;
+                         }
+                         return;
+                    }
+               }
+
+               {
+                    std::lock_guard<std::mutex> Lock(JobMutex);
+
+                    if (ShuttingDown || IsCollectionCancelledLocked(Collection))
+                    {
+                         auto It = CollectionJobs.find(Collection);
+                         if (It != CollectionJobs.end())
+                         {
+                              It->second.RetryScheduled = false;
+                         }
+                         return;
+                    }
+               }
+
+               bool AlreadyRunning = false;
+               std::string ErrorMessage;
+               const bool Started = StartRecreateCollectionAsync(Collection, &AlreadyRunning, &ErrorMessage, RetrySource);
+
+               {
+                    std::lock_guard<std::mutex> Lock(JobMutex);
                     auto It = CollectionJobs.find(Collection);
                     if (It != CollectionJobs.end())
                     {
                          It->second.RetryScheduled = false;
-                    }
-                    return;
-               }
-          }
 
-          bool AlreadyRunning = false;
-          std::string ErrorMessage;
-          const bool Started = StartRecreateCollectionAsync(Collection, &AlreadyRunning, &ErrorMessage, RetrySource);
-
-          {
-               std::lock_guard<std::mutex> Lock(JobMutex);
-               auto It = CollectionJobs.find(Collection);
-               if (It != CollectionJobs.end())
-               {
-                    It->second.RetryScheduled = false;
-
-                    if (Started || AlreadyRunning)
-                    {
-                         It->second.NeedsRetry = false;
-                         if (It->second.ErrorMessage.find("Source collection changed during SAM indexing;") == 0)
+                         if (Started || AlreadyRunning)
                          {
-                              It->second.ErrorMessage = "Automatic SAM retry queued after source mutations.";
+                              It->second.NeedsRetry = false;
+                              if (It->second.ErrorMessage.find("Source collection changed during SAM indexing;") == 0)
+                              {
+                                   It->second.ErrorMessage = "Automatic SAM retry queued after source mutations.";
+                              }
+                         }
+                         else if (!ErrorMessage.empty())
+                         {
+                              It->second.ErrorMessage = ErrorMessage;
                          }
                     }
-                    else if (!ErrorMessage.empty())
-                    {
-                         It->second.ErrorMessage = ErrorMessage;
-                    }
-                 }
-          }
+                }
 
-          if (Started)
-          {
-               RecordDebugEvent(Collection, "scheduled automatic rebuild retry after concurrent source mutation");
-          }
-          else if (!AlreadyRunning)
-          {
-               RecordDebugEvent(Collection,
-                                "automatic rebuild retry could not be queued: " +
-                                     (ErrorMessage.empty() ? std::string("unknown error") : ErrorMessage));
-          }
-     }).detach();
+               if (Started)
+               {
+                    RecordDebugEvent(Collection, "scheduled automatic rebuild retry after concurrent source mutation");
+               }
+               else if (!AlreadyRunning)
+               {
+                    RecordDebugEvent(Collection,
+                                     "automatic rebuild retry could not be queued: " +
+                                          (ErrorMessage.empty() ? std::string("unknown error") : ErrorMessage));
+               }
+          }));
+     }
+     catch (const std::exception& E)
+     {
+          std::lock_guard<std::mutex> Lock(JobMutex);
+          CollectionJobStatus& Status = CollectionJobs[Collection];
+          Status.RetryScheduled = false;
+          Status.ErrorMessage = E.what();
+     }
 }
 
 void SAM::StartIndexWorker()
@@ -1555,6 +1622,16 @@ bool SAM::StartRecreateCollectionAsync(const std::string& Collection,
           std::lock_guard<std::mutex> Lock(JobMutex);
           const auto ExistingIt = CollectionJobs.find(Collection);
 
+          if (ShuttingDown)
+          {
+               if (ErrorMessage)
+               {
+                    *ErrorMessage = "SAM shutdown is in progress.";
+               }
+
+               return false;
+          }
+
           if (FlushInProgress.load(std::memory_order_acquire))
           {
                if (ErrorMessage)
@@ -1611,7 +1688,7 @@ bool SAM::StartRecreateCollectionAsync(const std::string& Collection,
 
      try
      {
-          std::thread([this, Collection, HasExpectedMutationVersion, ExpectedMutationVersion, Source]()
+          StartHelperThread(std::thread([this, Collection, HasExpectedMutationVersion, ExpectedMutationVersion, Source]()
           {
           auto FinishTask = [this, &Collection]()
           {
@@ -1972,7 +2049,7 @@ bool SAM::StartRecreateCollectionAsync(const std::string& Collection,
           }
 
                FinishTask();
-          }).detach();
+          }));
      }
      catch (const std::exception& E)
      {

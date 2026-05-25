@@ -3646,7 +3646,8 @@ void AppendSearchIdeaHits(std::unordered_map<std::string, SAMAggregatedHit>& Agg
 #define HLQUERY_SAM_SPLIT_INCLUDE
 #include "semantic.cpp"
 
-/* Include the term-expansion and lookup implementation shard. */
+/* Include the term-expansion and lookup implementation shards. */
 
-#include "terms_lookup.cpp"
+#include "terms_lookup_terms.cpp"
+#include "terms_lookup_search.cpp"
 #undef HLQUERY_SAM_SPLIT_INCLUDE

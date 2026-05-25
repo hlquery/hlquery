@@ -219,6 +219,7 @@ class SAM
      bool ShuttingDown = false;
      size_t BackgroundWorkerCount = 1;
      std::vector<std::thread> WorkerThreads;
+     std::vector<std::thread> HelperThreads;
 
      /* Resolve the filesystem path used by the SAM database. */
 
@@ -231,6 +232,10 @@ class SAM
      /* Start the background workers that process queued index jobs. */
 
      void StartIndexWorker();
+
+     /* Track short-lived helper threads so shutdown owns their lifetime. */
+
+     void StartHelperThread(std::thread Thread);
 
      /* Return the desired number of concurrent SAM background workers. */
 

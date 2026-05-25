@@ -3065,6 +3065,14 @@ HttpResponse SearchAPI::HandleSAMSearch(const HttpRequest &Request)
                                          : "Query parameters 'collection' and 'q' are required.");
      }
 
+     if (!SearchAll && CollectionName.empty())
+     {
+          return BuildErrorResponse(Status::BAD_REQUEST,
+                                    Code::SEARCH_INVALID_PARAMETER,
+                                    "Missing SAM search parameters",
+                                    "Query parameters 'collection' and 'q' are required.");
+     }
+
      if (!Instance || !Instance->Sam || !Instance->Sam->IsOpen())
      {
           return BuildErrorResponse(Status::SERVICE_UNAVAILABLE,
