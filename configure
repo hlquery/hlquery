@@ -487,7 +487,7 @@ sub check_compiler {
     my %seen;
     my @preferred = get_system_name() eq 'FreeBSD'
         ? ($config{CXX}, $ENV{CXX}, 'clang++', 'c++', 'g++')
-        : ($config{CXX}, $ENV{CXX}, 'c++', 'g++', 'clang++');
+        : ($config{CXX}, $ENV{CXX}, 'g++', 'c++', 'clang++');
 
     foreach my $cand (@preferred) {
         next unless defined $cand && $cand ne '';

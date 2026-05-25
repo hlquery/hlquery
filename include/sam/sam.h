@@ -378,6 +378,8 @@ class SAM
                double SemanticVectorScore = 0.0;
                double EvidenceBonus = 0.0;
                double DocPrior = 0.0;
+               double RankPriorScore = 0.0;
+               double RankPriorMultiplier = 1.0;
                double SemanticBonus = 0.0;
                double SourceDocBonus = 0.0;
                double FinalScore = 0.0;

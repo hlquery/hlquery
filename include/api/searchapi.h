@@ -487,6 +487,10 @@ class SearchAPI
 
      void ApplyModuleWeights(std::vector<SearchHit>& Hits, const std::string& Collection, const ComprehensiveSearchQuery& Query, const std::string& RankingMode);
 
+     /* ApplyCollectionRankWeights adjusts hit weights using collection-level _rank_* metadata. */
+
+     void ApplyCollectionRankWeights(std::vector<SearchHit>& Hits, const std::string& Collection);
+
      /* GetEffectiveScore returns the score after hit-specific weighting is applied. */
 
      float GetEffectiveScore(const SearchHit& Hit) const;

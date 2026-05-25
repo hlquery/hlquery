@@ -510,7 +510,7 @@ $(ROCKSDB_LIB):
 			      -DWITH_BENCHMARK_TOOLS=OFF \
 			      -DCMAKE_CXX_FLAGS="-fPIC -Wno-error $$ROCKSDB_WARN_FLAGS" \
 			      || { echo "$(RED)Error: CMake configuration failed$(NC)" >&2; echo "$(YELLOW)Try: rm -rf $(ROCKSDB_BUILD_DIR) && make$(NC)" >&2; exit 1; }; \
-			cmake --build $(ROCKSDB_BUILD_DIR) --target rocksdb $(ROCKSDB_BUILD_PARALLEL) >/dev/null || { echo "$(RED)Error: RocksDB build failed$(NC)" >&2; echo "$(YELLOW)If this VPS ran out of memory, retry with: make ROCKSDB_JOBS=1 BUILD_JOBS=1$(NC)" >&2; exit 1; } && \
+			MAKEFLAGS= cmake --build $(ROCKSDB_BUILD_DIR) --target rocksdb $(ROCKSDB_BUILD_PARALLEL) >/dev/null || { echo "$(RED)Error: RocksDB build failed$(NC)" >&2; echo "$(YELLOW)If this VPS ran out of memory, retry with: make ROCKSDB_JOBS=1 BUILD_JOBS=1$(NC)" >&2; exit 1; } && \
 		([ "$$(id -u)" != "0" ] && chown -R $$(id -u):$$(id -g) $(ROCKSDB_BUILD_DIR) 2>/dev/null || true) && \
 		([ "$$(id -u)" != "0" ] && chmod -R u+w $(ROCKSDB_BUILD_DIR) 2>/dev/null || true) && \
 		cd $(ROCKSDB_BUILD_DIR) && \

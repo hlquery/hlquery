@@ -780,6 +780,8 @@ static SAM::LookupHit ParseSAMLookupHitJSON(const nlohmann::json &HitJSON)
           Hit.Breakdown.SemanticVectorScore = Breakdown.value("semantic_vector_score", 0.0);
           Hit.Breakdown.EvidenceBonus = Breakdown.value("evidence_bonus", 0.0);
           Hit.Breakdown.DocPrior = Breakdown.value("doc_prior", 0.0);
+          Hit.Breakdown.RankPriorScore = Breakdown.value("rank_prior_score", 0.0);
+          Hit.Breakdown.RankPriorMultiplier = Breakdown.value("rank_prior_multiplier", 1.0);
           Hit.Breakdown.SemanticBonus = Breakdown.value("semantic_bonus", 0.0);
           Hit.Breakdown.SourceDocBonus = Breakdown.value("source_doc_bonus", 0.0);
           Hit.Breakdown.FinalScore = Breakdown.value("final_score", 0.0);
@@ -810,6 +812,8 @@ static nlohmann::json BuildSAMHitJSON(const SAM::LookupHit &Hit, bool IncludeExp
                {"semantic_vector_score", Hit.Breakdown.SemanticVectorScore},
                {"evidence_bonus", Hit.Breakdown.EvidenceBonus},
                {"doc_prior", Hit.Breakdown.DocPrior},
+               {"rank_prior_score", Hit.Breakdown.RankPriorScore},
+               {"rank_prior_multiplier", Hit.Breakdown.RankPriorMultiplier},
                {"semantic_bonus", Hit.Breakdown.SemanticBonus},
                {"source_doc_bonus", Hit.Breakdown.SourceDocBonus},
                {"final_score", Hit.Breakdown.FinalScore}

@@ -93,7 +93,7 @@ sub get_default_build_jobs {
 
 sub default_cxx {
     return $ENV{CXX} if $ENV{CXX};
-    return 'c++';
+    return 'g++';
 }
 
 sub get_version_from_script {

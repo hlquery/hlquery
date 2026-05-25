@@ -377,9 +377,6 @@ static std::vector<std::string> BuildBenchmarkLabels(const std::string &collecti
           add_label(tag);
      }
 
-     add_label("benchmark");
-     add_label("fake");
-
      return labels;
 }
 
@@ -717,7 +714,30 @@ bool CreateFakeCollections(const std::string &base_url, const std::string &auth_
                university_fields.push_back({{"name", "state"}, {"type", "string"}});
                university_fields.push_back({{"name", "city"}, {"type", "string"}});
                university_fields.push_back({{"name", "institution_type"}, {"type", "string"}});
-               collection_created = client.CreateCollectionWithSchemaLocal(collection_name, university_fields, "");
+               university_fields.push_back({{"name", "rank"}, {"type", "int32"}});
+               university_fields.push_back({{"name", "rank_source"}, {"type", "string"}});
+               university_fields.push_back({{"name", "rank_scope"}, {"type", "string"}});
+               university_fields.push_back({{"name", "rank_edition"}, {"type", "string"}});
+               university_fields.push_back({{"name", "webometrics_country_rank"}, {"type", "int32"}});
+               university_fields.push_back({{"name", "webometrics_world_rank"}, {"type", "int32"}});
+               university_fields.push_back({{"name", "webometrics_impact_rank"}, {"type", "int32"}});
+               university_fields.push_back({{"name", "webometrics_openness_rank"}, {"type", "int32"}});
+               university_fields.push_back({{"name", "webometrics_excellence_rank"}, {"type", "int32"}});
+
+               nlohmann::json university_metadata = {
+                    {"_rank_field", "rank"},
+                    {"_rank_order", "asc"},
+                    {"_rank_source", "webometrics"},
+                    {"_rank_scope", "world"},
+                    {"_rank_edition", "January 2026"},
+                    {"_rank_algorithm", "spectral"},
+                    {"_rank_alpha", "0.85"},
+                    {"_rank_beta", "4.0"},
+                    {"_rank_weight", "0.25"},
+                    {"_rank_methodology", "visibility_50_transparency_10_excellence_40"},
+                    {"_rank_url", "https://www.webometrics.org/united-states-of-america"}};
+
+               collection_created = client.CreateCollectionWithSchemaLocal(collection_name, university_fields, "rank", university_metadata);
           }
           else if (spec.Name == "math")
           {
@@ -1145,19 +1165,24 @@ bool CreateFakeCollections(const std::string &base_url, const std::string &auth_
                     const char *State;
                     const char *City;
                     const char *Type;
+                    int CountryRank;
+                    int WorldRank;
+                    int ImpactRank;
+                    int OpennessRank;
+                    int ExcellenceRank;
                };
 
                static const std::vector<UniversityProfile> university_profiles = {
-                    {"California", "Berkeley", "public_research"},
-                    {"Michigan", "Ann Arbor", "public_research"},
-                    {"Ohio", "Columbus", "public_research"},
-                    {"Texas", "Austin", "public_research"},
-                    {"Washington", "Seattle", "public_research"},
-                    {"Florida", "Gainesville", "public_research"},
-                    {"Illinois", "Urbana Champaign", "public_research"},
-                    {"Georgia", "Atlanta", "public_research"},
-                    {"Pennsylvania", "University Park", "public_research"},
-                    {"Massachusetts", "Amherst", "public_research"}};
+                    {"California", "Berkeley", "public_research", 11, 15, 4, 5, 42},
+                    {"Michigan", "Ann Arbor", "public_research", 7, 9, 5, 34, 21},
+                    {"Ohio", "Columbus", "public_research", 22, 36, 52, 76, 68},
+                    {"Texas", "Austin", "public_research", 23, 41, 24, 30, 96},
+                    {"Washington", "Seattle", "public_research", 10, 14, 7, 84, 15},
+                    {"Florida", "Gainesville", "public_research", 19, 31, 27, 28, 72},
+                    {"Illinois", "Urbana Champaign", "public_research", 27, 48, 34, 44, 115},
+                    {"Georgia", "Atlanta", "public_research", 38, 67, 70, 69, 125},
+                    {"Pennsylvania", "University Park", "public_research", 20, 33, 17, 39, 79},
+                    {"Massachusetts", "Amherst", "public_research", 57, 152, 69, 110, 312}};
 
                size_t universities_updated = 0;
                for (size_t i = 0; i < docs.size() && i < university_profiles.size(); ++i)
@@ -1172,6 +1197,15 @@ bool CreateFakeCollections(const std::string &base_url, const std::string &auth_
                     university_doc["state"] = profile.State;
                     university_doc["city"] = profile.City;
                     university_doc["institution_type"] = profile.Type;
+                    university_doc["rank"] = profile.WorldRank;
+                    university_doc["rank_source"] = "webometrics";
+                    university_doc["rank_scope"] = "world";
+                    university_doc["rank_edition"] = "January 2026";
+                    university_doc["webometrics_country_rank"] = profile.CountryRank;
+                    university_doc["webometrics_world_rank"] = profile.WorldRank;
+                    university_doc["webometrics_impact_rank"] = profile.ImpactRank;
+                    university_doc["webometrics_openness_rank"] = profile.OpennessRank;
+                    university_doc["webometrics_excellence_rank"] = profile.ExcellenceRank;
 
                     if (client.UpsertDocumentWithFieldsLocal(collection_name, university_doc))
                     {
@@ -1181,7 +1215,7 @@ bool CreateFakeCollections(const std::string &base_url, const std::string &auth_
 
                if (verbose)
                {
-                    LogOutput("  ↳ Added state and campus metadata to " + std::to_string(universities_updated) + " university documents.\n");
+                    LogOutput("  ↳ Added campus and Webometrics ranking metadata to " + std::to_string(universities_updated) + " university documents.\n");
                }
           }
           else if (spec.Name == "math")

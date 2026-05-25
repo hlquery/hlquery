@@ -1283,18 +1283,22 @@ bool BenchmarkClient::CreateCollectionLocal(const std::string &name, int timeout
 
 /* Creates a collection with custom schema. */
 
-bool BenchmarkClient::CreateCollectionWithSchema(const std::string &name, const nlohmann::json &fields, const std::string &default_sorting_field)
+bool BenchmarkClient::CreateCollectionWithSchema(const std::string &name, const nlohmann::json &fields, const std::string &default_sorting_field, const nlohmann::json &metadata)
 {
-     return CreateCollectionWithSchemaLocal(name, fields, default_sorting_field);
+     return CreateCollectionWithSchemaLocal(name, fields, default_sorting_field, metadata);
 }
 
-bool BenchmarkClient::CreateCollectionWithSchemaLocal(const std::string &name, const nlohmann::json &fields, const std::string &default_sorting_field)
+bool BenchmarkClient::CreateCollectionWithSchemaLocal(const std::string &name, const nlohmann::json &fields, const std::string &default_sorting_field, const nlohmann::json &metadata)
 {
      nlohmann::json schema;
 
      schema["name"] = name;
      schema["fields"] = fields;
      AddBenchmarkDocumentIdField(schema["fields"]);
+     if (metadata.is_object() && !metadata.empty())
+     {
+          schema["metadata"] = metadata;
+     }
 
      if (!default_sorting_field.empty())
      {

@@ -19,6 +19,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <cmath>
+#include <limits>
 #include <optional>
 #include <regex>
 #include <rocksdb/write_batch.h>

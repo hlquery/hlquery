@@ -132,9 +132,9 @@ class BenchmarkClient
 
      /* Creates a collection with custom schema. */
 
-     bool CreateCollectionWithSchema(const std::string &name, const nlohmann::json &fields, const std::string &default_sorting_field = "");
+     bool CreateCollectionWithSchema(const std::string &name, const nlohmann::json &fields, const std::string &default_sorting_field = "", const nlohmann::json &metadata = nlohmann::json::object());
 
-     bool CreateCollectionWithSchemaLocal(const std::string &name, const nlohmann::json &fields, const std::string &default_sorting_field = "");
+     bool CreateCollectionWithSchemaLocal(const std::string &name, const nlohmann::json &fields, const std::string &default_sorting_field = "", const nlohmann::json &metadata = nlohmann::json::object());
 
      /* Inserts a document. */
 

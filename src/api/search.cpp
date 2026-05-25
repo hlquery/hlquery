@@ -2876,8 +2876,9 @@ ComprehensiveSearchResult SearchAPI::PerformComprehensiveSearch(const std::strin
                            : static_cast<int>(Hits.size());
      ResultObj.OutOf = ResultObj.Found;
 
-     /* Module weights are applied before sorting so custom ranking affects final order. */
+     /* Collection and module weights are applied before sorting so custom ranking affects final order. */
 
+     ApplyCollectionRankWeights(Hits, Collection);
      ApplyModuleWeights(Hits, Collection, Query, RankingMode);
 
      if (!Query.SortBy.empty())
