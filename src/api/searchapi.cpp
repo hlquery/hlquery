@@ -2314,6 +2314,16 @@ bool SearchAPI::ParseCollectionConfigFromJSON(const std::string &Json, Collectio
                }
           }
 
+          if (Parsed.contains("default_sorting_field") && Parsed["default_sorting_field"].is_string())
+          {
+               const std::string DefaultSortingField = Parsed["default_sorting_field"].get<std::string>();
+
+               if (!DefaultSortingField.empty())
+               {
+                    Config.Metadata["_default_sorting_field"] = DefaultSortingField;
+               }
+          }
+
           if (Parsed.contains("language") && Parsed["language"].is_string())
           {
                const std::string Language = Parsed["language"].get<std::string>();

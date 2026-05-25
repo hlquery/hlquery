@@ -483,6 +483,10 @@ class SearchAPI
 
      std::vector<SearchHit> ApplySorting(const std::vector<SearchHit>& Hits, const std::vector<std::string>& SortBy);
 
+     /* ResolveDefaultCollectionSortBy returns collection-level default sort fields. */
+
+     std::vector<std::string> ResolveDefaultCollectionSortBy(const std::string& Collection);
+
      /* ApplyModuleWeights lets runtime modules adjust hit weights before final ranking. */
 
      void ApplyModuleWeights(std::vector<SearchHit>& Hits, const std::string& Collection, const ComprehensiveSearchQuery& Query, const std::string& RankingMode);

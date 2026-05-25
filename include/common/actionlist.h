@@ -38,20 +38,77 @@
 
 class CoreExport ActionList
 {
+   private:
+
+     /* Active processing queue; holds actions currently being executed. */
+
+     static std::vector<std::function<void()>>& Actions;
+
+     /* Incoming queue; holds actions waiting for the next processing cycle. */
+
+     static std::vector<std::function<void()>>& PendingActions;
+
+     /* Synchronizes access to both action queues and related state. */
+
+     static std::mutex& ActionsMutex;
+
+     /* Re-entrancy guard indicating whether processing is currently running. */
+
+     static std::atomic<bool>& Processing;
+
+     /* Statistics counters */
+
+     /* Total number of actions accepted into the queue. */
+
+     static std::atomic<size_t>& TotalQueued;
+
+     /* Total number of actions executed without exceptions. */
+
+     static std::atomic<size_t>& TotalProcessed;
+
+     /* Total number of actions that failed during execution. */
+
+     static std::atomic<size_t>& TotalFailed;
+
+     /* Total number of actions rejected due to queue capacity limits. */
+
+     static std::atomic<size_t>& TotalDropped;
+
+     /* Number of actions currently being executed outside the queue lock. */
+
+     static std::atomic<size_t>& CurrentProcessingCount;
+
    public:
 
      using Action = std::function<void()>;
 
-     /* Statistics structure for monitoring action list performance */
+     /* Statistics structure for monitoring action list performance. */
 
      struct Statistics
      {
-          size_t TotalQueued 		= 	0;    /* Total actions queued since last reset */
-          size_t TotalProcessed 	= 	0;    /* Total actions successfully processed */
-          size_t TotalFailed 		= 	0;    /* Total actions that threw exceptions */
-          size_t TotalDropped 		= 	0;    /* Total actions dropped due to queue full */
-          size_t CurrentPending 	= 	0;    /* Current number of pending actions */
-          size_t CurrentProcessing 	= 	0;    /* Current number of actions being processed */
+          /* Total actions queued since last reset. */
+
+          size_t TotalQueued = 0;
+
+          /* Total actions successfully processed. */
+
+          size_t TotalProcessed = 0;
+
+          /* Total actions that threw exceptions. */
+
+          size_t TotalFailed = 0;
+
+          /* Total actions dropped due to queue capacity limits. */
+
+          size_t TotalDropped = 0;
+
+          /* Current number of pending actions. */
+
+          size_t CurrentPending = 0;
+
+          /* Current number of actions being processed. */
+
+          size_t CurrentProcessing = 0;
      };
 
      /*
@@ -112,44 +169,4 @@ class CoreExport ActionList
       */
 
      static void ResetStatistics();
-
-   private:
-
-     /* Active processing queue; holds actions currently being executed. */
-      
-      static std::vector<Action>& Actions;
-
-     /* Incoming queue; holds actions waiting for the next processing cycle. */
-      
-      static std::vector<Action>& PendingActions;
-
-     /* Synchronizes access to both action queues and related state. */
-     
-      static std::mutex& ActionsMutex;
-
-     /* Re-entrancy guard indicating whether processing is currently running. */
-     
-     static std::atomic<bool>& Processing;
-
-     /* Statistics counters */
-
-     /* Total number of actions accepted into the queue. */
-     
-     static std::atomic<size_t>& TotalQueued;
-
-     /* Total number of actions executed without exceptions. */
-     
-     static std::atomic<size_t>& TotalProcessed;
-
-     /* Total number of actions that failed during execution. */
-     
-     static std::atomic<size_t>& TotalFailed;
-
-     /* Total number of actions rejected due to queue capacity limits. */
-     
-     static std::atomic<size_t>& TotalDropped;
-
-     /* Number of actions currently being executed outside the queue lock. */
-
-     static std::atomic<size_t>& CurrentProcessingCount;
 };

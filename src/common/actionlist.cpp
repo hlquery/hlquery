@@ -37,13 +37,14 @@ class ProcessingGuard
      /* Attempt to acquire the processing flag for the current scope. */
 
      explicit ProcessingGuard(std::atomic<bool> &flag)
-          : Flag(flag)
+     :
+          Flag(flag)
      {
           bool expected = false;
 
           if (!Flag.compare_exchange_strong(expected, true))
           {
-               /* Already processing, don't set flag */
+               /* Another thread is already processing actions. */
 
                ShouldReset = false;
           }
@@ -63,7 +64,7 @@ class ProcessingGuard
           }
      }
 
-     /* Non-copyable, non-movable */
+     /* Prevent copying or moving the scoped guard. */
 
      ProcessingGuard(const ProcessingGuard &) = delete;
      ProcessingGuard &operator=(const ProcessingGuard &) = delete;
@@ -78,7 +79,7 @@ class ProcessingGuard
      }
 };
 
-/* Static member definitions - wrap in struct to control destruction order */
+/* Static member definitions are wrapped to control destruction order. */
 
 struct ActionListImpl
 {
@@ -122,7 +123,7 @@ struct ActionListImpl
 
      ActionListImpl()
      {
-          /* Reserve initial capacity to reduce reallocations */
+          /* Reserve initial capacity to reduce reallocations. */
 
           Actions.reserve(INITIAL_CAPACITY);
           PendingActions.reserve(INITIAL_CAPACITY);
@@ -134,7 +135,7 @@ struct ActionListImpl
      {
           try
           {
-               /* Clear any remaining actions during destruction */
+               /* Clear any remaining actions during destruction. */
 
                try
                {
@@ -157,7 +158,7 @@ struct ActionListImpl
 
 static ActionListImpl action_impl;
 
-/* Access static members through the implementation */
+/* Access static members through the implementation. */
 
 std::vector<ActionList::Action> &ActionList::Actions = action_impl.Actions;
 
@@ -167,7 +168,7 @@ std::mutex &ActionList::ActionsMutex = action_impl.ActionsMutex;
 
 std::atomic<bool> &ActionList::Processing = action_impl.Processing;
 
-/* Statistics accessors */
+/* Statistics accessors. */
 
 std::atomic<size_t> &ActionList::TotalQueued = action_impl.TotalQueued;
 
@@ -190,7 +191,7 @@ void ActionList::QueueAction(Action action)
 
      std::lock_guard<std::mutex> lock(ActionsMutex);
 
-     /* Check capacity limit to prevent unbounded growth */
+     /* Check capacity limit to prevent unbounded growth. */
 
      if (PendingActions.size() >= MAX_QUEUE_SIZE)
      {
@@ -204,7 +205,7 @@ void ActionList::QueueAction(Action action)
           return;
      }
 
-     /* Reserve capacity if needed to reduce reallocations */
+     /* Reserve capacity if needed to reduce reallocations. */
 
      if (PendingActions.size() >= PendingActions.capacity())
      {
@@ -229,14 +230,14 @@ void ActionList::ProcessActions()
 
      if (!guard.IsActive())
      {
-          /* Already processing in another thread, skip */
+          /* Already processing in another thread. */
 
           return;
      }
 
      try
      {
-          /* Swap pending actions with current actions atomically */
+          /* Swap pending actions with current actions atomically. */
 
           size_t ActionCount = 0;
           std::vector<ActionList::Action> Batch;
@@ -248,7 +249,9 @@ void ActionList::ProcessActions()
 
                if (ActionCount == 0)
                {
-                    return; /* Nothing to process */
+                    /* Nothing to process. */
+
+                    return;
                }
 
                /* Move the batch out under the lock so execution never races queue inspection. */
@@ -256,7 +259,7 @@ void ActionList::ProcessActions()
                Batch.swap(PendingActions);
                Actions.clear();
 
-               /* Reserve capacity for next batch if needed */
+               /* Reserve capacity for next batch if needed. */
 
                if (PendingActions.capacity() < INITIAL_CAPACITY)
                {
@@ -266,7 +269,7 @@ void ActionList::ProcessActions()
 
           CurrentProcessingCount.store(ActionCount, std::memory_order_relaxed);
 
-          /* Process all actions outside the lock to minimize contention */
+          /* Process all actions outside the lock to minimize contention. */
 
           size_t Processed = 0;
 
@@ -306,16 +309,16 @@ void ActionList::ProcessActions()
                }
           }
 
-          /* Update statistics */
+          /* Update statistics. */
 
           TotalProcessed.fetch_add(Processed, std::memory_order_relaxed);
           CurrentProcessingCount.store(0, std::memory_order_relaxed);
 
-          /* Clear processed actions efficiently */
+          /* Clear processed actions efficiently. */
 
           Batch.clear();
 
-          /* Shrink vector if it grew too large (keep some capacity for efficiency) */
+          /* Shrink vector if it grew too large. */
 
           if (Batch.capacity() > INITIAL_CAPACITY * 4)
           {
@@ -369,7 +372,7 @@ void ActionList::ClearActions()
           Actions.clear();
           PendingActions.clear();
 
-          /* Reset capacity to initial size */
+          /* Reset capacity to initial size. */
 
           Actions.shrink_to_fit();
           PendingActions.shrink_to_fit();

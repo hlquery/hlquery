@@ -861,6 +861,8 @@ bool CreateFakeCollections(const std::string &base_url, const std::string &auth_
                university_fields.push_back({{"name", "webometrics_excellence_rank"}, {"type", "int32"}});
 
                nlohmann::json university_metadata = {
+                    {"_default_sorting_field", "rank"},
+                    {"_default_sorting_order", "asc"},
                     {"_rank_field", "rank"},
                     {"_rank_order", "asc"},
                     {"_rank_source", "benchmark_university_rank"},

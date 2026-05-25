@@ -1010,6 +1010,56 @@ std::vector<SearchHit> SearchAPI::ApplySorting(const std::vector<SearchHit> &Hit
      return SortedHits;
 }
 
+/* ResolveDefaultCollectionSortBy returns collection-level default sort fields. */
+
+std::vector<std::string> SearchAPI::ResolveDefaultCollectionSortBy(const std::string &Collection)
+{
+     CollectionConfig Config;
+     if (!HybridStorageManagerInstance().GetCollectionConfig(Collection, Config))
+     {
+          return {};
+     }
+
+     auto MetadataValue = [&Config](const std::string &Key) -> std::string
+     {
+          auto It = Config.Metadata.find(Key);
+          return It == Config.Metadata.end() ? "" : TrimRankMetadataValue(It->second);
+     };
+
+     std::string SortField = MetadataValue("_default_sorting_field");
+     std::string SortOrder = LowerRankMetadataValue(MetadataValue("_default_sorting_order"));
+
+     if (SortField.empty())
+     {
+          SortField = MetadataValue("_rank_field");
+          SortOrder = LowerRankMetadataValue(MetadataValue("_rank_order"));
+     }
+
+     if (SortField.empty())
+     {
+          return {};
+     }
+
+     if (SortOrder.empty())
+     {
+          SortOrder = "asc";
+     }
+     else if (SortOrder == "descending" || SortOrder == "higher" || SortOrder == "higher_is_better")
+     {
+          SortOrder = "desc";
+     }
+     else if (SortOrder == "ascending" || SortOrder == "lower" || SortOrder == "lower_is_better")
+     {
+          SortOrder = "asc";
+     }
+     else if (SortOrder != "asc" && SortOrder != "desc")
+     {
+          SortOrder = "asc";
+     }
+
+     return {SortField + ":" + SortOrder};
+}
+
 void SearchAPI::ApplyModuleWeights(std::vector<SearchHit> &Hits,
                                    const std::string &Collection,
                                    const ComprehensiveSearchQuery &Query,

@@ -2887,10 +2887,19 @@ ComprehensiveSearchResult SearchAPI::PerformComprehensiveSearch(const std::strin
      }
      else
      {
-          std::stable_sort(Hits.begin(), Hits.end(), [this](const SearchHit &A, const SearchHit &B)
-                           {
-                                return GetEffectiveScore(A) > GetEffectiveScore(B);
-                           });
+          const std::vector<std::string> DefaultSortBy = ResolveDefaultCollectionSortBy(Collection);
+
+          if (!DefaultSortBy.empty())
+          {
+               Hits = ApplySorting(Hits, DefaultSortBy);
+          }
+          else
+          {
+               std::stable_sort(Hits.begin(), Hits.end(), [this](const SearchHit &A, const SearchHit &B)
+                                {
+                                     return GetEffectiveScore(A) > GetEffectiveScore(B);
+                                });
+          }
      }
 
      if (Query.PreserveMatchedHits)

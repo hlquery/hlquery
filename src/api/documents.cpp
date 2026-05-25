@@ -1280,6 +1280,15 @@ HttpResponse SearchAPI::HandleListDocuments(const HttpRequest &Request)
      {
           SortByStr = SortByIt->second;
      }
+     else
+     {
+          std::vector<std::string> DefaultSortBy = ResolveDefaultCollectionSortBy(CollectionName);
+
+          if (!DefaultSortBy.empty())
+          {
+               SortByStr = DefaultSortBy.front();
+          }
+     }
 
      auto IncludeDateIt = Request.QueryParams.find("include_created_at");
 
