@@ -41,12 +41,14 @@ static std::string StripModuleStoragePrefix(const std::string &FullKey, const st
 static std::string ExtractAuthTokenFromHeaders(const std::map<std::string, std::string> &Headers)
 {
      auto AuthIt = Headers.find("Authorization");
+
      if (AuthIt == Headers.end())
      {
           AuthIt = Headers.find("authorization");
      }
 
      std::string Token;
+
      if (AuthIt != Headers.end())
      {
           Token = AuthIt->second;
@@ -54,6 +56,7 @@ static std::string ExtractAuthTokenFromHeaders(const std::map<std::string, std::
      else
      {
           auto APIKeyIt = Headers.find("X-API-Key");
+
           if (APIKeyIt == Headers.end())
           {
                APIKeyIt = Headers.find("x-api-key");
