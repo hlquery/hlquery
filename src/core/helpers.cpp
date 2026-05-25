@@ -183,7 +183,7 @@ void CoreHelpers::PrintStartupModuleList(const std::string &Heading, const std::
 
      if (ModuleNames.empty())
      {
-          ConsoleWriter::WriteStartup("No optional modules loaded.", true, false);
+          ConsoleWriter::WriteStartup("No modules loaded.", true, false);
           return;
      }
 

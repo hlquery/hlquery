@@ -586,6 +586,18 @@ bool hlquery::InitializeCoreSystems()
                          ConsoleWriter::WriteStartupPlainSafe(STDOUT_FILENO, EntryLine.c_str(), false);
                     }
                }
+               else if (!HasHostDeny && DeniedEntriesList.empty())
+               {
+                    /* Empty allow configuration enables the filter in deny-all mode. */
+
+                    if (Logs)
+                    {
+                         Logs->Normal("startup", "Allowing connections from: (none - deny all).");
+                    }
+
+                    print_ok_nd("Allowing connections from:");
+                    ConsoleWriter::WriteStartupPlainSafe(STDOUT_FILENO, "       - (none - deny all)", false);
+               }
 
                if (HasHostDeny && !DeniedEntriesList.empty())
                {
@@ -632,18 +644,6 @@ bool hlquery::InitializeCoreSystems()
                     }
                }
           }
-          else if (IPFilter->IsEnabled())
-          {
-               /* Reject all connections if enabled but empty */
-
-               if (Logs)
-               {
-                    Logs->Normal("startup", "Allowing connections from: (none - deny all).");
-               }
-
-               print_ok_nd("Allowing connections from:");
-               ConsoleWriter::WriteStartupPlainSafe(STDOUT_FILENO, "       - (none - deny all)", false);
-          }
           else
           {
                /* Accept all connections if the filter is disabled */
@@ -665,6 +665,13 @@ bool hlquery::InitializeCoreSystems()
 
 void hlquery::DisplayBindingInfo()
 {
+     if (!Config)
+     {
+          print_ok_nd("Server binding to:");
+          ConsoleWriter::WriteStartupPlain("       - <configuration unavailable>", false);
+          return;
+     }
+
      const auto &StartupBindsList = Config->GetBindConfigs();
 
      print_ok_nd("Server binding to:");
@@ -690,6 +697,11 @@ void hlquery::DisplayBindingInfo()
 
 void hlquery::DisplaySSLInfo()
 {
+     if (!Config)
+     {
+          return;
+     }
+
      const auto &StartupBindsList = Config->GetBindConfigs();
 
      bool HasSSL = false;
