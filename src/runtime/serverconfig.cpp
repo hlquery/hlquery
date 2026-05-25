@@ -12,6 +12,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <charconv>
 #include <cstdlib>
 #include <filesystem>
 #include <iostream>
@@ -2040,7 +2041,7 @@ void ServerConfig::ApplyConfiguration()
      {
           std::string Address = Tag->GetString("address", Tag->GetString("host", ""));
           int Port = Tag->GetInt("port", 0);
-          if (Address.empty() || Port <= 0)
+          if (Address.empty() || Port <= 0 || Port > 65535)
           {
                throw std::runtime_error("Invalid <" + TagName + " ...> entry in links.conf: host/address and port are required.");
           }
@@ -2365,25 +2366,78 @@ static std::string NormalizeClusterEndpoint(const std::string &Raw, std::string 
      std::string Host = Node;
      int Port = 9200;
      size_t ColonPos = Node.rfind(':');
-     if (ColonPos != std::string::npos)
+
+     if (!Node.empty() && Node.front() == '[')
      {
-          Host = Node.substr(0, ColonPos);
-          try
-          {
-               Port = std::stoi(Node.substr(ColonPos + 1));
-          }
-          catch (...)
+          size_t BracketPos = Node.find(']');
+          if (BracketPos == std::string::npos)
           {
                if (OutError)
                {
-                    *OutError = "Invalid port";
+                    *OutError = "Invalid bracketed IPv6 host";
                }
                return "";
+          }
+
+          Host = Node.substr(1, BracketPos - 1);
+          std::string Rest = ClusterTrimCopy(Node.substr(BracketPos + 1));
+
+          if (!Rest.empty())
+          {
+               if (Rest.front() != ':')
+               {
+                    if (OutError)
+                    {
+                         *OutError = "Invalid endpoint suffix";
+                    }
+                    return "";
+               }
+
+               std::string PortStr = Rest.substr(1);
+               if (PortStr.empty())
+               {
+                    if (OutError)
+                    {
+                         *OutError = "Invalid port";
+                    }
+                    return "";
+               }
+
+               auto [Ptr, EC] = std::from_chars(PortStr.data(), PortStr.data() + PortStr.size(), Port);
+               if (EC != std::errc() || Ptr != PortStr.data() + PortStr.size())
+               {
+                    if (OutError)
+                    {
+                         *OutError = "Invalid port";
+                    }
+                    return "";
+               }
+          }
+     }
+     else if (ColonPos != std::string::npos)
+     {
+          if (Node.find(':') != ColonPos)
+          {
+               Host = Node;
+          }
+          else
+          {
+               Host = Node.substr(0, ColonPos);
+               std::string PortStr = Node.substr(ColonPos + 1);
+               auto [Ptr, EC] = std::from_chars(PortStr.data(), PortStr.data() + PortStr.size(), Port);
+               if (EC != std::errc() || Ptr != PortStr.data() + PortStr.size())
+               {
+                    if (OutError)
+                    {
+                         *OutError = "Invalid port";
+                    }
+                    return "";
+               }
           }
      }
 
      Host = ClusterTrimCopy(Host);
-     if (Host.empty() || Port <= 0)
+     if (Host.empty() || Port <= 0 || Port > 65535)
      {
           if (OutError)
           {
@@ -2412,6 +2466,11 @@ static std::string NormalizeClusterEndpoint(const std::string &Raw, std::string 
       * Treat bare host:port and explicit http://host:port as the same endpoint.
       * Keep https:// distinct because transport semantics differ.
       */
+
+     if (Host.find(':') != std::string::npos && !(Host.size() >= 2 && Host.front() == '[' && Host.back() == ']'))
+     {
+          return "[" + Host + "]:" + std::to_string(Port);
+     }
 
      return Host + ":" + std::to_string(Port);
 }

@@ -97,7 +97,23 @@ static bool ShouldUseAsyncHttpDispatch()
 
 /* UrlDecode decodes a URL string. */
 
-std::string UrlDecode(const std::string &Str);
+std::string UrlDecode(const std::string &Str, bool DecodePlusAsSpace = true);
+
+static bool IsHexDigit(char C)
+{
+     return std::isxdigit(static_cast<unsigned char>(C)) != 0;
+}
+
+static int HexDigitValue(char C)
+{
+     if (C >= '0' && C <= '9')
+     {
+          return C - '0';
+     }
+
+     C = static_cast<char>(std::tolower(static_cast<unsigned char>(C)));
+     return 10 + (C - 'a');
+}
 
 /* Use HTTP status codes from core/httpcodes.h. */
 
@@ -761,6 +777,11 @@ void HttpConnection::OnEventHandlerRead()
                     if (ValueEnd != std::string::npos)
                     {
                          std::string LengthStr = HeadersPart.substr(ValueStart, ValueEnd - ValueStart);
+                         size_t LengthEnd = LengthStr.find_last_not_of(" \t");
+                         if (LengthEnd != std::string::npos)
+                         {
+                              LengthStr.erase(LengthEnd + 1);
+                         }
 
                          try
                          {
@@ -1650,57 +1671,10 @@ void HttpConnection::ProcessMultipleRequests()
                     {
                          std::string LengthStr = HeadersPart.substr(ValueStart, ValueEnd - ValueStart);
 
-                         try
-                         {
-                              unsigned long long ParsedLength = std::stoull(LengthStr);
+                         unsigned long long ParsedLength = 0;
+                         auto [ParsedPtr, ParsedEC] = std::from_chars(LengthStr.data(), LengthStr.data() + LengthStr.size(), ParsedLength);
 
-                              /* Prevent integer overflow - validate Content-Length. */
-
-                              if (ParsedLength > HTTP_MAX_REQUEST_SIZE)
-                              {
-                                   if (Instance && Instance->Logs)
-                                   {
-                                        Instance->Logs->Critical("http", "Content-Length too large: " + LengthStr + " - REJECTING!.");
-                                   }
-
-                                   /* Reject request with 413 Payload Too Large. */
-
-                                   HttpResponse ErrorResp;
-
-                                   ErrorResp.StatusCode = 413;
-                                   ErrorResp.StatusText = "Payload Too Large";
-                                   ErrorResp.Body = "{\"error\":\"Content-Length too large\"}";
-
-                                   KeepAlive = false;
-                                   SendResponse(ErrorResp);
-
-                                   return;
-                              }
-
-                              /* Check for overflow in addition: body_start + body_length. */
-
-                              if (ParsedLength > SIZE_MAX - BodyStart)
-                              {
-                                   if (Instance && Instance->Logs)
-                                   {
-                                        Instance->Logs->Critical("http", "Content-Length overflow: " + LengthStr + " - REJECTING!.");
-                                   }
-
-                                   HttpResponse ErrorResp;
-
-                                   ErrorResp.StatusCode = 413;
-                                   ErrorResp.StatusText = "Payload Too Large";
-                                   ErrorResp.Body = "{\"error\":\"Content-Length overflow\"}";
-
-                                   KeepAlive = false;
-                                   SendResponse(ErrorResp);
-
-                                   return;
-                              }
-
-                              BodyLength = static_cast<size_t>(ParsedLength);
-                         }
-                         catch (...)
+                         if (ParsedEC != std::errc() || ParsedPtr != LengthStr.data() + LengthStr.size())
                          {
                               if (Instance && Instance->Logs)
                               {
@@ -1717,6 +1691,52 @@ void HttpConnection::ProcessMultipleRequests()
 
                               return;
                          }
+
+                         /* Prevent integer overflow - validate Content-Length. */
+
+                         if (ParsedLength > HTTP_MAX_REQUEST_SIZE)
+                         {
+                              if (Instance && Instance->Logs)
+                              {
+                                   Instance->Logs->Critical("http", "Content-Length too large: " + LengthStr + " - REJECTING!.");
+                              }
+
+                              /* Reject request with 413 Payload Too Large. */
+
+                              HttpResponse ErrorResp;
+
+                              ErrorResp.StatusCode = 413;
+                              ErrorResp.StatusText = "Payload Too Large";
+                              ErrorResp.Body = "{\"error\":\"Content-Length too large\"}";
+
+                              KeepAlive = false;
+                              SendResponse(ErrorResp);
+
+                              return;
+                         }
+
+                         /* Check for overflow in addition: body_start + body_length. */
+
+                         if (ParsedLength > SIZE_MAX - BodyStart)
+                         {
+                              if (Instance && Instance->Logs)
+                              {
+                                   Instance->Logs->Critical("http", "Content-Length overflow: " + LengthStr + " - REJECTING!.");
+                              }
+
+                              HttpResponse ErrorResp;
+
+                              ErrorResp.StatusCode = 413;
+                              ErrorResp.StatusText = "Payload Too Large";
+                              ErrorResp.Body = "{\"error\":\"Content-Length overflow\"}";
+
+                              KeepAlive = false;
+                              SendResponse(ErrorResp);
+
+                              return;
+                         }
+
+                         BodyLength = static_cast<size_t>(ParsedLength);
                     }
                }
           }
@@ -3322,7 +3342,7 @@ bool HttpConnection::ParseHttpRequest(const std::string &RawRequest, HttpRequest
 
      /* URL decode the path to handle encoded collection names and document IDs. */
 
-     Request.Path = UrlDecode(Request.Path);
+     Request.Path = UrlDecode(Request.Path, false);
 
      /* Parse headers. */
 
@@ -3364,7 +3384,17 @@ bool HttpConnection::ParseHttpRequest(const std::string &RawRequest, HttpRequest
                {
                     try
                     {
-                         ContentLength = std::stoull(HeaderVal.second);
+                         size_t Parsed = 0;
+                         ContentLength = std::stoull(HeaderVal.second, &Parsed);
+                         if (Parsed != HeaderVal.second.size())
+                         {
+                              if (Instance && Instance->Logs)
+                              {
+                                   Instance->Logs->Normal("http_server", "Invalid Content-Length trailing data: '" + HeaderVal.second + "'.");
+                              }
+
+                              return false;
+                         }
                     }
                     catch (const std::invalid_argument &E)
                     {
@@ -3373,7 +3403,7 @@ bool HttpConnection::ParseHttpRequest(const std::string &RawRequest, HttpRequest
                               Instance->Logs->Normal("http_server", "Invalid Content-Length argument: '" + HeaderVal.second + "'.");
                          }
 
-                         ContentLength = 0;
+                         return false;
                     }
                     catch (const std::out_of_range &E)
                     {
@@ -3382,7 +3412,7 @@ bool HttpConnection::ParseHttpRequest(const std::string &RawRequest, HttpRequest
                               Instance->Logs->Normal("http_server", "Content-Length out of range: '" + HeaderVal.second + "'.");
                          }
 
-                         ContentLength = 0;
+                         return false;
                     }
                     catch (...)
                     {
@@ -3391,7 +3421,7 @@ bool HttpConnection::ParseHttpRequest(const std::string &RawRequest, HttpRequest
                               Instance->Logs->Normal("http_server", "Unknown exception parsing Content-Length: '" + HeaderVal.second + "'.");
                          }
 
-                         ContentLength = 0;
+                         return false;
                     }
 
                     break;
@@ -3457,7 +3487,7 @@ bool HttpConnection::ParseHttpRequest(const std::string &RawRequest, HttpRequest
 
 /* UrlDecode decodes a URL-encoded string. */
 
-std::string UrlDecode(const std::string &Str)
+std::string UrlDecode(const std::string &Str, bool DecodePlusAsSpace)
 {
      std::string Result;
 
@@ -3471,12 +3501,10 @@ std::string UrlDecode(const std::string &Str)
           {
                /* Decode %XX hex sequence. */
 
-               int HexVal;
-
-               std::istringstream HexStream(Str.substr(I + 1, 2));
-
-               if (HexStream >> std::hex >> HexVal)
+               if (IsHexDigit(Str[I + 1]) && IsHexDigit(Str[I + 2]))
                {
+                    int HexVal = (HexDigitValue(Str[I + 1]) << 4) | HexDigitValue(Str[I + 2]);
+
                     /* Validate decoded character is safe (not null byte). */
 
                     if (HexVal == 0)
@@ -3502,7 +3530,7 @@ std::string UrlDecode(const std::string &Str)
                     Result += Str[I];
                }
           }
-          else if (Str[I] == '+')
+          else if (Str[I] == '+' && DecodePlusAsSpace)
           {
                Result += ' ';
           }
@@ -3546,7 +3574,11 @@ std::map<std::string, std::string> HttpConnection::ParseQueryParams(const std::s
 
                /* URL decode both key and value. */
 
-               Params[UrlDecode(Key)] = UrlDecode(Value);
+               Params[UrlDecode(Key, true)] = UrlDecode(Value, true);
+          }
+          else if (!Pair.empty())
+          {
+               Params[UrlDecode(Pair, true)] = "true";
           }
      }
 

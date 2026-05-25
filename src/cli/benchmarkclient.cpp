@@ -24,6 +24,7 @@
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <sstream>
+#include <stdexcept>
 #include <string>
 #include <sys/select.h>
 #include <sys/socket.h>
@@ -722,23 +723,53 @@ HTTPResponse BenchmarkClient::MakeRequest(const std::string &method, const std::
                     return response;
                }
 
-               buffer[bytes] = '\0';
-
-               response_str += buffer;
+               response_str.append(buffer, static_cast<size_t>(bytes));
 
                size_t header_end = response_str.find("\r\n\r\n");
 
                if (header_end != std::string::npos)
                {
-                    size_t cl_pos = response_str.find("Content-Length: ");
+                    std::string headers_part = response_str.substr(0, header_end);
+                    std::string headers_lower = headers_part;
+                    std::transform(headers_lower.begin(), headers_lower.end(), headers_lower.begin(),
+                                   [](unsigned char C)
+                                   {
+                                        return static_cast<char>(std::tolower(C));
+                                   });
+
+                    size_t cl_pos = headers_lower.find("content-length:");
 
                     if (cl_pos != std::string::npos)
                     {
-                         size_t cl_end = response_str.find("\r\n", cl_pos);
+                         size_t colon_pos = headers_part.find(':', cl_pos);
+                         size_t value_start = colon_pos == std::string::npos ? std::string::npos : headers_part.find_first_not_of(" \t", colon_pos + 1);
+                         size_t cl_end = headers_part.find("\r\n", cl_pos);
+                         if (cl_end == std::string::npos)
+                         {
+                              cl_end = headers_part.size();
+                         }
 
                          try
                          {
-                              int len = std::stoi(response_str.substr(cl_pos + 16, cl_end - cl_pos - 16));
+                              if (value_start == std::string::npos || value_start > cl_end)
+                              {
+                                   throw std::invalid_argument("missing Content-Length value");
+                              }
+
+                              std::string length_value = headers_part.substr(value_start, cl_end - value_start);
+                              size_t value_end = length_value.find_last_not_of(" \t");
+                              if (value_end != std::string::npos)
+                              {
+                                   length_value.erase(value_end + 1);
+                              }
+
+                              size_t parsed = 0;
+                              int len = std::stoi(length_value, &parsed);
+
+                              if (parsed != length_value.size() || len < 0)
+                              {
+                                   throw std::invalid_argument("invalid Content-Length value");
+                              }
 
                               if (response_str.length() >= header_end + 4 + len)
                               {

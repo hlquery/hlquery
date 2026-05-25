@@ -19,6 +19,7 @@
 #include <ctime>
 #include <fstream>
 #include <iomanip>
+#include <limits>
 #include <netinet/in.h>
 #include <random>
 #include <sstream>
@@ -459,9 +460,27 @@ std::string Tools::FormatStartupMessage(const std::vector<std::string> &LoadedMo
 
 std::chrono::seconds Tools::ParseDuration(const std::string &DurationStr)
 {
-     int TotalSeconds = 0;
+     int64_t TotalSeconds = 0;
 
-     int CurrentValue = 0;
+     int64_t CurrentValue = 0;
+
+     auto AddUnit = [&](int64_t Multiplier) -> bool
+     {
+          if (CurrentValue > std::numeric_limits<int64_t>::max() / Multiplier)
+          {
+               return false;
+          }
+
+          int64_t Addend = CurrentValue * Multiplier;
+          if (TotalSeconds > std::numeric_limits<int64_t>::max() - Addend)
+          {
+               return false;
+          }
+
+          TotalSeconds += Addend;
+          CurrentValue = 0;
+          return true;
+     };
 
      for (size_t i = 0; i < DurationStr.length(); ++i)
      {
@@ -469,6 +488,11 @@ std::chrono::seconds Tools::ParseDuration(const std::string &DurationStr)
 
           if (std::isdigit(static_cast<unsigned char>(c)))
           {
+               if (CurrentValue > (std::numeric_limits<int64_t>::max() - (c - '0')) / 10)
+               {
+                    return std::chrono::seconds(0);
+               }
+
                CurrentValue = CurrentValue * 10 + (c - '0');
           }
           else
@@ -478,26 +502,31 @@ std::chrono::seconds Tools::ParseDuration(const std::string &DurationStr)
                switch (c)
                {
                     case 'd':
-                         TotalSeconds += CurrentValue * 86400;
-                         CurrentValue = 0;
+                         if (!AddUnit(86400))
+                         {
+                              return std::chrono::seconds(0);
+                         }
                          break;
                     case 'h':
-                         TotalSeconds += CurrentValue * 3600;
-                         CurrentValue = 0;
+                         if (!AddUnit(3600))
+                         {
+                              return std::chrono::seconds(0);
+                         }
                          break;
                     case 'm':
-                         TotalSeconds += CurrentValue * 60;
-                         CurrentValue = 0;
+                         if (!AddUnit(60))
+                         {
+                              return std::chrono::seconds(0);
+                         }
                          break;
                     case 's':
-                         TotalSeconds += CurrentValue;
-                         CurrentValue = 0;
+                         if (!AddUnit(1))
+                         {
+                              return std::chrono::seconds(0);
+                         }
                          break;
                     default:
-                         /* Invalid character, ignore or reset. */
-
-                         CurrentValue = 0;
-                         break;
+                         return std::chrono::seconds(0);
                }
           }
      }
@@ -506,6 +535,11 @@ std::chrono::seconds Tools::ParseDuration(const std::string &DurationStr)
 
      if (CurrentValue > 0)
      {
+          if (TotalSeconds > std::numeric_limits<int64_t>::max() - CurrentValue)
+          {
+               return std::chrono::seconds(0);
+          }
+
           TotalSeconds += CurrentValue;
      }
 
