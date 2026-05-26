@@ -16,6 +16,7 @@
 #include "file/file_util.h"
 #include "file/filename.h"
 #include "file/random_access_file_reader.h"
+#include "logging/logging.h"
 #include "monitoring/file_read_sample.h"
 #include "monitoring/perf_context_imp.h"
 #include "rocksdb/advanced_options.h"
@@ -68,13 +69,14 @@ TableCache::TableCache(const ImmutableOptions& ioptions,
                        const FileOptions* file_options, Cache* const cache,
                        BlockCacheTracer* const block_cache_tracer,
                        const std::shared_ptr<IOTracer>& io_tracer,
-                       const std::string& db_session_id)
+                       const std::string& db_session_id, bool fast_sst_open)
     : ioptions_(ioptions),
       file_options_(*file_options),
       cache_(cache),
       immortal_tables_(false),
       should_pin_table_handles_(cache_.get()->GetCapacity() >=
                                 kInfiniteCapacity),
+      fast_sst_open_(fast_sst_open),
       block_cache_tracer_(block_cache_tracer),
       loader_mutex_(kLoadConcurency),
       io_tracer_(io_tracer),
@@ -95,7 +97,8 @@ Status TableCache::GetTableReader(
     HistogramImpl* file_read_hist, std::unique_ptr<TableReader>* table_reader,
     const MutableCFOptions& mutable_cf_options, bool skip_filters, int level,
     bool prefetch_index_and_filter_in_cache,
-    size_t max_file_size_for_l0_meta_pin, Temperature file_temperature) {
+    size_t max_file_size_for_l0_meta_pin, Temperature file_temperature,
+    std::string* file_open_metadata) {
   std::string fname = TableFileName(
       ioptions_.cf_paths, file_meta.fd.GetNumber(), file_meta.fd.GetPathId());
   std::unique_ptr<FSRandomAccessFile> file;
@@ -103,6 +106,17 @@ Status TableCache::GetTableReader(
   fopts.temperature = file_temperature;
   fopts.file_checksum = file_meta.file_checksum;
   fopts.file_checksum_func_name = file_meta.file_checksum_func_name;
+  // Pass file open metadata for fast SST open. Use a local copy since
+  // fopts.file_metadata is a non-owning pointer and file_meta is const.
+  // Only pass metadata when fast_sst_open is enabled; otherwise ignore
+  // previously persisted metadata (e.g. stale filesystem credentials).
+  std::string file_open_metadata_copy;
+  if (fast_sst_open_.load(std::memory_order_relaxed) &&
+      !file_meta.file_open_metadata.empty()) {
+    file_open_metadata_copy = file_meta.file_open_metadata;
+    fopts.file_metadata = &file_open_metadata_copy;
+    RecordTick(ioptions_.stats, FILE_OPEN_METADATA_PASSED);
+  }
   Status s = PrepareIOFromReadOptions(ro, ioptions_.clock, fopts.io_options);
   TEST_SYNC_POINT_CALLBACK("TableCache::GetTableReader:BeforeOpenFile",
                            const_cast<Status*>(&s));
@@ -127,6 +141,24 @@ Status TableCache::GetTableReader(
   }
 
   if (s.ok()) {
+    // Retrieve file open metadata before wrapping the file
+    if (file_open_metadata != nullptr) {
+      IOStatus io_s = file->GetFileOpenMetadata(file_open_metadata);
+      if (io_s.ok() && !file_open_metadata->empty() &&
+          file_open_metadata->size() <=
+              FSRandomAccessFile::kMaxFileOpenMetadataSize) {
+        RecordTick(ioptions_.stats, FILE_OPEN_METADATA_RETRIEVED);
+      } else {
+        if (io_s.ok() && file_open_metadata->size() >
+                             FSRandomAccessFile::kMaxFileOpenMetadataSize) {
+          ROCKS_LOG_WARN(ioptions_.logger,
+                         "File open metadata for %s too large (%zu bytes), "
+                         "ignoring",
+                         fname.c_str(), file_open_metadata->size());
+        }
+        file_open_metadata->clear();
+      }
+    }
     if (!sequential_mode && ioptions_.advise_random_on_open) {
       file->Hint(FSRandomAccessFile::kRandom);
     }
@@ -181,7 +213,7 @@ Status TableCache::FindTable(
     const bool no_io, HistogramImpl* file_read_hist, bool skip_filters,
     int level, bool prefetch_index_and_filter_in_cache,
     size_t max_file_size_for_l0_meta_pin, Temperature file_temperature,
-    bool pin_table_handle) {
+    bool pin_table_handle, std::string* file_open_metadata) {
   assert(out_table_reader != nullptr && *out_table_reader == nullptr);
   assert(handle != nullptr && *handle == nullptr);
   PERF_TIMER_GUARD_WITH_CLOCK(find_table_nanos, ioptions_.clock);
@@ -226,7 +258,8 @@ Status TableCache::FindTable(
                          false /* sequential mode */, file_read_hist,
                          &table_reader, mutable_cf_options, skip_filters, level,
                          prefetch_index_and_filter_in_cache,
-                         max_file_size_for_l0_meta_pin, file_temperature);
+                         max_file_size_for_l0_meta_pin, file_temperature,
+                         file_open_metadata);
       if (!s.ok()) {
         assert(table_reader == nullptr);
         RecordTick(ioptions_.stats, NO_FILE_ERRORS);
@@ -280,7 +313,7 @@ InternalIterator* TableCache::NewIterator(
     const InternalKey* largest_compaction_key, bool allow_unprepared_value,
     const SequenceNumber* read_seqno,
     std::unique_ptr<TruncatedRangeDelIterator>* range_del_iter,
-    bool maybe_pin_table_handle) {
+    bool maybe_pin_table_handle, std::string* file_open_metadata) {
   PERF_TIMER_GUARD(new_table_iterator_nanos);
 
   Status s;
@@ -292,13 +325,13 @@ InternalIterator* TableCache::NewIterator(
   bool for_compaction = caller == TableReaderCaller::kCompaction;
   TEST_SYNC_POINT_CALLBACK("TableCache::NewIterator::BeforeFindTable",
                            const_cast<FileDescriptor*>(&file_meta.fd));
-  s = FindTable(options, file_options, icomparator, file_meta, &handle,
-                mutable_cf_options, &table_reader,
-                options.read_tier == kBlockCacheTier /* no_io */,
-                file_read_hist, skip_filters, level,
-                true /* prefetch_index_and_filter_in_cache */,
-                max_file_size_for_l0_meta_pin, file_meta.temperature,
-                maybe_pin_table_handle && should_pin_table_handles_);
+  s = FindTable(
+      options, file_options, icomparator, file_meta, &handle,
+      mutable_cf_options, &table_reader,
+      options.read_tier == kBlockCacheTier /* no_io */, file_read_hist,
+      skip_filters, level, true /* prefetch_index_and_filter_in_cache */,
+      max_file_size_for_l0_meta_pin, file_meta.temperature,
+      maybe_pin_table_handle && should_pin_table_handles_, file_open_metadata);
   InternalIterator* result = nullptr;
   if (s.ok()) {
     if (options.table_filter &&
@@ -744,7 +777,10 @@ void TableCache::ReleaseObsolete(Cache* cache, uint64_t file_number,
   if (table_handle != nullptr) {
     TableReader* table_reader = typed_cache.Value(table_handle);
     table_reader->MarkObsolete(uncache_aggressiveness);
-    typed_cache.ReleaseAndEraseIfLastRef(table_handle);
+    // Mark the entry Invisible so that if concurrent readers hold references,
+    // the entry will be erased when the last reference is released.
+    cache->Erase(GetSliceForFileNumber(&file_number));
+    typed_cache.Release(table_handle);
   }
 }
 

@@ -333,6 +333,7 @@ Status PartitionedIndexBuilder::Finish(
         last_partition_block_handle.size() - last_encoded_handle_.size());
     last_encoded_handle_ = last_partition_block_handle;
     const Slice handle_delta_encoding_slice(handle_delta_encoding);
+    // NOTE: WriteBatch guarantees keys < 4GB; handle values are also small
     index_block_builder_.Add(last_entry.key, handle_encoding.AsSlice(),
                              &handle_delta_encoding_slice);
     if (!must_use_separator_with_seq_.LoadRelaxed()) {
@@ -346,9 +347,12 @@ Status PartitionedIndexBuilder::Finish(
   if (UNLIKELY(entries_.empty())) {
     if (must_use_separator_with_seq_.LoadRelaxed()) {
       index_blocks->index_block_contents = index_block_builder_.Finish();
+      num_uniform_index_blocks_ += index_block_builder_.IsUniform() ? 1 : 0;
     } else {
       index_blocks->index_block_contents =
           index_block_builder_without_seq_.Finish();
+      num_uniform_index_blocks_ +=
+          index_block_builder_without_seq_.IsUniform() ? 1 : 0;
     }
     top_level_index_size_ = index_blocks->index_block_contents.size();
     index_size_ += top_level_index_size_;
@@ -361,6 +365,7 @@ Status PartitionedIndexBuilder::Finish(
     entry.value->must_use_separator_with_seq_.StoreRelaxed(
         must_use_separator_with_seq_.LoadRelaxed());
     auto s = entry.value->Finish(index_blocks);
+    num_uniform_index_blocks_ += entry.value->NumUniformIndexBlocks();
     index_size_ += index_blocks->index_block_contents.size();
     finishing_indexes_ = true;
     return s.ok() ? Status::Incomplete() : s;

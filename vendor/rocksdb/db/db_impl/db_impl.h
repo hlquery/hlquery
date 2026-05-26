@@ -15,6 +15,8 @@
 #include <limits>
 #include <list>
 #include <map>
+#include <memory>
+#include <optional>
 #include <set>
 #include <string>
 #include <unordered_map>
@@ -259,6 +261,10 @@ class DBImpl : public DB {
   Status IngestWriteBatchWithIndex(
       const WriteOptions& options,
       std::shared_ptr<WriteBatchWithIndex> wbwi) override;
+
+  // Returns true if any live column family currently has blob direct write
+  // enabled.
+  bool HasAnyBlobDirectWriteColumnFamily();
 
   using DB::Get;
   Status Get(const ReadOptions& _read_options,
@@ -1092,6 +1098,7 @@ class DBImpl : public DB {
     superversions_to_free_queue_.push_back(sv);
   }
 
+  void EnableTrackPublishedSeqInSnapshotContext();
   void SetSnapshotChecker(SnapshotChecker* snapshot_checker);
 
   // Fill JobContext with snapshot information needed by flush and compaction.
@@ -1448,6 +1455,13 @@ class DBImpl : public DB {
   std::atomic<int> next_job_id_ = 1;
 
   std::atomic<bool> shutting_down_ = false;
+  // Protected by mutex_. This is separate from shutting_down_ because
+  // OnDBShutdownBegin must fire before shutting_down_ is published, and the
+  // notification releases mutex_ while invoking listeners. Marking that the
+  // notification has started prevents a concurrent or reentrant
+  // CancelAllBackgroundWork() call from firing it again during that unlocked
+  // callback window.
+  bool shutdown_notification_sent_ = false;
 
   // No new background jobs can be queued if true. This is used to prevent new
   // background jobs from being queued after WaitForCompact() completes waiting
@@ -1522,6 +1536,16 @@ class DBImpl : public DB {
                                    const Status& st,
                                    const CompactionJobStats& job_stats,
                                    int job_id);
+  // Fires the OnCompactionPreCommit listener callback. Mirrors
+  // NotifyOnCompactionCompleted but is invoked before ReleaseCompactionFiles()
+  // (i.e. while input files still have being_compacted == true). Idempotent:
+  // safe to call from multiple potential release sites; only fires once per
+  // compaction, and only if NotifyOnCompactionBegin previously fired.
+  void NotifyOnCompactionPreCommit(ColumnFamilyData* cfd, Compaction* c,
+                                   const Status& st,
+                                   const CompactionJobStats& job_stats,
+                                   int job_id);
+  void NotifyOnDBShutdownBegin();
   void NotifyOnMemTableSealed(ColumnFamilyData* cfd,
                               const MemTableInfo& mem_table_info);
 
@@ -1551,10 +1575,17 @@ class DBImpl : public DB {
   // @param memtable_updated Whether the same write that ingests wbwi has
   // updated memtable. This is useful for determining whether to set bg
   // error when IngestWBWIAsMemtable fails.
+  // @param ingest_wbwi_for_commit Whether wbwi ingestion is publishing the
+  // committed data of a prepared transaction. This means a failure can leave
+  // committed data durable in WAL but not published in memtables.
+  // @param ignore_missing_cf If true, skip column families not found in the DB
+  // instead of returning an error.
   Status IngestWBWIAsMemtable(std::shared_ptr<WriteBatchWithIndex> wbwi,
                               const WBWIMemTable::SeqnoRange& assigned_seqno,
                               uint64_t min_prep_log, SequenceNumber last_seqno,
-                              bool memtable_updated, bool ignore_missing_cf);
+                              bool memtable_updated,
+                              bool ingest_wbwi_for_commit,
+                              bool ignore_missing_cf);
 
   // If disable_memtable is set the application logic must guarantee that the
   // batch will still be skipped from memtable during the recovery. An excption
@@ -1577,21 +1608,131 @@ class DBImpl : public DB {
   // See more in comment above PreReleaseCallback::Callback().
   // post_memtable_callback is called after memtable write but before publishing
   // the sequence number to readers.
+  // `trace_batch_override`, when non-null, supplies the logical batch to trace
+  // instead of `updates`. Fast paths may rewrite or rebuild `updates` before
+  // apply, but tracing should still record the original user-visible batch.
+  // `skip_blob_direct_write_transform` indicates the caller has already
+  // performed any needed batch-level blob direct-write preprocessing.
+  // `deferred_put_entities`, when non-null, carries structured `PutEntity()`
+  // ops that should be materialized into `updates` after `PreprocessWrite()`
+  // has selected the target memtable/blob generation.
   //
   // The main write queue. This is the only write queue that updates
   // LastSequence. When using one write queue, the same sequence also indicates
   // the last published sequence.
-  Status WriteImpl(const WriteOptions& options, WriteBatch* updates,
-                   WriteCallback* callback = nullptr,
-                   UserWriteCallback* user_write_cb = nullptr,
-                   uint64_t* wal_used = nullptr, uint64_t log_ref = 0,
-                   bool disable_memtable = false, uint64_t* seq_used = nullptr,
-                   size_t batch_cnt = 0,
-                   PreReleaseCallback* pre_release_callback = nullptr,
-                   PostMemTableCallback* post_memtable_callback = nullptr,
-                   std::shared_ptr<WriteBatchWithIndex> wbwi = nullptr);
+  struct DeferredPutEntityBatch;
+  Status WriteImpl(
+      const WriteOptions& options, WriteBatch* updates,
+      WriteCallback* callback = nullptr,
+      UserWriteCallback* user_write_cb = nullptr, uint64_t* wal_used = nullptr,
+      uint64_t log_ref = 0, bool disable_memtable = false,
+      uint64_t* seq_used = nullptr, size_t batch_cnt = 0,
+      PreReleaseCallback* pre_release_callback = nullptr,
+      PostMemTableCallback* post_memtable_callback = nullptr,
+      std::shared_ptr<WriteBatchWithIndex> wbwi = nullptr,
+      WriteBatch* trace_batch_override = nullptr,
+      bool skip_blob_direct_write_transform = false,
+      const DeferredPutEntityBatch* deferred_put_entities = nullptr);
+
+  // Per-WriteImpl state that keeps BDW column families pinned through
+  // referenced SuperVersions until the transformed write either commits or
+  // rolls back.
+  struct BlobDirectWriteContext;
+  // High-level `PutEntity()` fast-path flow:
+  //
+  //   non-BDW target CF:
+  //     PutEntityFastPath()
+  //       -> AppendPreprocessedPutEntityToBatch()
+  //       -> WritePreprocessedPutEntityBatch()
+  //       -> WriteImpl(skip_blob_direct_write_transform = true)
+  //
+  //   BDW-enabled target CF:
+  //     PutEntityFastPath()
+  //       -> sort columns and stash DeferredPutEntityBatch::Op
+  //       -> WritePreprocessedPutEntityBatch()
+  //       -> WriteImpl(..., deferred_put_entities)
+  //       -> after PreprocessWrite() picks the memtable/blob generation:
+  //            AppendSortedPutEntityToBatch()
+  //
+  // The BDW branch defers final serialization until `WriteImpl()` knows the
+  // target memtable/blob generation, avoiding the old
+  // serialize -> deserialize -> serialize cycle on the write hot path.
+  // Staging buffer for the `PutEntity()` fast path when blob direct write may
+  // need to rewrite wide-column values. `PutEntityFastPath()` records the
+  // logical operations here instead of serializing them into a `WriteBatch`
+  // immediately, then passes this struct to `WriteImpl()`. Once
+  // `PreprocessWrite()` has selected the memtable/blob-file generation,
+  // `WriteImpl()` materializes each op directly into the final batch with blob
+  // direct-write preprocessing applied. This avoids the old
+  // serialize-deserialize-serialize cycle on the write hot path.
+  struct DeferredPutEntityBatch {
+    // The fast path sorts columns up front so `WriteImpl()` can append the
+    // final serialized entity without redoing that work.
+    struct Op {
+      // Target column family for the logical `PutEntity()` op.
+      uint32_t column_family_id = 0;
+      // Owned key bytes kept alive until `WriteImpl()` rebuilds the batch.
+      std::string key;
+      // Pre-sorted columns ready for final serialization and blob
+      // direct-write preprocessing.
+      WideColumns sorted_columns;
+    };
+
+    // Logical `PutEntity()` ops collected by the fast path and replayed into
+    // the final `WriteBatch` inside `WriteImpl()`.
+    std::vector<Op> ops;
+  };
+  // Rewrites a write batch for blob direct write when the current DB and batch
+  // shape are compatible, recording touched managers and rollback metadata in
+  // `blob_direct_write_ctx`.
+  Status MaybeTransformBatchForBlobDirectWrite(
+      const WriteOptions& write_options, WriteBatch** batch,
+      bool should_write_to_memtable, bool lookup_from_write_thread,
+      WriteBatch* transformed_storage,
+      BlobDirectWriteContext* blob_direct_write_ctx);
+  // Sorts and preprocesses one `PutEntity()` op, then appends the final
+  // serialized form to `batch`.
+  Status AppendPreprocessedPutEntityToBatch(
+      const WriteOptions& write_options, WriteBatch* batch,
+      ColumnFamilyHandle* column_family, const Slice& key,
+      const WideColumns& columns,
+      BlobDirectWriteContext* blob_direct_write_ctx);
+  // Appends a `PutEntity()` op whose columns are already sorted, allowing the
+  // fast path to avoid re-sorting before final serialization.
+  Status AppendSortedPutEntityToBatch(
+      const WriteOptions& write_options, WriteBatch* batch,
+      uint32_t column_family_id, const Slice& key,
+      const WideColumns& sorted_columns,
+      BlobDirectWriteContext* blob_direct_write_ctx);
+  // Specialized `PutEntity()` write path for a single column family. This
+  // avoids building an intermediate serialized entity when blob direct write
+  // needs to rewrite the final batch inside `WriteImpl()`.
+  Status PutEntityFastPath(const WriteOptions& write_options,
+                           ColumnFamilyHandle* column_family, const Slice& key,
+                           const WideColumns& columns);
+  // Specialized `PutEntity(AttributeGroups)` path that defers final batch
+  // materialization until `WriteImpl()` when any target CF may use blob direct
+  // write.
+  Status PutEntityFastPath(const WriteOptions& write_options, const Slice& key,
+                           const AttributeGroups& attribute_groups);
+  // Writes a batch prepared by the `PutEntity()` fast path. When
+  // `deferred_put_entities` is present, `WriteImpl()` rebuilds `batch`
+  // internally after `PreprocessWrite()` and disables normal write batching to
+  // keep the staging state local to this write. `trace_batch` stays separate
+  // so tracing can still emit the logical `PutEntity()` batch even when the
+  // applied batch is materialized later inside `WriteImpl()`.
+  Status WritePreprocessedPutEntityBatch(
+      const WriteOptions& write_options, WriteBatch* batch,
+      WriteBatch* trace_batch,
+      const DeferredPutEntityBatch* deferred_put_entities = nullptr);
+  // Flushes or syncs all blob direct-write managers touched by the current
+  // transformed write before the write can proceed.
+  Status SyncBlobDirectWriteManagers(
+      const WriteOptions& write_options,
+      const BlobDirectWriteContext& blob_direct_write_ctx);
 
   Status PipelinedWriteImpl(const WriteOptions& options, WriteBatch* updates,
+                            WriteBatch* trace_batch,
                             WriteCallback* callback = nullptr,
                             UserWriteCallback* user_write_cb = nullptr,
                             uint64_t* wal_used = nullptr, uint64_t log_ref = 0,
@@ -1620,7 +1761,7 @@ class DBImpl : public DB {
   // marks start of a new sub-batch.
   Status WriteImplWALOnly(
       WriteThread* write_thread, const WriteOptions& options,
-      WriteBatch* updates, WriteCallback* callback,
+      WriteBatch* updates, WriteBatch* trace_batch, WriteCallback* callback,
       UserWriteCallback* user_write_cb, uint64_t* wal_used,
       const uint64_t log_ref, uint64_t* seq_used, const size_t sub_batch_cnt,
       PreReleaseCallback* pre_release_callback, const AssignOrder assign_order,
@@ -1700,6 +1841,9 @@ class DBImpl : public DB {
   Status FailIfCfHasTs(const ColumnFamilyHandle* column_family) const;
   Status FailIfTsMismatchCf(ColumnFamilyHandle* column_family,
                             const Slice& ts) const;
+  Status FailIfTableFilterWithRangeConversion(
+      const ReadOptions& read_options,
+      const MutableCFOptions& mutable_cf_options) const;
 
   // Check that the read timestamp `ts` is at or above the `full_history_ts_low`
   // timestamp in a `SuperVersion`. It's necessary to do this check after
@@ -1730,6 +1874,11 @@ class DBImpl : public DB {
   // Background work function for async file opening.
   static void BGWorkAsyncFileOpen(void* arg);
 
+  // Block the until any in-flight async file open work has
+  // completed. No-op when open_files_async is false. Returns early if
+  // shutdown begins.
+  void WaitForAsyncFileOpen();
+
   void InvokeWalFilterIfNeededOnColumnFamilyToWalNumberMap();
 
   // Return true to proceed with current WAL record whose content is stored in
@@ -1745,6 +1894,7 @@ class DBImpl : public DB {
 
  private:
   friend class DB;
+  friend class DBImplReadOnly;
   friend class DBImplSecondary;
   friend class ErrorHandler;
   friend class InternalStats;
@@ -1777,6 +1927,21 @@ class DBImpl : public DB {
   friend class CompactionServiceTest_PreservedOptionsLocalCompaction_Test;
   friend class CompactionServiceTest_PreservedOptionsRemoteCompaction_Test;
 #endif
+
+  // Same as HasAnyBlobDirectWriteColumnFamily(), but requires `mutex_` held.
+  bool HasAnyBlobDirectWriteColumnFamilyWithLockHeld();
+  // Returns true if any BDW column family still owns blob files that have not
+  // yet been made visible through MANIFEST. Requires `mutex_` held.
+  bool HasInFlightBlobDirectWriteFilesWithLockHeld();
+  // Creates and attaches the per-CF blob direct-write partition manager when
+  // the column family is opened with the feature enabled.
+  void MaybeInitBlobDirectWriteColumnFamily(
+      ColumnFamilyData* cfd, const ColumnFamilyOptions& cf_options,
+      const std::string& column_family_name);
+  // Increments the DB-level count of live blob direct-write column families.
+  void RegisterBlobDirectWriteColumnFamily();
+  // Decrements the DB-level count of live blob direct-write column families.
+  void UnregisterBlobDirectWriteColumnFamily();
 
   struct CompactionState;
   struct PrepickedCompaction;
@@ -2053,6 +2218,10 @@ class DBImpl : public DB {
   void DeleteObsoleteFileImpl(int job_id, const std::string& fname,
                               const std::string& path_to_sync, FileType type,
                               uint64_t number);
+  // Returns true when a blob file must be preserved because it is still
+  // tracked by blob direct write or is still footer-less on disk.
+  bool ShouldKeepBlobFileDuringPurge(uint64_t number,
+                                     const std::string& blob_file_path);
 
   // Background process needs to call
   //     auto x = CaptureCurrentFileNumberInPendingOutputs()
@@ -2424,10 +2593,15 @@ class DBImpl : public DB {
   // Helper function to perform trivial move by updating manifest metadata
   // without rewriting data files. This is called when IsTrivialMove() is true.
   // REQUIRES: mutex held
-  // Returns: Status of the trivial move operation
-  Status PerformTrivialMove(Compaction& c, LogBuffer* log_buffer,
-                            bool& compaction_released, size_t& moved_files,
-                            size_t& moved_bytes);
+  // Populates the Compaction's edit with DeleteFile/AddFile entries for
+  // a trivial move (no data rewriting). Does not commit the edit.
+  void PrepareTrivialMoveEdit(Compaction& c, LogBuffer* log_buffer,
+                              size_t& moved_files, size_t& moved_bytes);
+
+  // REQUIRES: mutex held, PrepareTrivialMoveEdit already called
+  // Commits the trivial move by calling LogAndApply on the prepared edit.
+  // Returns: Status of the manifest write
+  Status CommitTrivialMove(Compaction& c, bool& compaction_released);
 
   // REQUIRES: mutex unlocked
   void TrackOrUntrackFiles(const std::vector<std::string>& existing_data_files,
@@ -2600,6 +2774,8 @@ class DBImpl : public DB {
 
   Status MaybeReleaseTimestampedSnapshotsAndCheck();
 
+  Status MaybeWriteWalMarkersToManifestOnClose();
+
   Status CloseHelper();
 
   void WaitForBackgroundWork();
@@ -2658,7 +2834,68 @@ class DBImpl : public DB {
   size_t GetWalPreallocateBlockSize(uint64_t write_buffer_size) const;
   Env::WriteLifeTimeHint CalculateWALWriteHint() { return Env::WLTH_SHORT; }
 
-  IOStatus CreateWAL(const WriteOptions& write_options, uint64_t log_file_num,
+  // Returns true when async WAL precreation is enabled and compatible with the
+  // active WAL strategy. WAL recycling already avoids file creation latency, so
+  // precreation is disabled when recycle_log_file_num is non-zero.
+  bool AsyncWALPrecreateEnabled() const;
+
+  // A WAL file that has a reserved file number and may have an opened writer,
+  // but has not been added to DBImpl's in-memory logical WAL tracking lists
+  // (logs_ and alive_wal_files_).
+  struct UnpublishedWAL {
+    uint64_t log_number = 0;
+    std::unique_ptr<log::Writer> writer;
+
+    UnpublishedWAL() = default;
+    UnpublishedWAL(const UnpublishedWAL&) = delete;
+    UnpublishedWAL& operator=(const UnpublishedWAL&) = delete;
+
+    UnpublishedWAL(UnpublishedWAL&& other) noexcept {
+      *this = std::move(other);
+    }
+    UnpublishedWAL& operator=(UnpublishedWAL&& other) noexcept {
+      if (this != &other) {
+        log_number = other.log_number;
+        writer = std::move(other.writer);
+        other.Reset();
+      }
+      return *this;
+    }
+
+    void Reset() {
+      log_number = 0;
+      writer.reset();
+    }
+  };
+
+  // Reserves the next WAL file number and schedules a HIGH-priority background
+  // task to precreate that WAL file. A precreated WAL is not a logical WAL
+  // until a foreground WAL rotation consumes it.
+  void MaybeScheduleAsyncWALPrecreate(size_t preallocate_block_size);
+
+  // Background task for opening the reserved future WAL and publishing the
+  // result under mutex_.
+  static void BGWorkAsyncWALPrecreate(void* arg);
+
+  // Waits for an in-flight async WAL precreation and returns a prepared WAL if
+  // one is available. If precreation failed, returns an empty WAL and lets the
+  // foreground rotation create the WAL synchronously. Caller must hold mutex_.
+  UnpublishedWAL WaitForAsyncWALPrecreate();
+
+  // Opens and preallocates a WAL writer without writing logical WAL records.
+  // Used by async WAL precreation and by synchronous WAL creation.
+  IOStatus CreateWALWriter(const DBOptions& db_options, uint64_t log_file_num,
+                           uint64_t recycle_log_number,
+                           size_t preallocate_block_size,
+                           UnpublishedWAL* new_wal);
+
+  // Starts an opened WAL file by writing the initial records required before it
+  // can be installed as the current WAL for foreground writes.
+  IOStatus StartWALFile(const WriteOptions& write_options,
+                        const PredecessorWALInfo& predecessor_wal_info,
+                        log::Writer* new_log);
+  IOStatus CreateWAL(const DBOptions& db_options,
+                     const WriteOptions& write_options, uint64_t log_file_num,
                      uint64_t recycle_log_number, size_t preallocate_block_size,
                      const PredecessorWALInfo& predecessor_wal_info,
                      log::Writer** new_log);
@@ -2777,6 +3014,53 @@ class DBImpl : public DB {
                                       std::string ts_low);
 
   bool ShouldReferenceSuperVersion(const MergeContext& merge_context);
+  // Resolves a plain value whose current payload is an encoded direct-write
+  // blob index, either through `value` directly or through the default-column
+  // view layered on `columns`.
+  static Status ResolveDirectWritePlainValue(const ReadOptions& read_options,
+                                             const Slice& key,
+                                             const Version* current,
+                                             ColumnFamilyData* cfd,
+                                             PinnableSlice* value,
+                                             PinnableWideColumns* columns);
+  // Resolves each unresolved direct-write blob-valued column in `columns` and
+  // rebuilds the serialized wide-column entity in place.
+  static Status ResolveDirectWriteWideColumns(const ReadOptions& read_options,
+                                              const Slice& key,
+                                              const Version* current,
+                                              ColumnFamilyData* cfd,
+                                              PinnableWideColumns* columns);
+  // Dispatches between plain-value and wide-column direct-write resolution for
+  // read results observed before flush makes the corresponding blob file
+  // visible through normal Version metadata.
+  static bool MaybeResolveDirectWriteValue(
+      const ReadOptions& read_options, const Slice& key,
+      bool resolve_direct_write_value, const Version* current,
+      ColumnFamilyData* cfd, PinnableSlice* value, PinnableWideColumns* columns,
+      Status* s, bool* is_blob_index, bool* value_found = nullptr);
+  // Resolves memtable read results that still carry blob references through
+  // either a raw blob-index payload in `value` or unresolved blob columns in
+  // `columns`. Unlike the direct-write helper above, this path only depends on
+  // a BlobFetcher and therefore works for read-only/secondary DBs.
+  static bool MaybeResolveMemtableBlobValue(const Slice& key,
+                                            const BlobFetcher* blob_fetcher,
+                                            PinnableSlice* value,
+                                            PinnableWideColumns* columns,
+                                            Status* s, bool* is_blob_index,
+                                            bool* value_found = nullptr);
+  // Completes read-only/secondary memtable Get()/GetEntity() hits by resolving
+  // blob-backed payloads when `resolve_blob_backed_memtable_value` is true,
+  // pinning plain values on success, and clearing outputs on error. When the
+  // caller explicitly requested raw blob indices via
+  // `GetImplOptions::is_blob_index`, this helper leaves that payload
+  // untouched. `memtable_blob_fetcher` may be null when blob support is
+  // disabled for the column family.
+  static void PostprocessMemtableValueRead(
+      const Slice& key, const std::string* timestamp,
+      bool resolve_blob_backed_memtable_value,
+      const BlobFetcher* memtable_blob_fetcher, PinnableSlice* value,
+      PinnableWideColumns* columns, Status* s, bool* is_blob_index,
+      bool* value_found = nullptr);
 
   template <typename IterType, typename ImplType,
             typename ErrorIteratorFuncType>
@@ -3107,6 +3391,28 @@ class DBImpl : public DB {
   AsyncFileOpenState bg_async_file_open_state_ =
       AsyncFileOpenState::kNotScheduled;
 
+  // State machine for the single async WAL precreation slot protected by
+  // mutex_. Background precreation failure returns to kNotScheduled; foreground
+  // rotation handles it the same as no prepared WAL and creates one
+  // synchronously. kScheduled owns a reserved file number; kReady owns an
+  // opened writer that has not been started or added to logical WAL tracking.
+  enum class AsyncWALPrecreateState : uint8_t {
+    kNotScheduled = 0,  // No WAL precreate work is in-flight or ready.
+    kScheduled,         // Background task owns creation of the reserved WAL.
+    kReady,             // Reserved WAL writer is open but not logically live.
+  };
+
+  // Protected by mutex_. Tracks at most one background precreated WAL. A
+  // precreated WAL is only reserved empty storage until SwitchMemtable()
+  // consumes it and installs it in DBImpl's in-memory logical WAL tracking
+  // lists (logs_ and alive_wal_files_).
+  AsyncWALPrecreateState async_wal_precreate_state_ =
+      AsyncWALPrecreateState::kNotScheduled;
+
+  // Reserved in-flight/ready precreated WAL. The writer is populated only while
+  // state is kReady.
+  UnpublishedWAL async_wal_precreate_wal_;
+
   std::deque<ManualCompactionState*> manual_compaction_dequeue_;
 
   // shall we disable deletion of obsolete files
@@ -3137,6 +3443,11 @@ class DBImpl : public DB {
   // data that is not yet persisted into either WAL or SST file.
   // Used when disableWAL is true.
   std::atomic<bool> has_unpersisted_data_{false};
+
+  // Number of live column families with an active blob direct write partition
+  // manager. This keeps the read/write fast paths at O(1) when the feature is
+  // completely disabled for the DB.
+  std::atomic<uint32_t> blob_direct_write_cf_count_{0};
 
   // if an attempt was made to flush all column families that
   // the oldest log depends on but uncommitted data in the oldest
@@ -3176,6 +3487,13 @@ class DBImpl : public DB {
   // Callback for compaction to check if a key is visible to a snapshot.
   // REQUIRES: mutex held
   std::unique_ptr<SnapshotChecker> snapshot_checker_;
+  // When set, InitSnapshotContext() appends GetLastPublishedSequence() to the
+  // job's snapshot_seqs (if not already present) so that flush/compaction
+  // preserves the published-sequence boundary even when no explicit user
+  // snapshot exists there. Unlike taking a real ManagedSnapshot, this just
+  // pins the seqno into the snapshot list: no allocation, no snapshot list
+  // mutation, and no SnapshotChecker.
+  bool track_published_seq_in_snapshot_context_ = false;
 
   // Callback for when the cached_recoverable_state_ is written to memtable
   // Only to be set during initialization
@@ -3362,6 +3680,18 @@ inline Status DBImpl::FailIfTsMismatchCf(ColumnFamilyHandle* column_family,
     oss << "Timestamp sizes mismatch: expect " << ucmp->timestamp_size() << ", "
         << ts_sz << " given";
     return Status::InvalidArgument(oss.str());
+  }
+  return Status::OK();
+}
+
+inline Status DBImpl::FailIfTableFilterWithRangeConversion(
+    const ReadOptions& read_options,
+    const MutableCFOptions& mutable_cf_options) const {
+  if (read_options.table_filter &&
+      mutable_cf_options.min_tombstones_for_range_conversion > 0) {
+    return Status::InvalidArgument(
+        "ReadOptions::table_filter is not supported when "
+        "min_tombstones_for_range_conversion > 0");
   }
   return Status::OK();
 }

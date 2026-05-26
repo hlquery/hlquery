@@ -41,7 +41,7 @@ void BlockBasedTableIterator::SeekImpl(const Slice* target,
     return;
   }
 
-  // MultiScan requires an explicit seek key — SeekToFirst() is not supported
+  // MultiScan requires an explicit seek key -- SeekToFirst() is not supported
   if (multi_scan_read_set_ && !target) {
     multi_scan_status_ = Status::InvalidArgument("No seek key for MultiScan");
     RecordTick(table_->GetStatistics(), MULTISCAN_SEEK_ERRORS);
@@ -683,7 +683,7 @@ void BlockBasedTableIterator::FindBlockForward() {
         if (multi_scan_index_iter_ &&
             multi_scan_index_iter_->IsScanRangeExhausted()) {
           if (multi_scan_index_iter_->HasMoreScanRanges()) {
-            // More ranges remain — signal out-of-bound so DBIter/LevelIter
+            // More ranges remain -- signal out-of-bound so DBIter/LevelIter
             // will trigger the next Seek for the next scan range.
             is_out_of_bound_ = true;
           }
@@ -870,6 +870,14 @@ void BlockBasedTableIterator::BlockCacheLookupForReadAheadSize(
   // readahead_cache_lookup_ can be set false, if after Seek and Next
   // there is SeekForPrev or any other backward operation.
   if (!readahead_cache_lookup_) {
+    return;
+  }
+
+  // Readahead lookup may advance index_iter_ to the end of the file while the
+  // current block is still being consumed. In that case there is no next block
+  // boundary to inspect, so skip further tuning instead of dereferencing an
+  // exhausted index iterator.
+  if (!index_iter_->Valid()) {
     return;
   }
 

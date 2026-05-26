@@ -10,6 +10,7 @@
 
 #include <memory>
 
+#include "rocksdb/blob_file_partition_strategy.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/compression_type.h"
 #include "rocksdb/memtablerep.h"
@@ -945,7 +946,7 @@ struct AdvancedColumnFamilyOptions {
   // (estimated_reads / file_size) exceeds this threshold. This helps reduce
   // read amplification for hot keys by compacting frequently-read files.
   //
-  // Only "collapsible" reads are counted — lookups that return NotFound
+  // Only "collapsible" reads are counted -- lookups that return NotFound
   // (bloom filter false positive), Delete/SingleDeletion (tombstone), or
   // Merge (partial result). These are reads where the file contributed no
   // final value and compaction would eliminate the wasted work.
@@ -971,15 +972,15 @@ struct AdvancedColumnFamilyOptions {
   //     r * S * B = 2 * (1 + F) * S
   //     r = 2 * (1 + F) / B
   //
-  //   With F = 10, B = 4096:  r = 22 / 4096 ≈ 0.005.
+  //   With F = 10, B = 4096:  r = 22 / 4096 ~= 0.005.
   //
-  // With a block-cache hit rate h (0 ≤ h < 1), each collapsible read
+  // With a block-cache hit rate h (0 <= h < 1), each collapsible read
   // only costs (1 - h) * B bytes of actual disk IO, so:
   //     r = 2 * (1 + F) / ((1 - h) * B)
   //
-  //   h = 0   → r ≈ 0.005
-  //   h = 0.5 → r ≈ 0.01
-  //   h = 0.9 → r ≈ 0.05
+  //   h = 0   -> r ~= 0.005
+  //   h = 0.5 -> r ~= 0.01
+  //   h = 0.9 -> r ~= 0.05
   //
   // A recommended starting point is 0.01, which avoids triggering
   // compactions that cost more IO than they save for most cache-friendly
@@ -1110,6 +1111,16 @@ struct AdvancedColumnFamilyOptions {
   // Dynamically changeable through the SetOptions() API
   CompressionType blob_compression_type = kNoCompression;
 
+  // The compression options for blob files. This allows fine-tuning of
+  // compression parameters (e.g. level, window_bits) independently of SST file
+  // compression. For example, setting level=1 with ZSTD uses the "fast"
+  // strategy (single hash table) vs the default level=3 "doubleFast" strategy.
+  //
+  // Default: default CompressionOptions (level = kDefaultCompressionLevel)
+  //
+  // Dynamically changeable through the SetOptions() API
+  CompressionOptions blob_compression_opts;
+
   // Enables garbage collection of blobs. Blob GC is performed as part of
   // compaction. Valid blobs residing in blob files older than a cutoff get
   // relocated to new files as they are encountered during compaction, which
@@ -1187,6 +1198,63 @@ struct AdvancedColumnFamilyOptions {
   //
   // Dynamically changeable through the SetOptions() API
   PrepopulateBlobCache prepopulate_blob_cache = PrepopulateBlobCache::kDisable;
+
+  // When enabled, values >= min_blob_size are written directly to blob files
+  // during the write path and replaced in WAL and memtable with BlobIndex
+  // references.
+  //
+  // Requires enable_blob_files = true.
+  // Experimental reduced-scope v1 restrictions. These limitations keep the v1
+  // implementation intentionally small; follow-up PRs are expected to improve
+  // feature compatibility over time:
+  //  - only supports the ordered single-memtable-writer path; unordered,
+  //    pipelined, two_write_queues, and allow_concurrent_memtable_write are
+  //    not supported.
+  //  - crash recovery only supports blob files that were already made
+  //    manifest-visible by flush/SST creation; WAL replay of active
+  //    direct-write blob files is not currently supported.
+  //  - checkpoint/backup/live-files enumeration must flush pending
+  //    direct-write state first; APIs that intentionally skip the flush, or
+  //    run while WAL is locked, can return NotSupported.
+  //  - not compatible with MemPurge or user-defined timestamps.
+  //  - DB::IngestWriteBatchWithIndex() is not supported while any live column
+  //    family enables this option.
+  //  - read-only and secondary opens can read flushed/manifest-visible blob
+  //    files, but do not resolve still-active direct-write blob files.
+  //
+  // Default: false
+  //
+  // Not dynamically changeable through the SetOptions() API.
+  bool enable_blob_direct_write = false;
+
+  // Number of direct-write blob partitions for this column family.
+  // Requires enable_blob_direct_write = true.
+  //
+  // If blob_direct_write_partition_strategy is null, partition selection uses
+  // the default round-robin strategy.
+  //
+  // Default: 1
+  //
+  // Not dynamically changeable through the SetOptions() API.
+  uint32_t blob_direct_write_partitions = 1;
+
+  // Custom partition strategy for blob direct writes.
+  // If null, uses the default round-robin strategy.
+  // Put()/Merge-style value separation uses SelectPartition(..., Slice value),
+  // while PutEntity() wide-column separation calls
+  // SelectPartition(..., WideColumns columns) once per entity and reuses the
+  // selected partition for all blob-backed columns in that entity.
+  // Requires enable_blob_direct_write = true.
+  //
+  // RocksDB treats this as an application-supplied callback rather than a
+  // serialized OPTIONS object. Applications must provide it again on every DB
+  // open when they rely on custom partitioning behavior.
+  //
+  // Default: nullptr
+  //
+  // Not dynamically changeable through the SetOptions() API.
+  std::shared_ptr<BlobFilePartitionStrategy>
+      blob_direct_write_partition_strategy = nullptr;
 
   // Enable memtable per key-value checksum protection.
   //
@@ -1332,6 +1400,46 @@ struct AdvancedColumnFamilyOptions {
   // Default: 0 (disabled)
   // Dynamically changeable through the SetOptions() API.
   uint32_t memtable_avg_op_scan_flush_trigger = 0;
+
+  // EXPERIMENTAL
+  //
+  // During forward or reverse iteration, when this many or more strictly
+  // contiguous point tombstones (kTypeDeletion, kTypeDeletionWithTimestamp,
+  // kTypeSingleDeletion) are encountered with no live keys between them,
+  // a range tombstone [first_tombstone_key, next_live_key) is inserted into
+  // the current mutable memtable (only if memtable is not empty). This is a
+  // logically redundant entry that does not change any data, but optimizes
+  // future iterators by potentially skipping a large number of tombstone scans.
+  //
+  // This optimization is best-effort and is currently disabled for iterator
+  // configurations that may not expose all interior live keys, including:
+  // * user-defined timestamp reads without full visibility (for example,
+  //   ReadOptions::iter_start_ts or a non-max ReadOptions::timestamp)
+  // * prefix extractor reads that are neither total-order
+  //   (ReadOptions::total_order_seek / ReadOptions::auto_prefix_mode) nor
+  //   bounded by ReadOptions::prefix_same_as_start
+  //
+  // Even if the above restrictions are met, there are still scenarios where a
+  // converted range tombstone may be discarded:
+  //   * The snapshot's active mutable memtable has already become immutable.
+  //   * The iterator's snapshot seq is below the active memtable's earliest
+  //     sequence number.
+  //   * A range tombstone covering [first_tombstone_key, next_live_key) is
+  //     already present in the memtable.
+  //   * A WritePrepared/WriteUnprepared transaction read callback is in use
+  //     and the snapshot seq is at or above its min uncommitted seq.
+  //   * An IngestExternalFile call is currently in flight on this column
+  //     family OR the inserted range tombstone seqno would be lower than the
+  //     ingested file seqno.
+  //
+  // Read-write iterators using ReadOptions::table_filter are rejected while
+  // this option is enabled, see more details in ReadOptions::table_filter
+  // comments.
+  //
+  // Set to 0 to disable.
+  //
+  // Dynamically changeable through SetOptions() API
+  uint32_t min_tombstones_for_range_conversion = 0;
 
   // If either DBOptions::allow_ingest_behind or this option is set to true,
   // this column family will prepare for ingesting files to the last level

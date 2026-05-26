@@ -205,6 +205,8 @@ extern ROCKSDB_LIBRARY_API rocksdb_t* rocksdb_open(
 extern ROCKSDB_LIBRARY_API rocksdb_t* rocksdb_open_with_ttl(
     const rocksdb_options_t* options, const char* name, int ttl, char** errptr);
 
+/* If error_if_wal_file_exists is non-zero, returns an error when a non-empty
+ * WAL file exists. Empty WAL files are tolerated. */
 extern ROCKSDB_LIBRARY_API rocksdb_t* rocksdb_open_for_read_only(
     const rocksdb_options_t* options, const char* name,
     unsigned char error_if_wal_file_exists, char** errptr);
@@ -450,6 +452,8 @@ extern ROCKSDB_LIBRARY_API rocksdb_t* rocksdb_open_column_families_with_ttl(
     rocksdb_column_family_handle_t** column_family_handles, const int* ttls,
     char** errptr);
 
+/* If error_if_wal_file_exists is non-zero, returns an error when a non-empty
+ * WAL file exists. Empty WAL files are tolerated. */
 extern ROCKSDB_LIBRARY_API rocksdb_t*
 rocksdb_open_for_read_only_column_families(
     const rocksdb_options_t* options, const char* name, int num_column_families,
@@ -1656,6 +1660,12 @@ rocksdb_options_set_memtable_avg_op_scan_flush_trigger(rocksdb_options_t*,
 extern ROCKSDB_LIBRARY_API uint32_t
 rocksdb_options_get_memtable_avg_op_scan_flush_trigger(rocksdb_options_t*);
 
+extern ROCKSDB_LIBRARY_API void
+rocksdb_options_set_min_tombstones_for_range_conversion(rocksdb_options_t*,
+                                                        uint32_t);
+extern ROCKSDB_LIBRARY_API uint32_t
+rocksdb_options_get_min_tombstones_for_range_conversion(rocksdb_options_t*);
+
 enum {
   rocksdb_statistics_level_disable_all = 0,
   rocksdb_statistics_level_except_tickers =
@@ -1812,6 +1822,11 @@ extern ROCKSDB_LIBRARY_API void rocksdb_options_set_recycle_log_file_num(
     rocksdb_options_t*, size_t);
 extern ROCKSDB_LIBRARY_API size_t
 rocksdb_options_get_recycle_log_file_num(rocksdb_options_t*);
+// Set/get DBOptions::async_wal_precreate.
+extern ROCKSDB_LIBRARY_API void rocksdb_options_set_async_wal_precreate(
+    rocksdb_options_t*, unsigned char);
+extern ROCKSDB_LIBRARY_API unsigned char
+rocksdb_options_get_async_wal_precreate(rocksdb_options_t*);
 extern ROCKSDB_LIBRARY_API void
 rocksdb_options_set_soft_pending_compaction_bytes_limit(rocksdb_options_t* opt,
                                                         size_t v);
@@ -2380,6 +2395,11 @@ extern ROCKSDB_LIBRARY_API void rocksdb_readoptions_set_async_io(
     rocksdb_readoptions_t*, unsigned char);
 extern ROCKSDB_LIBRARY_API unsigned char rocksdb_readoptions_get_async_io(
     rocksdb_readoptions_t*);
+extern ROCKSDB_LIBRARY_API void
+rocksdb_readoptions_set_optimize_multiget_for_io(rocksdb_readoptions_t*,
+                                                 unsigned char);
+extern ROCKSDB_LIBRARY_API unsigned char
+rocksdb_readoptions_get_optimize_multiget_for_io(rocksdb_readoptions_t*);
 extern ROCKSDB_LIBRARY_API void rocksdb_readoptions_set_timestamp(
     rocksdb_readoptions_t*, const char* ts, size_t tslen);
 extern ROCKSDB_LIBRARY_API void rocksdb_readoptions_set_iter_start_ts(
@@ -3302,6 +3322,9 @@ extern ROCKSDB_LIBRARY_API void rocksdb_transaction_delete(
 extern ROCKSDB_LIBRARY_API void rocksdb_transaction_delete_cf(
     rocksdb_transaction_t* txn, rocksdb_column_family_handle_t* column_family,
     const char* key, size_t klen, char** errptr);
+
+extern ROCKSDB_LIBRARY_API void rocksdb_transaction_put_log_data(
+    rocksdb_transaction_t* txn, const char* blob, size_t len);
 
 extern ROCKSDB_LIBRARY_API void rocksdb_transactiondb_delete(
     rocksdb_transactiondb_t* txn_db, const rocksdb_writeoptions_t* options,

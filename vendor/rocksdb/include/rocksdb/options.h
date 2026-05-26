@@ -975,6 +975,17 @@ struct DBOptions {
   // Default: 0
   size_t recycle_log_file_num = 0;
 
+  // EXPERIMENTAL: If true, RocksDB asynchronously precreates the next WAL file
+  // so foreground memtable switching can usually avoid the filesystem latency
+  // of creating a new WAL. The precreated file is only reserved empty storage;
+  // it does not become a logical WAL and is not added to WAL tracking until it
+  // is consumed by a foreground WAL rotation.
+  //
+  // The option is sanitized to false when recycle_log_file_num is non-zero.
+  //
+  // Default: false
+  bool async_wal_precreate = false;
+
   // The manifest file is rolled over on reaching this limit AND the
   // space amp limit described in max_manifest_space_amp_pct. More trade-off
   // details there.
@@ -1000,6 +1011,36 @@ struct DBOptions {
   //
   // This option is mutable with SetDBOptions().
   bool verify_manifest_content_on_close = false;
+
+  // EXPERIMENTAL: If true, RocksDB can reduce recovery work after a clean
+  // shutdown, which may reduce DB::Open latency on warm reopens, especially on
+  // storage where metadata appends are expensive.
+  //
+  // Best-effort optimization: if it is disabled or unavailable, RocksDB falls
+  // back to the standard recovery path.
+  //
+  // Temporary rollout / kill switch for an optimization that is intended to be
+  // correct and eventually always enabled. Mutable via SetDBOptions().
+  bool optimize_manifest_for_recovery = false;
+
+  // EXPERIMENTAL: If true, DB::Open can try to reuse the existing MANIFEST
+  // for the first post-open metadata update instead of creating a fresh one.
+  // This can reduce warm-open latency for DBs whose MANIFEST is expensive to
+  // rebuild.
+  //
+  // Best-effort optimization: even when enabled, RocksDB may still create a
+  // fresh MANIFEST if the FileSystem does not support reopening the existing
+  // MANIFEST for append, or if RocksDB decides reuse is unsafe. That fallback
+  // is normal behavior.
+  //
+  // With very small `max_manifest_file_size` settings, the reused MANIFEST can
+  // still rotate earlier than expected after open, because RocksDB may keep a
+  // conservative auto-tuned rotation threshold until it later refreshes its
+  // compacted-size estimate.
+  //
+  // Temporary rollout / kill switch while this optimization is being
+  // validated.
+  bool reuse_manifest_on_open = false;
 
   // This option mostly replaces max_manifest_file_size to control an auto-tuned
   // balance of manifest write amplification and space amplification. A new
@@ -1781,6 +1822,14 @@ struct DBOptions {
   // Default: Enabled in kCompactionStyleLevel mode.
   CompactionStyleSet calculate_sst_write_lifetime_hint_set = {
       CompactionStyle::kCompactionStyleLevel};
+
+  // EXPERIMENTAL
+  // When this is true, save file system metadata (if supported by the FS) for
+  // SST files added to the DB in the MANIFEST, and use it to accelerate
+  // re-opening of those files on DB open. This will help cut down DB open
+  // latency on remote storage systems.
+  bool fast_sst_open = false;
+
   // End EXPERIMENTAL
 };
 
@@ -2233,6 +2282,19 @@ struct ReadOptions {
   // properties of each table during iteration. If the callback returns false,
   // the table will not be scanned. This option only affects Iterators and has
   // no impact on point lookups.
+  //
+  // Iterator creation on read-write DB variants returns InvalidArgument for
+  // safety when the target column family's min_tombstones_for_range_conversion
+  // is non-zero. The reasoning is that a fully visible iterator may create a
+  // range tombstone from tombstones that can be later converted to a range
+  // tombstone. If another iterator tries to filter out the table with the
+  // tombstones, the reader would expect the deletes to no longer apply, but it
+  // actually still does because of the range tombstone that was inserted.
+  // IMPORTANT: min_tombstones_for_range_conversion is a dynamic option, so
+  // disabling it may allow you to use table_filters again, you must account for
+  // the possibility that range tombstones have already been inserted into
+  // either the memtable or other sst files.
+  //
   // Default: empty (every table will be scanned)
   std::function<bool(const TableProperties&)> table_filter;
 
@@ -2304,10 +2366,17 @@ struct ReadOptions {
   // block based table index. The table_factory used for the column family
   // must support building/reading this index.
   //
-  // Forward scans (SeekToFirst, Seek, Next) and point lookups (Get) are
-  // supported. Reverse operations (SeekToLast, SeekForPrev, Prev) are not
-  // yet supported and will return NotSupported when this is set. Leave this
-  // null to use the native index for reverse operations.
+  // The UDI framework supports all iterator operations: forward scans
+  // (SeekToFirst, Seek, Next), reverse scans (SeekToLast, SeekForPrev, Prev),
+  // and point lookups (Get). Concrete UDI implementations may impose their
+  // own restrictions -- check the specific implementation's documentation.
+  //
+  // When BlockBasedTableOptions::use_udi_as_primary_index is true, this field
+  // does not need to be set -- all reads automatically use the UDI. If set
+  // while use_udi_as_primary_index is true, the UDI from
+  // BlockBasedTableOptions takes precedence. This field is only needed when
+  // the UDI is a secondary index and you want to explicitly select it for
+  // reads.
   const UserDefinedIndexFactory* table_index_factory = nullptr;
 
   // *** END options only relevant to iterators or scans ***
@@ -2894,7 +2963,7 @@ struct SizeApproximationOptions {
   // blob file data in the key range. When enabled, the total blob file size
   // is prorated by the ratio of SST data in the range to the total SST data:
   //
-  //   blob_size_in_range ≈ total_blob_size * (sst_in_range / total_sst)
+  //   blob_size_in_range ~= total_blob_size * (sst_in_range / total_sst)
   //
   // Limitations of this approximation:
   // - Assumes blob data is distributed proportionally to SST data, which

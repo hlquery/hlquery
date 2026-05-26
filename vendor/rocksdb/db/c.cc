@@ -3056,6 +3056,7 @@ class H : public WriteBatch::Handler {
       (*log_data_)(state_, blob.data(), blob.size());
     }
   }
+  Status MarkNoop(bool /* empty_batch */) override { return Status::OK(); }
 };
 
 class HCF : public WriteBatch::Handler {
@@ -3089,6 +3090,7 @@ class HCF : public WriteBatch::Handler {
       (*log_data_)(state_, blob.data(), blob.size());
     }
   }
+  Status MarkNoop(bool /* empty_batch */) override { return Status::OK(); }
 };
 
 void rocksdb_writebatch_iterate(rocksdb_writebatch_t* b, void* state,
@@ -4648,6 +4650,16 @@ uint32_t rocksdb_options_get_memtable_avg_op_scan_flush_trigger(
   return opt->rep.memtable_avg_op_scan_flush_trigger;
 }
 
+void rocksdb_options_set_min_tombstones_for_range_conversion(
+    rocksdb_options_t* opt, uint32_t n) {
+  opt->rep.min_tombstones_for_range_conversion = n;
+}
+
+uint32_t rocksdb_options_get_min_tombstones_for_range_conversion(
+    rocksdb_options_t* opt) {
+  return opt->rep.min_tombstones_for_range_conversion;
+}
+
 void rocksdb_options_enable_statistics(rocksdb_options_t* opt) {
   opt->rep.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
 }
@@ -5272,6 +5284,15 @@ void rocksdb_options_set_recycle_log_file_num(rocksdb_options_t* opt,
 
 size_t rocksdb_options_get_recycle_log_file_num(rocksdb_options_t* opt) {
   return opt->rep.recycle_log_file_num;
+}
+
+void rocksdb_options_set_async_wal_precreate(rocksdb_options_t* opt,
+                                             unsigned char v) {
+  opt->rep.async_wal_precreate = v;
+}
+
+unsigned char rocksdb_options_get_async_wal_precreate(rocksdb_options_t* opt) {
+  return opt->rep.async_wal_precreate;
 }
 
 void rocksdb_options_set_soft_pending_compaction_bytes_limit(
@@ -6224,6 +6245,16 @@ void rocksdb_readoptions_set_async_io(rocksdb_readoptions_t* opt,
 
 unsigned char rocksdb_readoptions_get_async_io(rocksdb_readoptions_t* opt) {
   return opt->rep.async_io;
+}
+
+void rocksdb_readoptions_set_optimize_multiget_for_io(
+    rocksdb_readoptions_t* opt, unsigned char v) {
+  opt->rep.optimize_multiget_for_io = v;
+}
+
+unsigned char rocksdb_readoptions_get_optimize_multiget_for_io(
+    rocksdb_readoptions_t* opt) {
+  return opt->rep.optimize_multiget_for_io;
 }
 
 void rocksdb_readoptions_set_timestamp(rocksdb_readoptions_t* opt,
@@ -8302,6 +8333,11 @@ void rocksdb_transaction_delete_cf(
     rocksdb_transaction_t* txn, rocksdb_column_family_handle_t* column_family,
     const char* key, size_t klen, char** errptr) {
   SaveError(errptr, txn->rep->Delete(column_family->rep, Slice(key, klen)));
+}
+
+void rocksdb_transaction_put_log_data(rocksdb_transaction_t* txn,
+                                      const char* blob, size_t len) {
+  txn->rep->PutLogData(Slice(blob, len));
 }
 
 // Delete a key outside a transaction

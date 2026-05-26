@@ -15,6 +15,7 @@
 
 #include <cinttypes>
 #include <cstdio>
+#include <deque>
 #include <map>
 #include <memory>
 #include <optional>
@@ -23,11 +24,15 @@
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
 #include "db/arena_wrapped_db_iter.h"
 #include "db/attribute_group_iterator_impl.h"
+#include "db/blob/blob_fetcher.h"
+#include "db/blob/blob_file_partition_manager.h"
+#include "db/blob/blob_index.h"
 #include "db/builder.h"
 #include "db/coalescing_iterator.h"
 #include "db/compaction/compaction_job.h"
@@ -54,6 +59,7 @@
 #include "db/table_properties_collector.h"
 #include "db/transaction_log_impl.h"
 #include "db/version_set.h"
+#include "db/wide/wide_column_serialization.h"
 #include "db/write_batch_internal.h"
 #include "db/write_callback.h"
 #include "env/unique_id_gen.h"
@@ -477,6 +483,33 @@ void DBImpl::WaitForBackgroundWork() {
   }
 }
 
+void DBImpl::WaitForAsyncFileOpen() {
+  if (!immutable_db_options_.open_files_async) {
+    return;
+  }
+  InstrumentedMutexLock l(&mutex_);
+  TEST_SYNC_POINT("DBImpl::WaitForAsyncFileOpen::BeforeWait");
+  while (bg_async_file_open_state_ == AsyncFileOpenState::kScheduled &&
+         !shutting_down_.load(std::memory_order_acquire)) {
+    bg_cv_.Wait();
+  }
+}
+
+void DBImpl::NotifyOnDBShutdownBegin() {
+  mutex_.AssertHeld();
+  if (shutdown_notification_sent_ || immutable_db_options_.listeners.empty()) {
+    return;
+  }
+  shutdown_notification_sent_ = true;
+
+  // release lock while notifying events
+  mutex_.Unlock();
+  for (const auto& listener : immutable_db_options_.listeners) {
+    listener->OnDBShutdownBegin(this);
+  }
+  mutex_.Lock();
+}
+
 // Will lock the mutex_,  will wait for completion if wait is true
 void DBImpl::CancelAllBackgroundWork(bool wait) {
   ROCKS_LOG_INFO(immutable_db_options_.info_log,
@@ -485,11 +518,37 @@ void DBImpl::CancelAllBackgroundWork(bool wait) {
   s.PermitUncheckedError();
 
   InstrumentedMutexLock l(&mutex_);
-  if (!shutting_down_.load(std::memory_order_acquire) &&
+  // Blob direct-write relies on clean shutdown flushes to register live blob
+  // files in MANIFEST before close. WAL recovery of unregistered files is out
+  // of scope in v1.
+  const bool force_flush_for_blob_direct_write =
+      HasAnyBlobDirectWriteColumnFamilyWithLockHeld();
+  const bool flush_for_unpersisted_data =
       has_unpersisted_data_.load(std::memory_order_relaxed) &&
-      !mutable_db_options_.avoid_flush_during_shutdown) {
+      !mutable_db_options_.avoid_flush_during_shutdown;
+  const bool already_shutting_down =
+      shutting_down_.load(std::memory_order_acquire);
+  if (already_shutting_down && force_flush_for_blob_direct_write &&
+      HasInFlightBlobDirectWriteFilesWithLockHeld()) {
+    // Flush jobs treat `shutting_down_` as a rollback condition, so once the
+    // shutdown marker is already published we cannot safely promise a final
+    // BDW registration flush anymore. Make that loss of crash-safety explicit.
+    ROCKS_LOG_WARN(immutable_db_options_.info_log,
+                   "Shutdown already in progress before blob direct-write "
+                   "close flush; active blob files may remain unregistered.");
+  }
+  if (!already_shutting_down &&
+      (flush_for_unpersisted_data || force_flush_for_blob_direct_write)) {
     s = DBImpl::FlushAllColumnFamilies(FlushOptions(), FlushReason::kShutDown);
-    s.PermitUncheckedError();  //**TODO: What to do on error?
+    if (!s.ok()) {
+      ROCKS_LOG_WARN(
+          immutable_db_options_.info_log, "Shutdown flush failed%s: %s",
+          force_flush_for_blob_direct_write
+              ? "; active blob direct-write files may remain unregistered"
+              : "",
+          s.ToString().c_str());
+      s.PermitUncheckedError();
+    }
   }
 
   // Cancel awaiting remote compactions
@@ -497,6 +556,9 @@ void DBImpl::CancelAllBackgroundWork(bool wait) {
     immutable_db_options_.compaction_service->CancelAwaitingJobs();
   }
 
+  if (!already_shutting_down) {
+    NotifyOnDBShutdownBegin();
+  }
   shutting_down_.store(true, std::memory_order_release);
   bg_cv_.SignalAll();
   if (!wait) {
@@ -521,6 +583,188 @@ Status DBImpl::MaybeReleaseTimestampedSnapshotsAndCheck() {
 void DBImpl::UntrackDataFiles() {
   TrackOrUntrackFiles(/*existing_data_files=*/{},
                       /*track=*/false);
+}
+
+bool DBImpl::HasAnyBlobDirectWriteColumnFamily() {
+  return blob_direct_write_cf_count_.load(std::memory_order_relaxed) > 0;
+}
+
+bool DBImpl::HasAnyBlobDirectWriteColumnFamilyWithLockHeld() {
+  mutex_.AssertHeld();
+  return blob_direct_write_cf_count_.load(std::memory_order_relaxed) > 0;
+}
+
+bool DBImpl::HasInFlightBlobDirectWriteFilesWithLockHeld() {
+  mutex_.AssertHeld();
+  if (!HasAnyBlobDirectWriteColumnFamilyWithLockHeld()) {
+    return false;
+  }
+
+  UnorderedSet<uint64_t> active_blob_direct_write_files;
+  for (auto* cfd : *versions_->GetColumnFamilySet()) {
+    if (cfd->IsDropped()) {
+      continue;
+    }
+
+    auto* mgr = cfd->blob_partition_manager();
+    if (mgr == nullptr) {
+      continue;
+    }
+
+    mgr->GetActiveBlobFileNumbers(&active_blob_direct_write_files);
+    if (!active_blob_direct_write_files.empty()) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+void DBImpl::MaybeInitBlobDirectWriteColumnFamily(
+    ColumnFamilyData* cfd, const ColumnFamilyOptions& cf_options,
+    const std::string& column_family_name) {
+  assert(cfd != nullptr);
+
+  if (!cf_options.enable_blob_files || !cf_options.enable_blob_direct_write) {
+    return;
+  }
+  if (cfd->blob_partition_manager() != nullptr) {
+    // DB::Open(..., create_missing_column_families=true, ...) can create the
+    // missing CF during open and then revisit the same handle in the post-open
+    // initialization loop below. Treat BDW initialization as idempotent for
+    // that path so we do not double-register the same CF.
+    return;
+  }
+
+  auto mgr = std::make_shared<BlobFilePartitionManager>(
+      cf_options.blob_direct_write_partitions,
+      cf_options.blob_direct_write_partition_strategy,
+      [vs = versions_.get()]() { return vs->NewFileNumber(); }, fs_.get(),
+      immutable_db_options_.clock, stats_, file_options_, dbname_,
+      column_family_name, cf_options.blob_file_size,
+      immutable_db_options_.use_fsync, cfd->blob_file_cache(), &blob_callback_,
+      immutable_db_options_.listeners,
+      immutable_db_options_.file_checksum_gen_factory.get(),
+      immutable_db_options_.checksum_handoff_file_types, io_tracer_, db_id_,
+      db_session_id_, immutable_db_options_.info_log.get());
+
+  cfd->SetBlobPartitionManager(std::move(mgr));
+  RegisterBlobDirectWriteColumnFamily();
+}
+
+void DBImpl::RegisterBlobDirectWriteColumnFamily() {
+  blob_direct_write_cf_count_.fetch_add(1, std::memory_order_relaxed);
+}
+
+void DBImpl::UnregisterBlobDirectWriteColumnFamily() {
+  uint32_t current =
+      blob_direct_write_cf_count_.load(std::memory_order_relaxed);
+  while (current != 0) {
+    if (blob_direct_write_cf_count_.compare_exchange_weak(
+            current, current - 1, std::memory_order_relaxed)) {
+      return;
+    }
+  }
+  assert(false);
+}
+
+Status DBImpl::MaybeWriteWalMarkersToManifestOnClose() {
+  mutex_.AssertHeld();
+  if (!mutable_db_options_.optimize_manifest_for_recovery ||
+      !opened_successfully_ || versions_ == nullptr || logs_.empty()) {
+    return Status::OK();
+  }
+
+  TEST_SYNC_POINT("DBImpl::CloseHelper:WriteWalMarkersOnCloseEntered");
+  const ReadOptions read_options(Env::IOActivity::kUnknown);
+  const WriteOptions write_options(Env::IOActivity::kUnknown);
+  uint64_t max_wal_number = logs_.back().number;
+  TEST_SYNC_POINT_CALLBACK("DBImpl::CloseHelper:CapturedMaxWal",
+                           &max_wal_number);
+  const uint64_t new_log_num = max_wal_number + 1;
+
+  // std::deque keeps VersionEdit pointers stable across emplace_back.
+  std::deque<VersionEdit> edits;
+  autovector<ColumnFamilyData*> cfds;
+  autovector<autovector<VersionEdit*>> edit_lists;
+  VersionEdit global_edit;
+  bool persist_global_edit = false;
+  bool reserved_log_number = false;
+
+  bool all_cfs_empty = true;
+  for (auto* cfd : *versions_->GetColumnFamilySet()) {
+    if (cfd->IsDropped()) {
+      continue;
+    }
+    // cfd->IsEmpty() checks both mem and imm. An immutable memtable queued for
+    // flush still pins an older WAL; advancing past it would drop unflushed
+    // records on the next open.
+    if (!cfd->IsEmpty()) {
+      all_cfs_empty = false;
+      continue;
+    }
+    if (new_log_num > cfd->GetLogNumber()) {
+      if (!reserved_log_number) {
+        const uint64_t next_file_number = versions_->current_next_file_number();
+        if (next_file_number <= new_log_num) {
+          versions_->FetchAddFileNumber(new_log_num + 1 - next_file_number);
+          global_edit.SetNextFile(versions_->current_next_file_number());
+          persist_global_edit = true;
+        }
+        reserved_log_number = true;
+      }
+      edits.emplace_back();
+      VersionEdit& edit = edits.back();
+      edit.SetLogNumber(new_log_num);
+      edit.SetColumnFamily(cfd->GetID());
+      cfds.push_back(cfd);
+      edit_lists.emplace_back();
+      edit_lists.back().push_back(&edit);
+    }
+  }
+
+  if (all_cfs_empty && !allow_2pc()) {
+    if (new_log_num > versions_->min_log_number_to_keep()) {
+      global_edit.SetMinLogNumberToKeep(new_log_num);
+      persist_global_edit = true;
+    }
+    // Mirror the monotonicity guard in db_impl_files.cc:
+    // PrecomputeWalDeletionEdit emits DeleteWalsBefore only when the
+    // marker actually advances the WalSet's existing min. Skipping
+    // this guard would let a stale-replay edit regress WalSet state.
+    if (immutable_db_options_.track_and_verify_wals_in_manifest &&
+        new_log_num > versions_->GetWalSet().GetMinWalNumberToKeep()) {
+      global_edit.DeleteWalsBefore(new_log_num);
+      persist_global_edit = true;
+    }
+  }
+
+  if (persist_global_edit) {
+    ColumnFamilyData* default_cfd =
+        versions_->GetColumnFamilySet()->GetDefault();
+    if (default_cfd && !default_cfd->IsDropped()) {
+      bool attached_to_existing = false;
+      for (size_t i = 0; i < cfds.size(); ++i) {
+        if (cfds[i] == default_cfd) {
+          edit_lists[i].push_back(&global_edit);
+          attached_to_existing = true;
+          break;
+        }
+      }
+      if (!attached_to_existing) {
+        cfds.push_back(default_cfd);
+        edit_lists.emplace_back();
+        edit_lists.back().push_back(&global_edit);
+      }
+    }
+  }
+
+  if (cfds.empty()) {
+    return Status::OK();
+  }
+  return versions_->LogAndApply(cfds, read_options, write_options, edit_lists,
+                                &mutex_, directories_.GetDbDir(),
+                                /*new_descriptor_log=*/false);
 }
 
 Status DBImpl::CloseHelper() {
@@ -563,10 +807,25 @@ Status DBImpl::CloseHelper() {
          bg_flush_scheduled_ || bg_purge_scheduled_ ||
          bg_pressure_callback_in_progress_ ||
          bg_async_file_open_state_ == AsyncFileOpenState::kScheduled ||
+         async_wal_precreate_state_ == AsyncWALPrecreateState::kScheduled ||
          pending_purge_obsolete_files_ ||
          error_handler_.IsRecoveryInProgress()) {
     TEST_SYNC_POINT("DBImpl::~DBImpl:WaitJob");
     bg_cv_.Wait();
+  }
+
+  // Release any opened-but-unpublished WAL writer after the in-flight worker
+  // has published its result. Clear the DB-owned async slot while holding
+  // mutex_, but destroy the detached writer after dropping mutex_ because
+  // log::Writer / WritableFileWriter destruction can flush and close the file.
+  // The file itself can be left behind as an empty future WAL; recovery already
+  // tolerates it and marks its file number used if observed.
+  UnpublishedWAL unused_async_wal = std::move(async_wal_precreate_wal_);
+  async_wal_precreate_state_ = AsyncWALPrecreateState::kNotScheduled;
+  if (unused_async_wal.writer) {
+    mutex_.Unlock();
+    unused_async_wal.Reset();
+    mutex_.Lock();
   }
 
   // Ensure subclasses don't forget to schedule async file opening
@@ -626,6 +885,17 @@ Status DBImpl::CloseHelper() {
     }
     job_context.Clean();
     mutex_.Lock();
+  }
+  // Best-effort warm-reopen optimization: after obsolete-file cleanup and
+  // before logs_.clear(), persist close-time WAL markers that can reduce
+  // recovery work on the next open. This matters most when some CFs have no
+  // unflushed writes and/or the newest WAL is empty, since recovery would
+  // otherwise append marker-only MANIFEST edits on reopen.
+  Status manifest_s = MaybeWriteWalMarkersToManifestOnClose();
+  if (!manifest_s.ok()) {
+    ROCKS_LOG_WARN(immutable_db_options_.info_log,
+                   "optimize_manifest_for_recovery close-time write failed: %s",
+                   manifest_s.ToString().c_str());
   }
   {
     InstrumentedMutexLock lock(&wal_write_mutex_);
@@ -1360,6 +1630,7 @@ Status DBImpl::SetOptions(
       for (const auto& cfd_opts : column_family_datas) {
         InstallSuperVersionForConfigChange(cfd_opts.first, &sv_context);
       }
+
       persist_options_status =
           WriteOptionsFile(write_options, true /*db_mutex_already_held*/);
       bg_cv_.SignalAll();
@@ -1551,9 +1822,12 @@ Status DBImpl::SetDBOptions(
                                           : new_options.max_open_files - 10);
       // Potential table cache capacity change requires updating if table
       // handles should get pinned.
+      versions_->GetColumnFamilySet()->SetFastSstOpen(
+          new_options.fast_sst_open);
       for (auto cfd : *versions_->GetColumnFamilySet()) {
         if (!cfd->IsDropped()) {
           cfd->table_cache()->UpdateShouldPinTableHandles();
+          cfd->table_cache()->SetFastSstOpen(new_options.fast_sst_open);
         }
       }
       wal_other_option_changed = mutable_db_options_.wal_bytes_per_sync !=
@@ -2156,6 +2430,10 @@ void DBImpl::BackgroundCallPurge() {
     purge_files_.erase(it);
 
     mutex_.Unlock();
+    if (type == kBlobFile && ShouldKeepBlobFileDuringPurge(number, fname)) {
+      mutex_.Lock();
+      continue;
+    }
     DeleteObsoleteFileImpl(job_id, fname, dir_to_sync, type, number);
     mutex_.Lock();
   }
@@ -2480,6 +2758,359 @@ bool DBImpl::ShouldReferenceSuperVersion(const MergeContext& merge_context) {
              merge_context.GetOperands().size();
 }
 
+static Slice GetBlobLookupUserKey(const Slice& user_key,
+                                  const std::string* timestamp,
+                                  std::string* user_key_with_ts) {
+  if (timestamp == nullptr || timestamp->empty()) {
+    return user_key;
+  }
+
+  assert(user_key_with_ts != nullptr);
+  user_key_with_ts->assign(user_key.data(), user_key.size());
+  user_key_with_ts->append(timestamp->data(), timestamp->size());
+  return Slice(*user_key_with_ts);
+}
+
+static Status DecodeDirectWriteBlobIndex(const Slice& blob_index_slice,
+                                         BlobIndex* blob_idx) {
+  assert(blob_idx != nullptr);
+
+  Status status = blob_idx->DecodeFrom(blob_index_slice);
+  if (status.ok() && blob_idx->HasTTL()) {
+    status =
+        Status::Corruption("Unexpected TTL blob index for blob direct write");
+  }
+  return status;
+}
+
+Status DBImpl::ResolveDirectWritePlainValue(
+    const ReadOptions& read_options, const Slice& key, const Version* current,
+    ColumnFamilyData* cfd, PinnableSlice* value, PinnableWideColumns* columns) {
+  Slice blob_index_slice;
+  std::string blob_index_storage;
+  if (value != nullptr) {
+    if (value->size() > 0) {
+      blob_index_slice = Slice(value->data(), value->size());
+    } else {
+      blob_index_slice = Slice(*(value->GetSelf()));
+    }
+  } else {
+    assert(columns != nullptr);
+
+    const WideColumns& plain_value_columns = columns->columns();
+    // A plain value exposed through `PinnableWideColumns` is represented as a
+    // single default column at index 0. Resolve that default-column payload as
+    // the user's value.
+    assert(plain_value_columns.size() == 1);
+    assert(plain_value_columns.front().name() == kDefaultWideColumnName);
+    blob_index_slice = plain_value_columns.front().value();
+  }
+
+  PinnableSlice resolved_value;
+  PinnableSlice* target = value != nullptr ? value : &resolved_value;
+  if (value != nullptr) {
+    if (value->IsPinned()) {
+      // We reuse `value` as the destination for the resolved blob payload.
+      // If it is still pinned to a table block, Reset() will drop that cleanup
+      // chain, so preserve the encoded blob-index bytes first.
+      blob_index_storage.assign(blob_index_slice.data(),
+                                blob_index_slice.size());
+      blob_index_slice = Slice(blob_index_storage);
+    }
+    value->Reset();
+  }
+
+  BlobIndex blob_idx;
+  Status status = DecodeDirectWriteBlobIndex(blob_index_slice, &blob_idx);
+  if (status.ok()) {
+    status = BlobFilePartitionManager::ResolveBlobDirectWriteIndex(
+        read_options, key, blob_idx, current, cfd->blob_file_cache(),
+        nullptr /* prefetch_buffer */, target, nullptr /* bytes_read */);
+    if (status.ok() && columns != nullptr) {
+      columns->SetPlainValue(std::move(*target));
+    }
+  }
+  return status;
+}
+
+Status DBImpl::ResolveDirectWriteWideColumns(const ReadOptions& read_options,
+                                             const Slice& key,
+                                             const Version* current,
+                                             ColumnFamilyData* cfd,
+                                             PinnableWideColumns* columns) {
+  assert(columns != nullptr);
+
+  const WideColumns& unresolved_columns = columns->columns();
+  WideColumns resolved_columns;
+  resolved_columns.reserve(unresolved_columns.size());
+
+  // `unresolved_blob_column_indices_` stores sorted column positions whose
+  // values still hold encoded blob indexes. Keep resolved blob payloads alive
+  // in a side array until the rebuilt entity is serialized back into `columns`.
+  std::vector<PinnableSlice> resolved_blob_values(
+      columns->unresolved_blob_column_indices_.size());
+  size_t unresolved_blob_idx = 0;
+
+  for (size_t column_idx = 0; column_idx < unresolved_columns.size();
+       ++column_idx) {
+    const bool is_unresolved_blob =
+        unresolved_blob_idx < columns->unresolved_blob_column_indices_.size() &&
+        columns->unresolved_blob_column_indices_[unresolved_blob_idx] ==
+            column_idx;
+    if (!is_unresolved_blob) {
+      resolved_columns.emplace_back(unresolved_columns[column_idx].name(),
+                                    unresolved_columns[column_idx].value());
+      continue;
+    }
+
+    BlobIndex blob_idx;
+    Status s = DecodeDirectWriteBlobIndex(
+        unresolved_columns[column_idx].value(), &blob_idx);
+    if (!s.ok()) {
+      return s;
+    }
+
+    Slice resolved_value;
+    if (blob_idx.IsInlined()) {
+      // V2 entities can still encode inline blob indexes. In that case the
+      // bytes are already present in the entity, so no blob file read is
+      // needed.
+      resolved_value = blob_idx.value();
+    } else {
+      s = BlobFilePartitionManager::ResolveBlobDirectWriteIndex(
+          read_options, key, blob_idx, current, cfd->blob_file_cache(),
+          nullptr /* prefetch_buffer */,
+          &resolved_blob_values[unresolved_blob_idx], nullptr /* bytes_read */);
+      if (!s.ok()) {
+        return s;
+      }
+      resolved_value = Slice(resolved_blob_values[unresolved_blob_idx]);
+    }
+
+    resolved_columns.emplace_back(unresolved_columns[column_idx].name(),
+                                  resolved_value);
+    ++unresolved_blob_idx;
+  }
+
+  if (unresolved_blob_idx != columns->unresolved_blob_column_indices_.size()) {
+    return Status::Corruption("Wide column blob metadata out of sync");
+  }
+
+  std::string resolved_entity;
+  Status status =
+      WideColumnSerialization::Serialize(resolved_columns, resolved_entity);
+  if (status.ok()) {
+    status = columns->SetWideColumnValue(std::move(resolved_entity));
+  }
+  return status;
+}
+
+bool DBImpl::MaybeResolveMemtableBlobValue(const Slice& key,
+                                           const BlobFetcher* blob_fetcher,
+                                           PinnableSlice* value,
+                                           PinnableWideColumns* columns,
+                                           Status* s, bool* is_blob_index,
+                                           bool* value_found) {
+  if (!s->ok() || (!value && !columns)) {
+    return false;
+  }
+
+  auto reset_outputs = [&]() {
+    if (value != nullptr) {
+      value->Reset();
+    }
+    if (columns != nullptr) {
+      columns->Reset();
+    }
+  };
+  auto clear_blob_state = [&]() {
+    if (is_blob_index != nullptr) {
+      *is_blob_index = false;
+    }
+  };
+
+  const bool needs_plain_value_resolution =
+      is_blob_index != nullptr && *is_blob_index;
+  const bool needs_wide_column_resolution =
+      columns != nullptr && !columns->unresolved_blob_column_indices_.empty();
+  if (!needs_plain_value_resolution && !needs_wide_column_resolution) {
+    return false;
+  }
+
+  if (blob_fetcher == nullptr) {
+    reset_outputs();
+    *s = Status::NotSupported(
+        "Encountered blob-backed memtable value without blob fetcher.");
+    clear_blob_state();
+    return true;
+  }
+
+  if (needs_plain_value_resolution) {
+    Slice blob_index_slice;
+    std::string blob_index_storage;
+    if (value != nullptr) {
+      if (value->size() > 0) {
+        blob_index_slice = Slice(value->data(), value->size());
+      } else {
+        blob_index_slice = Slice(*(value->GetSelf()));
+      }
+    } else {
+      assert(columns != nullptr);
+
+      const WideColumns& plain_value_columns = columns->columns();
+      assert(plain_value_columns.size() == 1);
+      assert(plain_value_columns.front().name() == kDefaultWideColumnName);
+      blob_index_slice = plain_value_columns.front().value();
+    }
+
+    PinnableSlice resolved_value;
+    PinnableSlice* target = value != nullptr ? value : &resolved_value;
+    if (value != nullptr) {
+      // BlobIndex::DecodeFrom can retain Slices into the encoded bytes for
+      // inlined blob indices, so take an owned copy before resetting `value`
+      // and reusing the same PinnableSlice as the output target.
+      blob_index_storage.assign(blob_index_slice.data(),
+                                blob_index_slice.size());
+      blob_index_slice = Slice(blob_index_storage);
+      value->Reset();
+    }
+
+    *s = blob_fetcher->FetchBlob(key, blob_index_slice,
+                                 nullptr /* prefetch_buffer */, target,
+                                 nullptr /* bytes_read */);
+    if (s->ok() && columns != nullptr) {
+      columns->SetPlainValue(std::move(*target));
+    } else if (!s->ok()) {
+      reset_outputs();
+      if (s->IsIncomplete() && value_found != nullptr) {
+        *value_found = false;
+      }
+    }
+
+    clear_blob_state();
+    return true;
+  }
+
+  assert(columns != nullptr);
+
+  std::string resolved_entity;
+  bool resolved = false;
+  *s = WideColumnSerialization::ResolveEntityBlobColumns(
+      columns->value_, key, blob_fetcher, nullptr /* prefetch_buffers */,
+      resolved_entity, resolved, nullptr /* total_bytes_read */,
+      nullptr /* num_blobs_resolved */);
+  if (s->ok()) {
+    assert(resolved);
+    if (resolved) {
+      *s = columns->SetWideColumnValue(std::move(resolved_entity));
+    }
+  }
+  if (!s->ok()) {
+    reset_outputs();
+    if (s->IsIncomplete() && value_found != nullptr) {
+      *value_found = false;
+    }
+  }
+
+  clear_blob_state();
+  return true;
+}
+
+void DBImpl::PostprocessMemtableValueRead(
+    const Slice& key, const std::string* timestamp,
+    bool resolve_blob_backed_memtable_value,
+    const BlobFetcher* memtable_blob_fetcher, PinnableSlice* value,
+    PinnableWideColumns* columns, Status* s, bool* is_blob_index,
+    bool* value_found) {
+  if (resolve_blob_backed_memtable_value) {
+    std::string blob_lookup_key_storage;
+    const bool value_resolved = MaybeResolveMemtableBlobValue(
+        GetBlobLookupUserKey(key, timestamp, &blob_lookup_key_storage),
+        memtable_blob_fetcher, value, columns, s, is_blob_index, value_found);
+    if (!value_resolved && value != nullptr && s->ok()) {
+      value->PinSelf();
+    }
+    return;
+  }
+
+  if (s->ok()) {
+    if (value != nullptr) {
+      value->PinSelf();
+    }
+  } else {
+    if (value != nullptr) {
+      value->Reset();
+    }
+    if (columns != nullptr) {
+      columns->Reset();
+    }
+  }
+}
+
+bool DBImpl::MaybeResolveDirectWriteValue(
+    const ReadOptions& read_options, const Slice& key,
+    bool resolve_direct_write_value, const Version* current,
+    ColumnFamilyData* cfd, PinnableSlice* value, PinnableWideColumns* columns,
+    Status* s, bool* is_blob_index, bool* value_found) {
+  if (!s->ok() || !resolve_direct_write_value || (!value && !columns)) {
+    return false;
+  }
+
+  const bool needs_plain_value_resolution =
+      is_blob_index != nullptr && *is_blob_index;
+  const bool needs_wide_column_resolution =
+      columns != nullptr && !columns->unresolved_blob_column_indices_.empty();
+  if (!needs_plain_value_resolution && !needs_wide_column_resolution) {
+    return false;
+  }
+
+  // This helper only handles the temporary read-time gap for blob direct write
+  // references that can appear before flush makes the blob file visible through
+  // normal Version metadata. There are two shapes to patch up here:
+  //   1. a plain value encoded as a blob index
+  //   2. a wide-column entity with some unresolved blob-valued columns
+  // Once a blob file is registered in Version metadata, the normal integrated
+  // blob read path is already agnostic to whether the file came from direct
+  // write or flush/compaction. This helper only covers the pre-flush gap where
+  // a memtable can already reference a blob file that is not yet
+  // manifest-visible.
+  if (read_options.read_tier == kBlockCacheTier) {
+    // Resolving a pre-flush direct-write reference can require blob file I/O.
+    // `kBlockCacheTier` forbids that, so surface the result as incomplete.
+    if (value != nullptr) {
+      value->Reset();
+    } else {
+      assert(columns != nullptr);
+      columns->Reset();
+    }
+    if (value_found != nullptr) {
+      *value_found = false;
+    }
+    *s = Status::Incomplete();
+    if (is_blob_index != nullptr) {
+      *is_blob_index = false;
+    }
+    return true;
+  }
+
+  if (needs_plain_value_resolution) {
+    *s = ResolveDirectWritePlainValue(read_options, key, current, cfd, value,
+                                      columns);
+    assert(is_blob_index != nullptr);
+    *is_blob_index = false;
+    return true;
+  }
+
+  assert(columns != nullptr);
+  *s = ResolveDirectWriteWideColumns(read_options, key, current, cfd, columns);
+
+  if (is_blob_index != nullptr) {
+    *is_blob_index = false;
+  }
+
+  return true;
+}
+
 Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
                        GetImplOptions& get_impl_options) {
   assert(get_impl_options.value != nullptr ||
@@ -2616,24 +3247,60 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
   bool skip_memtable = (read_options.read_tier == kPersistedTier &&
                         has_unpersisted_data_.load(std::memory_order_relaxed));
   bool done = false;
-  std::string* timestamp =
-      ucmp->timestamp_size() > 0 ? get_impl_options.timestamp : nullptr;
+  bool is_blob_index = false;
+  bool* is_blob_ptr = get_impl_options.is_blob_index;
+  auto* partition_mgr = cfd->blob_partition_manager();
+  std::string timestamp_storage;
+  std::string* timestamp = nullptr;
+  if (ucmp->timestamp_size() > 0) {
+    timestamp = get_impl_options.timestamp != nullptr
+                    ? get_impl_options.timestamp
+                    : (partition_mgr != nullptr ? &timestamp_storage : nullptr);
+  }
+  if (partition_mgr != nullptr && !is_blob_ptr && get_impl_options.get_value) {
+    is_blob_ptr = &is_blob_index;
+  }
+  const bool resolve_direct_write_value =
+      partition_mgr != nullptr && (is_blob_ptr == &is_blob_index);
+  std::optional<BlobFetcher> memtable_blob_fetcher;
+  if (partition_mgr != nullptr) {
+    memtable_blob_fetcher.emplace(sv->current, read_options,
+                                  cfd->blob_file_cache(),
+                                  /*allow_write_path_fallback=*/true);
+  }
+  const BlobFetcher* memtable_blob_fetcher_ptr =
+      memtable_blob_fetcher ? &*memtable_blob_fetcher : nullptr;
+  std::string blob_lookup_key_storage;
+  auto get_blob_lookup_key = [&]() -> Slice {
+    return GetBlobLookupUserKey(key, timestamp, &blob_lookup_key_storage);
+  };
+  auto maybe_resolve_memtable_value = [&]() {
+    if (resolve_direct_write_value) {
+      const bool value_resolved = MaybeResolveDirectWriteValue(
+          read_options, get_blob_lookup_key(), resolve_direct_write_value,
+          sv->current, cfd, get_impl_options.value, get_impl_options.columns,
+          &s, &is_blob_index, get_impl_options.value_found);
+      if (!value_resolved && get_impl_options.value != nullptr) {
+        get_impl_options.value->PinSelf();
+      }
+    } else if (get_impl_options.value != nullptr) {
+      get_impl_options.value->PinSelf();
+    }
+  };
   if (!skip_memtable) {
     // Get value associated with key
     if (get_impl_options.get_value) {
-      if (sv->mem->Get(
-              lkey,
-              get_impl_options.value ? get_impl_options.value->GetSelf()
-                                     : nullptr,
-              get_impl_options.columns, timestamp, &s, &merge_context,
-              &max_covering_tombstone_seq, read_options,
-              false /* immutable_memtable */, get_impl_options.callback,
-              get_impl_options.is_blob_index)) {
+      if (sv->mem->Get(lkey,
+                       get_impl_options.value
+                           ? get_impl_options.value->GetSelf()
+                           : nullptr,
+                       get_impl_options.columns, timestamp, &s, &merge_context,
+                       &max_covering_tombstone_seq, read_options,
+                       false /* immutable_memtable */,
+                       get_impl_options.callback, is_blob_ptr,
+                       /*do_merge=*/true, memtable_blob_fetcher_ptr)) {
         done = true;
-
-        if (get_impl_options.value) {
-          get_impl_options.value->PinSelf();
-        }
+        maybe_resolve_memtable_value();
 
         RecordTick(stats_, MEMTABLE_HIT);
       } else if ((s.ok() || s.IsMergeInProgress()) &&
@@ -2644,12 +3311,9 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
                               get_impl_options.columns, timestamp, &s,
                               &merge_context, &max_covering_tombstone_seq,
                               read_options, get_impl_options.callback,
-                              get_impl_options.is_blob_index)) {
+                              is_blob_ptr, memtable_blob_fetcher_ptr)) {
         done = true;
-
-        if (get_impl_options.value) {
-          get_impl_options.value->PinSelf();
-        }
+        maybe_resolve_memtable_value();
 
         RecordTick(stats_, MEMTABLE_HIT);
       }
@@ -2659,14 +3323,14 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
       if (sv->mem->Get(lkey, /*value=*/nullptr, /*columns=*/nullptr,
                        /*timestamp=*/nullptr, &s, &merge_context,
                        &max_covering_tombstone_seq, read_options,
-                       false /* immutable_memtable */, nullptr, nullptr,
-                       false)) {
+                       false /* immutable_memtable */, nullptr, nullptr, false,
+                       memtable_blob_fetcher_ptr)) {
         done = true;
         RecordTick(stats_, MEMTABLE_HIT);
       } else if ((s.ok() || s.IsMergeInProgress()) &&
-                 sv->imm->GetMergeOperands(lkey, &s, &merge_context,
-                                           &max_covering_tombstone_seq,
-                                           read_options)) {
+                 sv->imm->GetMergeOperands(
+                     lkey, &s, &merge_context, &max_covering_tombstone_seq,
+                     read_options, memtable_blob_fetcher_ptr)) {
         done = true;
         RecordTick(stats_, MEMTABLE_HIT);
       }
@@ -2689,8 +3353,14 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
         get_impl_options.get_value ? get_impl_options.value_found : nullptr,
         nullptr, nullptr,
         get_impl_options.get_value ? get_impl_options.callback : nullptr,
-        get_impl_options.get_value ? get_impl_options.is_blob_index : nullptr,
+        get_impl_options.get_value ? is_blob_ptr : nullptr,
         get_impl_options.get_value);
+    if (get_impl_options.get_value && resolve_direct_write_value) {
+      MaybeResolveDirectWriteValue(
+          read_options, get_blob_lookup_key(), resolve_direct_write_value,
+          sv->current, cfd, get_impl_options.value, get_impl_options.columns,
+          &s, &is_blob_index, get_impl_options.value_found);
+    }
     RecordTick(stats_, MEMTABLE_MISS);
   }
 
@@ -3269,9 +3939,13 @@ void DBImpl::MultiGetWithCallbackImpl(
     const ReadOptions& read_options, ColumnFamilyHandle* column_family,
     ReadCallback* callback,
     autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE>* sorted_keys) {
+  assert(sorted_keys != nullptr);
   std::array<ColumnFamilySuperVersionPair, 1> cf_sv_pairs;
   cf_sv_pairs[0] = ColumnFamilySuperVersionPair(column_family, nullptr);
   size_t num_keys = sorted_keys->size();
+  if (num_keys == 0) {
+    return;
+  }
   SequenceNumber consistent_seqnum = kMaxSequenceNumber;
   bool sv_from_thread_local = false;
   Status s = MultiCFSnapshot<std::array<ColumnFamilySuperVersionPair, 1>>(
@@ -3345,6 +4019,21 @@ Status DBImpl::MultiGetImpl(
 
   assert(sorted_keys);
   assert(start_key + num_keys <= sorted_keys->size());
+  if (num_keys == 0) {
+    return Status::OK();
+  }
+  auto* cfh = static_cast_with_check<ColumnFamilyHandleImpl>(
+      (*sorted_keys)[start_key]->column_family);
+  ColumnFamilyData* cfd = cfh->cfd();
+  auto* partition_mgr = cfd->blob_partition_manager();
+  std::optional<BlobFetcher> memtable_blob_fetcher;
+  if (partition_mgr != nullptr) {
+    memtable_blob_fetcher.emplace(super_version->current, read_options,
+                                  cfd->blob_file_cache(),
+                                  /*allow_write_path_fallback=*/true);
+  }
+  const BlobFetcher* memtable_blob_fetcher_ptr =
+      memtable_blob_fetcher ? &*memtable_blob_fetcher : nullptr;
   // Clear the timestamps for returning results so that we can distinguish
   // between tombstone or key that has never been written
   for (size_t i = start_key; i < start_key + num_keys; ++i) {
@@ -3391,9 +4080,11 @@ Status DBImpl::MultiGetImpl(
          has_unpersisted_data_.load(std::memory_order_relaxed));
     if (!skip_memtable) {
       super_version->mem->MultiGet(read_options, &range, callback,
-                                   false /* immutable_memtable */);
+                                   false /* immutable_memtable */,
+                                   memtable_blob_fetcher_ptr);
       if (!range.empty()) {
-        super_version->imm->MultiGet(read_options, &range, callback);
+        super_version->imm->MultiGet(read_options, &range, callback,
+                                     memtable_blob_fetcher_ptr);
       }
       if (!range.empty()) {
         uint64_t left = range.KeysLeft();
@@ -3428,6 +4119,16 @@ Status DBImpl::MultiGetImpl(
     KeyContext* key = (*sorted_keys)[i];
     assert(key);
     assert(key->s);
+
+    if (partition_mgr != nullptr && key->s->ok()) {
+      std::string blob_lookup_key_storage;
+      MaybeResolveDirectWriteValue(
+          read_options,
+          GetBlobLookupUserKey(*key->key, key->timestamp,
+                               &blob_lookup_key_storage),
+          /*resolve_direct_write_value=*/true, super_version->current, cfd,
+          key->value, key->columns, key->s, &key->is_blob_index);
+    }
 
     if (key->s->ok()) {
       const auto& merge_threshold = read_options.merge_operand_count_threshold;
@@ -3760,8 +4461,20 @@ Status DBImpl::CreateColumnFamilyImpl(const ReadOptions& read_options,
                                       const std::string& column_family_name,
                                       ColumnFamilyHandle** handle) {
   options_mutex_.AssertHeld();
-  Status s;
   *handle = nullptr;
+
+  // The empty string is reserved as a "no/unknown column family name" sentinel
+  // in various APIs and serialization formats (e.g.
+  // TablePropertiesCollectorFactory::Context::kUnknownColumnFamily, table
+  // properties), so reject it to avoid ambiguity. Note: prior to this check,
+  // CreateColumnFamily("") would silently "succeed" but the CF was not
+  // persisted in the manifest, causing data loss across DB reopens.
+  if (column_family_name.empty()) {
+    return Status::InvalidArgument(
+        "Column family name cannot be the empty string");
+  }
+
+  Status s;
 
   DBOptions db_options =
       BuildDBOptions(immutable_db_options_, mutable_db_options_);
@@ -3818,6 +4531,7 @@ Status DBImpl::CreateColumnFamilyImpl(const ReadOptions& read_options,
       auto* cfd =
           versions_->GetColumnFamilySet()->GetColumnFamily(column_family_name);
       assert(cfd != nullptr);
+      MaybeInitBlobDirectWriteColumnFamily(cfd, cf_options, column_family_name);
       InstallSuperVersionForConfigChange(cfd, &sv_context);
 
       if (!cfd->mem()->IsSnapshotSupported()) {
@@ -3915,6 +4629,9 @@ Status DBImpl::DropColumnFamilyImpl(ColumnFamilyHandle* column_family) {
       s = versions_->LogAndApply(cfd, read_options, write_options, &edit,
                                  &mutex_, directories_.GetDbDir());
       write_thread_.ExitUnbatched(&w);
+      if (s.ok() && cfd->blob_partition_manager() != nullptr) {
+        UnregisterBlobDirectWriteColumnFamily();
+      }
     }
     if (s.ok()) {
       auto& moptions = cfd->GetLatestMutableCFOptions();
@@ -4035,6 +4752,14 @@ Iterator* DBImpl::NewIterator(const ReadOptions& _read_options,
   ColumnFamilyData* cfd = cfh->cfd();
   assert(cfd != nullptr);
   SuperVersion* sv = cfd->GetReferencedSuperVersion(this);
+  {
+    const Status s = FailIfTableFilterWithRangeConversion(
+        read_options, sv->mutable_cf_options);
+    if (!s.ok()) {
+      CleanupSuperVersion(sv);
+      return NewErrorIterator(s);
+    }
+  }
   if (read_options.timestamp && read_options.timestamp->size() > 0) {
     const Status s =
         FailIfReadCollapsedHistory(cfd, sv, *(read_options.timestamp));
@@ -4134,14 +4859,21 @@ ArenaWrappedDBIter* DBImpl::NewIteratorImpl(
   // Laying out the iterators in the order of being accessed makes it more
   // likely that any iterator pointer is close to the iterator it points to so
   // that they are likely to be in the same cache line and/or page.
-  return NewArenaWrappedDbIterator(
-      env_, read_options, cfh, sv, snapshot, read_callback, this,
-      expose_blob_index, allow_refresh, /*allow_mark_memtable_for_flush=*/true);
+  return NewArenaWrappedDbIterator(env_, read_options, cfh, sv, snapshot,
+                                   read_callback, this, expose_blob_index,
+                                   allow_refresh,
+                                   /*allow_mark_memtable_for_flush=*/true);
 }
 
 std::unique_ptr<Iterator> DBImpl::NewCoalescingIterator(
     const ReadOptions& _read_options,
     const std::vector<ColumnFamilyHandle*>& column_families) {
+  if (column_families.size() == 1) {
+    // Preserve direct iterator semantics, including lazy value preparation,
+    // when callers route a single CF through the multi-CF API.
+    return std::unique_ptr<Iterator>(
+        NewIterator(_read_options, column_families.front()));
+  }
   return NewMultiCfIterator<Iterator, CoalescingIterator>(
       _read_options, column_families, [](const Status& s) {
         return std::unique_ptr<Iterator>(NewErrorIterator(s));
@@ -4249,6 +4981,16 @@ Status DBImpl::NewIterators(
   }
 
   assert(cf_sv_pairs.size() == column_families.size());
+  for (const auto& cf_sv_pair : cf_sv_pairs) {
+    s = FailIfTableFilterWithRangeConversion(
+        read_options, cf_sv_pair.super_version->mutable_cf_options);
+    if (!s.ok()) {
+      for (const auto& cleanup_pair : cf_sv_pairs) {
+        CleanupSuperVersion(cleanup_pair.super_version);
+      }
+      return s;
+    }
+  }
   if (read_options.tailing) {
     read_options.total_order_seek |=
         immutable_db_options_.prefix_seek_opt_in_only;
@@ -4262,7 +5004,8 @@ Status DBImpl::NewIterators(
           cf_sv_pair.super_version->mutable_cf_options,
           cf_sv_pair.cfd->user_comparator(), iter,
           cf_sv_pair.super_version->current, kMaxSequenceNumber,
-          nullptr /*read_callback*/, /*active_mem=*/nullptr, cf_sv_pair.cfh));
+          nullptr /*read_callback*/, /*active_mem=*/nullptr, cf_sv_pair.cfh,
+          /*expose_blob_index=*/false, /*arena=*/nullptr));
     }
   } else {
     for (const auto& cf_sv_pair : cf_sv_pairs) {
@@ -5788,12 +6531,20 @@ Status DBImpl::GetLatestSequenceForKey(
 
   *seq = kMaxSequenceNumber;
   *found_record_for_key = false;
+  std::optional<BlobFetcher> memtable_blob_fetcher;
+  if (cfd->blob_partition_manager() != nullptr) {
+    memtable_blob_fetcher.emplace(sv->current, read_options,
+                                  cfd->blob_file_cache(),
+                                  /*allow_write_path_fallback=*/true);
+  }
+  const BlobFetcher* memtable_blob_fetcher_ptr =
+      memtable_blob_fetcher ? &*memtable_blob_fetcher : nullptr;
 
   // Check if there is a record for this key in the latest memtable
   sv->mem->Get(lkey, /*value=*/nullptr, /*columns=*/nullptr, timestamp, &s,
                &merge_context, &max_covering_tombstone_seq, seq, read_options,
                false /* immutable_memtable */, nullptr /*read_callback*/,
-               is_blob_index);
+               is_blob_index, /*do_merge=*/true, memtable_blob_fetcher_ptr);
 
   if (!(s.ok() || s.IsNotFound() || s.IsMergeInProgress())) {
     // unexpected error reading memtable.
@@ -5826,7 +6577,8 @@ Status DBImpl::GetLatestSequenceForKey(
   // Check if there is a record for this key in the immutable memtables
   sv->imm->Get(lkey, /*value=*/nullptr, /*columns=*/nullptr, timestamp, &s,
                &merge_context, &max_covering_tombstone_seq, seq, read_options,
-               nullptr /*read_callback*/, is_blob_index);
+               nullptr /*read_callback*/, is_blob_index,
+               memtable_blob_fetcher_ptr);
 
   if (!(s.ok() || s.IsNotFound() || s.IsMergeInProgress())) {
     // unexpected error reading memtable.
@@ -5859,7 +6611,7 @@ Status DBImpl::GetLatestSequenceForKey(
   sv->imm->GetFromHistory(lkey, /*value=*/nullptr, /*columns=*/nullptr,
                           timestamp, &s, &merge_context,
                           &max_covering_tombstone_seq, seq, read_options,
-                          is_blob_index);
+                          is_blob_index, memtable_blob_fetcher_ptr);
 
   if (!(s.ok() || s.IsNotFound() || s.IsMergeInProgress())) {
     // unexpected error reading memtable.
@@ -6081,6 +6833,19 @@ Status DBImpl::IngestExternalFiles(
   TEST_SYNC_POINT("DBImpl::IngestExternalFiles:BeforeJobsRun:0");
   TEST_SYNC_POINT("DBImpl::IngestExternalFiles:BeforeJobsRun:1");
   TEST_SYNC_POINT("DBImpl::AddFile:Start");
+
+  // Acquire per-CF ingest_sst_lock as ReadLocks (shared) BEFORE the DB
+  // mutex so the lock-acquisition order is ingest_sst_lock -> DB mutex
+  // throughout. Use readlock so we still allow concurrent ingestions.
+  std::vector<std::unique_ptr<ReadLock>> ingest_read_locks;
+  ingest_read_locks.reserve(num_cfs);
+  for (size_t i = 0; i != num_cfs; ++i) {
+    auto* cfd = ingestion_jobs[i].GetColumnFamilyData();
+    if (!cfd->IsDropped()) {
+      ingest_read_locks.emplace_back(
+          std::make_unique<ReadLock>(&cfd->GetIngestSstLock()));
+    }
+  }
   {
     InstrumentedMutexLock l(&mutex_);
     TEST_SYNC_POINT("DBImpl::AddFile:MutexLock");
@@ -6168,6 +6933,23 @@ Status DBImpl::IngestExternalFiles(
           break;
         }
         ingestion_jobs[i].RegisterRange();
+      }
+    }
+    // Now that Run() has assigned the actual seqno for each ingested file,
+    // bump each affected memtable's ingest_seqno_barrier_ to that exact
+    // value. We still hold the per-CF ingest_sst_lock as a ReadLock; any
+    // concurrent conversion's TryWriteLock on the same lock fails, so no
+    // converter can be reading or about to read the barrier while we
+    // update it. After we release the ReadLocks at function exit, the
+    // next conversion observes the new barrier and refuses any insert
+    // with insert_seq < assigned.
+    if (status.ok()) {
+      for (size_t i = 0; i != num_cfs; ++i) {
+        auto* cfd = ingestion_jobs[i].GetColumnFamilyData();
+        SequenceNumber assigned = ingestion_jobs[i].MaxAssignedSequenceNumber();
+        if (assigned > 0) {
+          cfd->mem()->BumpIngestSeqnoBarrier(assigned);
+        }
       }
     }
     if (status.ok()) {
@@ -6831,6 +7613,7 @@ Status DBImpl::ReserveFileNumbersBeforeIngestion(
 Status DBImpl::GetCreationTimeOfOldestFile(uint64_t* creation_time) {
   if (mutable_db_options_.max_open_files == -1) {
     uint64_t oldest_time = std::numeric_limits<uint64_t>::max();
+    std::once_flag waited_for_async_open;
     for (auto cfd : *versions_->GetColumnFamilySet()) {
       if (!cfd->IsDropped()) {
         uint64_t ctime;
@@ -6838,6 +7621,17 @@ Status DBImpl::GetCreationTimeOfOldestFile(uint64_t* creation_time) {
           SuperVersion* sv = GetAndRefSuperVersion(cfd);
           Version* version = sv->current;
           version->GetCreationTimeOfOldestFile(&ctime);
+          // For modern DBs, manifest carries file_creation_time and the
+          // first call returns the real value. We only need to wait for
+          // BGWorkAsyncFileOpen on legacy DBs whose manifest lacks
+          // file_creation_time -- those rely on the pinned reader, which is
+          // null until async file open completes.
+          if (ctime == 0 && immutable_db_options_.open_files_async) {
+            std::call_once(waited_for_async_open, [&]() {
+              WaitForAsyncFileOpen();
+              version->GetCreationTimeOfOldestFile(&ctime);
+            });
+          }
           ReturnAndCleanupSuperVersion(cfd, sv);
         }
 

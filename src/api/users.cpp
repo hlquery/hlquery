@@ -433,15 +433,18 @@ HttpResponse SearchAPI::HandleUpdateUser(const HttpRequest &Request)
      }
 
      bool IncludeToken = false;
+
      if (Body.contains("token") && Body["token"].is_string())
      {
           std::string Token = Body["token"].get<std::string>();
+
           if (!Token.empty() && Token != Updated.Token)
           {
                if (Instance->Users->IsValidToken(Token))
                {
                     return MakeJSONResponse(409, "Conflict", "{\"error\":\"Token already in use\"}");
                }
+               
                Updated.Token = Token;
                IncludeToken = true;
           }

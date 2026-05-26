@@ -114,6 +114,7 @@ DECLARE_double(memtable_prefix_bloom_size_ratio);
 DECLARE_bool(memtable_whole_key_filtering);
 DECLARE_int32(open_files);
 DECLARE_bool(open_files_async);
+DECLARE_bool(async_wal_precreate);
 DECLARE_uint64(compressed_secondary_cache_size);
 DECLARE_int32(compressed_secondary_cache_numshardbits);
 DECLARE_int32(secondary_cache_update_interval);
@@ -184,11 +185,15 @@ DECLARE_int32(data_block_index_type);
 DECLARE_int32(index_block_search_type);
 DECLARE_double(uniform_cv_threshold);
 DECLARE_bool(use_trie_index);
+DECLARE_bool(use_udi_as_primary_index);
 DECLARE_bool(test_backward_scan);
 DECLARE_string(db);
 DECLARE_string(secondaries_base);
 DECLARE_bool(test_secondary);
 DECLARE_string(expected_values_dir);
+DECLARE_bool(expected_state_trace_debug);
+DECLARE_int64(expected_state_trace_debug_key);
+DECLARE_int32(expected_state_trace_debug_max_logs);
 DECLARE_bool(verify_checksum);
 DECLARE_bool(mmap_read);
 DECLARE_bool(mmap_write);
@@ -275,7 +280,9 @@ DECLARE_bool(use_full_merge_v1);
 DECLARE_int32(sync_wal_one_in);
 DECLARE_bool(avoid_unnecessary_blocking_io);
 DECLARE_bool(write_dbid_to_manifest);
+DECLARE_bool(optimize_manifest_for_recovery);
 DECLARE_bool(write_identity_file);
+DECLARE_bool(reuse_manifest_on_open);
 DECLARE_bool(avoid_flush_during_recovery);
 DECLARE_bool(enforce_write_buffer_manager_during_recovery);
 DECLARE_uint64(max_write_batch_group_size_bytes);
@@ -320,6 +327,8 @@ DECLARE_bool(blob_db_enable_gc);
 // Options for integrated BlobDB
 DECLARE_bool(allow_setting_blob_options_dynamically);
 DECLARE_bool(enable_blob_files);
+DECLARE_bool(enable_blob_direct_write);
+DECLARE_uint64(blob_direct_write_partitions);
 DECLARE_uint64(min_blob_size);
 DECLARE_uint64(blob_file_size);
 DECLARE_string(blob_compression_type);
@@ -358,6 +367,7 @@ DECLARE_bool(adaptive_readahead);
 DECLARE_bool(async_io);
 DECLARE_string(wal_compression);
 DECLARE_bool(verify_sst_unique_id_in_manifest);
+DECLARE_bool(fast_sst_open);
 
 DECLARE_int32(create_timestamped_snapshot_one_in);
 
@@ -448,10 +458,12 @@ DECLARE_int32(allow_resumption_one_in);
 DECLARE_bool(auto_refresh_iterator_with_snapshot);
 DECLARE_uint32(memtable_op_scan_flush_trigger);
 DECLARE_uint32(memtable_avg_op_scan_flush_trigger);
+DECLARE_uint32(min_tombstones_for_range_conversion);
 DECLARE_uint32(ingest_wbwi_one_in);
 DECLARE_bool(universal_reduce_file_locking);
 DECLARE_bool(use_multiscan);
 DECLARE_bool(multiscan_use_async_io);
+DECLARE_uint64(multiscan_max_prefetch_memory_bytes);
 
 // Compaction deletion trigger declarations for stress testing
 DECLARE_bool(enable_compaction_on_deletion_trigger);
@@ -461,15 +473,18 @@ DECLARE_int32(compaction_on_deletion_window_size);
 DECLARE_double(compaction_on_deletion_ratio);
 DECLARE_double(read_triggered_compaction_threshold);
 
+DECLARE_string(listener_uri);
+
 constexpr long KB = 1024;
 constexpr int kRandomValueMaxFactor = 3;
 constexpr int kValueMaxLen = 100;
 constexpr uint32_t kLargePrimeForCommonFactorSkew = 1872439133;
 
-// wrapped posix environment
-extern ROCKSDB_NAMESPACE::Env* db_stress_env;
-extern ROCKSDB_NAMESPACE::Env* db_stress_listener_env;
-extern std::shared_ptr<ROCKSDB_NAMESPACE::FaultInjectionTestFS> fault_fs_guard;
+// Base env from --env_uri/--fs_uri. No wrappers (no DbStressFSWrapper, no
+// fault injection). Could be PosixEnv or remote. Used for infrastructure ops
+// (threads, time, dirs, cleanup). Per-StressTest env adds fault injection +
+// DbStressFSWrapper on top for DB I/O.
+extern ROCKSDB_NAMESPACE::Env* raw_env;
 extern std::shared_ptr<ROCKSDB_NAMESPACE::SecondaryCache>
     compressed_secondary_cache;
 extern std::shared_ptr<ROCKSDB_NAMESPACE::Cache> block_cache;
@@ -497,6 +512,8 @@ inline enum RepFactory StringToRepFactory(const char* ctype) {
 extern enum RepFactory FLAGS_rep_factory;
 
 namespace ROCKSDB_NAMESPACE {
+void RegisterDbStressBdwFlagValidators();
+
 inline enum ROCKSDB_NAMESPACE::CompressionType StringToCompressionType(
     const char* ctype) {
   assert(ctype);

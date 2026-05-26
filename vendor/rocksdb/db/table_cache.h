@@ -54,7 +54,7 @@ class TableCache {
              const FileOptions* storage_options, Cache* cache,
              BlockCacheTracer* const block_cache_tracer,
              const std::shared_ptr<IOTracer>& io_tracer,
-             const std::string& db_session_id);
+             const std::string& db_session_id, bool fast_sst_open = false);
   ~TableCache();
 
   // Cache interface for table cache
@@ -100,7 +100,10 @@ class TableCache {
       const InternalKey* largest_compaction_key, bool allow_unprepared_value,
       const SequenceNumber* range_del_read_seqno = nullptr,
       std::unique_ptr<TruncatedRangeDelIterator>* range_del_iter = nullptr,
-      bool maybe_pin_table_handle = false);
+      bool maybe_pin_table_handle = false,
+      // If non-null, and the table reader is newly opened (not cached),
+      // retrieves file open metadata via GetFileOpenMetadata().
+      std::string* file_open_metadata = nullptr);
 
   // If a seek to internal key "k" in specified file finds an entry,
   // call get_context->SaveValue() repeatedly until
@@ -197,7 +200,8 @@ class TableCache {
                    bool prefetch_index_and_filter_in_cache = true,
                    size_t max_file_size_for_l0_meta_pin = 0,
                    Temperature file_temperature = Temperature::kUnknown,
-                   bool pin_table_handle = false);
+                   bool pin_table_handle = false,
+                   std::string* file_open_metadata = nullptr);
 
   // Get the table properties of a given table.
   // @no_io: indicates if we should load table to the cache if it is not present
@@ -266,6 +270,10 @@ class TableCache {
         cache_.get()->GetCapacity() >= kInfiniteCapacity;
   }
 
+  void SetFastSstOpen(bool enabled) {
+    fast_sst_open_.store(enabled, std::memory_order_relaxed);
+  }
+
  private:
   // Build a table reader
   Status GetTableReader(const ReadOptions& ro, const FileOptions& file_options,
@@ -277,7 +285,8 @@ class TableCache {
                         bool skip_filters = false, int level = -1,
                         bool prefetch_index_and_filter_in_cache = true,
                         size_t max_file_size_for_l0_meta_pin = 0,
-                        Temperature file_temperature = Temperature::kUnknown);
+                        Temperature file_temperature = Temperature::kUnknown,
+                        std::string* file_open_metadata = nullptr);
 
   // Update the max_covering_tombstone_seq in the GetContext for each key based
   // on the range deletions in the table
@@ -307,6 +316,7 @@ class TableCache {
   std::string row_cache_id_;
   bool immortal_tables_;
   bool should_pin_table_handles_;
+  std::atomic<bool> fast_sst_open_;
   BlockCacheTracer* const block_cache_tracer_;
   Striped<CacheAlignedWrapper<port::Mutex>> loader_mutex_;
   std::shared_ptr<IOTracer> io_tracer_;

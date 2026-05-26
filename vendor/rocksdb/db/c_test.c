@@ -205,6 +205,27 @@ static void CheckDel(void* ptr, const char* k, size_t klen) {
   (*state)++;
 }
 
+static void NopPut(void* ptr, const char* k, size_t klen, const char* v,
+                   size_t vlen) {
+  (void)ptr;
+  (void)k;
+  (void)klen;
+  (void)v;
+  (void)vlen;
+}
+
+static void NopDel(void* ptr, const char* k, size_t klen) {
+  (void)ptr;
+  (void)k;
+  (void)klen;
+}
+
+static void CheckLogData(void* ptr, const char* blob, size_t blen) {
+  CheckEqual("log_blob", blob, blen);
+  int* found = (int*)ptr;
+  *found = 1;
+}
+
 // Callback from rocksdb_writebatch_iterate_cf()
 static void CheckPutCF(void* ptr, uint32_t cfid, const char* k, size_t klen,
                        const char* v, size_t vlen) {
@@ -2643,6 +2664,10 @@ int main(int argc, char** argv) {
     CheckCondition(150 ==
                    rocksdb_options_get_memtable_avg_op_scan_flush_trigger(o));
 
+    rocksdb_options_set_min_tombstones_for_range_conversion(o, 200);
+    CheckCondition(200 ==
+                   rocksdb_options_get_min_tombstones_for_range_conversion(o));
+
     rocksdb_options_set_ttl(o, 5000);
     CheckCondition(5000 == rocksdb_options_get_ttl(o));
 
@@ -2844,6 +2869,9 @@ int main(int argc, char** argv) {
     rocksdb_options_set_track_and_verify_wals_in_manifest(o, 42);
     CheckCondition(1 ==
                    rocksdb_options_get_track_and_verify_wals_in_manifest(o));
+    CheckCondition(0 == rocksdb_options_get_async_wal_precreate(o));
+    rocksdb_options_set_async_wal_precreate(o, 1);
+    CheckCondition(1 == rocksdb_options_get_async_wal_precreate(o));
 
     /* Blob Options */
     rocksdb_options_set_enable_blob_files(o, 1);
@@ -3093,6 +3121,12 @@ int main(int argc, char** argv) {
         900 == rocksdb_options_get_memtable_avg_op_scan_flush_trigger(copy));
     CheckCondition(150 ==
                    rocksdb_options_get_memtable_avg_op_scan_flush_trigger(o));
+
+    rocksdb_options_set_min_tombstones_for_range_conversion(copy, 1000);
+    CheckCondition(
+        1000 == rocksdb_options_get_min_tombstones_for_range_conversion(copy));
+    CheckCondition(200 ==
+                   rocksdb_options_get_min_tombstones_for_range_conversion(o));
 
     rocksdb_options_set_ttl(copy, 8000);
     CheckCondition(8000 == rocksdb_options_get_ttl(copy));
@@ -3397,6 +3431,12 @@ int main(int argc, char** argv) {
 
     rocksdb_readoptions_set_async_io(ro, 1);
     CheckCondition(1 == rocksdb_readoptions_get_async_io(ro));
+
+    // optimize_multiget_for_io defaults to true (1); flip to 0 to verify the
+    // setter is wired through to the underlying C++ ReadOptions field.
+    CheckCondition(1 == rocksdb_readoptions_get_optimize_multiget_for_io(ro));
+    rocksdb_readoptions_set_optimize_multiget_for_io(ro, 0);
+    CheckCondition(0 == rocksdb_readoptions_get_optimize_multiget_for_io(ro));
 
     rocksdb_readoptions_destroy(ro);
   }
@@ -3858,9 +3898,34 @@ int main(int argc, char** argv) {
       CheckMultiGetValues(3, vals, vals_sizes, errs, expected);
     }
 
+    rocksdb_transaction_put_log_data(txn, "log_blob", 8);
+    // record sequence number before commit so we can scan the WAL after
+    rocksdb_t* base_db_ld = rocksdb_transactiondb_get_base_db(txn_db);
+    uint64_t seq_before = rocksdb_get_latest_sequence_number(base_db_ld);
+
     // commit
     rocksdb_transaction_commit(txn, &err);
     CheckNoError(err);
+
+    // verify log data was written to WAL by scanning batches since seq_before
+    {
+      rocksdb_wal_iterator_t* wal_iter =
+          rocksdb_get_updates_since(base_db_ld, seq_before, NULL, &err);
+      CheckNoError(err);
+      int log_found = 0;
+      for (; rocksdb_wal_iter_valid(wal_iter) && !log_found;
+           rocksdb_wal_iter_next(wal_iter)) {
+        uint64_t seq;
+        rocksdb_writebatch_t* wal_wb =
+            rocksdb_wal_iter_get_batch(wal_iter, &seq);
+        rocksdb_writebatch_iterate_ld(wal_wb, &log_found, NopPut, NopDel,
+                                      CheckLogData);
+        rocksdb_writebatch_destroy(wal_wb);
+      }
+      CheckCondition(log_found == 1);
+      rocksdb_wal_iter_destroy(wal_iter);
+    }
+    rocksdb_transactiondb_close_base_db(base_db_ld);
 
     // read from outside transaction, after commit
     CheckTxnDBGet(txn_db, roptions, "foo", "hello");

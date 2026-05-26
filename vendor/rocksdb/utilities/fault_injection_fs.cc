@@ -22,6 +22,7 @@
 #include <utility>
 
 #include "env/composite_env_wrapper.h"
+#include "monitoring/thread_status_util.h"
 #include "port/lang.h"
 #include "port/stack_trace.h"
 #include "rocksdb/env.h"
@@ -38,6 +39,35 @@
 namespace ROCKSDB_NAMESPACE {
 
 const std::string kNewFileNoOverwrite;
+
+namespace {
+
+bool TryParseInfoLogFileName(const std::string& file_name, uint64_t* number,
+                             FileType* type) {
+  size_t prefix_len = std::string::npos;
+  if (file_name == "LOG" ||
+      (file_name.size() > 3 && file_name.compare(0, 7, "LOG.old") == 0)) {
+    prefix_len = sizeof("LOG") - 1;
+  } else {
+    size_t info_log_pos = file_name.rfind("_LOG");
+    if (info_log_pos != std::string::npos) {
+      size_t suffix_pos = info_log_pos + sizeof("_LOG") - 1;
+      if (suffix_pos == file_name.size() ||
+          (suffix_pos < file_name.size() &&
+           file_name.compare(suffix_pos, 4, ".old") == 0)) {
+        prefix_len = suffix_pos;
+      }
+    }
+  }
+  if (prefix_len == std::string::npos) {
+    return false;
+  }
+  Slice info_log_name_prefix(file_name.data(), prefix_len);
+  return ParseFileName(file_name, number, info_log_name_prefix, type) &&
+         *type == kInfoLogFile;
+}
+
+}  // namespace
 
 // Assume a filename, and not a directory name like "/foo/bar/"
 std::string TestFSGetDirName(const std::string filename) {
@@ -148,7 +178,7 @@ TestFSWritableFile::TestFSWritableFile(const std::string& fname,
     : state_(fname),
       file_opts_(file_opts),
       target_(std::move(f)),
-      writable_file_opened_(true),
+      should_forward_close_(true),
       fs_(fs),
       unsync_data_loss_(fs_->InjectUnsyncedDataLoss()) {
   assert(target_ != nullptr);
@@ -157,8 +187,15 @@ TestFSWritableFile::TestFSWritableFile(const std::string& fname,
 }
 
 TestFSWritableFile::~TestFSWritableFile() {
-  if (writable_file_opened_) {
-    Close(IOOptions(), nullptr).PermitUncheckedError();
+  const ThreadStatus::OperationType thread_op =
+      ThreadStatusUtil::GetThreadOperation();
+  if (thread_op != ThreadStatus::OperationType::OP_UNKNOWN) {
+    ThreadStatusUtil::SetThreadOperation(
+        ThreadStatus::OperationType::OP_UNKNOWN);
+  }
+  CloseImpl(IOOptions(), nullptr).PermitUncheckedError();
+  if (thread_op != ThreadStatus::OperationType::OP_UNKNOWN) {
+    ThreadStatusUtil::SetThreadOperation(thread_op);
   }
 }
 
@@ -332,7 +369,24 @@ IOStatus TestFSWritableFile::PositionedAppend(
 
 IOStatus TestFSWritableFile::Close(const IOOptions& options,
                                    IODebugContext* dbg) {
+  return CloseImpl(options, dbg);
+}
+
+IOStatus TestFSWritableFile::CloseImpl(const IOOptions& options,
+                                       IODebugContext* dbg) {
   MutexLock l(&mutex_);
+  if (!should_forward_close_) {
+    return IOStatus::OK();
+  }
+  // Mirror the production FSWritableFile close boundary here: the first
+  // Close() attempt is this wrapper's one chance to forward Close() to
+  // target_. Later Close() calls, including the destructor path, are
+  // wrapper-level no-ops.
+  should_forward_close_ = false;
+  // Publish the path-level close transition before injection. FSWritableFile
+  // considers the file closed after the first Close() attempt regardless of
+  // returned status, so crash/recovery bookkeeping must observe that first
+  // close attempt even if fault injection aborts the metadata close path.
   fs_->WritableFileClosed(state_);
   if (!fs_->IsFilesystemActive()) {
     return fs_->GetError();
@@ -342,7 +396,6 @@ IOStatus TestFSWritableFile::Close(const IOOptions& options,
   if (!io_s.ok()) {
     return io_s;
   }
-  writable_file_opened_ = false;
 
   // Drop buffered data that was never synced because close is not a syncing
   // mechanism in POSIX file semantics.
@@ -1422,7 +1475,8 @@ IOStatus FaultInjectionTestFS::MaybeInjectThreadLocalReadError(
   ErrorContext* ctx =
       static_cast<ErrorContext*>(injected_thread_local_read_error_.Get());
   if (ctx == nullptr || !ctx->enable_error_injection || !ctx->one_in ||
-      ShouldIOActivitiesExcludedFromFaultInjection(io_options.io_activity)) {
+      ShouldIOActivitiesExcludedFromFaultInjection(io_options.io_activity) ||
+      ShouldExcludeFromFaultInjection(file_name, FaultInjectionIOType::kRead)) {
     return IOStatus::OK();
   }
 
@@ -1501,9 +1555,13 @@ IOStatus FaultInjectionTestFS::MaybeInjectThreadLocalReadError(
 
 bool FaultInjectionTestFS::TryParseFileName(const std::string& file_name,
                                             uint64_t* number, FileType* type) {
-  std::size_t found = file_name.find_last_of('/');
-  std::string file = file_name.substr(found);
-  return ParseFileName(file, number, type);
+  std::size_t found = file_name.find_last_of("/\\");
+  std::string file =
+      found == std::string::npos ? file_name : file_name.substr(found + 1);
+  if (ParseFileName(file, number, type)) {
+    return true;
+  }
+  return TryParseInfoLogFileName(file, number, type);
 }
 
 IOStatus FaultInjectionTestFS::MaybeInjectThreadLocalError(
@@ -1520,8 +1578,7 @@ IOStatus FaultInjectionTestFS::MaybeInjectThreadLocalError(
   ErrorContext* ctx = GetErrorContextFromFaultInjectionIOType(type);
   if (ctx == nullptr || !ctx->enable_error_injection || !ctx->one_in ||
       ShouldIOActivitiesExcludedFromFaultInjection(io_options.io_activity) ||
-      (type == FaultInjectionIOType::kWrite &&
-       ShouldExcludeFromWriteFaultInjection(file_name))) {
+      ShouldExcludeFromFaultInjection(file_name, type)) {
     return IOStatus::OK();
   }
 

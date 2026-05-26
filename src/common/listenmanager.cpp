@@ -39,7 +39,6 @@ ListenManager::~ListenManager()
           /* Cache FD before DelFD() to prevent use-after-free */
 
           int fd_val = GetFD();
-
           SocketEngine::DelFD(this);
 
           if (fd_val >= 0)
@@ -64,7 +63,6 @@ std::vector<std::unique_ptr<ListenManager>> ListenManager::CreateCustomProtocolL
      }
 
      const auto &BindConfigs = Instance->GetConfig().GetBindConfigs();
-
      Listeners.reserve(BindConfigs.size());
 
      if (Instance && Instance->Logs)

@@ -395,6 +395,31 @@ public enum TickerType {
     WAL_FILE_BYTES((byte) 0x54),
 
     /**
+     * Number of WAL rotations that consumed an async precreated WAL.
+     */
+    WAL_PRECREATE_HIT((byte) -0x6C),
+
+    /**
+     * Number of WAL rotations that found no async precreated WAL to consume.
+     */
+    WAL_PRECREATE_MISS((byte) -0x6D),
+
+    /**
+     * Number of WAL rotations that waited for an in-flight WAL precreation.
+     */
+    WAL_PRECREATE_WAITED((byte) -0x6E),
+
+    /**
+     * Total foreground wait time for in-flight WAL precreation.
+     */
+    WAL_PRECREATE_WAIT_MICROS((byte) -0x6F),
+
+    /**
+     * Number of async WAL precreation attempts that failed.
+     */
+    WAL_PRECREATE_FAILED((byte) -0x70),
+
+    /**
      * Writes can be processed by requesting thread or by the thread at the
      * head of the writers queue.
      */
@@ -954,6 +979,23 @@ public enum TickerType {
      * # of seek errors during multi-scan iteration
      */
     MULTISCAN_SEEK_ERRORS((byte) -0x68),
+
+    /**
+     * # of range tombstones inserted by read-path conversion from contiguous
+     * point tombstones
+     */
+    READ_PATH_RANGE_TOMBSTONES_INSERTED((byte) -0x69),
+
+    /**
+     * # of range tombstones not inserted because the memtable was already
+     * switched to immutable
+     */
+    READ_PATH_RANGE_TOMBSTONES_DISCARDED((byte) -0x6A),
+
+    /**
+     * # of times MANIFEST content validation detected corruption on DB close
+     */
+    MANIFEST_VALIDATION_FAILURE_COUNT((byte) -0x6B),
 
     TICKER_ENUM_MAX((byte) -0x54);
 
