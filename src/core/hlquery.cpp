@@ -134,7 +134,6 @@ bool hlquery::Initialize()
      }
 
      InitializeNetworkListeners();
-
      Logs->Normal("hlquery", "HTTP servers initialized; readiness will follow startup loading state.");
 
      return true;
