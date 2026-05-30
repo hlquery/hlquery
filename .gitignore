@@ -8,6 +8,8 @@ cmake-build-*/
 out/
 bin/
 lib/
+!vendor/rocksdb/utilities/transactions/lock/range/range_tree/lib/
+!vendor/rocksdb/utilities/transactions/lock/range/range_tree/lib/**
 !etc/api/node/lib/
 !etc/api/node/lib/*.js
 !etc/api/python/lib/
