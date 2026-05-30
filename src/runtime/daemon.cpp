@@ -418,11 +418,8 @@ void DaemonHandler::ProcessSocketEngineOptimization()
      if (HasPendingWork)
      {
           AdaptiveSleepMS.store(0, std::memory_order_relaxed);
-
           HighThroughputModeValue.store(1, std::memory_order_relaxed);
-
           ConsecutiveIdleIterations.store(0, std::memory_order_relaxed);
-
           ConsecutiveBusyIterations.fetch_add(1, std::memory_order_relaxed);
 
           return;
@@ -477,9 +474,7 @@ void DaemonHandler::ProcessSocketEngineOptimization()
                /* Increment sleep time gradually up to a 1ms maximum cap */
 
                int NewSleep = std::min(CurrentSleep + 1, 1);
-
                AdaptiveSleepMS.store(NewSleep, std::memory_order_relaxed);
-
                HighThroughputModeValue.store(0, std::memory_order_relaxed);
 
                ConsecutiveIdleIterations.store(0, std::memory_order_relaxed);
@@ -509,7 +504,6 @@ void DaemonHandler::ProcessLazyOperations()
      if (Counter >= UINT64_MAX - 10000)
      {
           LazyProcessingCounter.store(0, std::memory_order_relaxed);
-
           Counter = 0;
      }
 
@@ -1087,12 +1081,10 @@ bool hlquery::CheckExistingProcess()
                          if (IsZombieProcess(ExistingPIDValue) || !IsHLQueryProcess(ExistingPIDValue))
                          {
                               unlink(PIDFilePath.c_str());
-
                               return false;
                          }
 
                          PIDFdGuard.release();
-
                          return true;
                     }
 
@@ -1105,12 +1097,10 @@ bool hlquery::CheckExistingProcess()
                          if (IsZombieProcess(ExistingPIDValue))
                          {
                               unlink(PIDFilePath.c_str());
-
                               return false;
                          }
 
                          PIDFdGuard.release();
-
                          return true;
                     }
 
@@ -1119,7 +1109,6 @@ bool hlquery::CheckExistingProcess()
                else
                {
                     unlink(PIDFilePath.c_str());
-
                     return false;
                }
           }
@@ -1171,7 +1160,6 @@ bool hlquery::WritePID()
           }
 
           std::string PIDFilePath = ResolvePIDFilePath();
-
           int PIDFileHandle = open(PIDFilePath.c_str(), O_CREAT | O_WRONLY, 0644);
 
           if (PIDFileHandle < 0)
@@ -1192,6 +1180,7 @@ bool hlquery::WritePID()
 
                FdGuard(int fd) : FDValue(fd), Released(false), LockAcquired(false)
                {
+               
                }
 
                ~FdGuard()
@@ -1378,7 +1367,6 @@ void hlquery::ForceStop()
      if (TargetPIDValue <= 1 || TargetPIDValue > 4194304)
      {
           ConsoleWriter::WriteError("hlquery forcestop: Invalid PID value: " + std::to_string(TargetPIDValue) + ".", true);
-
           RemovePIDFileIfUnlocked(PIDFilePath);
 
           std::cout << "hlquery forcestop: Removed corrupted PID file." << std::endl;
@@ -1498,13 +1486,9 @@ void hlquery::ForceStop()
           }
 
           struct timespec SleepTimeSpec;
-
           SleepTimeSpec.tv_sec = 0;
-
           SleepTimeSpec.tv_nsec = PollIntervalMS * 1000000;
-
           nanosleep(&SleepTimeSpec, nullptr);
-
           WaitedMSCount += PollIntervalMS;
      }
 

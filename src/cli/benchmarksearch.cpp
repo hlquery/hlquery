@@ -124,7 +124,7 @@ void RunSearches(const std::string &base_url, const std::string &auth_token)
 
      std::vector<std::string> bench_collections;
      static const std::vector<std::string> fake_collections =
-          {"art", "books", "food", "history", "math", "movies", "music", "science", "sports", "stocks", "technology", "travel", "universities"};
+          {"art", "books", "food", "history", "math", "movies", "music", "people", "science", "sports", "stocks", "technology", "travel", "universities"};
 
      for (const auto &col : all_collections)
      {
@@ -217,6 +217,26 @@ void RunSearches(const std::string &base_url, const std::string &auth_token)
           auto rank_response = client.Search("universities", "university", rank_params);
 
           PrintSearchResult(++search_count_val, "University explicit rank baseline: 'university'", rank_response, "universities");
+     }
+
+     if (std::find(bench_collections.begin(), bench_collections.end(), "people") != bench_collections.end())
+     {
+          const std::vector<std::string> people_queries = {
+               "Adrian Alexis Anderson",
+               "community librarian",
+               "software engineer",
+               "public health analyst",
+               "fictional biography"};
+
+          for (const auto &query : people_queries)
+          {
+               std::map<std::string, std::string> params;
+               params["limit"] = "5";
+
+               auto response = client.Search("people", query, params);
+
+               PrintSearchResult(++search_count_val, "People profile search: '" + query + "'", response, "people");
+          }
      }
 
      std::vector<std::string> wildcard_prefix =

@@ -104,8 +104,8 @@ inline bool ParseSharedNodeEndpoint(const std::string &Raw,
                                     const NodeEndpointParseOptions &Options = NodeEndpointParseOptions())
 {
      std::string Node = TrimNodeEndpointValue(Raw);
-     if (Node.empty())
 
+     if (Node.empty())
      {
           return false;
      }

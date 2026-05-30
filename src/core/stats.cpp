@@ -16,15 +16,10 @@
 ServerStats::ServerStats()
 {
      RestartCount = 0;
-
      LastRestartTimestamp = 0;
-
      HealthDegraded.store(false);
-
      HealthDegradedReason = "";
-
      DirtyShutdownDetected = false;
-
      StartupTime = 0;
 }
 
@@ -116,7 +111,6 @@ std::string ServerStats::GetHealthDegradedReason() const
 bool ServerStats::IsDirtyShutdown() const
 {
      std::lock_guard<std::mutex> Lock(DirtyShutdownMutex);
-
      return DirtyShutdownDetected;
 }
 

@@ -1436,6 +1436,8 @@ HttpResponse SearchAPI::HandleSearchConfig(const HttpRequest &Request)
      ConfigJSON["enable_synonyms"] = Config->GetQuerySettingsEnableSynonyms();
      ConfigJSON["enable_fuzzy"] = Config->GetQuerySettingsEnableFuzzy();
      ConfigJSON["fuzzy_max_distance"] = Config->GetQuerySettingsFuzzyMaxDistance();
+     ConfigJSON["require_exact_identifier_tokens"] = Config->GetQuerySettingsRequireExactIdentifierTokens();
+     ConfigJSON["sam25_require_exact_identifier_tokens"] = Config->GetSam25RequireExactIdentifierTokens();
      ConfigJSON["default_limit"] = Config->GetLimitsDefaultLimit();
      ConfigJSON["max_limit"] = Config->GetLimitsMaxLimit();
      ConfigJSON["min_limit"] = Config->GetLimitsMinLimit();

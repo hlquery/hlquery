@@ -49,7 +49,6 @@ class PerformanceCounters
      void IncrementCounter(const std::string &Name)
      {
           std::lock_guard<std::mutex> Lock(CountersMutex);
-
           Counters[Name].count.fetch_add(1);
      }
 
@@ -60,11 +59,8 @@ class PerformanceCounters
           std::lock_guard<std::mutex> Lock(CountersMutex);
 
           auto &CounterRef = Counters[Name];
-
           CounterRef.count.fetch_add(1);
-
           CounterRef.total_time_us.fetch_add(TimeUS);
-
           CounterRef.last_time_us.store(TimeUS);
 
           /* Update minimum and maximum timing values using atomic compare-and-swap */
@@ -116,13 +112,9 @@ class PerformanceCounters
           CounterStats Stats;
 
           Stats.count = CounterInstance.count.load();
-
           Stats.total_time_us = CounterInstance.total_time_us.load();
-
           Stats.min_time_us = CounterInstance.min_time_us.load();
-
           Stats.max_time_us = CounterInstance.max_time_us.load();
-
           Stats.last_time_us = CounterInstance.last_time_us.load();
 
           if (Stats.count > 0)

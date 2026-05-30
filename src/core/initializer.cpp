@@ -475,20 +475,8 @@ bool hlquery::InitializeCore()
      if (Logs)
      {
           Logs->Debug("hlquery", "TimerManager created.");
-     }
-
-     if (Logs)
-     {
           Logs->Normal("startup", "TimerManager initialized.");
-     }
-
-     if (Logs)
-     {
           Logs->Debug("hlquery", "Metrics storage initialized.");
-     }
-
-     if (Logs)
-     {
           Logs->Normal("startup", "Metrics storage initialized.");
      }
 
@@ -534,9 +522,7 @@ bool hlquery::InitializeCore()
                auto OriginalEntriesList = IPFilter->GetOriginalEntries();
 
                auto ResolvedIPsList = IPFilter->GetAllowedIPs();
-
                auto DeniedEntriesList = IPFilter->GetDeniedEntries();
-
                auto DeniedResolvedList = IPFilter->GetDeniedIPs();
                bool HasHostDeny = (Config && Config->HasHostDeny());
 
@@ -814,6 +800,7 @@ bool hlquery::InitializeNoForkMode()
           {
                Logs->Critical("hlquery", "No HTTP/HTTPS bind configurations found!");
           }
+ 
           ConsoleWriter::WriteError("[FATAL] No HTTP/HTTPS bind configurations found! Check your configuration file.", true);
           SetShutdownFlag();
           return false;
@@ -824,7 +811,6 @@ bool hlquery::InitializeNoForkMode()
      /* Synchronize with background metadata scan before finishing setup */
 
      WaitForMetadataScan();
-
      return true;
 }
 
@@ -867,7 +853,6 @@ void hlquery::WaitForMetadataScan()
 
      {
           std::lock_guard<std::mutex> Lock(StatsVal.StartupStateMutex);
-
           StatsVal.StartupStateInfo.MetadataScanStart = Instance ? Instance->Now() : Now();
      }
 
@@ -891,7 +876,6 @@ void hlquery::WaitForMetadataScan()
 
                          {
                               std::lock_guard<std::mutex> Lock(StatsVal.StartupStateMutex);
-
                               StatsVal.StartupStateInfo.StrictStartupMode = true;
                          }
 
@@ -906,7 +890,6 @@ void hlquery::WaitForMetadataScan()
                     {
                          {
                               std::lock_guard<std::mutex> Lock(StatsVal.StartupStateMutex);
-
                               StatsVal.StartupStateInfo.ReadonlyMode = true;
                          }
 
@@ -940,7 +923,6 @@ void hlquery::WaitForMetadataScan()
                std::lock_guard<std::mutex> Lock(StatsVal.StartupStateMutex);
 
                StatsVal.StartupStateInfo.MetadataScanEnd = Instance ? Instance->Now() : Now();
-
                StatsVal.StartupStateInfo.MetadataScanComplete = true;
           }
 
@@ -953,7 +935,6 @@ void hlquery::WaitForMetadataScan()
 
           {
                std::lock_guard<std::mutex> Lock(StatsVal.StartupStateMutex);
-
                StatsVal.StartupStateInfo.CollectionLoadStart = Instance ? Instance->Now() : Now();
           }
 
@@ -982,15 +963,12 @@ void hlquery::WaitForMetadataScan()
 
                {
                     std::lock_guard<std::mutex> Lock(StatsVal.StartupStateMutex);
-
                     StatsVal.StartupStateInfo.CollectionLoadEnd = Instance ? Instance->Now() : Now();
-
                     StatsVal.StartupStateInfo.CollectionsLoaded = CollectionsLoadedFlagFinal;
 
                     if (!CollectionsLoadedFlagFinal)
                     {
                          StatsVal.StartupStateInfo.CollectionsLoadFailed = true;
-
                          StatsVal.StartupStateInfo.CollectionLoadError = "LoadCollectionsFromRocksDB returned false.";
                     }
                }
@@ -1024,9 +1002,7 @@ void hlquery::WaitForMetadataScan()
                     std::lock_guard<std::mutex> Lock(StatsVal.StartupStateMutex);
 
                     StatsVal.StartupStateInfo.CollectionLoadEnd = Instance ? Instance->Now() : Now();
-
                     StatsVal.StartupStateInfo.CollectionsLoadFailed = true;
-
                     StatsVal.StartupStateInfo.CollectionLoadError = std::string("Exception: ") + e.what() + ".";
                }
 
@@ -1047,9 +1023,7 @@ void hlquery::WaitForMetadataScan()
                     std::lock_guard<std::mutex> Lock(StatsVal.StartupStateMutex);
 
                     StatsVal.StartupStateInfo.CollectionLoadEnd = Instance ? Instance->Now() : Now();
-
                     StatsVal.StartupStateInfo.CollectionsLoadFailed = true;
-
                     StatsVal.StartupStateInfo.CollectionLoadError = "Unknown exception.";
                }
 
@@ -1105,7 +1079,6 @@ void hlquery::WaitForMetadataScan()
 
           {
                std::lock_guard<std::mutex> Lock(StatsVal.StartupStateMutex);
-
                StatsVal.StartupStateInfo.ReadyTime = Instance ? Instance->Now() : Now();
           }
 

@@ -499,6 +499,7 @@ void ServerConfig::ApplyConfiguration()
           Sam25UnorderedWindowSlop = SAMTag->GetIntRange("sam25_unordered_window_slop", Sam25UnorderedWindowSlop, 0, 32);
           Sam25ExactPhraseRequiresStopwords = SAMTag->GetBool("sam25_exact_phrase_requires_stopwords", Sam25ExactPhraseRequiresStopwords);
           Sam25ExactPhraseIgnoreOuterStopwords = SAMTag->GetBool("sam25_exact_phrase_ignore_outer_stopwords", Sam25ExactPhraseIgnoreOuterStopwords);
+          Sam25RequireExactIdentifierTokens = SAMTag->GetBool("sam25_require_exact_identifier_tokens", Sam25RequireExactIdentifierTokens);
           Sam25EnableSynonymExpansion = SAMTag->GetBool("sam25_enable_synonym_expansion", Sam25EnableSynonymExpansion);
           Sam25SynonymBoost = SAMTag->GetDoubleRange("sam25_synonym_boost", Sam25SynonymBoost, 0.0, 5.0);
           Sam25MaxSynonymsPerToken = SAMTag->GetIntRange("sam25_max_synonyms_per_token", Sam25MaxSynonymsPerToken, 0, 16);
@@ -1430,6 +1431,8 @@ void ServerConfig::ApplyConfiguration()
           QuerySettingsEnableFuzzy = QuerySettingsTag->GetBool("enable_fuzzy", QuerySettingsEnableFuzzy);
 
           QuerySettingsFuzzyMaxDistance = QuerySettingsTag->GetIntRange("fuzzy_max_distance", QuerySettingsFuzzyMaxDistance, 1, 5);
+
+          QuerySettingsRequireExactIdentifierTokens = QuerySettingsTag->GetBool("require_exact_identifier_tokens", QuerySettingsRequireExactIdentifierTokens);
      }
 
      /* Configure score normalization and precision settings */
@@ -2591,16 +2594,19 @@ bool ServerConfig::GetSlavePeerTokens(const std::string &Endpoint,
 {
      std::lock_guard<std::mutex> Lock(ClusterNodesMutex);
      auto It = SlavePeerTokens.find(Endpoint);
+
      if (It == SlavePeerTokens.end())
      {
           if (OutPrimaryToken)
           {
                OutPrimaryToken->clear();
           }
+
           if (OutSecondaryToken)
           {
                OutSecondaryToken->clear();
           }
+          
           return false;
      }
 

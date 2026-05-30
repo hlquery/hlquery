@@ -213,7 +213,6 @@ void ActionList::QueueAction(Action action)
      }
 
      PendingActions.push_back(std::move(action));
-
      TotalQueued.fetch_add(1, std::memory_order_relaxed);
 
      if (Instance && Instance->Logs)
@@ -272,7 +271,6 @@ void ActionList::ProcessActions()
           /* Process all actions outside the lock to minimize contention. */
 
           size_t Processed = 0;
-
           size_t Failed = 0;
 
           for (auto &action : Batch)
@@ -366,7 +364,6 @@ void ActionList::ClearActions()
      try
      {
           std::lock_guard<std::mutex> lock(ActionsMutex);
-
           size_t Cleared = Actions.size() + PendingActions.size();
 
           Actions.clear();

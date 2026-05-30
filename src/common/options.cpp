@@ -106,45 +106,54 @@ Options ParseArgs(int argc, char** argv)
                options.ConfigPath = RequireValue(argc, argv, i, arg);
                continue;
           }
+
           if (arg == "--hlog-config" || arg == "-g")
           {
                options.HLogConfigPath = RequireValue(argc, argv, i, arg);
                continue;
           }
+
           if (arg == "--file" || arg == "-f")
           {
                options.ExplicitFiles.push_back(RequireValue(argc, argv, i, arg));
                continue;
           }
+
           if (arg == "--mode" || arg == "-m")
           {
                options.OverrideMode = ParseMode(RequireValue(argc, argv, i, arg));
                continue;
           }
+
           if (arg == "--interval" || arg == "-i")
           {
                options.OverrideIntervalMs = std::max(100, std::stoi(RequireValue(argc, argv, i, arg)));
                continue;
           }
+
           if (arg == "--from-start" || arg == "-s")
           {
                options.OverrideFromStart = true;
                continue;
           }
+
           if (arg == "--nofork")
           {
                continue;
           }
+
           if (arg == "--quiet" || arg == "-q")
           {
                options.Quiet = true;
                continue;
           }
+
           if (arg == "--test-config" || arg == "-t")
           {
                options.TestConfig = true;
                continue;
           }
+
           if (arg == "--help" || arg == "-h")
           {
                PrintUsageAndExit();

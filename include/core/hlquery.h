@@ -130,8 +130,11 @@ class CoreExport hlquery
      /* Listener startup diagnostics. */
 
      size_t ConfiguredListenerCount = 0;
+     
      size_t StartedListenerCount = 0;
+     
      size_t SkippedListenerCount = 0;
+     
      std::string LastListenerError;
 
    public:

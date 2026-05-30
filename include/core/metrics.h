@@ -31,11 +31,13 @@ class HLQueryMetrics
 
           MetricPoint() : Value(0.0)
           {
+          
           }
 
           MetricPoint(std::chrono::system_clock::time_point ts, double val)
               : Timestamp(ts), Value(val)
           {
+          
           }
      };
 

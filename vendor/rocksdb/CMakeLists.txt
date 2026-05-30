@@ -1288,21 +1288,32 @@ endif()
 string(REGEX REPLACE "[^0-9a-fA-F]+" "" GIT_SHA "${GIT_SHA}")
 string(REGEX REPLACE "[^0-9: /-]+" "" GIT_DATE "${GIT_DATE}")
 
-set(BUILD_VERSION_CC ${CMAKE_BINARY_DIR}/build_version.cc)
-configure_file(util/build_version.cc.in ${BUILD_VERSION_CC} @ONLY)
+	set(BUILD_VERSION_CC ${CMAKE_BINARY_DIR}/build_version.cc)
+	configure_file(util/build_version.cc.in ${BUILD_VERSION_CC} @ONLY)
 
-add_library(${ROCKSDB_STATIC_LIB} STATIC ${SOURCES} ${BUILD_VERSION_CC})
-target_include_directories(${ROCKSDB_STATIC_LIB} PUBLIC
-  $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>)
-target_link_libraries(${ROCKSDB_STATIC_LIB} PRIVATE
-  ${THIRDPARTY_LIBS} ${SYSTEM_LIBS})
+	# Defensive: some build environments may end up with an empty SOURCES list
+	# (e.g., due to aggressive source filtering in a parent project). CMake
+	# errors if add_library() is invoked with no source files at all, so ensure
+	# we always provide at least one translation unit.
+	set(ROCKSDB_ALL_SOURCES ${SOURCES} ${BUILD_VERSION_CC})
+	if(NOT ROCKSDB_ALL_SOURCES)
+	  set(BUILD_VERSION_CC ${CMAKE_BINARY_DIR}/rocksdb_build_version_fallback.cc)
+	  file(WRITE ${BUILD_VERSION_CC} "namespace rocksdb { const char* BuildVersion() { return \"unknown\"; } }\n")
+	  set(ROCKSDB_ALL_SOURCES ${BUILD_VERSION_CC})
+	endif()
 
-if(ROCKSDB_BUILD_SHARED)
-  add_library(${ROCKSDB_SHARED_LIB} SHARED ${SOURCES} ${BUILD_VERSION_CC})
-  target_include_directories(${ROCKSDB_SHARED_LIB} PUBLIC
-    $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>)
-  target_link_libraries(${ROCKSDB_SHARED_LIB} PRIVATE
-    ${THIRDPARTY_LIBS} ${SYSTEM_LIBS})
+	add_library(${ROCKSDB_STATIC_LIB} STATIC ${ROCKSDB_ALL_SOURCES})
+	target_include_directories(${ROCKSDB_STATIC_LIB} PUBLIC
+	  $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>)
+	target_link_libraries(${ROCKSDB_STATIC_LIB} PRIVATE
+	  ${THIRDPARTY_LIBS} ${SYSTEM_LIBS})
+
+	if(ROCKSDB_BUILD_SHARED)
+	  add_library(${ROCKSDB_SHARED_LIB} SHARED ${ROCKSDB_ALL_SOURCES})
+	  target_include_directories(${ROCKSDB_SHARED_LIB} PUBLIC
+	    $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>)
+	  target_link_libraries(${ROCKSDB_SHARED_LIB} PRIVATE
+	    ${THIRDPARTY_LIBS} ${SYSTEM_LIBS})
 
   if(WIN32)
     set_target_properties(${ROCKSDB_SHARED_LIB} PROPERTIES

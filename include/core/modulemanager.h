@@ -209,7 +209,7 @@ class ModuleManager
      void DispatchEvent(ModuleHook Hook, const char* EventName, const std::function<void(RuntimeModule&)> &Invoke);
 
      /*
-      *  Dispatches an event callback to the modules contained in a snapshot.
+      * Dispatches an event callback to the modules contained in a snapshot.
       * Snapshot dispatch isolates iteration from concurrent registry updates.
       */
 

@@ -43,6 +43,22 @@ struct LLMInferenceResult
 };
 }
 
+llm::llm()
+{
+     if (!Instance || !Instance->HasConfig())
+     {
+          return;
+     }
+
+     const ServerConfig& ConfigValue = Instance->GetConfig();
+
+     Enabled = ConfigValue.GetAIEnabled();
+     ModelsDirectory = ConfigValue.GetAIModelsDirectory();
+     ModelName = ConfigValue.GetAIModelName();
+     ModelPath = ConfigValue.GetAIModelPath();
+     InferenceCommand = ConfigValue.GetAIInferenceCommand();
+}
+
 static std::string TrimCopy(const std::string& Value)
 {
      const size_t Start = Value.find_first_not_of(" \t\r\n");

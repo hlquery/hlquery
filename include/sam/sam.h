@@ -13,7 +13,9 @@
 #pragma once
 
 #ifndef ROCKSDB_NAMESPACE
-#define ROCKSDB_NAMESPACE rocksdb
+
+     #define ROCKSDB_NAMESPACE rocksdb
+     
 #endif
 
 #include <atomic>

@@ -470,7 +470,8 @@ class ThreadPoolManager
      mutable std::mutex InitMutex;
 };
 
-/* High-performance task wrapper with SIMD optimizations.
+/* 
+ * High-performance task wrapper with SIMD optimizations.
  * The wrapper records simple execution metrics around an inner callable.
  */
 

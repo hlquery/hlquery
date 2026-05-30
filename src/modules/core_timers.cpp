@@ -32,9 +32,7 @@ namespace
           }
 
           std::tm LocalTime{};
-
           localtime_r(&Timestamp, &LocalTime);
-
           char Buffer[64] = {};
 
           if (std::strftime(Buffer, sizeof(Buffer), "%Y-%m-%d %H:%M:%S", &LocalTime) == 0)
@@ -96,7 +94,7 @@ class CoreTimersModule final : public AutoRuntimeModule<CoreTimersModule>
      {
           if (Instance && Instance->Config && Instance->Config->GetNoForkMode())
           {
-               ConsoleWriter::WriteStartup("threadpool ready!", true, false);
+               ConsoleWriter::WriteStartup("Threadpool ready!", true, false);
           }
      }
 

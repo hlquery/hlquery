@@ -147,7 +147,7 @@ bool hlquery::InitializeOptionalServices()
           return false;
      }
 
-     LLM = std::make_unique<llm>(GetConfig());
+     LLM = std::make_unique<llm>();
 
      if (GetConfig().GetSamEnabled())
      {
@@ -224,14 +224,14 @@ void hlquery::RunListeners()
 
      bool AnyListenerStartedValue = false;
 
-     for (auto &ListenerVal : Listeners)
+     for (auto &Host : Listeners)
      {
           if (Logs)
           {
                Logs->Debug("hlquery", "Attempting to bind listener.");
           }
 
-          if (ListenerVal->BindAndListen())
+          if (Host->BindAndListen())
           {
                AnyListenerStartedValue = true;
                StartedListenerCount++;

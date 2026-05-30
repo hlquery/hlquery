@@ -431,9 +431,9 @@ void ListenManager::OnEventHandlerRead()
 
           /* Configure keepalive parameters for faster dead connection detection */
 
-          int KeepIdle  = 10; /* Start keepalive after 10 seconds of inactivity */
-          int KeepIntvl = 5; /* Send keepalive probes every 5 seconds */
-          int KeepCnt   = 3; /* Send 3 probes before considering connection dead */
+          int KeepIdle  = 10;   /* Start keepalive after 10 seconds of inactivity */
+          int KeepIntvl = 5;    /* Send keepalive probes every 5 seconds */
+          int KeepCnt   = 3;    /* Send 3 probes before considering connection dead */
 
 #if defined(__APPLE__) && defined(TCP_KEEPALIVE)
 

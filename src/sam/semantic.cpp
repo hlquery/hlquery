@@ -474,6 +474,81 @@ bool HasEnoughLiteralSAMCoverage(const SAM::LookupHit& Hit,
      return BestCoverage >= RequiredCoverage;
 }
 
+bool IsSAMIdentifierToken(const std::string& Token)
+{
+     bool HasAlpha = false;
+     bool HasDigit = false;
+
+     for (unsigned char C : Token)
+     {
+          HasAlpha = HasAlpha || std::isalpha(C);
+          HasDigit = HasDigit || std::isdigit(C);
+     }
+
+     return HasAlpha && HasDigit;
+}
+
+bool HasExactSourceDocumentIdentifierTokens(const SAM::LookupHit& Hit,
+                                            const SAMQueryTokenViews& QueryViews)
+{
+     if (!(Instance && Instance->Config) ||
+         !Instance->Config->GetSam25RequireExactIdentifierTokens())
+     {
+          return true;
+     }
+
+     std::vector<std::string> RequiredTokens;
+
+     for (const auto& Token : TokenizeNormalized(QueryViews.NormalizedPhrase.empty()
+               ? QueryViews.NormalizedQuery
+               : QueryViews.NormalizedPhrase))
+     {
+          if (IsSAMIdentifierToken(Token))
+          {
+               RequiredTokens.push_back(Token);
+          }
+     }
+
+     if (RequiredTokens.empty())
+     {
+          return true;
+     }
+
+     if (Hit.Collection.empty() || Hit.DocumentID.empty())
+     {
+          return false;
+     }
+
+     const Document StorageDoc =
+          HybridStorageManager::GetInstance().GetDocument(Hit.Collection, Hit.DocumentID);
+
+     if (StorageDoc.ID.empty())
+     {
+          return false;
+     }
+
+     std::unordered_set<std::string> SourceTokens;
+
+     for (const auto& Token : TokenizeNormalized(NormalizeTerm(StorageDoc.ID)))
+     {
+          SourceTokens.insert(Token);
+     }
+
+     for (const auto& Field : GetSAM25SourceDocumentFields(StorageDoc))
+     {
+          for (const auto& Token : TokenizeNormalized(NormalizeTerm(Field.second)))
+          {
+               SourceTokens.insert(Token);
+          }
+     }
+
+     return std::all_of(RequiredTokens.begin(), RequiredTokens.end(),
+                        [&](const std::string& Token)
+                        {
+                             return SourceTokens.find(Token) != SourceTokens.end();
+                        });
+}
+
 std::vector<float> BuildHitSemanticVector(rocksdb::DB* Database,
                                           const SAM::LookupHit& Hit)
 {
@@ -627,6 +702,10 @@ void FinalizeSAMAggregatedHits(std::vector<SAM::LookupHit>& Hits,
      for (const auto& Entry : AggregatedHits)
      {
           SAM::LookupHit FinalHit = Entry.second.BestHit;
+          if (!HasExactSourceDocumentIdentifierTokens(FinalHit, QueryViews))
+          {
+               continue;
+          }
           const size_t ExtraEvidence = Entry.second.EvidenceCount > 0 ? Entry.second.EvidenceCount - 1 : 0;
           const size_t ExtraTerms = Entry.second.DistinctTerms.size() > 0 ? Entry.second.DistinctTerms.size() - 1 : 0;
           const size_t ExtraSources = Entry.second.DistinctSources.size() > 0 ? Entry.second.DistinctSources.size() - 1 : 0;

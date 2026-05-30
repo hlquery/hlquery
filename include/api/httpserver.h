@@ -462,6 +462,7 @@ class HttpServer : public EventHandler
 
      void OnEventHandlerWrite() override
      {
+
      }
 
      /* Handle listener socket errors reported by the event engine. */

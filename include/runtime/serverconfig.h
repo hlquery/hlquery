@@ -749,6 +749,11 @@ class ServerConfig
          return Sam25ExactPhraseIgnoreOuterStopwords;
     }
 
+    bool GetSam25RequireExactIdentifierTokens() const
+    {
+         return Sam25RequireExactIdentifierTokens;
+    }
+
     bool GetSam25EnableSynonymExpansion() const
     {
          return Sam25EnableSynonymExpansion;
@@ -1583,6 +1588,13 @@ class ServerConfig
           return QuerySettingsFuzzyMaxDistance;
      }
 
+     /* Returns whether mixed letter-digit query tokens require exact matching. */
+
+     bool GetQuerySettingsRequireExactIdentifierTokens() const
+     {
+          return QuerySettingsRequireExactIdentifierTokens;
+     }
+
      /* Scoring settings */
 
      /* Returns minimum score threshold. */
@@ -2278,6 +2290,10 @@ class ServerConfig
 
      bool Sam25ExactPhraseIgnoreOuterStopwords = true;
 
+     /* Require mixed letter-digit query tokens to exist literally in source documents. */
+
+     bool Sam25RequireExactIdentifierTokens = true;
+
      /* Toggle synonym expansion in SAM 2.5 scoring. */
 
      bool Sam25EnableSynonymExpansion = true;
@@ -2753,6 +2769,10 @@ class ServerConfig
      /* Max fuzzy distance. */
 
      int QuerySettingsFuzzyMaxDistance = 2;
+
+     /* Require exact matching for mixed letter-digit query tokens unless fuzzy matching is explicit. */
+
+     bool QuerySettingsRequireExactIdentifierTokens = true;
 
      /* Scoring settings */
 

@@ -160,6 +160,20 @@ static std::string NormalizeTermSimple(const std::string &term, bool case_sensit
      return normalized;
 }
 
+static bool IsIdentifierLikeTermSimple(const std::string &term)
+{
+     bool has_alpha = false;
+     bool has_digit = false;
+
+     for (const unsigned char character : term)
+     {
+          has_alpha = has_alpha || std::isalpha(character);
+          has_digit = has_digit || std::isdigit(character);
+     }
+
+     return has_alpha && has_digit;
+}
+
 /*
  * ExtractTermsSimple implementation.
  */
@@ -1654,6 +1668,10 @@ std::vector<SearchHit> SearchAPI::ProcessLexicalSearch(const std::string &Collec
      }
      std::vector<std::string> highlight_terms = BuildHighlightTermsForSearch(SearchQueryVal, Query.CaseSensitive);
      const std::vector<std::string> base_query_terms = ExtractTermsSimple(SearchQueryVal, Query.CaseSensitive);
+     const bool require_exact_identifier_tokens =
+          !Instance || !Instance->Config || Instance->Config->GetQuerySettingsRequireExactIdentifierTokens();
+     const bool has_identifier_like_term =
+          std::any_of(base_query_terms.begin(), base_query_terms.end(), IsIdentifierLikeTermSimple);
      std::vector<std::vector<std::string>> query_variant_terms_list;
      query_variant_terms_list.reserve(QueryVariants.size());
      for (const auto &Variant : QueryVariants)
@@ -1670,6 +1688,7 @@ std::vector<SearchHit> SearchAPI::ProcessLexicalSearch(const std::string &Collec
      }
      const int effective_max_typos =
           (Query.NumTypos > 0 && !base_query_terms.empty() &&
+           (!require_exact_identifier_tokens || Query.NumTyposExplicit || !has_identifier_like_term) &&
            static_cast<int>(base_query_terms.size()) <= Query.TypoTokensThreshold)
                ? Query.NumTypos
                : 0;

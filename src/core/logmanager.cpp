@@ -1125,14 +1125,13 @@ bool LogManager::GetDebugMode() const
 std::vector<LogStream *> LogManager::GetStreamsForLogging(LogLevel LevelVal, const std::string &Type)
 {
      std::lock_guard<std::mutex> Lock(ManagerMutex);
-
      std::vector<LogStream *> ResultList;
 
-     for (const auto &StreamItem : LogStreams)
+     for (const auto &Stream : LogStreams)
      {
-          if (ShouldLog(*StreamItem, LevelVal, Type))
+          if (ShouldLog(*Stream, LevelVal, Type))
           {
-               ResultList.push_back(StreamItem.get());
+               ResultList.push_back(Stream.get());
           }
      }
 

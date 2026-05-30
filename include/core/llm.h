@@ -21,7 +21,6 @@
 #include <vector>
 
 #include "core/config.h"
-#include "runtime/serverconfig.h"
 #include "search/cstore.h"
 
 /*
@@ -62,16 +61,7 @@ class CoreExport llm
           std::vector<SearchIntentCandidate> RankedTerms;
      };
 
-     llm() = default;
-
-     explicit llm(const ServerConfig& ConfigValue)
-         : Enabled(ConfigValue.GetAIEnabled()),
-           ModelsDirectory(ConfigValue.GetAIModelsDirectory()),
-           ModelName(ConfigValue.GetAIModelName()),
-           ModelPath(ConfigValue.GetAIModelPath()),
-           InferenceCommand(ConfigValue.GetAIInferenceCommand())
-     {
-     }
+     llm();
 
      bool Empty() const
      {

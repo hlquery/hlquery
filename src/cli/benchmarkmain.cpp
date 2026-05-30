@@ -106,6 +106,14 @@ struct UniversityBenchmarkSeed
      const char *Type;
 };
 
+struct PersonBenchmarkSeed
+{
+     std::string FirstName;
+     std::string MiddleName;
+     std::string LastName;
+     std::string Biography;
+};
+
 struct FakeSynonymSeed
 {
      std::string Root;
@@ -268,6 +276,44 @@ static std::string BuildUniversityBenchmarkContent(const UniversityBenchmarkSeed
             " represented in this benchmark university ranking corpus. The profile covers " + program_a + ", " +
             program_b + ", " + term_a + ", " + term_b +
             ", enrollment context, research visibility, and campus discovery signals for relevance tests.";
+}
+
+static PersonBenchmarkSeed BuildPersonBenchmarkSeed(size_t index)
+{
+     static const std::vector<std::string> first_names = {
+          "Adrian", "Bianca", "Caleb", "Diana", "Elias", "Farah", "Gabriel", "Helena", "Isaac", "Julia"};
+     static const std::vector<std::string> middle_names = {
+          "Alexis", "Brooke", "Cameron", "Drew", "Emery", "Francis", "Gray", "Harper", "Indigo", "Jordan"};
+     static const std::vector<std::string> last_names = {
+          "Anderson", "Bennett", "Castillo", "Donovan", "Ellis", "Foster", "Garcia", "Hughes", "Ibrahim", "Jensen"};
+     static const std::vector<std::string> occupations = {
+          "community librarian", "software engineer", "urban planner", "science teacher", "museum curator",
+          "small business owner", "public health analyst", "civil engineer", "documentary editor", "food writer"};
+     static const std::vector<std::string> locations = {
+          "Portland", "Austin", "Chicago", "Atlanta", "Seattle",
+          "Denver", "Boston", "Phoenix", "Minneapolis", "San Diego"};
+     static const std::vector<std::string> interests = {
+          "local history and neighborhood archives", "accessible technology and mentoring",
+          "public transit and walkable streets", "hands-on science education and astronomy",
+          "independent art spaces and oral histories", "regional markets and practical entrepreneurship",
+          "community wellness and data literacy", "sustainable buildings and resilient infrastructure",
+          "visual storytelling and public media", "seasonal cooking and family recipes"};
+
+     const std::string &first_name = first_names[index % first_names.size()];
+     const std::string &middle_name = middle_names[(index / first_names.size()) % middle_names.size()];
+     const std::string &last_name = last_names[(index * 3U + index / first_names.size()) % last_names.size()];
+     const std::string &occupation = occupations[(index * 7U) % occupations.size()];
+     const std::string &location = locations[(index * 3U + 2U) % locations.size()];
+     const std::string &interest = interests[(index * 9U + 1U) % interests.size()];
+     const std::string full_name = first_name + " " + middle_name + " " + last_name;
+
+     return {
+          first_name,
+          middle_name,
+          last_name,
+          full_name + " is a fictional " + occupation + " based in " + location +
+               ". This synthetic benchmark profile describes work involving " + interest +
+               ". The biography is intentionally fictional and exists only for search testing."};
 }
 
 static std::string Slugify(const std::string &input)
@@ -567,6 +613,12 @@ static const std::unordered_map<std::string, std::vector<FakeSynonymSeed>> kFake
            {"director", {"filmmaker", "producer", "editor", "screenwriter"}},
            {"scene", {"sequence", "shot", "frame", "cut"}},
       }},
+     {"people",
+      {
+           {"person", {"individual", "profile", "contact", "name"}},
+           {"biography", {"bio", "profile", "background", "summary"}},
+           {"occupation", {"profession", "career", "role", "work"}},
+      }},
      {"music",
       {
            {"music", {"song", "melody", "track", "tune"}},
@@ -619,6 +671,7 @@ static const std::unordered_map<std::string, std::vector<std::string>> kFakeColl
      {"math", {"math", "proof", "equation", "theorem"}},
      {"stocks", {"stock", "session", "portfolio", "watchlist"}},
      {"movies", {"film", "scene", "director", "cinema"}},
+     {"people", {"person", "profile", "biography", "name"}},
      {"music", {"music", "song", "album", "artist"}},
      {"science", {"study", "lab", "data", "theory"}},
      {"sports", {"team", "match", "season", "league"}},
@@ -795,6 +848,7 @@ bool CreateFakeCollections(const std::string &base_url, const std::string &auth_
      std::vector<FakeCollectionSpec> specs = {
           {"music", {"album", "artist", "live", "studio", "playlist", "symphony", "jazz", "rock", "pop", "indie"}},
           {"movies", {"film", "cinema", "director", "cast", "thriller", "drama", "comedy", "action", "classic", "sequel"}},
+          {"people", {"person", "profile", "biography", "name", "occupation", "career", "contact", "fictional", "community", "background"}},
           {"art", {"painting", "sculpture", "gallery", "modern", "abstract", "portrait", "canvas", "exhibit", "mural", "installation"}},
           {"books", {"novel", "fiction", "nonfiction", "author", "series", "paperback", "hardcover", "fantasy", "mystery", "classic"}},
           {"travel", {"destination", "itinerary", "guide", "adventure", "beach", "mountain", "city", "budget", "luxury", "culture"}},
@@ -877,6 +931,20 @@ bool CreateFakeCollections(const std::string &base_url, const std::string &auth_
 
                collection_created = client.CreateCollectionWithSchemaLocal(collection_name, university_fields, "rank", university_metadata);
           }
+          else if (spec.Name == "people")
+          {
+               nlohmann::json people_fields = nlohmann::json::array();
+               people_fields.push_back({{"name", "title"}, {"type", "string"}});
+               people_fields.push_back({{"name", "content"}, {"type", "string"}});
+               people_fields.push_back({{"name", "description"}, {"type", "string"}});
+               people_fields.push_back({{"name", "labels"}, {"type", "string"}});
+               people_fields.push_back({{"name", "first_name"}, {"type", "string"}});
+               people_fields.push_back({{"name", "middle_name"}, {"type", "string"}});
+               people_fields.push_back({{"name", "last_name"}, {"type", "string"}});
+               people_fields.push_back({{"name", "full_name"}, {"type", "string"}});
+               people_fields.push_back({{"name", "biography"}, {"type", "string"}});
+               collection_created = client.CreateCollectionWithSchemaLocal(collection_name, people_fields, "");
+          }
           else if (spec.Name == "math")
           {
                nlohmann::json math_fields = nlohmann::json::array();
@@ -922,7 +990,7 @@ bool CreateFakeCollections(const std::string &base_url, const std::string &auth_
                LogOutput("  ↳ Collection '" + collection_name + "' is ready; importing fake documents...\n");
           }
 
-          const size_t docs_to_create = spec.Name == "universities" ? GetUniversityBenchmarkSeeds().size() : 10U;
+          const size_t docs_to_create = spec.Name == "universities" ? GetUniversityBenchmarkSeeds().size() : (spec.Name == "people" ? 100U : 10U);
           std::vector<std::tuple<std::string, std::string, std::string>> docs;
           docs.reserve(docs_to_create);
           std::vector<nlohmann::json> enriched_docs;
@@ -1210,6 +1278,12 @@ bool CreateFakeCollections(const std::string &base_url, const std::string &auth_
                     title = university_seed.Name;
                     content = BuildUniversityBenchmarkContent(university_seed, i);
                }
+               else if (spec.Name == "people")
+               {
+                    PersonBenchmarkSeed person = BuildPersonBenchmarkSeed(i);
+                    title = person.FirstName + " " + person.MiddleName + " " + person.LastName;
+                    content = person.Biography;
+               }
                else if (SeedIt != RealSeeds.end() && i < SeedIt->second.size())
                {
                     title = SeedIt->second[i].Title;
@@ -1340,6 +1414,35 @@ bool CreateFakeCollections(const std::string &base_url, const std::string &auth_
                if (verbose)
                {
                     LogOutput("  ↳ Added campus and benchmark ranking metadata to " + std::to_string(universities_updated) + " university documents.\n");
+               }
+          }
+          else if (spec.Name == "people")
+          {
+               size_t people_updated = 0;
+
+               for (size_t i = 0; i < docs.size(); ++i)
+               {
+                    const PersonBenchmarkSeed person = BuildPersonBenchmarkSeed(i);
+                    const std::string full_name = person.FirstName + " " + person.MiddleName + " " + person.LastName;
+                    nlohmann::json person_doc = enriched_docs[i];
+                    person_doc["id"] = std::get<0>(docs[i]);
+                    person_doc["title"] = full_name;
+                    person_doc["content"] = RemoveCommas(person.Biography);
+                    person_doc["first_name"] = person.FirstName;
+                    person_doc["middle_name"] = person.MiddleName;
+                    person_doc["last_name"] = person.LastName;
+                    person_doc["full_name"] = full_name;
+                    person_doc["biography"] = RemoveCommas(person.Biography);
+
+                    if (client.UpsertDocumentWithFieldsLocal(collection_name, person_doc))
+                    {
+                         people_updated++;
+                    }
+               }
+
+               if (verbose)
+               {
+                    LogOutput("  ↳ Added first, middle, and last names with biographies to " + std::to_string(people_updated) + " people documents.\n");
                }
           }
           else if (spec.Name == "math")
@@ -1648,12 +1751,12 @@ static void PrintBenchmarkHelp(const char *program_name)
                << "                    and functionalities (includes --advanced)\n"
                << "  --Search           Run search benchmark on previously inserted data\n"
                << "  --dump             Dump all collections and their documents\n"
-               << "  --fake             Insert realistic sample data (food, stocks, music, science, etc.) for testing\n"
+               << "  --fake             Insert realistic sample data (people, food, stocks, music, science, etc.) for testing\n"
                << "  --flood            Flood server with continuous random data generation for stress testing\n"
                << "                    (runs until stopped with Ctrl+C, randomly creates collections and documents)\n"
                << "  --id ID            Run UUID/ID for correlation (default: auto-generated)\n"
                << "  --seed SEED        Seed for deterministic runs\n"
-               << "  --no-fake-collections  Disable fake helper collections (food, stocks, music, sports, etc.)\n"
+               << "  --no-fake-collections  Disable fake helper collections (people, food, stocks, music, sports, etc.)\n"
                << "  --verify-after-restart   Verify counts after server restart\n"
                << "  --check-consistency      Check consistency of /status, /stats, /metrics, /doctotal\n"
                << "  --dry-run          Generate collections/docs in memory but don't send to server\n"

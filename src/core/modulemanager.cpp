@@ -156,7 +156,6 @@ bool ModuleManager::LoadModules(const ServerConfig &Config, LogManager *Logger, 
           if (Now() >= Deadline)
           {
                ErrorMessage = "Hybrid storage manager did not finish initializing before modules were loaded.";
-
                return false;
           }
 
