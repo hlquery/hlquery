@@ -31,6 +31,8 @@ namespace SearchResponseCache
               const std::string& Collection,
               const HttpResponse& Response);
 
+     /* Removes cached search, SAM, and collection responses associated with one collection. */
+
      void InvalidateCollection(const std::string& Collection);
 
      void InvalidateAll();

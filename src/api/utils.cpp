@@ -1026,16 +1026,16 @@ std::vector<std::string> SearchAPI::ResolveDefaultCollectionSortBy(const std::st
           return It == Config.Metadata.end() ? "" : TrimRankMetadataValue(It->second);
      };
 
-     std::string SortField = MetadataValue("_default_sorting_field");
+     std::string SortFieldName = MetadataValue("_default_sorting_field");
      std::string SortOrder = LowerRankMetadataValue(MetadataValue("_default_sorting_order"));
 
-     if (SortField.empty())
+     if (SortFieldName.empty())
      {
-          SortField = MetadataValue("_rank_field");
+          SortFieldName = MetadataValue("_rank_field");
           SortOrder = LowerRankMetadataValue(MetadataValue("_rank_order"));
      }
 
-     if (SortField.empty())
+     if (SortFieldName.empty())
      {
           return {};
      }
@@ -1057,7 +1057,7 @@ std::vector<std::string> SearchAPI::ResolveDefaultCollectionSortBy(const std::st
           SortOrder = "asc";
      }
 
-     return {SortField + ":" + SortOrder};
+     return {SortFieldName + ":" + SortOrder};
 }
 
 void SearchAPI::ApplyModuleWeights(std::vector<SearchHit> &Hits,

@@ -39,6 +39,7 @@
 
 #include "api/searchapi.h"
 #include "api/common.h"
+#include "api/searchcache.h"
 #include "core/config.h"
 #include "core/hlquery.h"
 #include "core/modulemanager.h"
@@ -1464,6 +1465,12 @@ HttpResponse SearchAPI::HandleListCollections(const HttpRequest &Request)
           return HttpResponse(Status::METHOD_NOT_ALLOWED, StatusText(Status::METHOD_NOT_ALLOWED), "application/json");
      }
 
+     HttpResponse CachedResponse;
+     if (SearchResponseCache::Get("collections", Request, "*", CachedResponse))
+     {
+          return CachedResponse;
+     }
+
      long long OffsetVal = 0;
      long long LimitVal = -1;
      std::string PatternVal;
@@ -1853,6 +1860,7 @@ HttpResponse SearchAPI::HandleListCollections(const HttpRequest &Request)
 
      HttpResponse Response(Status::OK, StatusText(Status::OK), "application/json");
      Response.Body = ResponseJSON.dump();
+     SearchResponseCache::Put("collections", Request, "*", Response);
      return Response;
 }
 
@@ -2195,6 +2203,12 @@ HttpResponse SearchAPI::HandleGetCollection(const HttpRequest &Request)
           return HttpResponse(Status::BAD_REQUEST, StatusText(Status::BAD_REQUEST), "application/json");
      }
 
+     HttpResponse CachedResponse;
+     if (SearchResponseCache::Get("collections", Request, CollectionName, CachedResponse))
+     {
+          return CachedResponse;
+     }
+
      try
      {
           bool CollectionExistsVal = false;
@@ -2297,6 +2311,7 @@ HttpResponse SearchAPI::HandleGetCollection(const HttpRequest &Request)
           ResponseJSON["sortable_fields"] = nlohmann::json::array();
           Response.Body = ResponseJSON.dump();
 
+          SearchResponseCache::Put("collections", Request, CollectionName, Response);
           return Response;
      }
      catch (const std::exception &E)
@@ -2339,6 +2354,12 @@ HttpResponse SearchAPI::HandleGetCollectionLanguage(const HttpRequest &Request)
      if (CollectionName.empty())
      {
           return HttpResponse(Status::BAD_REQUEST, StatusText(Status::BAD_REQUEST), "application/json");
+     }
+
+     HttpResponse CachedResponse;
+     if (SearchResponseCache::Get("collections", Request, CollectionName, CachedResponse))
+     {
+          return CachedResponse;
      }
 
      if (!HybridStorageManagerInstance().CollectionExists(CollectionName))
@@ -2427,6 +2448,7 @@ HttpResponse SearchAPI::HandleGetCollectionLanguage(const HttpRequest &Request)
 
      HttpResponse Response(Status::OK, StatusText(Status::OK), "application/json");
      Response.Body = Root.dump();
+     SearchResponseCache::Put("collections", Request, CollectionName, Response);
      return Response;
 }
 

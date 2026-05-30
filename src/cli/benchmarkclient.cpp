@@ -1069,7 +1069,7 @@ static void AddBenchmarkDocumentIdField(nlohmann::json &fields)
           }
      }
 
-     fields.insert(fields.begin(), {{"name", "document_id"}, {"type", "string"}});
+     fields.insert(fields.begin(), nlohmann::json{{"name", "document_id"}, {"type", "string"}});
 }
 
 static void AddBenchmarkDocumentIdValue(nlohmann::json &doc)

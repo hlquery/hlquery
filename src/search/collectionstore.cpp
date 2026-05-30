@@ -306,6 +306,26 @@ static bool DeserializeCollectionConfig(const std::string &Value, CollectionConf
      }
 }
 
+static CollectionConfig LoadCollectionConfigFromDatabase(const std::string &Name)
+{
+     CollectionConfig config;
+     config.Name = Name;
+
+     if (!Instance || !Instance->Database)
+     {
+          return config;
+     }
+
+     const std::string raw_config = Instance->Database->Get(GetCollectionConfigKey(Name));
+
+     if (!raw_config.empty() && !DeserializeCollectionConfig(raw_config, config))
+     {
+          config.Name = Name;
+     }
+
+     return config;
+}
+
 static std::string ResolveStorageRootDir()
 {
      std::string base_DataDirValue = std::string(HLQUERY_DATA_DIR);
@@ -1636,14 +1656,12 @@ bool HybridStorageManager::CollectionExists(const std::string &name)
           {
                /* Found in RocksDB - add to in-memory map */
 
+               CollectionConfig config = LoadCollectionConfigFromDatabase(name);
                std::lock_guard<std::mutex> lock(CollectionsMutex);
 
                if (Collections.find(name) == Collections.end())
                {
-                    CollectionConfig config;
-
-                    config.Name = name;
-                    Collections[name] = config;
+                    Collections[name] = std::move(config);
                }
                return true;
           }
@@ -1722,6 +1740,8 @@ std::vector<std::string> HybridStorageManager::ListCollections()
 
           /* Update in-memory map to keep it in sync with RocksDB */
 
+          std::vector<std::pair<std::string, CollectionConfig>> missing_configs;
+
           {
                std::lock_guard<std::mutex> lock(CollectionsMutex);
 
@@ -1729,13 +1749,22 @@ std::vector<std::string> HybridStorageManager::ListCollections()
                {
                     if (Collections.find(name) == Collections.end())
                     {
-                         /* Create a basic collection config for collections found in RocksDB */
-
-                         CollectionConfig config;
-
-                         config.Name = name;
-                         Collections[name] = config;
+                         missing_configs.push_back({name, CollectionConfig{}});
                     }
+               }
+          }
+
+          for (auto &[name, config] : missing_configs)
+          {
+               config = LoadCollectionConfigFromDatabase(name);
+          }
+
+          {
+               std::lock_guard<std::mutex> lock(CollectionsMutex);
+
+               for (auto &[name, config] : missing_configs)
+               {
+                    Collections.emplace(name, std::move(config));
                }
           }
      }
@@ -1773,18 +1802,7 @@ bool HybridStorageManager::GetCollectionConfig(const std::string &name, Collecti
           return false;
      }
 
-     CollectionConfig loaded_config;
-     loaded_config.Name = name;
-
-     std::string raw_config = Instance->Database->Get(GetCollectionConfigKey(name));
-
-     if (!raw_config.empty())
-     {
-          if (!DeserializeCollectionConfig(raw_config, loaded_config))
-          {
-               loaded_config.Name = name;
-          }
-     }
+     CollectionConfig loaded_config = LoadCollectionConfigFromDatabase(name);
 
      {
           std::lock_guard<std::mutex> lock(CollectionsMutex);
@@ -1829,9 +1847,12 @@ bool HybridStorageManager::UpdateCollectionMetadata(const std::string &name, con
           }
      }
 
-     std::lock_guard<std::mutex> lock(CollectionsMutex);
-     Collections[name] = config;
+     {
+          std::lock_guard<std::mutex> lock(CollectionsMutex);
+          Collections[name] = config;
+     }
 
+     SearchResponseCache::InvalidateCollection(name);
      return true;
 }
 

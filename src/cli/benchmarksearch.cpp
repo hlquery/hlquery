@@ -212,11 +212,18 @@ void RunSearches(const std::string &base_url, const std::string &auth_token)
 
           std::map<std::string, std::string> rank_params;
           rank_params["limit"] = "5";
-          rank_params["sort_by"] = "rank:asc";
+          rank_params["sort_by"] = "webometrics_world_rank:asc";
+
+          std::map<std::string, std::string> default_rank_params;
+          default_rank_params["limit"] = "5";
+
+          auto default_rank_response = client.Search("universities", "university", default_rank_params);
+
+          PrintSearchResult(++search_count_val, "University default world-rank baseline: 'university'", default_rank_response, "universities");
 
           auto rank_response = client.Search("universities", "university", rank_params);
 
-          PrintSearchResult(++search_count_val, "University explicit rank baseline: 'university'", rank_response, "universities");
+          PrintSearchResult(++search_count_val, "University explicit world-rank baseline: 'university'", rank_response, "universities");
      }
 
      if (std::find(bench_collections.begin(), bench_collections.end(), "people") != bench_collections.end())

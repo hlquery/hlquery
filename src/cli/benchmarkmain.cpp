@@ -151,6 +151,15 @@ static std::string RemoveCommas(const std::string &input)
      return result;
 }
 
+static std::string HumanizeIdentifier(const std::string &input)
+{
+     std::string result = input;
+
+     std::replace(result.begin(), result.end(), '_', ' ');
+
+     return result;
+}
+
 static const std::vector<UniversityBenchmarkSeed> &GetUniversityBenchmarkSeeds()
 {
      static const std::vector<UniversityBenchmarkSeed> seeds = {
@@ -272,7 +281,7 @@ static std::string BuildUniversityBenchmarkContent(const UniversityBenchmarkSeed
      const std::string &term_a = campus_terms[index % campus_terms.size()];
      const std::string &term_b = campus_terms[(index + 5U) % campus_terms.size()];
 
-     return std::string(seed.Name) + " is a " + seed.Type + " institution in " + seed.City + ", " + seed.State +
+     return std::string(seed.Name) + " is a " + HumanizeIdentifier(seed.Type) + " institution in " + seed.City + ", " + seed.State +
             " represented in this benchmark university ranking corpus. The profile covers " + program_a + ", " +
             program_b + ", " + term_a + ", " + term_b +
             ", enrollment context, research visibility, and campus discovery signals for relevance tests.";
@@ -915,21 +924,21 @@ bool CreateFakeCollections(const std::string &base_url, const std::string &auth_
                university_fields.push_back({{"name", "webometrics_excellence_rank"}, {"type", "int32"}});
 
                nlohmann::json university_metadata = {
-                    {"_default_sorting_field", "rank"},
+                    {"_default_sorting_field", "webometrics_world_rank"},
                     {"_default_sorting_order", "asc"},
-                    {"_rank_field", "rank"},
+                    {"_rank_field", "webometrics_world_rank"},
                     {"_rank_order", "asc"},
-                    {"_rank_source", "benchmark_university_rank"},
+                    {"_rank_source", "webometrics_world_rank"},
                     {"_rank_scope", "benchmark"},
                     {"_rank_edition", "January 2026"},
                     {"_rank_algorithm", "linear_algebra"},
                     {"_rank_alpha", "0.85"},
                     {"_rank_beta", "4.0"},
                     {"_rank_weight", "0.75"},
-                    {"_rank_tiebreak", "rank_signal_desc_rank_asc"},
-                    {"_rank_methodology", "deterministic_benchmark_rank_1_to_100"}};
+                    {"_rank_tiebreak", "rank_signal_desc_webometrics_world_rank_asc"},
+                    {"_rank_methodology", "deterministic_benchmark_webometrics_world_rank_1_to_100"}};
 
-               collection_created = client.CreateCollectionWithSchemaLocal(collection_name, university_fields, "rank", university_metadata);
+               collection_created = client.CreateCollectionWithSchemaLocal(collection_name, university_fields, "webometrics_world_rank", university_metadata);
           }
           else if (spec.Name == "people")
           {
@@ -1396,7 +1405,7 @@ bool CreateFakeCollections(const std::string &base_url, const std::string &auth_
                     university_doc["institution_type"] = profile.Type;
                     university_doc["rank"] = rank;
                     university_doc["rank_signal"] = static_cast<double>(university_profiles.size() - i) / static_cast<double>(university_profiles.size());
-                    university_doc["rank_source"] = "benchmark_university_rank";
+                    university_doc["rank_source"] = "webometrics_world_rank";
                     university_doc["rank_scope"] = "benchmark";
                     university_doc["rank_edition"] = "January 2026";
                     university_doc["webometrics_country_rank"] = rank;
