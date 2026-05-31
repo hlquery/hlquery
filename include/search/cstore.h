@@ -14,6 +14,7 @@
 
 #include <atomic>
 #include <condition_variable>
+#include <ctime>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -165,6 +166,33 @@ class HybridStorageManager
      /* Collections stores collection configurations. */
 
      std::unordered_map<std::string, CollectionConfig> Collections;
+
+     /* CollectionListCache avoids rescanning RocksDB metadata for routine collection listings. */
+
+     std::vector<std::string> CollectionListCache;
+
+     /* CollectionListCacheValid is false when the collection count is too large to cache. */
+
+     bool CollectionListCacheValid = false;
+
+     struct CachedCollectionMetadata
+     {
+          size_t DocumentCount = 0;
+
+          time_t CreatedAt = 0;
+     };
+
+     /* CollectionMetadataCache stores table metadata for collections small enough to cache. */
+
+     std::unordered_map<std::string, CachedCollectionMetadata> CollectionMetadataCache;
+
+     /* RefreshCollectionListCacheLocked rebuilds the sorted list cache while CollectionsMutex is held. */
+
+     void RefreshCollectionListCacheLocked();
+
+     /* UpdateCollectionMetadataCacheLocked refreshes one metadata row while CollectionsMutex is held. */
+
+     void UpdateCollectionMetadataCacheLocked(const std::string& name, size_t document_count, time_t created_at);
 
      /* CollectionsBeingIndexed tracks collections being indexed. */
 
@@ -375,6 +403,10 @@ class HybridStorageManager
      /* GetCollectionDocumentCount returns document count. */
 
      size_t GetCollectionDocumentCount(const std::string& collection);
+
+     /* GetCollectionCreatedAt returns the persisted collection creation time. */
+
+     time_t GetCollectionCreatedAt(const std::string& collection);
 
      /* CountStoredDocuments returns the exact number of persisted documents for a collection. */
 

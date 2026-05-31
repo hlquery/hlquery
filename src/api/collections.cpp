@@ -1763,7 +1763,7 @@ HttpResponse SearchAPI::HandleListCollections(const HttpRequest &Request)
           }
      }
 
-     ResponseJSON["total"] = TotalCount;
+     ResponseJSON["total"] = AllCollections.size();
      ResponseJSON["found"] = TotalCount;
      ResponseJSON["offset"] = OffsetVal;
      if (LimitVal > 0)
@@ -1999,14 +1999,6 @@ HttpResponse SearchAPI::HandleListCollectionsDistributed(const HttpRequest &Requ
           RemoteRequest.Method = "GET";
           RemoteRequest.Path = "/collections";
           RemoteRequest.QueryParams.clear();
-          if (!PatternVal.empty())
-          {
-               RemoteRequest.QueryParams["pattern"] = PatternVal;
-          }
-          else if (!SearchVal.empty())
-          {
-               RemoteRequest.QueryParams["search"] = SearchVal;
-          }
           RemoteRequest.Body.clear();
 
           int StatusCode = 0;
@@ -2173,7 +2165,7 @@ HttpResponse SearchAPI::HandleListCollectionsDistributed(const HttpRequest &Requ
      }
 
      ResponseJSON["collections"] = CollectionsArray;
-     ResponseJSON["total"] = TotalCount;
+     ResponseJSON["total"] = CollectionsMap.size();
      ResponseJSON["found"] = TotalCount;
      ResponseJSON["offset"] = OffsetVal;
      if (LimitVal > 0)

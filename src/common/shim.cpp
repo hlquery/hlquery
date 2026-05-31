@@ -36,8 +36,6 @@
 #include "core/pipeline.h"
 #include "core/pipeline_config.h"
 
-namespace
-{
 
 std::string JoinPaths(const std::vector<HLogInputFile>& inputs)
 {
@@ -127,7 +125,6 @@ void MaterializeFileInputModule(PipelineConfig& config)
      (void)existing;
 }
 
-}
 
 hlcore::~hlcore()
 {

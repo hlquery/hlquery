@@ -47,8 +47,6 @@
 #include "utils/wildcard.h"
 #include "vendor/json/json.hpp"
 
-namespace
-{
 std::string ExtractAliasCollectionFromPath(const std::string &Path)
 {
      std::regex AliasCollectionRegex(R"(/collections/([^/]+)/aliases)");
@@ -75,7 +73,6 @@ HttpResponse ApplyAliasPreCheck(const ModulePreCheckResult &PreCheck)
 bool HasAliasPreCheckFailure(const HttpResponse &Response)
 {
      return Response.StatusCode != Status::OK;
-}
 }
 
 /* HandleListAliases lists all collection aliases. */

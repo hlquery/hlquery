@@ -55,8 +55,6 @@ static SearchEvent BuildSearchEvent(const std::string &Query,
      return Event;
 }
 
-namespace
-{
 enum class VectorMetric
 {
      Cosine,
@@ -951,7 +949,6 @@ static float ComputeDistanceByMetric(const VectorPayload &QueryVector,
 
      float Similarity = ComputeSimilarityByMetric(QueryVector, DocVector, VectorMetric::Cosine);
      return 1.0f - Similarity;
-}
 }
 /* HandleVectorSearch top-level vector search handler. */
 

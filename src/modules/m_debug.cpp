@@ -22,8 +22,6 @@
 #include "utils/jsonbuilder.h"
 #include "vendor/json/json.hpp"
 
-namespace
-{
 std::string DescribeActor(const std::string &RequesterIP, const std::string &RequesterUser, bool Authenticated)
 {
      std::ostringstream out;
@@ -57,7 +55,6 @@ std::string JoinWords(const std::vector<std::string> &Words)
 void Trace(const std::string &Message)
 {
      ConsoleWriter::WriteInfo("[m_debug] " + Message);
-}
 }
 
 /* Runtime module used to print extensive debug information for module callbacks. */

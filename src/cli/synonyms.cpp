@@ -18,12 +18,9 @@
 #include "cli/cliutils.h"
 #include "app.h"
 
-namespace
-{
-bool IsGlobalScopeName(const std::string &name)
+static bool IsGlobalScopeName(const std::string &name)
 {
      return name == "global" || name == "__global__";
-}
 }
 void HLQueryCLI::ListSynonymsCounts()
 {

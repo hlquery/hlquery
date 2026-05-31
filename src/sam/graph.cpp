@@ -20,8 +20,6 @@
 
 #include "sam/internal.h"
 
-namespace
-{
 struct IntentGraphEdgeAccumulator
 {
      std::string Text;
@@ -391,7 +389,6 @@ std::vector<IntentGraphNodeMatch> LoadIntentGraphMatches(rocksdb::DB* Database,
      }
 
      return Matches;
-}
 }
 
 std::string BuildIntentGraphKey(const std::string& Collection)

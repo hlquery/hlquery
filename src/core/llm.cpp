@@ -31,8 +31,6 @@
 #include "sam/lang.h"
 #include "vendor/json/json.hpp"
 
-namespace
-{
 struct LLMInferenceResult
 {
      bool Started = false;
@@ -41,7 +39,6 @@ struct LLMInferenceResult
      std::string Stdout;
      std::string Stderr;
 };
-}
 
 llm::llm()
 {

@@ -20,8 +20,6 @@
 #include <unordered_set>
 #include <vector>
 
-namespace
-{
      constexpr uint64_t kSearchCacheTTLMS = 3600ULL * 1000ULL;
      constexpr size_t kSearchCacheMaxEntries = 4096;
 
@@ -106,7 +104,6 @@ namespace
                EntryOrder.pop_front();
           }
      }
-}
 
 bool SearchResponseCache::Get(const std::string& Namespace,
                               const HttpRequest& Request,

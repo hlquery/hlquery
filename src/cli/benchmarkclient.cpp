@@ -46,15 +46,12 @@
 #include "runtime/exitmanager.h"
 
 #ifndef HLQUERY_HAS_OPENSSL
-namespace
-{
 HTTPResponse MakeSSLMissingResponse()
 {
      HTTPResponse response;
      response.StatusCode = -1;
      response.ErrorMessage = "HTTPS support is unavailable in this build because OpenSSL support was not enabled.";
      return response;
-}
 }
 #endif
 

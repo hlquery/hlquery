@@ -46,8 +46,6 @@
 #include "utils/protocol.h"
 #include "vendor/json/json.hpp"
 
-namespace
-{
 static std::string ToLowerCopy(const std::string &Value)
 {
      std::string Out = Value;
@@ -1373,7 +1371,6 @@ static void AppendHitsFromJSON(const nlohmann::json &JSONObj,
           OutHits.push_back(std::move(Hit));
      }
 }
-}
 bool SearchAPI::IsStrictDistributedMode() const
 {
      if (!Instance || !Instance->Config)
@@ -2336,12 +2333,9 @@ bool SearchAPI::ShouldAttemptReplication(const HttpRequest &Request) const
      return true;
 }
 
-namespace
-{
 static std::string BuildReplicationSlaveStateKey(const std::string &Endpoint)
 {
      return "replication_slave_state:" + Endpoint;
-}
 }
 
 void SearchAPI::PersistReplicationSlaveState(const std::string &Endpoint) const

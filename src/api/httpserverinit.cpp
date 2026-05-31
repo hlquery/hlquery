@@ -19,8 +19,6 @@
 #include "core/logmanager.h"
 #include "utils/consolewriter.h"
 
-namespace
-{
 #ifdef HLQUERY_HAS_OPENSSL
 void EnsureOpenSSLInitialized()
 {
@@ -38,7 +36,6 @@ void EnsureOpenSSLInitialized()
      }
 }
 #endif
-}
 /* Validate SSL settings without binding sockets (preflight). */
 
 bool ValidateSSLConfig(const BindConfig &Config, std::string *ErrorMsg)

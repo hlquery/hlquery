@@ -18,8 +18,6 @@
 #include "search/mindex.h"
 #include "utils/simdutils.h"
 
-namespace
-{
 /* ReadMappedTerm - Finds the null terminator for a term stored inside the mmap terms file. */
 
 bool ReadMappedTerm(const char *TermStartPtr, const char *TermsEndPtr, size_t &TermLenOut)
@@ -38,7 +36,6 @@ bool ReadMappedTerm(const char *TermStartPtr, const char *TermsEndPtr, size_t &T
 
      TermLenOut = static_cast<const char *>(NullTerminator) - TermStartPtr;
      return true;
-}
 }
 
 /*

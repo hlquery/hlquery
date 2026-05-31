@@ -51,8 +51,6 @@
 #include "utils/wildcard.h"
 #include "vendor/json/json.hpp"
 
-namespace
-{
 static constexpr const char *kReplicationOutboxPrefix = "replication_outbox:";
 static constexpr const char *kReplicationAppliedPrefix = "replication_applied:";
 static constexpr const char *kReplicationResyncStateKey = "replication_resync:active";
@@ -536,7 +534,6 @@ static bool CrashPointMatches(const std::string &ConfiguredPoints, const std::st
      }
 
      return false;
-}
 }
 
 SearchAPI &SearchAPI::GetInstance()
@@ -2648,87 +2645,19 @@ std::string SearchAPI::GetCurrentTimestamp()
 
 std::string SearchAPI::GetCollectionCreatedAt(const std::string &CollectionName)
 {
-     std::string ColDir = std::string(HLQUERY_DATA_DIR) + "/collections/" + CollectionName;
-     std::string MarkerFile = ColDir + "/.collection";
+     const time_t TimeVal = HybridStorageManagerInstance().GetCollectionCreatedAt(CollectionName);
 
-     if (std::filesystem::exists(MarkerFile))
+     if (TimeVal > 0)
      {
-          std::ifstream Marker(MarkerFile);
+          struct tm TMBuf;
+          struct tm *TM = gmtime_r(&TimeVal, &TMBuf);
 
-          if (Marker.is_open())
+          if (TM)
           {
-               std::string Line;
-
-               std::getline(Marker, Line);
-
-               if (std::getline(Marker, Line))
-               {
-                    if (Line.find("created_at:") == 0)
-                    {
-                         std::string TimestampStr = Line.substr(11);
-
-                         try
-                         {
-                              long long TimestampSeconds = std::stoll(TimestampStr);
-                              time_t TimeVal = static_cast<time_t>(TimestampSeconds);
-
-                              struct tm TMBuf;
-                              struct tm *TM = gmtime_r(&TimeVal, &TMBuf);
-
-                              if (TM)
-                              {
-                                   std::ostringstream OSS;
-
-                                   OSS << std::put_time(TM, "%Y-%m-%dT%H:%M:%S");
-                                   OSS << ".000Z";
-
-                                   return OSS.str();
-                              }
-                         }
-                         catch (...)
-                         {
-                         }
-                    }
-               }
-          }
-     }
-
-     std::string MetaKey = "collection_meta:" + CollectionName;
-     std::string MetaValue = HybridStorageManagerInstance().Get(MetaKey);
-
-     if (!MetaValue.empty())
-     {
-          size_t ColonPos = MetaValue.find(':');
-
-          if (ColonPos != std::string::npos && ColonPos + 1 < MetaValue.size())
-          {
-               std::string TimestampStr = MetaValue.substr(ColonPos + 1);
-
-               try
-               {
-                    long long TimestampSeconds = std::stoll(TimestampStr);
-
-                    if (TimestampSeconds > 0)
-                    {
-                         time_t TimeVal = static_cast<time_t>(TimestampSeconds);
-
-                         struct tm TMBuf;
-                         struct tm *TM = gmtime_r(&TimeVal, &TMBuf);
-
-                         if (TM)
-                         {
-                              std::ostringstream OSS;
-
-                              OSS << std::put_time(TM, "%Y-%m-%dT%H:%M:%S");
-                              OSS << ".000Z";
-
-                              return OSS.str();
-                         }
-                    }
-               }
-               catch (...)
-               {
-               }
+               std::ostringstream OSS;
+               OSS << std::put_time(TM, "%Y-%m-%dT%H:%M:%S");
+               OSS << ".000Z";
+               return OSS.str();
           }
      }
 

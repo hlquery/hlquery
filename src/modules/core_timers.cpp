@@ -20,8 +20,6 @@
 #include "core/modules.h"
 #include "utils/consolewriter.h"
 
-namespace
-{
      static constexpr time_t HEALTH_SNAPSHOT_INTERVAL_SEC = 15;
 
      std::string FormatFriendlyTime(time_t Timestamp)
@@ -42,7 +40,6 @@ namespace
 
           return std::string(Buffer);
      }
-}
 
 class CoreTimersModule final : public AutoRuntimeModule<CoreTimersModule>
 {

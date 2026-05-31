@@ -21,8 +21,6 @@
 #include "utils/protocol.h"
 #include "vendor/json/json.hpp"
 
-namespace
-{
 std::string NormalizeModulePath(const std::string &Path)
 {
      std::string normalized_path = Path;
@@ -297,7 +295,6 @@ nlohmann::json BuildModuleWithCommandsJSON(const ModuleAPIDescription &Descripti
      }
 
      return module_json;
-}
 }
 HttpResponse SearchAPI::HandleListModules(const HttpRequest &Request)
 {

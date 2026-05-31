@@ -31,8 +31,6 @@
 #include "utils/wildcard.h"
 #include "vendor/json/json.hpp"
 
-namespace
-{
 std::string TrimRankMetadataValue(const std::string &Value)
 {
      const size_t Start = Value.find_first_not_of(" \t\r\n");
@@ -565,7 +563,6 @@ class FilterExpressionParser
      }
 };
 
-}
 
 /* ApplyFilters filters search hits based on filter conditions. */
 

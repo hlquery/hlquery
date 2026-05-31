@@ -18,8 +18,6 @@
 
 #include "sam/internal.h"
 
-namespace
-{
 std::string TrimEvalValue(const std::string& Value)
 {
      const size_t Start = Value.find_first_not_of(" \t\r\n");
@@ -236,7 +234,6 @@ void RecomputeCalibrationSummary(nlohmann::json& Root)
           {"adaptive_graph_budget", Calibration.AdaptiveGraphBudget},
           {"adaptive_semantic_budget", Calibration.AdaptiveSemanticBudget}
      };
-}
 }
 
 bool CaptureLookupEvaluation(rocksdb::DB* Database,

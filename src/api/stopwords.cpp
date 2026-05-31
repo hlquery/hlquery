@@ -35,6 +35,7 @@
 
 #include "api/searchapi.h"
 #include "api/common.h"
+#include "api/lexicalsort.h"
 #include "core/config.h"
 #include "core/hlquery.h"
 #include "core/socketengine.h"
@@ -47,8 +48,6 @@
 #include "utils/wildcard.h"
 #include "vendor/json/json.hpp"
 
-namespace
-{
 static const char *kGlobalStopwordsCollection = "__global__";
 
 static std::string TrimStopwordValue(const std::string &Value)
@@ -134,7 +133,6 @@ static bool ResolveStopwordScope(const std::string &Path,
      *OutCollection = "";
      *OutIsGlobal = false;
      return false;
-}
 }
 /* HandleListAllStopwords lists stopwords for all collections. */
 
@@ -295,6 +293,25 @@ HttpResponse SearchAPI::HandleListStopwords(const HttpRequest &Request)
           }
      }
 
+     LexicalSortOptions SortOptions;
+     std::string SortError;
+     if (!ResolveLexicalSortOptions(Request.QueryParams, "word", {"word"}, &SortOptions, &SortError))
+     {
+          return BuildErrorResponse(Status::BAD_REQUEST, Code::SEARCH_INVALID_PARAMETER, "Invalid sort parameter.", SortError);
+     }
+
+     std::sort(Result["stopwords"].begin(), Result["stopwords"].end(), [&SortOptions](const nlohmann::json &Left, const nlohmann::json &Right)
+     {
+          const std::string LeftText = StopwordJSONValueToText(Left);
+          const std::string RightText = StopwordJSONValueToText(Right);
+          return CompareLexicalSortValues(NormalizeStopwordValue(LeftText),
+                                          NormalizeStopwordValue(RightText),
+                                          LeftText + "\n" + Left.dump(),
+                                          RightText + "\n" + Right.dump(),
+                                          SortOptions.SortOrder);
+     });
+     Result["sort_by"] = SortOptions.SortBy;
+     Result["sort_order"] = SortOptions.SortOrder;
      Response.Body = Result.dump();
 
      return Response;

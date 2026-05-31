@@ -22,8 +22,6 @@
 #include "runtime/clock.h"
 #include "vendor/json/json.hpp"
 
-namespace
-{
 enum class LoadedModuleFilter
 {
      All,
@@ -570,7 +568,6 @@ bool TryPrintCompletedLlamaJob(HLQueryCLI &CLI, const std::string &Body, bool js
      {
           return false;
      }
-}
 }
 void HLQueryCLI::ListModules(const std::string &filter)
 {

@@ -10,6 +10,7 @@
  * For more details, please visit: https://docs.hlquery.com
  */
 
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <cstdlib>
@@ -36,6 +37,7 @@
 
 static std::vector<std::thread> IndexingThreads;
 static std::mutex IndexingThreadsMutex;
+static constexpr size_t MaxCachedCollectionNames = 1000000;
 
 static std::string GetCollectionConfigKey(const std::string &Name)
 {
@@ -737,6 +739,16 @@ void HybridStorageManager::UpdateCollectionCounters(bool force)
                     Instance->Logs->Normal("hybrid_storage", "UpdateCollectionCounters: Updated '" + collection + "' count from " + std::to_string(stored_count) + " to " + std::to_string(actual_count) + ".");
                }
           }
+
+          {
+               std::lock_guard<std::mutex> lock(CollectionsMutex);
+               UpdateCollectionMetadataCacheLocked(collection, actual_count, timestamp);
+          }
+
+          if (actual_count != stored_count)
+          {
+               SearchResponseCache::InvalidateCollection(collection);
+          }
      }
 
      /*
@@ -842,6 +854,16 @@ void HybridStorageManager::UpdateCollectionCountersPrefix(const std::string &pre
                {
                     Instance->Logs->Normal("hybrid_storage", "UpdateCollectionCountersPrefix: Updated '" + collection + "' count from " + std::to_string(stored_count) + " to " + std::to_string(actual_count) + ".");
                }
+          }
+
+          {
+               std::lock_guard<std::mutex> lock(CollectionsMutex);
+               UpdateCollectionMetadataCacheLocked(collection, actual_count, timestamp);
+          }
+
+          if (actual_count != stored_count)
+          {
+               SearchResponseCache::InvalidateCollection(collection);
           }
      }
 
@@ -1117,6 +1139,8 @@ bool HybridStorageManager::CreateCollection(const std::string &name, const Colle
                Instance->Logs->Normal("hybrid_storage", "[COLLECTION_FINAL] Collection '" + name + "' confirmed in map (size: " + std::to_string(Collections.size()) + ") - releasing lock.");
           }
 
+          UpdateCollectionMetadataCacheLocked(name, 0, now);
+          RefreshCollectionListCacheLocked();
           SearchResponseCache::InvalidateCollection(name);
           return true;
      }
@@ -1155,6 +1179,7 @@ bool HybridStorageManager::CreateCollection(const std::string &name, const Colle
           }
      }
 
+     RefreshCollectionListCacheLocked();
      SearchResponseCache::InvalidateCollection(name);
      return true;
 }
@@ -1618,6 +1643,8 @@ bool HybridStorageManager::DeleteCollection(const std::string &name)
      /* Remove from in-memory map */
 
      Collections.erase(name);
+     CollectionMetadataCache.erase(name);
+     RefreshCollectionListCacheLocked();
 
      {
           std::lock_guard<std::mutex> indexing_lock(IndexingMutex);
@@ -1630,6 +1657,54 @@ bool HybridStorageManager::DeleteCollection(const std::string &name)
 }
 
 /* CollectionExists - Checks whether a collection exists. */
+
+void HybridStorageManager::RefreshCollectionListCacheLocked()
+{
+     if (Collections.size() > MaxCachedCollectionNames)
+     {
+          CollectionListCache.clear();
+          CollectionMetadataCache.clear();
+          CollectionListCacheValid = false;
+          return;
+     }
+
+     CollectionListCache.clear();
+     CollectionListCache.reserve(Collections.size());
+
+     for (const auto &pair : Collections)
+     {
+          CollectionListCache.push_back(pair.first);
+     }
+
+     std::sort(CollectionListCache.begin(), CollectionListCache.end());
+
+     for (auto it = CollectionMetadataCache.begin(); it != CollectionMetadataCache.end();)
+     {
+          if (Collections.find(it->first) == Collections.end())
+          {
+               it = CollectionMetadataCache.erase(it);
+          }
+          else
+          {
+               ++it;
+          }
+     }
+
+     CollectionListCacheValid = true;
+}
+
+void HybridStorageManager::UpdateCollectionMetadataCacheLocked(const std::string &name,
+                                                               size_t document_count,
+                                                               time_t created_at)
+{
+     if (Collections.size() > MaxCachedCollectionNames)
+     {
+          CollectionMetadataCache.clear();
+          return;
+     }
+
+     CollectionMetadataCache[name] = {document_count, created_at};
+}
 
 bool HybridStorageManager::CollectionExists(const std::string &name)
 {
@@ -1662,6 +1737,7 @@ bool HybridStorageManager::CollectionExists(const std::string &name)
                if (Collections.find(name) == Collections.end())
                {
                     Collections[name] = std::move(config);
+                    RefreshCollectionListCacheLocked();
                }
                return true;
           }
@@ -1674,6 +1750,15 @@ bool HybridStorageManager::CollectionExists(const std::string &name)
 
 std::vector<std::string> HybridStorageManager::ListCollections()
 {
+     {
+          std::lock_guard<std::mutex> lock(CollectionsMutex);
+
+          if (CollectionListCacheValid)
+          {
+               return CollectionListCache;
+          }
+     }
+
      /*
            * CRITICAL FIX: Check in-memory map FIRST to catch newly created collections
            * that might not be visible in RocksDB iterator yet (even after flush).
@@ -1766,7 +1851,14 @@ std::vector<std::string> HybridStorageManager::ListCollections()
                {
                     Collections.emplace(name, std::move(config));
                }
+
+               RefreshCollectionListCacheLocked();
           }
+     }
+     else
+     {
+          std::lock_guard<std::mutex> lock(CollectionsMutex);
+          RefreshCollectionListCacheLocked();
      }
 
      /* Return collections from set */
@@ -1999,6 +2091,7 @@ bool HybridStorageManager::AddDocument(const std::string &collection, const Docu
           std::string new_meta_value = std::to_string(current_count) + ":" + std::to_string(timestamp);
 
           Instance->Database->Set(meta_key, new_meta_value);
+          UpdateCollectionMetadataCacheLocked(collection, current_count, timestamp);
      }
 
      /* If document existed, count stays the same (overwrite, not new document) */
@@ -2216,6 +2309,11 @@ size_t HybridStorageManager::AddDocumentsBatch(const std::string &collection, co
                {
                     count = 0;
                }
+          }
+
+          if (count == document_write_count)
+          {
+               UpdateCollectionMetadataCacheLocked(collection, new_count, timestamp);
           }
      }
 
@@ -2722,6 +2820,7 @@ bool HybridStorageManager::DeleteDocument(const std::string &collection, const s
                     std::string new_meta_value = std::to_string(current_count) + ":" + std::to_string(timestamp);
 
                     Instance->Database->Set(meta_key, new_meta_value);
+                    UpdateCollectionMetadataCacheLocked(collection, current_count, timestamp);
                }
           }
 
@@ -2917,6 +3016,16 @@ size_t HybridStorageManager::GetCollectionDocumentCount(const std::string &colle
           return 0;
      }
 
+     {
+          std::lock_guard<std::mutex> lock(CollectionsMutex);
+          const auto it = CollectionMetadataCache.find(collection);
+
+          if (it != CollectionMetadataCache.end())
+          {
+               return it->second.DocumentCount;
+          }
+     }
+
      /* Get count from metadata */
 
      std::string meta_key = "collection_meta:" + collection;
@@ -2924,15 +3033,13 @@ size_t HybridStorageManager::GetCollectionDocumentCount(const std::string &colle
      std::string meta_value = Instance->Database->Get(meta_key);
 
      size_t metadata_count = 0;
+     time_t timestamp = time(nullptr);
 
-     if (!meta_value.empty())
+     ParseCollectionMetaValue(meta_value, &metadata_count, &timestamp);
+
      {
-          size_t colon_pos = meta_value.find(':');
-
-          if (colon_pos != std::string::npos)
-          {
-               metadata_count = std::stoull(meta_value.substr(0, colon_pos));
-          }
+          std::lock_guard<std::mutex> lock(CollectionsMutex);
+          UpdateCollectionMetadataCacheLocked(collection, metadata_count, timestamp);
      }
 
      /*
@@ -2942,6 +3049,37 @@ size_t HybridStorageManager::GetCollectionDocumentCount(const std::string &colle
            */
 
      return metadata_count;
+}
+
+time_t HybridStorageManager::GetCollectionCreatedAt(const std::string &collection)
+{
+     if (!Instance || !Instance->Database)
+     {
+          return 0;
+     }
+
+     {
+          std::lock_guard<std::mutex> lock(CollectionsMutex);
+          const auto it = CollectionMetadataCache.find(collection);
+
+          if (it != CollectionMetadataCache.end())
+          {
+               return it->second.CreatedAt;
+          }
+     }
+
+     size_t document_count = 0;
+     time_t timestamp = 0;
+     ParseCollectionMetaValue(Instance->Database->Get("collection_meta:" + collection),
+                              &document_count,
+                              &timestamp);
+
+     {
+          std::lock_guard<std::mutex> lock(CollectionsMutex);
+          UpdateCollectionMetadataCacheLocked(collection, document_count, timestamp);
+     }
+
+     return timestamp;
 }
 
 size_t HybridStorageManager::CountStoredDocuments(const std::string &collection)
@@ -3174,7 +3312,10 @@ CollectionIntegrityStatus HybridStorageManager::RepairCollection(const std::stri
           time_t timestamp = time(nullptr);
           ParseCollectionMetaValue(Instance->Database->Get("collection_meta:" + collection), nullptr, &timestamp);
           Instance->Database->Set("collection_meta:" + collection, BuildCollectionMetaValue(status.ActualCount, timestamp));
+          UpdateCollectionMetadataCacheLocked(collection, status.ActualCount, timestamp);
      }
+
+     SearchResponseCache::InvalidateCollection(collection);
 
      status.MetadataCount = status.ActualCount;
      status.MetadataMatch = true;
@@ -3401,6 +3542,8 @@ bool HybridStorageManager::LoadCollectionsFromRocksDB()
 
      {
           std::lock_guard<std::mutex> lock(CollectionsMutex);
+          Collections.clear();
+          CollectionMetadataCache.clear();
 
           for (const auto &key : keys)
           {
@@ -3426,9 +3569,18 @@ bool HybridStorageManager::LoadCollectionsFromRocksDB()
                     }
 
                     Collections[collection_name] = config;
+
+                    size_t document_count = 0;
+                    time_t timestamp = time(nullptr);
+                    ParseCollectionMetaValue(Instance->Database->Get(key), &document_count, &timestamp);
+                    UpdateCollectionMetadataCacheLocked(collection_name, document_count, timestamp);
                }
           }
+
+          RefreshCollectionListCacheLocked();
      }
+
+     SearchResponseCache::InvalidateAll();
 
      if (Instance && Instance->Logs)
      {
@@ -4136,6 +4288,7 @@ bool HybridStorageManager::FlushAll()
           collection_count = Collections.size();
 
           Collections.clear();
+          RefreshCollectionListCacheLocked();
      }
 
      /*

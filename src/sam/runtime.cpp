@@ -24,8 +24,6 @@
 #include "search/storageengine.h"
 #include "vendor/json/json.hpp"
 
-namespace
-{
 constexpr const char* kPendingIndexQueuePrefix = "sam:queue:index:";
 constexpr uint64_t kDefaultBackgroundImprovementIntervalMS = 60000;
 constexpr uint64_t kDefaultBackgroundImprovementPollMS = 15000;
@@ -103,7 +101,6 @@ std::chrono::milliseconds ResolveBackgroundImprovementPollInterval()
 
      return std::chrono::milliseconds(
           std::max(1000, Instance->Config->GetSamBackgroundImprovementPollMs()));
-}
 }
 
 /* Initialize SAM runtime defaults. */

@@ -28,8 +28,6 @@
 
 #include "talk/linenoise.h"
 
-namespace
-{
      /* Shared command history for the local REPL session. */
 
      std::vector<std::string> History;
@@ -528,7 +526,6 @@ namespace
           state.HistoryIndex = History.size();
           return true;
      }
-}
 
 /* Read one line, using raw mode when attached to a terminal. */
 

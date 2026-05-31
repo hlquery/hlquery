@@ -53,8 +53,6 @@
 #include "utils/wildcard.h"
 #include "vendor/json/json.hpp"
 
-namespace
-{
 struct LinkEndpointInfo
 {
      std::string RawEndpoint;
@@ -803,7 +801,6 @@ static bool HealthValidateRemoteModules(const std::string &ResponseBody, std::st
           return false;
      }
 }
-} // namespace
 /* HandlePing responds to ping request. */
 
 HttpResponse SearchAPI::HandlePing(const HttpRequest &Request)

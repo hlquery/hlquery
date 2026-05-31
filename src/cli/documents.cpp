@@ -28,8 +28,6 @@
 #include "app.h"
 #include "runtime/clock.h"
 
-namespace
-{
 std::string JoinDocumentStrings(const std::vector<std::string> &values, const std::string &separator)
 {
      std::string joined;
@@ -168,7 +166,6 @@ void PrintSQLRowsTable(HLQueryCLI &cli, const nlohmann::json &rows_json)
      }
 }
 
-}
 
 bool HLQueryCLI::IsDataTooMessyForTable(const nlohmann::json &doc)
 {

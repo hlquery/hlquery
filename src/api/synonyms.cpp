@@ -35,6 +35,7 @@
 
 #include "api/searchapi.h"
 #include "api/common.h"
+#include "api/lexicalsort.h"
 #include "core/config.h"
 #include "core/hlquery.h"
 #include "core/socketengine.h"
@@ -136,6 +137,28 @@ static std::string TrimSynonymTerm(const std::string &Value)
      return Value.substr(Start, End - Start + 1);
 }
 
+static std::string GetSynonymSortValue(const nlohmann::json &Synonym, const std::string &SortBy)
+{
+     if (!Synonym.is_object() || !Synonym.contains(SortBy) || !Synonym[SortBy].is_string())
+     {
+          return "";
+     }
+
+     return NormalizeSynonymTerm(TrimSynonymTerm(Synonym[SortBy].get<std::string>()));
+}
+
+static std::string GetSynonymSortTieBreaker(const nlohmann::json &Synonym)
+{
+     if (!Synonym.is_object())
+     {
+          return Synonym.dump();
+     }
+
+     return GetSynonymSortValue(Synonym, "id") + "\n" +
+            GetSynonymSortValue(Synonym, "root") + "\n" +
+            Synonym.dump();
+}
+
 /* List all synonyms for a collection. */
 
 /*
@@ -218,6 +241,23 @@ HttpResponse SearchAPI::HandleListSynonyms(const HttpRequest &Request)
           }
      }
 
+     LexicalSortOptions SortOptions;
+     std::string SortError;
+     if (!ResolveLexicalSortOptions(Request.QueryParams, "root", {"root", "id"}, &SortOptions, &SortError))
+     {
+          return BuildErrorResponse(Status::BAD_REQUEST, Code::SEARCH_INVALID_PARAMETER, "Invalid sort parameter.", SortError);
+     }
+
+     std::sort(SynonymsArray.begin(), SynonymsArray.end(), [&SortOptions](const nlohmann::json &Left, const nlohmann::json &Right)
+     {
+          return CompareLexicalSortValues(GetSynonymSortValue(Left, SortOptions.SortBy),
+                                          GetSynonymSortValue(Right, SortOptions.SortBy),
+                                          GetSynonymSortTieBreaker(Left),
+                                          GetSynonymSortTieBreaker(Right),
+                                          SortOptions.SortOrder);
+     });
+     Result["sort_by"] = SortOptions.SortBy;
+     Result["sort_order"] = SortOptions.SortOrder;
      Result["synonyms"] = SynonymsArray;
 
      Response.Body = Result.dump(2);

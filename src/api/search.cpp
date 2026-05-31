@@ -38,12 +38,10 @@
 #include "utils/protocol.h"
 #include "vendor/json/json.hpp"
 
-namespace
-{
-     class SAMTrainingDedupe
+     class SearchSAMTrainingDedupe
      {
        public:
-         explicit SAMTrainingDedupe(size_t MaxEntries)
+         explicit SearchSAMTrainingDedupe(size_t MaxEntries)
              : Max(MaxEntries)
          {
          }
@@ -87,9 +85,9 @@ namespace
          std::deque<std::string> Order;
      };
 
-     static SAMTrainingDedupe gSearchIdeaDedupe(16384);
+     static SearchSAMTrainingDedupe gSearchIdeaDedupe(16384);
 
-     std::string NormalizeControlToken(std::string Value)
+     static std::string NormalizeControlToken(std::string Value)
      {
           const size_t Start = Value.find_first_not_of(" \t\r\n");
 
@@ -110,19 +108,19 @@ namespace
           return Value;
      }
 
-     bool IsTruthyControlToken(const std::string& Value)
+     static bool IsTruthyControlToken(const std::string& Value)
      {
           const std::string Token = NormalizeControlToken(Value);
           return Token == "1" || Token == "true" || Token == "yes" || Token == "on" || Token == "skip";
      }
 
-     bool IsFalsyControlToken(const std::string& Value)
+     static bool IsFalsyControlToken(const std::string& Value)
      {
           const std::string Token = NormalizeControlToken(Value);
           return Token == "0" || Token == "false" || Token == "no" || Token == "off";
      }
 
-     bool ShouldSkipSAMRecording(const HttpRequest& Request)
+     static bool ShouldSkipSAMRecording(const HttpRequest& Request)
      {
           const auto SkipIt = Request.QueryParams.find("skip");
           if (SkipIt != Request.QueryParams.end() && IsTruthyControlToken(SkipIt->second))
@@ -157,7 +155,7 @@ namespace
           return HeaderIt != Request.Headers.end() && IsTruthyControlToken(HeaderIt->second);
      }
 
-     bool ShouldRecordSAMSearchIdea(const HttpRequest& Request,
+     static bool ShouldRecordSAMSearchIdea(const HttpRequest& Request,
                                    const std::string& Collection,
                                    const std::string& Query)
      {
@@ -183,7 +181,6 @@ namespace
           const std::string Key = ActorKey + "\n" + Collection + "\n" + Query;
           return gSearchIdeaDedupe.ShouldAllow(Key, NowMS, WindowMS);
      }
-}
 
 /* Stores the maybe-suggestion policy for a document search response. */
 

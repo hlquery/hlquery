@@ -24,8 +24,6 @@
 #include "api/common.h"
 #include "vendor/json/json.hpp"
 
-namespace
-{
 static std::string ToLowerCopy(const std::string &value)
 {
      std::string out = value;
@@ -818,7 +816,6 @@ static void CollectQuerySuggestionsFromSample(const std::string &collection,
      }
 }
 
-}
 HttpResponse SearchAPI::HandleMaybe(const HttpRequest &Request)
 {
      if (Request.Method != "GET" && Request.Method != "POST")

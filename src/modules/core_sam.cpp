@@ -24,8 +24,6 @@
 #include "search/cstore.h"
 #include "sam/sam.h"
 
-namespace
-{
      constexpr const char* kSAMGlobalLexicalScope = "__global__";
      constexpr uint64_t kSAMInteractionFlushIntervalMs = 60ULL * 60ULL * 1000ULL;
      std::mutex StartupSweepMutex;
@@ -414,7 +412,6 @@ namespace
                }
           }
      }
-}
 
 class CoreSAMModule final : public AutoRuntimeModule<CoreSAMModule>
 {

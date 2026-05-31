@@ -26,8 +26,6 @@
 #include "core/hlquery.h"
 #include "utils/infos.h"
 
-namespace
-{
 constexpr size_t kMaxKeysDatSize = 64 * 1024 * 1024;
 constexpr uint32_t kMaxKeyCount = 100000;
 constexpr uint32_t kMaxScopeCount = 10000;
@@ -40,7 +38,7 @@ constexpr uint32_t kMaxEmbeddedFiltersLen = 64 * 1024;
 
 /* WriteFileAtomic writes data to a temp file, fsyncs, then renames into place. */
 
-bool WriteFileAtomic(const std::string &FilePath, const std::string &Contents)
+static bool WriteFileAtomic(const std::string &FilePath, const std::string &Contents)
 {
      std::error_code EC;
 
@@ -112,7 +110,6 @@ std::string GetKeysEncryptionKey()
      }
 
      return "hlquery-api-keys-encryption-key-v1";
-}
 }
 /* Initialize APIKeyManager. */
 
