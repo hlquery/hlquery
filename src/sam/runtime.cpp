@@ -807,6 +807,7 @@ SAM::ImprovementStats SAM::ImproveIdleCollectionsDetailed(size_t MaxCollections,
           }
 
           bool Improved = false;
+          size_t PrunedTerms = 0;
           std::string ErrorMessage;
 
           {
@@ -835,6 +836,12 @@ SAM::ImprovementStats SAM::ImproveIdleCollectionsDetailed(size_t MaxCollections,
                               RecordDebugEvent(Collection, "background improvement failed to prune stale search ideas: " + ErrorMessage);
                          }
                          Stats.PrunedIdeas += PrunedIdeas;
+
+                         if (!PruneUnusedSAMTermsLocked(Database.get(), Collection, &PrunedTerms, &ErrorMessage))
+                         {
+                              RecordDebugEvent(Collection, "background improvement failed to prune unused generated terms: " + ErrorMessage);
+                         }
+                         Stats.PrunedTerms += PrunedTerms;
 
                          const bool RebuiltProfile =
                               RebuildCollectionProfileLocked(Database.get(), Collection, &ErrorMessage);
@@ -876,7 +883,9 @@ SAM::ImprovementStats SAM::ImproveIdleCollectionsDetailed(size_t MaxCollections,
           if (Improved)
           {
                ++Stats.ImprovedCollections;
-               RecordDebugEvent(Collection, "background improvement refreshed learned profile and intent graph");
+               RecordDebugEvent(Collection,
+                                "background improvement refreshed learned profile and intent graph; pruned " +
+                                     std::to_string(PrunedTerms) + " unused generated term(s)");
           }
           else if (!ErrorMessage.empty())
           {

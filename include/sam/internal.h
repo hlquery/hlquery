@@ -121,6 +121,10 @@ bool CaptureLookupEvaluation(rocksdb::DB* Database,
                              const std::string& Query,
                              const std::vector<SAM::LookupHit>& Hits,
                              std::string* ErrorMessage = nullptr);
+bool PruneUnusedSAMTermsLocked(rocksdb::DB* Database,
+                               const std::string& Collection,
+                               size_t* PrunedTerms = nullptr,
+                               std::string* ErrorMessage = nullptr);
 bool LoadLookupEvaluationCalibration(rocksdb::DB* Database,
                                      const std::string& Collection,
                                      SAMEvaluationCalibration& Calibration,

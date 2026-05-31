@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <cctype>
 #include <ctime>
+#include <rocksdb/write_batch.h>
 #include <sstream>
 
 #include "sam/internal.h"
@@ -69,6 +70,30 @@ std::string BuildLookupEvaluationEventKey(const std::string& Collection,
 {
      const size_t Hash = std::hash<std::string>{}(Query);
      return "sam:eval:" + Collection + ":" + std::to_string(TimestampMS) + ":" + std::to_string(Hash);
+}
+
+std::string BuildTermUsageKey(const std::string& DocumentID, const std::string& Term)
+{
+     return DocumentID + "\n" + NormalizeEvalText(Term);
+}
+
+bool IsPrunableGeneratedTerm(const SAM::TermEntry& Term)
+{
+     if (Term.Kind != "query" && Term.Kind != "descriptor")
+     {
+          return false;
+     }
+
+     const std::string& Source = Term.Source;
+     const bool Generated =
+          Source.rfind("llm_", 0) == 0 ||
+          Source.rfind("profile_", 0) == 0 ||
+          Source.rfind("iterative_", 0) == 0 ||
+          Source == "query_refine" ||
+          Source == "query_expand" ||
+          Source == "context_pair";
+
+     return Generated && (Term.Score < 0.80 || Term.Signal < 0.82);
 }
 
 bool HasAnyPathPrefix(const std::vector<SAM::LookupHit>& Hits, const std::string& Prefix)
@@ -296,6 +321,47 @@ bool CaptureLookupEvaluation(rocksdb::DB* Database,
 
      Root["events"].push_back(Event);
 
+     if (!Root.contains("term_usage") || !Root["term_usage"].is_object())
+     {
+          Root["term_usage"] = nlohmann::json::object();
+     }
+
+     for (const auto& Hit : Hits)
+     {
+          if (Hit.Collection != Collection ||
+              Hit.DocumentID.empty() ||
+              Hit.MatchedTerm.empty() ||
+              Hit.MatchedPath.rfind("sam_term", 0) != 0)
+          {
+               continue;
+          }
+
+          const std::string UsageKey = BuildTermUsageKey(Hit.DocumentID, Hit.MatchedTerm);
+          nlohmann::json& Usage = Root["term_usage"][UsageKey];
+          Usage["hits"] = Usage.value("hits", 0U) + 1;
+          Usage["last_used_ms"] = TimestampMS;
+     }
+
+     constexpr size_t kMaxTrackedTermUsage = 4096;
+
+     if (Root["term_usage"].size() > kMaxTrackedTermUsage)
+     {
+          std::vector<std::pair<uint64_t, std::string>> RankedUsage;
+          RankedUsage.reserve(Root["term_usage"].size());
+
+          for (auto Iterator = Root["term_usage"].begin(); Iterator != Root["term_usage"].end(); ++Iterator)
+          {
+               RankedUsage.emplace_back(Iterator.value().value("last_used_ms", 0ULL), Iterator.key());
+          }
+
+          std::sort(RankedUsage.begin(), RankedUsage.end());
+
+          for (size_t Index = 0; Index + kMaxTrackedTermUsage < RankedUsage.size(); ++Index)
+          {
+               Root["term_usage"].erase(RankedUsage[Index].second);
+          }
+     }
+
      while (Root["events"].size() > 256)
      {
           Root["events"].erase(Root["events"].begin());
@@ -314,6 +380,263 @@ bool CaptureLookupEvaluation(rocksdb::DB* Database,
           }
 
           return false;
+     }
+
+     return true;
+}
+
+bool PruneUnusedSAMTermsLocked(rocksdb::DB* Database,
+                               const std::string& Collection,
+                               size_t* PrunedTerms,
+                               std::string* ErrorMessage)
+{
+     if (PrunedTerms)
+     {
+          *PrunedTerms = 0;
+     }
+
+     if (!Database || Collection.empty())
+     {
+          if (ErrorMessage)
+          {
+               *ErrorMessage = "Unused SAM term pruning requires an open database and collection.";
+          }
+
+          return false;
+     }
+
+     std::string RawState;
+     const rocksdb::Status StateStatus =
+          Database->Get(rocksdb::ReadOptions(), BuildLookupEvaluationStateKey(Collection), &RawState);
+
+     if (!StateStatus.ok() || RawState.empty())
+     {
+          return true;
+     }
+
+     nlohmann::json State;
+
+     try
+     {
+          State = nlohmann::json::parse(RawState);
+     }
+     catch (...)
+     {
+          if (ErrorMessage)
+          {
+               *ErrorMessage = "Failed to parse stored SAM lookup evaluation state.";
+          }
+
+          return false;
+     }
+
+     const size_t Samples = State.value("summary", nlohmann::json::object()).value("samples", 0U);
+     constexpr size_t kMinEvaluationSamples = 48;
+     constexpr size_t kProbationSamples = 32;
+     constexpr size_t kMaxPrunedTermsPerPass = 64;
+
+     if (Samples < kMinEvaluationSamples)
+     {
+          return true;
+     }
+
+     if (!State.contains("term_usage") || !State["term_usage"].is_object())
+     {
+          State["term_usage"] = nlohmann::json::object();
+     }
+
+     if (!State.contains("term_review") || !State["term_review"].is_object())
+     {
+          State["term_review"] = nlohmann::json::object();
+     }
+
+     nlohmann::json& TermUsage = State["term_usage"];
+     nlohmann::json& TermReview = State["term_review"];
+     rocksdb::WriteBatch Batch;
+     bool StateChanged = false;
+     size_t RemovedTerms = 0;
+     const std::string ManifestPrefix = "sam:doc:" + Collection + ":";
+     std::unique_ptr<rocksdb::Iterator> Iterator(Database->NewIterator(rocksdb::ReadOptions()));
+
+     for (Iterator->Seek(ManifestPrefix);
+          Iterator->Valid() &&
+          Iterator->key().starts_with(ManifestPrefix) &&
+          RemovedTerms < kMaxPrunedTermsPerPass;
+          Iterator->Next())
+     {
+          nlohmann::json Manifest;
+          SAM::DocumentEntry Entry;
+
+          try
+          {
+               Manifest = nlohmann::json::parse(Iterator->value().ToString());
+          }
+          catch (...)
+          {
+               continue;
+          }
+
+          if (!ParseManifestValue(Iterator->value().ToString(), Entry) ||
+              !Manifest.contains("terms") ||
+              !Manifest["terms"].is_array())
+          {
+               continue;
+          }
+
+          std::vector<SAM::TermEntry> KeptTerms;
+          nlohmann::json KeptTermJSON = nlohmann::json::array();
+          bool ManifestChanged = false;
+
+          for (const auto& TermJSON : Manifest["terms"])
+          {
+               if (!TermJSON.is_object())
+               {
+                    KeptTermJSON.push_back(TermJSON);
+                    continue;
+               }
+
+               SAM::TermEntry Term;
+               Term.Text = TermJSON.value("text", "");
+               Term.Kind = TermJSON.value("kind", "");
+               Term.Source = TermJSON.value("source", "");
+               Term.Score = TermJSON.value("score", 0.0);
+               Term.Signal = TermJSON.value("signal", 0.0);
+               const std::string UsageKey = BuildTermUsageKey(Entry.DocumentID, Term.Text);
+               const bool Used = TermUsage.contains(UsageKey) &&
+                                 TermUsage[UsageKey].value("hits", 0U) > 0;
+
+               if (!IsPrunableGeneratedTerm(Term) || Used)
+               {
+                    if (Used && TermReview.erase(UsageKey) > 0)
+                    {
+                         StateChanged = true;
+                    }
+
+                    KeptTerms.push_back(Term);
+                    KeptTermJSON.push_back(TermJSON);
+                    continue;
+               }
+
+               if (RemovedTerms >= kMaxPrunedTermsPerPass)
+               {
+                    KeptTerms.push_back(Term);
+                    KeptTermJSON.push_back(TermJSON);
+                    continue;
+               }
+
+               if (!TermReview.contains(UsageKey))
+               {
+                    TermReview[UsageKey] = {
+                         {"first_sample", Samples},
+                         {"last_review_sample", Samples}
+                    };
+                    StateChanged = true;
+                    KeptTerms.push_back(Term);
+                    KeptTermJSON.push_back(TermJSON);
+                    continue;
+               }
+
+               nlohmann::json& Review = TermReview[UsageKey];
+               const size_t FirstSample = Review.value("first_sample", Samples);
+               const size_t LastReviewSample = Review.value("last_review_sample", 0U);
+
+               if (LastReviewSample != Samples)
+               {
+                    Review["last_review_sample"] = Samples;
+                    StateChanged = true;
+               }
+
+               if (Samples < FirstSample || (Samples - FirstSample) < kProbationSamples)
+               {
+                    KeptTerms.push_back(Term);
+                    KeptTermJSON.push_back(TermJSON);
+                    continue;
+               }
+
+               Batch.Delete(BuildTermKey(Term.Text, Collection, Entry.DocumentID));
+               TermReview.erase(UsageKey);
+               TermUsage.erase(UsageKey);
+               StateChanged = true;
+               ManifestChanged = true;
+               ++RemovedTerms;
+          }
+
+          if (!ManifestChanged)
+          {
+               continue;
+          }
+
+          if (Manifest.contains("semantic_index") && Manifest["semantic_index"].is_array())
+          {
+               for (const auto& SemanticJSON : Manifest["semantic_index"])
+               {
+                    if (!SemanticJSON.is_object())
+                    {
+                         continue;
+                    }
+
+                    const std::string Text = SemanticJSON.value("text", "");
+                    const std::string Kind = SemanticJSON.value("kind", "semantic");
+
+                    if (!Text.empty())
+                    {
+                         Batch.Delete(BuildSemanticProfileKey(Text, Collection, Entry.DocumentID, Kind));
+                    }
+               }
+          }
+
+          Manifest["terms"] = std::move(KeptTermJSON);
+          const SAMSemanticProfile Profile =
+               BuildSemanticProfile(Entry.Title.empty() ? Entry.DocumentID : Entry.Title, KeptTerms);
+          const std::vector<SAMSemanticIndexEntry> SemanticIndex = BuildSemanticIndexEntries(Profile, 32);
+          StoreSemanticProfileJSON(Manifest, Profile);
+          Manifest["semantic_index"] = nlohmann::json::array();
+
+          for (const auto& SemanticEntry : SemanticIndex)
+          {
+               Manifest["semantic_index"].push_back({
+                    {"text", SemanticEntry.Text},
+                    {"kind", SemanticEntry.Kind}
+               });
+
+               nlohmann::json Payload = {
+                    {"collection", Collection},
+                    {"id", Entry.DocumentID},
+                    {"title", Entry.Title},
+                    {"term", SemanticEntry.Text},
+                    {"kind", SemanticEntry.Kind}
+               };
+               Batch.Put(BuildSemanticProfileKey(SemanticEntry.Text,
+                                                 Collection,
+                                                 Entry.DocumentID,
+                                                 SemanticEntry.Kind),
+                         Payload.dump());
+          }
+
+          Batch.Put(BuildDocManifestKey(Collection, Entry.DocumentID), Manifest.dump());
+     }
+
+     if (!StateChanged)
+     {
+          return true;
+     }
+
+     Batch.Put(BuildLookupEvaluationStateKey(Collection), State.dump());
+     const rocksdb::Status WriteStatus = Database->Write(rocksdb::WriteOptions(), &Batch);
+
+     if (!WriteStatus.ok())
+     {
+          if (ErrorMessage)
+          {
+               *ErrorMessage = WriteStatus.ToString();
+          }
+
+          return false;
+     }
+
+     if (PrunedTerms)
+     {
+          *PrunedTerms = RemovedTerms;
      }
 
      return true;
