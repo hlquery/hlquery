@@ -199,6 +199,10 @@ class HLQueryCLI
                          bool json_output = false,
                          bool interactions_only = false);
 
+     /* Runs a SAM improvement pass for idle collections. */
+
+     void ImproveSAM(size_t limit = 0, bool force = false, bool json_output = false);
+
      /* Lists SAM-indexed documents for one collection. */
 
      void ListSAMDocuments(const std::string &collection_name, int offset = 0, int limit = 20, bool json_output = false);

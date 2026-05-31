@@ -829,6 +829,13 @@ SAM::ImprovementStats SAM::ImproveIdleCollectionsDetailed(size_t MaxCollections,
 
                     if (CurrentIndex)
                     {
+                         size_t PrunedIdeas = 0;
+                         if (!TrimSearchIdeasLocked(Collection, &PrunedIdeas, &ErrorMessage))
+                         {
+                              RecordDebugEvent(Collection, "background improvement failed to prune stale search ideas: " + ErrorMessage);
+                         }
+                         Stats.PrunedIdeas += PrunedIdeas;
+
                          const bool RebuiltProfile =
                               RebuildCollectionProfileLocked(Database.get(), Collection, &ErrorMessage);
                          const bool RebuiltGraph =

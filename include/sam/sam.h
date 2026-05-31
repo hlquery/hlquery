@@ -112,6 +112,7 @@ class SAM
      {
           size_t ImprovedCollections = 0;
           size_t OptimizedIdeas = 0;
+          size_t PrunedIdeas = 0;
           size_t SkippedBusy = 0;
           size_t SkippedStaleIndex = 0;
           size_t SkippedPendingRebuild = 0;
@@ -125,7 +126,7 @@ class SAM
 
           size_t TotalImproved() const
           {
-               return ImprovedCollections + OptimizedIdeas;
+               return ImprovedCollections + OptimizedIdeas + PrunedIdeas;
           }
      };
 
@@ -350,6 +351,7 @@ class SAM
      /* Trim stored search ideas to the configured history budget. */
 
      bool TrimSearchIdeasLocked(const std::string& Collection,
+                                size_t* PrunedIdeas = nullptr,
                                 std::string* ErrorMessage = nullptr);
 
      /* Refresh one stored search idea with optimized intent data. */

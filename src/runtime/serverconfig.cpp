@@ -420,6 +420,16 @@ void ServerConfig::ApplyConfiguration()
                                     SamSearchIdeaDedupeWindowMs,
                                     0,
                                     7 * 24 * 60 * 60 * 1000);
+          SamSearchIdeaRetentionDays =
+               SAMTag->GetIntRange("search_idea_retention_days",
+                                    SamSearchIdeaRetentionDays,
+                                    0,
+                                    3650);
+          SamInteractionIdeaRetentionDays =
+               SAMTag->GetIntRange("interaction_idea_retention_days",
+                                    SamInteractionIdeaRetentionDays,
+                                    0,
+                                    3650);
           SamInteractionDedupeWindowMs =
                SAMTag->GetIntRange("interaction_dedupe_window_ms",
                                     SamInteractionDedupeWindowMs,

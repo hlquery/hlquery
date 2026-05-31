@@ -2287,6 +2287,7 @@ void PrintHelp()
      std::cout << "  sam status [COL]  Show current SAM background indexing status\n";
      std::cout << "  sam history [COL] [limit]  Show recent SAM search history\n";
      std::cout << "  sam int|inst|interactions [COL] [limit]  Show learned SAM interaction refinements\n";
+     std::cout << "  sam improve [limit] [--force]  Run a SAM improvement pass now\n";
      std::cout << "  sam debug [COL] [limit]  Stream live SAM debug events for one collection\n";
      std::cout << "  sam list [COL] [offset limit]  List SAM-indexed documents for one collection\n";
      std::cout << "  sam open ID|COL/ID  Open one SAM-indexed document\n";
@@ -2340,6 +2341,7 @@ void PrintSAMHelp()
      std::cout << "  sam status [COL]  Show current SAM background indexing status\n";
      std::cout << "  sam history [COL] [limit]  Show recent SAM search history\n";
      std::cout << "  sam int|inst|interactions [COL] [limit]  Show learned SAM interaction refinements\n";
+     std::cout << "  sam improve [limit] [--force]  Run a SAM improvement pass now\n";
      std::cout << "  sam debug [COL] [limit]  Stream live SAM debug events for one collection\n";
      std::cout << "  sam list [COL] [offset limit]  List SAM-indexed documents for one collection\n";
      std::cout << "  sam open ID|COL/ID  Open one SAM-indexed document\n";
@@ -2492,6 +2494,7 @@ std::vector<std::string> GetTalkSAMCommands()
          "int",
          "inst",
          "interactions",
+         "improve",
          "debug",
          "ls",
          "list",
@@ -4167,6 +4170,32 @@ bool ExecuteTalkCommand(const std::string &line,
                }
 
                cli.ShowSAMHistory(collection_name, limit, false, true);
+               return true;
+          }
+
+          if (parts.size() >= 2 && parts[1] == "improve")
+          {
+               size_t limit = 0;
+               bool force = false;
+
+               for (size_t index = 2; index < parts.size(); ++index)
+               {
+                    if (parts[index] == "--force")
+                    {
+                         force = true;
+                         continue;
+                    }
+
+                    if (!IsUnsignedInteger(parts[index]))
+                    {
+                         TalkPrintError("Usage: sam improve [limit] [--force]");
+                         return true;
+                    }
+
+                    limit = static_cast<size_t>(std::stoull(parts[index]));
+               }
+
+               cli.ImproveSAM(limit, force);
                return true;
           }
 

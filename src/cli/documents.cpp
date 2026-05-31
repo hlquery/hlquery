@@ -2171,6 +2171,52 @@ void HLQueryCLI::ShowSAMHistory(const std::string &collection_name,
      }
 }
 
+void HLQueryCLI::ImproveSAM(size_t limit, bool force, bool json_output)
+{
+     std::string path = "/sam/improve?limit=" + std::to_string(limit);
+
+     if (force)
+     {
+          path += "&force=true";
+     }
+
+     HLQueryCLI::HTTPResponse response = MakeRequest("POST", path, "", std::max(60, DefaultTimeoutSeconds));
+
+     if (CheckRequestFailed(response))
+     {
+          return;
+     }
+
+     nlohmann::json root;
+
+     try
+     {
+          root = nlohmann::json::parse(response.Body);
+     }
+     catch (const std::exception &)
+     {
+          PrintError("Failed to parse SAM improvement response");
+          return;
+     }
+
+     if (json_output || RawMode)
+     {
+          std::cout << root.dump(2) << "\n";
+          return;
+     }
+
+     std::cout << root.value("message", "SAM improvement pass completed.") << "\n";
+     PrintTable({"Improved", "Collections", "Optimized", "Pruned", "Busy", "Throttled"},
+                {{
+                     std::to_string(root.value("improved", static_cast<size_t>(0))),
+                     std::to_string(root.value("improved_collections", static_cast<size_t>(0))),
+                     std::to_string(root.value("optimized_ideas", static_cast<size_t>(0))),
+                     std::to_string(root.value("pruned_ideas", static_cast<size_t>(0))),
+                     std::to_string(root.value("skipped_busy", static_cast<size_t>(0))),
+                     std::to_string(root.value("skipped_throttled", static_cast<size_t>(0)))
+                }});
+}
+
 void HLQueryCLI::ListSAMDocuments(const std::string &collection_name, int offset, int limit, bool json_output)
 {
      if (collection_name.empty())
@@ -2343,6 +2389,21 @@ void HLQueryCLI::OpenSAMDocument(const std::string &collection_name,
      metadata_rows.push_back({"term_count", root.contains("terms") && root["terms"].is_array()
                                                ? std::to_string(root["terms"].size())
                                                : "0"});
+
+     if (root.contains("interaction_recorded"))
+     {
+          metadata_rows.push_back({"interaction_recorded", root.value("interaction_recorded", false) ? "yes" : "no"});
+
+          if (!root.value("interaction_query", "").empty())
+          {
+               metadata_rows.push_back({"interaction_query", root.value("interaction_query", "")});
+          }
+
+          if (!root.value("interaction_error", "").empty())
+          {
+               metadata_rows.push_back({"interaction_error", root.value("interaction_error", "")});
+          }
+     }
 
      std::cout << "SAM entry for '" << collection_name << "/" << document_id << "':.\n";
 

@@ -589,6 +589,16 @@ class ServerConfig
           return SamSearchIdeaDedupeWindowMs;
      }
 
+     int GetSamSearchIdeaRetentionDays() const
+     {
+          return SamSearchIdeaRetentionDays;
+     }
+
+     int GetSamInteractionIdeaRetentionDays() const
+     {
+          return SamInteractionIdeaRetentionDays;
+     }
+
      int GetSamInteractionDedupeWindowMs() const
      {
           return SamInteractionDedupeWindowMs;
@@ -2161,6 +2171,14 @@ class ServerConfig
      /* Milliseconds used to deduplicate repeated SAM search ideas. */
 
      int SamSearchIdeaDedupeWindowMs = 0;
+
+     /* Number of days to retain ordinary SAM search ideas. */
+
+     int SamSearchIdeaRetentionDays = 30;
+
+     /* Number of days to retain search ideas reinforced by interactions. */
+
+     int SamInteractionIdeaRetentionDays = 180;
 
      /* Milliseconds used to deduplicate repeated SAM interactions. */
 

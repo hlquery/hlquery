@@ -475,6 +475,7 @@ bool Parser::ParseInsertValue(nlohmann::json &out, std::string *error)
                }
                catch (...)
                {
+               
                }
           }
 
@@ -485,6 +486,7 @@ bool Parser::ParseInsertValue(nlohmann::json &out, std::string *error)
           }
           catch (...)
           {
+          
           }
      }
 

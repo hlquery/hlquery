@@ -431,7 +431,7 @@ bool SAM::RecordSearchInteractionLocked(const std::string& Collection,
           return false;
      }
 
-     if (!TrimSearchIdeasLocked(Collection, ErrorMessage))
+     if (!TrimSearchIdeasLocked(Collection, nullptr, ErrorMessage))
      {
           return false;
      }
@@ -582,7 +582,7 @@ bool SAM::RecordSearchIdeaLocked(const std::string& Collection,
           return false;
      }
 
-     if (!TrimSearchIdeasLocked(Collection, ErrorMessage))
+     if (!TrimSearchIdeasLocked(Collection, nullptr, ErrorMessage))
      {
           return false;
      }
@@ -590,8 +590,15 @@ bool SAM::RecordSearchIdeaLocked(const std::string& Collection,
      return true;
 }
 
-bool SAM::TrimSearchIdeasLocked(const std::string& Collection, std::string* ErrorMessage)
+bool SAM::TrimSearchIdeasLocked(const std::string& Collection,
+                                size_t* PrunedIdeas,
+                                std::string* ErrorMessage)
 {
+     if (PrunedIdeas)
+     {
+          *PrunedIdeas = 0;
+     }
+
      if (!Database || Collection.empty())
      {
           if (ErrorMessage)
@@ -620,12 +627,42 @@ bool SAM::TrimSearchIdeasLocked(const std::string& Collection, std::string* Erro
           Entries.push_back({Iterator->key().ToString(), std::move(Entry)});
      }
 
-     if (Entries.size() <= kSAMSearchIdeasMaxEntries)
-     {
-          return true;
-     }
-
      const uint64_t NowMS = GetSAMCurrentTimeMS();
+     const uint64_t DayMS = 24ULL * 60ULL * 60ULL * 1000ULL;
+     const uint64_t SearchIdeaRetentionMS =
+          static_cast<uint64_t>(Instance && Instance->Config
+                                     ? Instance->Config->GetSamSearchIdeaRetentionDays()
+                                     : 30) * DayMS;
+     const uint64_t InteractionIdeaRetentionMS =
+          static_cast<uint64_t>(Instance && Instance->Config
+                                     ? Instance->Config->GetSamInteractionIdeaRetentionDays()
+                                     : 180) * DayMS;
+     std::vector<std::string> KeysToDelete;
+
+     Entries.erase(std::remove_if(Entries.begin(), Entries.end(),
+                                  [&](const auto& Pair)
+                                  {
+                                       const SearchIdeaEntry& Entry = Pair.second;
+                                       const uint64_t RetentionMS = Entry.InteractionUses > 0
+                                            ? InteractionIdeaRetentionMS
+                                            : SearchIdeaRetentionMS;
+                                       const uint64_t EvidenceSeenMS = Entry.InteractionUses > 0
+                                            ? std::max(Entry.LastSeenMS, Entry.LastInteractionMS)
+                                            : Entry.LastSeenMS;
+                                       const bool Expired = RetentionMS > 0 &&
+                                            EvidenceSeenMS > 0 &&
+                                            NowMS > EvidenceSeenMS &&
+                                            (NowMS - EvidenceSeenMS) > RetentionMS;
+
+                                       if (Expired)
+                                       {
+                                            KeysToDelete.push_back(Pair.first);
+                                       }
+
+                                       return Expired;
+                                  }),
+                   Entries.end());
+
      std::sort(Entries.begin(), Entries.end(),
                [NowMS](const auto& Left, const auto& Right)
                {
@@ -650,11 +687,21 @@ bool SAM::TrimSearchIdeasLocked(const std::string& Collection, std::string* Erro
                     return Left.second.FirstSeenMS < Right.second.FirstSeenMS;
                });
 
-     rocksdb::WriteBatch Batch;
-
      for (size_t Index = 0; Index + kSAMSearchIdeasMaxEntries < Entries.size(); ++Index)
      {
-          Batch.Delete(Entries[Index].first);
+          KeysToDelete.push_back(Entries[Index].first);
+     }
+
+     if (KeysToDelete.empty())
+     {
+          return true;
+     }
+
+     rocksdb::WriteBatch Batch;
+
+     for (const auto& Key : KeysToDelete)
+     {
+          Batch.Delete(Key);
      }
 
      const rocksdb::Status Status = Database->Write(rocksdb::WriteOptions(), &Batch);
@@ -667,6 +714,11 @@ bool SAM::TrimSearchIdeasLocked(const std::string& Collection, std::string* Erro
           }
 
           return false;
+     }
+
+     if (PrunedIdeas)
+     {
+          *PrunedIdeas = KeysToDelete.size();
      }
 
      return true;

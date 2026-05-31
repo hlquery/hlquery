@@ -4100,6 +4100,7 @@ HttpResponse SearchAPI::HandleSAMImprove(const HttpRequest &Request)
      Root["improved"] = Improved;
      Root["improved_collections"] = Stats.ImprovedCollections;
      Root["optimized_ideas"] = Stats.OptimizedIdeas;
+     Root["pruned_ideas"] = Stats.PrunedIdeas;
      Root["skipped_busy"] = Stats.SkippedBusy;
      Root["skipped_stale_index"] = Stats.SkippedStaleIndex;
      Root["skipped_pending_rebuild"] = Stats.SkippedPendingRebuild;
