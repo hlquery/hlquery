@@ -92,6 +92,10 @@ void StoreSemanticProfileJSON(nlohmann::json& Manifest, const SAMSemanticProfile
 bool RebuildCollectionProfileLocked(rocksdb::DB* Database,
                                     const std::string& Collection,
                                     std::string* ErrorMessage = nullptr);
+std::vector<std::string> CollectSearchReinforcedDocumentIDsLocked(rocksdb::DB* Database,
+                                                                  const std::string& Collection,
+                                                                  uint64_t NowMS,
+                                                                  size_t Limit = 4);
 bool WriteCollectionIndexedMutationVersionLocked(rocksdb::DB* Database,
                                                  const std::string& Collection,
                                                  uint64_t Version,

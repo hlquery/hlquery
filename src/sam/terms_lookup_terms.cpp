@@ -991,6 +991,83 @@ bool ValidateSAMLLMCandidate(const std::string& Collection,
      return true;
 }
 
+double GetSAMInferredRelationMinConfidence(const std::string& Relation)
+{
+     const std::string NormalizedRelation = NormalizeTerm(Relation);
+
+     if (NormalizedRelation == "metro area" || NormalizedRelation == "location")
+     {
+          return 0.86;
+     }
+
+     if (NormalizedRelation == "topic" || NormalizedRelation == "category")
+     {
+          return 0.82;
+     }
+
+     if (NormalizedRelation == "related query")
+     {
+          return 0.84;
+     }
+
+     return 1.01;
+}
+
+bool ValidateSAMInferredRelation(const std::string& Collection,
+                                 const llm::ContextSuggestion& Suggestion,
+                                 const std::string& Candidate,
+                                 const std::string& DocumentLang)
+{
+     if (Suggestion.Kind != "llm" ||
+         Suggestion.Confidence < GetSAMInferredRelationMinConfidence(Suggestion.Relation) ||
+         !IsUsefulSAMDocumentPhrase(Candidate) ||
+         IsIdentifierLikeSAMValue(Candidate) ||
+         !HasConsistentSAMCandidateLanguage(Collection, Candidate, DocumentLang))
+     {
+          return false;
+     }
+
+     const std::vector<std::string> CandidateTokens = NormalizeSAMTokens(Candidate, true);
+     const std::vector<std::string> EvidenceTokenList = NormalizeSAMTokens(Suggestion.Evidence, true);
+     std::unordered_set<std::string> EvidenceTokens;
+
+     for (const auto& Token : EvidenceTokenList)
+     {
+          EvidenceTokens.insert(SingularizeToken(Token));
+     }
+
+     if (CandidateTokens.empty() || EvidenceTokens.empty())
+     {
+          return false;
+     }
+
+     std::vector<std::string> SingularCandidateTokens;
+     SingularCandidateTokens.reserve(CandidateTokens.size());
+
+     for (const auto& Token : CandidateTokens)
+     {
+          SingularCandidateTokens.push_back(SingularizeToken(Token));
+     }
+
+     const size_t RequiredOverlap = std::min<size_t>(2, SingularCandidateTokens.size());
+     return CountSAMTokenOverlap(SingularCandidateTokens, EvidenceTokens) >= RequiredOverlap;
+}
+
+std::string BuildSAMLLMContextSource(const std::string& Relation)
+{
+     std::string Source = NormalizeTerm(Relation);
+
+     for (char& Character : Source)
+     {
+          if (!std::isalnum(static_cast<unsigned char>(Character)))
+          {
+               Character = '_';
+          }
+     }
+
+     return "llm_context_" + (Source.empty() ? std::string("context") : Source);
+}
+
 std::unordered_map<std::string, double> BuildSAMLLMFeedbackBoosts(rocksdb::DB* Database,
                                                                   const std::string& Collection,
                                                                   const Document& Doc,
@@ -1096,9 +1173,15 @@ std::vector<SAM::TermEntry> SAM::GenerateLLMTerms(const std::string& Collection,
           std::unordered_map<std::string, double> FeedbackBoosts;
           const std::vector<llm::AnchorSuggestion> Anchors =
                Instance->LLM->BuildDocumentAnchors(Collection, Doc, DocumentLang, 10);
+          bool ContextPending = false;
           const std::vector<llm::ContextSuggestion> Suggestions =
-               Instance->LLM->BuildDocumentContext(Collection, Doc, 8);
+               Instance->LLM->GetDocumentContext(Collection, Doc.ID, &ContextPending);
           const std::string Subject = NormalizeTerm(Doc.Title.empty() ? Doc.ID : Doc.Title);
+
+          if (Suggestions.empty() && !ContextPending)
+          {
+               Instance->LLM->EnqueueContextualization(Collection, Doc);
+          }
 
           {
                std::lock_guard<std::mutex> Lock(DBMutex);
@@ -1185,7 +1268,16 @@ std::vector<SAM::TermEntry> SAM::GenerateLLMTerms(const std::string& Collection,
           {
                const std::string Candidate = NormalizeTerm(Suggestion.Text);
 
-               if (!ValidateSAMLLMCandidate(Collection,
+               if (Suggestion.Provisional)
+               {
+                    continue;
+               }
+
+               const bool HasGroundedLLMRelation =
+                    ValidateSAMInferredRelation(Collection, Suggestion, Candidate, DocumentLang);
+
+               if (!HasGroundedLLMRelation &&
+                   !ValidateSAMLLMCandidate(Collection,
                                             Doc,
                                             Candidate,
                                             Subject,
@@ -1202,15 +1294,23 @@ std::vector<SAM::TermEntry> SAM::GenerateLLMTerms(const std::string& Collection,
                const double FeedbackBoost = FeedbackBoosts.count(Candidate) > 0
                     ? FeedbackBoosts[Candidate]
                     : 0.0;
-               const double Score = ClampSAMScore((Suggestion.Kind == "llm" ? 0.78 : 0.70) +
+               const double ConfidenceBoost = Suggestion.Kind == "llm"
+                    ? ClampSAMScore(Suggestion.Confidence) * 0.12
+                    : 0.0;
+               const double Score = ClampSAMScore((Suggestion.Kind == "llm" ? 0.72 : 0.70) +
+                                                  ConfidenceBoost +
                                                   std::min(0.16, FeedbackBoost * 0.16));
-               const double Signal = ClampSAMScore((Suggestion.Kind == "llm" ? 0.82 : 0.72) +
+               const double Signal = ClampSAMScore((Suggestion.Kind == "llm" ? 0.76 : 0.72) +
+                                                   ConfidenceBoost +
                                                    std::min(0.18, FeedbackBoost * 0.18));
+               const std::string ContextSource = Suggestion.Kind == "llm"
+                    ? BuildSAMLLMContextSource(Suggestion.Relation)
+                    : "context_field";
 
                Terms.push_back(TermEntry{
                     Candidate,
                     IsSubjectSuggestion ? "alias" : (Suggestion.Kind == "llm" ? "query" : "descriptor"),
-                    Suggestion.Kind == "llm" ? "llm_context" : "context_field",
+                    ContextSource,
                     Score,
                     Signal
                });
@@ -1413,7 +1513,8 @@ std::vector<SAM::TermEntry> SAM::ExpandDocumentTerms(const std::string& Collecti
                AddTerm(Variant, "alias", "title_reduced", 0.93, 0.93);
           }
 
-          for (const auto& Window : BuildSAMPhraseWindows(RawTitle, 1, 4, 12))
+          // Keep title windows small to avoid exploding low-signal single tokens.
+          for (const auto& Window : BuildSAMPhraseWindows(RawTitle, 1, 4, 6))
           {
                AddTerm(Window,
                        Window == Subject ? "subject" : "alias",
@@ -1584,6 +1685,7 @@ std::vector<SAM::TermEntry> SAM::ExpandDocumentTerms(const std::string& Collecti
      }
 
      std::vector<std::string> ProfileTerms;
+     int64_t ProfileDocumentCount = 0;
 
      {
           std::lock_guard<std::mutex> Lock(DBMutex);
@@ -1599,6 +1701,33 @@ std::vector<SAM::TermEntry> SAM::ExpandDocumentTerms(const std::string& Collecti
                     try
                     {
                         const nlohmann::json Root = nlohmann::json::parse(RawProfile);
+                        ProfileDocumentCount = std::max<int64_t>(0, Root.value("document_count", static_cast<int64_t>(0)));
+
+                        auto ShouldKeepProfileTerm = [&](const std::string& Text, int64_t Support) -> bool
+                        {
+                             if (Text.empty())
+                             {
+                                  return false;
+                             }
+
+                             // DF/IDF-ish filter: if a term appears in too many docs, it’s rarely useful
+                             // as a context expansion term unless it is multi-token / specific.
+                             if (ProfileDocumentCount > 0 && Support > 0)
+                             {
+                                  const double Ratio =
+                                       static_cast<double>(Support) / static_cast<double>(ProfileDocumentCount);
+                                  if (Ratio > 0.20)
+                                  {
+                                       const std::vector<std::string> Tokens = NormalizeSAMTokens(Text, true);
+                                       if (Tokens.size() < 2 || CountStrongSAMTokens(Tokens) < 2)
+                                       {
+                                            return false;
+                                       }
+                                  }
+                             }
+
+                             return true;
+                        };
 
                         auto AppendProfileTerms = [&](const nlohmann::json& Array, const char* Field)
                         {
@@ -1614,11 +1743,13 @@ std::vector<SAM::TermEntry> SAM::ExpandDocumentTerms(const std::string& Collecti
                                        continue;
                                   }
 
+                                   const int64_t Support = std::max<int64_t>(0, Item.value("support", static_cast<int64_t>(0)));
+
                                   if (Field != nullptr)
                                   {
                                        const std::string Text = NormalizeTerm(Item.value(Field, ""));
 
-                                       if (!Text.empty())
+                                       if (!Text.empty() && ShouldKeepProfileTerm(Text, Support))
                                        {
                                             ProfileTerms.push_back(Text);
                                        }
@@ -1637,9 +1768,9 @@ std::vector<SAM::TermEntry> SAM::ExpandDocumentTerms(const std::string& Collecti
                                             {
                                                  const std::string Text = NormalizeTerm(Nested.get<std::string>());
 
-                                                 if (!Text.empty())
+                                                 if (!Text.empty() && ShouldKeepProfileTerm(Text, Support))
                                                  {
-                                                      ProfileTerms.push_back(Text);
+                                                       ProfileTerms.push_back(Text);
                                                  }
                                             }
                                        }
@@ -1663,84 +1794,93 @@ std::vector<SAM::TermEntry> SAM::ExpandDocumentTerms(const std::string& Collecti
 
      std::string ContextError;
 
-     for (const auto& Term : GenerateLLMTerms(Collection, Doc, &ContextError))
+     const std::vector<TermEntry> LLMTerms = GenerateLLMTerms(Collection, Doc, &ContextError);
+     const std::vector<TermEntry> ProfileLLMTerms = GenerateLLMTermsFromProfile(Collection, Doc, ProfileTerms, &ContextError);
+
+     const bool HasLLMExpansion = !LLMTerms.empty() || !ProfileLLMTerms.empty();
+     for (const auto& Term : LLMTerms)
      {
           AddTerm(Term.Text, Term.Kind, Term.Source, Term.Score, Term.Signal);
      }
 
-     for (const auto& Term : GenerateLLMTermsFromProfile(Collection, Doc, ProfileTerms, &ContextError))
+     for (const auto& Term : ProfileLLMTerms)
      {
           AddTerm(Term.Text, Term.Kind, Term.Source, Term.Score, Term.Signal);
      }
 
-     for (size_t Iteration = 0; Iteration < 2; ++Iteration)
+     // Avoid creating large amounts of low-signal synthetic phrases until we have
+     // higher-quality context (LLM expansions or collection/profile guidance).
+     if (HasLLMExpansion || !ProfileTerms.empty())
      {
-          const std::vector<std::string> CurrentSubjects = SubjectSeeds;
-          const std::vector<std::string> CurrentDescriptors = DescriptorSeeds;
-          const std::vector<std::string> CurrentQueries = QuerySeeds;
-
-          for (const auto& SubjectSeed : CurrentSubjects)
+          for (size_t Iteration = 0; Iteration < 2; ++Iteration)
           {
-               const std::vector<std::string> SubjectTokens = NormalizeSAMTokens(SubjectSeed, true);
+               const std::vector<std::string> CurrentSubjects = SubjectSeeds;
+               const std::vector<std::string> CurrentDescriptors = DescriptorSeeds;
+               const std::vector<std::string> CurrentQueries = QuerySeeds;
 
-               if (SubjectTokens.empty())
+               for (const auto& SubjectSeed : CurrentSubjects)
                {
-                    continue;
-               }
+                    const std::vector<std::string> SubjectTokens = NormalizeSAMTokens(SubjectSeed, true);
 
-               for (const auto& DescriptorSeed : CurrentDescriptors)
-               {
-                    if (ShouldSkipSAMPairPhrase(SubjectSeed, DescriptorSeed))
+                    if (SubjectTokens.empty())
                     {
                          continue;
                     }
 
-                    const std::vector<std::string> DescriptorTokens = NormalizeSAMTokens(DescriptorSeed, true);
-
-                    if (DescriptorTokens.empty())
+                    for (const auto& DescriptorSeed : CurrentDescriptors)
                     {
-                         continue;
-                    }
-
-                    size_t Shared = 0;
-
-                    for (const auto& Token : DescriptorTokens)
-                    {
-                         if (std::find(SubjectTokens.begin(), SubjectTokens.end(), Token) != SubjectTokens.end())
+                         if (ShouldSkipSAMPairPhrase(SubjectSeed, DescriptorSeed))
                          {
-                              ++Shared;
+                              continue;
                          }
+
+                         const std::vector<std::string> DescriptorTokens = NormalizeSAMTokens(DescriptorSeed, true);
+
+                         if (DescriptorTokens.empty())
+                         {
+                              continue;
+                         }
+
+                         size_t Shared = 0;
+
+                         for (const auto& Token : DescriptorTokens)
+                         {
+                              if (std::find(SubjectTokens.begin(), SubjectTokens.end(), Token) != SubjectTokens.end())
+                              {
+                                   ++Shared;
+                              }
+                         }
+
+                         if (Shared >= SubjectTokens.size() && Shared >= DescriptorTokens.size())
+                         {
+                              continue;
+                         }
+
+                         AddTerm(SubjectSeed + " " + DescriptorSeed,
+                                 "query",
+                                 Iteration == 0 ? "iterative_pair" : "iterative_refine",
+                                 Iteration == 0 ? 0.80 : 0.76,
+                                 Iteration == 0 ? 0.84 : 0.80);
                     }
 
-                    if (Shared >= SubjectTokens.size() && Shared >= DescriptorTokens.size())
+                    for (const auto& QuerySeed : CurrentQueries)
                     {
-                         continue;
+                         if (QuerySeed == SubjectSeed)
+                         {
+                              continue;
+                         }
+
+                         AddTerm(QuerySeed + " " + SubjectSeed,
+                                 "query",
+                                 Iteration == 0 ? "query_refine" : "query_expand",
+                                 Iteration == 0 ? 0.72 : 0.68,
+                                 Iteration == 0 ? 0.76 : 0.72);
                     }
-
-                    AddTerm(SubjectSeed + " " + DescriptorSeed,
-                            "query",
-                            Iteration == 0 ? "iterative_pair" : "iterative_refine",
-                            Iteration == 0 ? 0.80 : 0.76,
-                            Iteration == 0 ? 0.84 : 0.80);
-               }
-
-               for (const auto& QuerySeed : CurrentQueries)
-               {
-                    if (QuerySeed == SubjectSeed)
-                    {
-                         continue;
-                    }
-
-                    AddTerm(QuerySeed + " " + SubjectSeed,
-                            "query",
-                            Iteration == 0 ? "query_refine" : "query_expand",
-                            Iteration == 0 ? 0.72 : 0.68,
-                            Iteration == 0 ? 0.76 : 0.72);
                }
           }
      }
 
-     std::vector<TermEntry> Terms = Collector.Finalize(96);
+     std::vector<TermEntry> Terms = Collector.Finalize(HasLLMExpansion ? 96 : 32);
 
      if (Terms.empty())
      {

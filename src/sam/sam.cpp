@@ -2497,7 +2497,7 @@ double GetSAMSourceWeight(const std::string& Source)
           return 0.98;
      }
 
-     if (Source == "llm_context" || Source == "llm_pair")
+     if (Source.rfind("llm_context", 0) == 0 || Source == "llm_pair")
      {
           return 0.94;
      }
@@ -2603,7 +2603,7 @@ double GetSAM25PhraseSourceWeight(const std::string& Source)
           return 0.99;
      }
 
-     if (Source == "llm_context" || Source == "llm_pair")
+     if (Source.rfind("llm_context", 0) == 0 || Source == "llm_pair")
      {
           return std::max(0.92, Instance->Config->GetSam25SourcePhraseBoostLlm() * 0.96);
      }
@@ -3638,6 +3638,14 @@ void AppendSearchIdeaHits(std::unordered_map<std::string, SAMAggregatedHit>& Agg
                Hit.Breakdown.FinalScore = ClampSAMScore(Hit.MatchedScore +
                                                         Hit.Breakdown.EvidenceBonus +
                                                         Hit.Breakdown.SourceDocBonus);
+               std::ostringstream Explain;
+               Explain << "learned_edge query=\"" << Idea.Entry.Query
+                       << "\" uses=" << Idea.Entry.Uses
+                       << " interactions=" << DocumentRef.InteractionUses
+                       << " semantic=" << Idea.SemanticScore
+                       << " coverage=" << Idea.CoverageScore
+                       << " edge_score=" << Hit.Breakdown.FinalScore;
+               Hit.Explain = Explain.str();
                AccumulateSAMHit(AggregatedHits, Hit);
           }
      }

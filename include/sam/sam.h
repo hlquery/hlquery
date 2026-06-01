@@ -33,6 +33,7 @@
 
 #include "core/llm.h"
 #include "search/cstore.h"
+#include "vendor/json/json.hpp"
 
 /*
  * Secondary Assistant Manager.
@@ -218,6 +219,7 @@ class SAM
      size_t DroppedPendingSearchInteractionJobs = 0;
      std::unordered_map<std::string, size_t> ActiveCollectionTasks;
      std::unordered_map<std::string, uint64_t> LastBackgroundImprovementMS;
+     std::unordered_set<std::string> InvalidatedRebuildCollections;
      std::unordered_set<std::string> CancelledCollections;
      bool CancelAllRequested = false;
      bool ShuttingDown = false;
@@ -543,6 +545,22 @@ class SAM
                         std::string* ErrorMessage = nullptr,
                         bool HasExpectedMutationVersion = false,
                         uint64_t ExpectedMutationVersion = 0);
+
+     bool StoreDocumentContext(const std::string& Collection,
+                               const std::string& DocumentID,
+                               const std::string& SourceFingerprint,
+                               uint64_t UpdatedAtMS,
+                               const nlohmann::json& Suggestions,
+                               std::string* ErrorMessage = nullptr);
+
+     bool LoadDocumentContext(const std::string& Collection,
+                              const std::string& DocumentID,
+                              nlohmann::json& Root,
+                              std::string* ErrorMessage = nullptr) const;
+
+     bool RemoveDocumentContext(const std::string& Collection,
+                                const std::string& DocumentID,
+                                std::string* ErrorMessage = nullptr);
 
      /* Remove one document and its SAM terms from the database. */
 

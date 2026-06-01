@@ -45,11 +45,11 @@ bool SAM::EnqueuePendingSearchIdea(const std::string& Collection,
 {
      const std::string NormalizedQuery = NormalizeTerm(Query);
 
-     if (Collection.empty() || NormalizedQuery.empty() || Documents.empty())
+     if (Collection.empty() || NormalizedQuery.empty())
      {
           if (ErrorMessage)
           {
-               *ErrorMessage = "A non-empty collection, query, and result set are required.";
+               *ErrorMessage = "A non-empty collection and query are required.";
           }
 
           return false;
@@ -1252,11 +1252,6 @@ bool SAM::OptimizeSearchIdeaIntentLocked(const std::string& Collection,
           }
      }
 
-     if (CandidateDocuments.empty())
-     {
-          return true;
-     }
-
      const size_t IntentLimit = Instance && Instance->Config
           ? static_cast<size_t>(std::max(1, Instance->Config->GetSamLLMMaxIdeas()))
           : 6;
@@ -1541,7 +1536,7 @@ size_t SAM::ProcessPendingSearchIntentOptimizations(size_t MaxCollections)
                     continue;
                }
 
-               if (Entry.Collection.empty() || Entry.NormalizedQuery.empty() || Entry.Documents.empty())
+               if (Entry.Collection.empty() || Entry.NormalizedQuery.empty())
                {
                     continue;
                }

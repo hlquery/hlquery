@@ -260,11 +260,8 @@ bool IPFilter::Initialize(const std::string &AllowedIPsConfig, const std::string
                     if (IsWildcardHostname(Entry))
                     {
                          DeniedWildcardHostnames.push_back(Entry);
-
                          HasDenyEntries = true;
-
                          HasDenyWildcardHostnames = true;
-
                          HasDenyHostnames = true;
 
                          if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
@@ -278,11 +275,8 @@ bool IPFilter::Initialize(const std::string &AllowedIPsConfig, const std::string
                     if (IsHostname(Entry))
                     {
                          DeniedRegularHostnames.push_back(Entry);
-
                          HasDenyEntries = true;
-
                          HasDenyHostnames = true;
-
                          std::vector<std::string> ResolvedIPs;
 
                          if (ResolveHostname(Entry, ResolvedIPs, true))

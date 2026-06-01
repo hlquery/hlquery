@@ -25,6 +25,7 @@
 #include "vendor/json/json.hpp"
 
 constexpr const char* kPendingIndexQueuePrefix = "sam:queue:index:";
+constexpr const char* kDocumentContextPrefix = "sam:context:";
 constexpr uint64_t kDefaultBackgroundImprovementIntervalMS = 60000;
 constexpr uint64_t kDefaultBackgroundImprovementPollMS = 15000;
 constexpr size_t kMaxPendingIndexJobs = 4096;
@@ -40,6 +41,11 @@ std::string BuildPendingIndexQueueKey(const std::string& Collection, const std::
      Key.push_back('\0');
      Key.append(DocumentID);
      return Key;
+}
+
+std::string BuildDocumentContextKey(const std::string& Collection, const std::string& DocumentID)
+{
+     return std::string(kDocumentContextPrefix) + Collection + ":" + DocumentID;
 }
 
 /* Parse a persisted queue key back into collection and document identifiers. */
@@ -545,6 +551,7 @@ void SAM::ScheduleRetryRebuild(const std::string& Collection)
                bool AlreadyRunning = false;
                std::string ErrorMessage;
                const bool Started = StartRecreateCollectionAsync(Collection, &AlreadyRunning, &ErrorMessage, RetrySource);
+               bool RescheduleAfterDrain = false;
 
                {
                     std::lock_guard<std::mutex> Lock(JobMutex);
@@ -553,13 +560,17 @@ void SAM::ScheduleRetryRebuild(const std::string& Collection)
                     {
                          It->second.RetryScheduled = false;
 
-                         if (Started || AlreadyRunning)
+                         if (Started && !AlreadyRunning)
                          {
                               It->second.NeedsRetry = false;
                               if (It->second.ErrorMessage.find("Source collection changed during SAM indexing;") == 0)
                               {
                                    It->second.ErrorMessage = "Automatic SAM retry queued after source mutations.";
                               }
+                         }
+                         else if (AlreadyRunning)
+                         {
+                              RescheduleAfterDrain = It->second.NeedsRetry;
                          }
                          else if (!ErrorMessage.empty())
                          {
@@ -568,7 +579,11 @@ void SAM::ScheduleRetryRebuild(const std::string& Collection)
                     }
                 }
 
-               if (Started)
+               if (AlreadyRunning && RescheduleAfterDrain)
+               {
+                    ScheduleRetryRebuild(Collection);
+               }
+               else if (Started && !AlreadyRunning)
                {
                     RecordDebugEvent(Collection, "scheduled automatic rebuild retry after concurrent source mutation");
                }
@@ -806,6 +821,7 @@ SAM::ImprovementStats SAM::ImproveIdleCollectionsDetailed(size_t MaxCollections,
           bool Improved = false;
           size_t PrunedTerms = 0;
           std::string ErrorMessage;
+          std::vector<std::string> ContextRefreshDocumentIDs;
 
           {
                std::lock_guard<std::mutex> DBLock(DBMutex);
@@ -844,6 +860,8 @@ SAM::ImprovementStats SAM::ImproveIdleCollectionsDetailed(size_t MaxCollections,
                               RebuildCollectionProfileLocked(Database.get(), Collection, &ErrorMessage);
                          const bool RebuiltGraph =
                               RebuildIntentGraphLocked(Database.get(), Collection, &ErrorMessage);
+                         ContextRefreshDocumentIDs =
+                              CollectSearchReinforcedDocumentIDsLocked(Database.get(), Collection, NowMS, 4);
                          Improved = RebuiltProfile || RebuiltGraph;
                     }
                     else if (LoadedState && State.RebuildRequested)
@@ -876,6 +894,35 @@ SAM::ImprovementStats SAM::ImproveIdleCollectionsDetailed(size_t MaxCollections,
           }
 
           FinishBackgroundImprovement(Collection);
+
+          if (Instance && Instance->LLM)
+          {
+               size_t QueuedContextRefreshes = 0;
+
+               for (const auto& DocumentID : ContextRefreshDocumentIDs)
+               {
+                    const Document Doc =
+                         HybridStorageManager::GetInstance().GetDocument(Collection, DocumentID);
+
+                    if (Doc.ID.empty())
+                    {
+                         continue;
+                    }
+
+                    if (Instance->LLM->EnqueueContextualization(Collection, Doc, true))
+                    {
+                         ++QueuedContextRefreshes;
+                    }
+               }
+
+               if (QueuedContextRefreshes > 0)
+               {
+                    RecordDebugEvent(Collection,
+                                     "background improvement queued " +
+                                          std::to_string(QueuedContextRefreshes) +
+                                          " search-reinforced document context refresh(es)");
+               }
+          }
 
           if (Improved)
           {
@@ -1070,11 +1117,22 @@ void SAM::RunIndexWorker()
           }
 
           std::string ErrorMessage;
-          const bool Success = IndexDocument(Job.Collection,
-                                             Job.Doc,
-                                             &ErrorMessage,
-                                             Job.HasExpectedMutationVersion,
-                                             Job.ExpectedMutationVersion);
+          bool SkipInvalidatedRebuildJob = false;
+
+          if (Job.HasExpectedMutationVersion)
+          {
+               std::lock_guard<std::mutex> JobLock(JobMutex);
+               SkipInvalidatedRebuildJob =
+                    InvalidatedRebuildCollections.find(Job.Collection) != InvalidatedRebuildCollections.end();
+          }
+
+          const bool Success = SkipInvalidatedRebuildJob
+               ? false
+               : IndexDocument(Job.Collection,
+                               Job.Doc,
+                               &ErrorMessage,
+                               Job.HasExpectedMutationVersion,
+                               Job.ExpectedMutationVersion);
 
           bool RetryRequested = false;
 
@@ -1091,7 +1149,7 @@ void SAM::RunIndexWorker()
                {
                     ++Status.IndexedDocuments;
                }
-               else
+               else if (!SkipInvalidatedRebuildJob)
                {
                     ++Status.FailedDocuments;
                     if (!ErrorMessage.empty())
@@ -1103,6 +1161,7 @@ void SAM::RunIndexWorker()
                         ErrorMessage.find("Source collection changed during SAM indexing;") == 0)
                     {
                          Status.NeedsRetry = true;
+                         InvalidatedRebuildCollections.insert(Job.Collection);
                          RetryRequested = true;
                     }
                }
@@ -1131,6 +1190,7 @@ void SAM::RunIndexWorker()
 
                     Status.Running = false;
                     Status.Completed = !Status.NeedsRetry && WroteIndexedMutationVersion;
+                    InvalidatedRebuildCollections.erase(Job.Collection);
 
                     if (Status.NeedsRetry)
                     {
@@ -1197,6 +1257,11 @@ void SAM::RunIndexWorker()
           FlushPendingSearchIdeas(8);
           FinishTask();
 
+          if (SkipInvalidatedRebuildJob)
+          {
+               continue;
+          }
+
           if (Success)
           {
                RecordDebugEvent(Job.Collection, "background indexed " + Job.Doc.ID);
@@ -1209,7 +1274,18 @@ void SAM::RunIndexWorker()
 
           if (Instance && Instance->Logs)
           {
-               Instance->Logs->Normal("sam", "Failed to background index '" + Job.Collection + "/" + Job.Doc.ID + "': " + (ErrorMessage.empty() ? std::string("unknown error") : ErrorMessage) + ".");
+               if (Job.HasExpectedMutationVersion &&
+                   ErrorMessage.find("Source collection changed during SAM indexing;") == 0)
+               {
+                    Instance->Logs->Debug("sam",
+                                          "Deferred stale background rebuild for '" +
+                                               Job.Collection + "/" + Job.Doc.ID +
+                                               "' until the source collection is stable.");
+               }
+               else
+               {
+                    Instance->Logs->Normal("sam", "Failed to background index '" + Job.Collection + "/" + Job.Doc.ID + "': " + (ErrorMessage.empty() ? std::string("unknown error") : ErrorMessage) + ".");
+               }
           }
      }
 }
@@ -1687,6 +1763,7 @@ bool SAM::StartRecreateCollectionAsync(const std::string& Collection,
           JobStatus.RetryScheduled = false;
           JobStatus.ErrorMessage.clear();
           JobStatus.Source = Source;
+          InvalidatedRebuildCollections.erase(Collection);
           CancelledCollections.erase(Collection);
           ++ActiveCollectionTasks[Collection];
      }
@@ -2217,6 +2294,8 @@ bool SAM::EnqueueIndexDocument(const std::string& Collection,
 
      const std::string PendingKey = BuildPendingIndexKey(Collection, Doc.ID);
      bool PersistQueueItem = false;
+     bool PersistHasExpectedMutationVersion = HasExpectedMutationVersion;
+     uint64_t PersistExpectedMutationVersion = ExpectedMutationVersion;
 
      {
           std::lock_guard<std::mutex> Lock(QueueMutex);
@@ -2228,8 +2307,13 @@ bool SAM::EnqueueIndexDocument(const std::string& Collection,
                     if (ExistingJob.Collection == Collection && ExistingJob.Doc.ID == Doc.ID)
                     {
                          ExistingJob.Doc = Doc;
-                         ExistingJob.HasExpectedMutationVersion = HasExpectedMutationVersion;
-                         ExistingJob.ExpectedMutationVersion = ExpectedMutationVersion;
+                         if (HasExpectedMutationVersion || !ExistingJob.HasExpectedMutationVersion)
+                         {
+                              ExistingJob.HasExpectedMutationVersion = HasExpectedMutationVersion;
+                              ExistingJob.ExpectedMutationVersion = ExpectedMutationVersion;
+                         }
+                         PersistHasExpectedMutationVersion = ExistingJob.HasExpectedMutationVersion;
+                         PersistExpectedMutationVersion = ExistingJob.ExpectedMutationVersion;
                          PersistQueueItem = true;
                          break;
                     }
@@ -2253,8 +2337,8 @@ bool SAM::EnqueueIndexDocument(const std::string& Collection,
           if (Database)
           {
                nlohmann::json Root;
-               Root["has_expected_mutation_version"] = HasExpectedMutationVersion;
-               Root["expected_mutation_version"] = ExpectedMutationVersion;
+               Root["has_expected_mutation_version"] = PersistHasExpectedMutationVersion;
+               Root["expected_mutation_version"] = PersistExpectedMutationVersion;
                (void)Database->Put(rocksdb::WriteOptions(),
                                    BuildPendingIndexQueueKey(Collection, Doc.ID),
                                    Root.dump());
@@ -2430,6 +2514,15 @@ bool SAM::IndexDocumentLocked(const std::string& Collection,
           return false;
      }
 
+     if (!ValidateExpectedMutationVersion(Collection,
+                                          HasExpectedMutationVersion,
+                                          ExpectedMutationVersion,
+                                          ErrorMessage))
+     {
+          RecordDebugEvent(Collection, "discarded stale SAM job for " + Doc.ID + " before term expansion");
+          return false;
+     }
+
      Document SourceDoc = HybridStorageManager::GetInstance().GetDocument(Collection, Doc.ID);
 
      if (SourceDoc.ID.empty())
@@ -2477,10 +2570,66 @@ bool SAM::IndexDocumentLocked(const std::string& Collection,
 
           return false;
      }
+
+     // If a collection has not yet built a collection profile, avoid persisting
+     // large synthetic expansion terms (LLM/context/iterative) into the doc manifest.
+     // This keeps "ranked terms" from existing until the collection has been iterated.
+     bool HasCollectionProfile = false;
+     {
+          std::lock_guard<std::mutex> Lock(DBMutex);
+
+          if (Database)
+          {
+               std::string RawProfile;
+               const rocksdb::Status Status =
+                    Database->Get(rocksdb::ReadOptions(), BuildCollectionProfileKey(Collection), &RawProfile);
+               HasCollectionProfile = Status.ok() && !RawProfile.empty();
+
+               if (HasCollectionProfile)
+               {
+                    try
+                    {
+                         const nlohmann::json Root = nlohmann::json::parse(RawProfile);
+                         const int64_t DocCount = std::max<int64_t>(0, Root.value("document_count", static_cast<int64_t>(0)));
+                         HasCollectionProfile = (DocCount > 0);
+                    }
+                    catch (...)
+                    {
+                         HasCollectionProfile = false;
+                    }
+               }
+          }
+     }
+
+     std::vector<TermEntry> PersistedTerms;
+     PersistedTerms.reserve(Terms.size());
+
+     if (HasCollectionProfile)
+     {
+          PersistedTerms = Terms;
+     }
      else
      {
+          for (const auto& Term : Terms)
+          {
+               const std::string& Source = Term.Source;
+
+               if (Source.rfind("llm_", 0) == 0 ||
+                   Source.rfind("context_", 0) == 0 ||
+                   Source.rfind("iterative_", 0) == 0 ||
+                   Source.rfind("query_", 0) == 0 ||
+                   Source == "profile_context")
+               {
+                    continue;
+               }
+
+               PersistedTerms.push_back(Term);
+          }
+     }
+
+     {
           std::ostringstream Preview;
-          const size_t PreviewCount = std::min<size_t>(Terms.size(), 3);
+          const size_t PreviewCount = std::min<size_t>(PersistedTerms.size(), 3);
 
           for (size_t Index = 0; Index < PreviewCount; ++Index)
           {
@@ -2489,11 +2638,11 @@ bool SAM::IndexDocumentLocked(const std::string& Collection,
                     Preview << ", ";
                }
 
-               Preview << Terms[Index].Text;
+               Preview << PersistedTerms[Index].Text;
           }
 
           RecordDebugEvent(Collection,
-                           "indexed " + SourceDoc.ID + " with " + std::to_string(Terms.size()) +
+                           "indexed " + SourceDoc.ID + " with " + std::to_string(PersistedTerms.size()) +
                                 " term(s): " + Preview.str());
      }
 
@@ -2506,15 +2655,6 @@ bool SAM::IndexDocumentLocked(const std::string& Collection,
                *ErrorMessage = "SAM database is not open.";
           }
 
-          return false;
-     }
-
-     if (!ValidateExpectedMutationVersion(Collection,
-                                          HasExpectedMutationVersion,
-                                          ExpectedMutationVersion,
-                                          ErrorMessage))
-     {
-          RecordDebugEvent(Collection, "discarded stale SAM job for " + Doc.ID);
           return false;
      }
 
@@ -2534,10 +2674,10 @@ bool SAM::IndexDocumentLocked(const std::string& Collection,
      Manifest["label"] = DetectSAMDocumentLabel(SourceDoc);
      Manifest["format"] = DetectSAMDocumentFormat(SourceDoc);
      Manifest["terms"] = nlohmann::json::array();
-     const SAMSemanticProfile SemanticProfile = BuildSemanticProfile(SourceDoc.Title.empty() ? SourceDoc.ID : SourceDoc.Title, Terms);
+     const SAMSemanticProfile SemanticProfile = BuildSemanticProfile(SourceDoc.Title.empty() ? SourceDoc.ID : SourceDoc.Title, PersistedTerms);
      const std::vector<SAMSemanticIndexEntry> SemanticIndex = BuildSemanticIndexEntries(SemanticProfile, 32);
 
-     for (const auto& Term : Terms)
+     for (const auto& Term : PersistedTerms)
      {
           Manifest["terms"].push_back({
                {"text", Term.Text},
@@ -2636,6 +2776,106 @@ bool SAM::IndexDocument(const std::string& Collection,
                                 ExpectedMutationVersion);
 }
 
+bool SAM::StoreDocumentContext(const std::string& Collection,
+                               const std::string& DocumentID,
+                               const std::string& SourceFingerprint,
+                               uint64_t UpdatedAtMS,
+                               const nlohmann::json& Suggestions,
+                               std::string* ErrorMessage)
+{
+     if (Collection.empty() || DocumentID.empty() || !Suggestions.is_array())
+     {
+          return false;
+     }
+
+     nlohmann::json Root = {
+          {"collection", Collection},
+          {"id", DocumentID},
+          {"source_fingerprint", SourceFingerprint},
+          {"updated_at_ms", UpdatedAtMS},
+          {"suggestions", Suggestions}
+     };
+     std::lock_guard<std::mutex> Lock(DBMutex);
+
+     if (!Database)
+     {
+          return false;
+     }
+
+     const rocksdb::Status Status =
+          Database->Put(rocksdb::WriteOptions(), BuildDocumentContextKey(Collection, DocumentID), Root.dump());
+
+     if (!Status.ok() && ErrorMessage)
+     {
+          *ErrorMessage = Status.ToString();
+     }
+
+     return Status.ok();
+}
+
+bool SAM::LoadDocumentContext(const std::string& Collection,
+                              const std::string& DocumentID,
+                              nlohmann::json& Root,
+                              std::string* ErrorMessage) const
+{
+     Root = nlohmann::json::object();
+     std::lock_guard<std::mutex> Lock(DBMutex);
+
+     if (!Database)
+     {
+          return false;
+     }
+
+     std::string RawValue;
+     const rocksdb::Status Status =
+          Database->Get(rocksdb::ReadOptions(), BuildDocumentContextKey(Collection, DocumentID), &RawValue);
+
+     if (!Status.ok())
+     {
+          if (!Status.IsNotFound() && ErrorMessage)
+          {
+               *ErrorMessage = Status.ToString();
+          }
+          return false;
+     }
+
+     try
+     {
+          Root = nlohmann::json::parse(RawValue);
+          return true;
+     }
+     catch (const std::exception& E)
+     {
+          if (ErrorMessage)
+          {
+               *ErrorMessage = E.what();
+          }
+          return false;
+     }
+}
+
+bool SAM::RemoveDocumentContext(const std::string& Collection,
+                                const std::string& DocumentID,
+                                std::string* ErrorMessage)
+{
+     std::lock_guard<std::mutex> Lock(DBMutex);
+
+     if (!Database)
+     {
+          return false;
+     }
+
+     const rocksdb::Status Status =
+          Database->Delete(rocksdb::WriteOptions(), BuildDocumentContextKey(Collection, DocumentID));
+
+     if (!Status.ok() && ErrorMessage)
+     {
+          *ErrorMessage = Status.ToString();
+     }
+
+     return Status.ok();
+}
+
 /* Delete SAM state for one source document and clear queued work. */
 
 bool SAM::DeleteDocument(const std::string& Collection, const std::string& DocumentID, std::string* ErrorMessage)
@@ -2665,6 +2905,7 @@ bool SAM::DeleteDocument(const std::string& Collection, const std::string& Docum
      }
 
      (void)Database->Delete(rocksdb::WriteOptions(), BuildPendingIndexQueueKey(Collection, DocumentID));
+     (void)Database->Delete(rocksdb::WriteOptions(), BuildDocumentContextKey(Collection, DocumentID));
      return RemoveExistingDocumentTermsLocked(Collection, DocumentID, ErrorMessage, true);
 }
 
@@ -2775,6 +3016,16 @@ bool SAM::DeleteCollection(const std::string& Collection, std::string* ErrorMess
                IdeaIterator->Next())
           {
                Batch.Delete(IdeaIterator->key());
+          }
+
+          const std::string ContextPrefix = std::string(kDocumentContextPrefix) + Collection + ":";
+          std::unique_ptr<rocksdb::Iterator> ContextIterator(Database->NewIterator(rocksdb::ReadOptions()));
+
+          for (ContextIterator->Seek(ContextPrefix);
+               ContextIterator->Valid() && ContextIterator->key().starts_with(ContextPrefix);
+               ContextIterator->Next())
+          {
+               Batch.Delete(ContextIterator->key());
           }
 
           const rocksdb::Status Status = Database->Write(rocksdb::WriteOptions(), &Batch);

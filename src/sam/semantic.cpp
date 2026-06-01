@@ -1938,6 +1938,109 @@ uint64_t GetLatestRecentSearchIdeaTimestampLocked(rocksdb::DB* Database,
      return LatestSeenMS;
 }
 
+std::vector<std::string> CollectSearchReinforcedDocumentIDsLocked(rocksdb::DB* Database,
+                                                                  const std::string& Collection,
+                                                                  uint64_t NowMS,
+                                                                  size_t Limit)
+{
+     std::vector<std::string> DocumentIDs;
+
+     if (!Database || Collection.empty() || NowMS == 0 || Limit == 0)
+     {
+          return DocumentIDs;
+     }
+
+     const std::string Prefix = BuildSearchIdeaPrefix(Collection);
+     std::unique_ptr<rocksdb::Iterator> Iterator(Database->NewIterator(rocksdb::ReadOptions()));
+     std::unordered_map<std::string, double> RankedDocuments;
+
+     for (Iterator->Seek(Prefix);
+          Iterator->Valid() && Iterator->key().starts_with(Prefix);
+          Iterator->Next())
+     {
+          SAM::SearchIdeaEntry Entry;
+
+          if (!ParseSearchIdeaEntry(Iterator->value().ToString(), Entry) ||
+              Entry.LastSeenMS == 0 ||
+              NowMS < Entry.LastSeenMS ||
+              (NowMS - Entry.LastSeenMS) > kSAMSearchIdeaRecentWindowMs ||
+              (Entry.Uses < kSAMSearchIdeaProfileMinUses && Entry.InteractionUses == 0) ||
+              BuildStrongSearchIdeaPhrase(Entry.Query).empty())
+          {
+               continue;
+          }
+
+          for (const auto& Document : Entry.Documents)
+          {
+               if (Document.DocumentID.empty())
+               {
+                    continue;
+               }
+
+               const double Score = static_cast<double>(std::min<uint64_t>(Entry.Uses, 8)) +
+                                    (static_cast<double>(std::min<uint64_t>(Entry.InteractionUses, 8)) * 2.0) +
+                                    (static_cast<double>(std::min<uint64_t>(Document.InteractionUses, 8)) * 3.0) +
+                                    ClampSAMScore(Document.Score);
+               RankedDocuments[Document.DocumentID] =
+                    std::max(RankedDocuments[Document.DocumentID], Score);
+          }
+     }
+
+     std::vector<std::pair<std::string, double>> Ranked(RankedDocuments.begin(), RankedDocuments.end());
+     std::sort(Ranked.begin(), Ranked.end(),
+               [](const auto& Left, const auto& Right)
+               {
+                    if (Left.second != Right.second)
+                    {
+                         return Left.second > Right.second;
+                    }
+
+                    return Left.first < Right.first;
+               });
+
+     for (const auto& Entry : Ranked)
+     {
+          DocumentIDs.push_back(Entry.first);
+
+          if (DocumentIDs.size() >= Limit)
+          {
+               break;
+          }
+     }
+
+     if (DocumentIDs.size() < Limit)
+     {
+          const std::string ManifestPrefix = "sam:doc:" + Collection + ":";
+          std::unique_ptr<rocksdb::Iterator> ManifestIterator(Database->NewIterator(rocksdb::ReadOptions()));
+          std::vector<std::string> ExplorationCandidates;
+
+          for (ManifestIterator->Seek(ManifestPrefix);
+               ManifestIterator->Valid() && ManifestIterator->key().starts_with(ManifestPrefix);
+               ManifestIterator->Next())
+          {
+               SAM::DocumentEntry Entry;
+
+               if (!ParseManifestValue(ManifestIterator->value().ToString(), Entry) ||
+                   Entry.DocumentID.empty() ||
+                   std::find(DocumentIDs.begin(), DocumentIDs.end(), Entry.DocumentID) != DocumentIDs.end())
+               {
+                    continue;
+               }
+
+               ExplorationCandidates.push_back(Entry.DocumentID);
+          }
+
+          if (!ExplorationCandidates.empty())
+          {
+               const size_t Index = static_cast<size_t>((NowMS / kSAMSearchIdeaProfileSyncCooldownMs) %
+                                                        ExplorationCandidates.size());
+               DocumentIDs.push_back(ExplorationCandidates[Index]);
+          }
+     }
+
+     return DocumentIDs;
+}
+
 bool ReadCollectionIndexedMutationVersionLocked(rocksdb::DB* Database,
                                                 const std::string& Collection,
                                                 uint64_t& Version,
@@ -2041,7 +2144,8 @@ void MergeRecentSearchIdeasIntoCollectionProfileLocked(
               Entry.LastSeenMS == 0 ||
               NowMS <= Entry.LastSeenMS ||
               (NowMS - Entry.LastSeenMS) > kSAMSearchIdeaRecentWindowMs ||
-              Entry.Uses < kSAMSearchIdeaProfileMinUses)
+              Entry.Uses < kSAMSearchIdeaProfileMinUses ||
+              Entry.Documents.empty())
           {
                continue;
           }
@@ -2617,6 +2721,10 @@ bool RebuildCollectionProfileLocked(rocksdb::DB* Database,
                });
           }
      };
+
+     // Basic collection stats to allow other components to gate behavior until
+     // a real profile has been built (e.g. suppressing synthetic term spam).
+     Profile["document_count"] = static_cast<int64_t>(DocumentCount);
 
      AppendTermsToProfile(BuildSortedTerms(RankedTerms, RelatedCounts), "terms");
      AppendFamiliesToProfile(BuildSortedFamilies(Families,

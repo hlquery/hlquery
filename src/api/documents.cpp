@@ -2968,7 +2968,12 @@ HttpResponse SearchAPI::HandleGetDocumentContext(const HttpRequest &Request)
      {
           Root["suggestions"].push_back({
                {"text", Suggestion.Text},
-               {"kind", Suggestion.Kind}
+               {"kind", Suggestion.Kind},
+               {"relation", Suggestion.Relation},
+               {"confidence", Suggestion.Confidence},
+               {"evidence", Suggestion.Evidence},
+               {"scope", Suggestion.Scope},
+               {"provisional", Suggestion.Provisional}
           });
      }
 

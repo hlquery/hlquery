@@ -28,7 +28,9 @@
 
 #include "core/hlquery.h"
 #include "core/llm.h"
+#include "sam/internal.h"
 #include "sam/lang.h"
+#include "sam/sam.h"
 #include "vendor/json/json.hpp"
 
 struct LLMInferenceResult
@@ -218,6 +220,14 @@ static nlohmann::json BuildCollectionPromptMetadata(const std::string& Collectio
 {
      nlohmann::json Meta;
      Meta["name"] = Collection;
+     Meta["suggested_relationships"] = {
+          "alias",
+          "metro_area",
+          "location",
+          "category",
+          "topic",
+          "related_query"
+     };
 
      CollectionConfig Config;
 
@@ -313,7 +323,7 @@ static void AddPromptEnvelope(nlohmann::json& Payload,
                     ? "Return JSON with interpretation, conclusion, candidates[], ranked_terms[]."
                     : (Objective == "anchors"
                          ? "Return JSON array or {anchors:[...]} with items {text,kind,confidence,reason,language}."
-                         : "Return one short phrase per line or a JSON array of short phrases.")}
+                         : "Return {contexts:[...]} with items {term,relation,confidence,evidence,scope}. Use relation types such as alias, metro_area, topic, category, or related_query.")}
      };
 }
 
@@ -553,7 +563,11 @@ static void AppendSuggestion(std::vector<llm::ContextSuggestion>& Suggestions,
                              std::unordered_set<std::string>& Seen,
                              const std::string& Value,
                              const std::string& Kind,
-                             size_t Limit)
+                             size_t Limit,
+                             const std::string& Relation = "",
+                             double Confidence = 0.70,
+                             const std::string& Evidence = "",
+                             const std::string& Scope = "document")
 {
      if (Suggestions.size() >= Limit)
      {
@@ -575,6 +589,11 @@ static void AppendSuggestion(std::vector<llm::ContextSuggestion>& Suggestions,
      llm::ContextSuggestion Entry;
      Entry.Text = Normalized;
      Entry.Kind = Kind;
+     Entry.Relation = Relation.empty() ? Kind : Relation;
+     Entry.Confidence = std::max(0.0, std::min(1.0, Confidence));
+     Entry.Evidence = TrimCopy(Evidence);
+     Entry.Scope = Scope.empty() ? "document" : Scope;
+     Entry.Provisional = Entry.Kind == "llm" && Entry.Confidence < 0.78;
      Suggestions.push_back(std::move(Entry));
 }
 
@@ -747,8 +766,10 @@ std::vector<llm::ContextSuggestion> llm::BuildDocumentContext(const std::string&
      }
 
      const std::string Title = TrimCopy(Doc.Title.empty() ? Doc.ID : Doc.Title);
+     const bool UseInference = Configured() && !InferenceCommand.empty();
+     const size_t HeuristicLimit = UseInference ? std::max<size_t>(1, Limit / 2) : Limit;
 
-     AppendSuggestion(Suggestions, Seen, Title, "title", Limit);
+     AppendSuggestion(Suggestions, Seen, Title, "title", HeuristicLimit);
 
      for (const auto& Pair : Doc.Fields)
      {
@@ -763,16 +784,16 @@ std::vector<llm::ContextSuggestion> llm::BuildDocumentContext(const std::string&
 
           for (const auto& Value : ExtractArrayishValues(Pair.second))
           {
-               AppendSuggestion(Suggestions, Seen, Title + " " + Value, "field", Limit);
+               AppendSuggestion(Suggestions, Seen, Title + " " + Value, "field", HeuristicLimit);
 
-               if (Suggestions.size() >= Limit)
+               if (Suggestions.size() >= HeuristicLimit)
                {
                     break;
                }
           }
      }
 
-     if (Configured() && !InferenceCommand.empty() && Suggestions.size() < Limit)
+     if (UseInference && Suggestions.size() < Limit)
      {
           nlohmann::json Payload;
           Payload["collection"] = Collection;
@@ -789,16 +810,46 @@ std::vector<llm::ContextSuggestion> llm::BuildDocumentContext(const std::string&
 
           if (Result.ExitCode == 0)
           {
-               std::istringstream Input(Result.Stdout);
-               std::string Line;
+               const std::string TrimmedOutput = TrimCopy(Result.Stdout);
 
-               while (std::getline(Input, Line))
+               try
                {
-                    AppendSuggestion(Suggestions, Seen, Line, "llm", Limit);
+                    const nlohmann::json Root = nlohmann::json::parse(TrimmedOutput);
+                    const nlohmann::json* Contexts = Root.is_array()
+                         ? &Root
+                         : (Root.is_object() && Root.contains("contexts") && Root["contexts"].is_array()
+                              ? &Root["contexts"]
+                              : nullptr);
 
-                    if (Suggestions.size() >= Limit)
+                    if (Contexts)
                     {
-                         break;
+                         for (const auto& Item : *Contexts)
+                         {
+                              if (!Item.is_object())
+                              {
+                                   continue;
+                              }
+
+                              AppendSuggestion(Suggestions,
+                                               Seen,
+                                               Item.value("term", Item.value("text", "")),
+                                               "llm",
+                                               Limit,
+                                               Item.value("relation", "context"),
+                                               Item.value("confidence", 0.70),
+                                               Item.value("evidence", ""),
+                                               Item.value("scope", "document"));
+                         }
+                    }
+               }
+               catch (...)
+               {
+                    std::istringstream Input(TrimmedOutput);
+                    std::string Line;
+
+                    while (std::getline(Input, Line))
+                    {
+                         AppendSuggestion(Suggestions, Seen, Line, "llm", Limit);
                     }
                }
           }
@@ -1122,22 +1173,34 @@ llm::SearchIntentResolution llm::ResolveSearchIntent(const std::string& Collecti
      }
 }
 
-void llm::EnqueueContextualization(const std::string& Collection, const Document& Doc)
+bool llm::EnqueueContextualization(const std::string& Collection, const Document& Doc, bool Force)
 {
      if (!Enabled || Collection.empty() || Doc.ID.empty())
      {
-          return;
+          return false;
      }
 
      const std::string Key = BuildContextKey(Collection, Doc.ID);
+     (void)GetDocumentContext(Collection, Doc.ID);
      std::lock_guard<std::mutex> Lock(ContextMutex);
+
+     const auto Cached = ContextCache.find(Key);
+     if (!Force &&
+         Cached != ContextCache.end() &&
+         Cached->second.SourceFingerprint == BuildSAMSourceDocumentFingerprint(Doc) &&
+         Cached->second.UpdatedAtMs > 0 &&
+         Instance && (Instance->NowMs() - Cached->second.UpdatedAtMs) < (24LL * 60LL * 60LL * 1000LL))
+     {
+          return false;
+     }
 
      if (!PendingContextKeys.insert(Key).second)
      {
-          return;
+          return false;
      }
 
      PendingContextJobs.push_back(ContextJob{Collection, Doc});
+     return true;
 }
 
 /* Processes queued context-generation jobs while respecting the configured batch size. */
@@ -1186,10 +1249,59 @@ size_t llm::ProcessPendingContextJobs(size_t MaxJobs)
                Instance->Logs->Debug("llm", ProcessingMessage);
           }
 
-          std::vector<ContextSuggestion> Suggestions =
-               BuildDocumentContext(Job.Collection, Job.Doc, 5);
+          const Document SourceDoc =
+               HybridStorageManager::GetInstance().GetDocument(Job.Collection, Job.Doc.ID);
 
-          StoreDocumentContext(Job.Collection, Job.Doc.ID, Suggestions);
+          if (SourceDoc.ID.empty())
+          {
+               RemoveDocumentContext(Job.Collection, Job.Doc.ID);
+               ++Processed;
+               continue;
+          }
+
+          std::vector<ContextSuggestion> Suggestions =
+               BuildDocumentContext(Job.Collection, SourceDoc, 5);
+          const Document LatestDoc =
+               HybridStorageManager::GetInstance().GetDocument(Job.Collection, SourceDoc.ID);
+
+          if (LatestDoc.ID.empty())
+          {
+               RemoveDocumentContext(Job.Collection, SourceDoc.ID);
+               ++Processed;
+               continue;
+          }
+
+          if (BuildSAMSourceDocumentFingerprint(LatestDoc) !=
+              BuildSAMSourceDocumentFingerprint(SourceDoc))
+          {
+               (void)EnqueueContextualization(Job.Collection, LatestDoc);
+
+               if (DebugEnabled)
+               {
+                    Instance->Logs->Debug("llm",
+                                          "ProcessPendingContextJobs: discarded stale context for '" +
+                                               Job.Collection + "/" + SourceDoc.ID +
+                                               "' because the source changed during inference.");
+               }
+
+               ++Processed;
+               continue;
+          }
+
+          StoreDocumentContext(Job.Collection, LatestDoc.ID, Suggestions);
+
+          if (Instance && Instance->Sam && Instance->Sam->IsOpen())
+          {
+               std::string IndexError;
+
+               if (!Instance->Sam->EnqueueIndexDocument(Job.Collection, LatestDoc, &IndexError) &&
+                   DebugEnabled && !IndexError.empty())
+               {
+                    Instance->Logs->Debug("llm",
+                                          "ProcessPendingContextJobs: failed to queue SAM refresh for '" +
+                                               Job.Collection + "/" + LatestDoc.ID + "': " + IndexError + ".");
+               }
+          }
 
           if (DebugEnabled)
           {
@@ -1205,7 +1317,7 @@ size_t llm::ProcessPendingContextJobs(size_t MaxJobs)
                     Summary += Suggestions[I].Kind + "=" + Suggestions[I].Text;
                }
 
-               const std::string StoredMessage = "ProcessPendingContextJobs: stored " + std::to_string(Suggestions.size()) + " suggestion(s) for '" + Job.Collection + "/" + Job.Doc.ID + "'" + (Summary.empty() ? "." : ": " + Summary + ".");
+               const std::string StoredMessage = "ProcessPendingContextJobs: stored " + std::to_string(Suggestions.size()) + " suggestion(s) for '" + Job.Collection + "/" + LatestDoc.ID + "'" + (Summary.empty() ? "." : ": " + Summary + ".");
 
                Instance->Logs->Debug("llm", StoredMessage);
           }
@@ -1235,6 +1347,31 @@ void llm::StoreDocumentContext(const std::string& Collection,
      ContextCacheEntry Entry;
      Entry.Suggestions = Suggestions;
      Entry.UpdatedAtMs = (Instance ? Instance->NowMs() : 0);
+     const Document Doc = HybridStorageManager::GetInstance().GetDocument(Collection, DocumentID);
+     Entry.SourceFingerprint = Doc.ID.empty() ? "" : BuildSAMSourceDocumentFingerprint(Doc);
+
+     nlohmann::json PersistedSuggestions = nlohmann::json::array();
+     for (const auto& Suggestion : Suggestions)
+     {
+          PersistedSuggestions.push_back({
+               {"term", Suggestion.Text},
+               {"kind", Suggestion.Kind},
+               {"relation", Suggestion.Relation},
+               {"confidence", Suggestion.Confidence},
+               {"evidence", Suggestion.Evidence},
+               {"scope", Suggestion.Scope},
+               {"provisional", Suggestion.Provisional}
+          });
+     }
+
+     if (Instance && Instance->Sam && Instance->Sam->IsOpen())
+     {
+          (void)Instance->Sam->StoreDocumentContext(Collection,
+                                                    DocumentID,
+                                                    Entry.SourceFingerprint,
+                                                    static_cast<uint64_t>(Entry.UpdatedAtMs),
+                                                    PersistedSuggestions);
+     }
 
      std::lock_guard<std::mutex> Lock(ContextMutex);
      ContextCache[BuildContextKey(Collection, DocumentID)] = std::move(Entry);
@@ -1262,11 +1399,46 @@ std::vector<llm::ContextSuggestion> llm::GetDocumentContext(const std::string& C
           *Pending = (PendingContextKeys.find(Key) != PendingContextKeys.end());
      }
 
-     const auto It = ContextCache.find(Key);
+     auto It = ContextCache.find(Key);
 
      if (It == ContextCache.end())
      {
-          return {};
+          nlohmann::json Root;
+
+          if (!(Instance && Instance->Sam && Instance->Sam->IsOpen() &&
+                Instance->Sam->LoadDocumentContext(Collection, DocumentID, Root) &&
+                Root.contains("suggestions") && Root["suggestions"].is_array()))
+          {
+               return {};
+          }
+
+          ContextCacheEntry Entry;
+          Entry.UpdatedAtMs = Root.value("updated_at_ms", static_cast<long long>(0));
+          Entry.SourceFingerprint = Root.value("source_fingerprint", "");
+
+          for (const auto& Item : Root["suggestions"])
+          {
+               if (!Item.is_object())
+               {
+                    continue;
+               }
+
+               ContextSuggestion Suggestion;
+               Suggestion.Text = Item.value("term", "");
+               Suggestion.Kind = Item.value("kind", "llm");
+               Suggestion.Relation = Item.value("relation", "context");
+               Suggestion.Confidence = Item.value("confidence", 0.70);
+               Suggestion.Evidence = Item.value("evidence", "");
+               Suggestion.Scope = Item.value("scope", "document");
+               Suggestion.Provisional = Item.value("provisional", Suggestion.Confidence < 0.78);
+
+               if (!Suggestion.Text.empty())
+               {
+                    Entry.Suggestions.push_back(std::move(Suggestion));
+               }
+          }
+
+          It = ContextCache.emplace(Key, std::move(Entry)).first;
      }
 
      return It->second.Suggestions;
@@ -1289,6 +1461,40 @@ void llm::RemoveDocumentContext(const std::string& Collection, const std::string
                          [&](const ContextJob& Job)
                          {
                               return Job.Collection == Collection && Job.Doc.ID == DocumentID;
+                         }),
+          PendingContextJobs.end());
+
+     if (Instance && Instance->Sam && Instance->Sam->IsOpen())
+     {
+          (void)Instance->Sam->RemoveDocumentContext(Collection, DocumentID);
+     }
+}
+
+void llm::RemoveCollectionContexts(const std::string& Collection)
+{
+     if (Collection.empty())
+     {
+          return;
+     }
+
+     const std::string Prefix = Collection + "\n";
+     std::lock_guard<std::mutex> Lock(ContextMutex);
+
+     for (auto It = ContextCache.begin(); It != ContextCache.end(); )
+     {
+          It = It->first.rfind(Prefix, 0) == 0 ? ContextCache.erase(It) : std::next(It);
+     }
+
+     for (auto It = PendingContextKeys.begin(); It != PendingContextKeys.end(); )
+     {
+          It = It->rfind(Prefix, 0) == 0 ? PendingContextKeys.erase(It) : std::next(It);
+     }
+
+     PendingContextJobs.erase(
+          std::remove_if(PendingContextJobs.begin(), PendingContextJobs.end(),
+                         [&](const ContextJob& Job)
+                         {
+                              return Job.Collection == Collection;
                          }),
           PendingContextJobs.end());
 }

@@ -36,6 +36,11 @@ class CoreExport llm
      {
           std::string Text;
           std::string Kind;
+          std::string Relation;
+          std::string Evidence;
+          std::string Scope;
+          double Confidence = 0.0;
+          bool Provisional = false;
      };
 
      struct SearchIntentCandidate
@@ -113,7 +118,7 @@ class CoreExport llm
                                                const std::vector<Document>& CandidateDocuments,
                                                size_t Limit = 5) const;
 
-     void EnqueueContextualization(const std::string& Collection, const Document& Doc);
+     bool EnqueueContextualization(const std::string& Collection, const Document& Doc, bool Force = false);
 
      size_t ProcessPendingContextJobs(size_t MaxJobs = 1);
 
@@ -126,6 +131,8 @@ class CoreExport llm
                                                       bool* Pending = nullptr) const;
 
      void RemoveDocumentContext(const std::string& Collection, const std::string& DocumentID);
+
+     void RemoveCollectionContexts(const std::string& Collection);
 
      size_t GetPendingContextJobs() const;
 
@@ -141,6 +148,7 @@ class CoreExport llm
      {
           std::vector<ContextSuggestion> Suggestions;
           long long UpdatedAtMs = 0;
+          std::string SourceFingerprint;
      };
 
      static std::string BuildContextKey(const std::string& Collection, const std::string& DocumentID);
@@ -155,5 +163,5 @@ class CoreExport llm
      mutable std::mutex InferenceMutex;
      std::deque<ContextJob> PendingContextJobs;
      std::unordered_set<std::string> PendingContextKeys;
-     std::unordered_map<std::string, ContextCacheEntry> ContextCache;
+     mutable std::unordered_map<std::string, ContextCacheEntry> ContextCache;
 };

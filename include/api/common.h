@@ -164,10 +164,12 @@ inline bool ParseSharedNodeEndpoint(const std::string &Raw,
                {
                     int ParsedPort = 0;
                     auto [Ptr, EC] = std::from_chars(PortStr.data(), PortStr.data() + PortStr.size(), ParsedPort);
+
                     if (EC != std::errc() || Ptr != PortStr.data() + PortStr.size())
                     {
                          return false;
                     }
+
                     Port = ParsedPort;
                }
           }
@@ -193,10 +195,12 @@ inline bool ParseSharedNodeEndpoint(const std::string &Raw,
                {
                     int ParsedPort = 0;
                     auto [Ptr, EC] = std::from_chars(PortStr.data(), PortStr.data() + PortStr.size(), ParsedPort);
+                
                     if (EC != std::errc() || Ptr != PortStr.data() + PortStr.size())
                     {
                          return false;
                     }
+                
                     Port = ParsedPort;
                }
           }
