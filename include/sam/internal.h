@@ -71,6 +71,7 @@ std::string ResolveSamDataDir();
 std::string BuildDocManifestKey(const std::string& Collection, const std::string& DocumentID);
 std::string BuildCollectionProfileKey(const std::string& Collection);
 std::string BuildSearchIdeaPrefix(const std::string& Collection);
+std::string BuildDocumentContextKey(const std::string& Collection, const std::string& DocumentID);
 std::string BuildCollectionStateKey(const std::string& Collection);
 std::string BuildIntentGraphKey(const std::string& Collection);
 std::string BuildLexicalMirrorKey(const std::string& Kind, const std::string& Collection);
@@ -92,6 +93,12 @@ void StoreSemanticProfileJSON(nlohmann::json& Manifest, const SAMSemanticProfile
 bool RebuildCollectionProfileLocked(rocksdb::DB* Database,
                                     const std::string& Collection,
                                     std::string* ErrorMessage = nullptr);
+bool AdjustDocumentContextFeedbackLocked(rocksdb::DB* Database,
+                                         const std::string& Collection,
+                                         const std::string& DocumentID,
+                                         const std::string& Query,
+                                         bool Interaction,
+                                         std::string* ErrorMessage = nullptr);
 std::vector<std::string> CollectSearchReinforcedDocumentIDsLocked(rocksdb::DB* Database,
                                                                   const std::string& Collection,
                                                                   uint64_t NowMS,

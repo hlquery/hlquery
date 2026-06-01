@@ -233,7 +233,18 @@ static nlohmann::json BuildCollectionPromptMetadata(const std::string& Collectio
 
      if (HybridStorageManagerInstance().GetCollectionConfig(Collection, Config))
      {
+          Meta["fields"] = Config.Fields;
           Meta["metadata"] = Config.Metadata;
+     }
+
+     if (Instance && Instance->Sam && Instance->Sam->IsOpen())
+     {
+          nlohmann::json PersistedProfile;
+
+          if (Instance->Sam->LoadCollectionPromptProfile(Collection, PersistedProfile))
+          {
+               Meta["learned_profile"] = std::move(PersistedProfile);
+          }
      }
 
      return Meta;
@@ -252,14 +263,19 @@ static std::vector<std::string> BuildPromptConstraints(const std::string& Langua
      if (Objective == "anchors")
      {
           Constraints.push_back("Return anchor, alias, descriptor, and query candidates only when they would be natural internal-link phrases.");
+          Constraints.push_back("Cover exact lookup, supported aliases, and disambiguating combinations; reject cosmetic title rewrites and collection-wide filler.");
      }
      else if (Objective == "context")
      {
-          Constraints.push_back("Return short contextual phrases that improve retrieval recall without drifting away from the document.");
+          Constraints.push_back("Infer the collection domain from its name, schema, metadata, and this document before proposing context.");
+          Constraints.push_back("Return short contextual phrases that improve retrieval recall without drifting away from the collection domain or document.");
+          Constraints.push_back("Prefer phrases a real user would search when trying to discover this exact document from outside the collection.");
+          Constraints.push_back("Challenge each phrase against likely nearby alternatives and keep it only when it improves recall, precision, or disambiguation.");
      }
      else if (Objective == "search_intent")
      {
           Constraints.push_back("Resolve likely user intent only from the query and supplied candidates.");
+          Constraints.push_back("Identify the strongest confusing alternative and prefer the narrowest evidence-backed interpretation.");
      }
 
      if (!Language.empty() && Language != "und")
@@ -315,7 +331,7 @@ static void AddPromptEnvelope(nlohmann::json& Payload,
      Payload["objective"] = Objective;
      Payload["limit"] = static_cast<unsigned long long>(Limit);
      Payload["prompt"] = {
-          {"version", 1},
+          {"version", 2},
           {"instruction", BuildPromptInstructionText(Objective, EffectiveLanguage, DocumentType)},
           {"constraints", BuildPromptConstraints(EffectiveLanguage, Objective)},
           {"output_contract",
@@ -429,6 +445,48 @@ static void LogLLMInferenceFailure(const std::string& Mode, const LLMInferenceRe
      Instance->Logs->Normal("llm", Message + ".");
 }
 
+static void LogLLMInferenceDebugTrace(const std::string& Mode,
+                                      const nlohmann::json& Payload,
+                                      const LLMInferenceResult& Result)
+{
+     if (!Instance || !Instance->Logs || !Instance->Logs->GetDebugMode())
+     {
+          return;
+     }
+
+     std::string Message = "SAM LLM Q&A mode='" + Mode + "'\n";
+     const std::string Trace = TrimCopy(Result.Stderr);
+
+     if (Trace.find("HLQUERY_LLM_DEBUG_QUESTION_BEGIN") != std::string::npos)
+     {
+          Message += Trace;
+     }
+     else
+     {
+          Message += "HLQUERY_LLM_DEBUG_QUESTION_BEGIN mode=" + Mode + "\n";
+          Message += Payload.dump(2);
+          Message += "\nHLQUERY_LLM_DEBUG_QUESTION_END mode=" + Mode + "\n";
+          Message += "HLQUERY_LLM_DEBUG_ANSWER_BEGIN mode=" + Mode + "\n";
+          Message += Result.Stdout;
+
+          if (!Result.Stdout.empty() && Result.Stdout.back() != '\n')
+          {
+               Message.push_back('\n');
+          }
+
+          Message += "HLQUERY_LLM_DEBUG_ANSWER_END mode=" + Mode;
+
+          if (!Trace.empty())
+          {
+               Message += "\nHLQUERY_LLM_DEBUG_STDERR_BEGIN mode=" + Mode + "\n";
+               Message += Trace;
+               Message += "\nHLQUERY_LLM_DEBUG_STDERR_END mode=" + Mode;
+          }
+     }
+
+     Instance->Logs->Debug("sam", Message);
+}
+
 static LLMInferenceResult RunLLMInferenceCommand(const std::string& Command,
                                                  const std::string& ModelPath,
                                                  const std::string& Mode,
@@ -437,6 +495,8 @@ static LLMInferenceResult RunLLMInferenceCommand(const std::string& Command,
 {
      LLMInferenceResult Result;
      std::string PayloadPath;
+     const bool DebugTraceEnabled =
+          Instance && Instance->Logs && Instance->Logs->GetDebugMode();
 
      if (Command.empty() || !WritePayloadFile(Payload.dump(), PayloadPath))
      {
@@ -478,6 +538,15 @@ static LLMInferenceResult RunLLMInferenceCommand(const std::string& Command,
           setenv("HLQUERY_LLM_MODEL", ModelPath.c_str(), 1);
           setenv("HLQUERY_LLM_PAYLOAD_MODE", Mode.c_str(), 1);
           setenv("HLQUERY_LLM_PAYLOAD_JSON_FILE", PayloadPath.c_str(), 1);
+
+          if (DebugTraceEnabled)
+          {
+               setenv("HLQUERY_LLM_DEBUG_TRACE", "1", 1);
+          }
+          else
+          {
+               unsetenv("HLQUERY_LLM_DEBUG_TRACE");
+          }
 
           if (Mode == "context")
           {
@@ -556,6 +625,7 @@ static LLMInferenceResult RunLLMInferenceCommand(const std::string& Command,
      close(StdoutPipe[0]);
      close(StderrPipe[0]);
      unlink(PayloadPath.c_str());
+     LogLLMInferenceDebugTrace(Mode, Payload, Result);
      return Result;
 }
 
@@ -593,8 +663,131 @@ static void AppendSuggestion(std::vector<llm::ContextSuggestion>& Suggestions,
      Entry.Confidence = std::max(0.0, std::min(1.0, Confidence));
      Entry.Evidence = TrimCopy(Evidence);
      Entry.Scope = Scope.empty() ? "document" : Scope;
+     Entry.ValidationScore = Entry.Kind == "llm" ? 0.0 : Entry.Confidence;
      Entry.Provisional = Entry.Kind == "llm" && Entry.Confidence < 0.78;
      Suggestions.push_back(std::move(Entry));
+}
+
+static std::vector<std::string> TokenizePhrase(const std::string& Value)
+{
+     std::vector<std::string> Tokens;
+     std::istringstream Input(NormalizePhrase(Value));
+     std::string Token;
+
+     while (Input >> Token)
+     {
+          Tokens.push_back(Token);
+     }
+
+     return Tokens;
+}
+
+static std::string BuildDocumentEvidence(const Document& Doc)
+{
+     std::string Evidence = Doc.Title + " " + Doc.Content;
+
+     for (const auto& Pair : Doc.Fields)
+     {
+          Evidence += " " + Pair.first + " " + Pair.second;
+     }
+
+     return NormalizePhrase(Evidence);
+}
+
+static size_t CountTokenOverlap(const std::vector<std::string>& Tokens,
+                                const std::string& Evidence)
+{
+     size_t Overlap = 0;
+     const std::string Haystack = " " + Evidence + " ";
+
+     for (const auto& Token : Tokens)
+     {
+          if (!Token.empty() && Haystack.find(" " + Token + " ") != std::string::npos)
+          {
+               ++Overlap;
+          }
+     }
+
+     return Overlap;
+}
+
+static void ValidateDocumentContextSuggestions(const std::string& Collection,
+                                               const Document& Doc,
+                                               std::vector<llm::ContextSuggestion>& Suggestions)
+{
+     const nlohmann::json CollectionProfile = BuildCollectionPromptMetadata(Collection);
+     const std::string CollectionEvidence = NormalizePhrase(CollectionProfile.dump());
+     const std::string DocumentEvidence = BuildDocumentEvidence(Doc);
+     std::unordered_set<std::string> NegativeTerms;
+
+     if (CollectionProfile.contains("learned_profile") &&
+         CollectionProfile["learned_profile"].is_object() &&
+         CollectionProfile["learned_profile"].contains("negative_terms") &&
+         CollectionProfile["learned_profile"]["negative_terms"].is_array())
+     {
+          for (const auto& Term : CollectionProfile["learned_profile"]["negative_terms"])
+          {
+               if (Term.is_string())
+               {
+                    NegativeTerms.insert(NormalizePhrase(Term.get<std::string>()));
+               }
+          }
+     }
+
+     Suggestions.erase(
+          std::remove_if(Suggestions.begin(), Suggestions.end(),
+                         [&](llm::ContextSuggestion& Suggestion)
+                         {
+                              if (Suggestion.Kind != "llm")
+                              {
+                                   Suggestion.ValidationScore = Suggestion.Confidence;
+                                   return false;
+                              }
+
+                              const std::string Term = NormalizePhrase(Suggestion.Text);
+                              const std::vector<std::string> Tokens = TokenizePhrase(Term);
+
+                              if (Term.empty() || Tokens.empty() || Suggestion.Confidence < 0.55)
+                              {
+                                   return true;
+                              }
+
+                              const size_t DocumentOverlap = CountTokenOverlap(Tokens, DocumentEvidence);
+                              const size_t CollectionOverlap = CountTokenOverlap(Tokens, CollectionEvidence);
+                              size_t NegativeTokenCount = 0;
+
+                              for (const auto& Token : Tokens)
+                              {
+                                   if (NegativeTerms.find(Token) != NegativeTerms.end())
+                                   {
+                                        ++NegativeTokenCount;
+                                   }
+                              }
+
+                              const bool DocumentGrounded =
+                                   DocumentEvidence.find(Term) != std::string::npos ||
+                                   DocumentOverlap * 2 >= Tokens.size();
+                              const bool CollectionGrounded =
+                                   CollectionEvidence.find(Term) != std::string::npos ||
+                                   CollectionOverlap > 0;
+                              const bool TooBroad =
+                                   NegativeTerms.find(Term) != NegativeTerms.end() ||
+                                   NegativeTokenCount == Tokens.size();
+                              const bool Specific = Tokens.size() > 1 || Term.size() >= 4;
+                              double Score = Suggestion.Confidence * 0.50;
+                              Score += DocumentGrounded ? 0.25 : 0.0;
+                              Score += CollectionGrounded ? 0.15 : 0.0;
+                              Score += Suggestion.Evidence.empty() ? 0.0 : 0.10;
+                              Score -= TooBroad ? 0.35 : 0.0;
+                              Suggestion.ValidationScore = std::clamp(Score, 0.0, 1.0);
+                              Suggestion.Provisional =
+                                   Suggestion.Confidence < 0.78 ||
+                                   Suggestion.ValidationScore < 0.70;
+
+                              return !Specific || TooBroad || !DocumentGrounded ||
+                                     Suggestion.ValidationScore < 0.58;
+                         }),
+          Suggestions.end());
 }
 
 static void AppendIntentCandidate(std::vector<llm::SearchIntentCandidate>& Candidates,
@@ -815,6 +1008,19 @@ std::vector<llm::ContextSuggestion> llm::BuildDocumentContext(const std::string&
                try
                {
                     const nlohmann::json Root = nlohmann::json::parse(TrimmedOutput);
+
+                    if (Root.is_object() && Instance && Instance->Sam && Instance->Sam->IsOpen())
+                    {
+                         const std::string CollectionAbout =
+                              TrimCopy(Root.value("collection_about", ""));
+
+                         if (!CollectionAbout.empty())
+                         {
+                              (void)Instance->Sam->StoreCollectionPromptSummary(Collection,
+                                                                                CollectionAbout);
+                         }
+                    }
+
                     const nlohmann::json* Contexts = Root.is_array()
                          ? &Root
                          : (Root.is_object() && Root.contains("contexts") && Root["contexts"].is_array()
@@ -858,6 +1064,8 @@ std::vector<llm::ContextSuggestion> llm::BuildDocumentContext(const std::string&
                LogLLMInferenceFailure("context", Result);
           }
      }
+
+     ValidateDocumentContextSuggestions(Collection, Doc, Suggestions);
 
      if (Suggestions.size() > Limit)
      {
@@ -1351,6 +1559,7 @@ void llm::StoreDocumentContext(const std::string& Collection,
                {"kind", Suggestion.Kind},
                {"relation", Suggestion.Relation},
                {"confidence", Suggestion.Confidence},
+               {"validation_score", Suggestion.ValidationScore},
                {"evidence", Suggestion.Evidence},
                {"scope", Suggestion.Scope},
                {"provisional", Suggestion.Provisional}
@@ -1385,56 +1594,68 @@ std::vector<llm::ContextSuggestion> llm::GetDocumentContext(const std::string& C
      }
 
      const std::string Key = BuildContextKey(Collection, DocumentID);
-     std::lock_guard<std::mutex> Lock(ContextMutex);
+     std::vector<ContextSuggestion> CachedSuggestions;
 
-     if (Pending)
      {
-          *Pending = (PendingContextKeys.find(Key) != PendingContextKeys.end());
-     }
+          std::lock_guard<std::mutex> Lock(ContextMutex);
 
-     auto It = ContextCache.find(Key);
-
-     if (It == ContextCache.end())
-     {
-          nlohmann::json Root;
-
-          if (!(Instance && Instance->Sam && Instance->Sam->IsOpen() &&
-                Instance->Sam->LoadDocumentContext(Collection, DocumentID, Root) &&
-                Root.contains("suggestions") && Root["suggestions"].is_array()))
+          if (Pending)
           {
-               return {};
+               *Pending = (PendingContextKeys.find(Key) != PendingContextKeys.end());
           }
 
-          ContextCacheEntry Entry;
-          Entry.UpdatedAtMs = Root.value("updated_at_ms", static_cast<long long>(0));
-          Entry.SourceFingerprint = Root.value("source_fingerprint", "");
+          const auto Cached = ContextCache.find(Key);
 
-          for (const auto& Item : Root["suggestions"])
+          if (Cached != ContextCache.end())
           {
-               if (!Item.is_object())
-               {
-                    continue;
-               }
-
-               ContextSuggestion Suggestion;
-               Suggestion.Text = Item.value("term", "");
-               Suggestion.Kind = Item.value("kind", "llm");
-               Suggestion.Relation = Item.value("relation", "context");
-               Suggestion.Confidence = Item.value("confidence", 0.70);
-               Suggestion.Evidence = Item.value("evidence", "");
-               Suggestion.Scope = Item.value("scope", "document");
-               Suggestion.Provisional = Item.value("provisional", Suggestion.Confidence < 0.78);
-
-               if (!Suggestion.Text.empty())
-               {
-                    Entry.Suggestions.push_back(std::move(Suggestion));
-               }
+               CachedSuggestions = Cached->second.Suggestions;
           }
-
-          It = ContextCache.emplace(Key, std::move(Entry)).first;
      }
 
-     return It->second.Suggestions;
+     nlohmann::json Root;
+
+     if (!(Instance && Instance->Sam && Instance->Sam->IsOpen() &&
+           Instance->Sam->LoadDocumentContext(Collection, DocumentID, Root) &&
+           Root.contains("suggestions") && Root["suggestions"].is_array()))
+     {
+          return CachedSuggestions;
+     }
+
+     ContextCacheEntry Entry;
+     Entry.UpdatedAtMs = Root.value("updated_at_ms", static_cast<long long>(0));
+     Entry.SourceFingerprint = Root.value("source_fingerprint", "");
+
+     for (const auto& Item : Root["suggestions"])
+     {
+          if (!Item.is_object())
+          {
+               continue;
+          }
+
+          ContextSuggestion Suggestion;
+          Suggestion.Text = Item.value("term", "");
+          Suggestion.Kind = Item.value("kind", "llm");
+          Suggestion.Relation = Item.value("relation", "context");
+          Suggestion.Confidence = Item.value("confidence", 0.70);
+          Suggestion.ValidationScore = Item.value("validation_score", Suggestion.Confidence);
+          Suggestion.Evidence = Item.value("evidence", "");
+          Suggestion.Scope = Item.value("scope", "document");
+          Suggestion.Provisional = Item.value("provisional", Suggestion.Confidence < 0.78);
+
+          if (!Suggestion.Text.empty())
+          {
+               Entry.Suggestions.push_back(std::move(Suggestion));
+          }
+     }
+
+     std::vector<ContextSuggestion> Suggestions = Entry.Suggestions;
+
+     {
+          std::lock_guard<std::mutex> Lock(ContextMutex);
+          ContextCache[Key] = std::move(Entry);
+     }
+
+     return Suggestions;
 }
 
 void llm::RemoveDocumentContext(const std::string& Collection, const std::string& DocumentID)
@@ -1445,17 +1666,20 @@ void llm::RemoveDocumentContext(const std::string& Collection, const std::string
      }
 
      const std::string Key = BuildContextKey(Collection, DocumentID);
-     std::lock_guard<std::mutex> Lock(ContextMutex);
-     ContextCache.erase(Key);
-     PendingContextKeys.erase(Key);
 
-     PendingContextJobs.erase(
-          std::remove_if(PendingContextJobs.begin(), PendingContextJobs.end(),
-                         [&](const ContextJob& Job)
-                         {
-                              return Job.Collection == Collection && Job.Doc.ID == DocumentID;
-                         }),
-          PendingContextJobs.end());
+     {
+          std::lock_guard<std::mutex> Lock(ContextMutex);
+          ContextCache.erase(Key);
+          PendingContextKeys.erase(Key);
+
+          PendingContextJobs.erase(
+               std::remove_if(PendingContextJobs.begin(), PendingContextJobs.end(),
+                              [&](const ContextJob& Job)
+                              {
+                                   return Job.Collection == Collection && Job.Doc.ID == DocumentID;
+                              }),
+               PendingContextJobs.end());
+     }
 
      if (Instance && Instance->Sam && Instance->Sam->IsOpen())
      {

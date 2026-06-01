@@ -40,6 +40,7 @@ class CoreExport llm
           std::string Evidence;
           std::string Scope;
           double Confidence = 0.0;
+          double ValidationScore = 0.0;
           bool Provisional = false;
      };
 

@@ -1910,28 +1910,31 @@ static std::vector<std::string> BuildInternalImprovementQuestions(const Document
                                                                   const std::vector<std::string>& ProfileTerms)
 {
      std::vector<std::string> Questions;
-     Questions.push_back("Are the current descriptors too close to the title or description wording?");
-     Questions.push_back("Which outside-in discovery phrases would help someone find this document without knowing its title?");
+     Questions.push_back("Which exact-lookup, alias, location, category, and descriptive searches would real users try for this document?");
+     Questions.push_back("Which facts distinguish this document from similar documents in the same collection?");
+     Questions.push_back("Which current descriptors are generic, cosmetic title rewrites, or likely to retrieve unrelated documents?");
+     Questions.push_back("Which outside-in discovery paths are grounded in evidence but still missing?");
 
      const auto LabelsIt = Doc.Fields.find("labels");
      if (LabelsIt != Doc.Fields.end() && !LabelsIt->second.empty())
      {
-          Questions.push_back("Did we use the strongest non-generic labels and ignore synthetic benchmark-like labels?");
+          Questions.push_back("Did we keep the strongest searchable labels while rejecting collection-wide or synthetic benchmark-like labels?");
      }
      else
      {
-          Questions.push_back("Which field facts or structured metadata are still underused?");
+          Questions.push_back("Which structured facts, identifiers, roles, locations, or dates are still underused for disambiguation?");
      }
 
      if (!Subject.empty() && LooksAmbiguousSubject(NormalizeTerm(Subject)))
      {
-          Questions.push_back("Is the subject ambiguous enough that we should add stronger disambiguation facts?");
+          Questions.push_back("Which disambiguation phrase separates this ambiguous subject from its strongest nearby alternative?");
      }
      else if (!ProfileTerms.empty())
      {
-          Questions.push_back("Which collection-supported terms are genuinely backed by this document and worth keeping?");
+          Questions.push_back("Which collection-supported terms improve recall or precision enough to keep, and which are merely background noise?");
      }
 
+     Questions.push_back("Does each retained phrase improve recall, precision, or disambiguation enough to justify indexing it?");
      return Questions;
 }
 

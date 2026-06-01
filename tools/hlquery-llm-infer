@@ -23,6 +23,16 @@ sub trim {
     return $value;
 }
 
+sub compact_json {
+    my ($value) = @_;
+    return '{}' unless defined $value;
+
+    my $encoded = eval { encode_json($value) };
+    return '{}' unless defined $encoded && $encoded ne '';
+
+    return length($encoded) > 2400 ? substr($encoded, 0, 2400) . '...' : $encoded;
+}
+
 sub build_prompt_text {
     my ($payload, $mode, $limit) = @_;
 
@@ -52,18 +62,35 @@ sub build_prompt_text {
     }
 
     my $field_text = join("\n", @field_lines);
-    my $instruction = trim($payload->{instruction} // '');
+    my $prompt_envelope = ref($payload->{prompt}) eq 'HASH' ? $payload->{prompt} : {};
+    my $instruction = trim($prompt_envelope->{instruction} // $payload->{instruction} // '');
     $instruction = 'Infer the document domain from the supplied fields and text. Generate search phrases that could help find this exact document without assuming any collection-specific topic.' if $instruction eq '';
+    my $collection_profile = compact_json($payload->{collection_profile});
 
     if ($mode eq 'context') {
         return <<"PROMPT";
-You generate retrieval-oriented context suggestions for one search document.
+You are improving retrieval context for one document inside a search collection.
 Return exactly one compact JSON object on a single line. No markdown. No prose before or after the JSON.
 JSON schema:
 {
+  "collection_about": "...",
+  "document_role": "...",
   "contexts": [{"term":"...", "relation":"...", "confidence":0.0, "evidence":"...", "scope":"document"}]
 }
+Work internally in three passes before producing the JSON.
+Pass 1: infer what this collection is actually about from its name, schema, metadata, learned summary, and this document.
+Pass 2: draft candidate contexts for distinct search behaviors: exact lookup, alias lookup, category browsing, location lookup, and descriptive outside-in discovery.
+Pass 3: run this retrieval QA checklist and revise:
+1. Searcher wording: what would a real user type if they knew the entity, only an alias, only a location, or only a distinguishing description?
+2. Distinguishing evidence: which facts separate this document from similar documents in the same collection?
+3. Missing paths: are any grounded aliases, abbreviations, locations, categories, topics, roles, or stable related queries absent?
+4. Ambiguity: could a proposed phrase match many unrelated documents or a nearby alternative more strongly than this one?
+5. Collection noise: is a phrase merely a collection-wide background word listed in learned_profile.negative_terms?
+6. Evidence quality: can each phrase be justified by document evidence or a stable collection-supported relationship?
+7. Search value: would indexing this phrase improve recall without materially damaging precision?
 Rules:
+- collection_about: one short concrete sentence describing the collection domain.
+- document_role: one short concrete sentence describing what this document contributes to that domain.
 - contexts: up to $limit useful suggestions, ordered strongest-first.
 - relation must be one of alias, metro_area, location, category, topic, or related_query.
 - confidence values must be between 0.0 and 1.0.
@@ -72,10 +99,15 @@ Rules:
 - Each term must be 1 to 8 words.
 - Include aliases, locations, categories, topics, and related queries when grounded in the document.
 - Prefer concise natural-language queries and stable entity phrases.
+- Cover multiple realistic search behaviors when the evidence supports them; do not produce several cosmetic rewrites of the same phrase.
 - Avoid generic filler, invented facts, and near duplicates.
-- Do not assume a domain, language, gender, or collection topic unless it is supported by the document.
+- Use collection context to disambiguate the document, but do not emit broad collection labels unless they help find this exact item.
+- Treat learned_profile.negative_terms as collection-wide background words: avoid returning them unless combined with document-specific evidence.
+- Use learned_profile.summary as the current collection hypothesis and correct it only when this document provides stronger evidence.
+- Do not assume a domain, language, gender, or collection topic unless supported by the collection profile or document.
 
 Instruction: $instruction
+Collection profile: $collection_profile
 
 Title: $title
 Fields:
@@ -145,6 +177,16 @@ JSON schema:
   "candidates": [{"text":"...", "weight":0.0}],
   "ranked_terms": [{"text":"...", "weight":0.0}]
 }
+Work internally in three passes before producing the JSON.
+Pass 1: classify the likely search behavior: exact entity lookup, alias or abbreviation, category browse, location browse, descriptive query, role or epithet, or ambiguous exploratory query.
+Pass 2: compare supplied candidates using collection-aware evidence.
+Pass 3: run this retrieval QA checklist and revise:
+1. What specific intent does the wording imply, and which query tokens are decisive?
+2. Which candidate has the strongest direct evidence, and which candidate is the strongest confusing alternative?
+3. What fact separates the best candidate from that alternative?
+4. Are ranked terms useful retrieval bridges, or are they generic words that would broaden results too much?
+5. Is any association speculative, weak, or unsupported by the collection profile and candidate evidence?
+6. Should candidates be empty because the evidence is insufficient?
 Rules:
 - interpretation: one short sentence describing what the user most likely wants.
 - conclusion: one short sentence naming the best likely target when the evidence supports it.
@@ -161,8 +203,10 @@ Rules:
 - If the query sounds like a nickname, title, crown, role, or epithet, resolve it to the most likely subject from the candidates.
 - Use the candidate set as evidence, but do not just copy the current top hit if another candidate is a better semantic fit.
 - Favor terms that can be looked up directly inside the collection.
+- Prefer the narrowest useful interpretation. Broaden only when the query itself is exploratory.
 
 Collection: $collection
+Collection profile: $collection_profile
 Query: $query
 Candidates:
 $candidate_text
@@ -177,16 +221,28 @@ JSON schema:
 {
   "anchors": [{"text":"...", "kind":"anchor", "confidence":0.0, "reason":"...", "language":"..."}]
 }
+Work internally in three passes before producing the JSON.
+Pass 1: identify canonical entities and structured facts.
+Pass 2: draft anchors for exact lookup, alias lookup, disambiguation, and outside-in discovery.
+Pass 3: run this retrieval QA checklist and revise:
+1. Which phrase is the canonical anchor?
+2. Which supported aliases, abbreviations, alternate spellings, roles, locations, or identifiers are genuinely searchable?
+3. Which phrase best distinguishes this document from nearby alternatives in the collection?
+4. Is any phrase merely a broad collection label or a cosmetic title rewrite?
+5. Does every phrase have a short evidence-backed reason?
+6. Would each phrase improve search precision or recall enough to justify indexing it?
 Rules:
 - anchors: up to $limit useful indexing phrases, ordered best-first.
 - kind must be one of anchor, alias, descriptor, or query.
 - confidence values must be between 0.0 and 1.0.
 - Each text must be 1 to 8 words.
 - Prefer exact entities, aliases, roles, labels, and high-precision query phrases grounded in the document.
+- Include disambiguating combinations when a short alias or subject is likely ambiguous.
 - Avoid ids, urls, handles, timestamps, boilerplate, generic filler, and near duplicates.
 - Do not invent facts not supported by the title, fields, or content.
 
 Instruction: $instruction
+Collection profile: $collection_profile
 
 Title: $title
 Fields:
@@ -206,18 +262,17 @@ JSON schema:
   "outside_in_queries": [{"text":"...", "weight":0.0}],
   "search_queries": [{"text":"...", "weight":0.0}]
 }
-Work internally in two passes before producing the JSON:
-Pass 1: draft candidate labels, entities, and retrieval phrases.
-Pass 2: challenge that draft by asking yourself at least 3 follow-up improvement questions, then revise.
-Your follow-up improvement questions must explicitly test whether:
-1. the draft is too generic or too close to the source wording,
-2. important outside-in discovery angles are missing,
-3. labels, language, role, location, date, medium, or identifier clues were underused.
-Answer these 4 internal questions before the revision:
-1. What is this document actually about, in concrete retrieval terms rather than narrative wording?
-2. Which entities, labels, places, mediums, roles, or identifiers would an outsider notice and search for?
-3. How would someone discover this from outside if they had not read the document but wanted this exact item?
-4. Which search phrasings are distinctive and high-precision, and which are generic or too copy-pasted from the source and should be avoided?
+Work internally in three passes before producing the JSON:
+Pass 1: infer the collection domain and this document's concrete role inside it.
+Pass 2: draft labels, entities, and retrieval phrases for exact lookup, alias lookup, disambiguation, category browse, location browse, and descriptive outside-in discovery.
+Pass 3: run this retrieval QA checklist and revise:
+1. What is this document actually about in concrete retrieval terms?
+2. What would users search if they knew the title, only an alias, only a location, only a role, or only a distinctive fact?
+3. Which facts distinguish this item from similar collection documents?
+4. Which labels, language clues, roles, locations, dates, mediums, or identifiers are underused?
+5. Which draft phrases are generic, cosmetic rewrites, collection-wide noise, or likely to retrieve unrelated documents?
+6. Which outside-in discovery angles are missing but still grounded in evidence?
+7. Does every final phrase improve precision, recall, or disambiguation enough to keep?
 Rules:
 - language: 1 to 3 short language/script tags or names supported by the document.
 - document_type: 1 short phrase.
@@ -236,6 +291,7 @@ Rules:
 - If the first draft is weak, broaden the second-pass phrases using outside-in discovery language rather than repeating title words.
 
 Instruction: $instruction
+Collection profile: $collection_profile
 
 Title: $title
 Fields:
@@ -412,6 +468,14 @@ if ($mode eq 'sam' && defined $ENV{HLQUERY_SAM_TERM_LIMIT}) {
 }
 
 my $prompt = build_prompt_text($payload, $mode, $limit);
+my $debug_trace = ($ENV{HLQUERY_LLM_DEBUG_TRACE} // '') eq '1';
+
+if ($debug_trace) {
+    print STDERR "HLQUERY_LLM_DEBUG_QUESTION_BEGIN mode=$mode\n";
+    print STDERR $prompt;
+    print STDERR "\n" unless $prompt =~ /\n\z/;
+    print STDERR "HLQUERY_LLM_DEBUG_QUESTION_END mode=$mode\n";
+}
 
 my ($temp, $top_k, $top_p) = (0.2, 20, 0.9);
 my $max_tokens = 96;
@@ -452,6 +516,13 @@ local $/;
 my $raw_output = <$fh>;
 close $fh;
 $raw_output = '' unless defined $raw_output;
+
+if ($debug_trace) {
+    print STDERR "HLQUERY_LLM_DEBUG_ANSWER_BEGIN mode=$mode\n";
+    print STDERR $raw_output;
+    print STDERR "\n" unless $raw_output =~ /\n\z/;
+    print STDERR "HLQUERY_LLM_DEBUG_ANSWER_END mode=$mode\n";
+}
 
 if ($mode eq 'sam' || $mode eq 'search_intent' || $mode eq 'anchors') {
     my $json = extract_json_object($raw_output);

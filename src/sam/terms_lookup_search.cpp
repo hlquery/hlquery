@@ -431,6 +431,13 @@ bool SAM::RecordSearchInteractionLocked(const std::string& Collection,
           return false;
      }
 
+     (void)AdjustDocumentContextFeedbackLocked(Database.get(),
+                                               Collection,
+                                               Candidate.DocumentID,
+                                               Entry.Query,
+                                               true,
+                                               nullptr);
+
      if (!TrimSearchIdeasLocked(Collection, nullptr, ErrorMessage))
      {
           return false;
@@ -580,6 +587,16 @@ bool SAM::RecordSearchIdeaLocked(const std::string& Collection,
           }
 
           return false;
+     }
+
+     for (const auto& Document : Entry.Documents)
+     {
+          (void)AdjustDocumentContextFeedbackLocked(Database.get(),
+                                                    Collection,
+                                                    Document.DocumentID,
+                                                    Entry.Query,
+                                                    false,
+                                                    nullptr);
      }
 
      if (!TrimSearchIdeasLocked(Collection, nullptr, ErrorMessage))

@@ -14,6 +14,7 @@
 #include <filesystem>
 #include <rocksdb/write_batch.h>
 #include <chrono>
+#include <limits>
 #include <sstream>
 #include <thread>
 
@@ -72,14 +73,16 @@ double ScoreDocumentContextSuggestions(const nlohmann::json& Suggestions)
           }
 
           const double Confidence = std::clamp(Suggestion.value("confidence", 0.0), 0.0, 1.0);
+          const double ValidationScore =
+               std::clamp(Suggestion.value("validation_score", Confidence), 0.0, 1.0);
 
-          if (Confidence < 0.78)
+          if (Confidence < 0.78 || ValidationScore < 0.70)
           {
                continue;
           }
 
           ++UsefulSuggestions;
-          ConfidenceTotal += Confidence;
+          ConfidenceTotal += (Confidence * 0.65) + (ValidationScore * 0.35);
      }
 
      if (UsefulSuggestions == 0)
@@ -1489,50 +1492,81 @@ bool SAM::IsOpen() const
 
 bool SAM::FlushAndSync(std::string* ErrorMessage)
 {
-     std::lock_guard<std::mutex> Lock(DBMutex);
-
      if (ErrorMessage)
      {
           ErrorMessage->clear();
      }
 
-     if (!Database)
+     constexpr size_t kMaxQueueDrainAttempts = 8;
+
+     for (size_t Attempt = 0; Attempt < kMaxQueueDrainAttempts; ++Attempt)
      {
-          if (ErrorMessage)
+          FlushPendingSearchInteractions(std::numeric_limits<size_t>::max());
+          FlushPendingSearchIdeas(std::numeric_limits<size_t>::max());
+
+          std::unique_lock<std::mutex> IdeaQueueLock(SearchIdeaQueueMutex);
+          std::unique_lock<std::mutex> InteractionQueueLock(SearchInteractionQueueMutex);
+
+          if (!PendingSearchIdeaJobs.empty() || !PendingSearchInteractionJobs.empty())
           {
-               *ErrorMessage = "SAM database is not open.";
+               InteractionQueueLock.unlock();
+               IdeaQueueLock.unlock();
+               std::this_thread::yield();
+               continue;
           }
 
-          return false;
-     }
+          /*
+           * Keep feedback queue locks held through the database flush.
+           * Enqueues after this point belong to the next sync boundary.
+           */
 
-     rocksdb::FlushOptions FlushOptions;
-     FlushOptions.wait = true;
-     const rocksdb::Status Status = Database->Flush(FlushOptions);
+          std::lock_guard<std::mutex> Lock(DBMutex);
 
-     if (!Status.ok())
-     {
-          if (ErrorMessage)
+          if (!Database)
           {
-               *ErrorMessage = Status.ToString();
+               if (ErrorMessage)
+               {
+                    *ErrorMessage = "SAM database is not open.";
+               }
+
+               return false;
           }
 
-          return false;
-     }
+          rocksdb::FlushOptions FlushOptions;
+          FlushOptions.wait = true;
+          const rocksdb::Status Status = Database->Flush(FlushOptions);
 
-     const rocksdb::Status SyncStatus = Database->SyncWAL();
-
-     if (!SyncStatus.ok())
-     {
-          if (ErrorMessage)
+          if (!Status.ok())
           {
-               *ErrorMessage = SyncStatus.ToString();
+               if (ErrorMessage)
+               {
+                    *ErrorMessage = Status.ToString();
+               }
+
+               return false;
           }
 
-          return false;
+          const rocksdb::Status SyncStatus = Database->SyncWAL();
+
+          if (!SyncStatus.ok())
+          {
+               if (ErrorMessage)
+               {
+                    *ErrorMessage = SyncStatus.ToString();
+               }
+
+               return false;
+          }
+
+          return true;
      }
 
-     return true;
+     if (ErrorMessage)
+     {
+          *ErrorMessage = "SAM feedback queues remained busy during flush.";
+     }
+
+     return false;
 }
 
 std::string SAM::ResolveDBPath() const
@@ -2968,9 +3002,68 @@ bool SAM::StoreDocumentContext(const std::string& Collection,
           return false;
      }
 
-     const double AuditScore = ScoreDocumentContextSuggestions(Suggestions);
-     const bool WellCovered = AuditScore >= 0.72;
+     std::lock_guard<std::mutex> Lock(DBMutex);
 
+     if (!Database)
+     {
+          return false;
+     }
+
+     nlohmann::json EnrichedSuggestions = Suggestions;
+     std::string PreviousRawValue;
+     const rocksdb::Status PreviousStatus =
+          Database->Get(rocksdb::ReadOptions(),
+                        BuildDocumentContextKey(Collection, DocumentID),
+                        &PreviousRawValue);
+
+     if (PreviousStatus.ok() && !PreviousRawValue.empty())
+     {
+          try
+          {
+               const nlohmann::json Previous = nlohmann::json::parse(PreviousRawValue);
+               std::unordered_map<std::string, nlohmann::json> PreviousByTerm;
+
+               for (const auto& Item : Previous.value("suggestions", nlohmann::json::array()))
+               {
+                    if (Item.is_object() && !Item.value("term", "").empty())
+                    {
+                         PreviousByTerm[Item.value("term", "")] = Item;
+                    }
+               }
+
+               for (auto& Item : EnrichedSuggestions)
+               {
+                    if (!Item.is_object())
+                    {
+                         continue;
+                    }
+
+                    const auto Existing = PreviousByTerm.find(Item.value("term", ""));
+
+                    if (Existing == PreviousByTerm.end())
+                    {
+                         continue;
+                    }
+
+                    const nlohmann::json& Old = Existing->second;
+                    Item["feedback_uses"] = Old.value("feedback_uses", 0U);
+                    Item["interaction_uses"] = Old.value("interaction_uses", 0U);
+                    Item["last_used_ms"] = Old.value("last_used_ms", static_cast<uint64_t>(0));
+                    Item["misses"] = Old.value("misses", 0U);
+                    Item["confidence"] = std::max(Item.value("confidence", 0.0),
+                                                  Old.value("confidence", 0.0));
+                    Item["provisional"] =
+                         Item.value("confidence", 0.0) < 0.78 ||
+                         Item.value("validation_score", 0.0) < 0.70;
+               }
+          }
+          catch (...)
+          {
+          }
+     }
+
+     const double AuditScore = ScoreDocumentContextSuggestions(EnrichedSuggestions);
+     const bool WellCovered = AuditScore >= 0.72;
      nlohmann::json Root = {
           {"collection", Collection},
           {"id", DocumentID},
@@ -2981,15 +3074,8 @@ bool SAM::StoreDocumentContext(const std::string& Collection,
           {"revisit_after_ms", UpdatedAtMS + (WellCovered
                ? kDocumentContextHealthyRetryMS
                : kDocumentContextWeakRetryMS)},
-          {"suggestions", Suggestions}
+          {"suggestions", std::move(EnrichedSuggestions)}
      };
-     std::lock_guard<std::mutex> Lock(DBMutex);
-
-     if (!Database)
-     {
-          return false;
-     }
-
      const rocksdb::Status Status =
           Database->Put(rocksdb::WriteOptions(), BuildDocumentContextKey(Collection, DocumentID), Root.dump());
 
@@ -3040,6 +3126,117 @@ bool SAM::LoadDocumentContext(const std::string& Collection,
           }
           return false;
      }
+}
+
+bool SAM::LoadCollectionPromptProfile(const std::string& Collection,
+                                      nlohmann::json& Root,
+                                      std::string* ErrorMessage) const
+{
+     Root = nlohmann::json::object();
+
+     if (Collection.empty())
+     {
+          return false;
+     }
+
+     std::lock_guard<std::mutex> Lock(DBMutex);
+
+     if (!Database)
+     {
+          return false;
+     }
+
+     std::string RawValue;
+     const rocksdb::Status Status =
+          Database->Get(rocksdb::ReadOptions(), BuildCollectionProfileKey(Collection), &RawValue);
+
+     if (!Status.ok())
+     {
+          if (!Status.IsNotFound() && ErrorMessage)
+          {
+               *ErrorMessage = Status.ToString();
+          }
+
+          return false;
+     }
+
+     try
+     {
+          const nlohmann::json Profile = nlohmann::json::parse(RawValue);
+          Root["summary"] = Profile.value("llm_summary", Profile.value("summary", ""));
+          Root["sampled_summary"] = Profile.value("summary", "");
+          Root["summary_terms"] = Profile.value("summary_terms", nlohmann::json::array());
+          Root["negative_terms"] = Profile.value("negative_terms", nlohmann::json::array());
+          Root["documents"] = Profile.value("documents", 0U);
+          Root["profile_synced_at_ms"] = Profile.value("profile_synced_at_ms", static_cast<uint64_t>(0));
+          return true;
+     }
+     catch (const std::exception& E)
+     {
+          if (ErrorMessage)
+          {
+               *ErrorMessage = E.what();
+          }
+
+          return false;
+     }
+}
+
+bool SAM::StoreCollectionPromptSummary(const std::string& Collection,
+                                       const std::string& Summary,
+                                       std::string* ErrorMessage)
+{
+     if (Collection.empty() || Summary.empty())
+     {
+          return false;
+     }
+
+     std::lock_guard<std::mutex> Lock(DBMutex);
+
+     if (!Database)
+     {
+          return false;
+     }
+
+     const std::string ProfileKey = BuildCollectionProfileKey(Collection);
+     std::string RawValue;
+     nlohmann::json Profile = nlohmann::json::object();
+     const rocksdb::Status ReadStatus =
+          Database->Get(rocksdb::ReadOptions(), ProfileKey, &RawValue);
+
+     if (ReadStatus.ok() && !RawValue.empty())
+     {
+          try
+          {
+               Profile = nlohmann::json::parse(RawValue);
+          }
+          catch (...)
+          {
+               Profile = nlohmann::json::object();
+          }
+     }
+     else if (!ReadStatus.IsNotFound())
+     {
+          if (ErrorMessage)
+          {
+               *ErrorMessage = ReadStatus.ToString();
+          }
+
+          return false;
+     }
+
+     Profile["collection"] = Collection;
+     Profile["llm_summary"] = Summary.substr(0, 512);
+     Profile["llm_summary_updated_at_ms"] = static_cast<uint64_t>(Instance ? Instance->NowMs() : 0);
+     const rocksdb::Status WriteStatus =
+          Database->Put(rocksdb::WriteOptions(), ProfileKey, Profile.dump());
+
+     if (!WriteStatus.ok() && ErrorMessage)
+     {
+          *ErrorMessage = WriteStatus.ToString();
+     }
+
+     return WriteStatus.ok();
 }
 
 bool SAM::RemoveDocumentContext(const std::string& Collection,

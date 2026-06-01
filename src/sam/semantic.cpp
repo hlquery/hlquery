@@ -2301,6 +2301,155 @@ void MergeRecentSearchIdeasIntoCollectionProfileLocked(
      }
 }
 
+bool AdjustDocumentContextFeedbackLocked(rocksdb::DB* Database,
+                                         const std::string& Collection,
+                                         const std::string& DocumentID,
+                                         const std::string& Query,
+                                         bool Interaction,
+                                         std::string* ErrorMessage)
+{
+     if (!Database || Collection.empty() || DocumentID.empty())
+     {
+          return false;
+     }
+
+     const std::string NormalizedQuery = NormalizeTerm(Query);
+
+     if (NormalizedQuery.empty())
+     {
+          return true;
+     }
+
+     std::string RawValue;
+     const std::string ContextKey = BuildDocumentContextKey(Collection, DocumentID);
+     const rocksdb::Status ReadStatus =
+          Database->Get(rocksdb::ReadOptions(), ContextKey, &RawValue);
+
+     if (ReadStatus.IsNotFound())
+     {
+          return true;
+     }
+
+     if (!ReadStatus.ok())
+     {
+          if (ErrorMessage)
+          {
+               *ErrorMessage = ReadStatus.ToString();
+          }
+
+          return false;
+     }
+
+     try
+     {
+          nlohmann::json Root = nlohmann::json::parse(RawValue);
+
+          if (!Root.contains("suggestions") || !Root["suggestions"].is_array())
+          {
+               return true;
+          }
+
+          const std::vector<std::string> QueryTokens = TokenizeNormalized(NormalizedQuery);
+          bool Changed = false;
+          bool AnyMatched = false;
+
+          for (auto& Suggestion : Root["suggestions"])
+          {
+               if (!Suggestion.is_object() || Suggestion.value("kind", "") != "llm")
+               {
+                    continue;
+               }
+
+               const std::string Term = NormalizeTerm(Suggestion.value("term", ""));
+               const std::vector<std::string> TermTokens = TokenizeNormalized(Term);
+               size_t Overlap = 0;
+
+               for (const auto& Token : QueryTokens)
+               {
+                    if (std::find(TermTokens.begin(), TermTokens.end(), Token) != TermTokens.end())
+                    {
+                         ++Overlap;
+                    }
+               }
+
+               const bool Matched =
+                    !Term.empty() &&
+                    (Term.find(NormalizedQuery) != std::string::npos ||
+                     NormalizedQuery.find(Term) != std::string::npos ||
+                     (Overlap > 0 && Overlap * 2 >= std::min(QueryTokens.size(), TermTokens.size())));
+               double Confidence =
+                    std::clamp(Suggestion.value("confidence", 0.70), 0.0, 1.0);
+
+               if (Matched)
+               {
+                    AnyMatched = true;
+                    Suggestion["feedback_uses"] = Suggestion.value("feedback_uses", 0U) + 1;
+
+                    if (Interaction)
+                    {
+                         Suggestion["interaction_uses"] = Suggestion.value("interaction_uses", 0U) + 1;
+                    }
+
+                    Suggestion["last_used_ms"] = GetSAMCurrentTimeMS();
+                    Suggestion["misses"] = 0;
+                    Confidence = std::min(1.0, Confidence + (Interaction ? 0.08 : 0.02));
+               }
+               else
+               {
+                    const size_t Misses = Suggestion.value("misses", 0U) + 1;
+                    Suggestion["misses"] = Misses;
+
+                    if (Misses % 8 == 0)
+                    {
+                         Confidence = std::max(0.35, Confidence - 0.03);
+                    }
+               }
+
+               Suggestion["confidence"] = Confidence;
+               Suggestion["provisional"] = Confidence < 0.78;
+               Changed = true;
+          }
+
+          if (!Changed)
+          {
+               return true;
+          }
+
+          Root["feedback_updated_at_ms"] = GetSAMCurrentTimeMS();
+          Root["feedback_matches"] = Root.value("feedback_matches", 0U) + (AnyMatched ? 1 : 0);
+          Root["feedback_misses"] = Root.value("feedback_misses", 0U) + (AnyMatched ? 0 : 1);
+
+          if (!AnyMatched)
+          {
+               const uint64_t WeakRevisitMS =
+                    GetSAMCurrentTimeMS() + (7ULL * 24ULL * 60ULL * 60ULL * 1000ULL);
+               const uint64_t ExistingRevisitMS =
+                    Root.value("revisit_after_ms", static_cast<uint64_t>(0));
+               Root["revisit_after_ms"] =
+                    ExistingRevisitMS == 0 ? WeakRevisitMS : std::min(ExistingRevisitMS, WeakRevisitMS);
+          }
+
+          const rocksdb::Status WriteStatus =
+               Database->Put(rocksdb::WriteOptions(), ContextKey, Root.dump());
+
+          if (!WriteStatus.ok() && ErrorMessage)
+          {
+               *ErrorMessage = WriteStatus.ToString();
+          }
+
+          return WriteStatus.ok();
+     }
+     catch (const std::exception& E)
+     {
+          if (ErrorMessage)
+          {
+               *ErrorMessage = E.what();
+          }
+
+          return false;
+     }
+}
+
 /* Rebuild a collection profile from the current indexed SAM manifests and search ideas. */
 
 bool RebuildCollectionProfileLocked(rocksdb::DB* Database,
@@ -2332,6 +2481,26 @@ bool RebuildCollectionProfileLocked(rocksdb::DB* Database,
      std::unordered_map<std::string, std::unordered_map<std::string, size_t>> LearnedFamilyDescriptorCounts;
      std::unordered_map<std::string, std::unordered_map<std::string, size_t>> LearnedFamilyQueryCounts;
      size_t DocumentCount = 0;
+     std::string ExistingLLMSummary;
+     uint64_t ExistingLLMSummaryUpdatedAtMS = 0;
+     std::string ExistingRawProfile;
+
+     if (Database->Get(rocksdb::ReadOptions(),
+                       BuildCollectionProfileKey(Collection),
+                       &ExistingRawProfile).ok() &&
+         !ExistingRawProfile.empty())
+     {
+          try
+          {
+               const nlohmann::json ExistingProfile = nlohmann::json::parse(ExistingRawProfile);
+               ExistingLLMSummary = ExistingProfile.value("llm_summary", "");
+               ExistingLLMSummaryUpdatedAtMS =
+                    ExistingProfile.value("llm_summary_updated_at_ms", static_cast<uint64_t>(0));
+          }
+          catch (...)
+          {
+          }
+     }
 
      for (Iterator->Seek(ManifestPrefix);
           Iterator->Valid() && Iterator->key().starts_with(ManifestPrefix);
@@ -2500,6 +2669,13 @@ bool RebuildCollectionProfileLocked(rocksdb::DB* Database,
      uint64_t LatestIdeaSeenMS = 0;
      size_t LearnedIdeaCount = 0;
      const uint64_t ProfileSyncedAtMS = GetSAMCurrentTimeMS();
+     Profile["profile_synced_at_ms"] = ProfileSyncedAtMS;
+
+     if (!ExistingLLMSummary.empty())
+     {
+          Profile["llm_summary"] = ExistingLLMSummary;
+          Profile["llm_summary_updated_at_ms"] = ExistingLLMSummaryUpdatedAtMS;
+     }
      size_t RecentIdeaCount = 0;
      (void)GetLatestRecentSearchIdeaTimestampLocked(Database, Collection, &RecentIdeaCount);
      MergeRecentSearchIdeasIntoCollectionProfileLocked(Database,
@@ -2726,18 +2902,103 @@ bool RebuildCollectionProfileLocked(rocksdb::DB* Database,
      // a real profile has been built (e.g. suppressing synthetic term spam).
      Profile["document_count"] = static_cast<int64_t>(DocumentCount);
 
-     AppendTermsToProfile(BuildSortedTerms(RankedTerms, RelatedCounts), "terms");
-     AppendFamiliesToProfile(BuildSortedFamilies(Families,
-                                                FamilyAliasCounts,
-                                                FamilyDescriptorCounts,
-                                                FamilyQueryCounts),
-                             "families");
-     AppendTermsToProfile(BuildSortedTerms(LearnedRankedTerms, LearnedRelatedCounts), "learned_terms");
-     AppendFamiliesToProfile(BuildSortedFamilies(LearnedFamilies,
-                                                LearnedFamilyAliasCounts,
-                                                LearnedFamilyDescriptorCounts,
-                                                LearnedFamilyQueryCounts),
-                             "learned_families");
+     const std::vector<SAMProfileEntry> SortedTerms = BuildSortedTerms(RankedTerms, RelatedCounts);
+     const std::vector<SAMProfileFamily> SortedFamilies =
+          BuildSortedFamilies(Families,
+                              FamilyAliasCounts,
+                              FamilyDescriptorCounts,
+                              FamilyQueryCounts);
+     const std::vector<SAMProfileEntry> SortedLearnedTerms =
+          BuildSortedTerms(LearnedRankedTerms, LearnedRelatedCounts);
+     const std::vector<SAMProfileFamily> SortedLearnedFamilies =
+          BuildSortedFamilies(LearnedFamilies,
+                              LearnedFamilyAliasCounts,
+                              LearnedFamilyDescriptorCounts,
+                              LearnedFamilyQueryCounts);
+
+     AppendTermsToProfile(SortedTerms, "terms");
+     AppendFamiliesToProfile(SortedFamilies, "families");
+     AppendTermsToProfile(SortedLearnedTerms, "learned_terms");
+     AppendFamiliesToProfile(SortedLearnedFamilies, "learned_families");
+
+     Profile["summary_terms"] = nlohmann::json::array();
+     Profile["negative_terms"] = nlohmann::json::array();
+     std::vector<std::string> SummaryTerms;
+     std::unordered_set<std::string> SeenSummaryTerms;
+
+     auto AppendSummaryTerm = [&](const std::string& Value)
+     {
+          const std::string Normalized = NormalizeTerm(Value);
+
+          if (Normalized.empty() || !SeenSummaryTerms.insert(Normalized).second)
+          {
+               return;
+          }
+
+          SummaryTerms.push_back(Normalized);
+     };
+
+     for (const auto& Family : SortedFamilies)
+     {
+          AppendSummaryTerm(Family.Subject);
+
+          if (SummaryTerms.size() >= 4)
+          {
+               break;
+          }
+     }
+
+     for (const auto& Entry : SortedTerms)
+     {
+          if (DocumentCount > 0 &&
+              Entry.Support * 100 >= DocumentCount * 65)
+          {
+               Profile["negative_terms"].push_back(Entry.Text);
+               continue;
+          }
+
+          AppendSummaryTerm(Entry.Text);
+
+          if (SummaryTerms.size() >= 8)
+          {
+               break;
+          }
+     }
+
+     for (const auto& Entry : SortedLearnedTerms)
+     {
+          AppendSummaryTerm(Entry.Text);
+
+          if (SummaryTerms.size() >= 8)
+          {
+               break;
+          }
+     }
+
+     for (const auto& Term : SummaryTerms)
+     {
+          Profile["summary_terms"].push_back(Term);
+     }
+
+     std::ostringstream Summary;
+     Summary << "Collection '" << Collection << "' contains " << DocumentCount << " indexed document(s)";
+
+     if (!SummaryTerms.empty())
+     {
+          Summary << " centered on ";
+
+          for (size_t Index = 0; Index < SummaryTerms.size(); ++Index)
+          {
+               if (Index > 0)
+               {
+                    Summary << ", ";
+               }
+
+               Summary << SummaryTerms[Index];
+          }
+     }
+
+     Profile["summary"] = Summary.str();
 
      const rocksdb::Status Status =
           Database->Put(rocksdb::WriteOptions(), BuildCollectionProfileKey(Collection), Profile.dump());

@@ -569,6 +569,16 @@ class SAM
                               nlohmann::json& Root,
                               std::string* ErrorMessage = nullptr) const;
 
+     /* Load persisted collection-level prompt context built during profile refresh. */
+
+     bool LoadCollectionPromptProfile(const std::string& Collection,
+                                      nlohmann::json& Root,
+                                      std::string* ErrorMessage = nullptr) const;
+
+     bool StoreCollectionPromptSummary(const std::string& Collection,
+                                       const std::string& Summary,
+                                       std::string* ErrorMessage = nullptr);
+
      bool RemoveDocumentContext(const std::string& Collection,
                                 const std::string& DocumentID,
                                 std::string* ErrorMessage = nullptr);
