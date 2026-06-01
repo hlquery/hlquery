@@ -1054,12 +1054,12 @@ llm::SearchIntentResolution llm::ResolveSearchIntent(const std::string& Collecti
           return {};
      }
 
-     SearchIntentResolution Resolution =
+     const SearchIntentResolution HeuristicResolution =
           BuildHeuristicSearchIntentResolution(Query, CandidateDocuments, Limit);
 
      if (!Configured() || InferenceCommand.empty())
      {
-          return Resolution;
+          return HeuristicResolution;
      }
 
      nlohmann::json Payload;
@@ -1090,14 +1090,14 @@ llm::SearchIntentResolution llm::ResolveSearchIntent(const std::string& Collecti
      if (Result.ExitCode != 0)
      {
           LogLLMInferenceFailure("search_intent", Result);
-          return Resolution;
+          return {};
      }
 
      const std::string TrimmedOutput = TrimCopy(Result.Stdout);
 
      if (TrimmedOutput.empty())
      {
-          return Resolution;
+          return {};
      }
 
      try
@@ -1145,17 +1145,7 @@ llm::SearchIntentResolution llm::ResolveSearchIntent(const std::string& Collecti
 
           if (Parsed.Interpretation.empty())
           {
-               Parsed.Interpretation = Resolution.Interpretation;
-          }
-
-          if (Parsed.Candidates.empty())
-          {
-               Parsed.Candidates = Resolution.Candidates;
-          }
-
-          if (Parsed.RankedTerms.empty())
-          {
-               Parsed.RankedTerms = Resolution.RankedTerms;
+               Parsed.Interpretation = NormalizePhrase(Query);
           }
 
           if (Parsed.Conclusion.empty() && !Parsed.Candidates.empty())
@@ -1169,7 +1159,7 @@ llm::SearchIntentResolution llm::ResolveSearchIntent(const std::string& Collecti
      }
      catch (...)
      {
-          return Resolution;
+          return {};
      }
 }
 

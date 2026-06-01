@@ -227,42 +227,6 @@ static float ScoreForMergedHit(const SearchHit &Hit)
      return base_score * weight;
 }
 
-static std::vector<SAM::SearchIdeaDocumentRef> BuildSAMSearchIdeaDocuments(const std::vector<SearchHit> &Hits,
-                                                                           size_t MaxDocuments = 10)
-{
-     std::vector<SAM::SearchIdeaDocumentRef> Documents;
-     std::unordered_set<std::string> Seen;
-
-     for (const auto &Hit : Hits)
-     {
-          auto IDIt = Hit.Document.find("id");
-
-          if (IDIt == Hit.Document.end() || IDIt->second.empty() || !Seen.insert(IDIt->second).second)
-          {
-               continue;
-          }
-
-          SAM::SearchIdeaDocumentRef Document;
-          Document.DocumentID = IDIt->second;
-
-          auto TitleIt = Hit.Document.find("title");
-          if (TitleIt != Hit.Document.end())
-          {
-               Document.Title = TitleIt->second;
-          }
-
-          Document.Score = std::max(0.05f, ScoreForMergedHit(Hit));
-          Documents.push_back(std::move(Document));
-
-          if (Documents.size() >= MaxDocuments)
-          {
-               break;
-          }
-     }
-
-     return Documents;
-}
-
 /* Parses an optional integer parameter used by maybe-suggestion settings. */
 
 static int ParseMaybeInt(const std::unordered_map<std::string, std::string> &Params, const std::string &Key, int DefaultValue)
@@ -1935,13 +1899,12 @@ HttpResponse SearchAPI::HandleSearch(const HttpRequest &Request)
                    Instance && Instance->Sam && Instance->Sam->IsOpen() &&
                    ShouldRecordSAMSearchIdea(Request, CollectionName, SearchQueryObj.Q))
                {
-                    const auto IdeaDocuments = BuildSAMSearchIdeaDocuments(SearchResultObj.Hits);
-                    if (Instance->Sam->RecordSearchIdea(CollectionName, SearchQueryObj.Q, IdeaDocuments))
+                    if (Instance->Sam->RecordSearchIdea(CollectionName, SearchQueryObj.Q, {}))
                     {
                          FOREACH_MOD(OnSamSearch,
                                      CollectionName,
                                      SearchQueryObj.Q,
-                                     static_cast<uint64_t>(IdeaDocuments.size()),
+                                     static_cast<uint64_t>(SearchResultObj.Hits.size()),
                                      Request.RemoteAddress,
                                      Request.APIKeyID,
                                      !Request.APIKeyID.empty());
@@ -2082,13 +2045,12 @@ HttpResponse SearchAPI::HandleSearch(const HttpRequest &Request)
          Instance && Instance->Sam && Instance->Sam->IsOpen() &&
          ShouldRecordSAMSearchIdea(Request, CollectionName, SearchQueryObj.Q))
      {
-          const auto IdeaDocuments = BuildSAMSearchIdeaDocuments(SearchResultObj.Hits);
-          if (Instance->Sam->RecordSearchIdea(CollectionName, SearchQueryObj.Q, IdeaDocuments))
+          if (Instance->Sam->RecordSearchIdea(CollectionName, SearchQueryObj.Q, {}))
           {
                FOREACH_MOD(OnSamSearch,
                            CollectionName,
                            SearchQueryObj.Q,
-                           static_cast<uint64_t>(IdeaDocuments.size()),
+                           static_cast<uint64_t>(SearchResultObj.Hits.size()),
                            Request.RemoteAddress,
                            Request.APIKeyID,
                            !Request.APIKeyID.empty());

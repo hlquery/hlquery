@@ -123,6 +123,11 @@ PROMPT
                 }
 
                 my $detail_text = join(' | ', @details);
+
+                if (length($detail_text) > 360) {
+                    $detail_text = substr($detail_text, 0, 360);
+                }
+
                 push @candidate_lines, "Candidate $index: title=$title ; id=$id ; details=$detail_text ; content=$content";
                 $index++;
             }
@@ -131,7 +136,7 @@ PROMPT
         my $candidate_text = join("\n", @candidate_lines);
 
         return <<"PROMPT";
-You analyze a user search query against a small candidate set from one collection.
+You analyze one batch of candidate documents for a user search query.
 Return exactly one compact JSON object on a single line. No markdown. No prose before or after the JSON.
 JSON schema:
 {
@@ -143,11 +148,16 @@ JSON schema:
 Rules:
 - interpretation: one short sentence describing what the user most likely wants.
 - conclusion: one short sentence naming the best likely target when the evidence supports it.
-- candidates: up to $limit likely target entities or subjects, ordered best-first.
+- candidates: up to $limit likely target entities or subjects, ordered best-first. Use the supplied candidate title exactly when selecting a document.
 - ranked_terms: up to @{[ $limit * 2 ]} search terms or entity phrases that should help re-rank the collection toward the real target.
 - Each text must be 1 to 8 words.
 - weight values must be between 0.0 and 1.0.
 - Prefer canonical entities or subject names over generic genre words.
+- Consider stable indirect relationships that improve discovery: aliases, synonyms, abbreviations, metro areas, locations, categories, topics, and commonly associated entities.
+- A relationship may be useful even when its wording is absent from the document. For example, a Boston query can reasonably include MIT because MIT is in the Boston metro area.
+- Rank only real supplied candidates as likely targets. Use general knowledge conservatively and avoid weak or speculative associations.
+- Return an empty candidates array when no supplied document has a meaningful relationship to the query.
+- Keep ranked_terms specific to meaningful relationships found in this batch. Do not emit generic filler merely to fill the limit.
 - If the query sounds like a nickname, title, crown, role, or epithet, resolve it to the most likely subject from the candidates.
 - Use the candidate set as evidence, but do not just copy the current top hit if another candidate is a better semantic fit.
 - Favor terms that can be looked up directly inside the collection.

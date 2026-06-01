@@ -2066,6 +2066,13 @@ void HLQueryCLI::ShowSAMHistory(const std::string &collection_name,
           std::string top_interaction;
           std::string llm_intent = entry.value("resolved_interpretation", "");
           std::string conclusion = entry.value("association_summary", "");
+          const std::string enrichment_state =
+               entry.value("enrichment_pending", false) ? "pending" : "ready";
+
+          if (enrichment_state == "pending")
+          {
+               llm_intent.clear();
+          }
 
           if (conclusion.empty())
           {
@@ -2163,6 +2170,7 @@ void HLQueryCLI::ShowSAMHistory(const std::string &collection_name,
                     std::to_string(index++),
                     entry.value("collection", ""),
                     entry.value("query", ""),
+                    enrichment_state,
                     std::to_string(entry.value("interaction_uses", static_cast<uint64_t>(0))),
                     top_interaction,
                     matches,
@@ -2175,6 +2183,7 @@ void HLQueryCLI::ShowSAMHistory(const std::string &collection_name,
                     std::to_string(index++),
                     entry.value("collection", ""),
                     entry.value("query", ""),
+                    enrichment_state,
                     std::to_string(entry.value("uses", static_cast<uint64_t>(0))),
                     std::to_string(entry.value("interaction_uses", static_cast<uint64_t>(0))),
                     llm_intent,
@@ -2186,11 +2195,11 @@ void HLQueryCLI::ShowSAMHistory(const std::string &collection_name,
 
      if (interactions_only)
      {
-          PrintTable({"#", "Collection", "Query", "Int", "Top Interaction", "Matches", "Conclusion"}, rows);
+          PrintTable({"#", "Collection", "Query", "State", "Int", "Top Interaction", "Matches", "Conclusion"}, rows);
      }
      else
      {
-          PrintTable({"#", "Collection", "Query", "Uses", "Int", "LLM Intent", "Matches", "Conclusion"}, rows);
+          PrintTable({"#", "Collection", "Query", "State", "Uses", "Int", "LLM Intent", "Matches", "Conclusion"}, rows);
      }
 }
 

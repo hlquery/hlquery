@@ -492,30 +492,6 @@
           return gInteractionDedupe.ShouldAllow(Key, NowMS, WindowMS, RetentionMS);
      }
 
-static std::vector<SAM::SearchIdeaDocumentRef> BuildSAMIdeaDocumentsFromLookupHits(const std::vector<SAM::LookupHit> &Hits,
-                                                                                   size_t MaxDocuments = 10)
-{
-     std::vector<SAM::SearchIdeaDocumentRef> Documents;
-     std::unordered_set<std::string> Seen;
-
-     for (const auto &Hit : Hits)
-     {
-          if (Hit.DocumentID.empty() || !Seen.insert(Hit.DocumentID).second)
-          {
-               continue;
-          }
-
-          Documents.push_back({Hit.DocumentID, Hit.Title, std::max(0.05, Hit.Breakdown.FinalScore > 0.0 ? Hit.Breakdown.FinalScore : Hit.MatchedScore)});
-
-          if (Documents.size() >= MaxDocuments)
-          {
-               break;
-          }
-     }
-
-     return Documents;
-}
-
 static std::vector<std::string> BuildSAMAssociationLabels(const SAM::SearchIdeaEntry &Entry)
 {
      std::vector<std::string> Labels;
@@ -3709,10 +3685,9 @@ HttpResponse SearchAPI::HandleSAMSearch(const HttpRequest &Request)
           if (Instance->Sam->IsOpen() && !SkipRecord &&
               ShouldRecordSAMSearchIdea(Request, CollectionName, Query))
           {
-               const auto IdeaDocuments = BuildSAMIdeaDocumentsFromLookupHits(LocalHits);
                std::string RecordError;
 
-               if (!Instance->Sam->RecordSearchIdea(CollectionName, Query, IdeaDocuments, &RecordError) &&
+               if (!Instance->Sam->RecordSearchIdea(CollectionName, Query, {}, &RecordError) &&
                    Instance && Instance->Logs)
                {
                     const std::string ErrorText =
@@ -4275,11 +4250,15 @@ HttpResponse SearchAPI::HandleSAMHistory(const HttpRequest &Request)
           }
 
           nlohmann::json BestMatch = nlohmann::json::object();
-          const std::vector<std::string> AssociationLabels = BuildSAMAssociationLabels(Entry);
+          const bool EnrichmentPending =
+               Entry.ResolvedAtMS == 0 || Entry.ResolvedUses < Entry.Uses;
+          const std::vector<std::string> AssociationLabels =
+               EnrichmentPending ? std::vector<std::string>() : BuildSAMAssociationLabels(Entry);
           const std::string AssociationSummary = BuildSAMAssociationSummary(Entry, AssociationLabels);
-          const std::string Conclusion = AssociationSummary.empty() ? Entry.ResolvedConclusion : AssociationSummary;
+          const std::string Conclusion =
+               EnrichmentPending ? "" : (AssociationSummary.empty() ? Entry.ResolvedConclusion : AssociationSummary);
 
-          if (!Entry.Documents.empty())
+          if (!EnrichmentPending && !Entry.Documents.empty())
           {
                const auto &TopDocument = Entry.Documents.front();
                BestMatch = {
@@ -4298,12 +4277,13 @@ HttpResponse SearchAPI::HandleSAMHistory(const HttpRequest &Request)
                {"uses", Entry.Uses},
                {"interaction_uses", Entry.InteractionUses},
                {"last_interaction_ms", Entry.LastInteractionMS},
-               {"resolved_interpretation", Entry.ResolvedInterpretation},
-               {"resolved_conclusion", Entry.ResolvedConclusion},
+               {"resolved_interpretation", EnrichmentPending ? "" : Entry.ResolvedInterpretation},
+               {"resolved_conclusion", EnrichmentPending ? "" : Entry.ResolvedConclusion},
                {"resolved_at_ms", Entry.ResolvedAtMS},
                {"resolved_uses", Entry.ResolvedUses},
+               {"enrichment_pending", EnrichmentPending},
                {"best_match", BestMatch},
-               {"match_count", Entry.Documents.size()},
+               {"match_count", EnrichmentPending ? 0 : Entry.Documents.size()},
                {"associations", AssociationLabels},
                {"association_summary", AssociationSummary},
                {"conclusion", Conclusion},
@@ -4313,36 +4293,42 @@ HttpResponse SearchAPI::HandleSAMHistory(const HttpRequest &Request)
                {"resolved_ranked_terms", nlohmann::json::array()}
           };
 
-          for (const auto &Document : Entry.Documents)
+          if (!EnrichmentPending)
           {
-               HistoryJson["documents"].push_back({
-                    {"id", Document.DocumentID},
-                    {"title", Document.Title},
-                    {"score", Document.Score},
-                    {"interaction_uses", Document.InteractionUses},
-                    {"last_interaction_ms", Document.LastInteractionMS}
-               });
-
-               if (!Document.Title.empty())
+               for (const auto &Document : Entry.Documents)
                {
-                    HistoryJson["suggestions"].push_back(Document.Title);
+                    HistoryJson["documents"].push_back({
+                         {"id", Document.DocumentID},
+                         {"title", Document.Title},
+                         {"score", Document.Score},
+                         {"interaction_uses", Document.InteractionUses},
+                         {"last_interaction_ms", Document.LastInteractionMS}
+                    });
+
+                    if (!Document.Title.empty())
+                    {
+                         HistoryJson["suggestions"].push_back(Document.Title);
+                    }
                }
           }
 
-          for (const auto &Candidate : Entry.ResolvedCandidates)
+          if (!EnrichmentPending)
           {
-               HistoryJson["resolved_candidates"].push_back({
-                    {"text", Candidate.Text},
-                    {"weight", Candidate.Weight}
-               });
-          }
+               for (const auto &Candidate : Entry.ResolvedCandidates)
+               {
+                    HistoryJson["resolved_candidates"].push_back({
+                         {"text", Candidate.Text},
+                         {"weight", Candidate.Weight}
+                    });
+               }
 
-          for (const auto &RankedTerm : Entry.ResolvedRankedTerms)
-          {
-               HistoryJson["resolved_ranked_terms"].push_back({
-                    {"text", RankedTerm.Text},
-                    {"weight", RankedTerm.Weight}
-               });
+               for (const auto &RankedTerm : Entry.ResolvedRankedTerms)
+               {
+                    HistoryJson["resolved_ranked_terms"].push_back({
+                         {"text", RankedTerm.Text},
+                         {"weight", RankedTerm.Weight}
+                    });
+               }
           }
 
           Root["history"].push_back(std::move(HistoryJson));

@@ -1182,7 +1182,7 @@ bool SAM::OptimizeSearchIdeaIntentLocked(const std::string& Collection,
      }
 
      SearchIdeaEntry Entry;
-     std::vector<Document> CandidateDocuments;
+     std::vector<SAM::DocumentEntry> CollectionDocuments;
 
      {
           std::lock_guard<std::mutex> Lock(DBMutex);
@@ -1223,43 +1223,251 @@ bool SAM::OptimizeSearchIdeaIntentLocked(const std::string& Collection,
                return false;
           }
 
-          for (const auto& DocumentRef : Entry.Documents)
+          const std::string ManifestPrefix = "sam:doc:" + Collection + ":";
+          std::unique_ptr<rocksdb::Iterator> Iterator(Database->NewIterator(rocksdb::ReadOptions()));
+
+          for (Iterator->Seek(ManifestPrefix);
+               Iterator->Valid() && Iterator->key().starts_with(ManifestPrefix);
+               Iterator->Next())
           {
-               if (DocumentRef.DocumentID.empty())
-               {
-                    continue;
-               }
-
-               std::string ManifestValue;
-               const rocksdb::Status ManifestStatus =
-                    Database->Get(rocksdb::ReadOptions(),
-                                  BuildDocManifestKey(Collection, DocumentRef.DocumentID),
-                                  &ManifestValue);
-
-               if (!ManifestStatus.ok())
-               {
-                    continue;
-               }
-
                SAM::DocumentEntry ManifestEntry;
 
-               if (!ParseManifestValue(ManifestValue, ManifestEntry) || !IsSAMDocumentEntryCurrent(ManifestEntry))
+               if (!ParseManifestValue(Iterator->value().ToString(), ManifestEntry) ||
+                   !IsSAMDocumentEntryCurrent(ManifestEntry) ||
+                   ManifestEntry.DocumentID.empty())
                {
                     continue;
                }
 
-               CandidateDocuments.push_back(BuildSearchIntentCandidateDocument(ManifestEntry));
+               CollectionDocuments.push_back(std::move(ManifestEntry));
           }
      }
 
      const size_t IntentLimit = Instance && Instance->Config
           ? static_cast<size_t>(std::max(1, Instance->Config->GetSamLLMMaxIdeas()))
           : 6;
-     const llm::SearchIntentResolution Resolution =
-          Instance->LLM->ResolveSearchIntent(Collection, Entry.Query, CandidateDocuments, IntentLimit);
+     const double MinIntentDocMatchScore = Instance && Instance->Config
+          ? Instance->Config->GetSam25IntentDocMatchMinScore()
+          : 0.65;
+     constexpr size_t kSearchIntentBatchSize = 10;
+     std::unordered_map<std::string, llm::SearchIntentCandidate> AggregatedCandidates;
+     std::unordered_map<std::string, llm::SearchIntentCandidate> AggregatedRankedTerms;
+     std::unordered_map<std::string, SearchIdeaDocumentRef> RankedDocuments;
+     llm::SearchIntentResolution Resolution;
+     double BestBatchScore = 0.0;
+     size_t BatchCount = 0;
+     bool RanReducer = false;
+
+     for (const auto& Existing : Entry.Documents)
+     {
+          if (!Existing.DocumentID.empty() && Existing.InteractionUses > 0)
+          {
+               RankedDocuments[Existing.DocumentID] = Existing;
+          }
+     }
+
+     const auto MergeCandidates =
+          [](std::unordered_map<std::string, llm::SearchIntentCandidate>& Output,
+             const std::vector<llm::SearchIntentCandidate>& Input)
+          {
+               for (const auto& Candidate : Input)
+               {
+                    const std::string Key = NormalizeTerm(Candidate.Text);
+
+                    if (Key.empty())
+                    {
+                         continue;
+                    }
+
+                    auto Existing = Output.find(Key);
+
+                    if (Existing == Output.end() || Candidate.Weight > Existing->second.Weight)
+                    {
+                         Output[Key] = Candidate;
+                    }
+               }
+          };
+
+     for (size_t Offset = 0; Offset < CollectionDocuments.size(); Offset += kSearchIntentBatchSize)
+     {
+          const size_t End = std::min(CollectionDocuments.size(), Offset + kSearchIntentBatchSize);
+          std::vector<Document> BatchDocuments;
+          BatchDocuments.reserve(End - Offset);
+
+          for (size_t Index = Offset; Index < End; ++Index)
+          {
+               BatchDocuments.push_back(BuildSearchIntentCandidateDocument(CollectionDocuments[Index]));
+          }
+
+          const llm::SearchIntentResolution BatchResolution =
+               Instance->LLM->ResolveSearchIntent(Collection, Entry.Query, BatchDocuments, IntentLimit);
+          ++BatchCount;
+          MergeCandidates(AggregatedCandidates, BatchResolution.Candidates);
+          MergeCandidates(AggregatedRankedTerms, BatchResolution.RankedTerms);
+
+          double BatchBestScore = 0.0;
+
+          for (size_t Index = Offset; Index < End; ++Index)
+          {
+               const SAM::DocumentEntry& ManifestEntry = CollectionDocuments[Index];
+               const double MatchScore =
+                    ScoreSearchIntentDocumentMatch(ManifestEntry,
+                                                  BatchResolution.Candidates,
+                                                  BatchResolution.RankedTerms);
+
+               if (MatchScore < MinIntentDocMatchScore)
+               {
+                    continue;
+               }
+
+               SearchIdeaDocumentRef& RankedDocument = RankedDocuments[ManifestEntry.DocumentID];
+               RankedDocument.DocumentID = ManifestEntry.DocumentID;
+               RankedDocument.Title = ManifestEntry.Title;
+               RankedDocument.Score = std::max(RankedDocument.Score, MatchScore);
+               BatchBestScore = std::max(BatchBestScore, MatchScore);
+          }
+
+          if (BatchBestScore > BestBatchScore)
+          {
+               BestBatchScore = BatchBestScore;
+               Resolution.Interpretation = BatchResolution.Interpretation;
+               Resolution.Conclusion = BatchResolution.Conclusion;
+          }
+          else
+          {
+               if (Resolution.Interpretation.empty())
+               {
+                    Resolution.Interpretation = BatchResolution.Interpretation;
+               }
+
+               if (Resolution.Conclusion.empty())
+               {
+                    Resolution.Conclusion = BatchResolution.Conclusion;
+               }
+          }
+     }
+
+     if (RankedDocuments.size() > 1)
+     {
+          std::vector<SearchIdeaDocumentRef> Shortlist;
+          Shortlist.reserve(RankedDocuments.size());
+
+          for (const auto& Pair : RankedDocuments)
+          {
+               Shortlist.push_back(Pair.second);
+          }
+
+          std::sort(Shortlist.begin(), Shortlist.end(),
+                    [](const SearchIdeaDocumentRef& Left, const SearchIdeaDocumentRef& Right)
+                    {
+                         if (Left.Score != Right.Score)
+                         {
+                              return Left.Score > Right.Score;
+                         }
+
+                         return Left.DocumentID < Right.DocumentID;
+                    });
+
+          if (Shortlist.size() > kSearchIntentBatchSize)
+          {
+               Shortlist.resize(kSearchIntentBatchSize);
+          }
+
+          std::unordered_map<std::string, const SAM::DocumentEntry*> DocumentsByID;
+
+          for (const auto& DocumentEntry : CollectionDocuments)
+          {
+               DocumentsByID[DocumentEntry.DocumentID] = &DocumentEntry;
+          }
+
+          std::vector<const SAM::DocumentEntry*> FinalistEntries;
+          std::vector<Document> FinalistDocuments;
+
+          for (const auto& DocumentRef : Shortlist)
+          {
+               const auto It = DocumentsByID.find(DocumentRef.DocumentID);
+
+               if (It == DocumentsByID.end())
+               {
+                    continue;
+               }
+
+               FinalistEntries.push_back(It->second);
+               FinalistDocuments.push_back(BuildSearchIntentCandidateDocument(*It->second));
+          }
+
+          if (FinalistDocuments.size() > 1)
+          {
+               const llm::SearchIntentResolution FinalResolution =
+                    Instance->LLM->ResolveSearchIntent(Collection, Entry.Query, FinalistDocuments, IntentLimit);
+               std::unordered_map<std::string, SearchIdeaDocumentRef> FinalRankedDocuments;
+               RanReducer = true;
+
+               for (const auto& Existing : Entry.Documents)
+               {
+                    if (!Existing.DocumentID.empty() && Existing.InteractionUses > 0)
+                    {
+                         FinalRankedDocuments[Existing.DocumentID] = Existing;
+                    }
+               }
+
+               for (const auto* ManifestEntry : FinalistEntries)
+               {
+                    const double MatchScore =
+                         ScoreSearchIntentDocumentMatch(*ManifestEntry,
+                                                       FinalResolution.Candidates,
+                                                       FinalResolution.RankedTerms);
+
+                    if (MatchScore < MinIntentDocMatchScore)
+                    {
+                         continue;
+                    }
+
+                    SearchIdeaDocumentRef& RankedDocument =
+                         FinalRankedDocuments[ManifestEntry->DocumentID];
+                    RankedDocument.DocumentID = ManifestEntry->DocumentID;
+                    RankedDocument.Title = ManifestEntry->Title;
+                    RankedDocument.Score = std::max(RankedDocument.Score, MatchScore);
+               }
+
+               RankedDocuments = std::move(FinalRankedDocuments);
+               AggregatedCandidates.clear();
+               AggregatedRankedTerms.clear();
+               MergeCandidates(AggregatedCandidates, FinalResolution.Candidates);
+               MergeCandidates(AggregatedRankedTerms, FinalResolution.RankedTerms);
+               Resolution.Interpretation = FinalResolution.Interpretation;
+               Resolution.Conclusion = FinalResolution.Conclusion;
+          }
+     }
+
+     const auto FinalizeCandidates =
+          [](const std::unordered_map<std::string, llm::SearchIntentCandidate>& Input,
+             size_t Limit)
+          {
+               std::vector<llm::SearchIntentCandidate> Output;
+               Output.reserve(Input.size());
+
+               for (const auto& Pair : Input)
+               {
+                    Output.push_back(Pair.second);
+               }
+
+               std::sort(Output.begin(), Output.end(), SearchIntentCandidateWeightGreater);
+
+               if (Output.size() > Limit)
+               {
+                    Output.resize(Limit);
+               }
+
+               return Output;
+          };
+
+     Resolution.Candidates = FinalizeCandidates(AggregatedCandidates, IntentLimit);
+     Resolution.RankedTerms = FinalizeCandidates(AggregatedRankedTerms, IntentLimit * 2);
 
      if (Resolution.Candidates.empty() && Resolution.RankedTerms.empty() &&
-         Resolution.Interpretation.empty() && Resolution.Conclusion.empty())
+         Resolution.Interpretation.empty() && Resolution.Conclusion.empty() &&
+         !RanReducer)
      {
           return true;
      }
@@ -1310,50 +1518,6 @@ bool SAM::OptimizeSearchIdeaIntentLocked(const std::string& Collection,
           Entry.ResolvedCandidates = Resolution.Candidates;
           Entry.ResolvedRankedTerms = Resolution.RankedTerms;
 
-          std::unordered_map<std::string, SearchIdeaDocumentRef> RankedDocuments;
-
-          for (const auto& Existing : Entry.Documents)
-          {
-               if (!Existing.DocumentID.empty())
-               {
-                    RankedDocuments[Existing.DocumentID] = Existing;
-               }
-          }
-
-          const std::string ManifestPrefix = "sam:doc:" + Collection + ":";
-          std::unique_ptr<rocksdb::Iterator> Iterator(Database->NewIterator(rocksdb::ReadOptions()));
-          const double MinIntentDocMatchScore = Instance && Instance->Config
-               ? Instance->Config->GetSam25IntentDocMatchMinScore()
-               : 0.65;
-
-          for (Iterator->Seek(ManifestPrefix);
-               Iterator->Valid() && Iterator->key().starts_with(ManifestPrefix);
-               Iterator->Next())
-          {
-               SAM::DocumentEntry ManifestEntry;
-
-               if (!ParseManifestValue(Iterator->value().ToString(), ManifestEntry) ||
-                   !IsSAMDocumentEntryCurrent(ManifestEntry))
-               {
-                    continue;
-               }
-
-               const double MatchScore =
-                    ScoreSearchIntentDocumentMatch(ManifestEntry,
-                                                  Entry.ResolvedCandidates,
-                                                  Entry.ResolvedRankedTerms);
-
-               if (MatchScore < MinIntentDocMatchScore)
-               {
-                    continue;
-               }
-
-               SearchIdeaDocumentRef& RankedDocument = RankedDocuments[ManifestEntry.DocumentID];
-               RankedDocument.DocumentID = ManifestEntry.DocumentID;
-               RankedDocument.Title = ManifestEntry.Title;
-               RankedDocument.Score = std::max(RankedDocument.Score, MatchScore);
-          }
-
           Entry.Documents.clear();
 
           for (const auto& Pair : RankedDocuments)
@@ -1392,6 +1556,12 @@ bool SAM::OptimizeSearchIdeaIntentLocked(const std::string& Collection,
                return false;
           }
      }
+
+     RecordDebugEvent(Collection,
+                      "optimized search intent for '" + NormalizedQuery + "' across " +
+                           std::to_string(BatchCount) + " batch(es)" +
+                           (RanReducer ? " plus reducer" : "") + ", associated " +
+                           std::to_string(RankedDocuments.size()) + " document(s)");
 
      if (Updated)
      {
