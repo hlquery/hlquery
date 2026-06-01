@@ -286,9 +286,10 @@
           RefreshSAMSearchIdeaProfiles(LogSource);
      }
 
-     void OptimizeSAMSearchIntent(const std::string &LogSource)
+     void ImproveSAMAutomatically(const std::string &LogSource)
      {
-          if (!Instance || !Instance->Sam || !Instance->Sam->IsOpen() || !Instance->LLM || !Instance->LLM->Configured())
+          if (!Instance || !Instance->Config || !Instance->Config->GetSamSmartBackground() ||
+              !Instance->Sam || !Instance->Sam->IsOpen())
           {
                return;
           }
@@ -303,13 +304,17 @@
 
           const size_t MaxCollections =
                std::max<size_t>(1, std::min<size_t>(Instance->Sam->GetBackgroundWorkerCount(), 4));
-          const size_t Processed = Instance->Sam->ProcessPendingSearchIntentOptimizations(MaxCollections);
+          const SAM::ImprovementStats Stats =
+               Instance->Sam->ImproveIdleCollectionsDetailed(MaxCollections, false);
 
-          if (Processed > 0 && Instance->Logs)
+          if (Stats.TotalImproved() > 0 && Instance->Logs)
           {
                Instance->Logs->Debug(LogSource,
-                                     "Processed " + std::to_string(Processed) +
-                                          " pending SAM search-intent optimization job(s).");
+                                     "Automatic SAM improvement pass completed: improved=" +
+                                          std::to_string(Stats.ImprovedCollections) +
+                                          ", optimized_ideas=" + std::to_string(Stats.OptimizedIdeas) +
+                                          ", pruned_ideas=" + std::to_string(Stats.PrunedIdeas) +
+                                          ", pruned_terms=" + std::to_string(Stats.PrunedTerms) + ".");
           }
      }
 
@@ -455,7 +460,7 @@ class CoreSAMModule final : public AutoRuntimeModule<CoreSAMModule>
           }
 
           TriggerSAMAutoIndex("core_sam", true);
-          OptimizeSAMSearchIntent("core_sam");
+          ImproveSAMAutomatically("core_sam");
      }
 
      void OnEveryOneMinute() override
@@ -464,7 +469,7 @@ class CoreSAMModule final : public AutoRuntimeModule<CoreSAMModule>
 
           FlushSAMInteractionSignals("core_sam", false);
           TriggerSAMAutoIndex("core_sam", false);
-          OptimizeSAMSearchIntent("core_sam");
+          ImproveSAMAutomatically("core_sam");
      }
 
      void OnUpsertSynonym(const std::string& Collection,

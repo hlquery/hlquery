@@ -769,8 +769,21 @@ SAM::ImprovementStats SAM::ImproveIdleCollectionsDetailed(size_t MaxCollections,
      ImprovementStats Stats;
      FlushPendingSearchInteractions(4);
      FlushPendingSearchIdeas(2);
+     size_t OptimizationLimit =
+          std::max<size_t>(1, std::min<size_t>(BackgroundWorkerCount, 4));
+
+     if (Force)
+     {
+          constexpr size_t kDefaultForcedIntentOptimizationJobs = 16;
+          constexpr size_t kMaxForcedIntentOptimizationJobs = 64;
+
+          OptimizationLimit = MaxCollections > 0
+               ? std::min(MaxCollections, kMaxForcedIntentOptimizationJobs)
+               : kDefaultForcedIntentOptimizationJobs;
+     }
+
      Stats.OptimizedIdeas =
-          ProcessPendingSearchIntentOptimizations(std::max<size_t>(1, std::min<size_t>(BackgroundWorkerCount, 4)));
+          ProcessPendingSearchIntentOptimizations(OptimizationLimit, Force);
 
      if (!Instance || !Instance->LLM || !Instance->LLM->Configured())
      {

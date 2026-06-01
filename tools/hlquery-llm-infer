@@ -57,14 +57,22 @@ sub build_prompt_text {
 
     if ($mode eq 'context') {
         return <<"PROMPT";
-You generate short alternative search suggestions for a document.
-Return up to $limit suggestions.
+You generate retrieval-oriented context suggestions for one search document.
+Return exactly one compact JSON object on a single line. No markdown. No prose before or after the JSON.
+JSON schema:
+{
+  "contexts": [{"term":"...", "relation":"...", "confidence":0.0, "evidence":"...", "scope":"document"}]
+}
 Rules:
-- Output one suggestion per line.
-- No numbering, bullets, labels, quotes, or explanations.
-- Each suggestion must be 2 to 8 words.
-- Prefer concise natural-language queries a user might search for.
-- Avoid repeating the exact same phrase with tiny variations.
+- contexts: up to $limit useful suggestions, ordered strongest-first.
+- relation must be one of alias, metro_area, location, category, topic, or related_query.
+- confidence values must be between 0.0 and 1.0.
+- evidence: one short source-grounded reason.
+- scope must be document.
+- Each term must be 1 to 8 words.
+- Include aliases, locations, categories, topics, and related queries when grounded in the document.
+- Prefer concise natural-language queries and stable entity phrases.
+- Avoid generic filler, invented facts, and near duplicates.
 - Do not assume a domain, language, gender, or collection topic unless it is supported by the document.
 
 Instruction: $instruction
@@ -372,13 +380,13 @@ my $payload = decode_json($payload_json);
 if ($mode eq 'context' && ref($payload) eq 'HASH' && defined $payload->{limit}) {
     $limit = int($payload->{limit});
     $limit = 1 if $limit < 1;
-    $limit = 8 if $limit > 8;
+    $limit = 24 if $limit > 24;
 }
 
 if ($mode eq 'search_intent' && ref($payload) eq 'HASH' && defined $payload->{limit}) {
     $limit = int($payload->{limit});
     $limit = 1 if $limit < 1;
-    $limit = 8 if $limit > 8;
+    $limit = 16 if $limit > 16;
 }
 
 if ($mode eq 'anchors' && ref($payload) eq 'HASH' && defined $payload->{limit}) {
@@ -408,6 +416,10 @@ if ($mode eq 'sam') {
     }
 
     $max_tokens = 192;
+} elsif ($mode eq 'context') {
+    $max_tokens = 320;
+} elsif ($mode eq 'anchors' || $mode eq 'search_intent') {
+    $max_tokens = 384;
 }
 
 open my $fh, '-|',

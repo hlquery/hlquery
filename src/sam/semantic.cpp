@@ -1601,7 +1601,7 @@ void LoadSAMStopwordsForCollection(rocksdb::DB* Database,
 }
 
 constexpr size_t kSAMSearchIdeasMaxEntries = 100;
-constexpr size_t kSAMSearchIdeaMaxDocs = 6;
+constexpr size_t kSAMSearchIdeaMaxDocs = 10;
 constexpr uint64_t kSAMSearchIdeaRecentWindowMs = 24ULL * 60ULL * 60ULL * 1000ULL;
 constexpr uint64_t kSAMSearchIdeaProfileMinUses = 2;
 constexpr uint64_t kSAMSearchIdeaProfileSyncCooldownMs = 60ULL * 60ULL * 1000ULL;

@@ -228,7 +228,7 @@ static float ScoreForMergedHit(const SearchHit &Hit)
 }
 
 static std::vector<SAM::SearchIdeaDocumentRef> BuildSAMSearchIdeaDocuments(const std::vector<SearchHit> &Hits,
-                                                                           size_t MaxDocuments = 6)
+                                                                           size_t MaxDocuments = 10)
 {
      std::vector<SAM::SearchIdeaDocumentRef> Documents;
      std::unordered_set<std::string> Seen;

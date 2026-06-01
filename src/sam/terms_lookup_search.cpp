@@ -1496,7 +1496,7 @@ bool SAM::RefreshCollectionProfileFromSearchIdeas(const std::string& Collection,
      return true;
 }
 
-size_t SAM::ProcessPendingSearchIntentOptimizations(size_t MaxCollections)
+size_t SAM::ProcessPendingSearchIntentOptimizations(size_t MaxJobs, bool Force)
 {
      FlushPendingSearchInteractions(8);
      FlushPendingSearchIdeas(2);
@@ -1506,7 +1506,7 @@ size_t SAM::ProcessPendingSearchIntentOptimizations(size_t MaxCollections)
           return 0;
      }
 
-     if (MaxCollections == 0 || !Instance || !Instance->LLM || !Instance->LLM->Configured())
+     if (MaxJobs == 0 || !Instance || !Instance->LLM || !Instance->LLM->Configured())
      {
           return 0;
      }
@@ -1523,7 +1523,6 @@ size_t SAM::ProcessPendingSearchIntentOptimizations(size_t MaxCollections)
           }
 
           std::unique_ptr<rocksdb::Iterator> Iterator(Database->NewIterator(rocksdb::ReadOptions()));
-          std::unordered_set<std::string> SeenCollections;
 
           for (Iterator->Seek("sam:idea:");
                Iterator->Valid() && Iterator->key().starts_with("sam:idea:");
@@ -1541,13 +1540,9 @@ size_t SAM::ProcessPendingSearchIntentOptimizations(size_t MaxCollections)
                     continue;
                }
 
-               if (Entry.ResolvedUses >= Entry.Uses && Entry.ResolvedAtMS >= Entry.LastSeenMS &&
+               if (!Force &&
+                   Entry.ResolvedUses >= Entry.Uses && Entry.ResolvedAtMS >= Entry.LastSeenMS &&
                    !Entry.ResolvedCandidates.empty())
-               {
-                    continue;
-               }
-
-               if (!SeenCollections.insert(Entry.Collection).second)
                {
                     continue;
                }
@@ -1572,14 +1567,44 @@ size_t SAM::ProcessPendingSearchIntentOptimizations(size_t MaxCollections)
                     return Left.Query < Right.Query;
                });
 
+     std::unordered_set<std::string> SelectedCollections;
+     std::unordered_set<std::string> SelectedIdeas;
+
+     const auto AppendPendingIdea = [&](const SearchIdeaEntry& Entry)
+     {
+          const std::string Key = Entry.Collection + "\n" + Entry.NormalizedQuery;
+
+          if (!SelectedIdeas.insert(Key).second)
+          {
+               return;
+          }
+
+          PendingIdeas.push_back({Entry.Collection, Entry.NormalizedQuery});
+     };
+
+     // Give each collection one recent query before using spare capacity for
+     // additional ideas from collections with deeper unresolved history.
      for (const auto& Entry : RankedIdeas)
      {
-          PendingIdeas.push_back({Entry.Collection, Entry.NormalizedQuery});
+          if (SelectedCollections.insert(Entry.Collection).second)
+          {
+               AppendPendingIdea(Entry);
 
-          if (PendingIdeas.size() >= MaxCollections)
+               if (PendingIdeas.size() >= MaxJobs)
+               {
+                    break;
+               }
+          }
+     }
+
+     for (const auto& Entry : RankedIdeas)
+     {
+          if (PendingIdeas.size() >= MaxJobs)
           {
                break;
           }
+
+          AppendPendingIdea(Entry);
      }
 
      size_t Processed = 0;

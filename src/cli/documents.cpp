@@ -2062,36 +2062,62 @@ void HLQueryCLI::ShowSAMHistory(const std::string &collection_name,
 
      for (const auto &entry : history)
      {
-          std::string best_match;
+          std::string matches;
           std::string top_interaction;
           std::string llm_intent = entry.value("resolved_interpretation", "");
-          std::string conclusion = entry.value("resolved_conclusion", "");
+          std::string conclusion = entry.value("association_summary", "");
 
           if (conclusion.empty())
           {
                conclusion = entry.value("conclusion", "");
           }
 
-          if (entry.contains("best_match") && entry["best_match"].is_object())
+          if (entry.contains("associations") && entry["associations"].is_array())
           {
-               const nlohmann::json &best = entry["best_match"];
-               best_match = best.value("title", "");
+               std::vector<std::string> association_labels;
 
-               if (best_match.empty())
+               for (const auto &association : entry["associations"])
                {
-                    best_match = best.value("id", "");
+                    if (association.is_string() && !association.get<std::string>().empty())
+                    {
+                         association_labels.push_back(association.get<std::string>());
+                    }
+               }
+
+               if (!association_labels.empty())
+               {
+                    matches = std::to_string(entry.value("match_count", association_labels.size())) + ": " +
+                              JoinDocumentStrings(association_labels, ", ");
                }
           }
 
-          if (best_match.empty() && entry.contains("suggestions") && entry["suggestions"].is_array())
+          if (matches.empty() && entry.contains("suggestions") && entry["suggestions"].is_array())
           {
+               std::vector<std::string> suggestion_labels;
+
                for (const auto &suggestion : entry["suggestions"])
                {
                     if (suggestion.is_string() && !suggestion.get<std::string>().empty())
                     {
-                         best_match = suggestion.get<std::string>();
-                         break;
+                         suggestion_labels.push_back(suggestion.get<std::string>());
                     }
+               }
+
+               if (!suggestion_labels.empty())
+               {
+                    matches = std::to_string(suggestion_labels.size()) + ": " +
+                              JoinDocumentStrings(suggestion_labels, ", ");
+               }
+          }
+
+          if (matches.empty() && entry.contains("best_match") && entry["best_match"].is_object())
+          {
+               const nlohmann::json &best = entry["best_match"];
+               matches = best.value("title", "");
+
+               if (matches.empty())
+               {
+                    matches = best.value("id", "");
                }
           }
 
@@ -2139,7 +2165,7 @@ void HLQueryCLI::ShowSAMHistory(const std::string &collection_name,
                     entry.value("query", ""),
                     std::to_string(entry.value("interaction_uses", static_cast<uint64_t>(0))),
                     top_interaction,
-                    best_match,
+                    matches,
                     conclusion
                });
           }
@@ -2152,7 +2178,7 @@ void HLQueryCLI::ShowSAMHistory(const std::string &collection_name,
                     std::to_string(entry.value("uses", static_cast<uint64_t>(0))),
                     std::to_string(entry.value("interaction_uses", static_cast<uint64_t>(0))),
                     llm_intent,
-                    best_match,
+                    matches,
                     conclusion
                });
           }
@@ -2160,11 +2186,11 @@ void HLQueryCLI::ShowSAMHistory(const std::string &collection_name,
 
      if (interactions_only)
      {
-          PrintTable({"#", "Collection", "Query", "Int", "Top Interaction", "Best Match", "Conclusion"}, rows);
+          PrintTable({"#", "Collection", "Query", "Int", "Top Interaction", "Matches", "Conclusion"}, rows);
      }
      else
      {
-          PrintTable({"#", "Collection", "Query", "Uses", "Int", "LLM Intent", "Best Match", "Conclusion"}, rows);
+          PrintTable({"#", "Collection", "Query", "Uses", "Int", "LLM Intent", "Matches", "Conclusion"}, rows);
      }
 }
 

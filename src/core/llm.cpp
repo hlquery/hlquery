@@ -1259,8 +1259,11 @@ size_t llm::ProcessPendingContextJobs(size_t MaxJobs)
                continue;
           }
 
+          const size_t ContextLimit = Instance && Instance->Config
+               ? static_cast<size_t>(std::max(1, Instance->Config->GetSamContextMaxIdeas()))
+               : 5;
           std::vector<ContextSuggestion> Suggestions =
-               BuildDocumentContext(Job.Collection, SourceDoc, 5);
+               BuildDocumentContext(Job.Collection, SourceDoc, ContextLimit);
           const Document LatestDoc =
                HybridStorageManager::GetInstance().GetDocument(Job.Collection, SourceDoc.ID);
 

@@ -493,7 +493,7 @@
      }
 
 static std::vector<SAM::SearchIdeaDocumentRef> BuildSAMIdeaDocumentsFromLookupHits(const std::vector<SAM::LookupHit> &Hits,
-                                                                                   size_t MaxDocuments = 6)
+                                                                                   size_t MaxDocuments = 10)
 {
      std::vector<SAM::SearchIdeaDocumentRef> Documents;
      std::unordered_set<std::string> Seen;
@@ -514,6 +514,57 @@ static std::vector<SAM::SearchIdeaDocumentRef> BuildSAMIdeaDocumentsFromLookupHi
      }
 
      return Documents;
+}
+
+static std::vector<std::string> BuildSAMAssociationLabels(const SAM::SearchIdeaEntry &Entry)
+{
+     std::vector<std::string> Labels;
+     std::unordered_set<std::string> Seen;
+
+     for (const auto &Document : Entry.Documents)
+     {
+          const std::string Label = Document.Title.empty() ? Document.DocumentID : Document.Title;
+
+          if (!Label.empty() && Seen.insert(Label).second)
+          {
+               Labels.push_back(Label);
+          }
+     }
+
+     return Labels;
+}
+
+static std::string BuildSAMAssociationSummary(const SAM::SearchIdeaEntry &Entry,
+                                              const std::vector<std::string> &Labels,
+                                              size_t MaxLabels = 3)
+{
+     if (Labels.empty())
+     {
+          return "";
+     }
+
+     std::ostringstream Summary;
+     Summary << "'" << (Entry.Query.empty() ? Entry.NormalizedQuery : Entry.Query) << "' is associated with "
+             << Entry.Documents.size() << (Entry.Documents.size() == 1 ? " document: " : " documents: ");
+
+     const size_t VisibleLabels = std::min(Labels.size(), MaxLabels);
+
+     for (size_t Index = 0; Index < VisibleLabels; ++Index)
+     {
+          if (Index > 0)
+          {
+               Summary << ", ";
+          }
+
+          Summary << Labels[Index];
+     }
+
+     if (Labels.size() > VisibleLabels)
+     {
+          Summary << ", +" << (Labels.size() - VisibleLabels) << " more";
+     }
+
+     return Summary.str();
 }
 
 static nlohmann::json BuildDocumentJSON(const Document &Doc)
@@ -4224,7 +4275,9 @@ HttpResponse SearchAPI::HandleSAMHistory(const HttpRequest &Request)
           }
 
           nlohmann::json BestMatch = nlohmann::json::object();
-          std::string Conclusion = Entry.ResolvedConclusion;
+          const std::vector<std::string> AssociationLabels = BuildSAMAssociationLabels(Entry);
+          const std::string AssociationSummary = BuildSAMAssociationSummary(Entry, AssociationLabels);
+          const std::string Conclusion = AssociationSummary.empty() ? Entry.ResolvedConclusion : AssociationSummary;
 
           if (!Entry.Documents.empty())
           {
@@ -4234,15 +4287,6 @@ HttpResponse SearchAPI::HandleSAMHistory(const HttpRequest &Request)
                     {"title", TopDocument.Title},
                     {"score", TopDocument.Score}
                };
-
-               if (Conclusion.empty() && !TopDocument.Title.empty())
-               {
-                    Conclusion = "Most indicated result: " + TopDocument.Title;
-               }
-               else if (Conclusion.empty() && !TopDocument.DocumentID.empty())
-               {
-                    Conclusion = "Most indicated result: " + TopDocument.DocumentID;
-               }
           }
 
           nlohmann::json HistoryJson = {
@@ -4259,6 +4303,9 @@ HttpResponse SearchAPI::HandleSAMHistory(const HttpRequest &Request)
                {"resolved_at_ms", Entry.ResolvedAtMS},
                {"resolved_uses", Entry.ResolvedUses},
                {"best_match", BestMatch},
+               {"match_count", Entry.Documents.size()},
+               {"associations", AssociationLabels},
+               {"association_summary", AssociationSummary},
                {"conclusion", Conclusion},
                {"documents", nlohmann::json::array()},
                {"suggestions", nlohmann::json::array()},

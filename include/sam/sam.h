@@ -592,7 +592,7 @@ class SAM
 
      /* Process a bounded batch of pending search-intent optimization work. */
 
-     size_t ProcessPendingSearchIntentOptimizations(size_t MaxCollections = 1);
+     size_t ProcessPendingSearchIntentOptimizations(size_t MaxJobs = 1, bool Force = false);
 
      /* Run a low-priority improvement pass for idle/current SAM collections. */
 
