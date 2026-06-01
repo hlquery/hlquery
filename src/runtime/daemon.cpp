@@ -1041,11 +1041,8 @@ bool hlquery::CheckExistingProcess()
           }
 
           char PIDBuffer[32] = {0};
-
           ssize_t BytesReadCount = read(PIDFdGuard.get(), PIDBuffer, sizeof(PIDBuffer) - 1);
-
           PIDReadLock.l_type = F_UNLCK;
-
           fcntl(PIDFdGuard.get(), F_SETLK, &PIDReadLock);
 
           if (BytesReadCount <= 0)
@@ -1137,7 +1134,6 @@ bool hlquery::WritePID()
      if (PIDFileFD >= 0)
      {
           close(PIDFileFD);
-
           PIDFileFD = -1;
      }
 
@@ -1330,16 +1326,13 @@ void hlquery::ForceStop()
      if (lseek(PIDFileHandle, 0, SEEK_SET) < 0)
      {
           close(PIDFileHandle);
-
           ConsoleWriter::WriteError("hlquery forcestop: Error seeking PID file: " + std::string(strerror(errno)) + ".", true);
           ExitManager::Exit(1);
      }
 
      char PIDBuffer[32] = {0};
-
      ssize_t BytesReadCount = read(PIDFileHandle, PIDBuffer, sizeof(PIDBuffer) - 1);
      close(PIDFileHandle);
-
      PIDBuffer[sizeof(PIDBuffer) - 1] = '\0';
 
      if (BytesReadCount <= 0)
@@ -1468,10 +1461,10 @@ void hlquery::ForceStop()
                     std::cout << "hlquery forcestop: Process exited gracefully." << std::endl;
 
                     RemovePIDFileIfUnlocked(PIDFilePath);
-
                     std::cout << "hlquery forcestop: Removed PID file." << std::endl;
                     std::cout << "hlquery forcestop: SUCCESS - Daemon stopped." << std::endl;
                     ProcessHasExited = true;
+                    
                     break;
                }
                else if (errno == EPERM)
