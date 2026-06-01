@@ -769,7 +769,8 @@ SAM::ImprovementStats SAM::ImproveIdleCollectionsDetailed(size_t MaxCollections,
      ImprovementStats Stats;
      FlushPendingSearchInteractions(4);
      FlushPendingSearchIdeas(2);
-     Stats.OptimizedIdeas = ProcessPendingSearchIntentOptimizations(1);
+     Stats.OptimizedIdeas =
+          ProcessPendingSearchIntentOptimizations(std::max<size_t>(1, std::min<size_t>(BackgroundWorkerCount, 4)));
 
      if (!Instance || !Instance->LLM || !Instance->LLM->Configured())
      {

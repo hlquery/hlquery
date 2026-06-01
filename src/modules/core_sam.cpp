@@ -31,40 +31,55 @@
      std::set<std::string> StartupSweepStartedCollections;
      uint64_t LastInteractionFlushMS = 0;
 
-     void RefreshSAMSearchIdeaProfile(const std::string &LogSource)
+     void RefreshSAMSearchIdeaProfiles(const std::string &LogSource)
      {
           if (!Instance || !Instance->Config || !Instance->Sam || !Instance->Sam->IsOpen())
           {
                return;
           }
 
-          const std::string Collection = Instance->Config->GetSamSearchIdeasCollection();
+          size_t UpdatedCollections = 0;
 
-          if (Collection.empty() || !HybridStorageManager::GetInstance().CollectionExists(Collection))
+          for (const auto& Collection : HybridStorageManager::GetInstance().ListCollections())
           {
-               return;
-          }
-
-          bool Updated = false;
-          std::string ErrorMessage;
-
-          if (!Instance->Sam->RefreshCollectionProfileFromSearchIdeas(Collection, &Updated, &ErrorMessage))
-          {
-               if (Instance->Logs && !ErrorMessage.empty())
+               if (!HybridStorageManager::GetInstance().CollectionExists(Collection))
                {
-                    Instance->Logs->Normal(LogSource,
-                                           "Failed to refresh SAM search-idea profile for collection '" +
-                                                Collection + "': " + ErrorMessage + ".");
+                    continue;
                }
 
-               return;
+               bool Updated = false;
+               std::string ErrorMessage;
+
+               if (!Instance->Sam->RefreshCollectionProfileFromSearchIdeas(Collection, &Updated, &ErrorMessage))
+               {
+                    if (Instance->Logs && !ErrorMessage.empty())
+                    {
+                         Instance->Logs->Normal(LogSource,
+                                                "Failed to refresh SAM search-idea profile for collection '" +
+                                                     Collection + "': " + ErrorMessage + ".");
+                    }
+
+                    continue;
+               }
+
+               if (Updated)
+               {
+                    ++UpdatedCollections;
+
+                    if (Instance->Logs)
+                    {
+                         Instance->Logs->Debug(LogSource,
+                                               "Refreshed SAM learned search-idea profile for collection '" +
+                                                    Collection + "'.");
+                    }
+               }
           }
 
-          if (Updated && Instance->Logs)
+          if (UpdatedCollections > 1 && Instance->Logs)
           {
                Instance->Logs->Debug(LogSource,
-                                     "Refreshed SAM learned search-idea profile for collection '" +
-                                          Collection + "'.");
+                                     "Refreshed SAM learned search-idea profiles for " +
+                                          std::to_string(UpdatedCollections) + " collection(s).");
           }
      }
 
@@ -268,7 +283,7 @@
                }
           }
 
-          RefreshSAMSearchIdeaProfile(LogSource);
+          RefreshSAMSearchIdeaProfiles(LogSource);
      }
 
      void OptimizeSAMSearchIntent(const std::string &LogSource)
@@ -286,7 +301,9 @@
                return;
           }
 
-          const size_t Processed = Instance->Sam->ProcessPendingSearchIntentOptimizations(1);
+          const size_t MaxCollections =
+               std::max<size_t>(1, std::min<size_t>(Instance->Sam->GetBackgroundWorkerCount(), 4));
+          const size_t Processed = Instance->Sam->ProcessPendingSearchIntentOptimizations(MaxCollections);
 
           if (Processed > 0 && Instance->Logs)
           {

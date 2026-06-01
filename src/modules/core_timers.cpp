@@ -101,7 +101,8 @@ class CoreTimersModule final : public AutoRuntimeModule<CoreTimersModule>
           if (Instance && Instance->LLM)
           {
                const size_t PendingContextJobs = Instance->LLM->GetPendingContextJobs();
-               const size_t ContextBatchSize = std::max<size_t>(1, std::min<size_t>(4, PendingContextJobs));
+               const size_t ContextBatchSize =
+                    std::max<size_t>(1, std::min<size_t>(16, std::max<size_t>(PendingContextJobs / 2, 4)));
                Instance->LLM->ProcessPendingContextJobs(ContextBatchSize);
           }
 
