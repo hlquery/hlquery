@@ -694,6 +694,8 @@ size_t DBManager::CountKeys(const std::string &prefix)
      return count;
 }
 
+/* DBManager::PrefixKeys - Lists keys with the requested prefix. */
+
 std::vector<std::string> DBManager::PrefixKeys(const std::string &prefix, size_t offset, size_t limit)
 {
      std::vector<std::string> keys;
@@ -724,6 +726,8 @@ std::vector<std::string> DBManager::PrefixKeys(const std::string &prefix, size_t
 
      return keys;
 }
+
+/* DBManager::ForEachPrefixKeySnapshot - Visits keys from a consistent prefix snapshot. */
 
 bool DBManager::ForEachPrefixKeySnapshot(const std::string &prefix, size_t limit, const std::function<bool(const std::string&)> &callback)
 {
@@ -1055,6 +1059,8 @@ DBManager::Stats DBManager::GetRocksDBStats() const
      return stats;
 }
 
+/* DBManager::GetDBPath - Returns the database path. */
+
 std::string DBManager::GetDBPath() const
 {
      if (DBValue)
@@ -1072,11 +1078,15 @@ int DBManager::GetBackgroundThreadCount() const
      return OptionsValue.max_background_jobs;
 }
 
+/* DBManager::GetLastWriteErrorCode - Returns the last write error code. */
+
 std::string DBManager::GetLastWriteErrorCode() const
 {
      std::lock_guard<std::mutex> lock(LastWriteErrorMutex);
      return LastWriteErrorCode;
 }
+
+/* DBManager::GetLastWriteErrorMessage - Returns the last write error message. */
 
 std::string DBManager::GetLastWriteErrorMessage() const
 {

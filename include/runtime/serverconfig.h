@@ -654,6 +654,66 @@ class ServerConfig
           return SamBackgroundImprovementPollMs;
      }
 
+     bool GetSamAutoLexicalEnabled() const
+     {
+          return SamAutoLexicalEnabled;
+     }
+
+     bool GetSamAutoSynonymsEnabled() const
+     {
+          return SamAutoSynonymsEnabled;
+     }
+
+     bool GetSamAutoStopwordsEnabled() const
+     {
+          return SamAutoStopwordsEnabled;
+     }
+
+     int GetSamAutoLexicalMaxDocuments() const
+     {
+          return SamAutoLexicalMaxDocuments;
+     }
+
+     int GetSamAutoSynonymMaxGroupsPerPass() const
+     {
+          return SamAutoSynonymMaxGroupsPerPass;
+     }
+
+     int GetSamAutoSynonymMaxGroups() const
+     {
+          return SamAutoSynonymMaxGroups;
+     }
+
+     int GetSamAutoSynonymMaxTermsPerGroup() const
+     {
+          return SamAutoSynonymMaxTermsPerGroup;
+     }
+
+     double GetSamAutoSynonymMinConfidence() const
+     {
+          return SamAutoSynonymMinConfidence;
+     }
+
+     int GetSamAutoStopwordMaxWordsPerPass() const
+     {
+          return SamAutoStopwordMaxWordsPerPass;
+     }
+
+     int GetSamAutoStopwordMaxWords() const
+     {
+          return SamAutoStopwordMaxWords;
+     }
+
+     int GetSamAutoStopwordMinDocuments() const
+     {
+          return SamAutoStopwordMinDocuments;
+     }
+
+     double GetSamAutoStopwordMinDocumentRatio() const
+     {
+          return SamAutoStopwordMinDocumentRatio;
+     }
+
     bool GetSam25DynamicQueryWeight() const
     {
          return Sam25DynamicQueryWeight;
@@ -2228,6 +2288,54 @@ class ServerConfig
      /* Milliseconds between SAM background polling checks. */
 
      int SamBackgroundImprovementPollMs = 15000;
+
+     /* Toggle bounded SAM-maintained lexical resource discovery. */
+
+     bool SamAutoLexicalEnabled = true;
+
+     /* Toggle SAM-maintained synonym groups inferred from aliases. */
+
+     bool SamAutoSynonymsEnabled = true;
+
+     /* Toggle conservative collection stopword inference. */
+
+     bool SamAutoStopwordsEnabled = false;
+
+     /* Maximum source documents inspected during one lexical pass. */
+
+     int SamAutoLexicalMaxDocuments = 40;
+
+     /* Maximum synonym groups created or updated during one pass. */
+
+     int SamAutoSynonymMaxGroupsPerPass = 3;
+
+     /* Maximum SAM-owned synonym groups retained per collection. */
+
+     int SamAutoSynonymMaxGroups = 128;
+
+     /* Maximum aliases retained in one SAM-owned synonym group. */
+
+     int SamAutoSynonymMaxTermsPerGroup = 3;
+
+     /* Minimum confidence accepted for LLM-derived alias suggestions. */
+
+     double SamAutoSynonymMinConfidence = 0.90;
+
+     /* Maximum stopwords added during one pass. */
+
+     int SamAutoStopwordMaxWordsPerPass = 2;
+
+     /* Maximum SAM-owned stopwords retained per collection. */
+
+     int SamAutoStopwordMaxWords = 64;
+
+     /* Minimum sampled documents required before stopword inference. */
+
+     int SamAutoStopwordMinDocuments = 20;
+
+     /* Minimum sampled-document ratio required for inferred stopwords. */
+
+     double SamAutoStopwordMinDocumentRatio = 0.90;
 
      /* Toggle dynamic SAM 2.5 query weighting. */
 

@@ -30,6 +30,7 @@
 #include <sstream>
 #include <thread>
 #include <unistd.h>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -49,6 +50,7 @@
 #include "vendor/json/json.hpp"
 
 static const char *kGlobalSynonymsCollection = "__global__";
+static constexpr double kSAMAutoExplicitAliasConfidence = 0.95;
 
 static bool IsGlobalSynonymsPath(const std::string &Path)
 {
@@ -135,6 +137,119 @@ static std::string TrimSynonymTerm(const std::string &Value)
 
      const size_t End = Value.find_last_not_of(" \t\r\n");
      return Value.substr(Start, End - Start + 1);
+}
+
+static bool IsSAMAutoAliasField(const std::string &Field)
+{
+     static const std::unordered_set<std::string> AliasFields = {
+          "alias", "aliases", "slug", "handle", "username", "short_name", "nickname"
+     };
+
+     return AliasFields.count(NormalizeSynonymTerm(TrimSynonymTerm(Field))) > 0;
+}
+
+static bool IsSAMAutoSynonymTerm(const std::string &Value)
+{
+     const std::string Term = TrimSynonymTerm(Value);
+
+     if (Term.size() < 2 || Term.size() > 96)
+     {
+          return false;
+     }
+
+     return std::any_of(Term.begin(), Term.end(),
+                        [](unsigned char Ch)
+                        {
+                             return std::isalnum(Ch) != 0;
+                        });
+}
+
+static void AppendSAMAutoAliasValues(const std::string &RawValue,
+                                     std::vector<std::string> &Values)
+{
+     try
+     {
+          const nlohmann::json Parsed = nlohmann::json::parse(RawValue);
+          if (Parsed.is_array())
+          {
+               for (const auto &Entry : Parsed)
+               {
+                    if (Entry.is_string() && IsSAMAutoSynonymTerm(Entry.get<std::string>()))
+                    {
+                         Values.push_back(TrimSynonymTerm(Entry.get<std::string>()));
+                    }
+               }
+               return;
+          }
+     }
+     catch (const std::exception &)
+     {
+     }
+
+     std::string Current;
+     for (char Ch : RawValue)
+     {
+          if (Ch == ',' || Ch == ';' || Ch == '|' || Ch == '\n')
+          {
+               if (IsSAMAutoSynonymTerm(Current))
+               {
+                    Values.push_back(TrimSynonymTerm(Current));
+               }
+               Current.clear();
+               continue;
+          }
+
+          Current.push_back(Ch);
+     }
+
+     if (IsSAMAutoSynonymTerm(Current))
+     {
+          Values.push_back(TrimSynonymTerm(Current));
+     }
+}
+
+static std::string BuildSAMAutoSynonymID(const std::string &Root)
+{
+     uint64_t Hash = 1469598103934665603ULL;
+     for (unsigned char Ch : NormalizeSynonymTerm(Root))
+     {
+          Hash ^= static_cast<uint64_t>(Ch);
+          Hash *= 1099511628211ULL;
+     }
+
+     std::ostringstream Stream;
+     Stream << "sam-auto-" << std::hex << Hash;
+     return Stream.str();
+}
+
+static std::vector<std::string> TokenizeSAMAutoStopwordText(const std::string &Text)
+{
+     std::vector<std::string> Tokens;
+     std::string Current;
+
+     auto Flush = [&]()
+     {
+          if (Current.size() >= 2 && Current.size() <= 32)
+          {
+               Tokens.push_back(Current);
+          }
+          Current.clear();
+     };
+
+     for (unsigned char Ch : Text)
+     {
+          if (std::isalpha(Ch))
+          {
+               Current.push_back(static_cast<char>(std::tolower(Ch)));
+          }
+          else
+          {
+               Flush();
+          }
+     }
+
+     Flush();
+     return Tokens;
 }
 
 static std::string GetSynonymSortValue(const nlohmann::json &Synonym, const std::string &SortBy)
@@ -479,6 +594,10 @@ HttpResponse SearchAPI::HandleCreateOrUpdateSynonym(const HttpRequest &Request)
 
           SynonymData["root"] = RootTerm;
           SynonymData["synonyms"] = SanitizedSynonyms;
+          const std::string Source =
+               SynonymData.contains("source") && SynonymData["source"].is_string()
+                    ? TrimSynonymTerm(SynonymData["source"].get<std::string>())
+                    : "";
 
           /* Get existing synonyms for this collection. */
 
@@ -533,6 +652,22 @@ HttpResponse SearchAPI::HandleCreateOrUpdateSynonym(const HttpRequest &Request)
                     Syn["root"] = SynonymData["root"];
                     Syn["synonyms"] = SynonymData["synonyms"];
                     Syn["updated_at"] = GetCurrentTimestamp();
+                    if (!Source.empty())
+                    {
+                         Syn["source"] = Source;
+                    }
+                    else
+                    {
+                         Syn.erase("source");
+                    }
+                    if (SynonymData.contains("confidence") && SynonymData["confidence"].is_number())
+                    {
+                         Syn["confidence"] = SynonymData["confidence"];
+                    }
+                    else
+                    {
+                         Syn.erase("confidence");
+                    }
 
                     FoundVal = true;
                     break;
@@ -548,6 +683,14 @@ HttpResponse SearchAPI::HandleCreateOrUpdateSynonym(const HttpRequest &Request)
                NewSynonym["synonyms"] = SynonymData["synonyms"];
                NewSynonym["created_at"] = GetCurrentTimestamp();
                NewSynonym["updated_at"] = GetCurrentTimestamp();
+               if (!Source.empty())
+               {
+                    NewSynonym["source"] = Source;
+               }
+               if (SynonymData.contains("confidence") && SynonymData["confidence"].is_number())
+               {
+                    NewSynonym["confidence"] = SynonymData["confidence"];
+               }
 
                SynonymsArray.push_back(NewSynonym);
           }
@@ -570,9 +713,30 @@ HttpResponse SearchAPI::HandleCreateOrUpdateSynonym(const HttpRequest &Request)
                Instance->Logs->Debug("search_api", "Saving synonym to LSM - key: " + SynonymsKey + ", data: " + UpdatedJSON.substr(0, 200) + ".");
           }
 
+          std::string ReplicationOutboxID;
+          std::string ReplicationJournalError;
+          if (!PrepareReplicationOutboxRecord(Request, "upsert_synonym", &ReplicationOutboxID, &ReplicationJournalError))
+          {
+               return BuildErrorResponse(Status::SERVICE_UNAVAILABLE,
+                                         Code::SEARCH_INVALID_PARAMETER,
+                                         "Replication journal unavailable.",
+                                         ReplicationJournalError.empty() ? "Failed to persist replication intent before local write." : ReplicationJournalError);
+          }
+
           if (!Instance || !Instance->Database || !Instance->Database->Set(SynonymsKey, UpdatedJSON))
           {
+               ClearReplicationOutboxRecord(ReplicationOutboxID);
                return HttpResponse(Status::INTERNAL_SERVER_ERROR, StatusText(Status::INTERNAL_SERVER_ERROR), "application/json");
+          }
+
+          MaybeTriggerCrashInjection("replication_after_local_write");
+
+          if (!MarkReplicationOutboxCommitted(ReplicationOutboxID, Request, "upsert_synonym", &ReplicationJournalError))
+          {
+               return BuildErrorResponse(Status::SERVICE_UNAVAILABLE,
+                                         Code::SEARCH_INVALID_PARAMETER,
+                                         "Replication journal incomplete.",
+                                         ReplicationJournalError.empty() ? "Synonym was written locally but replication state was not committed durably." : ReplicationJournalError);
           }
 
           SyncSAMLexicalChange(CollectionName, IsGlobalScope);
@@ -583,6 +747,16 @@ HttpResponse SearchAPI::HandleCreateOrUpdateSynonym(const HttpRequest &Request)
           Response.Body = "{\"message\":\"Synonym created/updated\",\"id\":\"" + EscapeJSONString(SynonymID) + "\",\"collection\":\"" + EscapeJSONString(CollectionName) + "\",\"scope\":\"" + (IsGlobalScope ? "global" : "collection") + "\"}";
           FOREACH_MOD(OnUpsertSynonym, CollectionName, SynonymID, IsGlobalScope, Request.RemoteAddress, Request.APIKeyID, !Request.APIKeyID.empty());
 
+          std::string ReplicationError;
+          if (!ReplicateWriteRequest(Request, "upsert_synonym", &ReplicationError))
+          {
+               return BuildErrorResponse(Status::SERVICE_UNAVAILABLE,
+                                         Code::SEARCH_INVALID_PARAMETER,
+                                         "Replication incomplete.",
+                                         ReplicationError.empty() ? "Synonym was written locally but replica acknowledgement failed." : ReplicationError);
+          }
+
+          ClearReplicationOutboxRecord(ReplicationOutboxID);
           return Response;
      }
      catch (const nlohmann::json::parse_error &e)
@@ -883,9 +1057,30 @@ HttpResponse SearchAPI::HandleDeleteSynonym(const HttpRequest &Request)
                return HttpResponse(Status::INTERNAL_SERVER_ERROR, StatusText(Status::INTERNAL_SERVER_ERROR), "application/json");
           }
 
+          std::string ReplicationOutboxID;
+          std::string ReplicationJournalError;
+          if (!PrepareReplicationOutboxRecord(Request, "delete_synonym", &ReplicationOutboxID, &ReplicationJournalError))
+          {
+               return BuildErrorResponse(Status::SERVICE_UNAVAILABLE,
+                                         Code::SEARCH_INVALID_PARAMETER,
+                                         "Replication journal unavailable.",
+                                         ReplicationJournalError.empty() ? "Failed to persist replication intent before local write." : ReplicationJournalError);
+          }
+
           if (!Instance->Database->Set(SynonymsKey, UpdatedJSON))
           {
+               ClearReplicationOutboxRecord(ReplicationOutboxID);
                return HttpResponse(Status::INTERNAL_SERVER_ERROR, StatusText(Status::INTERNAL_SERVER_ERROR), "application/json");
+          }
+
+          MaybeTriggerCrashInjection("replication_after_local_write");
+
+          if (!MarkReplicationOutboxCommitted(ReplicationOutboxID, Request, "delete_synonym", &ReplicationJournalError))
+          {
+               return BuildErrorResponse(Status::SERVICE_UNAVAILABLE,
+                                         Code::SEARCH_INVALID_PARAMETER,
+                                         "Replication journal incomplete.",
+                                         ReplicationJournalError.empty() ? "Synonym was deleted locally but replication state was not committed durably." : ReplicationJournalError);
           }
 
           SyncSAMLexicalChange(CollectionName, IsGlobalScope);
@@ -896,6 +1091,16 @@ HttpResponse SearchAPI::HandleDeleteSynonym(const HttpRequest &Request)
           Response.Body = "{\"message\":\"Synonym deleted\",\"id\":\"" + EscapeJSONString(SynonymID) + "\",\"collection\":\"" + EscapeJSONString(CollectionName) + "\",\"scope\":\"" + (IsGlobalScope ? "global" : "collection") + "\"}";
           FOREACH_MOD(OnDeleteSynonym, CollectionName, SynonymID, IsGlobalScope, Request.RemoteAddress, Request.APIKeyID, !Request.APIKeyID.empty());
 
+          std::string ReplicationError;
+          if (!ReplicateWriteRequest(Request, "delete_synonym", &ReplicationError))
+          {
+               return BuildErrorResponse(Status::SERVICE_UNAVAILABLE,
+                                         Code::SEARCH_INVALID_PARAMETER,
+                                         "Replication incomplete.",
+                                         ReplicationError.empty() ? "Synonym was deleted locally but replica acknowledgement failed." : ReplicationError);
+          }
+
+          ClearReplicationOutboxRecord(ReplicationOutboxID);
           return Response;
      }
      catch (const std::exception &)
@@ -922,4 +1127,304 @@ HttpResponse SearchAPI::HandleGetGlobalSynonym(const HttpRequest &Request)
 HttpResponse SearchAPI::HandleDeleteGlobalSynonym(const HttpRequest &Request)
 {
      return HandleDeleteSynonym(Request);
+}
+
+bool SearchAPI::ImproveSAMLexicalResources(const std::string &Collection,
+                                           size_t *SynonymUpdates,
+                                           size_t *StopwordUpdates,
+                                           std::string *ErrorMessage)
+{
+     if (SynonymUpdates)
+     {
+          *SynonymUpdates = 0;
+     }
+     if (StopwordUpdates)
+     {
+          *StopwordUpdates = 0;
+     }
+
+     if (Collection.empty() || !Instance || !Instance->Config ||
+         !Instance->Config->GetSamAutoLexicalEnabled())
+     {
+          return true;
+     }
+
+     if (Instance->Config->GetReplicaModeEnabled() &&
+         !Instance->Config->GetReplicaAllowWrites())
+     {
+          return true;
+     }
+
+     const int MaxDocuments = Instance->Config->GetSamAutoLexicalMaxDocuments();
+     const std::vector<Document> Documents =
+          HybridStorageManagerInstance().ListDocuments(Collection, MaxDocuments, 0);
+
+     if (Documents.empty())
+     {
+          return true;
+     }
+
+     if (Instance->Config->GetSamAutoSynonymsEnabled() &&
+         Instance->Config->GetSamAutoSynonymMinConfidence() <= kSAMAutoExplicitAliasConfidence)
+     {
+          nlohmann::json ExistingSynonyms = nlohmann::json::array();
+          const std::string ExistingJSON =
+               HybridStorageManagerInstance().Get("synonyms:" + Collection);
+
+          if (!ExistingJSON.empty())
+          {
+               try
+               {
+                    const nlohmann::json Parsed = nlohmann::json::parse(ExistingJSON);
+                    ExistingSynonyms = Parsed.is_array()
+                         ? Parsed
+                         : Parsed.value("synonyms", nlohmann::json::array());
+               }
+               catch (const std::exception &)
+               {
+               }
+          }
+
+          std::unordered_set<std::string> ManualRoots;
+          std::unordered_map<std::string, nlohmann::json> ExistingAutoGroups;
+          size_t AutoGroupCount = 0;
+
+          for (const auto &Group : ExistingSynonyms)
+          {
+               if (!Group.is_object())
+               {
+                    continue;
+               }
+
+               const std::string ID = Group.value("id", "");
+               const std::string Root = NormalizeSynonymTerm(Group.value("root", ""));
+
+               if (Group.value("source", "") == "sam_auto")
+               {
+                    ++AutoGroupCount;
+                    ExistingAutoGroups[ID] = Group;
+               }
+               else if (!Root.empty())
+               {
+                    ManualRoots.insert(Root);
+               }
+          }
+
+          const size_t MaxUpdates =
+               static_cast<size_t>(Instance->Config->GetSamAutoSynonymMaxGroupsPerPass());
+          const size_t MaxGroups =
+               static_cast<size_t>(Instance->Config->GetSamAutoSynonymMaxGroups());
+          const size_t MaxTerms =
+               static_cast<size_t>(Instance->Config->GetSamAutoSynonymMaxTermsPerGroup());
+          size_t Updates = 0;
+
+          for (const auto &Doc : Documents)
+          {
+               if (Updates >= MaxUpdates)
+               {
+                    break;
+               }
+
+               const std::string Root = TrimSynonymTerm(Doc.Title);
+               const std::string NormalizedRoot = NormalizeSynonymTerm(Root);
+               if (!IsSAMAutoSynonymTerm(Root) || ManualRoots.count(NormalizedRoot) > 0)
+               {
+                    continue;
+               }
+
+               std::vector<std::string> Aliases;
+               for (const auto &Field : Doc.Fields)
+               {
+                    if (IsSAMAutoAliasField(Field.first))
+                    {
+                         AppendSAMAutoAliasValues(Field.second, Aliases);
+                    }
+               }
+
+               std::sort(Aliases.begin(), Aliases.end(),
+                         [](const std::string &A, const std::string &B)
+                         {
+                              return NormalizeSynonymTerm(A) < NormalizeSynonymTerm(B);
+                         });
+               Aliases.erase(std::unique(Aliases.begin(), Aliases.end(),
+                                         [](const std::string &A, const std::string &B)
+                                         {
+                                              return NormalizeSynonymTerm(A) == NormalizeSynonymTerm(B);
+                                         }),
+                             Aliases.end());
+               Aliases.erase(std::remove_if(Aliases.begin(), Aliases.end(),
+                                            [&](const std::string &Alias)
+                                            {
+                                                 return NormalizeSynonymTerm(Alias) == NormalizedRoot;
+                                            }),
+                             Aliases.end());
+
+               if (Aliases.size() > MaxTerms)
+               {
+                    Aliases.resize(MaxTerms);
+               }
+               if (Aliases.empty())
+               {
+                    continue;
+               }
+
+               const std::string ID = BuildSAMAutoSynonymID(Root);
+               const auto ExistingIt = ExistingAutoGroups.find(ID);
+               if (ExistingIt == ExistingAutoGroups.end() && AutoGroupCount >= MaxGroups)
+               {
+                    continue;
+               }
+               if (ExistingIt != ExistingAutoGroups.end() &&
+                   ExistingIt->second.value("root", "") == Root &&
+                   ExistingIt->second.value("synonyms", nlohmann::json::array()) == Aliases)
+               {
+                    continue;
+               }
+
+               HttpRequest Request;
+               Request.Method = "POST";
+               Request.Path = "/collections/" + Collection + "/synonyms/" + ID;
+               Request.RemoteAddress = "sam:auto_lexical";
+               Request.Body = nlohmann::json({
+                    {"root", Root},
+                    {"synonyms", Aliases},
+                    {"source", "sam_auto"},
+                    {"confidence", kSAMAutoExplicitAliasConfidence}
+               }).dump();
+
+               const HttpResponse Response = HandleCreateOrUpdateSynonym(Request);
+               if (Response.StatusCode < 200 || Response.StatusCode >= 300)
+               {
+                    if (ErrorMessage)
+                    {
+                         *ErrorMessage = "Failed to persist SAM auto synonym group '" + ID + "'.";
+                    }
+                    return false;
+               }
+
+               if (ExistingIt == ExistingAutoGroups.end())
+               {
+                    ++AutoGroupCount;
+               }
+               ++Updates;
+          }
+
+          if (SynonymUpdates)
+          {
+               *SynonymUpdates = Updates;
+          }
+     }
+
+     if (Instance->Config->GetSamAutoStopwordsEnabled() &&
+         Documents.size() >= static_cast<size_t>(Instance->Config->GetSamAutoStopwordMinDocuments()))
+     {
+          std::unordered_map<std::string, size_t> DocumentFrequencies;
+          for (const auto &Doc : Documents)
+          {
+               std::unordered_set<std::string> Seen;
+               std::string Text = Doc.Title + " " + Doc.Content;
+               for (const auto &Field : Doc.Fields)
+               {
+                    Text += " " + Field.second;
+               }
+               for (const auto &Token : TokenizeSAMAutoStopwordText(Text))
+               {
+                    Seen.insert(Token);
+               }
+               for (const auto &Token : Seen)
+               {
+                    ++DocumentFrequencies[Token];
+               }
+          }
+
+          std::unordered_set<std::string> ExistingWords;
+          size_t ExistingAutoWords = 0;
+          const std::string ExistingJSON =
+               HybridStorageManagerInstance().Get("stopwords:" + Collection);
+          if (!ExistingJSON.empty())
+          {
+               try
+               {
+                    const nlohmann::json Parsed = nlohmann::json::parse(ExistingJSON);
+                    const nlohmann::json Words = Parsed.is_array()
+                         ? Parsed
+                         : Parsed.value("stopwords", nlohmann::json::array());
+                    for (const auto &Word : Words)
+                    {
+                         const std::string Text = Word.is_string()
+                              ? Word.get<std::string>()
+                              : Word.value("word", "");
+                         if (!Text.empty())
+                         {
+                              ExistingWords.insert(NormalizeSynonymTerm(Text));
+                         }
+                         if (Word.is_object() && Word.value("source", "") == "sam_auto")
+                         {
+                              ++ExistingAutoWords;
+                         }
+                    }
+               }
+               catch (const std::exception &)
+               {
+               }
+          }
+
+          std::vector<std::pair<std::string, size_t>> Candidates;
+          const double MinimumRatio = Instance->Config->GetSamAutoStopwordMinDocumentRatio();
+          for (const auto &Entry : DocumentFrequencies)
+          {
+               if (ExistingWords.count(Entry.first) == 0 &&
+                   static_cast<double>(Entry.second) / static_cast<double>(Documents.size()) >= MinimumRatio)
+               {
+                    Candidates.push_back(Entry);
+               }
+          }
+          std::sort(Candidates.begin(), Candidates.end(),
+                    [](const auto &A, const auto &B)
+                    {
+                         return A.second == B.second ? A.first < B.first : A.second > B.second;
+                    });
+
+          const size_t RemainingCapacity =
+               ExistingAutoWords >= static_cast<size_t>(Instance->Config->GetSamAutoStopwordMaxWords())
+                    ? 0
+                    : static_cast<size_t>(Instance->Config->GetSamAutoStopwordMaxWords()) - ExistingAutoWords;
+          const size_t MaxUpdates = std::min(
+               RemainingCapacity,
+               static_cast<size_t>(Instance->Config->GetSamAutoStopwordMaxWordsPerPass()));
+          nlohmann::json Words = nlohmann::json::array();
+          for (size_t Index = 0; Index < Candidates.size() && Index < MaxUpdates; ++Index)
+          {
+               Words.push_back(Candidates[Index].first);
+          }
+
+          if (!Words.empty())
+          {
+               HttpRequest Request;
+               Request.Method = "POST";
+               Request.Path = "/collections/" + Collection + "/stopwords";
+               Request.RemoteAddress = "sam:auto_lexical";
+               Request.Body = nlohmann::json({
+                    {"words", Words},
+                    {"source", "sam_auto"}
+               }).dump();
+
+               const HttpResponse Response = HandleCreateStopword(Request);
+               if (Response.StatusCode < 200 || Response.StatusCode >= 300)
+               {
+                    if (ErrorMessage)
+                    {
+                         *ErrorMessage = "Failed to persist SAM auto stopwords.";
+                    }
+                    return false;
+               }
+
+               if (StopwordUpdates)
+               {
+                    *StopwordUpdates = Words.size();
+               }
+          }
+     }
+
+     return true;
 }

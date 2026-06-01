@@ -482,6 +482,27 @@ void ServerConfig::ApplyConfiguration()
                                     SamBackgroundImprovementPollMs,
                                     1000,
                                     300000);
+          SamAutoLexicalEnabled = SAMTag->GetBool("auto_lexical", SamAutoLexicalEnabled);
+          SamAutoSynonymsEnabled = SAMTag->GetBool("auto_synonyms", SamAutoSynonymsEnabled);
+          SamAutoStopwordsEnabled = SAMTag->GetBool("auto_stopwords", SamAutoStopwordsEnabled);
+          SamAutoLexicalMaxDocuments =
+               SAMTag->GetIntRange("auto_lexical_max_documents", SamAutoLexicalMaxDocuments, 1, 1000);
+          SamAutoSynonymMaxGroupsPerPass =
+               SAMTag->GetIntRange("auto_synonym_max_groups_per_pass", SamAutoSynonymMaxGroupsPerPass, 0, 128);
+          SamAutoSynonymMaxGroups =
+               SAMTag->GetIntRange("auto_synonym_max_groups", SamAutoSynonymMaxGroups, 0, 10000);
+          SamAutoSynonymMaxTermsPerGroup =
+               SAMTag->GetIntRange("auto_synonym_max_terms_per_group", SamAutoSynonymMaxTermsPerGroup, 1, 32);
+          SamAutoSynonymMinConfidence =
+               SAMTag->GetDoubleRange("auto_synonym_min_confidence", SamAutoSynonymMinConfidence, 0.0, 1.0);
+          SamAutoStopwordMaxWordsPerPass =
+               SAMTag->GetIntRange("auto_stopword_max_words_per_pass", SamAutoStopwordMaxWordsPerPass, 0, 128);
+          SamAutoStopwordMaxWords =
+               SAMTag->GetIntRange("auto_stopword_max_words", SamAutoStopwordMaxWords, 0, 10000);
+          SamAutoStopwordMinDocuments =
+               SAMTag->GetIntRange("auto_stopword_min_documents", SamAutoStopwordMinDocuments, 1, 1000);
+          SamAutoStopwordMinDocumentRatio =
+               SAMTag->GetDoubleRange("auto_stopword_min_document_ratio", SamAutoStopwordMinDocumentRatio, 0.0, 1.0);
           Sam25DynamicQueryWeight = SAMTag->GetBool("sam25_dynamic_query_weight", Sam25DynamicQueryWeight);
           Sam25ShortQueryPhraseBoost = SAMTag->GetDoubleRange("sam25_short_query_phrase_boost", Sam25ShortQueryPhraseBoost, 0.1, 5.0);
           Sam25LongQueryPhraseBoost = SAMTag->GetDoubleRange("sam25_long_query_phrase_boost", Sam25LongQueryPhraseBoost, 0.1, 5.0);

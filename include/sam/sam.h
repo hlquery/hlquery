@@ -112,6 +112,9 @@ class SAM
      struct ImprovementStats
      {
           size_t ImprovedCollections = 0;
+          size_t QueuedContextAudits = 0;
+          size_t LearnedSynonymGroups = 0;
+          size_t LearnedStopwords = 0;
           size_t OptimizedIdeas = 0;
           size_t PrunedIdeas = 0;
           size_t PrunedTerms = 0;
@@ -128,7 +131,8 @@ class SAM
 
           size_t TotalImproved() const
           {
-               return ImprovedCollections + OptimizedIdeas + PrunedIdeas + PrunedTerms;
+               return ImprovedCollections + QueuedContextAudits + LearnedSynonymGroups +
+                      LearnedStopwords + OptimizedIdeas + PrunedIdeas + PrunedTerms;
           }
      };
 
@@ -219,6 +223,7 @@ class SAM
      size_t DroppedPendingSearchInteractionJobs = 0;
      std::unordered_map<std::string, size_t> ActiveCollectionTasks;
      std::unordered_map<std::string, uint64_t> LastBackgroundImprovementMS;
+     std::unordered_map<std::string, size_t> NextContextAuditOffset;
      std::unordered_set<std::string> InvalidatedRebuildCollections;
      std::unordered_set<std::string> CancelledCollections;
      bool CancelAllRequested = false;
@@ -265,6 +270,12 @@ class SAM
      /* Release a collection reserved by the low-priority improvement worker. */
 
      void FinishBackgroundImprovement(const std::string& Collection);
+
+     /* Select a rotating batch of documents whose hidden retrieval context needs review. */
+
+     std::vector<std::string> CollectDocumentContextAuditCandidates(const std::string& Collection,
+                                                                    uint64_t NowMS,
+                                                                    size_t Limit = 10);
 
      /* Remove all indexed SAM data from the database. */
 

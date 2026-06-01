@@ -360,6 +360,10 @@ HttpResponse SearchAPI::HandleCreateStopword(const HttpRequest &Request)
      try
      {
           nlohmann::json StopwordData = nlohmann::json::parse(Request.Body);
+          const std::string Source =
+               StopwordData.contains("source") && StopwordData["source"].is_string()
+                    ? TrimStopwordValue(StopwordData["source"].get<std::string>())
+                    : "";
           std::vector<std::string> WordsToAdd;
           std::unordered_set<std::string> SeenWords;
 
@@ -498,6 +502,10 @@ HttpResponse SearchAPI::HandleCreateStopword(const HttpRequest &Request)
                     NewStopword["word"] = WordStr;
                     NewStopword["created_at"] = GetCurrentTimestamp();
                     NewStopword["updated_at"] = GetCurrentTimestamp();
+                    if (!Source.empty())
+                    {
+                         NewStopword["source"] = Source;
+                    }
 
                     StopwordsArray.push_back(NewStopword);
                     AddedCount++;
@@ -516,9 +524,30 @@ HttpResponse SearchAPI::HandleCreateStopword(const HttpRequest &Request)
 
           std::string UpdatedJSON = RootObj.dump();
 
+          std::string ReplicationOutboxID;
+          std::string ReplicationJournalError;
+          if (!PrepareReplicationOutboxRecord(Request, "create_stopword", &ReplicationOutboxID, &ReplicationJournalError))
+          {
+               return BuildErrorResponse(Status::SERVICE_UNAVAILABLE,
+                                         Code::SEARCH_INVALID_PARAMETER,
+                                         "Replication journal unavailable.",
+                                         ReplicationJournalError.empty() ? "Failed to persist replication intent before local write." : ReplicationJournalError);
+          }
+
           if (!Instance || !Instance->Database || !Instance->Database->Set(StopwordsKey, UpdatedJSON))
           {
+               ClearReplicationOutboxRecord(ReplicationOutboxID);
                return HttpResponse(Status::INTERNAL_SERVER_ERROR, StatusText(Status::INTERNAL_SERVER_ERROR), "application/json");
+          }
+
+          MaybeTriggerCrashInjection("replication_after_local_write");
+
+          if (!MarkReplicationOutboxCommitted(ReplicationOutboxID, Request, "create_stopword", &ReplicationJournalError))
+          {
+               return BuildErrorResponse(Status::SERVICE_UNAVAILABLE,
+                                         Code::SEARCH_INVALID_PARAMETER,
+                                         "Replication journal incomplete.",
+                                         ReplicationJournalError.empty() ? "Stopword was written locally but replication state was not committed durably." : ReplicationJournalError);
           }
 
           SyncSAMLexicalChange(CollectionName, IsGlobalScope);
@@ -540,6 +569,16 @@ HttpResponse SearchAPI::HandleCreateStopword(const HttpRequest &Request)
                FOREACH_MOD(OnCreateStopword, CollectionName, static_cast<uint64_t>(AddedCount), IsGlobalScope, Request.RemoteAddress, Request.APIKeyID, !Request.APIKeyID.empty());
           }
 
+          std::string ReplicationError;
+          if (!ReplicateWriteRequest(Request, "create_stopword", &ReplicationError))
+          {
+               return BuildErrorResponse(Status::SERVICE_UNAVAILABLE,
+                                         Code::SEARCH_INVALID_PARAMETER,
+                                         "Replication incomplete.",
+                                         ReplicationError.empty() ? "Stopword was written locally but replica acknowledgement failed." : ReplicationError);
+          }
+
+          ClearReplicationOutboxRecord(ReplicationOutboxID);
           return Response;
      }
      catch (const std::exception &)
@@ -707,9 +746,30 @@ HttpResponse SearchAPI::HandleDeleteStopword(const HttpRequest &Request)
 
           std::string UpdatedJSON = RootObj.dump();
 
+          std::string ReplicationOutboxID;
+          std::string ReplicationJournalError;
+          if (!PrepareReplicationOutboxRecord(Request, "delete_stopword", &ReplicationOutboxID, &ReplicationJournalError))
+          {
+               return BuildErrorResponse(Status::SERVICE_UNAVAILABLE,
+                                         Code::SEARCH_INVALID_PARAMETER,
+                                         "Replication journal unavailable.",
+                                         ReplicationJournalError.empty() ? "Failed to persist replication intent before local write." : ReplicationJournalError);
+          }
+
           if (!Instance || !Instance->Database || !Instance->Database->Set(StopwordsKey, UpdatedJSON))
           {
+               ClearReplicationOutboxRecord(ReplicationOutboxID);
                return HttpResponse(Status::INTERNAL_SERVER_ERROR, StatusText(Status::INTERNAL_SERVER_ERROR), "application/json");
+          }
+
+          MaybeTriggerCrashInjection("replication_after_local_write");
+
+          if (!MarkReplicationOutboxCommitted(ReplicationOutboxID, Request, "delete_stopword", &ReplicationJournalError))
+          {
+               return BuildErrorResponse(Status::SERVICE_UNAVAILABLE,
+                                         Code::SEARCH_INVALID_PARAMETER,
+                                         "Replication journal incomplete.",
+                                         ReplicationJournalError.empty() ? "Stopword was deleted locally but replication state was not committed durably." : ReplicationJournalError);
           }
 
           SyncSAMLexicalChange(CollectionName, IsGlobalScope);
@@ -720,6 +780,16 @@ HttpResponse SearchAPI::HandleDeleteStopword(const HttpRequest &Request)
           Response.Body = "{\"message\":\"Stopword deleted\",\"word\":\"" + EscapeJSONString(WordStr) + "\",\"collection\":\"" + EscapeJSONString(CollectionName) + "\"}";
           FOREACH_MOD(OnDeleteStopword, CollectionName, WordStr, IsGlobalScope, Request.RemoteAddress, Request.APIKeyID, !Request.APIKeyID.empty());
 
+          std::string ReplicationError;
+          if (!ReplicateWriteRequest(Request, "delete_stopword", &ReplicationError))
+          {
+               return BuildErrorResponse(Status::SERVICE_UNAVAILABLE,
+                                         Code::SEARCH_INVALID_PARAMETER,
+                                         "Replication incomplete.",
+                                         ReplicationError.empty() ? "Stopword was deleted locally but replica acknowledgement failed." : ReplicationError);
+          }
+
+          ClearReplicationOutboxRecord(ReplicationOutboxID);
           return Response;
      }
      catch (const std::exception &)

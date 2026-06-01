@@ -52,11 +52,15 @@ static void AppendTemplateQuery(std::vector<SAM::TermEntry>& Terms,
                                 double Score,
                                 double Signal);
 
+/* ShouldLogSAMContext - Checks whether SAM context logging is enabled. */
+
 static bool ShouldLogSAMContext()
 {
      return Instance && Instance->Config && Instance->Config->GetSamLogContext() &&
             Instance->Logs;
 }
+
+/* LogSAMContext - Logs SAM context details. */
 
 static void LogSAMContext(const std::string& Collection,
                           const std::string& DocumentID,
@@ -70,6 +74,8 @@ static void LogSAMContext(const std::string& Collection,
      Instance->Logs->Debug("sam",
                            "context [" + Collection + "/" + DocumentID + "] " + Message);
 }
+
+/* FormatSAMTermsForLog - Formats SAM terms for logging. */
 
 static std::string FormatSAMTermsForLog(const std::vector<SAM::TermEntry>& Terms)
 {
@@ -89,6 +95,8 @@ static std::string FormatSAMTermsForLog(const std::vector<SAM::TermEntry>& Terms
      return Root.dump();
 }
 
+/* TrimCopy - Returns a trimmed copy of a string. */
+
 static std::string TrimCopy(const std::string& Value)
 {
      const size_t Start = Value.find_first_not_of(" \t\r\n");
@@ -102,6 +110,8 @@ static std::string TrimCopy(const std::string& Value)
      return Value.substr(Start, End - Start + 1);
 }
 
+/* ToLowerCopy - Returns a lowercase copy of a string. */
+
 static std::string ToLowerCopy(std::string Value)
 {
      std::transform(Value.begin(), Value.end(), Value.begin(),
@@ -111,6 +121,8 @@ static std::string ToLowerCopy(std::string Value)
                     });
      return Value;
 }
+
+/* NormalizeTerm - Normalizes a term for context matching. */
 
 static std::string NormalizeTerm(const std::string& Value)
 {
@@ -138,6 +150,8 @@ static std::string NormalizeTerm(const std::string& Value)
      return TrimCopy(Normalized);
 }
 
+/* TokenizeNormalized - Splits normalized text into tokens. */
+
 static std::vector<std::string> TokenizeNormalized(const std::string& Value)
 {
      std::vector<std::string> Tokens;
@@ -151,6 +165,8 @@ static std::vector<std::string> TokenizeNormalized(const std::string& Value)
 
      return Tokens;
 }
+
+/* SingularizeToken - Converts a token to singular form when possible. */
 
 static std::string SingularizeToken(const std::string& Token)
 {
@@ -188,6 +204,8 @@ static std::string SingularizeToken(const std::string& Token)
      return Token;
 }
 
+/* JoinTokens - Joins tokens into a phrase. */
+
 static std::string JoinTokens(const std::vector<std::string>& Tokens)
 {
      std::string Result;
@@ -205,6 +223,8 @@ static std::string JoinTokens(const std::vector<std::string>& Tokens)
      return Result;
 }
 
+/* IsWeakSamToken - Checks whether a SAM token is too weak to keep. */
+
 static bool IsWeakSamToken(const std::string& Value)
 {
      static const std::unordered_set<std::string> WeakTokens = {
@@ -214,6 +234,8 @@ static bool IsWeakSamToken(const std::string& Value)
           "benchmark", "fake", "dummy", "sample", "placeholder", "mock", "test"};
      return WeakTokens.find(Value) != WeakTokens.end();
 }
+
+/* IsSamStopword - Checks whether a token is a SAM stopword. */
 
 static bool IsSamStopword(const std::string& Value)
 {
@@ -225,6 +247,8 @@ static bool IsSamStopword(const std::string& Value)
           "without", "under", "between", "against"};
      return Stopwords.find(Value) != Stopwords.end();
 }
+
+/* ClampSAMScore - Clamps a SAM score to its supported range. */
 
 static double ClampSAMScore(double Value)
 {
@@ -240,6 +264,8 @@ static double ClampSAMScore(double Value)
 
      return Value;
 }
+
+/* IsBadSamTerm - Checks whether a SAM term should be discarded. */
 
 static bool IsBadSamTerm(const std::string& Value)
 {
@@ -257,6 +283,8 @@ static bool IsBadSamTerm(const std::string& Value)
      return false;
 }
 
+/* HasDuplicateTokens - Checks whether a phrase contains duplicate tokens. */
+
 static bool HasDuplicateTokens(const std::string& Value)
 {
      std::unordered_map<std::string, size_t> Counts;
@@ -272,12 +300,16 @@ static bool HasDuplicateTokens(const std::string& Value)
      return false;
 }
 
+/* IsGenericDescriptorToken - Checks whether a token is a generic descriptor. */
+
 static bool IsGenericDescriptorToken(const std::string& Token)
 {
      static const std::unordered_set<std::string> GenericTokens = {
           "feature", "focused", "focus", "example", "examples", "note", "notes"};
      return GenericTokens.find(Token) != GenericTokens.end();
 }
+
+/* IsNarrativeDriftToken - Checks whether a token indicates narrative drift. */
 
 static bool IsNarrativeDriftToken(const std::string& Token)
 {
@@ -289,10 +321,14 @@ static bool IsNarrativeDriftToken(const std::string& Token)
      return DriftTokens.find(Token) != DriftTokens.end();
 }
 
+/* IsStrongPhraseToken - Checks whether a token strengthens a phrase. */
+
 static bool IsStrongPhraseToken(const std::string& Token)
 {
      return !(Token.empty() || IsSamStopword(Token) || IsWeakSamToken(Token) || IsGenericDescriptorToken(Token));
 }
+
+/* IsPhraseWindowCandidate - Checks whether tokens can form a phrase window. */
 
 static bool IsPhraseWindowCandidate(const std::vector<std::string>& Tokens)
 {
@@ -347,6 +383,8 @@ struct CollectionProfile
      std::vector<std::string> Terms;
 };
 
+/* IsCollectionProfilePhrase - Checks whether a phrase belongs in a collection profile. */
+
 static bool IsCollectionProfilePhrase(const std::string& Value)
 {
      const std::vector<std::string> Tokens = TokenizeNormalized(Value);
@@ -373,6 +411,8 @@ static bool IsCollectionProfilePhrase(const std::string& Value)
 
      return StrongCount == Tokens.size();
 }
+
+/* AccumulateCollectionProfileText - Accumulates profile phrases from collection text. */
 
 static void AccumulateCollectionProfileText(const std::string& Text,
                                            std::unordered_map<std::string, CollectionProfileCandidate>& Ranked,
@@ -426,6 +466,8 @@ static void AccumulateCollectionProfileText(const std::string& Text,
      }
 }
 
+/* BuildDocumentProfileEvidence - Builds profile evidence from a document. */
+
 static std::string BuildDocumentProfileEvidence(const Document& Doc)
 {
      std::string Evidence = Doc.Title;
@@ -458,6 +500,8 @@ static std::string BuildDocumentProfileEvidence(const Document& Doc)
      return NormalizeTerm(Evidence);
 }
 
+/* AppendFieldFactTerms - Appends fact terms derived from document fields. */
+
 static void AppendFieldFactTerms(std::vector<SAM::TermEntry>& Terms,
                                  std::unordered_map<std::string, size_t>& IndexByTerm,
                                  const Document& Doc)
@@ -483,6 +527,8 @@ static void AppendFieldFactTerms(std::vector<SAM::TermEntry>& Terms,
           }
      }
 }
+
+/* BuildCollectionProfile - Builds a profile for a collection. */
 
 static CollectionProfile BuildCollectionProfile(const std::string& Collection,
                                                 const std::string& CurrentDocumentID)
@@ -583,6 +629,8 @@ static CollectionProfile BuildCollectionProfile(const std::string& Collection,
      return Profile;
 }
 
+/* IsLowIntentGenericPhrase - Checks whether a phrase has low search intent. */
+
 static bool IsLowIntentGenericPhrase(const std::string& Value, const std::string& Subject)
 {
      const std::vector<std::string> Tokens = TokenizeNormalized(Value);
@@ -643,6 +691,8 @@ static bool IsLowIntentGenericPhrase(const std::string& Value, const std::string
      return false;
 }
 
+/* ResolveSubjectTitle - Resolves the subject title for a document. */
+
 static std::string ResolveSubjectTitle(const Document& Doc)
 {
      std::string Title = TrimCopy(Doc.Title.empty() ? Doc.ID : Doc.Title);
@@ -661,6 +711,8 @@ static std::string ResolveSubjectTitle(const Document& Doc)
 
      return Title;
 }
+
+/* AppendScoredTerm - Appends a scored SAM term. */
 
 static void AppendScoredTerm(std::vector<SAM::TermEntry>& Target,
                              std::unordered_map<std::string, size_t>& IndexByTerm,
@@ -703,6 +755,8 @@ static void AppendScoredTerm(std::vector<SAM::TermEntry>& Target,
      IndexByTerm[Normalized] = Target.size();
      Target.push_back(std::move(Entry));
 }
+
+/* ExtractArrayishValues - Extracts values from array-like text. */
 
 static std::vector<std::string> ExtractArrayishValues(const std::string& Raw)
 {
@@ -764,6 +818,8 @@ static std::vector<std::string> ExtractArrayishValues(const std::string& Raw)
      return Values;
 }
 
+/* TruncateForContextWindows - Truncates text used to build context windows. */
+
 static std::string TruncateForContextWindows(const std::string& Value, size_t MaxChars)
 {
      if (Value.size() <= MaxChars)
@@ -788,6 +844,8 @@ static std::string TruncateForContextWindows(const std::string& Value, size_t Ma
 
      return Prefix;
 }
+
+/* AppendStructuredPhraseWindows - Appends phrase windows from structured text. */
 
 static void AppendStructuredPhraseWindows(std::vector<SAM::TermEntry>& Terms,
                                           std::unordered_map<std::string, size_t>& IndexByTerm,
@@ -865,6 +923,8 @@ static void AppendStructuredPhraseWindows(std::vector<SAM::TermEntry>& Terms,
      }
 }
 
+/* AppendReorderedAliases - Appends reordered alias variants. */
+
 static void AppendReorderedAliases(std::vector<SAM::TermEntry>& Terms,
                                    std::unordered_map<std::string, size_t>& IndexByTerm,
                                    const std::string& Collection)
@@ -901,6 +961,8 @@ static void AppendReorderedAliases(std::vector<SAM::TermEntry>& Terms,
      }
 }
 
+/* AppendCompressedStopwordVariants - Appends alias variants with stopwords removed. */
+
 static void AppendCompressedStopwordVariants(std::vector<SAM::TermEntry>& Terms,
                                              std::unordered_map<std::string, size_t>& IndexByTerm)
 {
@@ -934,6 +996,8 @@ static void AppendCompressedStopwordVariants(std::vector<SAM::TermEntry>& Terms,
           }
      }
 }
+
+/* TrimAliasCandidate - Trims punctuation from an alias candidate. */
 
 static std::string TrimAliasCandidate(const std::string& Value)
 {
@@ -971,6 +1035,8 @@ static std::string TrimAliasCandidate(const std::string& Value)
      return Candidate;
 }
 
+/* IsLikelySAMAliasPhrase - Checks whether a phrase is likely to be a SAM alias. */
+
 static bool IsLikelySAMAliasPhrase(const std::string& Phrase,
                                    const std::string& Subject)
 {
@@ -1007,6 +1073,8 @@ static bool IsLikelySAMAliasPhrase(const std::string& Phrase,
      return StrongCount >= 2;
 }
 
+/* AppendSAMAliasCandidate - Appends a SAM alias candidate. */
+
 static void AppendSAMAliasCandidate(std::vector<SAM::TermEntry>& Terms,
                                     std::unordered_map<std::string, size_t>& IndexByTerm,
                                     const std::string& Subject,
@@ -1037,6 +1105,8 @@ static void AppendSAMAliasCandidate(std::vector<SAM::TermEntry>& Terms,
                          ClampSAMScore(Signal + 0.02));
 }
 
+/* ExtractSAMQuotedPhrases - Extracts quoted phrases for SAM expansion. */
+
 static void ExtractSAMQuotedPhrases(std::vector<std::string>& Output,
                                     std::unordered_set<std::string>& Seen,
                                     const std::string& RawText,
@@ -1062,6 +1132,8 @@ static void ExtractSAMQuotedPhrases(std::vector<std::string>& Output,
           }
      }
 }
+
+/* ExtractSAMEpithetPhrases - Extracts epithet phrases for SAM expansion. */
 
 static void ExtractSAMEpithetPhrases(std::vector<std::string>& Output,
                                      std::unordered_set<std::string>& Seen,
@@ -1106,6 +1178,8 @@ static void ExtractSAMEpithetPhrases(std::vector<std::string>& Output,
           }
      }
 }
+
+/* CollectExtractedAliasPhrases - Collects alias phrases extracted from a document. */
 
 static std::vector<std::string> CollectExtractedAliasPhrases(const Document& Doc,
                                                              size_t MaxPhrases)
@@ -1160,6 +1234,8 @@ static std::vector<std::string> CollectExtractedAliasPhrases(const Document& Doc
      return Phrases;
 }
 
+/* AppendExtractedAliasTerms - Appends extracted aliases as SAM terms. */
+
 static void AppendExtractedAliasTerms(std::vector<SAM::TermEntry>& Terms,
                                       std::unordered_map<std::string, size_t>& IndexByTerm,
                                       const Document& Doc,
@@ -1185,6 +1261,8 @@ static void AppendUniqueFact(std::vector<std::string>& Values,
                              const std::string& Raw,
                              size_t MaxTokens = 4);
 
+/* IsContextFieldName - Checks whether a field name carries context. */
+
 static bool IsContextFieldName(const std::string& FieldName)
 {
      const std::string Lower = ToLowerCopy(FieldName);
@@ -1200,6 +1278,8 @@ static bool IsContextFieldName(const std::string& FieldName)
 
      return true;
 }
+
+/* CollectDynamicFieldFacts - Collects facts from dynamic document fields. */
 
 static std::vector<std::string> CollectDynamicFieldFacts(const Document& Doc,
                                                          size_t MaxFacts,
@@ -1228,6 +1308,8 @@ static std::vector<std::string> CollectDynamicFieldFacts(const Document& Doc,
 
      return Facts;
 }
+
+/* CollectDynamicContextHints - Collects context hints from dynamic document fields. */
 
 static std::vector<std::string> CollectDynamicContextHints(const Document& Doc,
                                                            size_t MaxHints,
@@ -1288,6 +1370,8 @@ static void AppendTemplateQuery(std::vector<SAM::TermEntry>& Terms,
                                 double Score,
                                 double Signal);
 
+/* TokenLooksNumericLike - Checks whether a token resembles a numeric value. */
+
 static bool TokenLooksNumericLike(const std::string& Token)
 {
      return !Token.empty() &&
@@ -1297,6 +1381,8 @@ static bool TokenLooksNumericLike(const std::string& Token)
                              return std::isdigit(C) != 0;
                         });
 }
+
+/* AppendUniqueFact - Appends a fact when it is valid and unique. */
 
 static void AppendUniqueFact(std::vector<std::string>& Values,
                              std::unordered_set<std::string>& Seen,
@@ -1322,6 +1408,8 @@ static void AppendUniqueFact(std::vector<std::string>& Values,
           Values.push_back(Normalized);
      }
 }
+
+/* CollectYearHints - Collects year hints from a document. */
 
 static std::vector<std::string> CollectYearHints(const Document& Doc, size_t MaxYears = 3)
 {
@@ -1376,6 +1464,8 @@ static std::vector<std::string> CollectYearHints(const Document& Doc, size_t Max
      return Years;
 }
 
+/* LooksAmbiguousSubject - Checks whether a subject needs disambiguation. */
+
 static bool LooksAmbiguousSubject(const std::string& Subject)
 {
      const std::vector<std::string> Tokens = TokenizeNormalized(Subject);
@@ -1392,6 +1482,8 @@ static bool LooksAmbiguousSubject(const std::string& Subject)
 
      return Tokens.size() == 2 && Tokens.front() == Tokens.back();
 }
+
+/* CollectDisambiguationFacts - Collects document facts used for disambiguation. */
 
 static std::vector<std::string> CollectDisambiguationFacts(const Document& Doc)
 {
@@ -1415,6 +1507,8 @@ static std::vector<std::string> CollectDisambiguationFacts(const Document& Doc)
 
      return Facts;
 }
+
+/* AppendCanonicalSnippetQueries - Appends queries derived from canonical snippets. */
 
 static void AppendCanonicalSnippetQueries(std::vector<SAM::TermEntry>& Terms,
                                           std::unordered_map<std::string, size_t>& IndexByTerm,
@@ -1446,6 +1540,8 @@ static void AppendCanonicalSnippetQueries(std::vector<SAM::TermEntry>& Terms,
      }
 }
 
+/* AppendDisambiguationQueries - Appends queries that disambiguate a subject. */
+
 static void AppendDisambiguationQueries(std::vector<SAM::TermEntry>& Terms,
                                         std::unordered_map<std::string, size_t>& IndexByTerm,
                                         const Document& Doc)
@@ -1469,6 +1565,8 @@ static void AppendDisambiguationQueries(std::vector<SAM::TermEntry>& Terms,
           AppendTemplateQuery(Terms, IndexByTerm, Subject, Facts[0] + " " + Facts[1], 0.85, 0.89);
      }
 }
+
+/* AppendFactDrivenQueries - Appends queries derived from document facts. */
 
 static void AppendFactDrivenQueries(std::vector<SAM::TermEntry>& Terms,
                                     std::unordered_map<std::string, size_t>& IndexByTerm,
@@ -1500,6 +1598,8 @@ static void AppendFactDrivenQueries(std::vector<SAM::TermEntry>& Terms,
      }
 }
 
+/* IsLikelySeoStyleTerm - Checks whether a term resembles an SEO-style query. */
+
 static bool IsLikelySeoStyleTerm(const std::string& Value)
 {
      static const std::unordered_set<std::string> SeoTokens = {
@@ -1516,6 +1616,8 @@ static bool IsLikelySeoStyleTerm(const std::string& Value)
 
      return false;
 }
+
+/* ComputeWebQueryIntentBoost - Computes a web-query intent boost. */
 
 static double ComputeWebQueryIntentBoost(const SAM::TermEntry& Term, const std::string& Subject)
 {
@@ -1570,6 +1672,8 @@ static double ComputeWebQueryIntentBoost(const SAM::TermEntry& Term, const std::
      return Boost;
 }
 
+/* ApplyWebQueryIntentRerank - Applies web-query intent reranking. */
+
 static void ApplyWebQueryIntentRerank(std::vector<SAM::TermEntry>& Terms, const std::string& Subject)
 {
      for (auto& Term : Terms)
@@ -1579,6 +1683,8 @@ static void ApplyWebQueryIntentRerank(std::vector<SAM::TermEntry>& Terms, const 
           Term.Signal = ClampSAMScore(Term.Signal + (Boost * 0.75));
      }
 }
+
+/* AppendTemplateQuery - Appends a query derived from a template. */
 
 static void AppendTemplateQuery(std::vector<SAM::TermEntry>& Terms,
                                 std::unordered_map<std::string, size_t>& IndexByTerm,
@@ -1647,6 +1753,8 @@ static void AppendTemplateQuery(std::vector<SAM::TermEntry>& Terms,
      AppendScoredTerm(Terms, IndexByTerm, Combined, "query", Score, "context_template", Signal);
 }
 
+/* PruneRedundantSAMTerms - Prunes redundant SAM terms. */
+
 static void PruneRedundantSAMTerms(std::vector<SAM::TermEntry>& Terms)
 {
      if (Terms.empty())
@@ -1700,6 +1808,8 @@ static void PruneRedundantSAMTerms(std::vector<SAM::TermEntry>& Terms)
      Terms.swap(Pruned);
 }
 
+/* BuildTokenSet - Builds a normalized token set. */
+
 static std::unordered_set<std::string> BuildTokenSet(const std::string& Value)
 {
      std::unordered_set<std::string> Tokens;
@@ -1714,6 +1824,8 @@ static std::unordered_set<std::string> BuildTokenSet(const std::string& Value)
 
      return Tokens;
 }
+
+/* ComputeCandidateEvidenceSupport - Computes evidence support for a candidate term. */
 
 static double ComputeCandidateEvidenceSupport(const SAM::TermEntry& Term,
                                              const std::unordered_set<std::string>& EvidenceTokens,
@@ -1791,6 +1903,8 @@ static double ComputeCandidateEvidenceSupport(const SAM::TermEntry& Term,
      return Support;
 }
 
+/* BuildInternalImprovementQuestions - Builds internal questions used to improve SAM terms. */
+
 static std::vector<std::string> BuildInternalImprovementQuestions(const Document& Doc,
                                                                   const std::string& Subject,
                                                                   const std::vector<std::string>& ProfileTerms)
@@ -1820,6 +1934,8 @@ static std::vector<std::string> BuildInternalImprovementQuestions(const Document
 
      return Questions;
 }
+
+/* RefineInternalSAMTerms - Refines SAM terms using document evidence. */
 
 static void RefineInternalSAMTerms(std::vector<SAM::TermEntry>& Terms,
                                    const std::string& DocumentEvidence,
@@ -1862,6 +1978,8 @@ static void RefineInternalSAMTerms(std::vector<SAM::TermEntry>& Terms,
                  Terms.end());
 }
 
+/* AppendSearchContextTemplates - Appends context-derived search templates. */
+
 static void AppendSearchContextTemplates(std::vector<SAM::TermEntry>& Terms,
                                          std::unordered_map<std::string, size_t>& IndexByTerm,
                                          const Document& Doc)
@@ -1884,10 +2002,14 @@ static void AppendSearchContextTemplates(std::vector<SAM::TermEntry>& Terms,
      }
 }
 
+/* BucketValueOrUnknown - Returns a bucket value or an unknown marker. */
+
 static std::string BucketValueOrUnknown(const std::string& Value)
 {
      return Value.empty() ? "unknown" : Value;
 }
+
+/* SelectDiversifiedTerms - Selects terms while preserving source diversity. */
 
 static std::vector<SAM::TermEntry> SelectDiversifiedTerms(const std::vector<SAM::TermEntry>& SortedTerms,
                                                           size_t MaxIdeas)
@@ -1960,6 +2082,8 @@ static std::vector<SAM::TermEntry> SelectDiversifiedTerms(const std::vector<SAM:
 
      return Selected;
 }
+
+/* SAM::GenerateLLMTermsFromProfile - Generates LLM terms from a profile. */
 
 std::vector<SAM::TermEntry> SAM::GenerateLLMTermsFromProfile(const std::string& Collection,
                                                              const Document& Doc,
@@ -2100,6 +2224,8 @@ std::vector<SAM::TermEntry> SAM::GenerateLLMTermsFromProfile(const std::string& 
      return Terms;
 }
 
+/* SAM::GenerateLLMTerms - Generates LLM terms for a document. */
+
 std::vector<SAM::TermEntry> SAM::GenerateLLMTerms(const std::string& Collection,
                                                   const Document& Doc,
                                                   std::string* ErrorMessage) const
@@ -2107,6 +2233,8 @@ std::vector<SAM::TermEntry> SAM::GenerateLLMTerms(const std::string& Collection,
      const CollectionProfile Profile = BuildCollectionProfile(Collection, Doc.ID);
      return GenerateLLMTermsFromProfile(Collection, Doc, Profile.Terms, ErrorMessage);
 }
+
+/* SAM::ExpandDocumentTerms - Expands the terms for a document. */
 
 std::vector<SAM::TermEntry> SAM::ExpandDocumentTerms(const std::string& Collection,
                                                      const Document& Doc,
@@ -2227,7 +2355,7 @@ std::vector<SAM::TermEntry> SAM::ExpandDocumentTerms(const std::string& Collecti
           ? static_cast<size_t>(std::max(4, Instance->Config->GetSamContextMaxIdeas()))
           : static_cast<size_t>(20);
 
-     // Preserve score ordering, but reserve space for distinct term families first.
+     /* Preserve score ordering, but reserve space for distinct term families first. */
      std::vector<TermEntry> SelectedTerms = SelectDiversifiedTerms(Terms, MaxIdeas);
      LogSAMContext(Collection, Doc.ID, "expanded_terms=" + FormatSAMTermsForLog(SelectedTerms));
      return SelectedTerms;

@@ -2238,10 +2238,13 @@ void HLQueryCLI::ImproveSAM(size_t limit, bool force, bool json_output)
      }
 
      std::cout << root.value("message", "SAM improvement pass completed.") << "\n";
-     PrintTable({"Improved", "Collections", "Optimized", "Pruned ideas", "Pruned terms", "Busy", "Throttled"},
+     PrintTable({"Improved", "Collections", "Context audits", "Synonyms", "Stopwords", "Optimized", "Pruned ideas", "Pruned terms", "Busy", "Throttled"},
                 {{
                      std::to_string(root.value("improved", static_cast<size_t>(0))),
                      std::to_string(root.value("improved_collections", static_cast<size_t>(0))),
+                     std::to_string(root.value("queued_context_audits", static_cast<size_t>(0))),
+                     std::to_string(root.value("learned_synonym_groups", static_cast<size_t>(0))),
+                     std::to_string(root.value("learned_stopwords", static_cast<size_t>(0))),
                      std::to_string(root.value("optimized_ideas", static_cast<size_t>(0))),
                      std::to_string(root.value("pruned_ideas", static_cast<size_t>(0))),
                      std::to_string(root.value("pruned_terms", static_cast<size_t>(0))),

@@ -2991,6 +2991,18 @@ HttpResponse SearchAPI::HandleGetDocumentContext(const HttpRequest &Request)
      Root["count"] = Suggestions.size();
      Root["suggestions"] = nlohmann::json::array();
 
+     if (Instance && Instance->Sam && Instance->Sam->IsOpen())
+     {
+          nlohmann::json AuditRoot;
+
+          if (Instance->Sam->LoadDocumentContext(CollectionName, DocumentID, AuditRoot))
+          {
+               Root["audit_status"] = AuditRoot.value("audit_status", "needs_audit");
+               Root["audit_score"] = AuditRoot.value("audit_score", 0.0);
+               Root["revisit_after_ms"] = AuditRoot.value("revisit_after_ms", static_cast<uint64_t>(0));
+          }
+     }
+
      for (const auto& Suggestion : Suggestions)
      {
           Root["suggestions"].push_back({
@@ -4127,6 +4139,9 @@ HttpResponse SearchAPI::HandleSAMImprove(const HttpRequest &Request)
      Root["ok"] = true;
      Root["improved"] = Improved;
      Root["improved_collections"] = Stats.ImprovedCollections;
+     Root["queued_context_audits"] = Stats.QueuedContextAudits;
+     Root["learned_synonym_groups"] = Stats.LearnedSynonymGroups;
+     Root["learned_stopwords"] = Stats.LearnedStopwords;
      Root["optimized_ideas"] = Stats.OptimizedIdeas;
      Root["pruned_ideas"] = Stats.PrunedIdeas;
      Root["pruned_terms"] = Stats.PrunedTerms;

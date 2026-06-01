@@ -94,7 +94,7 @@ static std::string NormalizeUrlToken(const std::string &token)
      return Normalized;
 }
 
-/* ToLowerCopy - Returns a lowercase copy of input. */
+/* ToLowerCopy - Returns a lowercase copy of a string. */
 
 static std::string ToLowerCopy(const std::string &input)
 {
@@ -127,11 +127,15 @@ static bool FieldNameHasToken(const std::string &field_name, const std::initiali
      return false;
 }
 
+/* InvertedIndex::MarkCollectionDirtyLocked - Marks a collection dirty while the caller holds the lock. */
+
 void InvertedIndex::MarkCollectionDirtyLocked(const std::string &Collection)
 {
      DirtyCollections.insert(Collection);
      CollectionLastMutation[Collection] = std::chrono::steady_clock::now();
 }
+
+/* InvertedIndex::SelectFlushCollectionsLocked - Selects dirty collections to flush while the caller holds the lock. */
 
 std::vector<std::string> InvertedIndex::SelectFlushCollectionsLocked(uint64_t MinDirtyAgeSeconds, size_t MaxCollections) const
 {
@@ -172,6 +176,8 @@ std::vector<std::string> InvertedIndex::SelectFlushCollectionsLocked(uint64_t Mi
 
      return CollectionsToFlush;
 }
+
+/* InvertedIndex::FlushCollectionToDiskLocked - Flushes a collection while the caller holds the lock. */
 
 bool InvertedIndex::FlushCollectionToDiskLocked(const std::string &IndexDir, const std::string &Collection)
 {
@@ -2277,7 +2283,7 @@ void InvertedIndex::LoadFromDisk(const std::string &IndexDir)
  * HasMMapIndex - Checks if a collection has an associated mmap index.
  */
 
-/* InvertedIndex::HasMMapIndex - Returns whether mmap index exists. */
+/* InvertedIndex::HasMMapIndex - Returns whether memory-mapped index exists. */
 
 bool InvertedIndex::HasMMapIndex(const std::string &Collection) const
 {

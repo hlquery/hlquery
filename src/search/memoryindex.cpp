@@ -758,6 +758,8 @@ std::vector<Posting> MMapIndex::SearchPrefix(const std::string &PrefixValue, int
      return ResultsList;
 }
 
+/* MMapIndex::GetDocumentCount - Returns the document count. */
+
 size_t MMapIndex::GetDocumentCount() const
 {
      if (!Valid)
@@ -802,6 +804,8 @@ size_t MMapIndex::GetDocumentCount() const
      DocumentCountCached = true;
      return DocumentCount;
 }
+
+/* MMapIndex::SearchWildcard - Searches terms that match a wildcard pattern. */
 
 std::vector<Posting> MMapIndex::SearchWildcard(const std::string &PatternValue, int LimitVal) const
 {

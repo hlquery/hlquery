@@ -40,10 +40,14 @@ static std::vector<std::thread> IndexingThreads;
 static std::mutex IndexingThreadsMutex;
 static constexpr size_t MaxCachedCollectionNames = 1000000;
 
+/* GetCollectionConfigKey - Returns the storage key for a collection configuration. */
+
 static std::string GetCollectionConfigKey(const std::string &Name)
 {
      return "collection_config:" + Name;
 }
+
+/* CollectionNeedsLanguageDetection - Checks whether a collection needs language detection. */
 
 static bool CollectionNeedsLanguageDetection(const std::string &Name)
 {
@@ -70,6 +74,8 @@ static bool CollectionNeedsLanguageDetection(const std::string &Name)
      return value.empty() || value == "auto" || value == "und";
 }
 
+/* NotifySAMCollectionChanged - Notifies SAM that a collection changed. */
+
 static void NotifySAMCollectionChanged(const std::string &Collection)
 {
      if (!Instance || !Instance->Sam || !Instance->Sam->IsOpen())
@@ -88,6 +94,8 @@ static void NotifySAMCollectionChanged(const std::string &Collection)
                                       (SamError.empty() ? std::string("unknown error") : SamError) + ".");
      }
 }
+
+/* RefreshCollectionLanguageIfNeeded - Refreshes collection language metadata when detection is needed. */
 
 static void RefreshCollectionLanguageIfNeeded(const std::string &Collection,
                                               const Document *SeedDocument = nullptr)
@@ -115,6 +123,8 @@ static void RefreshCollectionLanguageIfNeeded(const std::string &Collection,
      }
 }
 
+/* SerializeCollectionConfig - Serializes a collection configuration. */
+
 static std::string SerializeCollectionConfig(const CollectionConfig &Config)
 {
      nlohmann::json config_json;
@@ -125,6 +135,8 @@ static std::string SerializeCollectionConfig(const CollectionConfig &Config)
 
      return config_json.dump();
 }
+
+/* ParseCollectionMetaValue - Parses a collection metadata value. */
 
 static bool ParseCollectionMetaValue(const std::string &MetaValue, size_t *OutCount, time_t *OutTimestamp)
 {
@@ -175,10 +187,14 @@ static bool ParseCollectionMetaValue(const std::string &MetaValue, size_t *OutCo
      }
 }
 
+/* BuildCollectionMetaValue - Builds a collection metadata value. */
+
 static std::string BuildCollectionMetaValue(size_t Count, time_t Timestamp)
 {
      return std::to_string(Count) + ":" + std::to_string(Timestamp);
 }
+
+/* SerializeDocumentData - Serializes document data for storage. */
 
 static std::string SerializeDocumentData(const Document &Doc, uint64_t Timestamp)
 {
@@ -199,6 +215,8 @@ static std::string SerializeDocumentData(const Document &Doc, uint64_t Timestamp
 
      return Root.dump();
 }
+
+/* DeserializeDocumentJSON - Deserializes document JSON data. */
 
 static bool DeserializeDocumentJSON(const std::string &Data, Document &Doc)
 {
@@ -239,6 +257,8 @@ static bool DeserializeDocumentJSON(const std::string &Data, Document &Doc)
      return !Doc.ID.empty();
 }
 
+/* ExtractDocumentIDFromKey - Extracts a document ID from a storage key. */
+
 static std::string ExtractDocumentIDFromKey(const std::string &DocKey)
 {
      const size_t last_colon = DocKey.find_last_of(':');
@@ -250,6 +270,8 @@ static std::string ExtractDocumentIDFromKey(const std::string &DocKey)
 
      return DocKey.substr(last_colon + 1);
 }
+
+/* DeserializeCollectionConfig - Deserializes a collection configuration. */
 
 static bool DeserializeCollectionConfig(const std::string &Value, CollectionConfig &Config)
 {
@@ -309,6 +331,8 @@ static bool DeserializeCollectionConfig(const std::string &Value, CollectionConf
      }
 }
 
+/* LoadCollectionConfigFromDatabase - Loads a collection configuration from the database. */
+
 static CollectionConfig LoadCollectionConfigFromDatabase(const std::string &Name)
 {
      CollectionConfig config;
@@ -328,6 +352,8 @@ static CollectionConfig LoadCollectionConfigFromDatabase(const std::string &Name
 
      return config;
 }
+
+/* ResolveStorageRootDir - Resolves the storage root directory. */
 
 static std::string ResolveStorageRootDir()
 {
@@ -375,10 +401,14 @@ static std::string ResolveStorageRootDir()
      return storage_root;
 }
 
+/* HybridStorageManager::ResolveIndexDir - Resolves the index directory. */
+
 std::string HybridStorageManager::ResolveIndexDir() const
 {
      return ResolveStorageRootDir() + "/indices";
 }
+
+/* HybridStorageManager::FlushIndexesToDisk - Flushes indexes to disk storage. */
 
 size_t HybridStorageManager::FlushIndexesToDisk(uint64_t min_dirty_age_seconds, size_t max_collections)
 {
@@ -389,6 +419,8 @@ size_t HybridStorageManager::FlushIndexesToDisk(uint64_t min_dirty_age_seconds, 
 
      return 0;
 }
+
+/* HybridStorageManager::PersistStorageState - Persists counters, indexes, and database state. */
 
 void HybridStorageManager::PersistStorageState(bool update_counters, bool sync_database, bool log_flush_errors)
 {
@@ -779,6 +811,8 @@ void HybridStorageManager::UpdateCollectionCounters(bool force)
           Instance->Logs->Normal("hybrid_storage", "UpdateCollectionCounters: Completed.");
      }
 }
+
+/* HybridStorageManager::UpdateCollectionCountersPrefix - Updates counters for collections matching a prefix. */
 
 void HybridStorageManager::UpdateCollectionCountersPrefix(const std::string &prefix, bool force)
 {
@@ -1699,6 +1733,8 @@ void HybridStorageManager::RefreshCollectionListCacheLocked()
      CollectionListCacheValid = true;
 }
 
+/* HybridStorageManager::UpdateCollectionMetadataCacheLocked - Updates cached collection metadata while the caller holds the lock. */
+
 void HybridStorageManager::UpdateCollectionMetadataCacheLocked(const std::string &name,
                                                                size_t document_count,
                                                                time_t created_at)
@@ -1711,6 +1747,8 @@ void HybridStorageManager::UpdateCollectionMetadataCacheLocked(const std::string
 
      CollectionMetadataCache[name] = {document_count, created_at};
 }
+
+/* HybridStorageManager::CollectionExists - Checks whether a collection exists. */
 
 bool HybridStorageManager::CollectionExists(const std::string &name)
 {
@@ -1881,6 +1919,8 @@ std::vector<std::string> HybridStorageManager::ListCollections()
      return result;
 }
 
+/* HybridStorageManager::GetCollectionConfig - Returns a collection configuration. */
+
 bool HybridStorageManager::GetCollectionConfig(const std::string &name, CollectionConfig &config)
 {
      {
@@ -1919,6 +1959,8 @@ bool HybridStorageManager::GetCollectionConfig(const std::string &name, Collecti
 
      return true;
 }
+
+/* HybridStorageManager::UpdateCollectionMetadata - Updates metadata for a collection. */
 
 bool HybridStorageManager::UpdateCollectionMetadata(const std::string &name, const std::string &key, const std::string &value)
 {
@@ -2346,7 +2388,7 @@ size_t HybridStorageManager::AddDocumentsBatch(const std::string &collection, co
      return count;
 }
 
-/* GetDocument - Retrieves a document by collection and id. */
+/* GetDocument - Retrieves a document by collection and ID. */
 
 Document HybridStorageManager::GetDocument(const std::string &collection, const std::string &document_id)
 {
@@ -3062,6 +3104,8 @@ size_t HybridStorageManager::GetCollectionDocumentCount(const std::string &colle
      return metadata_count;
 }
 
+/* HybridStorageManager::GetCollectionCreatedAt - Returns the collection creation time. */
+
 time_t HybridStorageManager::GetCollectionCreatedAt(const std::string &collection)
 {
      if (!Instance || !Instance->Database)
@@ -3093,6 +3137,8 @@ time_t HybridStorageManager::GetCollectionCreatedAt(const std::string &collectio
      return timestamp;
 }
 
+/* HybridStorageManager::CountStoredDocuments - Counts stored documents for a collection. */
+
 size_t HybridStorageManager::CountStoredDocuments(const std::string &collection)
 {
      if (!Instance || !Instance->Database)
@@ -3102,6 +3148,8 @@ size_t HybridStorageManager::CountStoredDocuments(const std::string &collection)
 
      return Instance->Database->CountKeys("doc:" + collection + ":");
 }
+
+/* HybridStorageManager::CheckCollectionIntegrity - Checks integrity for one collection. */
 
 CollectionIntegrityStatus HybridStorageManager::CheckCollectionIntegrity(const std::string &collection)
 {
@@ -3145,6 +3193,8 @@ CollectionIntegrityStatus HybridStorageManager::CheckCollectionIntegrity(const s
      return status;
 }
 
+/* HybridStorageManager::CheckIntegrity - Checks collection integrity and builds a report. */
+
 IntegrityReport HybridStorageManager::CheckIntegrity(const std::string &collection)
 {
      IntegrityReport report;
@@ -3184,6 +3234,8 @@ IntegrityReport HybridStorageManager::CheckIntegrity(const std::string &collecti
      report.CollectionsScanned = report.Collections.size();
      return report;
 }
+
+/* HybridStorageManager::RebuildCollectionIndex - Rebuilds the index for a collection. */
 
 bool HybridStorageManager::RebuildCollectionIndex(const std::string &collection, size_t *reindexed_documents, std::string *error_message)
 {
@@ -3308,6 +3360,8 @@ bool HybridStorageManager::RebuildCollectionIndex(const std::string &collection,
      return true;
 }
 
+/* HybridStorageManager::RepairCollection - Repairs one collection. */
+
 CollectionIntegrityStatus HybridStorageManager::RepairCollection(const std::string &collection, bool rebuild_index)
 {
      CollectionIntegrityStatus status = CheckCollectionIntegrity(collection);
@@ -3350,6 +3404,8 @@ CollectionIntegrityStatus HybridStorageManager::RepairCollection(const std::stri
 
      return status;
 }
+
+/* HybridStorageManager::RepairIntegrity - Repairs collection integrity and builds a report. */
 
 IntegrityReport HybridStorageManager::RepairIntegrity(const std::string &collection, bool rebuild_index)
 {
@@ -4114,6 +4170,8 @@ bool HybridStorageManager::IsCollectionIndexing(const std::string &collection)
      return CollectionsBeingIndexed.find(collection) != CollectionsBeingIndexed.end();
 }
 
+/* HybridStorageManager::IsCollectionIndexComplete - Checks whether a collection index is complete. */
+
 bool HybridStorageManager::IsCollectionIndexComplete(const std::string &collection, size_t expected_count)
 {
      std::lock_guard<std::mutex> lock(IndexingMutex);
@@ -4134,6 +4192,8 @@ bool HybridStorageManager::IsCollectionIndexComplete(const std::string &collecti
 
      return expected_count == 0 || State.SourceCount >= expected_count;
 }
+
+/* HybridStorageManager::MarkCollectionIndexDirty - Marks a collection index as dirty. */
 
 void HybridStorageManager::MarkCollectionIndexDirty(const std::string &collection)
 {

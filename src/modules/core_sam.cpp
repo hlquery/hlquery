@@ -312,6 +312,9 @@
                Instance->Logs->Debug(LogSource,
                                      "Automatic SAM improvement pass completed: improved=" +
                                           std::to_string(Stats.ImprovedCollections) +
+                                          ", queued_context_audits=" + std::to_string(Stats.QueuedContextAudits) +
+                                          ", learned_synonym_groups=" + std::to_string(Stats.LearnedSynonymGroups) +
+                                          ", learned_stopwords=" + std::to_string(Stats.LearnedStopwords) +
                                           ", optimized_ideas=" + std::to_string(Stats.OptimizedIdeas) +
                                           ", pruned_ideas=" + std::to_string(Stats.PrunedIdeas) +
                                           ", pruned_terms=" + std::to_string(Stats.PrunedTerms) + ".");

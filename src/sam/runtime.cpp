@@ -17,6 +17,7 @@
 #include <sstream>
 #include <thread>
 
+#include "api/searchapi.h"
 #include "core/hlquery.h"
 #include "sam/lang.h"
 #include "sam/sam.h"
@@ -29,6 +30,9 @@ constexpr const char* kDocumentContextPrefix = "sam:context:";
 constexpr uint64_t kDefaultBackgroundImprovementIntervalMS = 60000;
 constexpr uint64_t kDefaultBackgroundImprovementPollMS = 15000;
 constexpr size_t kMaxPendingIndexJobs = 4096;
+constexpr size_t kDocumentContextAuditBatchSize = 10;
+constexpr uint64_t kDocumentContextWeakRetryMS = 7ULL * 24ULL * 60ULL * 60ULL * 1000ULL;
+constexpr uint64_t kDocumentContextHealthyRetryMS = 30ULL * 24ULL * 60ULL * 60ULL * 1000ULL;
 
 /* Build the persisted queue key for one pending SAM index job. */
 
@@ -46,6 +50,45 @@ std::string BuildPendingIndexQueueKey(const std::string& Collection, const std::
 std::string BuildDocumentContextKey(const std::string& Collection, const std::string& DocumentID)
 {
      return std::string(kDocumentContextPrefix) + Collection + ":" + DocumentID;
+}
+
+double ScoreDocumentContextSuggestions(const nlohmann::json& Suggestions)
+{
+     if (!Suggestions.is_array() || Suggestions.empty())
+     {
+          return 0.0;
+     }
+
+     size_t UsefulSuggestions = 0;
+     double ConfidenceTotal = 0.0;
+
+     for (const auto& Suggestion : Suggestions)
+     {
+          if (!Suggestion.is_object() ||
+              Suggestion.value("provisional", false) ||
+              Suggestion.value("kind", "") == "title")
+          {
+               continue;
+          }
+
+          const double Confidence = std::clamp(Suggestion.value("confidence", 0.0), 0.0, 1.0);
+
+          if (Confidence < 0.78)
+          {
+               continue;
+          }
+
+          ++UsefulSuggestions;
+          ConfidenceTotal += Confidence;
+     }
+
+     if (UsefulSuggestions == 0)
+     {
+          return 0.0;
+     }
+
+     const double Coverage = std::min(1.0, static_cast<double>(UsefulSuggestions) / 3.0);
+     return std::clamp(Coverage * (ConfidenceTotal / static_cast<double>(UsefulSuggestions)), 0.0, 1.0);
 }
 
 /* Parse a persisted queue key back into collection and document identifiers. */
@@ -764,6 +807,70 @@ void SAM::FinishBackgroundImprovement(const std::string& Collection)
      QueueCV.notify_all();
 }
 
+std::vector<std::string> SAM::CollectDocumentContextAuditCandidates(const std::string& Collection,
+                                                                    uint64_t NowMS,
+                                                                    size_t Limit)
+{
+     std::vector<std::string> DocumentIDs;
+
+     if (Collection.empty() || Limit == 0)
+     {
+          return DocumentIDs;
+     }
+
+     const size_t DocumentCount =
+          HybridStorageManager::GetInstance().GetCollectionDocumentCount(Collection);
+
+     if (DocumentCount == 0)
+     {
+          return DocumentIDs;
+     }
+
+     size_t Offset = 0;
+
+     {
+          std::lock_guard<std::mutex> JobLock(JobMutex);
+          Offset = NextContextAuditOffset[Collection] % DocumentCount;
+          NextContextAuditOffset[Collection] = (Offset + Limit) % DocumentCount;
+     }
+
+     std::vector<Document> Documents =
+          HybridStorageManager::GetInstance().ListDocuments(Collection,
+                                                            static_cast<int>(Limit),
+                                                            static_cast<int>(Offset));
+
+     if (Documents.size() < Limit && Offset > 0)
+     {
+          const std::vector<Document> WrappedDocuments =
+               HybridStorageManager::GetInstance().ListDocuments(Collection,
+                                                                 static_cast<int>(Limit - Documents.size()),
+                                                                 0);
+          Documents.insert(Documents.end(), WrappedDocuments.begin(), WrappedDocuments.end());
+     }
+
+     for (const auto& Doc : Documents)
+     {
+          nlohmann::json Context;
+          const bool HasContext = LoadDocumentContext(Collection, Doc.ID, Context);
+          const uint64_t RevisitAfterMS =
+               HasContext ? Context.value("revisit_after_ms", static_cast<uint64_t>(0)) : 0;
+          const bool Changed =
+               !HasContext ||
+               Context.value("source_fingerprint", "") != BuildSAMSourceDocumentFingerprint(Doc);
+          const bool Due =
+               !HasContext ||
+               RevisitAfterMS == 0 ||
+               (NowMS > 0 && NowMS >= RevisitAfterMS);
+
+          if (Changed || Due)
+          {
+               DocumentIDs.push_back(Doc.ID);
+          }
+     }
+
+     return DocumentIDs;
+}
+
 SAM::ImprovementStats SAM::ImproveIdleCollectionsDetailed(size_t MaxCollections, bool Force)
 {
      ImprovementStats Stats;
@@ -836,6 +943,7 @@ SAM::ImprovementStats SAM::ImproveIdleCollectionsDetailed(size_t MaxCollections,
           size_t PrunedTerms = 0;
           std::string ErrorMessage;
           std::vector<std::string> ContextRefreshDocumentIDs;
+          bool ContextAuditEligible = false;
 
           {
                std::lock_guard<std::mutex> DBLock(DBMutex);
@@ -876,6 +984,7 @@ SAM::ImprovementStats SAM::ImproveIdleCollectionsDetailed(size_t MaxCollections,
                               RebuildIntentGraphLocked(Database.get(), Collection, &ErrorMessage);
                          ContextRefreshDocumentIDs =
                               CollectSearchReinforcedDocumentIDsLocked(Database.get(), Collection, NowMS, 4);
+                         ContextAuditEligible = true;
                          Improved = RebuiltProfile || RebuiltGraph;
                     }
                     else if (LoadedState && State.RebuildRequested)
@@ -911,10 +1020,31 @@ SAM::ImprovementStats SAM::ImproveIdleCollectionsDetailed(size_t MaxCollections,
 
           if (Instance && Instance->LLM)
           {
+               std::unordered_set<std::string> AuditDocumentIDs;
+
+               if (ContextAuditEligible)
+               {
+                    const std::vector<std::string> SelectedAuditDocumentIDs =
+                         CollectDocumentContextAuditCandidates(Collection,
+                                                               NowMS,
+                                                               kDocumentContextAuditBatchSize);
+                    ContextRefreshDocumentIDs.insert(ContextRefreshDocumentIDs.end(),
+                                                     SelectedAuditDocumentIDs.begin(),
+                                                     SelectedAuditDocumentIDs.end());
+                    AuditDocumentIDs.insert(SelectedAuditDocumentIDs.begin(),
+                                            SelectedAuditDocumentIDs.end());
+               }
+
                size_t QueuedContextRefreshes = 0;
+               std::unordered_set<std::string> SeenDocumentIDs;
 
                for (const auto& DocumentID : ContextRefreshDocumentIDs)
                {
+                    if (!SeenDocumentIDs.insert(DocumentID).second)
+                    {
+                         continue;
+                    }
+
                     const Document Doc =
                          HybridStorageManager::GetInstance().GetDocument(Collection, DocumentID);
 
@@ -926,6 +1056,11 @@ SAM::ImprovementStats SAM::ImproveIdleCollectionsDetailed(size_t MaxCollections,
                     if (Instance->LLM->EnqueueContextualization(Collection, Doc, true))
                     {
                          ++QueuedContextRefreshes;
+
+                         if (AuditDocumentIDs.count(DocumentID) > 0)
+                         {
+                              ++Stats.QueuedContextAudits;
+                         }
                     }
                }
 
@@ -934,7 +1069,38 @@ SAM::ImprovementStats SAM::ImproveIdleCollectionsDetailed(size_t MaxCollections,
                     RecordDebugEvent(Collection,
                                      "background improvement queued " +
                                           std::to_string(QueuedContextRefreshes) +
-                                          " search-reinforced document context refresh(es)");
+                                          " document context audit(s)");
+               }
+          }
+
+          if (ContextAuditEligible && Instance && Instance->API)
+          {
+               size_t LearnedSynonymGroups = 0;
+               size_t LearnedStopwords = 0;
+               std::string LexicalError;
+
+               if (Instance->API->ImproveSAMLexicalResources(Collection,
+                                                             &LearnedSynonymGroups,
+                                                             &LearnedStopwords,
+                                                             &LexicalError))
+               {
+                    Stats.LearnedSynonymGroups += LearnedSynonymGroups;
+                    Stats.LearnedStopwords += LearnedStopwords;
+
+                    if (LearnedSynonymGroups > 0 || LearnedStopwords > 0)
+                    {
+                         RecordDebugEvent(Collection,
+                                          "background improvement learned " +
+                                               std::to_string(LearnedSynonymGroups) +
+                                               " synonym group(s) and " +
+                                               std::to_string(LearnedStopwords) +
+                                               " stopword(s)");
+                    }
+               }
+               else if (!LexicalError.empty())
+               {
+                    RecordDebugEvent(Collection,
+                                     "background lexical improvement failed: " + LexicalError);
                }
           }
 
@@ -2802,11 +2968,19 @@ bool SAM::StoreDocumentContext(const std::string& Collection,
           return false;
      }
 
+     const double AuditScore = ScoreDocumentContextSuggestions(Suggestions);
+     const bool WellCovered = AuditScore >= 0.72;
+
      nlohmann::json Root = {
           {"collection", Collection},
           {"id", DocumentID},
           {"source_fingerprint", SourceFingerprint},
           {"updated_at_ms", UpdatedAtMS},
+          {"audit_status", WellCovered ? "well_covered" : "low_confidence"},
+          {"audit_score", AuditScore},
+          {"revisit_after_ms", UpdatedAtMS + (WellCovered
+               ? kDocumentContextHealthyRetryMS
+               : kDocumentContextWeakRetryMS)},
           {"suggestions", Suggestions}
      };
      std::lock_guard<std::mutex> Lock(DBMutex);
@@ -3059,6 +3233,7 @@ bool SAM::DeleteCollection(const std::string& Collection, std::string* ErrorMess
           std::lock_guard<std::mutex> Lock(JobMutex);
           CollectionJobs.erase(Collection);
           ActiveCollectionTasks.erase(Collection);
+          NextContextAuditOffset.erase(Collection);
           CancelledCollections.erase(Collection);
      }
 

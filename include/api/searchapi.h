@@ -1232,6 +1232,13 @@ class SearchAPI
 
      void SyncSAMLexicalChange(const std::string& Collection, bool GlobalScope);
 
+     /* Learn bounded, source-tagged lexical resources from collection documents. */
+
+     bool ImproveSAMLexicalResources(const std::string& Collection,
+                                     size_t* SynonymUpdates,
+                                     size_t* StopwordUpdates,
+                                     std::string* ErrorMessage = nullptr);
+
      ReplicationStatusSnapshot GetReplicationStatusSnapshot() const;
 
      /* ExtractCollectionFromPath extracts collection names from paths. */
