@@ -706,7 +706,6 @@ std::vector<Posting> MMapIndex::SearchPrefix(const std::string &PrefixValue, int
      }
 
      const char *Ptr = reinterpret_cast<const char *>(TermsData);
-
      const char *End = reinterpret_cast<const char *>(TermsData + TermsSize);
 
      std::unordered_map<std::string, Posting> DocScores;
@@ -849,9 +848,9 @@ std::vector<Posting> MMapIndex::SearchWildcard(const std::string &PatternValue, 
      }
 
      std::sort(ResultsList.begin(), ResultsList.end(), [](const Posting &A, const Posting &B)
-               {
-                    return A.Score > B.Score;
-               });
+     {
+          return A.Score > B.Score;
+     });
 
      if (LimitVal > 0)
      {

@@ -882,6 +882,11 @@ bool CreateFakeCollections(const std::string &base_url, const std::string &auth_
 
      for (const auto &spec : specs)
      {
+          if (g_benchmark_should_stop.load())
+          {
+               return false;
+          }
+
           const std::string collection_name = spec.Name;
 
           if (verbose)
@@ -1332,10 +1337,20 @@ bool CreateFakeCollections(const std::string &base_url, const std::string &auth_
           size_t inserted = 0;
           for (const auto &doc : enriched_docs)
           {
+               if (g_benchmark_should_stop.load())
+               {
+                    return false;
+               }
+
                if (client.UpsertDocumentWithFieldsLocal(collection_name, doc))
                {
                     inserted++;
                }
+          }
+
+          if (g_benchmark_should_stop.load())
+          {
+               return false;
           }
 
           size_t enriched_updated = inserted;
@@ -1545,10 +1560,21 @@ bool CreateFakeCollections(const std::string &base_url, const std::string &auth_
           const std::vector<FakeSynonymSeed> &collection_synonyms = GetFakeCollectionSynonyms(spec.Name);
           for (size_t local_index = 0; local_index < collection_synonyms.size(); ++local_index)
           {
+               if (g_benchmark_should_stop.load())
+               {
+                    return false;
+               }
+
                const FakeSynonymSeed &seed = collection_synonyms[local_index];
                const std::string synonym_id = "fake_syn_" + spec.Name + "_" + std::to_string(local_index + 1);
+               const bool synonym_added = client.AddSynonym(collection_name, synonym_id, seed.Root, seed.Synonyms);
 
-               if (client.AddSynonym(collection_name, synonym_id, seed.Root, seed.Synonyms))
+               if (g_benchmark_should_stop.load())
+               {
+                    return false;
+               }
+
+               if (synonym_added)
                {
                     collection_synonyms_added++;
                }
@@ -1562,7 +1588,19 @@ bool CreateFakeCollections(const std::string &base_url, const std::string &auth_
           const std::vector<std::string> collection_stopwords = GetFakeCollectionStopwords(spec.Name);
           for (const auto &word : collection_stopwords)
           {
-               if (client.AddStopword(collection_name, word))
+               if (g_benchmark_should_stop.load())
+               {
+                    return false;
+               }
+
+               const bool stopword_added = client.AddStopword(collection_name, word);
+
+               if (g_benchmark_should_stop.load())
+               {
+                    return false;
+               }
+
+               if (stopword_added)
                {
                     collection_stopwords_added++;
                }
@@ -1584,10 +1622,21 @@ bool CreateFakeCollections(const std::string &base_url, const std::string &auth_
      const size_t alias_limit = std::min<size_t>(3, inserted_fake_collections.size());
      for (size_t i = 0; i < alias_limit; ++i)
      {
+          if (g_benchmark_should_stop.load())
+          {
+               return false;
+          }
+
           const std::string &target_collection = inserted_fake_collections[i];
           const std::string alias_name = "fake_alias_" + std::to_string(i + 1);
+          const bool alias_created = client.CreateAlias(alias_name, target_collection);
 
-          if (client.CreateAlias(alias_name, target_collection))
+          if (g_benchmark_should_stop.load())
+          {
+               return false;
+          }
+
+          if (alias_created)
           {
                aliases_added++;
           }

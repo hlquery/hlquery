@@ -67,9 +67,7 @@ std::unordered_map<std::string, std::string> DefragmentationManager::GetStats() 
      std::unordered_map<std::string, std::string> stats;
 
      stats["enabled"] = Enabled.load() ? "true" : "false";
-
      stats["total_defragmented"] = std::to_string(TotalDefragmented.load());
-
      stats["total_bytes_freed"] = std::to_string(TotalBytesFreed.load());
      return stats;
 }
