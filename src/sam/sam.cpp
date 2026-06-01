@@ -2794,6 +2794,7 @@ struct SAMAggregatedHit
      std::unordered_set<std::string> DistinctSources;
      double BestSemanticScore = 0.0;
      double BestSemanticVectorScore = 0.0;
+     double BestSourceDocScore = 0.0;
 };
 
 struct SAM25ScoreDebug
@@ -3205,6 +3206,7 @@ void AccumulateSAMHit(std::unordered_map<std::string, SAMAggregatedHit>& Aggrega
      }
      Aggregate.BestSemanticScore = std::max(Aggregate.BestSemanticScore, Hit.Breakdown.SemanticScore);
      Aggregate.BestSemanticVectorScore = std::max(Aggregate.BestSemanticVectorScore, Hit.Breakdown.SemanticVectorScore);
+     Aggregate.BestSourceDocScore = std::max(Aggregate.BestSourceDocScore, Hit.Breakdown.SourceDocScore);
 }
 
 std::vector<SAMLearnedVariant> BuildSeededCollectionVariants(rocksdb::DB* Database,

@@ -733,6 +733,7 @@ void FinalizeSAMAggregatedHits(std::vector<SAM::LookupHit>& Hits,
           FinalHit.Breakdown.DocPrior = DocPrior;
           FinalHit.Breakdown.SemanticScore = std::max(FinalHit.Breakdown.SemanticScore, Entry.second.BestSemanticScore);
           FinalHit.Breakdown.SemanticVectorScore = std::max(FinalHit.Breakdown.SemanticVectorScore, Entry.second.BestSemanticVectorScore);
+          FinalHit.Breakdown.SourceDocScore = std::max(FinalHit.Breakdown.SourceDocScore, Entry.second.BestSourceDocScore);
           FinalHit.Breakdown.SemanticBonus = SemanticBonus;
           FinalHit.Breakdown.SourceDocBonus = SourceScoreBonus;
           FinalHit.MatchedScore += EvidenceBonus;

@@ -1119,6 +1119,7 @@ HttpResponse SearchAPI::HandleStats(const HttpRequest &Request)
                {"enabled", SamEnabled},
                {"available", SamAvailable},
                {"smart_background", Instance->Config ? Instance->Config->GetSamSmartBackground() : true},
+               {"live_query_improvement", Instance->Config ? Instance->Config->GetSamLiveQueryImprovement() : false},
                {"background_improvement_interval_ms",
                 Instance->Config ? Instance->Config->GetSamBackgroundImprovementIntervalMs() : 60000},
                {"background_improvement_poll_ms",
@@ -1435,6 +1436,7 @@ HttpResponse SearchAPI::HandleSearchConfig(const HttpRequest &Request)
      ConfigJSON["fuzzy_max_distance"] = Config->GetQuerySettingsFuzzyMaxDistance();
      ConfigJSON["require_exact_identifier_tokens"] = Config->GetQuerySettingsRequireExactIdentifierTokens();
      ConfigJSON["sam25_require_exact_identifier_tokens"] = Config->GetSam25RequireExactIdentifierTokens();
+     ConfigJSON["sam_live_query_improvement"] = Config->GetSamLiveQueryImprovement();
      ConfigJSON["default_limit"] = Config->GetLimitsDefaultLimit();
      ConfigJSON["max_limit"] = Config->GetLimitsMaxLimit();
      ConfigJSON["min_limit"] = Config->GetLimitsMinLimit();

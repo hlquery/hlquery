@@ -317,6 +317,10 @@ void ServerConfig::ApplyConfiguration()
      auto LLMTag = ConfigReaderValue.GetTag("llm");
      auto SAMTag = ConfigReaderValue.GetTag("sam");
      bool ResolveLLMPathsRelativeToConfig = false;
+     bool AutoFindModel = true;
+
+     AIModelName.clear();
+     AIModelPath.clear();
 
      std::string ModelPathOverride;
      std::string ModelFileOverride;
@@ -351,6 +355,7 @@ void ServerConfig::ApplyConfiguration()
                  Tag->HasAttribute("model") ||
                  Tag->HasAttribute("model_path") ||
                  Tag->HasAttribute("model_file") ||
+                 Tag->HasAttribute("auto_find") ||
                  Tag->HasAttribute("inference_command") ||
                  Tag->HasAttribute("relative");
      };
@@ -362,6 +367,7 @@ void ServerConfig::ApplyConfiguration()
           AIModelName = ReadModelName(AITag, AIModelName);
           ModelPathOverride = AITag->GetString("model_path", "");
           ModelFileOverride = AITag->GetString("model_file", ModelFileOverride);
+          AutoFindModel = AITag->GetBool("auto_find", AutoFindModel);
           AIInferenceCommand = AITag->GetString("inference_command", AIInferenceCommand);
           SamEnabled = AITag->GetBool("sam_enabled", SamEnabled);
           ResolveLLMPathsRelativeToConfig = AITag->GetBool("relative", ResolveLLMPathsRelativeToConfig);
@@ -383,6 +389,7 @@ void ServerConfig::ApplyConfiguration()
                ModelFileOverride = LLMTag->GetString("model_file", "");
           }
 
+          AutoFindModel = LLMTag->GetBool("auto_find", AutoFindModel);
           AIInferenceCommand = LLMTag->GetString("inference_command", AIInferenceCommand);
           ResolveLLMPathsRelativeToConfig = LLMTag->GetBool("relative", ResolveLLMPathsRelativeToConfig);
      }
@@ -407,6 +414,7 @@ void ServerConfig::ApplyConfiguration()
                     ModelFileOverride = SAMTag->GetString("model_file", "");
                }
 
+               AutoFindModel = SAMTag->GetBool("auto_find", AutoFindModel);
                AIInferenceCommand = SAMTag->GetString("inference_command", AIInferenceCommand);
                ResolveLLMPathsRelativeToConfig = SAMTag->GetBool("relative", ResolveLLMPathsRelativeToConfig);
           }
@@ -462,6 +470,8 @@ void ServerConfig::ApplyConfiguration()
                                                 SamAutoDetectCollectionLanguage));
           SamSmartBackground = SAMTag->GetBool("background_improvements",
                                                SAMTag->GetBool("smart_sam", SamSmartBackground));
+          SamLiveQueryImprovement =
+               SAMTag->GetBool("live_query_improvement", SamLiveQueryImprovement);
           SamBackgroundImprovementIntervalMs =
                SAMTag->GetIntRange("background_improvement_interval_ms",
                                     SamBackgroundImprovementIntervalMs,
@@ -704,6 +714,56 @@ void ServerConfig::ApplyConfiguration()
          return ResolveRelativePath(Candidate).string();
     };
 
+    auto FindFirstModel = [&]() -> std::string
+    {
+         if (AIModelsDirectory.empty())
+         {
+              return "";
+         }
+
+         const std::filesystem::path ModelsDirectory =
+              ResolveRelativePath(std::filesystem::path(AIModelsDirectory));
+         std::error_code Ec;
+
+         if (!std::filesystem::exists(ModelsDirectory, Ec) ||
+             !std::filesystem::is_directory(ModelsDirectory, Ec))
+         {
+              return "";
+         }
+
+         std::vector<std::filesystem::path> Candidates;
+
+         for (std::filesystem::directory_iterator It(ModelsDirectory, Ec), End;
+              !Ec && It != End;
+              It.increment(Ec))
+         {
+              if (!It->is_regular_file(Ec))
+              {
+                   continue;
+              }
+
+              std::string Extension = It->path().extension().string();
+              std::transform(Extension.begin(), Extension.end(), Extension.begin(),
+                             [](unsigned char C)
+                             {
+                                  return static_cast<char>(std::tolower(C));
+                             });
+
+              if (Extension == ".gguf")
+              {
+                   Candidates.push_back(It->path());
+              }
+         }
+
+         if (Ec || Candidates.empty())
+         {
+              return "";
+         }
+
+         std::sort(Candidates.begin(), Candidates.end());
+         return Candidates.front().string();
+    };
+
     auto ResolveBundledInferenceCommand = [&]() -> std::string
     {
          if (ConfigDirectory.empty())
@@ -767,6 +827,16 @@ void ServerConfig::ApplyConfiguration()
          return AIModelCatalog.front().Name;
     };
 
+    std::string AutoFoundModelPath;
+
+    if (AutoFindModel &&
+        ModelFileOverride.empty() &&
+        ModelPathOverride.empty() &&
+        AIModelName.empty())
+    {
+         AutoFoundModelPath = FindFirstModel();
+    }
+
     if (!ModelFileOverride.empty())
     {
          std::filesystem::path FilePath(ModelFileOverride);
@@ -788,6 +858,11 @@ void ServerConfig::ApplyConfiguration()
          }
 
          AIModelPath = ResolveRelativePath(OverridePath).string();
+    }
+    else if (!AutoFoundModelPath.empty())
+    {
+         AIModelPath = AutoFoundModelPath;
+         AIModelName = std::filesystem::path(AIModelPath).filename().string();
     }
     else if (!AIModelCatalog.empty())
     {

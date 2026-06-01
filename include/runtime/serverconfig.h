@@ -639,6 +639,11 @@ class ServerConfig
           return SamSmartBackground;
      }
 
+     bool GetSamLiveQueryImprovement() const
+     {
+          return SamLiveQueryImprovement;
+     }
+
      int GetSamBackgroundImprovementIntervalMs() const
      {
           return SamBackgroundImprovementIntervalMs;
@@ -2211,6 +2216,10 @@ class ServerConfig
      /* Toggle SAM background improvement scheduling. */
 
      bool SamSmartBackground = true;
+
+     /* Toggle Qwen-assisted SAM intent expansion during the current lookup. */
+
+     bool SamLiveQueryImprovement = false;
 
      /* Milliseconds between SAM background improvement passes. */
 

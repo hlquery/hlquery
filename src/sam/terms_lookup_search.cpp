@@ -874,6 +874,76 @@ double ScoreSearchIntentDocumentMatch(const SAM::DocumentEntry& Entry,
      return BestScore;
 }
 
+double ScoreLiveSearchIntentDocumentMatch(const SAM::DocumentEntry& Entry,
+                                          const std::vector<llm::SearchIntentCandidate>& Candidates,
+                                          const std::vector<llm::SearchIntentCandidate>& RankedTerms)
+{
+     std::vector<std::string> Phrases = {
+          NormalizeTerm(Entry.Title),
+          NormalizeTerm(Entry.Subject),
+          NormalizeTerm(Entry.Summary)
+     };
+     Phrases.erase(std::remove(Phrases.begin(), Phrases.end(), ""), Phrases.end());
+     const std::string Title = NormalizeTerm(Entry.Title);
+     const std::string Subject = NormalizeTerm(Entry.Subject);
+     double BestScore = 0.0;
+
+     const auto ScoreOne = [&](const llm::SearchIntentCandidate& Candidate,
+                               double BaseWeight) -> double
+     {
+          const std::string Text = NormalizeTerm(Candidate.Text);
+          const std::vector<std::string> CandidateTokens = TokenizeNormalized(Text);
+
+          if (Text.empty() || CandidateTokens.empty())
+          {
+               return 0.0;
+          }
+
+          double Score = 0.0;
+
+          if ((!Title.empty() && Title == Text) || (!Subject.empty() && Subject == Text))
+          {
+               Score = std::max(Score, BaseWeight * 1.35);
+          }
+
+          for (const auto& Phrase : Phrases)
+          {
+               if (Phrase == Text)
+               {
+                    Score = std::max(Score, BaseWeight * 1.25);
+                    continue;
+               }
+
+               const std::vector<std::string> PhraseTokens = TokenizeNormalized(Phrase);
+               const double Overlap = ComputeSearchIntentTokenOverlap(CandidateTokens, PhraseTokens);
+               const size_t MatchedTokens =
+                    static_cast<size_t>(std::llround(Overlap * static_cast<double>(CandidateTokens.size())));
+               const bool StrongContainment =
+                    CandidateTokens.size() >= 2 &&
+                    (Phrase.find(Text) != std::string::npos || Text.find(Phrase) != std::string::npos);
+
+               if (StrongContainment || (MatchedTokens >= 2 && Overlap >= 0.72))
+               {
+                    Score = std::max(Score, BaseWeight * (0.72 + (Overlap * 0.28)));
+               }
+          }
+
+          return Score;
+     };
+
+     for (const auto& Candidate : Candidates)
+     {
+          BestScore = std::max(BestScore, ScoreOne(Candidate, 0.85 + ClampSAMScore(Candidate.Weight)));
+     }
+
+     for (const auto& RankedTerm : RankedTerms)
+     {
+          BestScore = std::max(BestScore, ScoreOne(RankedTerm, 0.60 + ClampSAMScore(RankedTerm.Weight)));
+     }
+
+     return BestScore;
+}
+
 Document BuildSearchIntentCandidateDocument(const SAM::DocumentEntry& Entry)
 {
      Document Candidate;
@@ -919,6 +989,169 @@ Document BuildSearchIntentCandidateDocument(const SAM::DocumentEntry& Entry)
      }
 
      return Candidate;
+}
+
+std::vector<Document> BuildLiveSearchIntentCandidateDocuments(
+     rocksdb::DB* Database,
+     const std::string& Collection,
+     const std::unordered_map<std::string, SAMAggregatedHit>& AggregatedHits,
+     size_t Limit)
+{
+     std::vector<Document> Candidates;
+
+     if (!Database || Collection.empty() || AggregatedHits.empty() || Limit == 0)
+     {
+          return Candidates;
+     }
+
+     std::vector<const SAMAggregatedHit*> RankedHits;
+     RankedHits.reserve(AggregatedHits.size());
+
+     for (const auto& Pair : AggregatedHits)
+     {
+          RankedHits.push_back(&Pair.second);
+     }
+
+     std::sort(RankedHits.begin(), RankedHits.end(),
+               [](const SAMAggregatedHit* Left, const SAMAggregatedHit* Right)
+               {
+                    if (Left->BestHit.MatchedScore != Right->BestHit.MatchedScore)
+                    {
+                         return Left->BestHit.MatchedScore > Right->BestHit.MatchedScore;
+                    }
+
+                    return Left->BestHit.DocumentID < Right->BestHit.DocumentID;
+               });
+
+     for (const SAMAggregatedHit* RankedHit : RankedHits)
+     {
+          const SAM::LookupHit& Hit = RankedHit->BestHit;
+
+          if (Hit.DocumentID.empty())
+          {
+               continue;
+          }
+
+          std::string ManifestValue;
+          const rocksdb::Status Status =
+               Database->Get(rocksdb::ReadOptions(),
+                             BuildDocManifestKey(Collection, Hit.DocumentID),
+                             &ManifestValue);
+
+          if (!Status.ok())
+          {
+               continue;
+          }
+
+          SAM::DocumentEntry Entry;
+
+          if (!ParseManifestValue(ManifestValue, Entry) || !IsSAMDocumentEntryCurrent(Entry))
+          {
+               continue;
+          }
+
+          Candidates.push_back(BuildSearchIntentCandidateDocument(Entry));
+
+          if (Candidates.size() >= Limit)
+          {
+               break;
+          }
+     }
+
+     return Candidates;
+}
+
+void AppendLiveSearchIntentHits(std::unordered_map<std::string, SAMAggregatedHit>& AggregatedHits,
+                                rocksdb::DB* Database,
+                                const std::string& Collection,
+                                const std::string& Query,
+                                const SAMQueryTokenViews& QueryViews,
+                                size_t Limit)
+{
+     if (!Database || Collection.empty() || Query.empty() ||
+         IsSingleTokenSAMIntent(QueryViews) ||
+         Query.find_first_of("*?%[]{}:") != std::string::npos ||
+         !Instance || !Instance->Config || !Instance->Config->GetSamLiveQueryImprovement() ||
+         !Instance->LLM || !Instance->LLM->Configured())
+     {
+          return;
+     }
+
+     const size_t IntentLimit =
+          static_cast<size_t>(std::max(1, Instance->Config->GetSamLLMMaxIdeas()));
+     const std::vector<Document> CandidateDocuments =
+          BuildLiveSearchIntentCandidateDocuments(Database, Collection, AggregatedHits, IntentLimit);
+     const llm::SearchIntentResolution Resolution =
+          Instance->LLM->ResolveSearchIntent(Collection, Query, CandidateDocuments, IntentLimit);
+
+     if (Resolution.Candidates.empty() && Resolution.RankedTerms.empty())
+     {
+          return;
+     }
+
+     const double MinIntentDocMatchScore = Instance->Config->GetSam25IntentDocMatchMinScore();
+     const size_t MaxScannedDocuments =
+          std::max<size_t>(256, std::min<size_t>(1024, std::max<size_t>(Limit, 1) * 32));
+     const std::string ManifestPrefix = "sam:doc:" + Collection + ":";
+     std::unique_ptr<rocksdb::Iterator> Iterator(Database->NewIterator(rocksdb::ReadOptions()));
+     size_t ScannedDocuments = 0;
+     size_t AcceptedDocuments = 0;
+
+     for (Iterator->Seek(ManifestPrefix);
+          Iterator->Valid() && Iterator->key().starts_with(ManifestPrefix) &&
+               ScannedDocuments < MaxScannedDocuments;
+          Iterator->Next(), ++ScannedDocuments)
+     {
+          SAM::DocumentEntry Entry;
+
+          if (!ParseManifestValue(Iterator->value().ToString(), Entry) ||
+              !IsSAMDocumentEntryCurrent(Entry))
+          {
+               continue;
+          }
+
+          const double MatchScore =
+               ScoreLiveSearchIntentDocumentMatch(Entry, Resolution.Candidates, Resolution.RankedTerms);
+
+          if (MatchScore < MinIntentDocMatchScore)
+          {
+               continue;
+          }
+
+          SAM::LookupHit Hit;
+          Hit.Collection = Entry.Collection;
+          Hit.DocumentID = Entry.DocumentID;
+          Hit.Title = Entry.Title;
+          Hit.MatchedTerm = Resolution.Interpretation.empty() ? Query : Resolution.Interpretation;
+          Hit.MatchedKind = "live_search_intent";
+          Hit.MatchedSource = "llm_live_intent";
+          Hit.TermOrigin = "llm_live_intent";
+          Hit.MatchedPath = "live_search_intent";
+          Hit.MatchedScore = ClampSAMScore(MatchScore);
+          Hit.MatchedSignal = ClampSAMScore(MatchScore);
+          Hit.Breakdown.TermScore = Hit.MatchedScore;
+          Hit.Breakdown.SourceDocScore = Hit.MatchedScore;
+          Hit.Breakdown.FinalScore = Hit.MatchedScore;
+
+          if (IsSAM25DebugExplainEnabled())
+          {
+               std::ostringstream Stream;
+               Stream << "live search intent score=" << MatchScore
+                      << " interpretation=" << Hit.MatchedTerm;
+               Hit.Explain = Stream.str();
+          }
+
+          AccumulateSAMHit(AggregatedHits, Hit);
+          ++AcceptedDocuments;
+     }
+
+     if (Instance->Logs)
+     {
+          Instance->Logs->Debug("sam",
+                                "Live SAM search intent for '" + NormalizeTerm(Query) +
+                                     "': scanned=" + std::to_string(ScannedDocuments) +
+                                     ", accepted=" + std::to_string(AcceptedDocuments) + ".");
+     }
 }
 
 /* Optimize stored search ideas into intent-level support data. */
@@ -2311,6 +2544,7 @@ std::vector<SAM::LookupHit> SAM::Lookup(const std::string& Collection, const std
                                         &ProfileHints.StrongTokens,
                                         std::max<size_t>(6, std::min<size_t>(Limit * 3, 12)));
      AppendCollectionLearnedHits(AggregatedHits, DatabaseHandle.get(), Collection, SeededVariants);
+     AppendLiveSearchIntentHits(AggregatedHits, DatabaseHandle.get(), Collection, Query, QueryViews, Limit);
 
      const size_t RankingWindowLimit = Limit > 0
           ? std::max<size_t>(Limit, std::min<size_t>(AggregatedHits.size(), std::max<size_t>(Limit * 4, 64)))
