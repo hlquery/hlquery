@@ -1,0 +1,42 @@
+#!/bin/sh
+
+set -eu
+
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+REPO_ROOT=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
+LLAMA_BUILD_DIR=${HLQUERY_LLAMA_BUILD_DIR:-"$REPO_ROOT/vendor/llama.cpp/build"}
+LLAMA_THREADS=${HLQUERY_LLAMA_THREADS:-2}
+
+prepend_library_path() {
+    [ -d "$1" ] || return 0
+    LD_LIBRARY_PATH="$1${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+    export LD_LIBRARY_PATH
+}
+
+for candidate in \
+    "$LLAMA_BUILD_DIR/bin/llama-completion" \
+    "$LLAMA_BUILD_DIR/bin/Release/llama-completion"
+do
+    if [ -x "$candidate" ]; then
+        prepend_library_path "$LLAMA_BUILD_DIR/bin"
+        prepend_library_path "$LLAMA_BUILD_DIR/src"
+        prepend_library_path "$LLAMA_BUILD_DIR/ggml/src"
+        prepend_library_path "$LLAMA_BUILD_DIR/ggml/src/ggml-cpu"
+        exec "$candidate" --threads "$LLAMA_THREADS" --threads-batch "$LLAMA_THREADS" "$@"
+    fi
+done
+
+# Debian installs llama-cli and its matching llama library under /usr, but stale
+# ggml libraries under /usr/local can otherwise win during dynamic loading.
+if [ -x /usr/bin/llama-cli ] && [ -d /usr/lib/x86_64-linux-gnu ]; then
+    prepend_library_path /usr/lib/x86_64-linux-gnu/llama
+    prepend_library_path /usr/lib/x86_64-linux-gnu
+    exec /usr/bin/llama-cli --threads "$LLAMA_THREADS" --threads-batch "$LLAMA_THREADS" "$@"
+fi
+
+if command -v llama-cli >/dev/null 2>&1; then
+    exec llama-cli --threads "$LLAMA_THREADS" --threads-batch "$LLAMA_THREADS" "$@"
+fi
+
+echo "llama.cpp runner not found. Run 'make llama-runtime-fetch' or install llama-cli." >&2
+exit 78

@@ -286,41 +286,6 @@
           RefreshSAMSearchIdeaProfiles(LogSource);
      }
 
-     void ImproveSAMAutomatically(const std::string &LogSource)
-     {
-          if (!Instance || !Instance->Config || !Instance->Config->GetSamSmartBackground() ||
-              !Instance->Sam || !Instance->Sam->IsOpen())
-          {
-               return;
-          }
-
-          const uint64_t NowMS = static_cast<uint64_t>(NowMs());
-          const uint64_t PauseUntilMS = Instance->Sam->GetAutoIndexPauseUntilMS();
-
-          if (PauseUntilMS > 0 && NowMS < PauseUntilMS)
-          {
-               return;
-          }
-
-          const size_t MaxCollections =
-               std::max<size_t>(1, std::min<size_t>(Instance->Sam->GetBackgroundWorkerCount(), 4));
-          const SAM::ImprovementStats Stats =
-               Instance->Sam->ImproveIdleCollectionsDetailed(MaxCollections, false);
-
-          if (Stats.TotalImproved() > 0 && Instance->Logs)
-          {
-               Instance->Logs->Debug(LogSource,
-                                     "Automatic SAM improvement pass completed: improved=" +
-                                          std::to_string(Stats.ImprovedCollections) +
-                                          ", queued_context_audits=" + std::to_string(Stats.QueuedContextAudits) +
-                                          ", learned_synonym_groups=" + std::to_string(Stats.LearnedSynonymGroups) +
-                                          ", learned_stopwords=" + std::to_string(Stats.LearnedStopwords) +
-                                          ", optimized_ideas=" + std::to_string(Stats.OptimizedIdeas) +
-                                          ", pruned_ideas=" + std::to_string(Stats.PrunedIdeas) +
-                                          ", pruned_terms=" + std::to_string(Stats.PrunedTerms) + ".");
-          }
-     }
-
      void FlushSAMInteractionSignals(const std::string &LogSource, bool Force)
      {
           if (!Instance || !Instance->Sam || !Instance->Sam->IsOpen())
@@ -463,7 +428,6 @@ class CoreSAMModule final : public AutoRuntimeModule<CoreSAMModule>
           }
 
           TriggerSAMAutoIndex("core_sam", true);
-          ImproveSAMAutomatically("core_sam");
      }
 
      void OnEveryOneMinute() override
@@ -472,7 +436,6 @@ class CoreSAMModule final : public AutoRuntimeModule<CoreSAMModule>
 
           FlushSAMInteractionSignals("core_sam", false);
           TriggerSAMAutoIndex("core_sam", false);
-          ImproveSAMAutomatically("core_sam");
      }
 
      void OnUpsertSynonym(const std::string& Collection,

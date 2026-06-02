@@ -45,7 +45,7 @@ struct RocksDBOptions
 
      /* Single write buffer size in bytes. */
 
-     size_t WriteBufferSize = 64 * 1024 * 1024; /* 64MB */
+     size_t WriteBufferSize = ROCKSDB_DEFAULT_WRITE_BUFFER_SIZE;
 
      /* Maximum number of write buffers. */
 

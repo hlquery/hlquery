@@ -59,6 +59,7 @@ ad.json
 
 # Vendored dependencies and large third-party sources
 vendor/**/node_modules/
+vendor/llama.cpp/
 
 # Generated docs/web dependencies
 node_modules/

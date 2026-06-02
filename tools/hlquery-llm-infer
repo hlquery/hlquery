@@ -2,6 +2,7 @@
 
 use strict;
 use warnings;
+use FindBin qw($Bin);
 use JSON::PP qw(decode_json encode_json);
 
 sub read_file_text {
@@ -23,14 +24,32 @@ sub trim {
     return $value;
 }
 
+sub find_executable {
+    my ($command) = @_;
+    return '' unless defined $command && $command ne '';
+
+    if ($command =~ m{/}) {
+        return -f $command && -x $command ? $command : '';
+    }
+
+    for my $directory (split /:/, $ENV{PATH} // '') {
+        $directory = '.' if $directory eq '';
+        my $candidate = "$directory/$command";
+        return $candidate if -f $candidate && -x $candidate;
+    }
+
+    return '';
+}
+
 sub compact_json {
-    my ($value) = @_;
+    my ($value, $max_length) = @_;
     return '{}' unless defined $value;
+    $max_length = 2400 unless defined $max_length;
 
     my $encoded = eval { encode_json($value) };
     return '{}' unless defined $encoded && $encoded ne '';
 
-    return length($encoded) > 2400 ? substr($encoded, 0, 2400) . '...' : $encoded;
+    return length($encoded) > $max_length ? substr($encoded, 0, $max_length) . '...' : $encoded;
 }
 
 sub build_prompt_text {
@@ -150,14 +169,14 @@ PROMPT
                     }
                 }
 
-                if (length($content) > 360) {
-                    $content = substr($content, 0, 360);
+                if (length($content) > 160) {
+                    $content = substr($content, 0, 160);
                 }
 
                 my $detail_text = join(' | ', @details);
 
-                if (length($detail_text) > 360) {
-                    $detail_text = substr($detail_text, 0, 360);
+                if (length($detail_text) > 160) {
+                    $detail_text = substr($detail_text, 0, 160);
                 }
 
                 push @candidate_lines, "Candidate $index: title=$title ; id=$id ; details=$detail_text ; content=$content";
@@ -166,6 +185,7 @@ PROMPT
         }
 
         my $candidate_text = join("\n", @candidate_lines);
+        my $search_collection_profile = compact_json($payload->{collection_profile}, 1200);
 
         return <<"PROMPT";
 You analyze one batch of candidate documents for a user search query.
@@ -206,7 +226,7 @@ Rules:
 - Prefer the narrowest useful interpretation. Broaden only when the query itself is exploratory.
 
 Collection: $collection
-Collection profile: $collection_profile
+Collection profile: $search_collection_profile
 Query: $query
 Candidates:
 $candidate_text
@@ -408,7 +428,13 @@ if (!$model) {
     die "HLQUERY_LLM_MODEL is required\n";
 }
 
-my $runner = $ENV{HLQUERY_LLM_RUNNER} // 'llama-cli';
+my $runner = $ENV{HLQUERY_LLM_RUNNER} // "$Bin/hlquery-llama-runner";
+
+if (find_executable($runner) eq '') {
+    print STDERR "HLQUERY_LLM_RUNNER executable not found: $runner. Run 'make llama-runtime-fetch' or set HLQUERY_LLM_RUNNER to a llama-cli path.\n";
+    exit 78;
+}
+
 my $mode = 'sam';
 my $limit = 6;
 my $payload_json = $payload_json_file ne '' ? read_file_text($payload_json_file)
@@ -493,7 +519,7 @@ if ($mode eq 'sam') {
 } elsif ($mode eq 'context') {
     $max_tokens = 320;
 } elsif ($mode eq 'anchors' || $mode eq 'search_intent') {
-    $max_tokens = 384;
+    $max_tokens = 192;
 }
 
 open my $fh, '-|',
@@ -559,6 +585,16 @@ if (!@results) {
 }
 
 if (!@results) {
+    if ($mode eq 'search_intent') {
+        print encode_json({
+            interpretation => '',
+            conclusion => '',
+            candidates => [],
+            ranked_terms => [],
+        }), "\n";
+        exit 0;
+    }
+
     exit 4;
 }
 

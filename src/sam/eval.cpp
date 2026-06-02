@@ -176,6 +176,11 @@ void RecomputeCalibrationSummary(nlohmann::json& Root)
 
      for (const auto& Event : Events)
      {
+          if (!Event.is_object())
+          {
+               continue;
+          }
+
           ++Calibration.Samples;
           Calibration.EmptyRatio += Event.value("empty", false) ? 1.0 : 0.0;
           Calibration.FallbackRatio += Event.value("fallback", false) ? 1.0 : 0.0;
@@ -335,6 +340,12 @@ bool CaptureLookupEvaluation(rocksdb::DB* Database,
 
           const std::string UsageKey = BuildTermUsageKey(Hit.DocumentID, Hit.MatchedTerm);
           nlohmann::json& Usage = Root["term_usage"][UsageKey];
+
+          if (!Usage.is_object())
+          {
+               Usage = nlohmann::json::object();
+          }
+
           Usage["hits"] = Usage.value("hits", 0U) + 1;
           Usage["last_used_ms"] = TimestampMS;
      }
@@ -348,7 +359,10 @@ bool CaptureLookupEvaluation(rocksdb::DB* Database,
 
           for (auto Iterator = Root["term_usage"].begin(); Iterator != Root["term_usage"].end(); ++Iterator)
           {
-               RankedUsage.emplace_back(Iterator.value().value("last_used_ms", 0ULL), Iterator.key());
+               const uint64_t LastUsedMS = Iterator.value().is_object()
+                    ? Iterator.value().value("last_used_ms", 0ULL)
+                    : 0ULL;
+               RankedUsage.emplace_back(LastUsedMS, Iterator.key());
           }
 
           std::sort(RankedUsage.begin(), RankedUsage.end());
@@ -427,7 +441,16 @@ bool PruneUnusedSAMTermsLocked(rocksdb::DB* Database,
           return false;
      }
 
-     const size_t Samples = State.value("summary", nlohmann::json::object()).value("samples", 0U);
+     if (!State.is_object())
+     {
+          State = nlohmann::json::object();
+     }
+
+     const nlohmann::json Summary =
+          State.contains("summary") && State["summary"].is_object()
+               ? State["summary"]
+               : nlohmann::json::object();
+     const size_t Samples = Summary.value("samples", 0U);
      constexpr size_t kMinEvaluationSamples = 48;
      constexpr size_t kProbationSamples = 32;
      constexpr size_t kMaxPrunedTermsPerPass = 64;
@@ -500,6 +523,7 @@ bool PruneUnusedSAMTermsLocked(rocksdb::DB* Database,
                Term.Signal = TermJSON.value("signal", 0.0);
                const std::string UsageKey = BuildTermUsageKey(Entry.DocumentID, Term.Text);
                const bool Used = TermUsage.contains(UsageKey) &&
+                                 TermUsage[UsageKey].is_object() &&
                                  TermUsage[UsageKey].value("hits", 0U) > 0;
 
                if (!IsPrunableGeneratedTerm(Term) || Used)
@@ -534,6 +558,12 @@ bool PruneUnusedSAMTermsLocked(rocksdb::DB* Database,
                }
 
                nlohmann::json& Review = TermReview[UsageKey];
+
+               if (!Review.is_object())
+               {
+                    Review = nlohmann::json::object();
+               }
+
                const size_t FirstSample = Review.value("first_sample", Samples);
                const size_t LastReviewSample = Review.value("last_review_sample", 0U);
 

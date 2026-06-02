@@ -130,6 +130,7 @@ static std::string NormalizeSynonymTerm(const std::string &Value)
 static std::string TrimSynonymTerm(const std::string &Value)
 {
      const size_t Start = Value.find_first_not_of(" \t\r\n");
+
      if (Start == std::string::npos)
      {
           return "";
@@ -170,6 +171,7 @@ static void AppendSAMAutoAliasValues(const std::string &RawValue,
      try
      {
           const nlohmann::json Parsed = nlohmann::json::parse(RawValue);
+
           if (Parsed.is_array())
           {
                for (const auto &Entry : Parsed)
@@ -179,6 +181,7 @@ static void AppendSAMAutoAliasValues(const std::string &RawValue,
                          Values.push_back(TrimSynonymTerm(Entry.get<std::string>()));
                     }
                }
+
                return;
           }
      }
@@ -195,6 +198,7 @@ static void AppendSAMAutoAliasValues(const std::string &RawValue,
                {
                     Values.push_back(TrimSynonymTerm(Current));
                }
+
                Current.clear();
                continue;
           }
@@ -211,6 +215,7 @@ static void AppendSAMAutoAliasValues(const std::string &RawValue,
 static std::string BuildSAMAutoSynonymID(const std::string &Root)
 {
      uint64_t Hash = 1469598103934665603ULL;
+
      for (unsigned char Ch : NormalizeSynonymTerm(Root))
      {
           Hash ^= static_cast<uint64_t>(Ch);
@@ -1138,13 +1143,13 @@ bool SearchAPI::ImproveSAMLexicalResources(const std::string &Collection,
      {
           *SynonymUpdates = 0;
      }
+
      if (StopwordUpdates)
      {
           *StopwordUpdates = 0;
      }
 
-     if (Collection.empty() || !Instance || !Instance->Config ||
-         !Instance->Config->GetSamAutoLexicalEnabled())
+     if (Collection.empty() || !Instance || !Instance->Config || !Instance->Config->GetSamAutoLexicalEnabled())
      {
           return true;
      }
@@ -1293,12 +1298,14 @@ bool SearchAPI::ImproveSAMLexicalResources(const std::string &Collection,
                }).dump();
 
                const HttpResponse Response = HandleCreateOrUpdateSynonym(Request);
+
                if (Response.StatusCode < 200 || Response.StatusCode >= 300)
                {
                     if (ErrorMessage)
                     {
                          *ErrorMessage = "Failed to persist SAM auto synonym group '" + ID + "'.";
                     }
+
                     return false;
                }
 
@@ -1393,6 +1400,7 @@ bool SearchAPI::ImproveSAMLexicalResources(const std::string &Collection,
                RemainingCapacity,
                static_cast<size_t>(Instance->Config->GetSamAutoStopwordMaxWordsPerPass()));
           nlohmann::json Words = nlohmann::json::array();
+
           for (size_t Index = 0; Index < Candidates.size() && Index < MaxUpdates; ++Index)
           {
                Words.push_back(Candidates[Index].first);

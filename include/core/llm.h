@@ -12,6 +12,7 @@
 
 #pragma once
 
+#include <atomic>
 #include <cstddef>
 #include <deque>
 #include <mutex>
@@ -159,6 +160,7 @@ class CoreExport llm
      std::string ModelName;
      std::string ModelPath;
      std::string InferenceCommand;
+     mutable std::atomic<bool> InferenceUnavailable{false};
 
      mutable std::mutex ContextMutex;
      mutable std::mutex InferenceMutex;

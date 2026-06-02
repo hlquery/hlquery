@@ -60,6 +60,7 @@ static std::string ToLowerCopy(const std::string &Value)
 static std::string GetHeaderValueInsensitive(const std::map<std::string, std::string> &Headers, const std::string &Name)
 {
      auto It = Headers.find(Name);
+
      if (It != Headers.end())
      {
           return It->second;
@@ -86,10 +87,12 @@ static std::string DurationToMillisecondsString(const std::chrono::steady_clock:
 static std::string TrimCopy(const std::string &Value)
 {
      size_t Start = Value.find_first_not_of(" \t\r\n");
+
      if (Start == std::string::npos)
      {
           return "";
      }
+
      size_t End = Value.find_last_not_of(" \t\r\n");
      return Value.substr(Start, End - Start + 1);
 }
@@ -311,6 +314,7 @@ static bool BuildConfiguredEndpoints(const std::vector<std::string> &ConfiguredN
           }
 
           bool Local = false;
+
           for (int BindPort : LocalPorts)
           {
                if (Port == BindPort)
@@ -776,12 +780,15 @@ static bool SendHttpRequest(const std::string &Host,
           {
                return;
           }
+
           std::lock_guard<std::mutex> Guard(PoolEntry->Mutex);
           PoolEntry->ConsecutiveFailures++;
+
           if (ReconnectMS > 0)
           {
                PoolEntry->NextReconnectAt = ::Now() + std::chrono::milliseconds(ReconnectMS);
           }
+
           ClosePersistentPeerSocket(*PoolEntry);
           PoolEntry->InUse = false;
           PoolEntry.reset();
@@ -795,6 +802,7 @@ static bool SendHttpRequest(const std::string &Host,
                return;
           }
           std::lock_guard<std::mutex> Guard(PoolEntry->Mutex);
+
           if (!KeepAlive)
           {
                ClosePersistentPeerSocket(*PoolEntry);
@@ -816,6 +824,7 @@ static bool SendHttpRequest(const std::string &Host,
           {
                PersistentBurst = 1;
           }
+
           if (PoolEntry->RequestsServed >= PersistentBurst)
           {
                ClosePersistentPeerSocket(*PoolEntry);
@@ -834,6 +843,7 @@ static bool SendHttpRequest(const std::string &Host,
                SSL_free(ActiveSSLObj);
                ActiveSSLObj = nullptr;
           }
+
           if (UseSSL && ActiveSSLCtx)
           {
                SSL_CTX_free(ActiveSSLCtx);
@@ -857,6 +867,7 @@ static bool SendHttpRequest(const std::string &Host,
      {
           int Attempts = (AutoReconnect ? 2 : 1);
           bool Connected = false;
+
           for (int Attempt = 0; Attempt < Attempts; ++Attempt)
           {
                if (OpenSocket(&Sock))
@@ -1324,6 +1335,7 @@ static void AppendHitsFromJSON(const nlohmann::json &JSONObj,
           }
 
           SearchHit Hit;
+
           if (HitVal.contains("document") && HitVal["document"].is_object())
           {
                for (auto DocIt = HitVal["document"].begin(); DocIt != HitVal["document"].end(); ++DocIt)

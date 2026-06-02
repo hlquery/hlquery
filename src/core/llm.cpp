@@ -445,6 +445,18 @@ static void LogLLMInferenceFailure(const std::string& Mode, const LLMInferenceRe
      Instance->Logs->Normal("llm", Message + ".");
 }
 
+static bool IsLLMInferenceUnavailable(const LLMInferenceResult& Result)
+{
+     if (Result.ExitCode == 78)
+     {
+          return true;
+     }
+
+     const std::string Stderr = ToLowerCopy(Result.Stderr);
+     return Stderr.find("symbol lookup error:") != std::string::npos ||
+          Stderr.find("error while loading shared libraries:") != std::string::npos;
+}
+
 static void LogLLMInferenceDebugTrace(const std::string& Mode,
                                       const nlohmann::json& Payload,
                                       const LLMInferenceResult& Result)
@@ -959,7 +971,8 @@ std::vector<llm::ContextSuggestion> llm::BuildDocumentContext(const std::string&
      }
 
      const std::string Title = TrimCopy(Doc.Title.empty() ? Doc.ID : Doc.Title);
-     const bool UseInference = Configured() && !InferenceCommand.empty();
+     const bool UseInference = Configured() && !InferenceCommand.empty() &&
+          !InferenceUnavailable.load();
      const size_t HeuristicLimit = UseInference ? std::max<size_t>(1, Limit / 2) : Limit;
 
      AppendSuggestion(Suggestions, Seen, Title, "title", HeuristicLimit);
@@ -998,6 +1011,19 @@ std::vector<llm::ContextSuggestion> llm::BuildDocumentContext(const std::string&
           AddPromptEnvelope(Payload, Collection, Doc, "context", Limit);
 
           std::lock_guard<std::mutex> Lock(InferenceMutex);
+
+          if (InferenceUnavailable.load())
+          {
+               ValidateDocumentContextSuggestions(Collection, Doc, Suggestions);
+
+               if (Suggestions.size() > Limit)
+               {
+                    Suggestions.resize(Limit);
+               }
+
+               return Suggestions;
+          }
+
           const LLMInferenceResult Result =
                RunLLMInferenceCommand(InferenceCommand, ModelPath, "context", Payload);
 
@@ -1062,6 +1088,7 @@ std::vector<llm::ContextSuggestion> llm::BuildDocumentContext(const std::string&
           else
           {
                LogLLMInferenceFailure("context", Result);
+               InferenceUnavailable.store(IsLLMInferenceUnavailable(Result));
           }
      }
 
@@ -1154,7 +1181,8 @@ std::vector<llm::AnchorSuggestion> llm::BuildDocumentAnchors(const std::string& 
           }
      }
 
-     if (Configured() && !InferenceCommand.empty() && Suggestions.size() < Limit)
+     if (Configured() && !InferenceCommand.empty() && !InferenceUnavailable.load() &&
+         Suggestions.size() < Limit)
      {
           nlohmann::json Payload;
           Payload["collection"] = Collection;
@@ -1166,12 +1194,20 @@ std::vector<llm::AnchorSuggestion> llm::BuildDocumentAnchors(const std::string& 
           AddPromptEnvelope(Payload, Collection, Doc, "anchors", Limit, Language);
 
           std::lock_guard<std::mutex> Lock(InferenceMutex);
+
+          if (InferenceUnavailable.load())
+          {
+               SortAnchorSuggestions(Suggestions);
+               return Suggestions;
+          }
+
           const LLMInferenceResult Result =
                RunLLMInferenceCommand(InferenceCommand, ModelPath, "anchors", Payload);
 
           if (Result.ExitCode != 0)
           {
                LogLLMInferenceFailure("anchors", Result);
+               InferenceUnavailable.store(IsLLMInferenceUnavailable(Result));
           }
 
           const std::string TrimmedOutput = TrimCopy(Result.Stdout);
@@ -1265,7 +1301,7 @@ llm::SearchIntentResolution llm::ResolveSearchIntent(const std::string& Collecti
      const SearchIntentResolution HeuristicResolution =
           BuildHeuristicSearchIntentResolution(Query, CandidateDocuments, Limit);
 
-     if (!Configured() || InferenceCommand.empty())
+     if (!Configured() || InferenceCommand.empty() || InferenceUnavailable.load())
      {
           return HeuristicResolution;
      }
@@ -1292,13 +1328,20 @@ llm::SearchIntentResolution llm::ResolveSearchIntent(const std::string& Collecti
      }
 
      std::lock_guard<std::mutex> Lock(InferenceMutex);
+
+     if (InferenceUnavailable.load())
+     {
+          return HeuristicResolution;
+     }
+
      const LLMInferenceResult Result =
           RunLLMInferenceCommand(InferenceCommand, ModelPath, "search_intent", Payload);
 
      if (Result.ExitCode != 0)
      {
           LogLLMInferenceFailure("search_intent", Result);
-          return {};
+          InferenceUnavailable.store(IsLLMInferenceUnavailable(Result));
+          return HeuristicResolution;
      }
 
      const std::string TrimmedOutput = TrimCopy(Result.Stdout);
@@ -1363,11 +1406,17 @@ llm::SearchIntentResolution llm::ResolveSearchIntent(const std::string& Collecti
 
           SortIntentCandidates(Parsed.Candidates);
           SortIntentCandidates(Parsed.RankedTerms);
+
+          if (Parsed.Candidates.empty() && Parsed.RankedTerms.empty())
+          {
+               return HeuristicResolution;
+          }
+
           return Parsed;
      }
      catch (...)
      {
-          return {};
+          return HeuristicResolution;
      }
 }
 
