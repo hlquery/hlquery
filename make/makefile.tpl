@@ -93,7 +93,11 @@ LLAMA_CPP_BUILD_DIR ?= $(LLAMA_CPP_DIR)/build
 LLAMA_CPP_REPOSITORY ?= https://github.com/ggml-org/llama.cpp.git
 LLAMA_CPP_ARCHIVE_URL ?= https://github.com/ggml-org/llama.cpp/archive/refs/heads/master.tar.gz
 LLAMA_CPP_JOBS ?= $(AUTO_BUILD_JOBS)
-LLAMA_CPP_LIB = $(LLAMA_CPP_BUILD_DIR)/bin/libllama.so
+LLAMA_CPP_SHARED_EXT := so
+ifeq ($(OS_NAME),Darwin)
+  LLAMA_CPP_SHARED_EXT := dylib
+endif
+LLAMA_CPP_LIB = $(LLAMA_CPP_BUILD_DIR)/bin/libllama.$(LLAMA_CPP_SHARED_EXT)
 LLAMA_CPP_INCLUDE = -isystem $(LLAMA_CPP_DIR)/include -isystem $(LLAMA_CPP_DIR)/ggml/include
 LLAMA_CPP_LDFLAGS = $(LLAMA_CPP_LIB) \
                     -Wl,-rpath,$(abspath $(LLAMA_CPP_BUILD_DIR)/bin)
@@ -498,11 +502,11 @@ llama-runtime: llama-runtime-fetch
 		exit 1; \
 	fi
 	@echo "$(CYAN)Building vendored llama.cpp...$(NC)"
-	@cmake -S $(LLAMA_CPP_DIR) -B $(LLAMA_CPP_BUILD_DIR) -DCMAKE_BUILD_TYPE=Release -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_EXAMPLES=OFF -DLLAMA_BUILD_TOOLS=OFF
+	@cmake -S $(LLAMA_CPP_DIR) -B $(LLAMA_CPP_BUILD_DIR) -DCMAKE_BUILD_TYPE=Release -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_EXAMPLES=OFF -DLLAMA_BUILD_TOOLS=OFF -DLLAMA_BUILD_APP=OFF -DLLAMA_BUILD_SERVER=OFF -DLLAMA_BUILD_UI=OFF -DLLAMA_BUILD_COMMON=OFF
 	@cmake --build $(LLAMA_CPP_BUILD_DIR) --target llama --parallel $(LLAMA_CPP_JOBS)
 
 llama-runtime-tools: llama-runtime-fetch
-	@cmake -S $(LLAMA_CPP_DIR) -B $(LLAMA_CPP_BUILD_DIR) -DCMAKE_BUILD_TYPE=Release -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_EXAMPLES=OFF -DLLAMA_BUILD_TOOLS=ON
+	@cmake -S $(LLAMA_CPP_DIR) -B $(LLAMA_CPP_BUILD_DIR) -DCMAKE_BUILD_TYPE=Release -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_EXAMPLES=OFF -DLLAMA_BUILD_TOOLS=ON -DLLAMA_BUILD_APP=OFF -DLLAMA_BUILD_SERVER=OFF -DLLAMA_BUILD_UI=OFF -DLLAMA_BUILD_COMMON=ON
 	@cmake --build $(LLAMA_CPP_BUILD_DIR) --target llama-completion --parallel $(LLAMA_CPP_JOBS)
 
 $(LLAMA_CPP_LIB): llama-runtime
