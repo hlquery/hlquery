@@ -1823,17 +1823,26 @@ bool FetchSAMDocumentIdAtPosition(HLQueryCLI &cli,
 
 /* Fetch collection names to support numeric selection in the REPL. */
 
-std::vector<std::string> FetchCollectionNames(HLQueryCLI &cli, int offset = 0, int limit = 1000)
+std::vector<std::string> FetchCollectionNames(HLQueryCLI &cli,
+                                              int offset = 0,
+                                              int limit = 1000,
+                                              std::string *error_message = nullptr)
 {
      std::vector<std::string> collection_names;
 
      std::string path = "/collections";
      path += "?offset=" + std::to_string(offset) + "&limit=" + std::to_string(limit) + "&names_only=1";
 
-     HLQueryCLI::HTTPResponse response = cli.MakeRequest("GET", path, "", 5);
+     HLQueryCLI::HTTPResponse response = cli.MakeRequest("GET", path);
 
      if (response.StatusCode != 200)
      {
+          if (error_message != nullptr)
+          {
+               *error_message = response.StatusCode == -1 ? TrimWhitespace(response.Body)
+                                                          : "HTTP " + std::to_string(response.StatusCode);
+          }
+
           return collection_names;
      }
 
@@ -1870,7 +1879,7 @@ bool FetchAndPrintCollectionList(HLQueryCLI &cli,
      path += "?offset=" + std::to_string(offset) + "&limit=" + std::to_string(limit) + "&names_only=1";
 
      TalkPrintInfo("Fetching collections");
-     HLQueryCLI::HTTPResponse response = cli.MakeRequest("GET", path, "", 5);
+     HLQueryCLI::HTTPResponse response = cli.MakeRequest("GET", path);
 
      if (response.StatusCode != 200)
      {
@@ -2399,11 +2408,17 @@ bool EnsureCachedCollectionNames(HLQueryCLI &cli,
 
      TalkPrintInfo("Resolving numeric collection reference '" + value + "'");
      TalkPrintInfo("Fetching collection list for reference lookup");
-     state.LastListedCollections = FetchCollectionNames(cli, 0, 1000);
+     std::string fetch_error;
+     state.LastListedCollections = FetchCollectionNames(cli, 0, 1000, &fetch_error);
 
      if (state.LastListedCollections.empty())
      {
           error_message = "Failed to fetch collections; cannot resolve numeric reference. Run 'ls' to retry or use a collection name.";
+          if (!fetch_error.empty())
+          {
+               error_message += " (" + fetch_error + ")";
+          }
+
           return false;
      }
 
