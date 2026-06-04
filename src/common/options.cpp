@@ -54,10 +54,12 @@ WatchMode ParseMode(const std::string& value)
      {
           return WatchMode::Auto;
      }
+
      if (value == "kernel" || value == "notify" || value == "notification" || value == "inotify")
      {
           return WatchMode::Kernel;
      }
+
      if (value == "poll" || value == "refresh" || value == "timer")
      {
           return WatchMode::Poll;
@@ -85,6 +87,7 @@ StartPosition ParseStartPosition(const std::string& value)
      {
           return StartPosition::Beginning;
      }
+
      if (value == "end" || value == "tail")
      {
           return StartPosition::End;

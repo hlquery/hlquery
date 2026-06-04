@@ -661,7 +661,7 @@ void HLQueryCLI::ShowLLMInfo()
           rows.push_back({"Model Name", root.value("model_name", std::string("")).empty() ? "-" : root.value("model_name", std::string(""))});
           rows.push_back({"Model Path", root.value("model_path", std::string("")).empty() ? "-" : root.value("model_path", std::string(""))});
           rows.push_back({"Models Dir", root.value("models_dir", std::string("")).empty() ? "-" : root.value("models_dir", std::string(""))});
-          rows.push_back({"Inference Cmd", root.value("inference_command", std::string("")).empty() ? "-" : root.value("inference_command", std::string(""))});
+          rows.push_back({"LLM Backend", root.value("backend", std::string("linked_libllama"))});
           rows.push_back({"Pending Context Jobs", std::to_string(root.value("pending_context_jobs", 0))});
 
           if (root.contains("loaded_modules") && root["loaded_modules"].is_array())

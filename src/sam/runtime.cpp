@@ -2785,9 +2785,12 @@ bool SAM::IndexDocumentLocked(const std::string& Collection,
           return false;
      }
 
-     // If a collection has not yet built a collection profile, avoid persisting
-     // large synthetic expansion terms (LLM/context/iterative) into the doc manifest.
-     // This keeps "ranked terms" from existing until the collection has been iterated.
+     /* 
+      * If a collection has not yet built a collection profile, avoid persisting
+      * large synthetic expansion terms (LLM/context/iterative) into the doc manifest.
+      * This keeps "ranked terms" from existing until the collection has been iterated.
+      */
+      
      bool HasCollectionProfile = false;
      {
           std::lock_guard<std::mutex> Lock(DBMutex);
@@ -2795,8 +2798,7 @@ bool SAM::IndexDocumentLocked(const std::string& Collection,
           if (Database)
           {
                std::string RawProfile;
-               const rocksdb::Status Status =
-                    Database->Get(rocksdb::ReadOptions(), BuildCollectionProfileKey(Collection), &RawProfile);
+               const rocksdb::Status Status = Database->Get(rocksdb::ReadOptions(), BuildCollectionProfileKey(Collection), &RawProfile);
                HasCollectionProfile = Status.ok() && !RawProfile.empty();
 
                if (HasCollectionProfile)
@@ -3346,6 +3348,7 @@ bool SAM::DeleteCollection(const std::string& Collection, std::string* ErrorMess
           std::unique_ptr<rocksdb::Iterator> QueueIterator(Database->NewIterator(rocksdb::ReadOptions()));
           const std::string QueuePrefix = std::string(kPendingIndexQueuePrefix) + Collection + std::string(1, '\0');
           std::vector<std::string> QueueKeysToDelete;
+         
           for (QueueIterator->Seek(QueuePrefix);
                QueueIterator->Valid() && QueueIterator->key().starts_with(QueuePrefix);
                QueueIterator->Next())
@@ -3356,10 +3359,12 @@ bool SAM::DeleteCollection(const std::string& Collection, std::string* ErrorMess
           if (!QueueKeysToDelete.empty())
           {
                rocksdb::WriteBatch Batch;
+         
                for (const auto& Key : QueueKeysToDelete)
                {
                     Batch.Delete(Key);
                }
+         
                (void)Database->Write(rocksdb::WriteOptions(), &Batch);
           }
 

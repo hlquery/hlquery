@@ -122,7 +122,7 @@ void ModuleManager::SetDemoModeState(bool Active, const std::string &Message)
 ModuleManager::~ModuleManager()
 {
      OnUnloadModules();
-     UnloadAll(nullptr);
+     UnloadAll();
 }
 
 bool ModuleManager::IsValidModuleName(const std::string &Name)
@@ -290,6 +290,7 @@ bool ModuleManager::LoadModule(const ServerConfig &Config,
           }
           catch (...)
           {
+
           }
 
           Module.reset();
@@ -320,6 +321,7 @@ bool ModuleManager::LoadModule(const ServerConfig &Config,
                }
                catch (...)
                {
+
                }
 
                Loaded.Instance.reset();
@@ -621,6 +623,7 @@ bool ModuleManager::LoadConfiguredModules(const ServerConfig &Config, LogManager
                     }
                     catch (...)
                     {
+             
                     }
 
                     It->Instance.reset();
@@ -899,7 +902,7 @@ void ModuleManager::OnUnloadModules()
 
 /* Removes the active module set and rebuilds empty hook registries before teardown. */
 
-void ModuleManager::UnloadAll(LogManager *Logger)
+void ModuleManager::UnloadAll()
 {
      std::vector<LoadedModule> ModulesToUnload;
 
@@ -927,11 +930,10 @@ bool ModuleManager::UnloadModule(const std::string &ModuleName, LogManager *Logg
      {
           std::unique_lock<std::shared_mutex> Lock(ModulesMutex);
 
-          auto It = std::find_if(Modules.begin(), Modules.end(),
-                                 [&](const LoadedModule &Loaded)
-                                 {
-                                      return Loaded.Name == ModuleName;
-                                 });
+          auto It = std::find_if(Modules.begin(), Modules.end(), [&](const LoadedModule &Loaded)
+          {
+                return Loaded.Name == ModuleName;
+          });
 
           if (It == Modules.end())
           {
@@ -985,6 +987,7 @@ void ModuleManager::UnloadModuleList(std::vector<LoadedModule> ModulesToUnload)
                }
                catch (...)
                {
+      
                }
 
                if (It->Instance.use_count() > 1)

@@ -184,6 +184,7 @@ inline bool ParseSharedNodeEndpoint(const std::string &Raw,
           {
                Host = Node.substr(0, ColonPos);
                std::string PortStr = Node.substr(ColonPos + 1);
+           
                if (PortStr.empty())
                {
                     if (!Options.AllowEmptyPort)

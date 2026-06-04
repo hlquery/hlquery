@@ -26,17 +26,5 @@ do
     fi
 done
 
-# Debian installs llama-cli and its matching llama library under /usr, but stale
-# ggml libraries under /usr/local can otherwise win during dynamic loading.
-if [ -x /usr/bin/llama-cli ] && [ -d /usr/lib/x86_64-linux-gnu ]; then
-    prepend_library_path /usr/lib/x86_64-linux-gnu/llama
-    prepend_library_path /usr/lib/x86_64-linux-gnu
-    exec /usr/bin/llama-cli --threads "$LLAMA_THREADS" --threads-batch "$LLAMA_THREADS" "$@"
-fi
-
-if command -v llama-cli >/dev/null 2>&1; then
-    exec llama-cli --threads "$LLAMA_THREADS" --threads-batch "$LLAMA_THREADS" "$@"
-fi
-
-echo "llama.cpp runner not found. Run 'make llama-runtime-fetch' or install llama-cli." >&2
+echo "vendored llama.cpp runtime not found. Run 'make llama-runtime-fetch && make llama-runtime'." >&2
 exit 78

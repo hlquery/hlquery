@@ -88,6 +88,14 @@ endif
 ROCKSDB_DIR ?= vendor/rocksdb
 ROCKSDB_BUILD_DIR ?= $(ROCKSDB_DIR)/build
 ROCKSDB_LIB = $(ROCKSDB_BUILD_DIR)/librocksdb.a
+LLAMA_CPP_DIR ?= vendor/llama.cpp
+LLAMA_CPP_BUILD_DIR ?= $(LLAMA_CPP_DIR)/build
+LLAMA_CPP_REPOSITORY ?= https://github.com/ggml-org/llama.cpp.git
+LLAMA_CPP_JOBS ?= $(AUTO_BUILD_JOBS)
+LLAMA_CPP_LIB = $(LLAMA_CPP_BUILD_DIR)/bin/libllama.so
+LLAMA_CPP_INCLUDE = -I$(LLAMA_CPP_DIR)/include
+LLAMA_CPP_LDFLAGS = $(LLAMA_CPP_LIB) \
+                    -Wl,-rpath,$(abspath $(LLAMA_CPP_BUILD_DIR)/bin)
 CPU_COUNT ?= $(shell nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 1)
 MEMORY_MB ?= $(shell if [ -r /proc/meminfo ]; then awk '/MemTotal/ {print int($$2 / 1024)}' /proc/meminfo; else bytes=$$(sysctl -n hw.memsize 2>/dev/null || echo 0); echo $$((bytes / 1024 / 1024)); fi)
 AUTO_BUILD_JOBS ?= $(shell cpu="$(CPU_COUNT)"; mem="$(MEMORY_MB)"; [ "$$cpu" -gt 0 ] 2>/dev/null || cpu=1; if [ "$$mem" -gt 0 ] 2>/dev/null; then mem_jobs=$$((mem / 1536)); [ "$$mem_jobs" -ge 1 ] || mem_jobs=1; [ "$$cpu" -le "$$mem_jobs" ] && echo "$$cpu" || echo "$$mem_jobs"; else echo "$$cpu"; fi)
@@ -103,7 +111,7 @@ SECURITY_FLAGS = -fstack-protector-strong
 ROCKSDB_DEFINES = -DROCKSDB_NAMESPACE=rocksdb
 CONFIGURE_CXXFLAGS = -std=c++17 -O2 -fPIC ${TLS_CFLAGS} $(CPPFLAGS)
 CONFIGURE_CFLAGS = -std=c11 -O2 -fPIC ${TLS_CFLAGS} $(CPPFLAGS)
-BASE_CXXFLAGS = $(CONFIGURE_CXXFLAGS) -Iinclude -Iinclude/common -I. -Isrc -Ivendor -Ibuild/include $(ROCKSDB_INCLUDE) $(ROCKSDB_DEFINES) -std=c++20 -fPIC -pipe $(SECURITY_FLAGS)
+BASE_CXXFLAGS = $(CONFIGURE_CXXFLAGS) -Iinclude -Iinclude/common -I. -Isrc -Ivendor -Ibuild/include $(ROCKSDB_INCLUDE) $(LLAMA_CPP_INCLUDE) $(ROCKSDB_DEFINES) -std=c++20 -fPIC -pipe $(SECURITY_FLAGS)
 BASE_CFLAGS = $(CONFIGURE_CFLAGS) -Iinclude -Iinclude/common -I. -Isrc -Ivendor -Ibuild/include $(ROCKSDB_INCLUDE) -fPIC -pipe $(SECURITY_FLAGS)
 
 # Warning flags - comprehensive set for better code quality
@@ -403,7 +411,7 @@ ALL_OBJS = $(REGULAR_ALL_OBJS) $(HTTP_OBJS)
 
 # BUILD TARGETS
 
-prepare: rocksdb-check rocksdb-preflight binary-compat-check $(ROCKSDB_LIB) prune-disabled-extra-modules
+prepare: rocksdb-check rocksdb-preflight binary-compat-check $(ROCKSDB_LIB) llama-runtime prune-disabled-extra-modules
 	@mkdir -p $(OBJ_DIR) $(BIN_DIR)
 	@mkdir -p $(OBJ_DIR)/core $(OBJ_DIR)/runtime $(OBJ_DIR)/utils $(OBJ_DIR)/api $(OBJ_DIR)/search $(OBJ_DIR)/sql $(OBJ_DIR)/socketengines $(OBJ_DIR)/timers $(OBJ_DIR)/cli $(OBJ_DIR)/talk $(OBJ_DIR)/modules $(OBJ_DIR)/vendor/fmt $(OBJ_DIR)/vendor/sha2 $(OBJ_DIR)/vendor/md5
 	@mkdir -p $(RUN_DIR)/bin $(RUN_DIR)/conf $(RUN_DIR)/data $(RUN_DIR)/logs $(RUN_DIR)/modules $(RUN_DIR)/pid
@@ -441,6 +449,50 @@ rocksdb-preflight:
 		echo "$(RED)Error: RocksDB headers not found$(NC)" >&2; \
 		echo "$(YELLOW)Expected vendored headers under $(ROCKSDB_DIR)/include/rocksdb$(NC)" >&2; \
 		echo "$(YELLOW)Or install system-wide RocksDB headers (example: sudo apt-get install librocksdb-dev)$(NC)" >&2; \
+		exit 1; \
+	fi
+
+llama-runtime-fetch:
+	@if [ -d "$(LLAMA_CPP_DIR)/.git" ]; then \
+		echo "$(CYAN)llama.cpp already present at $(LLAMA_CPP_DIR)$(NC)"; \
+	elif [ -d "$(LLAMA_CPP_DIR)" ] && [ -n "$$(ls -A "$(LLAMA_CPP_DIR)" 2>/dev/null)" ]; then \
+		echo "$(RED)Error: $(LLAMA_CPP_DIR) exists but is not a git checkout$(NC)" >&2; \
+		echo "$(YELLOW)Remove it or point LLAMA_CPP_DIR at an empty path before fetching$(NC)" >&2; \
+		exit 1; \
+	else \
+		if ! command -v git >/dev/null 2>&1; then \
+			echo "$(RED)Error: git is required to fetch llama.cpp$(NC)" >&2; \
+			exit 1; \
+		fi; \
+		git clone "$(LLAMA_CPP_REPOSITORY)" "$(LLAMA_CPP_DIR)"; \
+	fi
+
+llama-runtime: llama-runtime-fetch
+	@if [ ! -f "$(LLAMA_CPP_DIR)/CMakeLists.txt" ]; then \
+		echo "$(RED)Error: llama.cpp source not found at $(LLAMA_CPP_DIR)$(NC)" >&2; \
+		exit 1; \
+	fi
+	@if ! command -v cmake >/dev/null 2>&1; then \
+		echo "$(RED)Error: cmake is required to build vendored llama.cpp$(NC)" >&2; \
+		exit 1; \
+	fi
+	@echo "$(CYAN)Building vendored llama.cpp...$(NC)"
+	@cmake -S $(LLAMA_CPP_DIR) -B $(LLAMA_CPP_BUILD_DIR) -DCMAKE_BUILD_TYPE=Release -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_EXAMPLES=OFF -DLLAMA_BUILD_TOOLS=OFF
+	@cmake --build $(LLAMA_CPP_BUILD_DIR) --target llama --parallel $(LLAMA_CPP_JOBS)
+
+llama-runtime-tools: llama-runtime-fetch
+	@cmake -S $(LLAMA_CPP_DIR) -B $(LLAMA_CPP_BUILD_DIR) -DCMAKE_BUILD_TYPE=Release -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_EXAMPLES=OFF -DLLAMA_BUILD_TOOLS=ON
+	@cmake --build $(LLAMA_CPP_BUILD_DIR) --target llama-completion --parallel $(LLAMA_CPP_JOBS)
+
+$(LLAMA_CPP_LIB): llama-runtime
+	@test -f "$@"
+
+llama-runtime-check:
+	@if [ -f "$(LLAMA_CPP_LIB)" ]; then \
+		echo "$(GREEN)✓ vendored libllama runtime present$(NC)"; \
+	else \
+		echo "$(RED)Error: vendored llama.cpp runtime is missing$(NC)" >&2; \
+		echo "$(YELLOW)Run '$(MAKE) llama-runtime-fetch && $(MAKE) llama-runtime'$(NC)" >&2; \
 		exit 1; \
 	fi
 
@@ -624,7 +676,7 @@ $(OBJ_DIR)/vendor/md5/md5.o: $(VENDOR_DIR)/md5/md5.c | $(OBJ_DIR)
 
 -include $(DEPS)
 
-.PHONY: all prepare rocksdb-check rocksdb-preflight binary-compat-check prune-disabled-extra-modules clean install uninstall debug create_ssl help build-info synonyms-sync synonyms-check package package-all package-deb package-rpm
+.PHONY: all prepare rocksdb-check rocksdb-preflight binary-compat-check llama-runtime-fetch llama-runtime llama-runtime-tools llama-runtime-check prune-disabled-extra-modules clean install uninstall debug create_ssl help build-info synonyms-sync synonyms-check package package-all package-deb package-rpm
 
 prune-disabled-extra-modules:
 	@mkdir -p $(RUN_DIR)/modules
@@ -673,7 +725,6 @@ clean:
 	@find $(VENDOR_DIR) -name "*.d" -exec chmod u+w {} \; -delete 2>/dev/null || true
 	@find $(VENDOR_DIR) -name "CMakeCache.txt" -exec chmod u+w {} \; -delete 2>/dev/null || true
 	@find $(VENDOR_DIR) -name "CMakeFiles" -type d -exec sh -c 'chmod -R u+w "{}" 2>/dev/null || true; chown -R $$(id -u):$$(id -g) "{}" 2>/dev/null || true; rm -rf "{}"' \; 2>/dev/null || true
-	@find $(VENDOR_DIR) -name "Makefile" -not -path "*/\.*" -exec chmod u+w {} \; -delete 2>/dev/null || true
 	@rm -f ./Makefile 2>/dev/null || true
 
 clean-all: clean
@@ -812,13 +863,13 @@ synonyms-check:
 # Explicitly depend on ALL_OBJS and ROCKSDB_LIB to ensure proper dependency tracking
 # This prevents the linker from starting before all object files are compiled AND RocksDB is built
 # Note: ALL_OBJS includes REGULAR_OBJS, HTTP_OBJS, FMT_OBJ, SHA2_OBJ, MD5_OBJ, CLD2_OBJS
-$(BIN_DIR)/hlquery: $(REGULAR_OBJS) $(HTTP_OBJS) $(FMT_OBJ) $(SHA2_OBJ) $(MD5_OBJ) $(CLD2_OBJS) | $(ROCKSDB_LIB)
+$(BIN_DIR)/hlquery: $(REGULAR_OBJS) $(HTTP_OBJS) $(FMT_OBJ) $(SHA2_OBJ) $(MD5_OBJ) $(CLD2_OBJS) | $(ROCKSDB_LIB) $(LLAMA_CPP_LIB)
 	@mkdir -p $(BIN_DIR)
 	@echo "$(CYAN)Linking hlquery...$(NC)"
 	$(CXX) $(CXXFLAGS) \
 		$(sort $(REGULAR_OBJS) $(HTTP_OBJS) $(FMT_OBJ) $(SHA2_OBJ) $(MD5_OBJ) $(CLD2_OBJS)) \
 		-o $@ \
-		$(LDFLAGS) $(RDYNAMIC)
+		$(LDFLAGS) $(LLAMA_CPP_LDFLAGS) $(RDYNAMIC)
 
 # CLI support objects shared by the CLI and benchmark binaries
 CLI_SUPPORT_OBJS := $(OBJ_DIR)/cli/cliutils.o \

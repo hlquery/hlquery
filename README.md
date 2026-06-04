@@ -296,15 +296,6 @@ $ ./tools/download --model qwen_1_5
 
 `tools/download` stores model files under `run/models` by default. The shipped Qwen presets include `qwen_0_5`, `qwen_1_5`, `qwen_3`, `qwen_14`, and `qwen_coder_1_5`; the `model_name` in `sam.conf` should match the preset you download.
 
-The GGUF file under `run/models` is model data, so SAM+ also needs a local inference runtime. To fetch and build a repo-local `llama.cpp` runtime:
-
-```bash
-$ make llama-runtime-fetch
-$ make llama-runtime-check
-```
-
-SAM+ prefers that vendored runtime automatically. It starts a process for each inference request and defaults to two CPU threads so background work does not starve HTTP handling. Set `HLQUERY_LLAMA_THREADS` to tune that limit. Use `qwen_1_5` or `qwen_0_5` for low-latency local development; `qwen_14` reloads a substantially larger model each time.
-
 ---
 
 **SQL example:**

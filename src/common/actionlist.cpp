@@ -36,9 +36,7 @@ class ProcessingGuard
 
      /* Attempt to acquire the processing flag for the current scope. */
 
-     explicit ProcessingGuard(std::atomic<bool> &flag)
-     :
-          Flag(flag)
+     explicit ProcessingGuard(std::atomic<bool> &flag) : Flag(flag)
      {
           bool expected = false;
 

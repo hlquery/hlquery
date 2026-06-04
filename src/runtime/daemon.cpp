@@ -33,11 +33,11 @@
 #include "common/actionlist.h"
 #include "common/searchpool.h"
 #include "core/config.h"
+#include "core/helpers.h"
 #include "runtime/daemon.h"
 #include "runtime/exitmanager.h"
 #include "core/hlquery.h"
 #include "core/socketengine.h"
-#include "core/typedefs.h"
 #include "search/cstore.h"
 #include "sam/sam.h"
 #include "search/storageengine.h"
@@ -1616,6 +1616,7 @@ bool hlquery::Daemonize()
           {
                DaemonSyncPipe[0] = -1;
                DaemonSyncPipe[1] = -1;
+
                return false;
           }
 
@@ -1647,11 +1648,8 @@ bool hlquery::Daemonize()
 
                close(DaemonSyncPipe[0]);
                DaemonSyncPipe[0] = -1;
-
                print_ok("Now detaching.");
-
                newline();
-
                fflush(stdout);
                ExitManager::EmergencyExit(0);
           }
@@ -1665,11 +1663,8 @@ bool hlquery::Daemonize()
                if (DaemonSyncPipe[1] >= 0)
                {
                     ssize_t ErrorWriteResult = write(DaemonSyncPipe[1], "E", 1);
-
                     (void)ErrorWriteResult;
-
                     close(DaemonSyncPipe[1]);
-
                     DaemonSyncPipe[1] = -1;
                }
 
@@ -1685,11 +1680,8 @@ bool hlquery::Daemonize()
                if (DaemonSyncPipe[1] >= 0)
                {
                     ssize_t ErrorWriteResultFinal = write(DaemonSyncPipe[1], "E", 1);
-
                     (void)ErrorWriteResultFinal;
-
                     close(DaemonSyncPipe[1]);
-
                     DaemonSyncPipe[1] = -1;
                }
 
@@ -1705,7 +1697,6 @@ bool hlquery::Daemonize()
           /* The daemon should not pin the caller's working directory after detach. */
 
           (void)ChdirResultValueVal;
-
           return true;
      }
      catch (const std::exception &)
@@ -1713,7 +1704,6 @@ bool hlquery::Daemonize()
           if (DaemonSyncPipe[1] >= 0)
           {
                close(DaemonSyncPipe[1]);
-
                DaemonSyncPipe[1] = -1;
           }
 
@@ -1809,7 +1799,7 @@ void hlquery::Cleanup()
                try
                {
                     Instance->Modules->OnUnloadModules();
-                    Instance->Modules->UnloadAll(Instance->Logs.get());
+                    Instance->Modules->UnloadAll();
                }
                catch (...)
                {
@@ -1830,7 +1820,7 @@ void hlquery::Cleanup()
 
      if (Instance)
      {
-          LogCleanupStage("stopping http servers");
+          LogCleanupStage("Stopping http servers");
 
           for (auto *server : Instance->HTTPServers)
           {

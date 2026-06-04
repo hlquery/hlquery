@@ -539,11 +539,6 @@ class ServerConfig
          return AIModelName;
     }
 
-    const std::string& GetAIInferenceCommand() const
-    {
-         return AIInferenceCommand;
-    }
-
     bool GetAIEnabled() const
     {
          return AIEnabled;
@@ -2200,10 +2195,6 @@ class ServerConfig
      /* Filesystem path to the active AI model. */
 
      std::string AIModelPath;
-
-     /* Command used to run external AI inference. */
-
-     std::string AIInferenceCommand;
 
      /* Catalog of AI model presets available to the server. */
 

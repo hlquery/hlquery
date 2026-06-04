@@ -34,7 +34,7 @@
 
 #include "cli/app.h"
 #include "cli/cliutils.h"
-#include "core/typedefs.h"
+#include "core/helpers.h"
 #include "talk/session.h"
 #include "vendor/json/json.hpp"
 
@@ -1373,6 +1373,132 @@ std::vector<std::string> FetchDocumentIds(HLQueryCLI &cli, const std::string &co
      return document_ids;
 }
 
+bool FetchAndPrintDocumentList(HLQueryCLI &cli,
+                               TalkState &state,
+                               const std::string &collection_name,
+                               int offset,
+                               int limit)
+{
+     state.LastListedDocumentIds.clear();
+
+     if (collection_name.empty())
+     {
+          TalkPrintError("Collection name is required");
+          return false;
+     }
+
+     std::string path = "/collections/" + hlquery_cli::UrlEncode(collection_name) + "/documents";
+     path += "?offset=" + std::to_string(offset) + "&limit=" + std::to_string(limit);
+
+     TalkPrintInfo("Fetching documents for '" + collection_name + "'");
+     HLQueryCLI::HTTPResponse response = cli.MakeRequest("GET", path);
+
+     if (response.StatusCode == 404)
+     {
+          TalkPrintError("Collection not found: " + collection_name);
+          return false;
+     }
+
+     if (response.StatusCode != 200)
+     {
+          TalkPrintError("Failed to list documents for collection '" + collection_name + "'");
+          return false;
+     }
+
+     try
+     {
+          nlohmann::json root = nlohmann::json::parse(response.Body);
+
+          if (!root.contains("documents") || !root["documents"].is_array())
+          {
+               TalkPrintError("Invalid documents data");
+               return false;
+          }
+
+          const nlohmann::json &documents = root["documents"];
+          const size_t display_count = documents.size();
+          size_t total_count = display_count;
+
+          if (root.contains("total") && root["total"].is_number_unsigned())
+          {
+               total_count = root["total"].get<size_t>();
+          }
+          else if (root.contains("total") && root["total"].is_number_integer())
+          {
+               total_count = static_cast<size_t>(std::max<long long>(0, root["total"].get<long long>()));
+          }
+
+          if (display_count == 0)
+          {
+               TalkPrintInfo("No documents found in collection '" + collection_name + "'");
+               return true;
+          }
+
+          std::cout << "Found " << display_count << " document(s)";
+
+          if (offset > 0 || static_cast<size_t>(limit) != display_count)
+          {
+               std::cout << " (showing " << (offset + 1) << "-" << (offset + display_count) << " of " << total_count << ").";
+          }
+          else if (total_count > display_count)
+          {
+               std::cout << " (showing first " << display_count << " of " << total_count << ").";
+          }
+
+          std::cout << " in collection '" << collection_name << "':\n\n";
+
+          std::vector<std::vector<std::string>> rows;
+          rows.reserve(display_count);
+
+          for (size_t index = 0; index < display_count; ++index)
+          {
+               const nlohmann::json &document = documents[index];
+
+               if (!document.contains("id") || !document["id"].is_string())
+               {
+                    continue;
+               }
+
+               int field_count = 0;
+
+               for (const auto &entry : document.items())
+               {
+                    const std::string &key = entry.key();
+                    const nlohmann::json &value = entry.value();
+
+                    if (key == "id" || key == "score" || key == "timestamp" || key == "collection_id")
+                    {
+                         continue;
+                    }
+
+                    if (value.is_null())
+                    {
+                         continue;
+                    }
+
+                    if (value.is_string() && value.get<std::string>().empty())
+                    {
+                         continue;
+                    }
+
+                    ++field_count;
+               }
+
+               const std::string document_id = document["id"].get<std::string>();
+               state.LastListedDocumentIds.push_back(document_id);
+               rows.push_back({std::to_string(index + 1), document_id, std::to_string(field_count) + " fields"});
+          }
+
+          cli.PrintTable({"#", "Document ID", "Fields"}, rows);
+          return true;
+     }
+     catch (const std::exception &)
+     {
+          TalkPrintError("Failed to parse documents response");
+          return false;
+     }
+}
+
 std::vector<std::string> FetchSAMDocumentIds(HLQueryCLI &cli, const std::string &collection_name, int offset = 0, int limit = 1000)
 {
      std::vector<std::string> document_ids;
@@ -1733,6 +1859,106 @@ std::vector<std::string> FetchCollectionNames(HLQueryCLI &cli, int offset = 0, i
      }
 
      return collection_names;
+}
+
+bool FetchAndPrintCollectionList(HLQueryCLI &cli,
+                                 TalkState &state,
+                                 int offset,
+                                 int limit)
+{
+     std::string path = "/collections";
+     path += "?offset=" + std::to_string(offset) + "&limit=" + std::to_string(limit);
+
+     TalkPrintInfo("Fetching collections");
+     HLQueryCLI::HTTPResponse response = cli.MakeRequest("GET", path);
+
+     if (response.StatusCode != 200)
+     {
+          TalkPrintError("Failed to fetch collections");
+          return false;
+     }
+
+     try
+     {
+          nlohmann::json root = nlohmann::json::parse(response.Body);
+
+          if (!root.contains("collections") || !root["collections"].is_array())
+          {
+               TalkPrintError("Invalid collections data");
+               return false;
+          }
+
+          const nlohmann::json &collections = root["collections"];
+          const size_t display_count = collections.size();
+          const size_t total_count = root.contains("total") && root["total"].is_number_unsigned()
+                                      ? root["total"].get<size_t>()
+                                      : display_count;
+          const size_t found_count = root.contains("found") && root["found"].is_number_unsigned()
+                                      ? root["found"].get<size_t>()
+                                      : display_count;
+
+          state.LastListedCollections.clear();
+          state.LastListedDocumentIds.clear();
+
+          if (display_count == 0)
+          {
+               TalkPrintInfo("No collections found");
+               return true;
+          }
+
+          if (root.contains("total"))
+          {
+               std::cout << "Showing " << display_count << " out of " << found_count << " matched collection(s) (total " << total_count << " in system).";
+          }
+          else
+          {
+               std::cout << "Found " << display_count << " collection(s).";
+          }
+
+          if (offset > 0)
+          {
+               std::cout << " (from offset " << offset << ").";
+          }
+
+          if (display_count < found_count || (display_count == 1000 && limit >= 1000))
+          {
+               std::cout << "\nNote: More collections available. Use 'ls <offset> <limit>' to see more.";
+          }
+
+          std::cout << ":\n\n";
+
+          std::vector<std::vector<std::string>> rows;
+          rows.reserve(display_count);
+
+          for (size_t index = 0; index < display_count; ++index)
+          {
+               const nlohmann::json &collection = collections[index];
+
+               if (!collection.contains("name") || !collection["name"].is_string())
+               {
+                    continue;
+               }
+
+               const std::string collection_name = collection["name"].get<std::string>();
+               int document_count = 0;
+
+               if (collection.contains("num_documents") && collection["num_documents"].is_number_integer())
+               {
+                    document_count = collection["num_documents"].get<int>();
+               }
+
+               state.LastListedCollections.push_back(collection_name);
+               rows.push_back({std::to_string(offset + index + 1), collection_name, std::to_string(document_count) + " docs"});
+          }
+
+          cli.PrintTable({"#", "Collection Name", "Documents"}, rows);
+          return true;
+     }
+     catch (const std::exception &)
+     {
+          TalkPrintError("Failed to parse collections response");
+          return false;
+     }
 }
 
 /* Fetch collection names from a collection-name search result page. */
@@ -2166,6 +2392,8 @@ bool EnsureCachedCollectionNames(HLQueryCLI &cli,
           return true;
      }
 
+     TalkPrintInfo("Resolving numeric collection reference '" + value + "'");
+     TalkPrintInfo("Fetching collection list for reference lookup");
      state.LastListedCollections = FetchCollectionNames(cli, 0, 1000);
 
      if (state.LastListedCollections.empty())
@@ -3039,6 +3267,7 @@ bool ExecuteTalkCommand(const std::string &line,
           }
 
           const std::string collection_name = parts[1];
+          TalkPrintInfo("Selecting collection '" + collection_name + "'");
 
           std::string resolved_collection_name;
           std::string error_message;
@@ -3055,6 +3284,7 @@ bool ExecuteTalkCommand(const std::string &line,
                return true;
           }
 
+          TalkPrintInfo("Verifying collection '" + resolved_collection_name + "'");
           if (!cli.CollectionExists(resolved_collection_name))
           {
                std::string alias_collection;
@@ -3335,8 +3565,7 @@ bool ExecuteTalkCommand(const std::string &line,
                     return true;
                }
 
-               state.LastListedDocumentIds = FetchDocumentIds(cli, collection_name, offset, limit);
-               cli.ListDocuments(collection_name, offset, limit);
+               FetchAndPrintDocumentList(cli, state, collection_name, offset, limit);
                return true;
           }
 
@@ -3348,14 +3577,11 @@ bool ExecuteTalkCommand(const std::string &line,
 
           if (state.CurrentCollection.empty())
           {
-               state.LastListedCollections = FetchCollectionNames(cli, offset, limit);
-               state.LastListedDocumentIds.clear();
-               cli.ListCollections(offset, limit);
+               FetchAndPrintCollectionList(cli, state, offset, limit);
                return true;
           }
 
-          state.LastListedDocumentIds = FetchDocumentIds(cli, state.CurrentCollection, offset, limit);
-          cli.ListDocuments(state.CurrentCollection, offset, limit);
+          FetchAndPrintDocumentList(cli, state, state.CurrentCollection, offset, limit);
           return true;
      }
 
@@ -3390,9 +3616,7 @@ bool ExecuteTalkCommand(const std::string &line,
                return true;
           }
 
-          state.LastListedCollections = FetchCollectionNames(cli, offset, limit);
-          state.LastListedDocumentIds.clear();
-          cli.ListCollections(offset, limit);
+          FetchAndPrintCollectionList(cli, state, offset, limit);
           return true;
      }
 

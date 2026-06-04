@@ -337,7 +337,7 @@ class ModuleManager
       * Active registries are cleared before native handles are retired.
       */
 
-     void UnloadAll(LogManager* Logger);
+     void UnloadAll();
 
      /* 
       * Finds a loaded module by name.

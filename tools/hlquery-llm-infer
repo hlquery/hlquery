@@ -431,7 +431,7 @@ if (!$model) {
 my $runner = $ENV{HLQUERY_LLM_RUNNER} // "$Bin/hlquery-llama-runner";
 
 if (find_executable($runner) eq '') {
-    print STDERR "HLQUERY_LLM_RUNNER executable not found: $runner. Run 'make llama-runtime-fetch' or set HLQUERY_LLM_RUNNER to a llama-cli path.\n";
+    print STDERR "HLQUERY_LLM_RUNNER executable not found: $runner. Run 'make llama-runtime-fetch && make llama-runtime' or set HLQUERY_LLM_RUNNER to the vendored runner.\n";
     exit 78;
 }
 

@@ -211,6 +211,7 @@ HttpResponse SearchAPI::HandleCreateUser(const HttpRequest &Request)
      }
 
      json Body;
+
      try
      {
           Body = json::parse(Request.Body.empty() ? "{}" : Request.Body);
@@ -279,6 +280,7 @@ HttpResponse SearchAPI::HandleCreateUser(const HttpRequest &Request)
      }
 
      std::string Description = "";
+
      if (Body.contains("description") && Body["description"].is_string())
      {
           Description = Body["description"].get<std::string>();
@@ -422,6 +424,7 @@ HttpResponse SearchAPI::HandleUpdateUser(const HttpRequest &Request)
      }
 
      std::string ErrorMsg;
+
      if (Body.contains("flags"))
      {
           auto Flags = ParseFlags(Body["flags"], ErrorMsg);
@@ -429,6 +432,7 @@ HttpResponse SearchAPI::HandleUpdateUser(const HttpRequest &Request)
           {
                return MakeJSONResponse(400, "Bad Request", "{\"error\":\"" + ErrorMsg + "\"}");
           }
+
           Updated.Flags = Flags;
      }
 

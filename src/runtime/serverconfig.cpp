@@ -26,9 +26,13 @@
 #include "runtime/exitmanager.h"
 
 #if __has_include("core/hlcore.h")
-#include "core/hlcore.h"
+     
+     #include "core/hlcore.h"
+     
 #else
-#include "core/hlquery.h"
+
+     #include "core/hlquery.h"
+     
 #endif
 
 #include "core/logmanager.h"
@@ -356,7 +360,6 @@ void ServerConfig::ApplyConfiguration()
                  Tag->HasAttribute("model_path") ||
                  Tag->HasAttribute("model_file") ||
                  Tag->HasAttribute("auto_find") ||
-                 Tag->HasAttribute("inference_command") ||
                  Tag->HasAttribute("relative");
      };
 
@@ -368,7 +371,6 @@ void ServerConfig::ApplyConfiguration()
           ModelPathOverride = AITag->GetString("model_path", "");
           ModelFileOverride = AITag->GetString("model_file", ModelFileOverride);
           AutoFindModel = AITag->GetBool("auto_find", AutoFindModel);
-          AIInferenceCommand = AITag->GetString("inference_command", AIInferenceCommand);
           SamEnabled = AITag->GetBool("sam_enabled", SamEnabled);
           ResolveLLMPathsRelativeToConfig = AITag->GetBool("relative", ResolveLLMPathsRelativeToConfig);
      }
@@ -390,7 +392,6 @@ void ServerConfig::ApplyConfiguration()
           }
 
           AutoFindModel = LLMTag->GetBool("auto_find", AutoFindModel);
-          AIInferenceCommand = LLMTag->GetString("inference_command", AIInferenceCommand);
           ResolveLLMPathsRelativeToConfig = LLMTag->GetBool("relative", ResolveLLMPathsRelativeToConfig);
      }
 
@@ -415,7 +416,6 @@ void ServerConfig::ApplyConfiguration()
                }
 
                AutoFindModel = SAMTag->GetBool("auto_find", AutoFindModel);
-               AIInferenceCommand = SAMTag->GetString("inference_command", AIInferenceCommand);
                ResolveLLMPathsRelativeToConfig = SAMTag->GetBool("relative", ResolveLLMPathsRelativeToConfig);
           }
 
@@ -785,48 +785,6 @@ void ServerConfig::ApplyConfiguration()
          return Candidates.front().string();
     };
 
-    auto ResolveBundledInferenceCommand = [&]() -> std::string
-    {
-         if (ConfigDirectory.empty())
-         {
-              return "";
-         }
-
-         std::error_code Ec;
-         std::filesystem::path Base = std::filesystem::path(ConfigDirectory);
-
-         if (Base.filename() == "conf")
-         {
-              Base = Base.parent_path();
-         }
-
-         if (Base.filename() == "run")
-         {
-              std::filesystem::path RepoRoot = Base.parent_path();
-
-              if (!RepoRoot.empty())
-              {
-                   const std::filesystem::path LocalBundledCommand = RepoRoot / "tools" / "hlquery-llm-infer";
-                   const std::filesystem::path ParentBundledCommand = RepoRoot.parent_path() / "tools" / "hlquery-llm-infer";
-
-                   if (!std::filesystem::exists(LocalBundledCommand) &&
-                       std::filesystem::exists(ParentBundledCommand))
-                   {
-                        RepoRoot = RepoRoot.parent_path();
-                   }
-              }
-
-              const std::filesystem::path Candidate = std::filesystem::absolute(RepoRoot / "tools" / "hlquery-llm-infer", Ec);
-
-              if (!Ec && std::filesystem::exists(Candidate))
-              {
-                   return Candidate.string();
-              }
-         }
-
-         return "";
-    };
-
     auto PickDefaultModel = [&]() -> std::string
     {
          if (AIModelCatalog.empty())
@@ -912,38 +870,6 @@ void ServerConfig::ApplyConfiguration()
          AIModelPath.clear();
     }
 
-    if (AIEnabled && !AIInferenceCommand.empty())
-    {
-         AIInferenceCommand = ResolveRelativePath(std::filesystem::path(AIInferenceCommand)).string();
-
-         std::error_code CommandEC;
-
-         if ((!std::filesystem::exists(AIInferenceCommand, CommandEC) ||
-              std::filesystem::is_directory(AIInferenceCommand, CommandEC)) &&
-             std::filesystem::path(AIInferenceCommand).filename() == "hlquery-llm-infer")
-         {
-              const std::string BundledCommand = ResolveBundledInferenceCommand();
-
-              if (!BundledCommand.empty())
-              {
-                   AIInferenceCommand = BundledCommand;
-              }
-         }
-    }
-    else if (AIEnabled)
-    {
-         const std::string BundledCommand = ResolveBundledInferenceCommand();
-
-         if (!BundledCommand.empty())
-         {
-              AIInferenceCommand = BundledCommand;
-         }
-    }
-    else
-    {
-         AIInferenceCommand.clear();
-    }
-
     if (!SamDataDirectory.empty())
     {
          std::filesystem::path SamPath(SamDataDirectory);
@@ -1015,17 +941,7 @@ void ServerConfig::ApplyConfiguration()
               throw std::runtime_error("Configured LLM model file does not exist: " + AIModelPath);
          }
 
-         if (!AIInferenceCommand.empty())
-         {
-              std::error_code CommandEC;
-
-              if (!std::filesystem::exists(AIInferenceCommand, CommandEC) ||
-                  std::filesystem::is_directory(AIInferenceCommand, CommandEC))
-              {
-                   throw std::runtime_error("Configured LLM inference command does not exist: " + AIInferenceCommand);
-              }
-         }
-    }
+     }
 
      /* Handle network binding configurations for multiple listeners */
 

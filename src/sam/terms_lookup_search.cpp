@@ -1392,9 +1392,9 @@ bool SAM::OptimizeSearchIdeaIntentLocked(const std::string& Collection,
 
           std::unordered_map<std::string, const SAM::DocumentEntry*> DocumentsByID;
 
-          for (const auto& DocumentEntry : CollectionDocuments)
+          for (const auto& StoredDocument : CollectionDocuments)
           {
-               DocumentsByID[DocumentEntry.DocumentID] = &DocumentEntry;
+               DocumentsByID[StoredDocument.DocumentID] = &StoredDocument;
           }
 
           std::vector<const SAM::DocumentEntry*> FinalistEntries;

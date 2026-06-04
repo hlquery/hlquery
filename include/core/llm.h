@@ -73,7 +73,7 @@ class CoreExport llm
      bool Empty() const
      {
           return ModelsDirectory.empty() && ModelName.empty() &&
-                 ModelPath.empty() && InferenceCommand.empty();
+                 ModelPath.empty();
      }
 
      bool Configured() const
@@ -99,11 +99,6 @@ class CoreExport llm
      const std::string& GetModelPath() const
      {
           return ModelPath;
-     }
-
-     const std::string& GetInferenceCommand() const
-     {
-          return InferenceCommand;
      }
 
      std::vector<ContextSuggestion> BuildDocumentContext(const std::string& Collection,
@@ -159,7 +154,6 @@ class CoreExport llm
      std::string ModelsDirectory;
      std::string ModelName;
      std::string ModelPath;
-     std::string InferenceCommand;
      mutable std::atomic<bool> InferenceUnavailable{false};
 
      mutable std::mutex ContextMutex;

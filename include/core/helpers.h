@@ -12,6 +12,7 @@
 
 #pragma once
 
+#include <iostream>
 #include <string>
 #include <vector>
 
@@ -44,3 +45,10 @@ class CoreHelpers
      static void PrintStartupModuleList(const std::string &Heading, const std::vector<std::string> &ModuleNames);
 
 };
+
+/* Writes one newline without forcing an output flush. */
+
+inline void newline(std::ostream &Out = std::cout)
+{
+     Out.put('\n');
+}

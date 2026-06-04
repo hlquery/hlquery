@@ -1255,6 +1255,7 @@ size_t GetSAMImplicitEditDistance(const std::string& Token)
       * point at a different identifier, so keep those exact unless the caller
       * uses explicit fuzzy syntax through the core search plan.
       */
+
      if (Token.size() <= 5)
      {
           return 0;

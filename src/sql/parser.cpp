@@ -1056,6 +1056,7 @@ bool Parser::ParseComparison(std::string &out, std::string *error, bool allow_ag
           {
                *error = "Operator '" + op + "' is not supported by hlquery SQL yet.";
           }
+
           return false;
      }
 
@@ -1065,6 +1066,7 @@ bool Parser::ParseComparison(std::string &out, std::string *error, bool allow_ag
           {
                *error = "Unsupported operator '" + op_token->Text + "' in WHERE clause.";
           }
+
           return false;
      }
 
@@ -1084,6 +1086,7 @@ bool Parser::ParseComparison(std::string &out, std::string *error, bool allow_ag
                {
                     *error = "NOT only supports equality comparisons in hlquery SQL.";
                }
+
                return false;
           }
      }
@@ -1096,6 +1099,7 @@ bool Parser::ParseComparison(std::string &out, std::string *error, bool allow_ag
           {
                *error = "Expected comparison value after operator '" + op + "'.";
           }
+
           return false;
      }
 
@@ -1485,6 +1489,7 @@ bool Parser::ParseAggregateReference(std::string &out, std::string *error)
      Advance();
 
      bool distinct_values = false;
+
      if (MatchKeyword("DISTINCT"))
      {
           distinct_values = true;

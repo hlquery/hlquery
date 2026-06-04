@@ -59,7 +59,8 @@ class ListenManager : public EventHandler
 
      bool BindAndListen();
 
-     /* Handle a readable event on the listening socket.
+     /* 
+      * Handle a readable event on the listening socket.
       * This is triggered when new client connections are ready to accept.
       */
 

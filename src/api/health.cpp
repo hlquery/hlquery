@@ -1671,7 +1671,7 @@ HttpResponse SearchAPI::HandleLLM(const HttpRequest &Request)
      LLMJSON["models_dir"] = "";
      LLMJSON["model_name"] = "";
      LLMJSON["model_path"] = "";
-     LLMJSON["inference_command"] = "";
+     LLMJSON["backend"] = "linked_libllama";
      LLMJSON["pending_context_jobs"] = 0;
      LLMJSON["loaded_modules"] = nlohmann::json::array();
      LLMJSON["model_catalog"] = nlohmann::json::array();
@@ -1691,7 +1691,6 @@ HttpResponse SearchAPI::HandleLLM(const HttpRequest &Request)
                LLMJSON["models_dir"] = Instance->LLM->GetModelsDirectory();
                LLMJSON["model_name"] = Instance->LLM->GetModelName();
                LLMJSON["model_path"] = Instance->LLM->GetModelPath();
-               LLMJSON["inference_command"] = Instance->LLM->GetInferenceCommand();
                LLMJSON["pending_context_jobs"] =
                     static_cast<unsigned long long>(Instance->LLM->GetPendingContextJobs());
           }

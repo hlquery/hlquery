@@ -43,7 +43,6 @@
 #include "core/helpers.h"
 #include "core/hlquery.h"
 #include "core/socketengine.h"
-#include "core/typedefs.h"
 #include "sam/sam.h"
 #include "search/cstore.h"
 #include "search/lindex.h"
