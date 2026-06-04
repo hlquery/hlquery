@@ -102,6 +102,17 @@ static bool IsCollectionMaybeFalsyToken(const std::string &token)
      return token == "0" || token == "false" || token == "no" || token == "off";
 }
 
+static bool IsCollectionTruthyParam(const std::map<std::string, std::string> &params, const std::string &name)
+{
+     auto it = params.find(name);
+     if (it == params.end())
+     {
+          return false;
+     }
+
+     return IsCollectionMaybeTruthyToken(ParseCollectionMaybeToken(it->second));
+}
+
 static CollectionMaybeSettings ParseCollectionMaybeSettings(const std::map<std::string, std::string> &params)
 {
      CollectionMaybeSettings out;
@@ -1478,6 +1489,8 @@ HttpResponse SearchAPI::HandleListCollections(const HttpRequest &Request)
      std::string SortByVal = "name:asc";
      std::string SortOrderVal;
      CollectionMaybeSettings MaybeCfg = ParseCollectionMaybeSettings(Request.QueryParams);
+     const bool NamesOnly = IsCollectionTruthyParam(Request.QueryParams, "names_only") ||
+                            IsCollectionTruthyParam(Request.QueryParams, "name_only");
 
      auto OffsetIt = Request.QueryParams.find("offset");
      if (OffsetIt != Request.QueryParams.end())
@@ -1733,7 +1746,16 @@ HttpResponse SearchAPI::HandleListCollections(const HttpRequest &Request)
      nlohmann::json ResponseJSON;
      ResponseJSON["collections"] = nlohmann::json::array();
 
-     if (SortNeedsMetadata)
+     if (NamesOnly && !SortNeedsMetadata)
+     {
+          for (size_t I = Start; I < End; ++I)
+          {
+               nlohmann::json Entry;
+               Entry["name"] = FilteredCollections[I];
+               ResponseJSON["collections"].push_back(Entry);
+          }
+     }
+     else if (SortNeedsMetadata)
      {
           for (size_t I = Start; I < End; ++I)
           {

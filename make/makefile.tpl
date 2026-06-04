@@ -94,7 +94,7 @@ LLAMA_CPP_REPOSITORY ?= https://github.com/ggml-org/llama.cpp.git
 LLAMA_CPP_ARCHIVE_URL ?= https://github.com/ggml-org/llama.cpp/archive/refs/heads/master.tar.gz
 LLAMA_CPP_JOBS ?= $(AUTO_BUILD_JOBS)
 LLAMA_CPP_LIB = $(LLAMA_CPP_BUILD_DIR)/bin/libllama.so
-LLAMA_CPP_INCLUDE = -I$(LLAMA_CPP_DIR)/include
+LLAMA_CPP_INCLUDE = -isystem $(LLAMA_CPP_DIR)/include -isystem $(LLAMA_CPP_DIR)/ggml/include
 LLAMA_CPP_LDFLAGS = $(LLAMA_CPP_LIB) \
                     -Wl,-rpath,$(abspath $(LLAMA_CPP_BUILD_DIR)/bin)
 CPU_COUNT ?= $(shell nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 1)

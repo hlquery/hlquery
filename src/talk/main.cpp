@@ -1828,9 +1828,9 @@ std::vector<std::string> FetchCollectionNames(HLQueryCLI &cli, int offset = 0, i
      std::vector<std::string> collection_names;
 
      std::string path = "/collections";
-     path += "?offset=" + std::to_string(offset) + "&limit=" + std::to_string(limit);
+     path += "?offset=" + std::to_string(offset) + "&limit=" + std::to_string(limit) + "&names_only=1";
 
-     HLQueryCLI::HTTPResponse response = cli.MakeRequest("GET", path);
+     HLQueryCLI::HTTPResponse response = cli.MakeRequest("GET", path, "", 5);
 
      if (response.StatusCode != 200)
      {
@@ -1867,14 +1867,15 @@ bool FetchAndPrintCollectionList(HLQueryCLI &cli,
                                  int limit)
 {
      std::string path = "/collections";
-     path += "?offset=" + std::to_string(offset) + "&limit=" + std::to_string(limit);
+     path += "?offset=" + std::to_string(offset) + "&limit=" + std::to_string(limit) + "&names_only=1";
 
      TalkPrintInfo("Fetching collections");
-     HLQueryCLI::HTTPResponse response = cli.MakeRequest("GET", path);
+     HLQueryCLI::HTTPResponse response = cli.MakeRequest("GET", path, "", 5);
 
      if (response.StatusCode != 200)
      {
-          TalkPrintError("Failed to fetch collections");
+          TalkPrintError(response.StatusCode == -1 ? "Failed to fetch collections: " + TrimWhitespace(response.Body)
+                                                   : "Failed to fetch collections");
           return false;
      }
 
@@ -1948,7 +1949,11 @@ bool FetchAndPrintCollectionList(HLQueryCLI &cli,
                }
 
                state.LastListedCollections.push_back(collection_name);
-               rows.push_back({std::to_string(offset + index + 1), collection_name, std::to_string(document_count) + " docs"});
+               const std::string document_count_text =
+                    collection.contains("num_documents") && collection["num_documents"].is_number_integer()
+                         ? std::to_string(document_count) + " docs"
+                         : "-";
+               rows.push_back({std::to_string(offset + index + 1), collection_name, document_count_text});
           }
 
           cli.PrintTable({"#", "Collection Name", "Documents"}, rows);
