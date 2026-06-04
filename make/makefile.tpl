@@ -91,6 +91,7 @@ ROCKSDB_LIB = $(ROCKSDB_BUILD_DIR)/librocksdb.a
 LLAMA_CPP_DIR ?= vendor/llama.cpp
 LLAMA_CPP_BUILD_DIR ?= $(LLAMA_CPP_DIR)/build
 LLAMA_CPP_REPOSITORY ?= https://github.com/ggml-org/llama.cpp.git
+LLAMA_CPP_ARCHIVE_URL ?= https://github.com/ggml-org/llama.cpp/archive/refs/heads/master.tar.gz
 LLAMA_CPP_JOBS ?= $(AUTO_BUILD_JOBS)
 LLAMA_CPP_LIB = $(LLAMA_CPP_BUILD_DIR)/bin/libllama.so
 LLAMA_CPP_INCLUDE = -I$(LLAMA_CPP_DIR)/include
@@ -453,18 +454,38 @@ rocksdb-preflight:
 	fi
 
 llama-runtime-fetch:
-	@if [ -d "$(LLAMA_CPP_DIR)/.git" ]; then \
+	@if [ -f "$(LLAMA_CPP_DIR)/CMakeLists.txt" ]; then \
 		echo "$(CYAN)llama.cpp already present at $(LLAMA_CPP_DIR)$(NC)"; \
 	elif [ -d "$(LLAMA_CPP_DIR)" ] && [ -n "$$(ls -A "$(LLAMA_CPP_DIR)" 2>/dev/null)" ]; then \
-		echo "$(RED)Error: $(LLAMA_CPP_DIR) exists but is not a git checkout$(NC)" >&2; \
+		echo "$(RED)Error: $(LLAMA_CPP_DIR) exists but is not a llama.cpp source tree$(NC)" >&2; \
 		echo "$(YELLOW)Remove it or point LLAMA_CPP_DIR at an empty path before fetching$(NC)" >&2; \
 		exit 1; \
 	else \
-		if ! command -v git >/dev/null 2>&1; then \
-			echo "$(RED)Error: git is required to fetch llama.cpp$(NC)" >&2; \
+		if command -v git >/dev/null 2>&1; then \
+			git clone "$(LLAMA_CPP_REPOSITORY)" "$(LLAMA_CPP_DIR)"; \
+		elif command -v tar >/dev/null 2>&1 && (command -v curl >/dev/null 2>&1 || command -v wget >/dev/null 2>&1); then \
+			echo "$(CYAN)Fetching llama.cpp source archive...$(NC)"; \
+			TMP_DIR=$$(mktemp -d 2>/dev/null || mktemp -d -t llama-cpp); \
+			ARCHIVE_FILE="$$TMP_DIR/llama.cpp.tar.gz"; \
+			if command -v curl >/dev/null 2>&1; then \
+				curl -fsSL "$(LLAMA_CPP_ARCHIVE_URL)" -o "$$ARCHIVE_FILE"; \
+			else \
+				wget -q "$(LLAMA_CPP_ARCHIVE_URL)" -O "$$ARCHIVE_FILE"; \
+			fi; \
+			tar -xzf "$$ARCHIVE_FILE" -C "$$TMP_DIR"; \
+			EXTRACTED_DIR=$$(find "$$TMP_DIR" -mindepth 1 -maxdepth 1 -type d ! -name "." | head -n 1); \
+			if [ -z "$$EXTRACTED_DIR" ] || [ ! -f "$$EXTRACTED_DIR/CMakeLists.txt" ]; then \
+				rm -rf "$$TMP_DIR"; \
+				echo "$(RED)Error: downloaded llama.cpp archive is invalid$(NC)" >&2; \
+				exit 1; \
+			fi; \
+			mkdir -p "$$(dirname "$(LLAMA_CPP_DIR)")"; \
+			mv "$$EXTRACTED_DIR" "$(LLAMA_CPP_DIR)"; \
+			rm -rf "$$TMP_DIR"; \
+		else \
+			echo "$(RED)Error: git, or tar with curl/wget, is required to fetch llama.cpp$(NC)" >&2; \
 			exit 1; \
 		fi; \
-		git clone "$(LLAMA_CPP_REPOSITORY)" "$(LLAMA_CPP_DIR)"; \
 	fi
 
 llama-runtime: llama-runtime-fetch
