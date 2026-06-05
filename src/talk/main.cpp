@@ -1889,7 +1889,7 @@ bool FetchAndPrintCollectionList(HLQueryCLI &cli,
                                  int limit)
 {
      std::string path = "/collections";
-     path += "?offset=" + std::to_string(offset) + "&limit=" + std::to_string(limit);
+     path += "?offset=" + std::to_string(offset) + "&limit=" + std::to_string(limit) + "&names_only=1";
 
      TalkPrintInfo("Fetching collections");
      HLQueryCLI::HTTPResponse response = cli.MakeRequest("GET", path);
@@ -2278,7 +2278,22 @@ bool ResolveSAMCollectionReference(const TalkState &state,
           return true;
      }
 
-     if (cli.CollectionExists(value))
+     if (IsUnsignedInteger(value) && !state.LastListedCollections.empty())
+     {
+          const size_t collection_index = static_cast<size_t>(std::stoul(value));
+          if (collection_index == 0 || collection_index > state.LastListedCollections.size())
+          {
+               error_message = "Collection number out of range. Run 'ls' and choose a number between 1 and " + std::to_string(state.LastListedCollections.size());
+               return false;
+          }
+
+          collection_name = state.LastListedCollections[collection_index - 1];
+          return true;
+     }
+
+     std::string fetch_error;
+     const std::vector<std::string> collection_names = FetchCollectionNames(cli, 0, 1000, &fetch_error);
+     if (std::find(collection_names.begin(), collection_names.end(), value) != collection_names.end())
      {
           return true;
      }
@@ -4291,7 +4306,7 @@ bool ExecuteTalkCommand(const std::string &line,
                state.LastSAMSearchCollection = collection_name;
                state.LastSAMSearchQuery = query_text;
                state.LastListedDocumentIds.clear();
-               cli.SearchSAM(collection_name, query_text, limit_val, false, false, {}, "", "", false, &state.LastListedSAMDocumentIds);
+               cli.SearchSAM(collection_name, query_text, limit_val, false, false, {}, "", "", true, &state.LastListedSAMDocumentIds, false);
                return true;
           }
 

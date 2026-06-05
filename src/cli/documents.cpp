@@ -1674,7 +1674,8 @@ bool HLQueryCLI::SearchSAM(const std::string &collection_name,
                            const std::string &distributed,
                            const std::string &route,
                            bool skip_record,
-                           std::vector<std::string> *document_ids)
+                           std::vector<std::string> *document_ids,
+                           bool fallback_to_search)
 {
      if (document_ids)
      {
@@ -1801,7 +1802,7 @@ bool HLQueryCLI::SearchSAM(const std::string &collection_name,
                std::cout << ".\n";
           }
 
-          if (!all_collections)
+          if (!all_collections && fallback_to_search)
           {
                std::cout << "Falling back to basic search.\n";
                SearchDocuments(collection_name, query, limit, 0, "", false, false, "", distributed, route);
