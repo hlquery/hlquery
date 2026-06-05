@@ -91,7 +91,8 @@ ROCKSDB_LIB = $(ROCKSDB_BUILD_DIR)/librocksdb.a
 LLAMA_CPP_DIR ?= vendor/llama.cpp
 LLAMA_CPP_BUILD_DIR ?= $(LLAMA_CPP_DIR)/build
 LLAMA_CPP_REPOSITORY ?= https://github.com/ggml-org/llama.cpp.git
-LLAMA_CPP_ARCHIVE_URL ?= https://github.com/ggml-org/llama.cpp/archive/refs/heads/master.tar.gz
+LLAMA_CPP_REF ?= 1fd5f4803713ea3e1eda326483c9cc71a572cf02
+LLAMA_CPP_ARCHIVE_URL ?= https://github.com/ggml-org/llama.cpp/archive/$(LLAMA_CPP_REF).tar.gz
 LLAMA_CPP_JOBS ?= $(AUTO_BUILD_JOBS)
 LLAMA_CPP_SHARED_EXT := so
 ifeq ($(OS_NAME),Darwin)
@@ -467,6 +468,7 @@ llama-runtime-fetch:
 	else \
 		if command -v git >/dev/null 2>&1; then \
 			git clone "$(LLAMA_CPP_REPOSITORY)" "$(LLAMA_CPP_DIR)"; \
+			git -C "$(LLAMA_CPP_DIR)" checkout "$(LLAMA_CPP_REF)"; \
 		elif command -v tar >/dev/null 2>&1 && (command -v curl >/dev/null 2>&1 || command -v wget >/dev/null 2>&1); then \
 			echo "$(CYAN)Fetching llama.cpp source archive...$(NC)"; \
 			TMP_DIR=$$(mktemp -d 2>/dev/null || mktemp -d -t llama-cpp); \
