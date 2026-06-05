@@ -993,11 +993,18 @@ void AppendFuzzyFallbackHits(std::unordered_map<std::string, SAMAggregatedHit>& 
           return;
      }
 
+     const bool SingleTokenIntent = IsSingleTokenSAMIntent(QueryViews);
+     const size_t MaxScannedDocuments = SingleTokenIntent
+          ? std::max<size_t>(128, std::min<size_t>(1024, std::max<size_t>(Limit, 1) * 32))
+          : std::numeric_limits<size_t>::max();
      const std::string Prefix = Collection.empty() ? "sam:doc:" : "sam:doc:" + Collection + ":";
      std::unique_ptr<rocksdb::Iterator> Iterator(Database->NewIterator(rocksdb::ReadOptions()));
      std::vector<SAM::LookupHit> Candidates;
+     size_t ScannedDocuments = 0;
 
-     for (Iterator->Seek(Prefix); Iterator->Valid() && Iterator->key().starts_with(Prefix); Iterator->Next())
+     for (Iterator->Seek(Prefix);
+          Iterator->Valid() && Iterator->key().starts_with(Prefix) && ScannedDocuments < MaxScannedDocuments;
+          Iterator->Next(), ++ScannedDocuments)
      {
           SAM::DocumentEntry Entry;
 

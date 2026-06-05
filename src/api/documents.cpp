@@ -3390,6 +3390,61 @@ HttpResponse SearchAPI::HandleSAMSearch(const HttpRequest &Request)
           return Plan;
      };
 
+     auto BuildSAMCollectionSearchFallback = [&](const std::string &Collection,
+                                                 const std::string &RawQuery,
+                                                 size_t Limit) -> std::vector<SAM::LookupHit>
+     {
+          std::vector<SAM::LookupHit> FallbackHits;
+
+          if (Collection.empty() || RawQuery.empty() || Limit == 0)
+          {
+               return FallbackHits;
+          }
+
+          std::unordered_map<std::string, std::string> Params;
+          Params["q"] = RawQuery;
+          Params["limit"] = std::to_string(std::max<size_t>(Limit, 10));
+          Params["exhaustive_search"] = "true";
+
+          const auto QueryByIt = Request.QueryParams.find("query_by");
+          if (QueryByIt != Request.QueryParams.end() && !TrimCopy(QueryByIt->second).empty())
+          {
+               Params["query_by"] = QueryByIt->second;
+          }
+
+          ComprehensiveSearchQuery FallbackQuery = ParseComprehensiveSearchQuery(Params);
+          FallbackQuery.EnableAnalytics = false;
+          FallbackQuery.PreserveMatchedHits = true;
+          FallbackQuery.PerPage = std::max<int>(FallbackQuery.PerPage,
+                                                static_cast<int>(std::min<size_t>(1000, std::max<size_t>(Limit, 10))));
+
+          const ComprehensiveSearchResult CoreResult = PerformComprehensiveSearch(Collection, FallbackQuery);
+          std::unordered_set<std::string> Seen;
+
+          for (const auto &CoreHit : CoreResult.Hits)
+          {
+               auto IDIt = CoreHit.Document.find("id");
+               if (IDIt == CoreHit.Document.end() || IDIt->second.empty())
+               {
+                    continue;
+               }
+
+               if (!Seen.insert(IDIt->second).second)
+               {
+                    continue;
+               }
+
+               FallbackHits.push_back(BuildCoreCompatibleSAMHit(Collection, RawQuery, CoreHit));
+
+               if (FallbackHits.size() >= Limit)
+               {
+                    break;
+               }
+          }
+
+          return FallbackHits;
+     };
+
      auto ApplySAMCoreQueryPlan = [](std::vector<SAM::LookupHit> &Hits,
                                      const SAMCoreQueryPlan &Plan,
                                      size_t Limit)
@@ -3738,6 +3793,12 @@ HttpResponse SearchAPI::HandleSAMSearch(const HttpRequest &Request)
           }
 
           ApplySAMCoreQueryPlan(LocalHits, CoreQueryPlan, static_cast<size_t>(LimitVal));
+
+          if (LocalHits.empty() && !CoreQueryPlan.Active)
+          {
+               LocalHits = BuildSAMCollectionSearchFallback(CollectionName, Query, static_cast<size_t>(LimitVal));
+          }
+
           AggregateHits.insert(AggregateHits.end(), LocalHits.begin(), LocalHits.end());
 
           if (Instance->Sam->IsOpen() && !SkipRecord &&

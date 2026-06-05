@@ -2589,6 +2589,7 @@ std::vector<SAM::LookupHit> SAM::Lookup(const std::string& Collection, const std
      }
 
      const SAMQueryTokenViews QueryViews = NormalizeSAMQueryTokenViews(DatabaseHandle.get(), Collection, Query);
+     const bool SingleTokenIntent = IsSingleTokenSAMIntent(QueryViews);
 
      SAM::CollectionJobStatus Status;
      if (GetCollectionJobStatus(Collection, Status) && Status.Running)
@@ -2625,14 +2626,18 @@ std::vector<SAM::LookupHit> SAM::Lookup(const std::string& Collection, const std
                                          &ProfileHints.StrongTokens,
                                          std::max<size_t>(8, std::min<size_t>(Limit * 3 + Calibration.AdaptiveVariantBudget, 24)));
      const std::vector<SAMMatchedSearchIdea> SearchIdeas =
-          BuildMatchedSearchIdeas(DatabaseHandle.get(), Collection, Query, QueryViews,
-                                  std::max<size_t>(6, std::min<size_t>(Limit * 2, 10)));
+          SingleTokenIntent
+               ? std::vector<SAMMatchedSearchIdea>{}
+               : BuildMatchedSearchIdeas(DatabaseHandle.get(), Collection, Query, QueryViews,
+                                         std::max<size_t>(6, std::min<size_t>(Limit * 2, 10)));
      const std::vector<std::string> SearchIdeaVariants =
           BuildSearchIdeaVariants(SearchIdeas, QueryViews, &ProfileHints.StrongTokens,
                                   std::max<size_t>(6, std::min<size_t>(Limit * 2 + Calibration.AdaptiveVariantBudget, 18)));
      const std::vector<std::string> GraphVariants =
-          BuildIntentGraphVariants(DatabaseHandle.get(), Collection, Query,
-                                   std::max<size_t>(4, std::min<size_t>(Limit * 2 + Calibration.AdaptiveGraphBudget, 16)));
+          SingleTokenIntent
+               ? std::vector<std::string>{}
+               : BuildIntentGraphVariants(DatabaseHandle.get(), Collection, Query,
+                                          std::max<size_t>(4, std::min<size_t>(Limit * 2 + Calibration.AdaptiveGraphBudget, 16)));
 
      for (const auto& Candidate : PersistedProfileVariants)
      {
@@ -2752,8 +2757,10 @@ std::vector<SAM::LookupHit> SAM::Lookup(const std::string& Collection, const std
                                std::max<size_t>(256, (Limit * 24) + (Calibration.AdaptiveSemanticBudget * 8)));
      AppendSearchIdeaHits(AggregatedHits, DatabaseHandle.get(), Collection, SearchIdeas);
      const std::vector<SAM::LookupHit> GraphHits =
-          BuildIntentGraphHits(DatabaseHandle.get(), Collection, Query,
-                               std::max<size_t>(4, std::min<size_t>(Limit + Calibration.AdaptiveGraphBudget, 20)));
+          SingleTokenIntent
+               ? std::vector<SAM::LookupHit>{}
+               : BuildIntentGraphHits(DatabaseHandle.get(), Collection, Query,
+                                      std::max<size_t>(4, std::min<size_t>(Limit + Calibration.AdaptiveGraphBudget, 20)));
      for (const auto& GraphHit : GraphHits)
      {
           AccumulateSAMHit(AggregatedHits, GraphHit);
