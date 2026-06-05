@@ -121,6 +121,11 @@ bool SmartSAMBackgroundEnabled()
      return !Instance || !Instance->Config || Instance->Config->GetSamSmartBackground();
 }
 
+bool SAMAutoRebuildEnabled()
+{
+     return Instance && Instance->Config && Instance->Config->GetSamIndexAll();
+}
+
 bool SAMAutomaticPauseActive()
 {
      if (!Instance || !Instance->Sam)
@@ -314,6 +319,13 @@ bool SAM::Initialize()
                     }
                     catch (...)
                     {
+                    }
+
+                    if (HasExpectedMutationVersion &&
+                        ExpectedMutationVersion != GetCurrentCollectionMutationVersion(Collection))
+                    {
+                         StaleQueueKeys.push_back(It->key().ToString());
+                         continue;
                     }
 
                     const Document Doc = HybridStorageManager::GetInstance().GetDocument(Collection, DocumentID);
@@ -627,7 +639,10 @@ void SAM::ScheduleRetryRebuild(const std::string& Collection)
 
                if (AlreadyRunning && RescheduleAfterDrain)
                {
-                    ScheduleRetryRebuild(Collection);
+                    if (SAMAutoRebuildEnabled())
+                    {
+                         ScheduleRetryRebuild(Collection);
+                    }
                }
                else if (Started && !AlreadyRunning)
                {
@@ -1434,7 +1449,15 @@ void SAM::RunIndexWorker()
                     }
                }
 
-               ScheduleRetryRebuild(Job.Collection);
+               if (SAMAutoRebuildEnabled())
+               {
+                    ScheduleRetryRebuild(Job.Collection);
+               }
+               else
+               {
+                    RecordDebugEvent(Job.Collection,
+                                     "dropped stale automatic rebuild retry because SAM auto-index is disabled");
+               }
           }
 
           FlushPendingSearchIdeas(8);
@@ -2268,7 +2291,15 @@ bool SAM::StartRecreateCollectionAsync(const std::string& Collection,
                               }
                          }
 
-                         ScheduleRetryRebuild(Collection);
+                         if (SAMAutoRebuildEnabled())
+                         {
+                              ScheduleRetryRebuild(Collection);
+                         }
+                         else
+                         {
+                              RecordDebugEvent(Collection,
+                                               "dropped stale automatic rebuild retry because SAM auto-index is disabled");
+                         }
                     }
                }
           }
@@ -2344,7 +2375,15 @@ bool SAM::StartRecreateCollectionAsync(const std::string& Collection,
                     }
 
                     RecordDebugEvent(Collection, "rebuild invalidated before completion: " + StateError);
-                    ScheduleRetryRebuild(Collection);
+                    if (SAMAutoRebuildEnabled())
+                    {
+                         ScheduleRetryRebuild(Collection);
+                    }
+                    else
+                    {
+                         RecordDebugEvent(Collection,
+                                          "dropped stale automatic rebuild retry because SAM auto-index is disabled");
+                    }
                }
                else
                {

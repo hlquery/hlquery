@@ -343,6 +343,96 @@ static nlohmann::json BuildSocketIOStatsJSON()
      return IOJSON;
 }
 
+static uint64_t HealthReadCPUUsagePercent()
+{
+     std::ifstream StatFileStream("/proc/stat");
+     std::string LineContent;
+
+     if (!std::getline(StatFileStream, LineContent))
+     {
+          return 0;
+     }
+
+     std::istringstream Iss(LineContent);
+     std::string CPULabel;
+     uint64_t UserVal = 0;
+     uint64_t NiceVal = 0;
+     uint64_t SystemVal = 0;
+     uint64_t IdleVal = 0;
+     uint64_t IOWaitVal = 0;
+     uint64_t IRQVal = 0;
+     uint64_t SoftIRQVal = 0;
+     uint64_t StealVal = 0;
+
+     Iss >> CPULabel >> UserVal >> NiceVal >> SystemVal >> IdleVal >> IOWaitVal >> IRQVal >> SoftIRQVal >> StealVal;
+
+     if (CPULabel != "cpu")
+     {
+          return 0;
+     }
+
+     const uint64_t TotalIdleTime = IdleVal + IOWaitVal;
+     const uint64_t TotalNonIdleTime = UserVal + NiceVal + SystemVal + IRQVal + SoftIRQVal + StealVal;
+     const uint64_t TotalTime = TotalIdleTime + TotalNonIdleTime;
+
+     static uint64_t PrevTotalTime = 0;
+     static uint64_t PrevIdleTime = 0;
+     static uint64_t LastCPUPercent = 0;
+
+     if (PrevTotalTime > 0 && TotalTime > PrevTotalTime)
+     {
+          const uint64_t TotalDelta = TotalTime - PrevTotalTime;
+          const uint64_t IdleDelta = TotalIdleTime - PrevIdleTime;
+
+          if (TotalDelta > 0)
+          {
+               LastCPUPercent = 100 - (IdleDelta * 100 / TotalDelta);
+          }
+     }
+
+     PrevTotalTime = TotalTime;
+     PrevIdleTime = TotalIdleTime;
+
+     return LastCPUPercent;
+}
+
+static uint64_t HealthReadMemoryUsageBytes()
+{
+     std::ifstream MemInfoFileStream("/proc/meminfo");
+     std::string LineContent;
+     uint64_t TotalMemoryValue = 0;
+     uint64_t AvailableMemoryValue = 0;
+
+     while (std::getline(MemInfoFileStream, LineContent))
+     {
+          if (LineContent.find("MemTotal:") == 0)
+          {
+               std::istringstream Iss(LineContent);
+               std::string LabelStr;
+               std::string UnitStr;
+               uint64_t Value = 0;
+               Iss >> LabelStr >> Value >> UnitStr;
+               TotalMemoryValue = Value * 1024;
+          }
+          else if (LineContent.find("MemAvailable:") == 0)
+          {
+               std::istringstream Iss(LineContent);
+               std::string LabelStr;
+               std::string UnitStr;
+               uint64_t Value = 0;
+               Iss >> LabelStr >> Value >> UnitStr;
+               AvailableMemoryValue = Value * 1024;
+          }
+     }
+
+     if (TotalMemoryValue == 0 || AvailableMemoryValue > TotalMemoryValue)
+     {
+          return 0;
+     }
+
+     return TotalMemoryValue - AvailableMemoryValue;
+}
+
 static bool HealthNormalizeEndpointValue(std::string &Endpoint, std::string &OutError)
 {
      Endpoint = HealthTrimWhitespace(Endpoint);
@@ -1135,6 +1225,8 @@ HttpResponse SearchAPI::HandleStats(const HttpRequest &Request)
                ServerJSON["name"] = Instance->Config->GetServerName();
                ServerJSON["id"] = Instance->Config->GetServerId();
                ServerJSON["uptime_seconds"] = UptimeVal;
+               ServerJSON["cpu_usage_percent"] = HealthReadCPUUsagePercent();
+               ServerJSON["memory_usage_bytes"] = HealthReadMemoryUsageBytes();
                StatsJSON["server"] = ServerJSON;
           }
 

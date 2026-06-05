@@ -186,7 +186,8 @@ class HLQueryCLI
                     const std::vector<std::string> &collections = {},
                     const std::string &distributed = "",
                     const std::string &route = "",
-                    bool skip_record = false);
+                    bool skip_record = false,
+                    std::vector<std::string> *document_ids = nullptr);
 
      /* Shows SAM indexing status for one collection. */
 

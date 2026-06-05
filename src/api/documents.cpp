@@ -3486,6 +3486,49 @@ HttpResponse SearchAPI::HandleSAMSearch(const HttpRequest &Request)
           return StatusJSON;
      };
 
+     auto QueueSAMIndexingForSearchMiss = [&]() -> bool
+     {
+          if (SearchAll || CollectionName.empty() ||
+              !Instance || !Instance->Sam || !Instance->Sam->IsOpen())
+          {
+               return false;
+          }
+
+          if (!HybridStorageManagerInstance().CollectionExists(CollectionName))
+          {
+               return false;
+          }
+
+          if (HybridStorageManager::GetInstance().GetCollectionDocumentCount(CollectionName) == 0)
+          {
+               return false;
+          }
+
+          SAM::CollectionJobStatus JobStatus;
+          if (Instance->Sam->GetCollectionJobStatus(CollectionName, JobStatus) &&
+              (JobStatus.Running || JobStatus.RetryScheduled))
+          {
+               return false;
+          }
+
+          bool AlreadyRunning = false;
+          std::string ErrorMessage;
+          const bool Started =
+               Instance->Sam->StartRecreateCollectionAsync(CollectionName,
+                                                           &AlreadyRunning,
+                                                           &ErrorMessage,
+                                                           "sam search miss");
+
+          if (!Started && !AlreadyRunning && Instance && Instance->Logs && !ErrorMessage.empty())
+          {
+               Instance->Logs->Normal("search_api",
+                                      "Failed to queue SAM indexing after search miss for collection '" +
+                                           CollectionName + "': " + ErrorMessage + ".");
+          }
+
+          return Started || AlreadyRunning;
+     };
+
      auto BuildResponse = [&](const std::string &CollectionLabel,
                               const std::vector<SAM::LookupHit> &Hits,
                               const std::string &ExecutionMode,
@@ -3518,7 +3561,10 @@ HttpResponse SearchAPI::HandleSAMSearch(const HttpRequest &Request)
           HttpResponse Response(Status::OK, StatusText(Status::OK), "application/json");
           Response.Headers["X-HLQ-Execution-Mode"] = ExecutionMode;
           Response.Body = Root.dump();
-          SearchResponseCache::Put("sam", Request, CacheCollection, Response);
+          if (!Hits.empty() && !SAMIndexingInProgress)
+          {
+               SearchResponseCache::Put("sam", Request, CacheCollection, Response);
+          }
           return Response;
      };
 
@@ -3778,6 +3824,9 @@ HttpResponse SearchAPI::HandleSAMSearch(const HttpRequest &Request)
 
      if (AggregateHits.empty())
      {
+          const bool QueuedIndexing = QueueSAMIndexingForSearchMiss();
+          (void)QueuedIndexing;
+
           if (!LocalCollectionExists && !ExecutedRemote)
           {
                return BuildErrorResponse(Status::NOT_FOUND,

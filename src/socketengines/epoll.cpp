@@ -726,8 +726,9 @@ int SocketEngine::DispatchEvents()
      * and epoll_wait(-1) blocks, the CPU-only work stalls because no I/O events
      * wake up the epoll.
      *
-     * Solution: If there's pending work, use timeout = 0 (non-blocking) to
-     * immediately return to the main loop to process the pending work.
+     * Solution: If there's pending work, use a short timeout instead of a
+     * permanent non-blocking poll. This keeps CPU-only work responsive without
+     * letting stale pending-work state spin the server or starve socket events.
      */
 
      int timeout_ms = -1; /* Default to infinite blocking */
@@ -736,14 +737,14 @@ int SocketEngine::DispatchEvents()
 
      if (HasPendingWork())
      {
-          timeout_ms = 0; /* Don't block - we have work to do */
+          timeout_ms = 1;
 
           /*
          * Reset timeout immediately when pending work detected.
          * This ensures high throughput mode is active from the start of new activity.
          */
 
-          CurrentTimeoutMS.store(0, std::memory_order_relaxed);
+          CurrentTimeoutMS.store(timeout_ms, std::memory_order_relaxed);
      }
      else
      {
@@ -1458,7 +1459,7 @@ void SocketEngine::RegisterPendingWrite(EventHandler *EH)
      struct epoll_event ev;
 
      memset(&ev, 0, sizeof(ev));
-     ev.events = EPOLLIN | EPOLLOUT | EPOLLHUP | EPOLLRDHUP | EPOLLERR;
+     ev.events = EPOLLIN | EPOLLOUT | EPOLLHUP | EPOLLRDHUP | EPOLLERR | EPOLLET;
      ev.data.ptr = EH;
 
      /*
@@ -1571,32 +1572,37 @@ void SocketEngine::UnregisterPendingWrite(EventHandler *EH)
 
      /* Fast O(1) check if handler is registered - thread-safe */
 
+     bool RemovedPendingWrite = false;
+
      {
           std::lock_guard<std::mutex> lock(PendingWritesMutex);
 
-          if (PendingWritesSet.erase(EH) == 0)
+          RemovedPendingWrite = PendingWritesSet.erase(EH) > 0;
+
+          if (RemovedPendingWrite)
           {
-               return; /* Not registered - set erase returns 0 if not found */
-          }
+               /* Remove from vector - OPTIMIZATION: swap with last for O(1) removal */
 
-          /* Remove from vector - OPTIMIZATION: swap with last for O(1) removal */
+               auto it = std::find(PendingWrites.begin(), PendingWrites.end(), EH);
 
-          auto it = std::find(PendingWrites.begin(), PendingWrites.end(), EH);
-
-          if (it != PendingWrites.end())
-          {
-               if (it != PendingWrites.end() - 1)
+               if (it != PendingWrites.end())
                {
-                    /* Swap with last element for O(1) removal (order doesn't matter) */
+                    if (it != PendingWrites.end() - 1)
+                    {
+                         /* Swap with last element for O(1) removal (order doesn't matter) */
 
-                    std::iter_swap(it, PendingWrites.end() - 1);
+                         std::iter_swap(it, PendingWrites.end() - 1);
+                    }
+
+                    PendingWrites.pop_back();
                }
-
-               PendingWrites.pop_back();
           }
      }
 
-     PendingWritesCount.fetch_sub(1, std::memory_order_relaxed);
+     if (RemovedPendingWrite)
+     {
+          PendingWritesCount.fetch_sub(1, std::memory_order_relaxed);
+     }
 
      /*
      * Restore Normal Event Registration
@@ -1613,7 +1619,7 @@ void SocketEngine::UnregisterPendingWrite(EventHandler *EH)
 
           /* No EPOLLOUT */
 
-          ev.events = EPOLLIN | EPOLLHUP | EPOLLRDHUP | EPOLLERR;
+          ev.events = EPOLLIN | EPOLLHUP | EPOLLRDHUP | EPOLLERR | EPOLLET;
           ev.data.ptr = EH;
 
           epoll_ctl(EpollFD, EPOLL_CTL_MOD, EH->GetFD(), &ev);
@@ -1676,18 +1682,30 @@ bool SocketEngine::HasPendingWork()
           return true;
      }
 
-     /* Check if we have pending writes (uses atomic counter for thread-safety) */
+     /* Check if we have pending writes, but repair stale counters first. */
 
      if (PendingWritesCount.load(std::memory_order_relaxed) > 0)
      {
-          return true;
+          std::lock_guard<std::mutex> lock(PendingWritesMutex);
+
+          if (!PendingWrites.empty())
+          {
+               return true;
+          }
+
+          PendingWritesSet.clear();
+          PendingWritesCount.store(0, std::memory_order_relaxed);
      }
 
-     /* Check if we have pending messages */
+     /*
+      * PendingMessageCount is retained for ABI compatibility, but there is no
+      * queue drained by the main loop. If it becomes positive, treating it as
+      * active work forces epoll_wait(timeout=0) forever and spins the server.
+      */
 
      if (PendingMessageCount.load(std::memory_order_relaxed) > 0)
      {
-          return true;
+          PendingMessageCount.store(0, std::memory_order_relaxed);
      }
 
      return false;

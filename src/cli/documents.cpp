@@ -1673,8 +1673,14 @@ bool HLQueryCLI::SearchSAM(const std::string &collection_name,
                            const std::vector<std::string> &collections,
                            const std::string &distributed,
                            const std::string &route,
-                           bool skip_record)
+                           bool skip_record,
+                           std::vector<std::string> *document_ids)
 {
+     if (document_ids)
+     {
+          document_ids->clear();
+     }
+
      if ((!all_collections && collection_name.empty()) || query.empty())
      {
           PrintError("Collection and query are required", "Usage: sam search <collection> <query> [limit] [--all] [--collections=col1,col2] [--distributed=on|off] [--route=local|host[:port]] [--skip]");
@@ -1749,6 +1755,17 @@ bool HLQueryCLI::SearchSAM(const std::string &collection_name,
           return false;
      }
 
+     if (document_ids && root.contains("hits") && root["hits"].is_array())
+     {
+          for (const auto &hit : root["hits"])
+          {
+               if (hit.contains("id") && hit["id"].is_string())
+               {
+                    document_ids->push_back(hit["id"].get<std::string>());
+               }
+          }
+     }
+
      if (json_output || RawMode)
      {
           std::cout << root.dump(2) << "\n";
@@ -1763,6 +1780,26 @@ bool HLQueryCLI::SearchSAM(const std::string &collection_name,
      if (!hits.is_array() || hits.empty())
      {
           std::cout << "No SAM matches found.\n";
+
+          if (root.value("indexing_in_progress", false))
+          {
+               const nlohmann::json indexing = root.value("sam_indexing", nlohmann::json::object());
+               const int pending = indexing.value("pending", 0);
+               const int indexed = indexing.value("indexed", 0);
+               const int total = indexing.value("total", 0);
+
+               std::cout << "SAM indexing is running in the background";
+               if (total > 0)
+               {
+                    std::cout << " (" << indexed << "/" << total << " indexed";
+                    if (pending > 0)
+                    {
+                         std::cout << ", " << pending << " pending";
+                    }
+                    std::cout << ")";
+               }
+               std::cout << ".\n";
+          }
 
           if (!all_collections)
           {

@@ -2076,7 +2076,7 @@ static std::vector<SAM::LookupHit> LookupDirectTermOnly(std::shared_ptr<rocksdb:
           return Hits;
      }
 
-     const std::string Prefix = "sam:term:" + Normalized + ":";
+     const std::string Prefix = "sam:term:" + Normalized + ":" + Collection + ":";
      std::unique_ptr<rocksdb::Iterator> Iterator(DatabaseHandle->NewIterator(rocksdb::ReadOptions()));
 
      for (Iterator->Seek(Prefix); Iterator->Valid() && Iterator->key().starts_with(Prefix); Iterator->Next())
@@ -2596,6 +2596,18 @@ std::vector<SAM::LookupHit> SAM::Lookup(const std::string& Collection, const std
           Hits = LookupDirectTermOnly(DatabaseHandle, Collection, Query, QueryViews, Limit);
           FinishLookupActivity(ActivitySequence, Hits.size());
           return Hits;
+     }
+
+     const std::string DirectNormalizedQuery = NormalizeTerm(Query);
+     if (!DirectNormalizedQuery.empty() &&
+         DirectNormalizedQuery.find(' ') == std::string::npos)
+     {
+          Hits = LookupDirectTermOnly(DatabaseHandle, Collection, Query, QueryViews, Limit);
+          if (!Hits.empty())
+          {
+               FinishLookupActivity(ActivitySequence, Hits.size());
+               return Hits;
+          }
      }
 
      SAMEvaluationCalibration Calibration;

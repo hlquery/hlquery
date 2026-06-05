@@ -14,6 +14,7 @@ my @catalog = (
           family             => 'Qwen2.5 Instruct',
           repo               => 'bartowski/Qwen2.5-0.5B-Instruct-GGUF',
           file               => 'Qwen2.5-0.5B-Instruct-Q4_K_M.gguf',
+          size_bytes         => 397808192,
           description        => 'Smallest local Qwen profile for low-memory setups.',
           default            => 0,
           default_max_tokens => 4096,
@@ -23,6 +24,7 @@ my @catalog = (
           family             => 'Qwen2.5 Instruct',
           repo               => 'bartowski/Qwen2.5-1.5B-Instruct-GGUF',
           file               => 'Qwen2.5-1.5B-Instruct-Q4_K_M.gguf',
+          size_bytes         => 986048768,
           description        => 'Balanced local Qwen profile for general use.',
           default            => 1,
           default_max_tokens => 4096,
@@ -32,6 +34,7 @@ my @catalog = (
           family             => 'Qwen2.5 Instruct',
           repo               => 'bartowski/Qwen2.5-3B-Instruct-GGUF',
           file               => 'Qwen2.5-3B-Instruct-Q4_K_M.gguf',
+          size_bytes         => 1929903264,
           description        => 'Mid-sized local Qwen profile with better answer quality than the smaller presets.',
           default            => 0,
           default_max_tokens => 4096,
@@ -41,6 +44,7 @@ my @catalog = (
           family             => 'Qwen2.5 Instruct',
           repo               => 'bartowski/Qwen2.5-14B-Instruct-GGUF',
           file               => 'Qwen2.5-14B-Instruct-Q4_K_M.gguf',
+          size_bytes         => 8988110976,
           description        => 'Largest shipped general Qwen profile (higher quality, larger download).',
           default            => 0,
           default_max_tokens => 4096,
@@ -50,6 +54,7 @@ my @catalog = (
           family             => 'Qwen2.5.1 Coder',
           repo               => 'bartowski/Qwen2.5.1-Coder-1.5B-Instruct-GGUF',
           file               => 'Qwen2.5.1-Coder-1.5B-Instruct-Q4_K_M.gguf',
+          size_bytes         => 986048896,
           description        => 'Coder-focused Qwen profile for local code prompts.',
           default            => 0,
           default_max_tokens => 4096,
@@ -106,6 +111,7 @@ if ($show_config)
 
 my @models = resolve_models();
 make_path($download_dir) unless $dry_run || -d $download_dir;
+validate_download_dir($download_dir) unless $dry_run;
 
 my $downloader = detect_downloader();
 my @downloaded;
@@ -116,13 +122,6 @@ for my $model (@models)
      my $target_path = File::Spec->catfile($download_dir, $model->{file});
      my $url         = build_hf_url($model->{repo}, $model->{file});
 
-     if (-e $target_path && !$force)
-     {
-          print "[skip] $model->{name} already exists at $target_path\n";
-          push @skipped, $model;
-          next;
-     }
-
      if ($dry_run)
      {
           print "[dry-run] $model->{name}\n";
@@ -131,6 +130,22 @@ for my $model (@models)
           next;
      }
 
+     if (-e $target_path && !$force)
+     {
+          if (!is_complete_model_file($model, $target_path))
+          {
+               die "Existing model file is incomplete or has the wrong size: $target_path\n"
+                    . "Expected " . format_bytes($model->{size_bytes}) . ", found "
+                    . format_bytes(-s $target_path) . ". Re-run with --force to replace it.\n";
+          }
+
+          print "[skip] $model->{name} already exists at $target_path\n";
+          push @skipped, $model;
+          next;
+     }
+
+     validate_target_path($target_path);
+     ensure_sufficient_space($download_dir, $model->{size_bytes}, $target_path);
      print "[download] $model->{name} -> $target_path\n";
      run_downloader($downloader, $url, $target_path);
      push @downloaded, $model;
@@ -246,17 +261,105 @@ sub run_downloader
 
      if ($downloader eq 'curl')
      {
-          system('curl', '-fL', '--progress-bar', '-o', $temp_path, $url) == 0
-               or die "curl failed while downloading $url\n";
+          my $status = system('curl', '-fL', '--progress-bar', '-o', $temp_path, $url);
+          die downloader_error('curl', $status, $url, $temp_path) if $status != 0;
      }
      else
      {
-          system('wget', '-O', $temp_path, $url) == 0
-               or die "wget failed while downloading $url\n";
+          my $status = system('wget', '-O', $temp_path, $url);
+          die downloader_error('wget', $status, $url, $temp_path) if $status != 0;
      }
 
      rename $temp_path, $target_path
           or die "Failed to move $temp_path to $target_path: $!\n";
+}
+
+sub validate_download_dir
+{
+     my ($dir) = @_;
+
+     die "Download destination is not a directory: $dir\n" unless -d $dir;
+     die "Download destination is not writable: $dir\n" unless -w $dir;
+}
+
+sub validate_target_path
+{
+     my ($target_path) = @_;
+     my $temp_path = "$target_path.part";
+
+     die "Download target is a directory, not a file: $target_path\n" if -d $target_path;
+     die "Temporary download target is a directory, not a file: $temp_path\n" if -d $temp_path;
+}
+
+sub is_complete_model_file
+{
+     my ($model, $target_path) = @_;
+
+     return 0 unless -f $target_path;
+     return (-s $target_path) == $model->{size_bytes};
+}
+
+sub ensure_sufficient_space
+{
+     my ($dir, $required_bytes, $target_path) = @_;
+     my $available_bytes = available_bytes($dir);
+
+     return unless defined $available_bytes;
+
+     my $existing_bytes = (-f $target_path) ? (-s $target_path) : 0;
+     my $needed_bytes = $required_bytes - $existing_bytes;
+     $needed_bytes = 0 if $needed_bytes < 0;
+
+     die "Not enough free space in $dir for download.\n"
+          . "Need at least " . format_bytes($needed_bytes) . ", available "
+          . format_bytes($available_bytes) . ".\n"
+          if $available_bytes < $needed_bytes;
+}
+
+sub available_bytes
+{
+     my ($dir) = @_;
+
+     open(my $df, '-|', 'df', '-Pk', $dir) or return undef;
+     my @lines = <$df>;
+     close($df) or return undef;
+
+     return undef if @lines < 2;
+
+     my @fields = split(/\s+/, $lines[-1]);
+     return undef if @fields < 4 || $fields[3] !~ /^\d+$/;
+
+     return $fields[3] * 1024;
+}
+
+sub downloader_error
+{
+     my ($downloader, $status, $url, $temp_path) = @_;
+     my $exit_code = ($status == -1) ? 'failed to start' : ($status >> 8);
+
+     return "$downloader failed while downloading $url\n"
+          . "Temporary output: $temp_path\n"
+          . "Exit code: $exit_code\n"
+          . "If this says curl error 23 / write failure, check destination permissions, disk quota, and free space.\n";
+}
+
+sub format_bytes
+{
+     my ($bytes) = @_;
+
+     return 'unknown' unless defined $bytes;
+
+     my @units = qw(B KiB MiB GiB TiB);
+     my $value = $bytes;
+     my $unit = 0;
+
+     while ($value >= 1024 && $unit < $#units)
+     {
+          $value /= 1024;
+          $unit++;
+     }
+
+     return $unit == 0 ? "$bytes $units[$unit]" : sprintf('%.1f %s', $value, $units[$unit]);
 }
 
 sub effective_max_tokens

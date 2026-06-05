@@ -4574,10 +4574,22 @@ void HttpServer::AcceptConnection()
 
                /* Protect Connections vector with mutex. */
 
+               HttpConnection *RegisteredConnection = NewConnection.get();
+
                {
                     std::lock_guard<std::mutex> Lock(ConnectionsMutex);
 
                     Connections.push_back(std::move(NewConnection));
+               }
+
+               /*
+                * Drain any request bytes that arrived before or during epoll registration.
+                * With edge-triggered epoll, relying only on a later readiness edge can leave
+                * a freshly accepted client idle until the peer times out.
+                */
+               if (RegisteredConnection && RegisteredConnection->HasFD())
+               {
+                    RegisteredConnection->OnEventHandlerRead();
                }
 
                /* Active connection counter is incremented in AddFD(). */

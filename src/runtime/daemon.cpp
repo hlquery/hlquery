@@ -969,7 +969,6 @@ bool hlquery::CheckExistingProcess()
           struct FdGuard
           {
                int FDValue;
-
                bool Released;
 
                FdGuard(int fd) : FDValue(fd), Released(false)
@@ -1010,7 +1009,7 @@ bool hlquery::CheckExistingProcess()
                if (PIDFileLock.l_pid > 1 && !IsHLQueryProcess(PIDFileLock.l_pid))
                {
                     unlink(PIDFilePath.c_str());
-
+   
                     return false;
                }
 
@@ -1032,9 +1031,7 @@ bool hlquery::CheckExistingProcess()
           if (lseek(PIDFdGuard.get(), 0, SEEK_SET) < 0)
           {
                PIDReadLock.l_type = F_UNLCK;
-
                fcntl(PIDFdGuard.get(), F_SETLK, &PIDReadLock);
-
                unlink(PIDFilePath.c_str());
 
                return false;

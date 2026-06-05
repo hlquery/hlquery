@@ -453,11 +453,12 @@ int SocketEngine::DispatchEvents()
      * and poll(-1) blocks, the CPU-only work stalls because no I/O events
      * wake up the poll.
      *
-     * Solution: If there's pending work, use timeout = 0 (non-blocking) to
-     * immediately return to the main loop to process the pending work.
+     * Solution: If there's pending work, use a short timeout instead of a
+     * permanent non-blocking poll. This keeps CPU-only work responsive without
+     * letting stale pending-work state spin the server or starve socket events.
      */
 
-     /* Match epoll behavior for performance - use 0ms (non-blocking) when busy */
+     /* Match epoll behavior: use a short wait while busy to avoid stale-work spins. */
      /* When idle, use -1 (block indefinitely) like epoll to avoid CPU waste */
 
      int timeout_ms = -1; /* Default to infinite blocking when idle (like epoll) */
@@ -466,17 +467,14 @@ int SocketEngine::DispatchEvents()
 
      if (HasPendingWork())
      {
-          /* CRITICAL FIX: Use 0ms (non-blocking) when we have pending work - same as epoll */
-          /* This is essential for benchmark performance - don't block at all when busy */
-
-          timeout_ms = 0; /* Non-blocking - process pending work immediately */
+          timeout_ms = 1;
 
           /*
          * Reset timeout immediately when pending work detected
          * This ensures high throughput mode is active from the start of new activity
          */
 
-          CurrentTimeoutMS.store(0, std::memory_order_relaxed);
+          CurrentTimeoutMS.store(timeout_ms, std::memory_order_relaxed);
      }
      else
      {

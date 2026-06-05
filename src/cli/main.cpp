@@ -1385,7 +1385,8 @@ int main(int argc, char *argv[])
                                            opts.Collections,
                                            opts.Distributed,
                                            opts.Route,
-                                           opts.Skip);
+                                           opts.Skip,
+                                           nullptr);
                }
                else
                {

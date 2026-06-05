@@ -1826,14 +1826,15 @@ bool FetchSAMDocumentIdAtPosition(HLQueryCLI &cli,
 std::vector<std::string> FetchCollectionNames(HLQueryCLI &cli,
                                               int offset = 0,
                                               int limit = 1000,
-                                              std::string *error_message = nullptr)
+                                              std::string *error_message = nullptr,
+                                              int timeout_seconds = -1)
 {
      std::vector<std::string> collection_names;
 
      std::string path = "/collections";
      path += "?offset=" + std::to_string(offset) + "&limit=" + std::to_string(limit) + "&names_only=1";
 
-     HLQueryCLI::HTTPResponse response = cli.MakeRequest("GET", path);
+     HLQueryCLI::HTTPResponse response = cli.MakeRequest("GET", path, "", timeout_seconds);
 
      if (response.StatusCode != 200)
      {
@@ -1870,13 +1871,25 @@ std::vector<std::string> FetchCollectionNames(HLQueryCLI &cli,
      return collection_names;
 }
 
+bool TalkCollectionExists(HLQueryCLI &cli, const std::string &collection_name, int timeout_seconds = -1)
+{
+     if (collection_name.empty() || collection_name.find_first_of(" \t\n\r") != std::string::npos)
+     {
+          return false;
+     }
+
+     const HLQueryCLI::HTTPResponse response =
+          cli.MakeRequest("GET", "/collections/" + hlquery_cli::UrlEncode(collection_name), "", timeout_seconds);
+     return response.StatusCode == 200;
+}
+
 bool FetchAndPrintCollectionList(HLQueryCLI &cli,
                                  TalkState &state,
                                  int offset,
                                  int limit)
 {
      std::string path = "/collections";
-     path += "?offset=" + std::to_string(offset) + "&limit=" + std::to_string(limit) + "&names_only=1";
+     path += "?offset=" + std::to_string(offset) + "&limit=" + std::to_string(limit);
 
      TalkPrintInfo("Fetching collections");
      HLQueryCLI::HTTPResponse response = cli.MakeRequest("GET", path);
@@ -2413,7 +2426,7 @@ bool EnsureCachedCollectionNames(HLQueryCLI &cli,
 
      if (state.LastListedCollections.empty())
      {
-          error_message = "Failed to fetch collections; cannot resolve numeric reference. Run 'ls' to retry or use a collection name.";
+          error_message = "Failed to fetch collections; cannot resolve numeric reference. Run 'ls' to retry, use a collection name, or raise --timeout.";
           if (!fetch_error.empty())
           {
                error_message += " (" + fetch_error + ")";
@@ -3305,7 +3318,7 @@ bool ExecuteTalkCommand(const std::string &line,
           }
 
           TalkPrintInfo("Verifying collection '" + resolved_collection_name + "'");
-          if (!cli.CollectionExists(resolved_collection_name))
+          if (!TalkCollectionExists(cli, resolved_collection_name))
           {
                std::string alias_collection;
 
@@ -3361,7 +3374,7 @@ bool ExecuteTalkCommand(const std::string &line,
                return true;
           }
 
-          if (!cli.CollectionExists(resolved_collection_name))
+          if (!TalkCollectionExists(cli, resolved_collection_name))
           {
                std::string alias_collection;
 
@@ -3552,7 +3565,7 @@ bool ExecuteTalkCommand(const std::string &line,
                return true;
           }
 
-          if (!cli.CollectionExists(resolved_collection_name))
+          if (!TalkCollectionExists(cli, resolved_collection_name))
           {
                TalkPrintError("Collection not found: " + resolved_collection_name);
                return true;
@@ -4277,17 +4290,8 @@ bool ExecuteTalkCommand(const std::string &line,
 
                state.LastSAMSearchCollection = collection_name;
                state.LastSAMSearchQuery = query_text;
-               state.LastListedSAMDocumentIds = FetchSAMSearchDocumentIds(cli, collection_name, query_text, limit_val);
-               if (state.LastListedSAMDocumentIds.empty())
-               {
-                    state.LastListedDocumentIds = FetchSearchDocumentIds(cli, collection_name, query_text, limit_val);
-               }
-               else
-               {
-                    state.LastListedDocumentIds.clear();
-               }
-
-               cli.SearchSAM(collection_name, query_text, limit_val);
+               state.LastListedDocumentIds.clear();
+               cli.SearchSAM(collection_name, query_text, limit_val, false, false, {}, "", "", false, &state.LastListedSAMDocumentIds);
                return true;
           }
 
