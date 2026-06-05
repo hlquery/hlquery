@@ -4356,6 +4356,14 @@ HttpResponse SearchAPI::HandleSAMHistory(const HttpRequest &Request)
                                     "Query parameter 'limit' must be a positive integer.");
      }
 
+     std::string FlushError;
+     if (!Instance->Sam->FlushAndSync(&FlushError) && Instance && Instance->Logs)
+     {
+          Instance->Logs->Normal("search_api",
+                                 "Failed to flush pending SAM history before reading history: " +
+                                      (FlushError.empty() ? std::string("unknown SAM flush failure") : FlushError) + ".");
+     }
+
      const std::vector<SAM::SearchIdeaEntry> History =
           Instance->Sam->GetSearchIdeaHistory(CollectionName, static_cast<size_t>(LimitVal));
 

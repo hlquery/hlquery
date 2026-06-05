@@ -778,6 +778,18 @@ void hlquery::SetSignal(int SignalNum)
 
           return;
      }
+     else if (SignalNum == SIGHUP)
+     {
+          /* A daemon can receive SIGHUP as its launching terminal/session changes.
+           * Do not treat it as a shutdown request.
+           */
+
+          PendingShutdownSignal = SignalNum;
+          NotifySignalWakeup();
+          InSignalHandler = 0;
+
+          return;
+     }
      else
      {
           /* All other managed signals still wake the main loop for centralized handling. */

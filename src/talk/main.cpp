@@ -1889,7 +1889,7 @@ bool FetchAndPrintCollectionList(HLQueryCLI &cli,
                                  int limit)
 {
      std::string path = "/collections";
-     path += "?offset=" + std::to_string(offset) + "&limit=" + std::to_string(limit) + "&names_only=1";
+     path += "?offset=" + std::to_string(offset) + "&limit=" + std::to_string(limit);
 
      TalkPrintInfo("Fetching collections");
      HLQueryCLI::HTTPResponse response = cli.MakeRequest("GET", path);
@@ -4306,7 +4306,7 @@ bool ExecuteTalkCommand(const std::string &line,
                state.LastSAMSearchCollection = collection_name;
                state.LastSAMSearchQuery = query_text;
                state.LastListedDocumentIds.clear();
-               cli.SearchSAM(collection_name, query_text, limit_val, false, false, {}, "", "", true, &state.LastListedSAMDocumentIds, false);
+               cli.SearchSAM(collection_name, query_text, limit_val, false, false, {}, "", "", false, &state.LastListedSAMDocumentIds, false);
                return true;
           }
 
