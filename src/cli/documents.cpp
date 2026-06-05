@@ -1960,10 +1960,30 @@ void HLQueryCLI::ShowSAMStatus(const std::string &collection_name, bool json_out
                     std::cout << root.value("message", "No SAM collections are currently indexing.") << "\n";
                }
           }
-          else
-          {
-               std::cout << root.value("message", "No SAM collections are currently indexing.") << "\n";
-          }
+	          else
+	          {
+	               std::cout << root.value("message", "No SAM collections are currently indexing.") << "\n";
+
+	               const size_t KnownCount = root.value("known_count", static_cast<size_t>(0));
+	               const size_t IndexedTotal = root.value("indexed_total", static_cast<size_t>(0));
+	               const size_t SourceTotal = root.value("source_total", static_cast<size_t>(0));
+	               const size_t FailedTotal = root.value("failed_total", static_cast<size_t>(0));
+	               const size_t PendingTotal = root.value("pending_total", static_cast<size_t>(0));
+
+	               if (KnownCount > 0 || SourceTotal > 0 || IndexedTotal > 0)
+	               {
+	                    std::cout << "SAM indexed " << IndexedTotal << "/" << SourceTotal
+	                              << " document(s) across " << KnownCount << " collection(s)";
+
+	                    if (PendingTotal > 0 || FailedTotal > 0)
+	                    {
+	                         std::cout << " (" << PendingTotal << " pending, "
+	                                   << FailedTotal << " failed)";
+	                    }
+
+	                    std::cout << ".\n";
+	               }
+	          }
 
           const nlohmann::json &active_searches = root["active_searches"];
 

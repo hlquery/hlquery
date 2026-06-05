@@ -100,8 +100,7 @@
                return;
           }
 
-          const size_t MaxParallelJobs =
-               std::max<size_t>(1, Instance->Sam->GetBackgroundWorkerCount());
+          const size_t MaxParallelJobs = 1;
           size_t AvailableSlots = MaxParallelJobs;
           const size_t RunningJobs = Instance->Sam->GetRunningCollectionJobCount();
 
@@ -168,7 +167,7 @@
                     bool AlreadyRunning = false;
                     std::string ErrorMessage;
 
-                    if (!Instance->Sam->StartRecreateCollectionAsync(StartupSweepCollection, &AlreadyRunning, &ErrorMessage))
+                    if (!Instance->Sam->StartRecreateCollectionAsync(StartupSweepCollection, &AlreadyRunning, &ErrorMessage, "auto-index startup", false))
                     {
                          if (Instance->Logs && !ErrorMessage.empty())
                          {
@@ -245,7 +244,7 @@
                bool AlreadyRunning = false;
                std::string ErrorMessage;
 
-               if (!Instance->Sam->StartRecreateCollectionAsync(Collection, &AlreadyRunning, &ErrorMessage))
+               if (!Instance->Sam->StartRecreateCollectionAsync(Collection, &AlreadyRunning, &ErrorMessage, "auto-index", false))
                {
                     if (Instance->Logs && !ErrorMessage.empty())
                     {
@@ -390,7 +389,7 @@
                bool AlreadyRunning = false;
                std::string ErrorMessage;
 
-               if (!Instance->Sam->StartRecreateCollectionAsync(Target, &AlreadyRunning, &ErrorMessage))
+               if (!Instance->Sam->StartRecreateCollectionAsync(Target, &AlreadyRunning, &ErrorMessage, "lexical refresh", false))
                {
                     if (Instance->Logs && !ErrorMessage.empty())
                     {

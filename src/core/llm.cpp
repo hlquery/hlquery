@@ -16,7 +16,12 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cmath>
+#include <fcntl.h>
+#include <fstream>
 #include <sstream>
+#include <spawn.h>
+#include <sys/wait.h>
+#include <unistd.h>
 
 #include "core/hlquery.h"
 #include "core/llama_local.h"
@@ -26,6 +31,8 @@
 #include "sam/sam.h"
 #include "vendor/json/json.hpp"
 
+extern char** environ;
+
 struct LLMInferenceResult
 {
      bool Started = false;
@@ -34,6 +41,156 @@ struct LLMInferenceResult
      std::string Stdout;
      std::string Stderr;
 };
+
+static std::string ShellQuote(const std::string& Value)
+{
+     std::string Output = "'";
+
+     for (const char Character : Value)
+     {
+          if (Character == '\'')
+          {
+               Output += "'\\''";
+          }
+          else
+          {
+               Output.push_back(Character);
+          }
+     }
+
+     Output.push_back('\'');
+     return Output;
+}
+
+static std::string ReadWholeFile(const std::string& Path)
+{
+     std::ifstream Input(Path, std::ios::binary);
+
+     if (!Input)
+     {
+          return "";
+     }
+
+     std::ostringstream Stream;
+     Stream << Input.rdbuf();
+     return Stream.str();
+}
+
+static bool WriteWholeFile(const std::string& Path, const std::string& Content)
+{
+     std::ofstream Output(Path, std::ios::binary | std::ios::trunc);
+
+     if (!Output)
+     {
+          return false;
+     }
+
+     Output << Content;
+     return static_cast<bool>(Output);
+}
+
+static std::string MakeTempPath(const std::string& Prefix)
+{
+     std::string Template = "/tmp/" + Prefix + ".XXXXXX";
+     std::vector<char> Buffer(Template.begin(), Template.end());
+     Buffer.push_back('\0');
+     const int FD = mkstemp(Buffer.data());
+
+     if (FD < 0)
+     {
+          return "";
+     }
+
+     close(FD);
+     return std::string(Buffer.data());
+}
+
+static int RunDetachedLLMCommand(const std::string& InferTool,
+                                 const std::string& TimeoutSeconds,
+                                 const std::string& StdoutPath,
+                                 const std::string& StderrPath,
+                                 const std::string& StatusPath,
+                                 const std::string& ModelPath,
+                                 const std::string& Mode,
+                                 const std::string& PayloadPath)
+{
+     std::string Command = "(";
+     Command += "HLQUERY_LLM_MODEL=" + ShellQuote(ModelPath) + " ";
+     Command += "HLQUERY_LLM_PAYLOAD_MODE=" + ShellQuote(Mode) + " ";
+     Command += "HLQUERY_LLM_PAYLOAD_JSON_FILE=" + ShellQuote(PayloadPath) + " ";
+     Command += "HLQUERY_LLM_DEBUG_TRACE=1 ";
+     Command += "HLQUERY_LLAMA_THREADS=" +
+                ShellQuote(std::getenv("HLQUERY_LLAMA_THREADS") ? std::getenv("HLQUERY_LLAMA_THREADS") : "1") + " ";
+     Command += "timeout " + ShellQuote(TimeoutSeconds) + " ";
+     Command += ShellQuote(InferTool);
+     Command += " >" + ShellQuote(StdoutPath);
+     Command += " 2>" + ShellQuote(StderrPath);
+     Command += "; printf '%s' \"$?\" >" + ShellQuote(StatusPath);
+     Command += ") &";
+
+     std::vector<char*> Args;
+     Args.push_back(const_cast<char*>("sh"));
+     Args.push_back(const_cast<char*>("-c"));
+     Args.push_back(const_cast<char*>(Command.c_str()));
+     Args.push_back(nullptr);
+
+     pid_t Shell = -1;
+     const int SpawnStatus = posix_spawnp(&Shell,
+                                          "sh",
+                                          nullptr,
+                                          nullptr,
+                                          Args.data(),
+                                          environ);
+
+     if (SpawnStatus != 0)
+     {
+          return 127;
+     }
+
+     int ShellStatus = 0;
+
+     if (waitpid(Shell, &ShellStatus, 0) < 0 ||
+         !WIFEXITED(ShellStatus) ||
+         WEXITSTATUS(ShellStatus) != 0)
+     {
+          return 127;
+     }
+
+     const auto Deadline =
+          std::chrono::steady_clock::now() + std::chrono::seconds(std::stoi(TimeoutSeconds) + 5);
+
+     while (std::chrono::steady_clock::now() < Deadline)
+     {
+          std::string RawStatus = ReadWholeFile(StatusPath);
+          RawStatus.erase(RawStatus.begin(),
+                          std::find_if(RawStatus.begin(), RawStatus.end(), [](unsigned char C)
+                          {
+                               return !std::isspace(C);
+                          }));
+          RawStatus.erase(std::find_if(RawStatus.rbegin(), RawStatus.rend(), [](unsigned char C)
+                          {
+                               return !std::isspace(C);
+                          }).base(),
+                          RawStatus.end());
+
+          if (!RawStatus.empty())
+          {
+               char* End = nullptr;
+               const long Parsed = std::strtol(RawStatus.c_str(), &End, 10);
+
+               if (End && *End == '\0' && Parsed >= 0 && Parsed <= 255)
+               {
+                    return static_cast<int>(Parsed);
+               }
+
+               return 128;
+          }
+
+          std::this_thread::sleep_for(std::chrono::milliseconds(100));
+     }
+
+     return 124;
+}
 
 llm::llm()
 {
@@ -383,7 +540,13 @@ static void LogLLMInferenceDebugTrace(const std::string& Mode,
                                       const nlohmann::json& Payload,
                                       const LLMInferenceResult& Result)
 {
-     if (!Instance || !Instance->Logs || !Instance->Logs->GetDebugMode())
+     const bool ShouldLogTrace =
+          Instance &&
+          Instance->Logs &&
+          ((Instance->Config && Instance->Config->GetSamLogContext()) ||
+           Instance->Logs->GetDebugMode());
+
+     if (!ShouldLogTrace)
      {
           return;
      }
@@ -394,6 +557,19 @@ static void LogLLMInferenceDebugTrace(const std::string& Mode,
      if (Trace.find("HLQUERY_LLM_DEBUG_QUESTION_BEGIN") != std::string::npos)
      {
           Message += Trace;
+
+          if (!Result.Stdout.empty())
+          {
+               Message += "\nHLQUERY_LLM_DEBUG_ANSWER_BEGIN mode=" + Mode + "\n";
+               Message += Result.Stdout;
+
+               if (Result.Stdout.back() != '\n')
+               {
+                    Message.push_back('\n');
+               }
+
+               Message += "HLQUERY_LLM_DEBUG_ANSWER_END mode=" + Mode;
+          }
      }
      else
      {
@@ -427,13 +603,54 @@ static LLMInferenceResult RunLLMInference(const std::string& ModelPath,
                                          int TimeoutMS = 60000)
 {
      LLMInferenceResult Result;
-     const LocalLlamaInferenceResult LocalResult =
-          RunLocalLlamaInference(ModelPath, Mode, Payload.dump(), TimeoutMS);
-     Result.Started = LocalResult.Started;
-     Result.TimedOut = LocalResult.TimedOut;
-     Result.ExitCode = LocalResult.ExitCode;
-     Result.Stdout = LocalResult.Output;
-     Result.Stderr = LocalResult.Error;
+
+     if (std::getenv("HLQUERY_LLM_IN_PROCESS"))
+     {
+          const LocalLlamaInferenceResult LocalResult =
+               RunLocalLlamaInference(ModelPath, Mode, Payload.dump(), TimeoutMS);
+          Result.Started = LocalResult.Started;
+          Result.TimedOut = LocalResult.TimedOut;
+          Result.ExitCode = LocalResult.ExitCode;
+          Result.Stdout = LocalResult.Output;
+          Result.Stderr = LocalResult.Error;
+          LogLLMInferenceDebugTrace(Mode, Payload, Result);
+          return Result;
+     }
+
+     const std::string InferTool = std::string(HLQUERY_CONFIG_DIR) + "/../../tools/hlquery-llm-infer";
+     const std::string PayloadPath = MakeTempPath("hlquery-llm-payload");
+     const std::string StdoutPath = MakeTempPath("hlquery-llm-stdout");
+     const std::string StderrPath = MakeTempPath("hlquery-llm-stderr");
+     const std::string StatusPath = MakeTempPath("hlquery-llm-status");
+
+     if (PayloadPath.empty() || StdoutPath.empty() || StderrPath.empty() || StatusPath.empty() ||
+         !WriteWholeFile(PayloadPath, Payload.dump()))
+     {
+          Result.ExitCode = 78;
+          Result.Stderr = "unable to prepare external LLM inference files";
+          LogLLMInferenceDebugTrace(Mode, Payload, Result);
+          return Result;
+     }
+
+     const int TimeoutSeconds = std::max(1, TimeoutMS / 1000);
+     Result.Started = true;
+     Result.ExitCode = RunDetachedLLMCommand(InferTool,
+                                             std::to_string(TimeoutSeconds),
+                                             StdoutPath,
+                                             StderrPath,
+                                             StatusPath,
+                                             ModelPath,
+                                             Mode,
+                                             PayloadPath);
+     Result.Stdout = ReadWholeFile(StdoutPath);
+     Result.Stderr = ReadWholeFile(StderrPath);
+
+     Result.TimedOut = Result.ExitCode == 124;
+
+     (void)std::remove(PayloadPath.c_str());
+     (void)std::remove(StdoutPath.c_str());
+     (void)std::remove(StderrPath.c_str());
+     (void)std::remove(StatusPath.c_str());
      LogLLMInferenceDebugTrace(Mode, Payload, Result);
      return Result;
 }

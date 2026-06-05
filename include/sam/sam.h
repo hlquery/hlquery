@@ -170,6 +170,7 @@ class SAM
           Document Doc;
           bool HasExpectedMutationVersion = false;
           uint64_t ExpectedMutationVersion = 0;
+          bool AllowLLMExpansion = true;
      };
 
      /* Coordinated pause for auto-index background work (does not block manual rebuild/search). */
@@ -294,13 +295,15 @@ class SAM
                               const Document& Doc,
                               std::string* ErrorMessage = nullptr,
                               bool HasExpectedMutationVersion = false,
-                              uint64_t ExpectedMutationVersion = 0);
+                              uint64_t ExpectedMutationVersion = 0,
+                              bool AllowLLMExpansion = true);
 
      /* Build the expanded term set for one document before persistence. */
 
      std::vector<TermEntry> ExpandDocumentTerms(const std::string& Collection,
                                                 const Document& Doc,
-                                                std::string* ErrorMessage = nullptr) const;
+                                                std::string* ErrorMessage = nullptr,
+                                                bool AllowLLMExpansion = true) const;
 
      /* Generate LLM-derived lookup terms for one document. */
 
@@ -533,7 +536,8 @@ class SAM
      bool StartRecreateCollectionAsync(const std::string& Collection,
                                        bool* AlreadyRunning = nullptr,
                                        std::string* ErrorMessage = nullptr,
-                                       const std::string& Source = "");
+                                       const std::string& Source = "",
+                                       bool AllowLLMExpansion = true);
 
      /* Mark a source collection as changed so automatic SAM can rebuild it later. */
 
@@ -547,7 +551,8 @@ class SAM
                                const Document& Doc,
                                std::string* ErrorMessage = nullptr,
                                bool HasExpectedMutationVersion = false,
-                               uint64_t ExpectedMutationVersion = 0);
+                               uint64_t ExpectedMutationVersion = 0,
+                               bool AllowLLMExpansion = true);
 
      /* Index one document immediately into SAM. */
 
@@ -555,7 +560,8 @@ class SAM
                         const Document& Doc,
                         std::string* ErrorMessage = nullptr,
                         bool HasExpectedMutationVersion = false,
-                        uint64_t ExpectedMutationVersion = 0);
+                        uint64_t ExpectedMutationVersion = 0,
+                        bool AllowLLMExpansion = true);
 
      bool StoreDocumentContext(const std::string& Collection,
                                const std::string& DocumentID,

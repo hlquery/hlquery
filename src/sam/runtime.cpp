@@ -608,7 +608,7 @@ void SAM::ScheduleRetryRebuild(const std::string& Collection)
 
                bool AlreadyRunning = false;
                std::string ErrorMessage;
-               const bool Started = StartRecreateCollectionAsync(Collection, &AlreadyRunning, &ErrorMessage, RetrySource);
+               const bool Started = StartRecreateCollectionAsync(Collection, &AlreadyRunning, &ErrorMessage, RetrySource, false);
                bool RescheduleAfterDrain = false;
 
                {
@@ -1330,7 +1330,8 @@ void SAM::RunIndexWorker()
                                Job.Doc,
                                &ErrorMessage,
                                Job.HasExpectedMutationVersion,
-                               Job.ExpectedMutationVersion);
+                               Job.ExpectedMutationVersion,
+                               Job.AllowLLMExpansion);
 
           bool RetryRequested = false;
 
@@ -1498,14 +1499,7 @@ void SAM::RunIndexWorker()
 
 size_t SAM::ResolveBackgroundWorkerCount() const
 {
-     const unsigned int HardwareThreads = std::thread::hardware_concurrency();
-
-     if (HardwareThreads == 0)
-     {
-          return 2;
-     }
-
-     return std::max<size_t>(1, std::min<size_t>(static_cast<size_t>(HardwareThreads), 4));
+     return 1;
 }
 
 bool SAM::IsOpen() const
@@ -1877,7 +1871,8 @@ bool SAM::RecreateCollection(const std::string& Collection,
 bool SAM::StartRecreateCollectionAsync(const std::string& Collection,
                                        bool* AlreadyRunning,
                                        std::string* ErrorMessage,
-                                       const std::string& Source)
+                                       const std::string& Source,
+                                       bool AllowLLMExpansion)
 {
      if (AlreadyRunning)
      {
@@ -2015,7 +2010,7 @@ bool SAM::StartRecreateCollectionAsync(const std::string& Collection,
 
      try
      {
-          StartHelperThread(std::thread([this, Collection, HasExpectedMutationVersion, ExpectedMutationVersion, Source]()
+          StartHelperThread(std::thread([this, Collection, HasExpectedMutationVersion, ExpectedMutationVersion, Source, AllowLLMExpansion]()
           {
           auto FinishTask = [this, &Collection]()
           {
@@ -2241,7 +2236,8 @@ bool SAM::StartRecreateCollectionAsync(const std::string& Collection,
                                          Doc,
                                          &QueueError,
                                          HasExpectedMutationVersion,
-                                         ExpectedMutationVersion))
+                                         ExpectedMutationVersion,
+                                         AllowLLMExpansion))
                {
                     bool QueueNeedsRetry = false;
                     {
@@ -2495,7 +2491,8 @@ bool SAM::EnqueueIndexDocument(const std::string& Collection,
                                const Document& Doc,
                                std::string* ErrorMessage,
                                bool HasExpectedMutationVersion,
-                               uint64_t ExpectedMutationVersion)
+                               uint64_t ExpectedMutationVersion,
+                               bool AllowLLMExpansion)
 {
      {
           std::lock_guard<std::mutex> Lock(JobMutex);
@@ -2555,16 +2552,19 @@ bool SAM::EnqueueIndexDocument(const std::string& Collection,
 
           if (!PendingIndexKeys.insert(PendingKey).second)
           {
-               for (auto& ExistingJob : PendingIndexJobs)
-               {
-                    if (ExistingJob.Collection == Collection && ExistingJob.Doc.ID == Doc.ID)
-                    {
-                         ExistingJob.Doc = Doc;
-                         if (HasExpectedMutationVersion || !ExistingJob.HasExpectedMutationVersion)
-                         {
-                              ExistingJob.HasExpectedMutationVersion = HasExpectedMutationVersion;
-                              ExistingJob.ExpectedMutationVersion = ExpectedMutationVersion;
-                         }
+	               for (auto& ExistingJob : PendingIndexJobs)
+	               {
+	                    if (ExistingJob.Collection == Collection && ExistingJob.Doc.ID == Doc.ID)
+	                    {
+	                         ExistingJob.Doc = Doc;
+	                         ExistingJob.AllowLLMExpansion =
+	                              ExistingJob.AllowLLMExpansion || AllowLLMExpansion;
+
+	                         if (HasExpectedMutationVersion || !ExistingJob.HasExpectedMutationVersion)
+	                         {
+	                              ExistingJob.HasExpectedMutationVersion = HasExpectedMutationVersion;
+	                              ExistingJob.ExpectedMutationVersion = ExpectedMutationVersion;
+	                         }
                          PersistHasExpectedMutationVersion = ExistingJob.HasExpectedMutationVersion;
                          PersistExpectedMutationVersion = ExistingJob.ExpectedMutationVersion;
                          PersistQueueItem = true;
@@ -2579,7 +2579,8 @@ bool SAM::EnqueueIndexDocument(const std::string& Collection,
                PendingIndexJobs.push_back(PendingIndexJob{Collection,
                                                           Doc,
                                                           HasExpectedMutationVersion,
-                                                          ExpectedMutationVersion});
+                                                          ExpectedMutationVersion,
+                                                          AllowLLMExpansion});
                PersistQueueItem = true;
           }
      }
@@ -2755,7 +2756,8 @@ bool SAM::IndexDocumentLocked(const std::string& Collection,
                               const Document& Doc,
                               std::string* ErrorMessage,
                               bool HasExpectedMutationVersion,
-                              uint64_t ExpectedMutationVersion)
+                              uint64_t ExpectedMutationVersion,
+                              bool AllowLLMExpansion)
 {
      if (Collection.empty() || Doc.ID.empty())
      {
@@ -2807,7 +2809,7 @@ bool SAM::IndexDocumentLocked(const std::string& Collection,
      }
 
      std::string TermsError;
-     const std::vector<TermEntry> Terms = ExpandDocumentTerms(Collection, SourceDoc, &TermsError);
+     const std::vector<TermEntry> Terms = ExpandDocumentTerms(Collection, SourceDoc, &TermsError, AllowLLMExpansion);
      if (Terms.empty())
      {
           const std::string FailureMessage = TermsError.empty()
@@ -3000,7 +3002,8 @@ bool SAM::IndexDocumentLocked(const std::string& Collection,
                                      LatestDoc,
                                      ErrorMessage,
                                      HasExpectedMutationVersion,
-                                     ExpectedMutationVersion);
+                                     ExpectedMutationVersion,
+                                     AllowLLMExpansion);
      }
 
      const rocksdb::Status Status = Database->Write(rocksdb::WriteOptions(), &Batch);
@@ -3022,13 +3025,15 @@ bool SAM::IndexDocument(const std::string& Collection,
                         const Document& Doc,
                         std::string* ErrorMessage,
                         bool HasExpectedMutationVersion,
-                        uint64_t ExpectedMutationVersion)
+                        uint64_t ExpectedMutationVersion,
+                        bool AllowLLMExpansion)
 {
      return IndexDocumentLocked(Collection,
                                 Doc,
                                 ErrorMessage,
                                 HasExpectedMutationVersion,
-                                ExpectedMutationVersion);
+                                ExpectedMutationVersion,
+                                AllowLLMExpansion);
 }
 
 bool SAM::StoreDocumentContext(const std::string& Collection,

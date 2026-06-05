@@ -2558,7 +2558,8 @@ void PrintHelp()
      std::cout << "           Suggest likely intended phrases through the daemon maybe endpoint\n";
      std::cout << "  sam help  Show SAM subcommands\n";
      std::cout << "  sam ID  Show contextual lookup phrases for one document in the active collection\n";
-     std::cout << "  sam run COL  Start background SAM indexing for one collection\n";
+	     std::cout << "  sam run COL  Start background SAM indexing for one collection\n";
+	     std::cout << "  sam index [COL]  Start background SAM indexing for COL or the active collection\n";
      std::cout << "  sam search [COL] QUERY [limit]  Search SAM phrases in the current or specified collection\n";
      std::cout << "  sam status [COL]  Show current SAM background indexing status\n";
      std::cout << "  sam history [COL] [limit]  Show recent SAM search history\n";
@@ -2612,7 +2613,8 @@ void PrintSAMHelp()
      std::cout << "SAM commands:\n";
      std::cout << "  sam help  Show SAM subcommands\n";
      std::cout << "  sam ID  Show contextual lookup phrases for one document in the active collection\n";
-     std::cout << "  sam run COL  Start background SAM indexing for one collection\n";
+	     std::cout << "  sam run COL  Start background SAM indexing for one collection\n";
+	     std::cout << "  sam index [COL]  Start background SAM indexing for COL or the active collection\n";
      std::cout << "  sam search [COL] QUERY [limit]  Search SAM phrases in the current or specified collection\n";
      std::cout << "  sam status [COL]  Show current SAM background indexing status\n";
      std::cout << "  sam history [COL] [limit]  Show recent SAM search history\n";
@@ -4204,21 +4206,47 @@ bool ExecuteTalkCommand(const std::string &line,
                return true;
           }
 
-          if (parts.size() >= 2 && parts[1] == "run")
-          {
-               if (parts.size() != 3)
-               {
-                    TalkPrintError("Usage: sam run <collection>");
-                    return true;
-               }
+	          if (parts.size() >= 2 && (parts[1] == "run" || parts[1] == "index"))
+	          {
+	               std::string collection_token;
 
-               std::string collection_name;
-               std::string error_message;
+	               if (parts[1] == "run")
+	               {
+	                    if (parts.size() != 3)
+	                    {
+	                         TalkPrintError("Usage: sam run <collection>");
+	                         return true;
+	                    }
 
-               if (!ResolveSAMCollectionReference(state, cli, parts[2], collection_name, error_message))
-               {
-                    TalkPrintError(error_message);
-                    return true;
+	                    collection_token = parts[2];
+	               }
+	               else if (parts.size() == 2)
+	               {
+	                    if (state.CurrentCollection.empty())
+	                    {
+	                         TalkPrintError("No active collection. Use 'use <collection>' first or pass a collection name.");
+	                         return true;
+	                    }
+
+	                    collection_token = state.CurrentCollection;
+	               }
+	               else if (parts.size() == 3)
+	               {
+	                    collection_token = parts[2];
+	               }
+	               else
+	               {
+	                    TalkPrintError("Usage: sam index [collection]");
+	                    return true;
+	               }
+
+	               std::string collection_name;
+	               std::string error_message;
+
+	               if (!ResolveSAMCollectionReference(state, cli, collection_token, collection_name, error_message))
+	               {
+	                    TalkPrintError(error_message);
+	                    return true;
                }
 
                cli.RebuildSAMCollection(collection_name);
@@ -4310,10 +4338,10 @@ bool ExecuteTalkCommand(const std::string &line,
                return true;
           }
 
-          if (parts.size() >= 2 && parts[1] == "status")
-          {
-               std::string collection_name;
-               std::string error_message;
+	          if (parts.size() >= 2 && (parts[1] == "status" || parts[1] == "stats"))
+	          {
+	               std::string collection_name;
+	               std::string error_message;
 
                if (parts.size() == 2)
                {
@@ -4327,11 +4355,11 @@ bool ExecuteTalkCommand(const std::string &line,
                          return true;
                     }
                }
-               else
-               {
-                    TalkPrintError("Usage: sam status [collection]");
-                    return true;
-               }
+	               else
+	               {
+	                    TalkPrintError("Usage: sam status [collection]");
+	                    return true;
+	               }
 
                cli.ShowSAMStatus(collection_name);
                return true;

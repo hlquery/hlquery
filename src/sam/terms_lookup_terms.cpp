@@ -1429,7 +1429,8 @@ std::vector<SAM::TermEntry> SAM::GenerateLLMTermsFromProfile(const std::string& 
 
 std::vector<SAM::TermEntry> SAM::ExpandDocumentTerms(const std::string& Collection,
                                                      const Document& Doc,
-                                                     std::string* ErrorMessage) const
+                                                     std::string* ErrorMessage,
+                                                     bool AllowLLMExpansion) const
 {
      if (Collection.empty() || Doc.ID.empty())
      {
@@ -1794,8 +1795,10 @@ std::vector<SAM::TermEntry> SAM::ExpandDocumentTerms(const std::string& Collecti
 
      std::string ContextError;
 
-     const std::vector<TermEntry> LLMTerms = GenerateLLMTerms(Collection, Doc, &ContextError);
-     const std::vector<TermEntry> ProfileLLMTerms = GenerateLLMTermsFromProfile(Collection, Doc, ProfileTerms, &ContextError);
+     const std::vector<TermEntry> LLMTerms =
+          AllowLLMExpansion ? GenerateLLMTerms(Collection, Doc, &ContextError) : std::vector<TermEntry>();
+     const std::vector<TermEntry> ProfileLLMTerms =
+          AllowLLMExpansion ? GenerateLLMTermsFromProfile(Collection, Doc, ProfileTerms, &ContextError) : std::vector<TermEntry>();
 
      const bool HasLLMExpansion = !LLMTerms.empty() || !ProfileLLMTerms.empty();
      for (const auto& Term : LLMTerms)

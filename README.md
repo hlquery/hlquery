@@ -141,26 +141,6 @@ Official client libraries are available for popular programming languages:
 
 For complete API documentation, visit [docs.hlquery.com](https://docs.hlquery.com/).
 
-### Modern HTTP Routes
-
-The route resolver is centralized in [`src/api/httproutes.cpp`](src/api/httproutes.cpp). The current public HTTP surface is organized around resource paths:
-
-| Area | Routes |
-| --- | --- |
-| Health and readiness | `GET /health`, `GET /ready`, `GET /ping`, `GET /status`, `GET /startup` |
-| Metrics and storage | `GET /stats`, `GET /metrics`, `GET /metrics/history`, `GET /rocksdb`, `GET /admin/storage_status` |
-| Collections | `GET/POST /collections`, `GET/DELETE /collections/{collection}`, `POST /collections/{collection}/update` |
-| Documents | `GET/POST/DELETE /collections/{collection}/documents`, `GET/PUT/DELETE /collections/{collection}/documents/{id}` |
-| Bulk and by-query writes | `POST /collections/{collection}/documents/import`, `POST /collections/{collection}/documents/_update_by_query`, `POST /collections/{collection}/documents/_delete_by_query` |
-| Search | `GET/POST /collections/{collection}/documents/search`, `GET/POST /multi_search`, `GET/POST /search`, `GET/POST /sql` |
-| Vector search | `GET/POST /collections/{collection}/vector_search`, `GET/POST /collections/{collection}/search` |
-| Relevance controls | `/synonyms`, `/stopwords`, `/overrides`, `/aliases` |
-| Access control | `/keys`, `/users` |
-| Cluster and modules | `/links`, `/modules`, `/loadmodule/{module}`, `/unloadmodule/{module}` |
-| SAM | `/sam/search`, `/sam/status`, `/sam/rebuild`, `/sam/documents` |
-
-The canonical route reference is in [Complete API Reference](etc/docs/docs/api/complete-api-reference.md), with endpoint-level pages under [etc/docs/docs/api](etc/docs/docs/api).
-
 ### Create a Collection
 
 ```bash
