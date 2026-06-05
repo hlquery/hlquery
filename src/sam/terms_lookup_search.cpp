@@ -2837,6 +2837,59 @@ std::vector<SAM::SearchIdeaEntry> SAM::GetSearchIdeaHistory(const std::string& C
           Entries.push_back(std::move(Entry));
      }
 
+     {
+          std::lock_guard<std::mutex> Lock(SearchIdeaQueueMutex);
+          const uint64_t NowMS = GetSAMCurrentTimeMS();
+
+          for (const auto& Job : PendingSearchIdeaJobs)
+          {
+               if (!Collection.empty() && Job.Collection != Collection)
+               {
+                    continue;
+               }
+
+               const std::string NormalizedQuery = NormalizeTerm(Job.Query);
+
+               if (Job.Collection.empty() || NormalizedQuery.empty())
+               {
+                    continue;
+               }
+
+               auto ExistingIt =
+                    std::find_if(Entries.begin(), Entries.end(),
+                                 [&](const SearchIdeaEntry& Entry)
+                                 {
+                                      return Entry.Collection == Job.Collection &&
+                                             Entry.NormalizedQuery == NormalizedQuery;
+                                 });
+
+               if (ExistingIt != Entries.end())
+               {
+                    ExistingIt->Query = TrimCopy(Job.Query).empty() ? ExistingIt->Query : TrimCopy(Job.Query);
+                    ExistingIt->LastSeenMS = std::max<uint64_t>(ExistingIt->LastSeenMS, NowMS);
+                    ExistingIt->Uses = ExistingIt->Uses == 0 ? 1 : ExistingIt->Uses + 1;
+
+                    if (ExistingIt->Vector.empty())
+                    {
+                         ExistingIt->Vector = BuildHashedSemanticVector({ExistingIt->NormalizedQuery});
+                    }
+
+                    continue;
+               }
+
+               SearchIdeaEntry PendingEntry;
+               PendingEntry.Collection = Job.Collection;
+               PendingEntry.Query = TrimCopy(Job.Query);
+               PendingEntry.NormalizedQuery = NormalizedQuery;
+               PendingEntry.FirstSeenMS = NowMS;
+               PendingEntry.LastSeenMS = NowMS;
+               PendingEntry.Uses = 1;
+               PendingEntry.Vector = BuildHashedSemanticVector({PendingEntry.NormalizedQuery});
+               PendingEntry.Documents = Job.Documents;
+               Entries.push_back(std::move(PendingEntry));
+          }
+     }
+
      std::sort(Entries.begin(), Entries.end(),
                [](const SearchIdeaEntry& Left, const SearchIdeaEntry& Right)
                {
