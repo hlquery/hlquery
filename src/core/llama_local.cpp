@@ -91,7 +91,17 @@ static int ReadThreadCount()
 
 static int MaxTokensForMode(const std::string& Mode)
 {
-     return Mode == "context" ? 320 : 192;
+     if (Mode == "context")
+     {
+          return 320;
+     }
+
+     if (Mode == "search_intent")
+     {
+          return 640;
+     }
+
+     return 192;
 }
 
 static std::string SchemaForMode(const std::string& Mode)
@@ -111,10 +121,23 @@ static std::string SchemaForMode(const std::string& Mode)
 
 static std::string BuildPrompt(const std::string& Mode, const std::string& Payload)
 {
-     std::string Prompt =
-          "You improve retrieval for a local search engine. Analyze the JSON payload using only its supplied evidence. "
+     std::string Prompt = "You improve retrieval for a local search engine. ";
+
+     if (Mode == "search_intent")
+     {
+          Prompt +=
+               "Given a query and candidate documents, infer which candidate titles or terms the query may point to. "
+               "Use supplied evidence first, but you may also use common alias, spelling, location, institution, or world-knowledge associations when they are likely. "
+               "If a query appears misspelled, infer the likely correction. Keep uncertain associations at lower weight. ";
+     }
+     else
+     {
+          Prompt += "Analyze the JSON payload using only its supplied evidence. Do not invent unsupported facts. ";
+     }
+
+     Prompt +=
           "Return exactly one compact JSON object on one line. Do not emit markdown or explanatory prose. "
-          "Keep phrases short, specific, and useful for search. Do not invent unsupported facts.\n"
+          "Keep phrases short, specific, and useful for search.\n"
           "Mode: " + Mode + "\n"
           "Required schema: " + SchemaForMode(Mode) + "\n"
           "Payload:\n";

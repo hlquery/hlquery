@@ -3956,11 +3956,6 @@ HttpResponse SearchAPI::HandleSAMStatus(const HttpRequest &Request)
                continue;
           }
 
-          if (CollectionName.empty() && !Entry.second.Running)
-          {
-               continue;
-          }
-
           if (!CollectionName.empty() && !HybridStorageManagerInstance().CollectionExists(CollectionName))
           {
                return BuildErrorResponse(Status::NOT_FOUND,

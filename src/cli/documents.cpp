@@ -1737,7 +1737,7 @@ bool HLQueryCLI::SearchSAM(const std::string &collection_name,
           path += "&skip=true";
      }
 
-     HLQueryCLI::HTTPResponse response = MakeRequest("GET", path);
+     HLQueryCLI::HTTPResponse response = MakeRequest("GET", path, "", std::max(120, DefaultTimeoutSeconds));
 
      if (CheckRequestFailed(response))
      {

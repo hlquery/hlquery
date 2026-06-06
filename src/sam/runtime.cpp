@@ -193,6 +193,11 @@ void SAM::RecordDebugEvent(const std::string& Collection, const std::string& Mes
      }
 }
 
+void SAM::AddDebugEvent(const std::string& Collection, const std::string& Message) const
+{
+     RecordDebugEvent(Collection, Message);
+}
+
 bool SAM::IsCollectionCancelledLocked(const std::string& Collection) const
 {
      return ShuttingDown || CancelAllRequested || CancelledCollections.find(Collection) != CancelledCollections.end();

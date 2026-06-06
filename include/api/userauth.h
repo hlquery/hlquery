@@ -23,8 +23,8 @@
 
 enum class UserFlag
 {
-     USER, /* Standard user permissions. */
-     ADMIN /* Administrative permissions. */
+     USER,   /* Standard user permissions. */
+     ADMIN   /* Administrative permissions. */
 };
 
 /* User information structure. */
@@ -114,8 +114,10 @@ class UserAuthManager
 
      bool UpdateUser(const User& UserObj);
 
-     /* BUG FIX #6: Return optional<User> instead of pointer to prevent Use-After-Free. */
-     /* Returning a pointer to internal map element is unsafe if RemoveUser is called concurrently. */
+     /* 
+      * Return optional<User> instead of pointer to prevent Use-After-Free. 
+      * Returning a pointer to internal map element is unsafe if RemoveUser is called concurrently. 
+      */
 
      std::optional<User> GetUser(const std::string& Name);
 

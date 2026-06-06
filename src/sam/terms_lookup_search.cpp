@@ -1008,66 +1008,313 @@ Document BuildSearchIntentCandidateDocument(const SAM::DocumentEntry& Entry)
      return Candidate;
 }
 
+size_t ComputeLiveIntentEditDistance(const std::string& Left, const std::string& Right)
+{
+     if (Left.empty())
+     {
+          return Right.size();
+     }
+
+     if (Right.empty())
+     {
+          return Left.size();
+     }
+
+     std::vector<size_t> Previous(Right.size() + 1);
+     std::vector<size_t> Current(Right.size() + 1);
+
+     for (size_t Index = 0; Index <= Right.size(); ++Index)
+     {
+          Previous[Index] = Index;
+     }
+
+     for (size_t LeftIndex = 0; LeftIndex < Left.size(); ++LeftIndex)
+     {
+          Current[0] = LeftIndex + 1;
+
+          for (size_t RightIndex = 0; RightIndex < Right.size(); ++RightIndex)
+          {
+               const size_t Cost = Left[LeftIndex] == Right[RightIndex] ? 0 : 1;
+               Current[RightIndex + 1] = std::min({
+                    Current[RightIndex] + 1,
+                    Previous[RightIndex + 1] + 1,
+                    Previous[RightIndex] + Cost
+               });
+          }
+
+          Previous.swap(Current);
+     }
+
+     return Previous[Right.size()];
+}
+
+double ScoreLiveIntentCandidateSeed(const SAM::DocumentEntry& Entry,
+                                    const std::string& NormalizedQuery,
+                                    const std::vector<std::string>& QueryTokens)
+{
+     double Score = 0.0;
+     const std::vector<std::string> Phrases = BuildSearchIntentDocumentPhrases(Entry);
+
+     for (const auto& Phrase : Phrases)
+     {
+          if (Phrase.empty())
+          {
+               continue;
+          }
+
+          if (!NormalizedQuery.empty() &&
+              (Phrase == NormalizedQuery ||
+               Phrase.find(NormalizedQuery) != std::string::npos ||
+               NormalizedQuery.find(Phrase) != std::string::npos))
+          {
+               Score = std::max(Score, 5.0);
+          }
+
+          const std::vector<std::string> PhraseTokens = TokenizeNormalized(Phrase);
+          const double Overlap = ComputeSearchIntentTokenOverlap(QueryTokens, PhraseTokens);
+
+          if (Overlap > 0.0)
+          {
+               Score = std::max(Score, 3.0 + (Overlap * 2.0));
+          }
+
+          for (const auto& QueryToken : QueryTokens)
+          {
+               if (QueryToken.size() < 3)
+               {
+                    continue;
+               }
+
+               for (const auto& PhraseToken : PhraseTokens)
+               {
+                    if (PhraseToken.size() < 3)
+                    {
+                         continue;
+                    }
+
+                    const size_t MaxDistance = QueryToken.size() <= 8 ? 1 : 2;
+                    const size_t Distance = ComputeLiveIntentEditDistance(QueryToken, PhraseToken);
+
+                    if (Distance <= MaxDistance)
+                    {
+                         Score = std::max(Score, 2.2 - (static_cast<double>(Distance) * 0.35));
+                    }
+               }
+          }
+     }
+
+     return Score;
+}
+
+bool IsGenericLiveSearchIntentText(const std::string& Text, const std::string& Query)
+{
+     const std::string NormalizedText = NormalizeTerm(Text);
+     const std::string NormalizedQuery = NormalizeTerm(Query);
+
+     if (NormalizedText.empty() || NormalizedText == NormalizedQuery)
+     {
+          return false;
+     }
+
+     static const std::unordered_set<std::string> GenericTerms = {
+          "college",
+          "colleges",
+          "institute",
+          "institutes",
+          "school",
+          "schools",
+          "state",
+          "university",
+          "universities"
+     };
+
+     const std::vector<std::string> Tokens = TokenizeNormalized(NormalizedText);
+
+     if (Tokens.empty() || Tokens.size() > 2)
+     {
+          return false;
+     }
+
+     return std::all_of(Tokens.begin(), Tokens.end(),
+                        [](const std::string& Token)
+                        {
+                             return GenericTerms.find(Token) != GenericTerms.end();
+                        });
+}
+
+bool LiveIntentCandidateSupportsQuery(const std::string& CandidateText, const std::string& Query)
+{
+     const std::string NormalizedCandidate = NormalizeTerm(CandidateText);
+     const std::string NormalizedQuery = NormalizeTerm(Query);
+
+     if (NormalizedCandidate.empty() || NormalizedQuery.empty())
+     {
+          return false;
+     }
+
+     if (NormalizedCandidate.find(NormalizedQuery) != std::string::npos ||
+         NormalizedQuery.find(NormalizedCandidate) != std::string::npos)
+     {
+          return true;
+     }
+
+     const std::vector<std::string> QueryTokens = TokenizeNormalized(NormalizedQuery);
+     const std::vector<std::string> CandidateTokens = TokenizeNormalized(NormalizedCandidate);
+
+     for (const auto& QueryToken : QueryTokens)
+     {
+          if (QueryToken.size() < 3)
+          {
+               continue;
+          }
+
+          for (const auto& CandidateToken : CandidateTokens)
+          {
+               if (CandidateToken.size() < 3)
+               {
+                    continue;
+               }
+
+               const size_t MaxDistance = QueryToken.size() <= 8 ? 1 : 2;
+
+               if (ComputeLiveIntentEditDistance(QueryToken, CandidateToken) <= MaxDistance)
+               {
+                    return true;
+               }
+          }
+     }
+
+     return false;
+}
+
+void FilterLiveSearchIntentResolution(llm::SearchIntentResolution& Resolution,
+                                      const std::string& Query)
+{
+     auto Keep = [&](const llm::SearchIntentCandidate& Candidate)
+     {
+          if (IsGenericLiveSearchIntentText(Candidate.Text, Query))
+          {
+               return false;
+          }
+
+          return LiveIntentCandidateSupportsQuery(Candidate.Text, Query);
+     };
+
+     Resolution.Candidates.erase(
+          std::remove_if(Resolution.Candidates.begin(), Resolution.Candidates.end(),
+                         [&](const llm::SearchIntentCandidate& Candidate)
+                         {
+                              return !Keep(Candidate);
+                         }),
+          Resolution.Candidates.end());
+
+     Resolution.RankedTerms.erase(
+          std::remove_if(Resolution.RankedTerms.begin(), Resolution.RankedTerms.end(),
+                         [&](const llm::SearchIntentCandidate& Candidate)
+                         {
+                              return !Keep(Candidate);
+                         }),
+          Resolution.RankedTerms.end());
+
+     if (!Resolution.Candidates.empty() &&
+         (Resolution.Interpretation.size() > 80 ||
+          IsGenericLiveSearchIntentText(Resolution.Interpretation, Query) ||
+          !LiveIntentCandidateSupportsQuery(Resolution.Interpretation, Query)))
+     {
+          Resolution.Interpretation = Resolution.Candidates.front().Text;
+     }
+}
+
 std::vector<Document> BuildLiveSearchIntentCandidateDocuments(
      rocksdb::DB* Database,
      const std::string& Collection,
+     const std::string& Query,
      const std::unordered_map<std::string, SAMAggregatedHit>& AggregatedHits,
      size_t Limit)
 {
      std::vector<Document> Candidates;
 
-     if (!Database || Collection.empty() || AggregatedHits.empty() || Limit == 0)
+     if (!Database || Collection.empty() || Limit == 0)
      {
           return Candidates;
      }
 
-     std::vector<const SAMAggregatedHit*> RankedHits;
-     RankedHits.reserve(AggregatedHits.size());
+     struct CandidateSeed
+     {
+          SAM::DocumentEntry Entry;
+          double Score = 0.0;
+          size_t Order = 0;
+     };
+
+     std::unordered_map<std::string, double> AggregatedScores;
 
      for (const auto& Pair : AggregatedHits)
      {
-          RankedHits.push_back(&Pair.second);
+          if (!Pair.second.BestHit.DocumentID.empty())
+          {
+               AggregatedScores[Pair.second.BestHit.DocumentID] =
+                    std::max(AggregatedScores[Pair.second.BestHit.DocumentID],
+                             8.0 + Pair.second.BestHit.MatchedScore);
+          }
      }
 
-     std::sort(RankedHits.begin(), RankedHits.end(),
-               [](const SAMAggregatedHit* Left, const SAMAggregatedHit* Right)
-               {
-                    if (Left->BestHit.MatchedScore != Right->BestHit.MatchedScore)
-                    {
-                         return Left->BestHit.MatchedScore > Right->BestHit.MatchedScore;
-                    }
+     std::vector<CandidateSeed> Seeds;
+     const std::string NormalizedQuery = NormalizeTerm(Query);
+     const std::vector<std::string> QueryTokens = TokenizeNormalized(NormalizedQuery);
+     const std::string QueryManifestPrefix = "sam:doc:" + Collection + ":";
+     const size_t MaxScannedDocuments = std::max<size_t>(Limit, std::min<size_t>(512, Limit * 4));
+     size_t ScannedDocuments = 0;
+     std::unique_ptr<rocksdb::Iterator> Iterator(Database->NewIterator(rocksdb::ReadOptions()));
 
-                    return Left->BestHit.DocumentID < Right->BestHit.DocumentID;
-               });
-
-     for (const SAMAggregatedHit* RankedHit : RankedHits)
+     for (Iterator->Seek(QueryManifestPrefix);
+          Iterator->Valid() && Iterator->key().starts_with(QueryManifestPrefix) &&
+               ScannedDocuments < MaxScannedDocuments;
+          Iterator->Next(), ++ScannedDocuments)
      {
-          const SAM::LookupHit& Hit = RankedHit->BestHit;
-
-          if (Hit.DocumentID.empty())
-          {
-               continue;
-          }
-
-          std::string ManifestValue;
-          const rocksdb::Status Status =
-               Database->Get(rocksdb::ReadOptions(),
-                             BuildDocManifestKey(Collection, Hit.DocumentID),
-                             &ManifestValue);
-
-          if (!Status.ok())
-          {
-               continue;
-          }
-
           SAM::DocumentEntry Entry;
 
-          if (!ParseManifestValue(ManifestValue, Entry) || !IsSAMDocumentEntryCurrent(Entry))
+          if (!ParseManifestValue(Iterator->value().ToString(), Entry) ||
+              !IsSAMDocumentEntryCurrent(Entry))
           {
                continue;
           }
 
-          Candidates.push_back(BuildSearchIntentCandidateDocument(Entry));
+          CandidateSeed Seed;
+          Seed.Entry = std::move(Entry);
+          Seed.Order = ScannedDocuments;
+
+          const auto AggregatedIt = AggregatedScores.find(Seed.Entry.DocumentID);
+
+          if (AggregatedIt != AggregatedScores.end())
+          {
+               Seed.Score = std::max(Seed.Score, AggregatedIt->second);
+          }
+
+          Seed.Score = std::max(Seed.Score,
+                                ScoreLiveIntentCandidateSeed(Seed.Entry, NormalizedQuery, QueryTokens));
+
+          Seeds.push_back(std::move(Seed));
+     }
+
+     std::sort(Seeds.begin(), Seeds.end(),
+               [](const CandidateSeed& Left, const CandidateSeed& Right)
+               {
+                    if (Left.Score != Right.Score)
+                    {
+                         return Left.Score > Right.Score;
+                    }
+
+                    if (Left.Entry.Title != Right.Entry.Title)
+                    {
+                         return Left.Entry.Title < Right.Entry.Title;
+                    }
+
+                    return Left.Order < Right.Order;
+               });
+
+     for (const auto& Seed : Seeds)
+     {
+          Candidates.push_back(BuildSearchIntentCandidateDocument(Seed.Entry));
 
           if (Candidates.size() >= Limit)
           {
@@ -1085,24 +1332,165 @@ void AppendLiveSearchIntentHits(std::unordered_map<std::string, SAMAggregatedHit
                                 const SAMQueryTokenViews& QueryViews,
                                 size_t Limit)
 {
-     if (!Database || Collection.empty() || Query.empty() ||
-         IsSingleTokenSAMIntent(QueryViews) ||
-         Query.find_first_of("*?%[]{}:") != std::string::npos ||
-         !Instance || !Instance->Config || !Instance->Config->GetSamLiveQueryImprovement() ||
-         !Instance->LLM || !Instance->LLM->Configured())
+     auto LogDecision = [&](const std::string& Message)
      {
+          if (Instance && Instance->Sam)
+          {
+               Instance->Sam->AddDebugEvent(Collection,
+                                            "search LLM query='" + NormalizeTerm(Query) + "': " + Message);
+          }
+
+          if (Instance && Instance->Logs &&
+              ((Instance->Config && Instance->Config->GetSamLogContext()) ||
+               Instance->Logs->GetDebugMode()))
+          {
+               Instance->Logs->Debug("sam",
+                                     "SAM search LLM query='" + NormalizeTerm(Query) +
+                                          "' collection='" + Collection + "': " + Message + ".");
+          }
+     };
+
+     if (!Database)
+     {
+          LogDecision("not asking LLM because SAM database is unavailable");
+          return;
+     }
+
+     if (Collection.empty() || Query.empty())
+     {
+          LogDecision("not asking LLM because collection or query is empty");
+          return;
+     }
+
+     if (Query.find_first_of("*?%[]{}:") != std::string::npos)
+     {
+          LogDecision("not asking LLM because query uses structured/wildcard syntax");
+          return;
+     }
+
+     if (!Instance || !Instance->Config || !Instance->Config->GetSamLiveQueryImprovement())
+     {
+          LogDecision("not asking LLM because live_query_improvement is disabled");
+          return;
+     }
+
+     if (!Instance->LLM || !Instance->LLM->Configured())
+     {
+          LogDecision("not asking LLM because no configured model is available");
           return;
      }
 
      const size_t IntentLimit =
           static_cast<size_t>(std::max(1, Instance->Config->GetSamLLMMaxIdeas()));
+     const size_t CandidateLimit =
+          std::max<size_t>(64, std::min<size_t>(256, std::max<size_t>(Limit, 1) * 8));
+     const size_t BatchSize = 64;
      const std::vector<Document> CandidateDocuments =
-          BuildLiveSearchIntentCandidateDocuments(Database, Collection, AggregatedHits, IntentLimit);
-     const llm::SearchIntentResolution Resolution =
-          Instance->LLM->ResolveSearchIntent(Collection, Query, CandidateDocuments, IntentLimit);
+          BuildLiveSearchIntentCandidateDocuments(Database, Collection, Query, AggregatedHits, CandidateLimit);
+
+     if (CandidateDocuments.empty())
+     {
+          LogDecision("not asking LLM because there are no candidate documents in the collection window");
+          return;
+     }
+
+     LogDecision("asking LLM exhaustive search intent with candidates=" +
+                 std::to_string(CandidateDocuments.size()) +
+                 ", batch_size=" + std::to_string(BatchSize) +
+                 ", limit=" + std::to_string(IntentLimit));
+
+     llm::SearchIntentResolution Resolution;
+     std::unordered_map<std::string, size_t> CandidateIndexes;
+     std::unordered_map<std::string, size_t> RankedTermIndexes;
+
+     auto MergeCandidates = [](std::vector<llm::SearchIntentCandidate>& Target,
+                               std::unordered_map<std::string, size_t>& Indexes,
+                               const std::vector<llm::SearchIntentCandidate>& Source,
+                               size_t MaxItems)
+     {
+          for (const auto& Candidate : Source)
+          {
+               const std::string Key = NormalizeTerm(Candidate.Text);
+
+               if (Key.empty())
+               {
+                    continue;
+               }
+
+               const auto Existing = Indexes.find(Key);
+
+               if (Existing != Indexes.end())
+               {
+                    Target[Existing->second].Weight =
+                         std::max(Target[Existing->second].Weight, Candidate.Weight);
+                    continue;
+               }
+
+               if (Target.size() >= MaxItems)
+               {
+                    continue;
+               }
+
+               Indexes[Key] = Target.size();
+               Target.push_back(Candidate);
+          }
+     };
+
+     size_t BatchCount = 0;
+
+     for (size_t Offset = 0; Offset < CandidateDocuments.size(); Offset += BatchSize)
+     {
+          const size_t End = std::min(CandidateDocuments.size(), Offset + BatchSize);
+          std::vector<Document> BatchDocuments(CandidateDocuments.begin() + static_cast<std::ptrdiff_t>(Offset),
+                                               CandidateDocuments.begin() + static_cast<std::ptrdiff_t>(End));
+          llm::SearchIntentResolution BatchResolution =
+               Instance->LLM->ResolveSearchIntent(Collection, Query, BatchDocuments, IntentLimit);
+          FilterLiveSearchIntentResolution(BatchResolution, Query);
+
+          const bool LooksLikeHeuristicFallback =
+               NormalizeTerm(BatchResolution.Interpretation) == NormalizeTerm(Query) &&
+               BatchResolution.Candidates.size() >= std::min(BatchDocuments.size(), IntentLimit) &&
+               BatchResolution.RankedTerms.size() >= std::min<size_t>(BatchDocuments.size(), IntentLimit);
+          const bool LooksGeneric =
+               IsGenericLiveSearchIntentText(BatchResolution.Interpretation, Query) ||
+               IsGenericLiveSearchIntentText(BatchResolution.Conclusion, Query);
+
+          if (LooksLikeHeuristicFallback || LooksGeneric)
+          {
+               LogDecision(std::string("ignored ") +
+                           (LooksGeneric ? "generic interpretation" : "heuristic fallback") +
+                           " from LLM batch offset=" +
+                           std::to_string(Offset) +
+                           (LooksGeneric
+                                ? " because it was too broad for the query"
+                                : " because no parsed search-intent answer was available"));
+               ++BatchCount;
+               continue;
+          }
+
+          if (Resolution.Interpretation.empty() && !BatchResolution.Interpretation.empty())
+          {
+               Resolution.Interpretation = BatchResolution.Interpretation;
+          }
+
+          if (Resolution.Conclusion.empty() && !BatchResolution.Conclusion.empty())
+          {
+               Resolution.Conclusion = BatchResolution.Conclusion;
+          }
+
+          MergeCandidates(Resolution.Candidates, CandidateIndexes, BatchResolution.Candidates, IntentLimit * 2);
+          MergeCandidates(Resolution.RankedTerms, RankedTermIndexes, BatchResolution.RankedTerms, IntentLimit * 4);
+          ++BatchCount;
+     }
+
+     LogDecision("LLM exhaustive search intent completed batches=" +
+                 std::to_string(BatchCount) +
+                 ", candidates=" + std::to_string(Resolution.Candidates.size()) +
+                 ", ranked_terms=" + std::to_string(Resolution.RankedTerms.size()));
 
      if (Resolution.Candidates.empty() && Resolution.RankedTerms.empty())
      {
+          LogDecision("LLM returned no search-intent candidates");
           return;
      }
 
@@ -2575,6 +2963,24 @@ std::vector<SAM::LookupHit> SAM::Lookup(const std::string& Collection, const std
      }
 
      const uint64_t ActivitySequence = BeginLookupActivity(Collection, Query);
+     const bool LogLookupProgress =
+          Instance &&
+          Instance->Logs &&
+          ((Instance->Config && Instance->Config->GetSamLogContext()) ||
+           Instance->Logs->GetDebugMode());
+
+     if (LogLookupProgress)
+     {
+          Instance->Logs->Debug("sam",
+                                "SAM search started collection='" + Collection +
+                                     "' query='" + NormalizeTerm(Query) +
+                                     "' limit=" + std::to_string(Limit) + ".");
+     }
+
+     RecordDebugEvent(Collection,
+                      "search started query='" + NormalizeTerm(Query) +
+                           "' limit=" + std::to_string(Limit));
+
      std::shared_ptr<rocksdb::DB> DatabaseHandle;
 
      {
@@ -2584,6 +2990,18 @@ std::vector<SAM::LookupHit> SAM::Lookup(const std::string& Collection, const std
 
      if (!DatabaseHandle)
      {
+          if (LogLookupProgress)
+          {
+               Instance->Logs->Debug("sam",
+                                     "SAM search finished collection='" + Collection +
+                                          "' query='" + NormalizeTerm(Query) +
+                                          "' hits=0 reason='database unavailable'.");
+          }
+
+          RecordDebugEvent(Collection,
+                           "search finished query='" + NormalizeTerm(Query) +
+                                "' hits=0 reason='database unavailable'");
+
           FinishLookupActivity(ActivitySequence, 0);
           return Hits;
      }
@@ -2595,6 +3013,20 @@ std::vector<SAM::LookupHit> SAM::Lookup(const std::string& Collection, const std
      if (GetCollectionJobStatus(Collection, Status) && Status.Running)
      {
           Hits = LookupDirectTermOnly(DatabaseHandle, Collection, Query, QueryViews, Limit);
+          if (LogLookupProgress)
+          {
+               Instance->Logs->Debug("sam",
+                                     "SAM search finished collection='" + Collection +
+                                          "' query='" + NormalizeTerm(Query) +
+                                          "' hits=" + std::to_string(Hits.size()) +
+                                          " reason='collection indexing running; direct terms only'.");
+          }
+
+          RecordDebugEvent(Collection,
+                           "search finished query='" + NormalizeTerm(Query) +
+                                "' hits=" + std::to_string(Hits.size()) +
+                                " reason='collection indexing running; direct terms only'");
+
           FinishLookupActivity(ActivitySequence, Hits.size());
           return Hits;
      }
@@ -2606,8 +3038,19 @@ std::vector<SAM::LookupHit> SAM::Lookup(const std::string& Collection, const std
           Hits = LookupDirectTermOnly(DatabaseHandle, Collection, Query, QueryViews, Limit);
           if (!Hits.empty())
           {
-               FinishLookupActivity(ActivitySequence, Hits.size());
-               return Hits;
+               if (LogLookupProgress)
+               {
+                    Instance->Logs->Debug("sam",
+                                          "SAM search LLM query='" + NormalizeTerm(Query) +
+                                               "' collection='" + Collection +
+                                               "': continuing to LLM expansion after direct single-term match returned hits=" +
+                                               std::to_string(Hits.size()) + ".");
+               }
+
+               RecordDebugEvent(Collection,
+                                "search direct single-token seed query='" + NormalizeTerm(Query) +
+                                     "' hits=" + std::to_string(Hits.size()) +
+                                     "; continuing to LLM expansion");
           }
      }
 
@@ -2681,6 +3124,18 @@ std::vector<SAM::LookupHit> SAM::Lookup(const std::string& Collection, const std
 
      if (Variants.empty())
      {
+          if (LogLookupProgress)
+          {
+               Instance->Logs->Debug("sam",
+                                     "SAM search finished collection='" + Collection +
+                                          "' query='" + NormalizeTerm(Query) +
+                                          "' hits=0 reason='no query variants'.");
+          }
+
+          RecordDebugEvent(Collection,
+                           "search finished query='" + NormalizeTerm(Query) +
+                                "' hits=0 reason='no query variants'");
+
           FinishLookupActivity(ActivitySequence, 0);
           return Hits;
      }
@@ -2787,6 +3242,22 @@ std::vector<SAM::LookupHit> SAM::Lookup(const std::string& Collection, const std
      CaptureLookupEvaluation(DatabaseHandle.get(), Collection, Query, Hits, nullptr);
 
      EmitSAM25DebugLog(Query, Hits);
+     if (LogLookupProgress)
+     {
+          Instance->Logs->Debug("sam",
+                                "SAM search finished collection='" + Collection +
+                                     "' query='" + NormalizeTerm(Query) +
+                                     "' variants=" + std::to_string(Variants.size()) +
+                                     " aggregated=" + std::to_string(AggregatedHits.size()) +
+                                     " hits=" + std::to_string(Hits.size()) + ".");
+     }
+
+     RecordDebugEvent(Collection,
+                      "search finished query='" + NormalizeTerm(Query) +
+                           "' variants=" + std::to_string(Variants.size()) +
+                           " aggregated=" + std::to_string(AggregatedHits.size()) +
+                           " hits=" + std::to_string(Hits.size()));
+
      FinishLookupActivity(ActivitySequence, Hits.size());
      return Hits;
 }

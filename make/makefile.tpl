@@ -777,7 +777,7 @@ SYSTEMD_UNIT_DIR ?= ${SYSTEMD_UNIT_DIR}
 INSTALL ?= install
 STAGED_RUN_DIR := $(if $(strip $(DESTDIR)),$(DESTDIR)/$(RUN_DIR),$(RUN_DIR))
 
-install:
+install: llama-runtime-tools
 	@echo ""
 	@echo "Installing binaries to $(STAGED_RUN_DIR)/bin/..."
 	@if [ ! -f "$(BIN_DIR)/hlquery" ] || [ ! -f "$(BIN_DIR)/hlquery-cli" ]; then \
@@ -1000,7 +1000,7 @@ help:
 	@echo "  make                      - Build everything (release mode)"
 	@echo "  make clean                 - Remove build artifacts"
 	@echo "  make clean-all            - Remove all generated files"
-	@echo "  make install              - Install binaries to run/bin/"
+	@echo "  make install              - Build LLM runtime tools and install binaries to run/bin/"
 	@echo "  make package              - Build Debian/RPM packages via etc/package/build.sh"
 	@echo "  make uninstall          - Remove installed binaries"
 	@echo "  make build-info            - Show build configuration"

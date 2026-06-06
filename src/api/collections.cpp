@@ -82,6 +82,7 @@ static std::string ParseCollectionMaybeToken(const std::string &value)
 {
      std::string out;
      out.reserve(value.size());
+
      for (unsigned char c : value)
      {
           if (!std::isspace(c))
@@ -89,6 +90,7 @@ static std::string ParseCollectionMaybeToken(const std::string &value)
                out.push_back(static_cast<char>(std::tolower(c)));
           }
      }
+
      return out;
 }
 
@@ -105,6 +107,7 @@ static bool IsCollectionMaybeFalsyToken(const std::string &token)
 static bool IsCollectionTruthyParam(const std::map<std::string, std::string> &params, const std::string &name)
 {
      auto it = params.find(name);
+
      if (it == params.end())
      {
           return false;
@@ -121,6 +124,7 @@ static CollectionMaybeSettings ParseCollectionMaybeSettings(const std::map<std::
      constexpr int default_limit = 5;
 
      auto itMaybe = params.find("maybe");
+
      if (itMaybe != params.end())
      {
           std::string raw = itMaybe->second;
@@ -139,6 +143,7 @@ static CollectionMaybeSettings ParseCollectionMaybeSettings(const std::map<std::
 
           std::string normalized;
           normalized.reserve(raw.size());
+
           for (unsigned char c : raw)
           {
                if (c == ':' || c == ';' || c == '|')
@@ -158,6 +163,7 @@ static CollectionMaybeSettings ParseCollectionMaybeSettings(const std::map<std::
           std::stringstream ss(normalized);
           std::string part;
           std::vector<std::string> parts;
+
           while (std::getline(ss, part, ','))
           {
                if (!part.empty())
@@ -178,6 +184,7 @@ static CollectionMaybeSettings ParseCollectionMaybeSettings(const std::map<std::
      }
 
      auto itMin = params.find("maybe_min");
+
      if (itMin != params.end() && !explicit_disable)
      {
           out.Enabled = true;
@@ -185,6 +192,7 @@ static CollectionMaybeSettings ParseCollectionMaybeSettings(const std::map<std::
      }
 
      auto itLimit = params.find("maybe_limit");
+
      if (itLimit != params.end() && !explicit_disable)
      {
           out.Enabled = true;
@@ -655,6 +663,7 @@ static bool DistSendHttpRequest(const std::string &Endpoint,
      std::string StatusLine;
      std::getline(HeaderStream, StatusLine);
      int StatusCode = 0;
+
      if (!StatusLine.empty())
      {
           std::istringstream StatusSS(StatusLine);
@@ -666,10 +675,12 @@ static bool DistSendHttpRequest(const std::string &Endpoint,
      {
           *OutStatus = StatusCode;
      }
+
      if (OutBody)
      {
           *OutBody = BodyStr;
      }
+
      return true;
 }
 
@@ -1137,6 +1148,7 @@ HttpResponse SearchAPI::HandleDeleteCollection(const HttpRequest &Request)
 
      std::string ReplicationOutboxID;
      std::string ReplicationJournalError;
+
      if (!PrepareReplicationOutboxRecord(Request, "delete_collection", &ReplicationOutboxID, &ReplicationJournalError))
      {
           return BuildErrorResponse(Status::SERVICE_UNAVAILABLE,
@@ -1493,6 +1505,7 @@ HttpResponse SearchAPI::HandleListCollections(const HttpRequest &Request)
                             IsCollectionTruthyParam(Request.QueryParams, "name_only");
 
      auto OffsetIt = Request.QueryParams.find("offset");
+
      if (OffsetIt != Request.QueryParams.end())
      {
           try
@@ -1510,6 +1523,7 @@ HttpResponse SearchAPI::HandleListCollections(const HttpRequest &Request)
      }
 
      auto LimitIt = Request.QueryParams.find("limit");
+
      if (LimitIt != Request.QueryParams.end())
      {
           try
@@ -1660,6 +1674,7 @@ HttpResponse SearchAPI::HandleListCollections(const HttpRequest &Request)
      std::string SortFieldName = SortByVal;
      bool Descending = false;
      size_t ColonPos = SortByVal.find(':');
+
      if (ColonPos != std::string::npos)
      {
           SortFieldName = SortByVal.substr(0, ColonPos);
@@ -1818,10 +1833,12 @@ HttpResponse SearchAPI::HandleListCollections(const HttpRequest &Request)
                     }
 
                     size_t PrefixLen = 0;
+         
                     while (PrefixLen < NameLower.size() && PrefixLen < SearchLowerMaybe.size() && NameLower[PrefixLen] == SearchLowerMaybe[PrefixLen])
                     {
                          PrefixLen++;
                     }
+         
                     Score += static_cast<int>(PrefixLen) * 4;
                }
                else if (!PatternVal.empty())
@@ -2070,6 +2087,7 @@ HttpResponse SearchAPI::HandleListCollectionsDistributed(const HttpRequest &Requ
           SortFieldName = SortByVal.substr(0, ColonPos);
           std::string Order = SortByVal.substr(ColonPos + 1);
           Order = DistToLowerCopy(DistTrimCopy(Order));
+         
           if (Order == "desc")
           {
                Descending = true;
@@ -2085,12 +2103,14 @@ HttpResponse SearchAPI::HandleListCollectionsDistributed(const HttpRequest &Requ
      }
 
      SortFieldName = DistToLowerCopy(DistTrimCopy(SortFieldName));
+
      if (SortFieldName.empty())
      {
           SortFieldName = "name";
      }
 
      bool UseWildcard = false;
+
      if (!PatternVal.empty())
      {
           UseWildcard = true;

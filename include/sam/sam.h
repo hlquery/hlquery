@@ -703,6 +703,10 @@ class SAM
                            DocumentEntry& Entry,
                            std::string* ErrorMessage = nullptr) const;
 
+     /* Append one runtime activity event to the in-memory SAM debug log. */
+
+     void AddDebugEvent(const std::string& Collection, const std::string& Message) const;
+
      /* Return collected SAM debug events, optionally filtered by collection and sequence. */
 
      std::vector<DebugEvent> GetDebugEvents(const std::string& Collection = "",

@@ -423,8 +423,9 @@ static std::vector<std::string> BuildPromptConstraints(const std::string& Langua
      }
      else if (Objective == "search_intent")
      {
-          Constraints.push_back("Resolve likely user intent only from the query and supplied candidates.");
-          Constraints.push_back("Identify the strongest confusing alternative and prefer the narrowest evidence-backed interpretation.");
+          Constraints.push_back("Resolve likely user intent from the query and supplied candidates; use common aliases, typo corrections, and location associations only when likely.");
+          Constraints.push_back("Return at most 8 candidates and at most 12 ranked_terms, ordered strongest first.");
+          Constraints.push_back("Prefer exact supplied candidates, then likely aliases or nearby-location associations; keep uncertain world-knowledge associations at lower weight.");
      }
 
      if (!Language.empty() && Language != "und")
@@ -536,17 +537,73 @@ static bool IsLLMInferenceUnavailable(const LLMInferenceResult& Result)
           Stderr.find("error while loading shared libraries:") != std::string::npos;
 }
 
+static bool ShouldLogSAMLLMProgress()
+{
+     return Instance &&
+          Instance->Logs &&
+          ((Instance->Config && Instance->Config->GetSamLogContext()) ||
+           Instance->Logs->GetDebugMode());
+}
+
+static std::string BuildLLMProgressSubject(const std::string& Mode,
+                                           const nlohmann::json& Payload)
+{
+     std::string Subject = "mode='" + Mode + "'";
+
+     if (Payload.is_object())
+     {
+          const std::string Collection = TrimCopy(Payload.value("collection", ""));
+          const std::string ID = TrimCopy(Payload.value("id", ""));
+          const std::string Query = TrimCopy(Payload.value("query", ""));
+
+          if (!Collection.empty())
+          {
+               Subject += " collection='" + Collection + "'";
+          }
+
+          if (!ID.empty())
+          {
+               Subject += " document='" + ID + "'";
+          }
+
+          if (!Query.empty())
+          {
+               Subject += " query='" + Query.substr(0, 120) + "'";
+          }
+     }
+
+     return Subject;
+}
+
+static void LogSAMLLMProgress(const std::string& Message, const std::string& Collection = "")
+{
+     if (ShouldLogSAMLLMProgress())
+     {
+          Instance->Logs->Debug("sam", "SAM LLM " + Message + ".");
+
+          if (!Collection.empty() && Instance->Sam && Instance->Sam->IsOpen())
+          {
+               Instance->Sam->AddDebugEvent(Collection, "LLM " + Message);
+          }
+     }
+}
+
+static bool EnvTokenIsFalse(const char* Value)
+{
+     if (!Value)
+     {
+          return false;
+     }
+
+     const std::string Lower = ToLowerCopy(TrimCopy(Value));
+     return Lower == "0" || Lower == "false" || Lower == "no" || Lower == "off";
+}
+
 static void LogLLMInferenceDebugTrace(const std::string& Mode,
                                       const nlohmann::json& Payload,
                                       const LLMInferenceResult& Result)
 {
-     const bool ShouldLogTrace =
-          Instance &&
-          Instance->Logs &&
-          ((Instance->Config && Instance->Config->GetSamLogContext()) ||
-           Instance->Logs->GetDebugMode());
-
-     if (!ShouldLogTrace)
+     if (!ShouldLogSAMLLMProgress())
      {
           return;
      }
@@ -603,9 +660,21 @@ static LLMInferenceResult RunLLMInference(const std::string& ModelPath,
                                          int TimeoutMS = 60000)
 {
      LLMInferenceResult Result;
-
-     if (std::getenv("HLQUERY_LLM_IN_PROCESS"))
+     const std::string Subject = BuildLLMProgressSubject(Mode, Payload);
+     const std::string SubjectCollection = Payload.is_object() ? TrimCopy(Payload.value("collection", "")) : "";
+     auto LogProgress = [&](const std::string& Message)
      {
+          LogSAMLLMProgress(Message, SubjectCollection);
+     };
+
+     LogProgress("starting " + Subject + ", timeout_ms=" + std::to_string(TimeoutMS));
+
+     const char* InProcessEnv = std::getenv("HLQUERY_LLM_IN_PROCESS");
+     const bool UseInProcess = !EnvTokenIsFalse(InProcessEnv);
+
+     if (UseInProcess)
+     {
+          LogProgress("running in-process " + Subject);
           const LocalLlamaInferenceResult LocalResult =
                RunLocalLlamaInference(ModelPath, Mode, Payload.dump(), TimeoutMS);
           Result.Started = LocalResult.Started;
@@ -613,11 +682,22 @@ static LLMInferenceResult RunLLMInference(const std::string& ModelPath,
           Result.ExitCode = LocalResult.ExitCode;
           Result.Stdout = LocalResult.Output;
           Result.Stderr = LocalResult.Error;
-          LogLLMInferenceDebugTrace(Mode, Payload, Result);
-          return Result;
+          LogProgress("finished in-process " + Subject +
+                      ", exit_code=" + std::to_string(Result.ExitCode) +
+                      ", output_bytes=" + std::to_string(Result.Stdout.size()));
+
+          if (Result.ExitCode == 0)
+          {
+               LogLLMInferenceDebugTrace(Mode, Payload, Result);
+               return Result;
+          }
+
+          LogProgress("in-process inference failed for " + Subject +
+                      "; falling back to external tool");
      }
 
      const std::string InferTool = std::string(HLQUERY_CONFIG_DIR) + "/../../tools/hlquery-llm-infer";
+     LogProgress("using external tool '" + InferTool + "' for " + Subject);
      const std::string PayloadPath = MakeTempPath("hlquery-llm-payload");
      const std::string StdoutPath = MakeTempPath("hlquery-llm-stdout");
      const std::string StderrPath = MakeTempPath("hlquery-llm-stderr");
@@ -628,12 +708,15 @@ static LLMInferenceResult RunLLMInference(const std::string& ModelPath,
      {
           Result.ExitCode = 78;
           Result.Stderr = "unable to prepare external LLM inference files";
+          LogProgress("failed to prepare temporary files for " + Subject);
           LogLLMInferenceDebugTrace(Mode, Payload, Result);
           return Result;
      }
 
      const int TimeoutSeconds = std::max(1, TimeoutMS / 1000);
      Result.Started = true;
+     LogProgress("spawned external inference for " + Subject +
+                 ", timeout_seconds=" + std::to_string(TimeoutSeconds));
      Result.ExitCode = RunDetachedLLMCommand(InferTool,
                                              std::to_string(TimeoutSeconds),
                                              StdoutPath,
@@ -646,6 +729,11 @@ static LLMInferenceResult RunLLMInference(const std::string& ModelPath,
      Result.Stderr = ReadWholeFile(StderrPath);
 
      Result.TimedOut = Result.ExitCode == 124;
+     LogProgress("finished external inference for " + Subject +
+                 ", exit_code=" + std::to_string(Result.ExitCode) +
+                 ", output_bytes=" + std::to_string(Result.Stdout.size()) +
+                 ", stderr_bytes=" + std::to_string(Result.Stderr.size()) +
+                 (Result.TimedOut ? ", timed_out=true" : ""));
 
      (void)std::remove(PayloadPath.c_str());
      (void)std::remove(StdoutPath.c_str());
@@ -1335,8 +1423,14 @@ llm::SearchIntentResolution llm::ResolveSearchIntent(const std::string& Collecti
           nlohmann::json Candidate;
           Candidate["id"] = CandidateDocument.ID;
           Candidate["title"] = CandidateDocument.Title;
-          Candidate["content"] = CandidateDocument.Content;
-          Candidate["fields"] = CandidateDocument.Fields;
+          Candidate["content"] = CandidateDocument.Content.substr(0, 240);
+          Candidate["fields"] = nlohmann::json::object();
+
+          for (const auto& Field : CandidateDocument.Fields)
+          {
+               Candidate["fields"][Field.first] = Field.second.substr(0, 220);
+          }
+
           Payload["candidates"].push_back(std::move(Candidate));
      }
 
@@ -1372,6 +1466,15 @@ llm::SearchIntentResolution llm::ResolveSearchIntent(const std::string& Collecti
           Parsed.Conclusion = TrimCopy(Root.value("conclusion", ""));
           std::unordered_set<std::string> CandidateSeen;
           std::unordered_set<std::string> RankedSeen;
+
+          if (Root.is_object() && Root.contains("text"))
+          {
+               AppendIntentCandidate(Parsed.Candidates,
+                                     CandidateSeen,
+                                     Root.value("text", ""),
+                                     Root.value("weight", 0.0),
+                                     Limit);
+          }
 
           if (Root.contains("candidates") && Root["candidates"].is_array())
           {
@@ -1417,18 +1520,78 @@ llm::SearchIntentResolution llm::ResolveSearchIntent(const std::string& Collecti
                Parsed.Conclusion = "Likely intent points to " + Parsed.Candidates.front().Text;
           }
 
+          if (Parsed.Candidates.empty())
+          {
+               const std::string NormalizedOutput = NormalizePhrase(TrimmedOutput);
+
+               for (const auto& CandidateDocument : CandidateDocuments)
+               {
+                    const std::string Title = TrimCopy(CandidateDocument.Title.empty()
+                         ? CandidateDocument.ID
+                         : CandidateDocument.Title);
+                    const std::string NormalizedTitle = NormalizePhrase(Title);
+
+                    if (Title.empty() || NormalizedTitle.empty())
+                    {
+                         continue;
+                    }
+
+                    if (NormalizedOutput.find(NormalizedTitle) != std::string::npos)
+                    {
+                         const double Weight = std::max(0.35, 0.90 -
+                              (static_cast<double>(Parsed.Candidates.size()) * 0.06));
+                         AppendIntentCandidate(Parsed.Candidates,
+                                               CandidateSeen,
+                                               Title,
+                                               Weight,
+                                               Limit);
+                    }
+               }
+          }
+
+          if (Parsed.Conclusion.empty() && !Parsed.Candidates.empty())
+          {
+               Parsed.Conclusion = "Likely intent points to " + Parsed.Candidates.front().Text;
+          }
+
           SortIntentCandidates(Parsed.Candidates);
           SortIntentCandidates(Parsed.RankedTerms);
 
           if (Parsed.Candidates.empty() && Parsed.RankedTerms.empty())
           {
+               LogSAMLLMProgress("parsed search_intent answer for query='" + Query +
+                                 "' but found no usable candidates; using heuristic fallback",
+                                 Collection);
                return HeuristicResolution;
           }
+
+          std::string CandidateSummary;
+
+          for (size_t Index = 0; Index < Parsed.Candidates.size() && Index < 3; ++Index)
+          {
+               if (!CandidateSummary.empty())
+               {
+                    CandidateSummary += ", ";
+               }
+
+               CandidateSummary += Parsed.Candidates[Index].Text + "=" +
+                    std::to_string(Parsed.Candidates[Index].Weight);
+          }
+
+          LogSAMLLMProgress("parsed search_intent answer for query='" + Query +
+                            "' candidates=" + std::to_string(Parsed.Candidates.size()) +
+                            ", ranked_terms=" + std::to_string(Parsed.RankedTerms.size()) +
+                            (CandidateSummary.empty() ? std::string() : ", top=[" + CandidateSummary + "]") +
+                            (Parsed.Conclusion.empty() ? std::string() : ", conclusion='" + Parsed.Conclusion + "'"),
+                            Collection);
 
           return Parsed;
      }
      catch (...)
      {
+          LogSAMLLMProgress("failed to parse search_intent answer for query='" + Query +
+                            "'; using heuristic fallback",
+                            Collection);
           return HeuristicResolution;
      }
 }
@@ -1451,15 +1614,21 @@ bool llm::EnqueueContextualization(const std::string& Collection, const Document
          Cached->second.UpdatedAtMs > 0 &&
          Instance && (Instance->NowMs() - Cached->second.UpdatedAtMs) < (24LL * 60LL * 60LL * 1000LL))
      {
+          LogSAMLLMProgress("skipped context queue for collection='" + Collection +
+                            "' document='" + Doc.ID + "' because cached context is fresh");
           return false;
      }
 
      if (!PendingContextKeys.insert(Key).second)
      {
+          LogSAMLLMProgress("skipped context queue for collection='" + Collection +
+                            "' document='" + Doc.ID + "' because it is already pending");
           return false;
      }
 
      PendingContextJobs.push_back(ContextJob{Collection, Doc});
+     LogSAMLLMProgress("queued context job for collection='" + Collection +
+                       "' document='" + Doc.ID + "'");
      return true;
 }
 
@@ -1474,13 +1643,13 @@ size_t llm::ProcessPendingContextJobs(size_t MaxJobs)
 
      size_t Processed = 0;
 
-     const bool DebugEnabled = (Instance && Instance->Logs && Instance->Logs->GetDebugMode());
+     const bool DebugEnabled = ShouldLogSAMLLMProgress();
 
      if (DebugEnabled)
      {
           const std::string StartMessage = "ProcessPendingContextJobs: starting with max_jobs=" + std::to_string(MaxJobs) + ", pending=" + std::to_string(GetPendingContextJobs()) + ".";
 
-          Instance->Logs->Debug("llm", StartMessage);
+          Instance->Logs->Debug("sam", "SAM LLM " + StartMessage);
      }
 
      while (Processed < MaxJobs)
@@ -1506,7 +1675,7 @@ size_t llm::ProcessPendingContextJobs(size_t MaxJobs)
           {
                const std::string ProcessingMessage = "ProcessPendingContextJobs: processing '" + Job.Collection + "/" + Job.Doc.ID + "'.";
 
-               Instance->Logs->Debug("llm", ProcessingMessage);
+               Instance->Logs->Debug("sam", "SAM LLM " + ProcessingMessage);
           }
 
           const Document SourceDoc =
@@ -1541,8 +1710,8 @@ size_t llm::ProcessPendingContextJobs(size_t MaxJobs)
 
                if (DebugEnabled)
                {
-                    Instance->Logs->Debug("llm",
-                                          "ProcessPendingContextJobs: discarded stale context for '" +
+                    Instance->Logs->Debug("sam",
+                                          "SAM LLM ProcessPendingContextJobs: discarded stale context for '" +
                                                Job.Collection + "/" + SourceDoc.ID +
                                                "' because the source changed during inference.");
                }
@@ -1560,8 +1729,8 @@ size_t llm::ProcessPendingContextJobs(size_t MaxJobs)
                if (!Instance->Sam->EnqueueIndexDocument(Job.Collection, LatestDoc, &IndexError) &&
                    DebugEnabled && !IndexError.empty())
                {
-                    Instance->Logs->Debug("llm",
-                                          "ProcessPendingContextJobs: failed to queue SAM refresh for '" +
+                    Instance->Logs->Debug("sam",
+                                          "SAM LLM ProcessPendingContextJobs: failed to queue SAM refresh for '" +
                                                Job.Collection + "/" + LatestDoc.ID + "': " + IndexError + ".");
                }
           }
@@ -1582,7 +1751,7 @@ size_t llm::ProcessPendingContextJobs(size_t MaxJobs)
 
                const std::string StoredMessage = "ProcessPendingContextJobs: stored " + std::to_string(Suggestions.size()) + " suggestion(s) for '" + Job.Collection + "/" + LatestDoc.ID + "'" + (Summary.empty() ? "." : ": " + Summary + ".");
 
-               Instance->Logs->Debug("llm", StoredMessage);
+               Instance->Logs->Debug("sam", "SAM LLM " + StoredMessage);
           }
 
           ++Processed;
@@ -1592,7 +1761,7 @@ size_t llm::ProcessPendingContextJobs(size_t MaxJobs)
      {
           const std::string FinishedMessage = "ProcessPendingContextJobs: finished processed=" + std::to_string(Processed) + ", pending=" + std::to_string(GetPendingContextJobs()) + ".";
 
-          Instance->Logs->Debug("llm", FinishedMessage);
+          Instance->Logs->Debug("sam", "SAM LLM " + FinishedMessage);
      }
 
      return Processed;

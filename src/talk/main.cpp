@@ -2420,6 +2420,92 @@ bool StreamSAMDebug(HLQueryCLI &cli,
      }
 }
 
+bool ShowSAMLast(HLQueryCLI &cli,
+                 const std::string &collection_name,
+                 int limit)
+{
+     const std::string path = "/sam/debug?since=0&limit=512" +
+                              (collection_name.empty() ? std::string() :
+                               "&collection=" + hlquery_cli::UrlEncode(collection_name));
+     HLQueryCLI::HTTPResponse response = cli.MakeRequest("GET", path);
+
+     if (response.StatusCode != 200)
+     {
+          TalkPrintError("Failed to fetch SAM activity");
+          return false;
+     }
+
+     nlohmann::json root;
+
+     try
+     {
+          root = nlohmann::json::parse(response.Body);
+     }
+     catch (const std::exception &)
+     {
+          TalkPrintError("Failed to parse SAM activity response");
+          return false;
+     }
+
+     std::vector<nlohmann::json> events;
+
+     if (root.contains("events") && root["events"].is_array())
+     {
+          for (const auto &event : root["events"])
+          {
+               if (!event.value("message", "").empty())
+               {
+                    events.push_back(event);
+               }
+          }
+     }
+
+     if (events.empty())
+     {
+          if (collection_name.empty())
+          {
+               TalkPrintInfo("No recent SAM activity.");
+          }
+          else
+          {
+               TalkPrintInfo("No recent SAM activity for '" + collection_name + "'.");
+          }
+
+          return true;
+     }
+
+     if (collection_name.empty())
+     {
+          TalkPrintInfo("Latest SAM activity:");
+     }
+     else
+     {
+          TalkPrintInfo("Latest SAM activity for '" + collection_name + "':");
+     }
+
+     const size_t count = static_cast<size_t>(std::max(1, limit));
+     const size_t start = events.size() > count ? events.size() - count : 0;
+
+     for (size_t index = start; index < events.size(); ++index)
+     {
+          const auto &event = events[index];
+          const uint64_t sequence = event.value("sequence", static_cast<uint64_t>(0));
+          const std::string event_collection = event.value("collection", "");
+          const std::string message = event.value("message", "");
+
+          std::cout << "[sam #" << sequence;
+
+          if (!event_collection.empty())
+          {
+               std::cout << " " << event_collection;
+          }
+
+          std::cout << "] " << message << "\n";
+     }
+
+     return true;
+}
+
 /* Resolve a numeric collection reference against the last listed names. */
 
 bool EnsureCachedCollectionNames(HLQueryCLI &cli,
@@ -2565,6 +2651,7 @@ void PrintHelp()
      std::cout << "  sam history [COL] [limit]  Show recent SAM search history\n";
      std::cout << "  sam int|inst|interactions [COL] [limit]  Show learned SAM interaction refinements\n";
      std::cout << "  sam improve [limit] [--force]  Run a SAM improvement pass now\n";
+     std::cout << "  sam last [COL] [limit]  Show latest SAM activity events\n";
      std::cout << "  sam debug [COL] [limit]  Stream live SAM debug events for one collection\n";
      std::cout << "  sam list [COL] [offset limit]  List SAM-indexed documents for one collection\n";
      std::cout << "  sam open ID|COL/ID  Open one SAM-indexed document\n";
@@ -2620,6 +2707,7 @@ void PrintSAMHelp()
      std::cout << "  sam history [COL] [limit]  Show recent SAM search history\n";
      std::cout << "  sam int|inst|interactions [COL] [limit]  Show learned SAM interaction refinements\n";
      std::cout << "  sam improve [limit] [--force]  Run a SAM improvement pass now\n";
+     std::cout << "  sam last [COL] [limit]  Show latest SAM activity events\n";
      std::cout << "  sam debug [COL] [limit]  Stream live SAM debug events for one collection\n";
      std::cout << "  sam list [COL] [offset limit]  List SAM-indexed documents for one collection\n";
      std::cout << "  sam open ID|COL/ID  Open one SAM-indexed document\n";
@@ -2773,6 +2861,7 @@ std::vector<std::string> GetTalkSAMCommands()
          "inst",
          "interactions",
          "improve",
+         "last",
          "debug",
          "ls",
          "list",
@@ -4487,6 +4576,55 @@ bool ExecuteTalkCommand(const std::string &line,
                }
 
                cli.ImproveSAM(limit, force);
+               return true;
+          }
+
+          if (parts.size() >= 2 && parts[1] == "last")
+          {
+               std::string collection_name;
+               int limit = 20;
+               std::string error_message;
+
+               if (parts.size() == 3)
+               {
+                    if (IsUnsignedInteger(parts[2]))
+                    {
+                         limit = std::stoi(parts[2]);
+                    }
+                    else if (!ResolveSAMCollectionReference(state, cli, parts[2], collection_name, error_message))
+                    {
+                         TalkPrintError(error_message);
+                         return true;
+                    }
+               }
+               else if (parts.size() == 4)
+               {
+                    if (!ResolveSAMCollectionReference(state, cli, parts[2], collection_name, error_message))
+                    {
+                         TalkPrintError(error_message);
+                         return true;
+                    }
+
+                    if (!IsUnsignedInteger(parts[3]) || std::stoi(parts[3]) <= 0)
+                    {
+                         TalkPrintError("SAM last limit must be a positive integer");
+                         return true;
+                    }
+
+                    limit = std::stoi(parts[3]);
+               }
+               else if (parts.size() > 4)
+               {
+                    TalkPrintError("Usage: sam last [collection] [limit]");
+                    return true;
+               }
+
+               if (limit <= 0)
+               {
+                    limit = 20;
+               }
+
+               ShowSAMLast(cli, collection_name, limit);
                return true;
           }
 
