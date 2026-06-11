@@ -37,8 +37,10 @@ You can use hlquery for classic full-text search, hybrid retrieval, vector simil
 
 **Debian/Ubuntu:**
 ```bash
-$ sudo apt-get install build-essential cmake libssl-dev
+$ sudo apt-get install build-essential cmake libssl-dev liburing-dev
 ```
+
+If CMake prints a `uring` lookup warning during the RocksDB build, it usually means the `liburing` development package is missing. Installing `liburing-dev` on Debian/Ubuntu provides the package metadata CMake is looking for and clears the warning.
 
 **RedHat/CentOS:**
 ```bash

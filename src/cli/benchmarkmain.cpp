@@ -1561,8 +1561,8 @@ bool CreateFakeCollections(const std::string &base_url, const std::string &auth_
                     nlohmann::json university_doc = enriched_docs[i];
                     university_doc["id"] = std::get<0>(doc_tuple);
                     university_doc["title"] = std::get<1>(doc_tuple);
-                    university_doc["content"] = std::get<2>(doc_tuple) + " Searchable city labels: " + location_alias_text + ".";
-                    university_doc["description"] = university_doc.value<std::string>("description", "") + " Location labels: " + location_alias_text + ".";
+                    university_doc["content"] = std::get<2>(doc_tuple);
+                    university_doc["description"] = university_doc.value<std::string>("description", "");
                     university_doc["state"] = profile.State;
                     university_doc["city"] = profile.City;
                     university_doc["city_aliases"] = location_alias_text;

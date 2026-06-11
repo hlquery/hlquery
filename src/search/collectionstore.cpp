@@ -109,12 +109,12 @@ static void RefreshCollectionLanguageIfNeeded(const std::string &Collection,
 
      if (SeedDocument)
      {
-          language = hlquery::lang::DetectDocumentLanguage(Collection, *SeedDocument);
+          language = lang::DetectDocumentLanguage(Collection, *SeedDocument);
      }
 
      if (language.empty() || language == "und")
      {
-          language = hlquery::lang::DetectCollectionLanguage(Collection, 128);
+          language = lang::DetectCollectionLanguage(Collection, 128);
      }
 
      if (!language.empty() && language != "und")

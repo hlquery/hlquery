@@ -20,7 +20,7 @@
 #include "vendor/cld2/public/compact_lang_det.h"
 #include "vendor/cld2/internal/lang_script.h"
 
-namespace hlquery::lang
+namespace lang
 {
 inline std::string NormalizeLanguageCode(const char* code)
 {
