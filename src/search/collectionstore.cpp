@@ -30,7 +30,7 @@
 #include "search/cstore.h"
 #include "search/lindex.h"
 #include "sam/sam.h"
-#include "sam/lang.h"
+#include "search/lang.h"
 #include "search/writeaheadlogvalidator.h"
 #include "utils/consolewriter.h"
 
@@ -109,12 +109,12 @@ static void RefreshCollectionLanguageIfNeeded(const std::string &Collection,
 
      if (SeedDocument)
      {
-          language = sam::lang::DetectDocumentLanguage(Collection, *SeedDocument);
+          language = hlquery::lang::DetectDocumentLanguage(Collection, *SeedDocument);
      }
 
      if (language.empty() || language == "und")
      {
-          language = sam::lang::DetectCollectionLanguage(Collection, 128);
+          language = hlquery::lang::DetectCollectionLanguage(Collection, 128);
      }
 
      if (!language.empty() && language != "und")

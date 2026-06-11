@@ -23,7 +23,7 @@
 #include "core/hlquery.h"
 #include "core/modules.h"
 #include "runtime/timers.h"
-#include "sam/lang.h"
+#include "search/lang.h"
 #include "search/cstore.h"
 #include "vendor/json/json.hpp"
 
@@ -260,7 +260,7 @@ class LangUpdaterRuntimeModule final : public AutoRuntimeModule<LangUpdaterRunti
                     const std::string ExistingLanguage =
                          LangIt == Config.Metadata.end() ? "" : NormalizeLanguageValue(LangIt->second);
                     const std::string DetectedLanguage =
-                         NormalizeLanguageValue(sam::lang::DetectCollectionLanguage(Collection, MaxDocumentsPerCollection));
+                         NormalizeLanguageValue(hlquery::lang::DetectCollectionLanguage(Collection, MaxDocumentsPerCollection));
 
                     ++CollectionsScanned;
 
