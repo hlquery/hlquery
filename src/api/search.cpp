@@ -41,9 +41,11 @@
      class SearchSAMTrainingDedupe
      {
        public:
+
          explicit SearchSAMTrainingDedupe(size_t MaxEntries)
              : Max(MaxEntries)
          {
+         
          }
 
          bool ShouldAllow(const std::string& Key, uint64_t NowMS, uint64_t WindowMS)
@@ -56,6 +58,7 @@
               std::lock_guard<std::mutex> Lock(Mutex);
 
               auto It = LastSeen.find(Key);
+         
               if (It != LastSeen.end())
               {
                    if (NowMS >= It->second && (NowMS - It->second) < WindowMS)

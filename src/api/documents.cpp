@@ -24,6 +24,7 @@
 #include <fcntl.h>
 #include <filesystem>
 #include <fstream>
+#include <future>
 #include <iomanip>
 #include <iostream>
 #include <map>
@@ -53,6 +54,118 @@
 #include "utils/protocol.h"
 #include "utils/wildcard.h"
 #include "vendor/json/json.hpp"
+
+static std::atomic<uint64_t> gSamAsyncSearchJobClock{1};
+
+struct SamAsyncSearchJobSnapshot
+{
+     std::string ID;
+     std::string Collection;
+     std::string Query;
+     std::string State;
+     int StatusCode = 0;
+     uint64_t CreatedMS = 0;
+     uint64_t StartedMS = 0;
+     uint64_t FinishedMS = 0;
+     std::string ResponseBody;
+     std::string Error;
+};
+
+static std::mutex gSamAsyncSearchJobsMutex;
+static std::unordered_map<std::string, SamAsyncSearchJobSnapshot> gSamAsyncSearchJobs;
+static std::deque<std::string> gSamAsyncSearchJobOrder;
+static constexpr size_t kMaxSAMAsyncSearchJobs = 128;
+
+static std::string NextSAMAsyncSearchJobID()
+{
+     const uint64_t now_value = static_cast<uint64_t>(NowMs());
+     const uint64_t seq_value = gSamAsyncSearchJobClock.fetch_add(1, std::memory_order_relaxed);
+     return "sam-search-" + std::to_string(now_value) + "-" + std::to_string(seq_value);
+}
+
+static void StoreSAMAsyncSearchJob(const SamAsyncSearchJobSnapshot& Job)
+{
+     std::lock_guard<std::mutex> lock(gSamAsyncSearchJobsMutex);
+
+     if (gSamAsyncSearchJobs.find(Job.ID) == gSamAsyncSearchJobs.end())
+     {
+          gSamAsyncSearchJobOrder.push_back(Job.ID);
+     }
+
+     gSamAsyncSearchJobs[Job.ID] = Job;
+
+     while (gSamAsyncSearchJobOrder.size() > kMaxSAMAsyncSearchJobs)
+     {
+          gSamAsyncSearchJobs.erase(gSamAsyncSearchJobOrder.front());
+          gSamAsyncSearchJobOrder.pop_front();
+     }
+}
+
+static bool LoadSAMAsyncSearchJob(const std::string& JobID, SamAsyncSearchJobSnapshot& Job)
+{
+     std::lock_guard<std::mutex> lock(gSamAsyncSearchJobsMutex);
+     const auto it = gSamAsyncSearchJobs.find(JobID);
+
+     if (it == gSamAsyncSearchJobs.end())
+     {
+          return false;
+     }
+
+     Job = it->second;
+     return true;
+}
+
+static std::vector<SamAsyncSearchJobSnapshot> ListSAMAsyncSearchJobs()
+{
+     std::lock_guard<std::mutex> lock(gSamAsyncSearchJobsMutex);
+     std::vector<SamAsyncSearchJobSnapshot> jobs;
+     jobs.reserve(gSamAsyncSearchJobOrder.size());
+
+     for (auto it = gSamAsyncSearchJobOrder.rbegin(); it != gSamAsyncSearchJobOrder.rend(); ++it)
+     {
+          const auto job_it = gSamAsyncSearchJobs.find(*it);
+          if (job_it != gSamAsyncSearchJobs.end())
+          {
+               jobs.push_back(job_it->second);
+          }
+     }
+
+     return jobs;
+}
+
+static nlohmann::json BuildSAMAsyncSearchJobJSON(const SamAsyncSearchJobSnapshot& Job, bool IncludeResponse)
+{
+     nlohmann::json root = {
+          {"id", Job.ID},
+          {"collection", Job.Collection},
+          {"query", Job.Query},
+          {"state", Job.State},
+          {"status_code", Job.StatusCode},
+          {"created_ms", Job.CreatedMS},
+          {"started_ms", Job.StartedMS},
+          {"finished_ms", Job.FinishedMS},
+          {"running", Job.State == "queued" || Job.State == "running"}
+     };
+
+     if (!Job.Error.empty())
+     {
+          root["error"] = Job.Error;
+     }
+
+     if (IncludeResponse && !Job.ResponseBody.empty())
+     {
+          try
+          {
+               root["response"] = nlohmann::json::parse(Job.ResponseBody);
+          }
+          catch (...)
+          {
+               root["response_body"] = Job.ResponseBody;
+          }
+     }
+
+     return root;
+}
 
      class DocumentsSAMTrainingDedupe
      {
@@ -3144,6 +3257,101 @@ HttpResponse SearchAPI::HandleSAMSearch(const HttpRequest &Request)
      const bool Distributed = ShouldAttemptDistributedSearch(Request);
      const bool IncludeExplain = Instance->Config && Instance->Config->GetSam25DebugExplain();
      const std::string CacheCollection = SearchAll ? std::string("*") : CollectionName;
+     const auto LiveIntentIt = Request.QueryParams.find("live_intent");
+     const bool AllowLiveIntent =
+          LiveIntentIt == Request.QueryParams.end() || IsTruthyToken(LiveIntentIt->second);
+     const auto AsyncIt = Request.QueryParams.find("async");
+     const bool AsyncSearch = AsyncIt != Request.QueryParams.end() && IsTruthyToken(AsyncIt->second);
+
+     if (AsyncSearch)
+     {
+          const std::string JobID = NextSAMAsyncSearchJobID();
+          HttpRequest WorkerRequest = Request;
+          WorkerRequest.QueryParams.erase("async");
+          SamAsyncSearchJobSnapshot Job;
+          Job.ID = JobID;
+          Job.Collection = SearchAll ? std::string("*") : CollectionName;
+          Job.Query = Query;
+          Job.State = "queued";
+          Job.CreatedMS = static_cast<uint64_t>(NowMs());
+          StoreSAMAsyncSearchJob(Job);
+
+          if (Instance && Instance->Sam)
+          {
+               Instance->Sam->AddDebugEvent(CollectionName,
+                                            "async search queued job='" + JobID +
+                                                 "' query='" + Query + "'");
+          }
+
+          std::thread([WorkerRequest, JobID, CollectionName, Query]()
+          {
+               SamAsyncSearchJobSnapshot WorkerJob;
+               if (LoadSAMAsyncSearchJob(JobID, WorkerJob))
+               {
+                    WorkerJob.State = "running";
+                    WorkerJob.StartedMS = static_cast<uint64_t>(NowMs());
+                    StoreSAMAsyncSearchJob(WorkerJob);
+               }
+
+               if (Instance && Instance->Sam)
+               {
+                    Instance->Sam->AddDebugEvent(CollectionName,
+                                                 "async search started job='" + JobID +
+                                                      "' query='" + Query + "'");
+               }
+
+               HttpResponse WorkerResponse;
+
+               try
+               {
+                    WorkerResponse = SearchAPI::GetInstance().HandleSAMSearch(WorkerRequest);
+               }
+               catch (const std::exception& ex)
+               {
+                    WorkerResponse.StatusCode = Status::INTERNAL_SERVER_ERROR;
+                    WorkerResponse.Body = std::string("{\"ok\":false,\"error\":\"") + ex.what() + "\"}";
+               }
+               catch (...)
+               {
+                    WorkerResponse.StatusCode = Status::INTERNAL_SERVER_ERROR;
+                    WorkerResponse.Body = "{\"ok\":false,\"error\":\"unknown async SAM search failure\"}";
+               }
+
+               if (LoadSAMAsyncSearchJob(JobID, WorkerJob))
+               {
+                    WorkerJob.State = (WorkerResponse.StatusCode >= 200 && WorkerResponse.StatusCode < 300) ? "done" : "error";
+                    WorkerJob.StatusCode = WorkerResponse.StatusCode;
+                    WorkerJob.FinishedMS = static_cast<uint64_t>(NowMs());
+                    WorkerJob.ResponseBody = WorkerResponse.Body;
+
+                    if (WorkerJob.State == "error")
+                    {
+                         WorkerJob.Error = WorkerResponse.Body;
+                    }
+
+                    StoreSAMAsyncSearchJob(WorkerJob);
+               }
+
+               if (Instance && Instance->Sam)
+               {
+                    Instance->Sam->AddDebugEvent(CollectionName,
+                                                 "async search finished job='" + JobID +
+                                                      "' status=" + std::to_string(WorkerResponse.StatusCode));
+               }
+          }).detach();
+
+          nlohmann::json Root;
+          Root["ok"] = true;
+          Root["accepted"] = true;
+          Root["job_id"] = JobID;
+          Root["collection"] = SearchAll ? std::string("*") : CollectionName;
+          Root["query"] = Query;
+          Root["message"] = "SAM search queued.";
+
+          HttpResponse Response(Status::ACCEPTED, StatusText(Status::ACCEPTED), "application/json");
+          Response.Body = Root.dump();
+          return Response;
+     }
 
      HttpResponse CachedResponse;
      if (SearchResponseCache::Get("sam", Request, CacheCollection, CachedResponse))
@@ -3789,7 +3997,8 @@ HttpResponse SearchAPI::HandleSAMSearch(const HttpRequest &Request)
           {
                LocalHits = Instance->Sam->Lookup(CollectionName,
                                                  CoreQueryPlan.Active ? CoreQueryPlan.LookupQuery : Query,
-                                                 static_cast<size_t>(LimitVal));
+                                                 static_cast<size_t>(LimitVal),
+                                                 AllowLiveIntent);
           }
 
           ApplySAMCoreQueryPlan(LocalHits, CoreQueryPlan, static_cast<size_t>(LimitVal));
@@ -3908,6 +4117,69 @@ HttpResponse SearchAPI::HandleSAMSearch(const HttpRequest &Request)
      return BuildResponse(CollectionName,
                           MergeDistributedSAMHits(AggregateHits, static_cast<size_t>(LimitVal)),
                           Distributed ? "distributed-sam" : "sam");
+}
+
+HttpResponse SearchAPI::HandleSAMSearchJobs(const HttpRequest &Request)
+{
+     if (Request.Method != "GET")
+     {
+          return HttpResponse(Status::METHOD_NOT_ALLOWED, StatusText(Status::METHOD_NOT_ALLOWED), "application/json");
+     }
+
+     const std::string Prefix = "/sam/search_jobs/";
+
+     if (Request.Path.rfind(Prefix, 0) == 0 && Request.Path.size() > Prefix.size())
+     {
+          const std::string JobID = TrimCopy(Request.Path.substr(Prefix.size()));
+          SamAsyncSearchJobSnapshot Job;
+
+          if (!LoadSAMAsyncSearchJob(JobID, Job))
+          {
+               return BuildErrorResponse(Status::NOT_FOUND,
+                                         Code::SEARCH_INVALID_PARAMETER,
+                                         "SAM search job not found",
+                                         "No async SAM search job exists with id '" + JobID + "'.");
+          }
+
+          nlohmann::json Root;
+          Root["ok"] = true;
+          Root["job"] = BuildSAMAsyncSearchJobJSON(Job, true);
+
+          HttpResponse Response(Status::OK, StatusText(Status::OK), "application/json");
+          Response.Body = Root.dump();
+          return Response;
+     }
+
+     int LimitVal = 50;
+
+     if (!ParseNonNegativeIntParam(Request.QueryParams, "limit", 50, LimitVal) || LimitVal <= 0)
+     {
+          return BuildErrorResponse(Status::BAD_REQUEST,
+                                    Code::SEARCH_INVALID_PARAMETER,
+                                    "Invalid limit",
+                                    "Query parameter 'limit' must be a positive integer.");
+     }
+
+     std::vector<SamAsyncSearchJobSnapshot> Jobs = ListSAMAsyncSearchJobs();
+
+     if (Jobs.size() > static_cast<size_t>(LimitVal))
+     {
+          Jobs.resize(static_cast<size_t>(LimitVal));
+     }
+
+     nlohmann::json Root;
+     Root["ok"] = true;
+     Root["count"] = Jobs.size();
+     Root["jobs"] = nlohmann::json::array();
+
+     for (const auto &Job : Jobs)
+     {
+          Root["jobs"].push_back(BuildSAMAsyncSearchJobJSON(Job, false));
+     }
+
+     HttpResponse Response(Status::OK, StatusText(Status::OK), "application/json");
+     Response.Body = Root.dump();
+     return Response;
 }
 
 HttpResponse SearchAPI::HandleSAMStatus(const HttpRequest &Request)

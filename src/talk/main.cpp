@@ -22,6 +22,7 @@
 #include <cstdlib>
 #include <fstream>
 #include <filesystem>
+#include <iomanip>
 #include <sstream>
 #include <set>
 #include <iostream>
@@ -1643,6 +1644,43 @@ std::vector<std::string> FetchSearchDocumentIds(HLQueryCLI &cli,
      return document_ids;
 }
 
+static std::string NormalizeTalkLLMQuery(std::string query)
+{
+     query = TrimWhitespace(query);
+
+     if (query.size() >= 2 &&
+         ((query.front() == '"' && query.back() == '"') ||
+          (query.front() == '\'' && query.back() == '\'')))
+     {
+          query = query.substr(1, query.size() - 2);
+          query = TrimWhitespace(query);
+     }
+
+     std::string lowered = ToLower(query);
+     const std::vector<std::string> prefixes = {
+          "find documents about ",
+          "find docs about ",
+          "search documents about ",
+          "search docs about ",
+          "documents about ",
+          "docs about ",
+          "find documents ",
+          "find docs ",
+          "search documents ",
+          "search docs "
+     };
+
+     for (const std::string &prefix : prefixes)
+     {
+          if (lowered.rfind(prefix, 0) == 0 && query.size() > prefix.size())
+          {
+               return TrimWhitespace(query.substr(prefix.size()));
+          }
+     }
+
+     return query;
+}
+
 static bool CollectionLikelyMultiLanguage(HLQueryCLI &cli,
                                           const std::string &collection_name,
                                           std::string &language_out,
@@ -2151,6 +2189,154 @@ bool ListAliases(HLQueryCLI &cli, const std::string &collection_name = "")
      catch (const std::exception &)
      {
           TalkPrintError("Failed to parse alias list");
+          return false;
+     }
+}
+
+bool ShowSAMSearchJobs(HLQueryCLI &cli, TalkState &state, const std::string &job_id = "")
+{
+     state.LastListedDocumentIds.clear();
+     state.LastListedSAMDocumentIds.clear();
+
+     const bool list_all = job_id.empty() || job_id == "all";
+     std::string resolved_job_id = job_id;
+
+     if (!list_all && IsUnsignedInteger(job_id))
+     {
+          if (state.LastListedSAMSearchJobIds.empty())
+          {
+               TalkPrintError("Run 'see' first, then choose a job number from the table.");
+               return false;
+          }
+
+          const size_t job_index = static_cast<size_t>(std::stoul(job_id));
+
+          if (job_index == 0 || job_index > state.LastListedSAMSearchJobIds.size())
+          {
+               TalkPrintError("SAM search job number out of range. Run 'see' and choose a number between 1 and " +
+                              std::to_string(state.LastListedSAMSearchJobIds.size()));
+               return false;
+          }
+
+          resolved_job_id = state.LastListedSAMSearchJobIds[job_index - 1];
+     }
+
+     const std::string path = list_all
+          ? "/sam/search_jobs?limit=50"
+          : "/sam/search_jobs/" + hlquery_cli::UrlEncode(resolved_job_id);
+
+     HLQueryCLI::HTTPResponse response = cli.MakeRequest("GET", path, "", 30);
+
+     if (response.StatusCode != 200)
+     {
+          TalkPrintError(list_all ? "Failed to list SAM search jobs" : "Failed to fetch SAM search job '" + resolved_job_id + "'");
+          return false;
+     }
+
+     try
+     {
+          const nlohmann::json root = nlohmann::json::parse(response.Body);
+
+          if (list_all)
+          {
+               state.LastListedSAMSearchJobIds.clear();
+               const nlohmann::json jobs = root.value("jobs", nlohmann::json::array());
+
+               if (!jobs.is_array() || jobs.empty())
+               {
+                    TalkPrintInfo("No async SAM search jobs found");
+                    return true;
+               }
+
+               std::vector<std::vector<std::string>> rows;
+               size_t index = 1;
+
+               for (const auto &job : jobs)
+               {
+                    const std::string id = job.value("id", "");
+                    if (!id.empty())
+                    {
+                         state.LastListedSAMSearchJobIds.push_back(id);
+                    }
+
+                    rows.push_back({
+                         std::to_string(index++),
+                         id,
+                         job.value("collection", ""),
+                         job.value("query", ""),
+                         job.value("state", ""),
+                         std::to_string(job.value("status_code", 0))
+                    });
+               }
+
+               cli.PrintTable({"#", "Job ID", "Collection", "Query", "State", "HTTP"}, rows);
+               return true;
+          }
+
+          if (!root.contains("job") || !root["job"].is_object())
+          {
+               TalkPrintError("Invalid SAM search job response");
+               return false;
+          }
+
+          const nlohmann::json &job = root["job"];
+          std::vector<std::vector<std::string>> rows;
+          rows.push_back({"id", job.value("id", "")});
+          rows.push_back({"collection", job.value("collection", "")});
+          rows.push_back({"query", job.value("query", "")});
+          rows.push_back({"state", job.value("state", "")});
+          rows.push_back({"http", std::to_string(job.value("status_code", 0))});
+          rows.push_back({"created_ms", std::to_string(job.value("created_ms", static_cast<uint64_t>(0)))});
+          rows.push_back({"started_ms", std::to_string(job.value("started_ms", static_cast<uint64_t>(0)))});
+          rows.push_back({"finished_ms", std::to_string(job.value("finished_ms", static_cast<uint64_t>(0)))});
+          cli.PrintTable({"Field", "Value"}, rows);
+
+          if (!job.contains("response") || !job["response"].is_object())
+          {
+               return true;
+          }
+
+          const nlohmann::json &job_response = job["response"];
+
+          if (!job_response.contains("hits") || !job_response["hits"].is_array() || job_response["hits"].empty())
+          {
+               TalkPrintInfo("Job has no hits yet");
+               return true;
+          }
+
+          std::vector<std::vector<std::string>> hit_rows;
+          size_t index = 1;
+
+          for (const auto &hit : job_response["hits"])
+          {
+               const std::string id = hit.value("id", "");
+
+               if (!id.empty())
+               {
+                    state.LastListedDocumentIds.push_back(id);
+                    state.LastListedSAMDocumentIds.push_back(id);
+               }
+
+               std::ostringstream score_stream;
+               score_stream << std::fixed << std::setprecision(2) << hit.value("score", 0.0);
+
+               hit_rows.push_back({
+                    std::to_string(index++),
+                    id,
+                    hit.value("title", ""),
+                    hit.value("term", ""),
+                    hit.value("source", ""),
+                    score_stream.str()
+               });
+          }
+
+          cli.PrintTable({"#", "ID", "Title", "Matched Term", "Source", "Score"}, hit_rows);
+          TalkPrintInfo("Use 'open 1' or 'sam open 1' to inspect a result.");
+          return true;
+     }
+     catch (const std::exception &)
+     {
+          TalkPrintError("Failed to parse SAM search job response");
           return false;
      }
 }
@@ -2678,6 +2864,9 @@ void PrintHelp()
      std::cout << "  bw [kb|mb|gb]  Show total bandwidth transferred\n";
      std::cout << "  modules [1|0]  List loaded modules, core only with 1, optional only with 0\n";
      std::cout << "  llm      Show active LLM runtime information\n";
+     std::cout << "  llm QUERY  Search the active collection with LLM-assisted document intent, for example: llm find docs about boston\n";
+     std::cout << "  see all  List async LLM/SAM search jobs\n";
+     std::cout << "  see JOB  Show one async LLM/SAM search job and its hits when complete\n";
      std::cout << "  module NAME [info|syntax|ROUTE [args...]]  Run one module command\n";
      std::cout << "  load NAME  Load one runtime module\n";
      std::cout << "  unload NAME  Unload one runtime module\n";
@@ -2759,6 +2948,7 @@ void SetCurrentCollection(TalkState &state, const std::string &collection_name)
      state.CurrentCollection = collection_name;
      state.LastListedDocumentIds.clear();
      state.LastListedSAMDocumentIds.clear();
+     state.LastListedSAMSearchJobIds.clear();
      state.LastSAMSearchCollection.clear();
      state.LastSAMSearchQuery.clear();
 }
@@ -2834,6 +3024,7 @@ std::vector<std::string> GetTalkCommands()
          "bw",
          "modules",
          "llm",
+         "see",
          "module",
          "load",
          "loadmodule",
@@ -4423,7 +4614,18 @@ bool ExecuteTalkCommand(const std::string &line,
                state.LastSAMSearchCollection = collection_name;
                state.LastSAMSearchQuery = query_text;
                state.LastListedDocumentIds.clear();
-               cli.SearchSAM(collection_name, query_text, limit_val, false, false, {}, "", "", false, &state.LastListedSAMDocumentIds, false);
+               cli.SearchSAM(collection_name,
+                             query_text,
+                             limit_val,
+                             false,
+                             false,
+                             {},
+                             "",
+                             "",
+                             false,
+                             &state.LastListedSAMDocumentIds,
+                             false,
+                             false);
                return true;
           }
 
@@ -4986,13 +5188,73 @@ bool ExecuteTalkCommand(const std::string &line,
 
      if (command == "llm")
      {
-          if (parts.size() != 1)
+          if (parts.size() == 1)
           {
-               TalkPrintError("Usage: llm");
+               cli.ShowLLMInfo();
                return true;
           }
 
-          cli.ShowLLMInfo();
+          if (state.CurrentCollection.empty())
+          {
+               TalkPrintError("Usage: llm <question> requires an active collection");
+               TalkPrintInfo("Select one first with: use <collection>");
+               return true;
+          }
+
+          std::string query = NormalizeTalkLLMQuery(line.substr(parts.front().size()));
+
+          if (query.empty())
+          {
+               TalkPrintError("Usage: llm <question>");
+               return true;
+          }
+
+          const int limit = 20;
+
+          state.LastSAMSearchCollection = state.CurrentCollection;
+          state.LastSAMSearchQuery = query;
+          state.LastListedCollections.clear();
+          state.LastListedDocumentIds.clear();
+
+          bool found = cli.SearchSAM(state.CurrentCollection,
+                                     query,
+                                     limit,
+                                     false,
+                                     false,
+                                     {},
+                                     "",
+                                     "",
+                                     false,
+                                     &state.LastListedDocumentIds,
+                                     true,
+                                     true,
+                                     true);
+
+          state.LastListedSAMDocumentIds = state.LastListedDocumentIds;
+
+          if (found)
+          {
+               TalkPrintInfo("Use 'open 1' or 'sam open 1' to inspect a result.");
+          }
+
+          return true;
+     }
+
+     if (command == "see")
+     {
+          if (parts.size() == 1)
+          {
+               ShowSAMSearchJobs(cli, state, "all");
+               return true;
+          }
+
+          if (parts.size() == 2)
+          {
+               ShowSAMSearchJobs(cli, state, parts[1]);
+               return true;
+          }
+
+          TalkPrintError("Usage: see [all|job-id]");
           return true;
      }
 

@@ -1675,7 +1675,9 @@ bool HLQueryCLI::SearchSAM(const std::string &collection_name,
                            const std::string &route,
                            bool skip_record,
                            std::vector<std::string> *document_ids,
-                           bool fallback_to_search)
+                           bool fallback_to_search,
+                           bool allow_live_intent,
+                           bool async_search)
 {
      if (document_ids)
      {
@@ -1737,6 +1739,13 @@ bool HLQueryCLI::SearchSAM(const std::string &collection_name,
           path += "&skip=true";
      }
 
+     path += allow_live_intent ? "&live_intent=true" : "&live_intent=false";
+
+     if (async_search)
+     {
+          path += "&async=true";
+     }
+
      HLQueryCLI::HTTPResponse response = MakeRequest("GET", path, "", std::max(120, DefaultTimeoutSeconds));
 
      if (CheckRequestFailed(response))
@@ -1753,6 +1762,19 @@ bool HLQueryCLI::SearchSAM(const std::string &collection_name,
      catch (const std::exception &)
      {
           PrintError("Failed to parse SAM search response");
+          return false;
+     }
+
+     if (response.StatusCode == 202)
+     {
+          std::cout << root.value("message", std::string("SAM search queued.")) << "\n";
+
+          const std::string job_id = root.value("job_id", std::string());
+          if (!job_id.empty())
+          {
+               std::cout << "Job ID: " << job_id << "\n";
+          }
+
           return false;
      }
 

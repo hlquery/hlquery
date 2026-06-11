@@ -423,9 +423,10 @@ static std::vector<std::string> BuildPromptConstraints(const std::string& Langua
      }
      else if (Objective == "search_intent")
      {
-          Constraints.push_back("Resolve likely user intent from the query and supplied candidates; use common aliases, typo corrections, and location associations only when likely.");
-          Constraints.push_back("Return at most 8 candidates and at most 12 ranked_terms, ordered strongest first.");
-          Constraints.push_back("Prefer exact supplied candidates, then likely aliases or nearby-location associations; keep uncertain world-knowledge associations at lower weight.");
+          Constraints.push_back("First derive the document-specific evidence questions needed to answer this query, then rank candidates against those questions.");
+          Constraints.push_back("For location queries, require supplied title, field, or body evidence for the requested place or a very clear nearby-place association.");
+          Constraints.push_back("Return at most 4 document_questions, 8 candidates, 8 evidence_terms, and 12 ranked_terms, ordered strongest first.");
+          Constraints.push_back("Prefer exact supplied candidates, then likely aliases or nearby-location associations; keep uncertain world-knowledge associations at lower weight or omit them.");
      }
 
      if (!Language.empty() && Language != "und")
@@ -458,7 +459,7 @@ static std::string BuildPromptInstructionText(const std::string& Objective,
      }
      else if (Objective == "search_intent")
      {
-          Instruction += "Interpret the query and rank candidate documents and terms.";
+          Instruction += "Interpret the query, define the evidence questions each document must answer, then rank candidate documents and terms.";
      }
 
      return Instruction;
@@ -486,7 +487,7 @@ static void AddPromptEnvelope(nlohmann::json& Payload,
           {"constraints", BuildPromptConstraints(EffectiveLanguage, Objective)},
           {"output_contract",
                Objective == "search_intent"
-                    ? "Return JSON with interpretation, conclusion, candidates[], ranked_terms[]."
+                    ? "Return JSON with interpretation, document_questions[], evidence_terms[], conclusion, candidates[], ranked_terms[]."
                     : (Objective == "anchors"
                          ? "Return JSON array or {anchors:[...]} with items {text,kind,confidence,reason,language}."
                          : "Return {contexts:[...]} with items {term,relation,confidence,evidence,scope}. Use relation types such as alias, metro_area, topic, category, or related_query.")}
@@ -688,6 +689,14 @@ static LLMInferenceResult RunLLMInference(const std::string& ModelPath,
 
           if (Result.ExitCode == 0)
           {
+               LogLLMInferenceDebugTrace(Mode, Payload, Result);
+               return Result;
+          }
+
+          if (Result.TimedOut)
+          {
+               LogProgress("in-process inference timed out for " + Subject +
+                           "; skipping external fallback");
                LogLLMInferenceDebugTrace(Mode, Payload, Result);
                return Result;
           }
@@ -1442,7 +1451,7 @@ llm::SearchIntentResolution llm::ResolveSearchIntent(const std::string& Collecti
      }
 
      const LLMInferenceResult Result =
-          RunLLMInference(ModelPath, "search_intent", Payload);
+          RunLLMInference(ModelPath, "search_intent", Payload, 20000);
 
      if (Result.ExitCode != 0)
      {
@@ -1465,6 +1474,7 @@ llm::SearchIntentResolution llm::ResolveSearchIntent(const std::string& Collecti
           Parsed.Interpretation = TrimCopy(Root.value("interpretation", ""));
           Parsed.Conclusion = TrimCopy(Root.value("conclusion", ""));
           std::unordered_set<std::string> CandidateSeen;
+          std::unordered_set<std::string> EvidenceSeen;
           std::unordered_set<std::string> RankedSeen;
 
           if (Root.is_object() && Root.contains("text"))
@@ -1474,6 +1484,69 @@ llm::SearchIntentResolution llm::ResolveSearchIntent(const std::string& Collecti
                                      Root.value("text", ""),
                                      Root.value("weight", 0.0),
                                      Limit);
+          }
+
+          if (Root.contains("document_questions") && Root["document_questions"].is_array())
+          {
+               for (const auto& Item : Root["document_questions"])
+               {
+                    if (!Item.is_object() || Parsed.DocumentQuestions.size() >= 4)
+                    {
+                         continue;
+                    }
+
+                    SearchIntentQuestion Question;
+                    Question.Question = NormalizePhrase(Item.value("question", ""));
+                    Question.Required = Item.value("required", false);
+
+                    if (Item.contains("evidence_terms") && Item["evidence_terms"].is_array())
+                    {
+                         for (const auto& Term : Item["evidence_terms"])
+                         {
+                              if (!Term.is_string())
+                              {
+                                   continue;
+                              }
+
+                              const std::string Evidence = NormalizePhrase(Term.get<std::string>());
+
+                              if (!Evidence.empty() &&
+                                  std::find(Question.EvidenceTerms.begin(),
+                                            Question.EvidenceTerms.end(),
+                                            Evidence) == Question.EvidenceTerms.end())
+                              {
+                                   Question.EvidenceTerms.push_back(Evidence);
+                                   AppendIntentCandidate(Parsed.EvidenceTerms,
+                                                         EvidenceSeen,
+                                                         Evidence,
+                                                         Question.Required ? 0.82 : 0.62,
+                                                         Limit * 2);
+                              }
+                         }
+                    }
+
+                    if (!Question.Question.empty() || !Question.EvidenceTerms.empty())
+                    {
+                         Parsed.DocumentQuestions.push_back(std::move(Question));
+                    }
+               }
+          }
+
+          if (Root.contains("evidence_terms") && Root["evidence_terms"].is_array())
+          {
+               for (const auto& Item : Root["evidence_terms"])
+               {
+                    if (!Item.is_object())
+                    {
+                         continue;
+                    }
+
+                    AppendIntentCandidate(Parsed.EvidenceTerms,
+                                          EvidenceSeen,
+                                          Item.value("text", ""),
+                                          Item.value("weight", 0.0),
+                                          Limit * 2);
+               }
           }
 
           if (Root.contains("candidates") && Root["candidates"].is_array())
@@ -1508,6 +1581,15 @@ llm::SearchIntentResolution llm::ResolveSearchIntent(const std::string& Collecti
                                           Item.value("weight", 0.0),
                                           Limit * 2);
                }
+          }
+
+          for (const auto& EvidenceTerm : Parsed.EvidenceTerms)
+          {
+               AppendIntentCandidate(Parsed.RankedTerms,
+                                     RankedSeen,
+                                     EvidenceTerm.Text,
+                                     EvidenceTerm.Weight * 0.85,
+                                     Limit * 2);
           }
 
           if (Parsed.Interpretation.empty())
@@ -1555,9 +1637,10 @@ llm::SearchIntentResolution llm::ResolveSearchIntent(const std::string& Collecti
           }
 
           SortIntentCandidates(Parsed.Candidates);
+          SortIntentCandidates(Parsed.EvidenceTerms);
           SortIntentCandidates(Parsed.RankedTerms);
 
-          if (Parsed.Candidates.empty() && Parsed.RankedTerms.empty())
+          if (Parsed.Candidates.empty() && Parsed.RankedTerms.empty() && Parsed.EvidenceTerms.empty())
           {
                LogSAMLLMProgress("parsed search_intent answer for query='" + Query +
                                  "' but found no usable candidates; using heuristic fallback",
@@ -1580,6 +1663,8 @@ llm::SearchIntentResolution llm::ResolveSearchIntent(const std::string& Collecti
 
           LogSAMLLMProgress("parsed search_intent answer for query='" + Query +
                             "' candidates=" + std::to_string(Parsed.Candidates.size()) +
+                            ", questions=" + std::to_string(Parsed.DocumentQuestions.size()) +
+                            ", evidence_terms=" + std::to_string(Parsed.EvidenceTerms.size()) +
                             ", ranked_terms=" + std::to_string(Parsed.RankedTerms.size()) +
                             (CandidateSummary.empty() ? std::string() : ", top=[" + CandidateSummary + "]") +
                             (Parsed.Conclusion.empty() ? std::string() : ", conclusion='" + Parsed.Conclusion + "'"),

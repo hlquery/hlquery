@@ -24,12 +24,7 @@
 #include <vector>
 
 #include "runtime/configreader.h"
-
-#if __has_include("core/hlcore.h")
-#include "core/hlcore.h"
-#else
 #include "core/hlquery.h"
-#endif
 #include "utils/consolewriter.h"
 #include "utils/infos.h"
 
@@ -38,12 +33,14 @@
 ConfigReader::ConfigReader() : Valid(false),
                                IncludeDepth(0)
 {
+
 }
 
 /* ConfigReader Destructor */
 
 ConfigReader::~ConfigReader()
 {
+
 }
 
 /* Helper function to format file size in human-readable format */

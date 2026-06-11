@@ -857,6 +857,10 @@ class SearchAPI
 
      HttpResponse HandleSAMSearch(const HttpRequest& Request);
 
+     /* HandleSAMSearchJobs returns async SAM search job state. */
+
+     HttpResponse HandleSAMSearchJobs(const HttpRequest& Request);
+
      /* HandleSAMStatus returns SAM indexing status for one collection. */
 
      HttpResponse HandleSAMStatus(const HttpRequest& Request);

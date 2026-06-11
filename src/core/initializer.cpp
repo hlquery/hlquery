@@ -754,8 +754,8 @@ bool hlquery::InitializeNoForkMode()
           {
                Logs->Critical("hlquery", "Failed to initialize thread pools.");
           }
-          ConsoleWriter::WriteError("[FATAL] Failed to initialize thread pools.", true);
 
+          ConsoleWriter::WriteError("[FATAL] Failed to initialize thread pools.", true);
           SetShutdownFlag();
 
           return false;
@@ -1014,7 +1014,6 @@ void hlquery::WaitForMetadataScan()
                }
 
                CollectionsLoadedFlagFinal = false;
-
                Instance->StatsVal.SetHealthDegraded(true, "Exception during collection loading: " + std::string(e.what()));
           }
           catch (...)
@@ -1034,7 +1033,6 @@ void hlquery::WaitForMetadataScan()
                }
 
                CollectionsLoadedFlagFinal = false;
-
                Instance->StatsVal.SetHealthDegraded(true, "Unknown exception during collection loading");
           }
 
@@ -1092,7 +1090,6 @@ void hlquery::WaitForMetadataScan()
      if (ThreadLimit::GetCurrentThreadCount() < ThreadLimit::GetMaxThreads())
      {
           ThreadLimit::IncrementThreadCount();
-
           RegisteredStatusVal = true;
      }
 
@@ -1222,7 +1219,6 @@ void hlquery::WaitForMetadataScan()
                                                    std::lock_guard<std::mutex> Lock(Instance->StatsVal.StartupStateMutex);
 
                                                    Instance->StatsVal.StartupStateInfo.SyncEnd = Instance->Now();
-
                                                    Instance->StatsVal.StartupStateInfo.SyncComplete = SyncCompleteStatusFlag;
 
                                                    if (!SyncCompleteStatusFlag)

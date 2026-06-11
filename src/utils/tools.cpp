@@ -27,12 +27,8 @@
 #include <sys/stat.h>
 #include <unordered_map>
 
-#if __has_include("core/hlcore.h")
-     #include "core/hlcore.h"
-#else
-     #include "core/hlquery.h"
-#endif
-     #include "utils/tools.h"
+#include "core/hlquery.h"
+#include "utils/tools.h"
 
 /*
  * Return the shared rate limit map.

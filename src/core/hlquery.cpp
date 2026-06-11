@@ -433,10 +433,7 @@ void hlquery::Run()
 
           CoreHelpers::ProcessPeriodicTasks();
 
-          if (Instance && Instance->Modules)
-          {
-               FOREACH_MOD(OnIdleTick, NowTimeVal);
-          }
+          FOREACH_MOD(OnIdleTick, NowTimeVal);
 
           if (CoreHelpers::ShouldExitLoop())
           {

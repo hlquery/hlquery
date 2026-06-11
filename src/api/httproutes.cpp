@@ -216,6 +216,13 @@ RouteAction ResolveHttpRoute(const HttpRequest &Request)
                return RouteAction::SamSearch;
           }
 
+          if ((NormalizedPath == "/sam/search_jobs" ||
+               NormalizedPath.rfind("/sam/search_jobs/", 0) == 0) &&
+              Request.Method == "GET")
+          {
+               return RouteAction::SamSearchJobs;
+          }
+
           if (NormalizedPath == "/sam/status" && Request.Method == "GET")
           {
                return RouteAction::SamStatus;
@@ -869,6 +876,8 @@ const char *RouteActionName(RouteAction ActionVal)
                return "SamRebuild";
           case RouteAction::SamSearch:
                return "SamSearch";
+          case RouteAction::SamSearchJobs:
+               return "SamSearchJobs";
           case RouteAction::SamStatus:
                return "SamStatus";
           case RouteAction::SamDebug:

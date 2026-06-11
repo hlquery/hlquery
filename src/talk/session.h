@@ -30,6 +30,7 @@ struct TalkState
      std::vector<std::string> LastListedCollections;
      std::vector<std::string> LastListedDocumentIds;
      std::vector<std::string> LastListedSAMDocumentIds;
+     std::vector<std::string> LastListedSAMSearchJobIds;
      std::string LastSAMSearchCollection;
      std::string LastSAMSearchQuery;
      std::unordered_map<std::string, std::string> CommandAliases;

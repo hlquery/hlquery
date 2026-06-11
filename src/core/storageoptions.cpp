@@ -14,13 +14,7 @@
 #include <cctype>
 
 #include "runtime/configreader.h"
-
-#if __has_include("core/hlcore.h")
-#include "core/hlcore.h"
-#else
 #include "core/hlquery.h"
-#endif
-
 #include "runtime/serverconfig.h"
 
 /* Loads RocksDB configuration options from the provided config reader instance */

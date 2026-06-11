@@ -188,9 +188,7 @@ inline long long DurationMs(std::chrono::steady_clock::duration duration)
  * avoids repeating `duration_cast` boilerplate at call sites.
  */
 
-inline long long ElapsedMs(
-     const std::chrono::steady_clock::time_point &start,
-     const std::chrono::steady_clock::time_point &end)
+inline long long ElapsedMs(const std::chrono::steady_clock::time_point &start, const std::chrono::steady_clock::time_point &end)
 {
      try
      {

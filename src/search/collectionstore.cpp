@@ -1058,10 +1058,10 @@ bool HybridStorageManager::CreateCollection(const std::string &name, const Colle
           }
 
           /*
-                * Final verification - ensure collection is in map before returning.
-                * This guarantees ListCollections() will see it immediately.
-                * Double-check that collection is definitely in the map.
-                */
+           * Final verification - ensure collection is in map before returning.
+           * This guarantees ListCollections() will see it immediately.
+           * Double-check that collection is definitely in the map.
+           */
 
           auto final_check = Collections.find(name);
 
@@ -1083,14 +1083,15 @@ bool HybridStorageManager::CreateCollection(const std::string &name, const Colle
                     {
                          Instance->Logs->Critical("hybrid_storage", "[COLLECTION_CREATE_ERROR] Collection name mismatch in map: expected '" + name + "', found '" + final_check->first + "'.");
                     }
+          
                     Collections[name] = config;
                }
           }
 
           /*
-                * Final log to confirm collection is in map.
-                * Use NORMAL log level so it's always visible (not just in debug mode).
-                */
+           * Final log to confirm collection is in map.
+           * Use NORMAL log level so it's always visible (not just in debug mode).
+           */
 
           if (Instance && Instance->Logs)
           {
@@ -1098,10 +1099,10 @@ bool HybridStorageManager::CreateCollection(const std::string &name, const Colle
           }
 
           /*
-                * Double-check collection is actually in the map by iterating.
-                * This ensures it's not just a map entry issue.
-                * We still hold the lock, so this is safe.
-                */
+           * Double-check collection is actually in the map by iterating.
+           * This ensures it's not just a map entry issue.
+           * We still hold the lock, so this is safe.
+           */
 
           bool found_in_iteration = false;
 
@@ -1115,6 +1116,7 @@ bool HybridStorageManager::CreateCollection(const std::string &name, const Colle
                     {
                          Instance->Logs->Debug("hybrid_storage", "[COLLECTION_VERIFY] Collection '" + name + "' confirmed in map iteration.");
                     }
+           
                     break;
                }
           }
@@ -1177,6 +1179,7 @@ bool HybridStorageManager::CreateCollection(const std::string &name, const Colle
           UpdateCollectionMetadataCacheLocked(name, 0, now);
           RefreshCollectionListCacheLocked();
           SearchResponseCache::InvalidateCollection(name);
+
           return true;
      }
 
@@ -1804,18 +1807,18 @@ std::vector<std::string> HybridStorageManager::ListCollections()
      }
 
      /*
-           * CRITICAL FIX: Check in-memory map FIRST to catch newly created collections
-           * that might not be visible in RocksDB iterator yet (even after flush).
-           * Then merge with RocksDB results to ensure consistency.
-           */
+      * CRITICAL FIX: Check in-memory map FIRST to catch newly created collections
+      * that might not be visible in RocksDB iterator yet (even after flush).
+      * Then merge with RocksDB results to ensure consistency.
+      */
 
      std::set<std::string> collection_set;
 
      /*
-           * First, get collections from in-memory map (includes newly created ones).
-           * This MUST be done first to ensure newly created collections are visible.
-           * The in-memory map is the source of truth for recently created collections.
-           */
+      * First, get collections from in-memory map (includes newly created ones).
+      * This MUST be done first to ensure newly created collections are visible.
+      * The in-memory map is the source of truth for recently created collections.
+      */
 
      {
           std::lock_guard<std::mutex> lock(CollectionsMutex);
@@ -2150,13 +2153,13 @@ bool HybridStorageManager::AddDocument(const std::string &collection, const Docu
           SearchResponseCache::InvalidateCollection(collection);
 
           /*
-                * Index new document immediately so it's searchable right away.
-                * This ensures synonyms work with newly added documents.
-                * OPTIMIZATION: Skip immediate indexing for bulk operations - use lazy indexing instead.
-                * Documents are stored and will be indexed on-demand via LazyLoadCollectionIndex.
-                * This prevents blocking HTTP responses during bulk document insertion.
-                * For single document inserts, immediate indexing is fast enough.
-                */
+           * Index new document immediately so it's searchable right away.
+           * This ensures synonyms work with newly added documents.
+           * OPTIMIZATION: Skip immediate indexing for bulk operations - use lazy indexing instead.
+           * Documents are stored and will be indexed on-demand via LazyLoadCollectionIndex.
+           * This prevents blocking HTTP responses during bulk document insertion.
+           * For single document inserts, immediate indexing is fast enough.
+           */
 
           try
           {

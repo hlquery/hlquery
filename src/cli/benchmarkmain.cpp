@@ -160,6 +160,33 @@ static std::string HumanizeIdentifier(const std::string &input)
      return result;
 }
 
+static void AddUniqueText(std::vector<std::string> &values, std::unordered_set<std::string> &seen, const std::string &value)
+{
+     const std::string trimmed = TrimWhitespace(value);
+     if (trimmed.empty() || seen.find(trimmed) != seen.end())
+     {
+          return;
+     }
+
+     seen.insert(trimmed);
+     values.push_back(trimmed);
+}
+
+static std::string JoinTextValues(const std::vector<std::string> &values, const std::string &separator)
+{
+     std::string joined;
+     for (const std::string &value : values)
+     {
+          if (!joined.empty())
+          {
+               joined += separator;
+          }
+          joined += value;
+     }
+
+     return joined;
+}
+
 static const std::vector<UniversityBenchmarkSeed> &GetUniversityBenchmarkSeeds()
 {
      static const std::vector<UniversityBenchmarkSeed> seeds = {
@@ -267,6 +294,117 @@ static const std::vector<UniversityBenchmarkSeed> &GetUniversityBenchmarkSeeds()
      return seeds;
 }
 
+static std::vector<std::string> BuildUniversityLocationAliases(const UniversityBenchmarkSeed &seed)
+{
+     std::vector<std::string> aliases;
+     std::unordered_set<std::string> seen;
+     const std::string name = seed.Name;
+     const std::string state = seed.State;
+     const std::string city = seed.City;
+
+     AddUniqueText(aliases, seen, city);
+     AddUniqueText(aliases, seen, state);
+     AddUniqueText(aliases, seen, city + " campus");
+     AddUniqueText(aliases, seen, state + " university");
+
+     if (state == "Massachusetts")
+     {
+          AddUniqueText(aliases, seen, "New England");
+          AddUniqueText(aliases, seen, "Massachusetts college");
+     }
+
+     if (city == "Cambridge")
+     {
+          AddUniqueText(aliases, seen, "Boston");
+          AddUniqueText(aliases, seen, "Greater Boston");
+          AddUniqueText(aliases, seen, "Boston area");
+          AddUniqueText(aliases, seen, "Massachusetts Bay");
+     }
+
+     if (city == "Boston" || city == "Medford")
+     {
+          AddUniqueText(aliases, seen, "Cambridge");
+          AddUniqueText(aliases, seen, "Greater Boston");
+          AddUniqueText(aliases, seen, "Boston area");
+     }
+
+     if (name.find("Harvard") != std::string::npos)
+     {
+          AddUniqueText(aliases, seen, "Harvard Square");
+          AddUniqueText(aliases, seen, "Cambridge Massachusetts");
+     }
+
+     if (name.find("Massachusetts Institute of Technology") != std::string::npos)
+     {
+          AddUniqueText(aliases, seen, "MIT");
+          AddUniqueText(aliases, seen, "Kendall Square");
+          AddUniqueText(aliases, seen, "Cambridge Massachusetts");
+     }
+
+     if (city == "Stanford" || city == "Berkeley" || city == "San Francisco")
+     {
+          AddUniqueText(aliases, seen, "Bay Area");
+          AddUniqueText(aliases, seen, "San Francisco Bay Area");
+     }
+
+     if (city == "Stanford")
+     {
+          AddUniqueText(aliases, seen, "Silicon Valley");
+          AddUniqueText(aliases, seen, "Palo Alto");
+     }
+
+     if (city == "Berkeley")
+     {
+          AddUniqueText(aliases, seen, "East Bay");
+          AddUniqueText(aliases, seen, "Oakland");
+     }
+
+     if (city == "La Jolla")
+     {
+          AddUniqueText(aliases, seen, "San Diego");
+          AddUniqueText(aliases, seen, "San Diego area");
+     }
+
+     if (city == "New York")
+     {
+          AddUniqueText(aliases, seen, "NYC");
+          AddUniqueText(aliases, seen, "Manhattan");
+     }
+
+     if (city == "Washington")
+     {
+          AddUniqueText(aliases, seen, "Washington DC");
+          AddUniqueText(aliases, seen, "DC");
+     }
+
+     if (city == "Minneapolis")
+     {
+          AddUniqueText(aliases, seen, "Twin Cities");
+          AddUniqueText(aliases, seen, "St Paul");
+     }
+
+     if (city == "University Park")
+     {
+          AddUniqueText(aliases, seen, "State College");
+          AddUniqueText(aliases, seen, "central Pennsylvania");
+     }
+
+     if (city == "Urbana Champaign")
+     {
+          AddUniqueText(aliases, seen, "Champaign Urbana");
+          AddUniqueText(aliases, seen, "Urbana");
+          AddUniqueText(aliases, seen, "Champaign");
+     }
+
+     if (city == "Amherst")
+     {
+          AddUniqueText(aliases, seen, "Pioneer Valley");
+          AddUniqueText(aliases, seen, "western Massachusetts");
+     }
+
+     return aliases;
+}
+
 static std::string BuildUniversityBenchmarkContent(const UniversityBenchmarkSeed &seed, size_t index)
 {
      const std::vector<std::string> programs = {
@@ -280,11 +418,13 @@ static std::string BuildUniversityBenchmarkContent(const UniversityBenchmarkSeed
      const std::string &program_b = programs[(index + 3U) % programs.size()];
      const std::string &term_a = campus_terms[index % campus_terms.size()];
      const std::string &term_b = campus_terms[(index + 5U) % campus_terms.size()];
+     const std::vector<std::string> location_aliases = BuildUniversityLocationAliases(seed);
 
      return std::string(seed.Name) + " is a " + HumanizeIdentifier(seed.Type) + " institution in " + seed.City + ", " + seed.State +
             " represented in this benchmark university ranking corpus. The profile covers " + program_a + ", " +
             program_b + ", " + term_a + ", " + term_b +
-            ", enrollment context, research visibility, and campus discovery signals for relevance tests.";
+            ", enrollment context, research visibility, and campus discovery signals for relevance tests. Location aliases: " +
+            JoinTextValues(location_aliases, ", ") + ".";
 }
 
 static PersonBenchmarkSeed BuildPersonBenchmarkSeed(size_t index)
@@ -669,6 +809,8 @@ static const std::unordered_map<std::string, std::vector<FakeSynonymSeed>> kFake
            {"university", {"campus", "college", "institution", "school"}},
            {"research", {"faculty", "program", "department", "lab"}},
            {"student", {"admission", "alumni", "degree", "cohort"}},
+           {"city", {"location", "metro", "region", "area"}},
+           {"cambridge", {"boston", "greater boston", "massachusetts", "kendall square"}},
       }},
 };
 
@@ -916,6 +1058,9 @@ bool CreateFakeCollections(const std::string &base_url, const std::string &auth_
                university_fields.push_back({{"name", "labels"}, {"type", "string"}});
                university_fields.push_back({{"name", "state"}, {"type", "string"}});
                university_fields.push_back({{"name", "city"}, {"type", "string"}});
+               university_fields.push_back({{"name", "city_aliases"}, {"type", "string"}});
+               university_fields.push_back({{"name", "location_labels"}, {"type", "string"}});
+               university_fields.push_back({{"name", "search_aliases"}, {"type", "string"}});
                university_fields.push_back({{"name", "institution_type"}, {"type", "string"}});
                university_fields.push_back({{"name", "rank"}, {"type", "int32"}});
                university_fields.push_back({{"name", "rank_signal"}, {"type", "float"}});
@@ -1410,13 +1555,19 @@ bool CreateFakeCollections(const std::string &base_url, const std::string &auth_
                     const auto &doc_tuple = docs[i];
                     const auto &profile = university_profiles[i];
                     const int rank = static_cast<int>(i + 1U);
+                    const std::vector<std::string> location_aliases = BuildUniversityLocationAliases(profile);
+                    const std::string location_alias_text = JoinTextValues(location_aliases, " | ");
 
                     nlohmann::json university_doc = enriched_docs[i];
                     university_doc["id"] = std::get<0>(doc_tuple);
                     university_doc["title"] = std::get<1>(doc_tuple);
-                    university_doc["content"] = std::get<2>(doc_tuple);
+                    university_doc["content"] = std::get<2>(doc_tuple) + " Searchable city labels: " + location_alias_text + ".";
+                    university_doc["description"] = university_doc.value<std::string>("description", "") + " Location labels: " + location_alias_text + ".";
                     university_doc["state"] = profile.State;
                     university_doc["city"] = profile.City;
+                    university_doc["city_aliases"] = location_alias_text;
+                    university_doc["location_labels"] = location_alias_text;
+                    university_doc["search_aliases"] = std::string(profile.Name) + " | " + profile.City + " | " + profile.State + " | " + location_alias_text;
                     university_doc["institution_type"] = profile.Type;
                     university_doc["rank"] = rank;
                     university_doc["rank_signal"] = static_cast<double>(university_profiles.size() - i) / static_cast<double>(university_profiles.size());
@@ -1428,6 +1579,27 @@ bool CreateFakeCollections(const std::string &base_url, const std::string &auth_
                     university_doc["webometrics_impact_rank"] = 1 + static_cast<int>((i * 37U) % 100U);
                     university_doc["webometrics_openness_rank"] = 1 + static_cast<int>((i * 53U) % 100U);
                     university_doc["webometrics_excellence_rank"] = 1 + static_cast<int>((i * 71U) % 100U);
+
+                    nlohmann::json label_list = nlohmann::json::array();
+                    std::unordered_set<std::string> seen_labels;
+                    for (const auto &label : BuildBenchmarkLabels(spec.Name, profile.State, std::get<1>(doc_tuple), std::get<2>(doc_tuple)))
+                    {
+                         const std::string normalized = Slugify(label);
+                         if (!normalized.empty() && seen_labels.insert(normalized).second)
+                         {
+                              label_list.push_back(normalized);
+                         }
+                    }
+
+                    for (const auto &alias : location_aliases)
+                    {
+                         const std::string normalized = Slugify(alias);
+                         if (!normalized.empty() && seen_labels.insert(normalized).second)
+                         {
+                              label_list.push_back(normalized);
+                         }
+                    }
+                    university_doc["labels"] = label_list.dump();
 
                     if (client.UpsertDocumentWithFieldsLocal(collection_name, university_doc))
                     {

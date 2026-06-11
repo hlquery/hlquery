@@ -98,7 +98,7 @@ static int MaxTokensForMode(const std::string& Mode)
 
      if (Mode == "search_intent")
      {
-          return 640;
+          return 820;
      }
 
      return 192;
@@ -116,7 +116,7 @@ static std::string SchemaForMode(const std::string& Mode)
           return R"({"anchors":[{"text":"...","kind":"anchor","confidence":0.0,"reason":"...","language":"..."}]})";
      }
 
-     return R"({"interpretation":"...","conclusion":"...","candidates":[{"text":"...","weight":0.0}],"ranked_terms":[{"text":"...","weight":0.0}]})";
+     return R"({"interpretation":"...","document_questions":[{"question":"...","required":true,"evidence_terms":["..."]}],"evidence_terms":[{"text":"...","weight":0.0}],"conclusion":"...","candidates":[{"text":"...","weight":0.0}],"ranked_terms":[{"text":"...","weight":0.0}]})";
 }
 
 static std::string BuildPrompt(const std::string& Mode, const std::string& Payload)
@@ -126,9 +126,10 @@ static std::string BuildPrompt(const std::string& Mode, const std::string& Paylo
      if (Mode == "search_intent")
      {
           Prompt +=
-               "Given a query and candidate documents, infer which candidate titles or terms the query may point to. "
+               "Given a query and candidate documents, first decide the concrete evidence questions each document must answer, then infer which candidate titles or terms the query may point to. "
+               "For example, a location query should ask whether the candidate evidence actually mentions the requested city, metro, state, or an accepted nearby place. "
                "Use supplied evidence first, but you may also use common alias, spelling, location, institution, or world-knowledge associations when they are likely. "
-               "If a query appears misspelled, infer the likely correction. Keep uncertain associations at lower weight. ";
+               "If a query appears misspelled, infer the likely correction. Put required matching words or aliases in evidence_terms. Keep uncertain associations at lower weight. ";
      }
      else
      {

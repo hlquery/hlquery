@@ -2594,6 +2594,12 @@ void HttpConnection::ProcessSingleRequest(const std::string &RequestStr)
      {
           Response = API.HandleSAMSearch(Request);
      }
+     else if ((NormalizedPath == "/sam/search_jobs" ||
+               NormalizedPath.rfind("/sam/search_jobs/", 0) == 0) &&
+              Request.Method == "GET")
+     {
+          Response = API.HandleSAMSearchJobs(Request);
+     }
      else if (NormalizedPath == "/sam/status" && Request.Method == "GET")
      {
           Response = API.HandleSAMStatus(Request);
@@ -4803,6 +4809,7 @@ APIKeyAction MapRouteToKeyAction(RouteAction ActionVal)
           case RouteAction::GetDocumentContext:
           case RouteAction::SamSearch:
           case RouteAction::SamStatus:
+          case RouteAction::SamSearchJobs:
           case RouteAction::SamDebug:
           case RouteAction::SamHistory:
           case RouteAction::SamListDocuments:
@@ -5423,6 +5430,9 @@ HttpResponse ProcessRequestWithAPI(SearchAPI &API, const HttpRequest &Request)
 
                case RouteAction::SamSearch:
                     return API.HandleSAMSearch(Request);
+
+               case RouteAction::SamSearchJobs:
+                    return API.HandleSAMSearchJobs(Request);
 
                case RouteAction::SamStatus:
                     return API.HandleSAMStatus(Request);

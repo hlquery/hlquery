@@ -26,9 +26,12 @@
 #include "core/config.h"
 
 #ifdef HLQUERY_HAS_OPENSSL
-#include <openssl/err.h>
-#include <openssl/ssl.h>
+     
+     #include <openssl/err.h>
+     #include <openssl/ssl.h>
+     
 #endif
+
 #include <sstream>
 #include <string>
 #include <sys/ioctl.h>

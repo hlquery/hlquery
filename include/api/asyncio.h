@@ -820,12 +820,17 @@ class UltraAsyncIO
      {
           return false;
      }
+
      void Shutdown()
      {
+
      }
+
      void SubmitRequest(const IORequest&)
      {
+
      }
+
      AsyncIOStats GetStats() const
      {
           return AsyncIOStats();
@@ -836,7 +841,9 @@ inline std::unique_ptr<UltraAsyncIO> GAsyncIO;
 
 inline void InitializeAsyncIO()
 {
+
 }
+
 inline void CleanupAsyncIO()
 {
 }

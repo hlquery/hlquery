@@ -188,7 +188,9 @@ class HLQueryCLI
                     const std::string &route = "",
                     bool skip_record = false,
                     std::vector<std::string> *document_ids = nullptr,
-                    bool fallback_to_search = true);
+                    bool fallback_to_search = true,
+                    bool allow_live_intent = true,
+                    bool async_search = false);
 
      /* Shows SAM indexing status for one collection. */
 

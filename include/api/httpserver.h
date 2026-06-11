@@ -127,6 +127,7 @@ enum class RouteAction
      GetDocumentContext,
      SamRebuild,
      SamSearch,
+     SamSearchJobs,
      SamStatus,
      SamDebug,
      SamHistory,

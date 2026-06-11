@@ -198,7 +198,11 @@ void RunSearches(const std::string &base_url, const std::string &auth_token)
                "engineering campus",
                "computer science university",
                "public research university",
-               "student admissions faculty"};
+               "student admissions faculty",
+               "cambridge boston university",
+               "greater boston campus",
+               "bay area university",
+               "twin cities university"};
 
           for (const auto &query : university_queries)
           {

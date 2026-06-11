@@ -51,6 +51,13 @@ class CoreExport llm
           double Weight = 0.0;
      };
 
+     struct SearchIntentQuestion
+     {
+          std::string Question;
+          bool Required = false;
+          std::vector<std::string> EvidenceTerms;
+     };
+
      struct AnchorSuggestion
      {
           std::string Text;
@@ -64,6 +71,8 @@ class CoreExport llm
      {
           std::string Interpretation;
           std::string Conclusion;
+          std::vector<SearchIntentQuestion> DocumentQuestions;
+          std::vector<SearchIntentCandidate> EvidenceTerms;
           std::vector<SearchIntentCandidate> Candidates;
           std::vector<SearchIntentCandidate> RankedTerms;
      };

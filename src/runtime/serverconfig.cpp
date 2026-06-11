@@ -24,17 +24,7 @@
 #include "core/config.h"
 #include "runtime/configreader.h"
 #include "runtime/exitmanager.h"
-
-#if __has_include("core/hlcore.h")
-     
-     #include "core/hlcore.h"
-     
-#else
-
-     #include "core/hlquery.h"
-     
-#endif
-
+#include "core/hlquery.h"
 #include "core/logmanager.h"
 #include "core/modulemanager.h"
 #include "runtime/serverconfig.h"
@@ -2361,6 +2351,7 @@ static std::string ClusterTrimCopy(const std::string &Value)
 static std::string NormalizeClusterEndpoint(const std::string &Raw, std::string *OutError)
 {
      std::string Node = ClusterTrimCopy(Raw);
+
      if (Node.empty())
      {
           if (OutError)
@@ -2371,6 +2362,7 @@ static std::string NormalizeClusterEndpoint(const std::string &Raw, std::string 
      }
 
      std::string Scheme;
+
      if (Node.rfind("http://", 0) == 0)
      {
           Scheme = "http";
@@ -2383,6 +2375,7 @@ static std::string NormalizeClusterEndpoint(const std::string &Raw, std::string 
      }
 
      size_t SlashPos = Node.find('/');
+
      if (SlashPos != std::string::npos)
      {
           Node = Node.substr(0, SlashPos);

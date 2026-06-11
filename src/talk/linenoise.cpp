@@ -28,6 +28,8 @@
 
 #include "talk/linenoise.h"
 
+namespace
+{
      /* Shared command history for the local REPL session. */
 
      std::vector<std::string> History;
@@ -74,6 +76,7 @@
               : Original(original),
                 Active(true)
           {
+ 
           }
 
           RawModeGuard(const RawModeGuard &) = delete;
@@ -526,6 +529,7 @@
           state.HistoryIndex = History.size();
           return true;
      }
+}
 
 /* Read one line, using raw mode when attached to a terminal. */
 
