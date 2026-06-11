@@ -39,7 +39,6 @@
 #include "core/hlquery.h"
 #include "core/socketengine.h"
 #include "search/cstore.h"
-#include "sam/sam.h"
 #include "search/storageengine.h"
 #include "utils/consolewriter.h"
 #include "utils/infos.h"
@@ -1853,14 +1852,6 @@ void hlquery::Cleanup()
           LogCleanupStage("stopping singleton api");
           SearchAPI::GetInstance().Shutdown();
           LogCleanupStage("singleton api stopped");
-     }
-
-     if (Instance && Instance->Sam)
-     {
-          LogCleanupStage("stopping sam");
-          Instance->Sam->Shutdown();
-          Instance->Sam.reset();
-          LogCleanupStage("sam stopped");
      }
 
      LogCleanupStage("stopping storage");

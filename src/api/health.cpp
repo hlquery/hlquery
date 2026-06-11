@@ -253,7 +253,8 @@ static bool HealthRemoteHasSAMEnabled(const nlohmann::json &Root, const std::vec
           return ExplicitSAMEnabled;
      }
 
-     return std::binary_search(RemoteModules.begin(), RemoteModules.end(), "core_sam");
+     (void)RemoteModules;
+     return false;
 }
 
 static void HealthProbeEndpoint(LinkEndpointInfo &Info, bool PingNode)
@@ -1763,7 +1764,7 @@ HttpResponse SearchAPI::HandleLLM(const HttpRequest &Request)
      LLMJSON["models_dir"] = "";
      LLMJSON["model_name"] = "";
      LLMJSON["model_path"] = "";
-     LLMJSON["backend"] = "linked_libllama";
+     LLMJSON["backend"] = "external_tool";
      LLMJSON["pending_context_jobs"] = 0;
      LLMJSON["loaded_modules"] = nlohmann::json::array();
      LLMJSON["model_catalog"] = nlohmann::json::array();

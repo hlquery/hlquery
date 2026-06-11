@@ -2210,7 +2210,7 @@ class ServerConfig
 
      /* Directory used for SAM persistent data. */
 
-     std::string SamDataDirectory = HLQUERY_SAM_DATA_DIR;
+     std::string SamDataDirectory;
 
      /* Collection used to store recorded SAM search ideas. */
 

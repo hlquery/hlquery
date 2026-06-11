@@ -566,11 +566,6 @@ void ServerConfig::ApplyConfiguration()
           }
      }
 
-     if (SamEnabled)
-     {
-          AddModuleIfMissing("core_sam");
-     }
-
      AIModelCatalog.clear();
 
      auto ModelTags = ConfigReaderValue.GetTags("model");

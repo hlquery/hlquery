@@ -43,7 +43,6 @@
 #include "core/helpers.h"
 #include "core/hlquery.h"
 #include "core/socketengine.h"
-#include "sam/sam.h"
 #include "search/cstore.h"
 #include "search/lindex.h"
 #include "search/storageengine.h"
@@ -147,20 +146,6 @@ bool hlquery::InitializeOptionalServices()
      }
 
      LLM = std::make_unique<llm>();
-
-     if (GetConfig().GetSamEnabled())
-     {
-          Sam = std::make_unique<SAM>();
-
-          if (Sam && !Sam->Initialize())
-          {
-               Sam.reset();
-          }
-     }
-     else if (HasLogs())
-     {
-          Logs->Normal("sam", "SAM disabled in configuration.");
-     }
 
      return true;
 }

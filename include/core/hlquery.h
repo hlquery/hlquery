@@ -364,9 +364,9 @@ class CoreExport hlquery
 
      std::unique_ptr<llm> LLM;
 
-     /* Secondary Assistant Manager */
+     /* Disabled SAM compatibility pointer. */
 
-     std::unique_ptr<SAM> Sam;
+     SAM* Sam = nullptr;
 
      /* Server statistics */
 
