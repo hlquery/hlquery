@@ -105,7 +105,6 @@ enum class RouteAction
      DebugCounters,
      Repair,
      Startup,
-     LLM,
      Integrity,
      SelfCheck,
      StorageStatus,

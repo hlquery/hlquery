@@ -2863,7 +2863,6 @@ void PrintHelp()
      std::cout << "  links    Show distributed links\n";
      std::cout << "  bw [kb|mb|gb]  Show total bandwidth transferred\n";
      std::cout << "  modules [1|0]  List loaded modules, core only with 1, optional only with 0\n";
-     std::cout << "  llm      Show active LLM runtime information\n";
      std::cout << "  llm QUERY  Search the active collection with LLM-assisted document intent, for example: llm find docs about boston\n";
      std::cout << "  see all  List async LLM/SAM search jobs\n";
      std::cout << "  see JOB  Show one async LLM/SAM search job and its hits when complete\n";
@@ -5190,7 +5189,7 @@ bool ExecuteTalkCommand(const std::string &line,
      {
           if (parts.size() == 1)
           {
-               cli.ShowLLMInfo();
+               TalkPrintError("Usage: llm <question>");
                return true;
           }
 

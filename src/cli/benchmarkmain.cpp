@@ -418,13 +418,11 @@ static std::string BuildUniversityBenchmarkContent(const UniversityBenchmarkSeed
      const std::string &program_b = programs[(index + 3U) % programs.size()];
      const std::string &term_a = campus_terms[index % campus_terms.size()];
      const std::string &term_b = campus_terms[(index + 5U) % campus_terms.size()];
-     const std::vector<std::string> location_aliases = BuildUniversityLocationAliases(seed);
 
      return std::string(seed.Name) + " is a " + HumanizeIdentifier(seed.Type) + " institution in " + seed.City + ", " + seed.State +
-            " represented in this benchmark university ranking corpus. The profile covers " + program_a + ", " +
+            ". The profile highlights " + program_a + ", " +
             program_b + ", " + term_a + ", " + term_b +
-            ", enrollment context, research visibility, and campus discovery signals for relevance tests. Location aliases: " +
-            JoinTextValues(location_aliases, ", ") + ".";
+            ", enrollment context, research visibility, and the surrounding campus community.";
 }
 
 static PersonBenchmarkSeed BuildPersonBenchmarkSeed(size_t index)
@@ -1454,7 +1452,10 @@ bool CreateFakeCollections(const std::string &base_url, const std::string &auth_
                     content = BuildRealisticContent(spec.Name, tag, static_cast<int>(i));
                }
 
-               content += BuildCollectionSynonymDocHint(spec.Name, static_cast<int>(i));
+               if (spec.Name != "universities")
+               {
+                    content += BuildCollectionSynonymDocHint(spec.Name, static_cast<int>(i));
+               }
 
                std::string doc_id = MakeMeaningfulDocId(collection_name, title, content, static_cast<int>(i), used_ids);
                std::string safe_title = RemoveCommas(title);

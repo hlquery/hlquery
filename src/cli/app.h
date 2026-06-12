@@ -344,10 +344,6 @@ class HLQueryCLI
 
      void UnloadModule(const std::string &module_name);
 
-     /* Shows active LLM runtime information. */
-
-     void ShowLLMInfo();
-
      /* Checks whether one collection exists. */
 
      bool CollectionExists(const std::string &collection_name);

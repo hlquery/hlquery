@@ -3086,22 +3086,8 @@ HttpResponse SearchAPI::HandleGetDocumentContext(const HttpRequest &Request)
      Root["collection"] = CollectionName;
      Root["id"] = DocumentID;
 
-     bool Pending = false;
-     std::vector<llm::ContextSuggestion> Suggestions;
-
-     if (Instance && Instance->LLM)
-     {
-          Suggestions = Instance->LLM->GetDocumentContext(CollectionName, DocumentID, &Pending);
-
-          if (Suggestions.empty())
-          {
-               Suggestions = Instance->LLM->BuildDocumentContext(CollectionName, DocObj, 5);
-               Instance->LLM->StoreDocumentContext(CollectionName, DocumentID, Suggestions);
-          }
-     }
-
-     Root["pending"] = Pending;
-     Root["count"] = Suggestions.size();
+     Root["pending"] = false;
+     Root["count"] = 0;
      Root["suggestions"] = nlohmann::json::array();
 
      if (Instance && Instance->Sam && Instance->Sam->IsOpen())
@@ -3114,19 +3100,6 @@ HttpResponse SearchAPI::HandleGetDocumentContext(const HttpRequest &Request)
                Root["audit_score"] = AuditRoot.value("audit_score", 0.0);
                Root["revisit_after_ms"] = AuditRoot.value("revisit_after_ms", static_cast<uint64_t>(0));
           }
-     }
-
-     for (const auto& Suggestion : Suggestions)
-     {
-          Root["suggestions"].push_back({
-               {"text", Suggestion.Text},
-               {"kind", Suggestion.Kind},
-               {"relation", Suggestion.Relation},
-               {"confidence", Suggestion.Confidence},
-               {"evidence", Suggestion.Evidence},
-               {"scope", Suggestion.Scope},
-               {"provisional", Suggestion.Provisional}
-          });
      }
 
      HttpResponse Response(Status::OK, StatusText(Status::OK), "application/json");

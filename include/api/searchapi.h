@@ -1184,10 +1184,6 @@ class SearchAPI
 
      HttpResponse HandleStartup(const HttpRequest& Request);
 
-     /* HandleLLM returns active LLM runtime information. */
-
-     HttpResponse HandleLLM(const HttpRequest& Request);
-
      /* HandleDocTotal handles total document count requests. */
 
      HttpResponse HandleDocTotal(const HttpRequest& Request);

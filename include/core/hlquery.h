@@ -33,7 +33,6 @@
 #include "runtime/timers.h"
 #include "core/config.h"
 #include "core/forwards.h"
-#include "core/llm.h"
 #include "core/logmanager.h"
 #include "core/metrics.h"
 #include "core/modulemanager.h"
@@ -359,10 +358,6 @@ class CoreExport hlquery
      /* Server configuration object */
 
      std::unique_ptr<ServerConfig> Config;
-
-     /* Resolved local LLM runtime configuration */
-
-     std::unique_ptr<llm> LLM;
 
      /* Disabled SAM compatibility pointer. */
 

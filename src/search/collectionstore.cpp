@@ -23,7 +23,6 @@
 
 #include "api/searchcache.h"
 #include "core/hlquery.h"
-#include "core/llm.h"
 #include "runtime/clock.h"
 #include "runtime/threadlimit.h"
 #include "search/storageengine.h"
@@ -1678,11 +1677,6 @@ bool HybridStorageManager::DeleteCollection(const std::string &name)
           }
      }
 
-     if (Instance && Instance->LLM)
-     {
-          Instance->LLM->RemoveCollectionContexts(name);
-     }
-
      /* Remove from in-memory map */
 
      Collections.erase(name);
@@ -2823,11 +2817,6 @@ bool HybridStorageManager::DeleteDocument(const std::string &collection, const s
 
                     partial_cleanup_failed = true;
                }
-          }
-
-          if (Instance && Instance->LLM)
-          {
-               Instance->LLM->RemoveDocumentContext(collection, document_id);
           }
 
           NotifySAMCollectionChanged(collection);

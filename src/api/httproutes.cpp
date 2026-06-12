@@ -349,11 +349,6 @@ RouteAction ResolveHttpRoute(const HttpRequest &Request)
                return RouteAction::Startup;
           }
 
-          if (ExactRoute(Path, Method, {"/llm"}, {"GET"}))
-          {
-               return RouteAction::LLM;
-          }
-
           if (ExactRoute(Path, Method, {"/integrity", "/consistency"}, {"GET"}))
           {
                return RouteAction::Integrity;
@@ -832,8 +827,6 @@ const char *RouteActionName(RouteAction ActionVal)
                return "Repair";
           case RouteAction::Startup:
                return "Startup";
-          case RouteAction::LLM:
-               return "LLM";
           case RouteAction::Integrity:
                return "Integrity";
           case RouteAction::SelfCheck:

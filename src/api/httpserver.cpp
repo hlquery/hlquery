@@ -2959,10 +2959,6 @@ void HttpConnection::ProcessSingleRequest(const std::string &RequestStr)
      {
           Response = API.HandleStats(Request);
      }
-     else if (Request.Path == "/llm" && Request.Method == "GET")
-     {
-          Response = API.HandleLLM(Request);
-     }
      else if (Request.Path == "/doctotal" && Request.Method == "GET")
      {
           Response = API.HandleDocTotal(Request);

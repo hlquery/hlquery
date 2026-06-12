@@ -145,8 +145,6 @@ bool hlquery::InitializeOptionalServices()
           return false;
      }
 
-     LLM = std::make_unique<llm>();
-
      return true;
 }
 
