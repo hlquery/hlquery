@@ -1388,16 +1388,16 @@ void SocketEngine::DispatchTrialWrites()
                     continue; /* Skip invalid handlers */
                }
 
-               /*
-             * Smart Write State Detection.
-             * Before attempting writes, we check if the socket is actually
-             * ready for writing using a non-blocking approach.
-             */
+             /*
+              * Smart Write State Detection.
+              * Before attempting writes, we check if the socket is actually
+              * ready for writing using a non-blocking approach.
+              */
 
-               /*
-             * Optimized: Skip select() check and directly attempt write
-             * Modern kernels handle EAGAIN efficiently, making the select() overhead unnecessary
-             */
+             /*
+              * Optimized: Skip select() check and directly attempt write
+              * Modern kernels handle EAGAIN efficiently, making the select() overhead unnecessary
+              */
 
                EH->OnEventHandlerWrite();
                Processed++;
@@ -1405,8 +1405,6 @@ void SocketEngine::DispatchTrialWrites()
                /* No yielding for immediate publish message delivery */
           }
 
-          /* REMOVED: Inter-batch yielding - no throttling, maximum throughput */
-     }
 }
 
 /*
@@ -1448,13 +1446,13 @@ void SocketEngine::RegisterPendingWrite(EventHandler *EH)
      PendingWritesCount.fetch_add(1, std::memory_order_relaxed);
 
      /*
-     * IMPROVEMENT: Use EPOLLOUT notifications to resume sending data when a socket's send buffer
-     * was previously full, rather than blocking the event loop on a partial write.
-     * Smart Write Event Registration.
-     * Temporarily enable EPOLLOUT for this handler so we get notified
-     * when the socket becomes writable again. This provides dual-path
-     * write completion: both through DispatchTrialWrites() and epoll events.
-     */
+      * IMPROVEMENT: Use EPOLLOUT notifications to resume sending data when a socket's send buffer
+      * was previously full, rather than blocking the event loop on a partial write.
+      * Smart Write Event Registration.
+      * Temporarily enable EPOLLOUT for this handler so we get notified
+      * when the socket becomes writable again. This provides dual-path
+      * write completion: both through DispatchTrialWrites() and epoll events.
+      */
 
      struct epoll_event ev;
 
@@ -1463,10 +1461,10 @@ void SocketEngine::RegisterPendingWrite(EventHandler *EH)
      ev.data.ptr = EH;
 
      /*
-     * IMPROVEMENT: If using one-shot epoll events, re-register the socket's events after handling
-     * an event to continue receiving notifications for subsequent activity.
-     * (Currently not using EPOLLONESHOT, but if we did, we'd re-register here)
-     */
+      * IMPROVEMENT: If using one-shot epoll events, re-register the socket's events after handling
+      * an event to continue receiving notifications for subsequent activity.
+      * (Currently not using EPOLLONESHOT, but if we did, we'd re-register here)
+      */
 
      /* Modify existing registration to include EPOLLOUT */
 
@@ -1605,11 +1603,11 @@ void SocketEngine::UnregisterPendingWrite(EventHandler *EH)
      }
 
      /*
-     * Restore Normal Event Registration
-     *
-     * Remove EPOLLOUT from the handler's registration since we no longer
-     * need write notifications for this handler.
-     */
+      * Restore Normal Event Registration
+      *
+      * Remove EPOLLOUT from the handler's registration since we no longer
+      * need write notifications for this handler.
+      */
 
      if (EH->HasFD())
      {

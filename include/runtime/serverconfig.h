@@ -739,15 +739,10 @@ class ServerConfig
          return Sam25SourcePhraseBoostLabel;
     }
 
-    double GetSam25SourcePhraseBoostLlm() const
+    double GetSam25SourcePhraseBoostContext() const
     {
-         return Sam25SourcePhraseBoostLlm;
+         return Sam25SourcePhraseBoostContext;
     }
-
-     int GetSamLLMMaxIdeas() const
-     {
-          return SamLLMMaxIdeas;
-     }
 
      int GetSamContextMaxIdeas() const
      {
@@ -757,16 +752,6 @@ class ServerConfig
      bool GetSamLogContext() const
      {
           return SamLogContext;
-     }
-
-     int GetSamLLMTimeoutMs() const
-     {
-          return SamLLMTimeoutMs;
-     }
-
-     const std::string& GetSamLLMCreativityMode() const
-     {
-          return SamLLMCreativityMode;
      }
 
     bool GetSam25EnableIdf() const
@@ -849,9 +834,9 @@ class ServerConfig
          return Sam25NoisePenalty;
     }
 
-    double GetSam25NoisePenaltyLlmExtra() const
+    double GetSam25NoisePenaltyContextExtra() const
     {
-         return Sam25NoisePenaltyLlmExtra;
+         return Sam25NoisePenaltyContextExtra;
     }
 
     double GetSam25MinCoverage() const
@@ -2308,7 +2293,7 @@ class ServerConfig
 
      int SamAutoSynonymMaxTermsPerGroup = 3;
 
-     /* Minimum confidence accepted for LLM-derived alias suggestions. */
+     /* Minimum confidence accepted for generated alias suggestions. */
 
      double SamAutoSynonymMinConfidence = 0.90;
 
@@ -2352,13 +2337,9 @@ class ServerConfig
 
      double Sam25SourcePhraseBoostLabel = 1.00;
 
-     /* Source phrase boost for LLM-derived SAM 2.5 ideas. */
+     /* Source phrase boost for context-derived SAM 2.5 ideas. */
 
-     double Sam25SourcePhraseBoostLlm = 0.85;
-
-     /* Maximum number of ideas requested from SAM LLM expansion. */
-
-     int SamLLMMaxIdeas = 6;
+     double Sam25SourcePhraseBoostContext = 0.85;
 
      /* Maximum number of contextual ideas retained for SAM processing. */
 
@@ -2367,14 +2348,6 @@ class ServerConfig
      /* Toggle SAM context logging. */
 
      bool SamLogContext = false;
-
-     /* Timeout in milliseconds for SAM LLM calls. */
-
-     int SamLLMTimeoutMs = 20000;
-
-     /* Creativity mode used for SAM LLM prompt generation. */
-
-     std::string SamLLMCreativityMode = "balanced";
 
      /* Toggle inverse document frequency weighting in SAM 2.5. */
 
@@ -2440,9 +2413,9 @@ class ServerConfig
 
      double Sam25NoisePenalty = 0.18;
 
-     /* Extra noise penalty applied to LLM-derived SAM 2.5 ideas. */
+     /* Extra noise penalty applied to context-derived SAM 2.5 ideas. */
 
-     double Sam25NoisePenaltyLlmExtra = 0.10;
+     double Sam25NoisePenaltyContextExtra = 0.10;
 
      /* Minimum query coverage required for SAM 2.5 matches. */
 

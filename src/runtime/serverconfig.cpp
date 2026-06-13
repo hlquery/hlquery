@@ -308,9 +308,8 @@ void ServerConfig::ApplyConfiguration()
      }
 
      auto AITag = ConfigReaderValue.GetTag("ai");
-     auto LLMTag = ConfigReaderValue.GetTag("llm");
      auto SAMTag = ConfigReaderValue.GetTag("sam");
-     bool ResolveLLMPathsRelativeToConfig = false;
+     bool ResolveAIPathsRelativeToConfig = false;
      bool AutoFindModel = true;
 
      AIModelName.clear();
@@ -337,7 +336,7 @@ void ServerConfig::ApplyConfiguration()
           return Tag->GetString("model", Fallback);
      };
 
-     auto HasLLMAttributes = [](const std::shared_ptr<ConfigTag> &Tag) -> bool
+     auto HasAIModelAttributes = [](const std::shared_ptr<ConfigTag> &Tag) -> bool
      {
           if (!Tag)
           {
@@ -362,34 +361,14 @@ void ServerConfig::ApplyConfiguration()
           ModelFileOverride = AITag->GetString("model_file", ModelFileOverride);
           AutoFindModel = AITag->GetBool("auto_find", AutoFindModel);
           SamEnabled = AITag->GetBool("sam_enabled", SamEnabled);
-          ResolveLLMPathsRelativeToConfig = AITag->GetBool("relative", ResolveLLMPathsRelativeToConfig);
-     }
-
-     if (LLMTag)
-     {
-          AIEnabled = LLMTag->GetBool("enabled", AIEnabled);
-          AIModelsDirectory = LLMTag->GetString("models_dir", AIModelsDirectory);
-          AIModelName = ReadModelName(LLMTag, AIModelName);
-
-          if (ModelPathOverride.empty())
-          {
-               ModelPathOverride = LLMTag->GetString("model_path", "");
-          }
-
-          if (ModelFileOverride.empty())
-          {
-               ModelFileOverride = LLMTag->GetString("model_file", "");
-          }
-
-          AutoFindModel = LLMTag->GetBool("auto_find", AutoFindModel);
-          ResolveLLMPathsRelativeToConfig = LLMTag->GetBool("relative", ResolveLLMPathsRelativeToConfig);
+          ResolveAIPathsRelativeToConfig = AITag->GetBool("relative", ResolveAIPathsRelativeToConfig);
      }
 
      if (SAMTag)
      {
           SamEnabled = SAMTag->GetBool("enabled", SamEnabled);
 
-          if (HasLLMAttributes(SAMTag))
+          if (HasAIModelAttributes(SAMTag))
           {
                AIEnabled = SamEnabled;
                AIModelsDirectory = SAMTag->GetString("models_dir", AIModelsDirectory);
@@ -406,7 +385,7 @@ void ServerConfig::ApplyConfiguration()
                }
 
                AutoFindModel = SAMTag->GetBool("auto_find", AutoFindModel);
-               ResolveLLMPathsRelativeToConfig = SAMTag->GetBool("relative", ResolveLLMPathsRelativeToConfig);
+               ResolveAIPathsRelativeToConfig = SAMTag->GetBool("relative", ResolveAIPathsRelativeToConfig);
           }
 
           SamDataDirectory = SAMTag->GetString("data_dir", SamDataDirectory);
@@ -499,27 +478,9 @@ void ServerConfig::ApplyConfiguration()
           Sam25SourcePhraseBoostTitle = SAMTag->GetDoubleRange("sam25_source_phrase_boost_title", Sam25SourcePhraseBoostTitle, 0.1, 5.0);
           Sam25SourcePhraseBoostLabelPair = SAMTag->GetDoubleRange("sam25_source_phrase_boost_label_pair", Sam25SourcePhraseBoostLabelPair, 0.1, 5.0);
           Sam25SourcePhraseBoostLabel = SAMTag->GetDoubleRange("sam25_source_phrase_boost_label", Sam25SourcePhraseBoostLabel, 0.1, 5.0);
-          Sam25SourcePhraseBoostLlm = SAMTag->GetDoubleRange("sam25_source_phrase_boost_llm", Sam25SourcePhraseBoostLlm, 0.1, 5.0);
-          SamLLMMaxIdeas = SAMTag->GetIntRange("sam_llm_max_ideas", SamLLMMaxIdeas, 1, 64);
+          Sam25SourcePhraseBoostContext = SAMTag->GetDoubleRange("sam25_source_phrase_boost_context", Sam25SourcePhraseBoostContext, 0.1, 5.0);
           SamContextMaxIdeas = SAMTag->GetIntRange("sam_context_max_ideas", SamContextMaxIdeas, 4, 128);
           SamLogContext = SAMTag->GetBool("sam_log_context", SamLogContext);
-          SamLLMTimeoutMs = SAMTag->GetIntRange("sam_llm_timeout_ms", SamLLMTimeoutMs, 1000, 300000);
-          SamLLMCreativityMode = SAMTag->GetString("sam_llm_creativity_mode", SamLLMCreativityMode);
-          SamLLMCreativityMode.erase(0, SamLLMCreativityMode.find_first_not_of(" \t\r\n"));
-          SamLLMCreativityMode.erase(SamLLMCreativityMode.find_last_not_of(" \t\r\n") == std::string::npos
-               ? 0
-               : SamLLMCreativityMode.find_last_not_of(" \t\r\n") + 1);
-          std::transform(SamLLMCreativityMode.begin(), SamLLMCreativityMode.end(), SamLLMCreativityMode.begin(),
-                         [](unsigned char C)
-                         {
-                              return static_cast<char>(std::tolower(C));
-                         });
-          if (SamLLMCreativityMode != "conservative" &&
-              SamLLMCreativityMode != "balanced" &&
-              SamLLMCreativityMode != "creative")
-          {
-               SamLLMCreativityMode = "balanced";
-          }
           Sam25EnableIdf = SAMTag->GetBool("sam25_enable_idf", Sam25EnableIdf);
           Sam25IdfFloor = SAMTag->GetDoubleRange("sam25_idf_floor", Sam25IdfFloor, 0.0, 10.0);
           Sam25IdfCeiling = SAMTag->GetDoubleRange("sam25_idf_ceiling", Sam25IdfCeiling, 0.0, 10.0);
@@ -536,7 +497,7 @@ void ServerConfig::ApplyConfiguration()
           Sam25MaxSynonymsPerToken = SAMTag->GetIntRange("sam25_max_synonyms_per_token", Sam25MaxSynonymsPerToken, 0, 16);
           Sam25EnableNoisePenalty = SAMTag->GetBool("sam25_enable_noise_penalty", Sam25EnableNoisePenalty);
           Sam25NoisePenalty = SAMTag->GetDoubleRange("sam25_noise_penalty", Sam25NoisePenalty, 0.0, 1.0);
-          Sam25NoisePenaltyLlmExtra = SAMTag->GetDoubleRange("sam25_noise_penalty_llm_extra", Sam25NoisePenaltyLlmExtra, 0.0, 1.0);
+          Sam25NoisePenaltyContextExtra = SAMTag->GetDoubleRange("sam25_noise_penalty_context_extra", Sam25NoisePenaltyContextExtra, 0.0, 1.0);
           Sam25MinCoverage = SAMTag->GetDoubleRange("sam25_min_coverage", Sam25MinCoverage, 0.0, 1.0);
           Sam25MinOrderedBoostForPhrase = SAMTag->GetDoubleRange("sam25_min_ordered_boost_for_phrase",
                Sam25MinOrderedBoostForPhrase, 0.0, 1.0);
@@ -644,7 +605,7 @@ void ServerConfig::ApplyConfiguration()
                    return ConfigCandidate;
               }
 
-              if (!ResolveLLMPathsRelativeToConfig && !RepoRootDir.empty())
+              if (!ResolveAIPathsRelativeToConfig && !RepoRootDir.empty())
               {
                    std::error_code RepoRootEC;
                    const std::filesystem::path NormalizedRaw = RawPath.lexically_normal();
@@ -910,20 +871,20 @@ void ServerConfig::ApplyConfiguration()
          }
     }
 
-    const bool HasExplicitLLMConfig = (AITag != nullptr) || (LLMTag != nullptr) || HasLLMAttributes(SAMTag);
+    const bool HasExplicitAIConfig = (AITag != nullptr) || HasAIModelAttributes(SAMTag);
 
-    if (HasExplicitLLMConfig && AIEnabled)
+    if (HasExplicitAIConfig && AIEnabled)
     {
          if (AIModelPath.empty())
          {
-              throw std::runtime_error("LLM is configured but no model path could be resolved.");
+              throw std::runtime_error("AI model is configured but no model path could be resolved.");
          }
 
          std::error_code ModelEC;
 
          if (!std::filesystem::exists(AIModelPath, ModelEC) || std::filesystem::is_directory(AIModelPath, ModelEC))
          {
-              throw std::runtime_error("Configured LLM model file does not exist: " + AIModelPath);
+              throw std::runtime_error("Configured AI model file does not exist: " + AIModelPath);
          }
 
      }

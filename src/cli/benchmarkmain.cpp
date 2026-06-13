@@ -287,7 +287,7 @@ static const std::vector<UniversityBenchmarkSeed> &GetUniversityBenchmarkSeeds()
           {"Auburn University", "Alabama", "Auburn", "public_research"},
           {"Clemson University", "South Carolina", "Clemson", "public_research"},
           {"Colorado State University", "Colorado", "Fort Collins", "public_research"},
-          {"Washington State University", "Washington", "Pullman", "public_research"},
+          {"Washington State University", "Washington", "Palouse", "public_research"},
           {"University of Nevada Reno", "Nevada", "Reno", "public_research"},
           {"Brigham Young University", "Utah", "Provo", "private_research"}};
 
@@ -422,7 +422,7 @@ static std::string BuildUniversityBenchmarkContent(const UniversityBenchmarkSeed
      return std::string(seed.Name) + " is a " + HumanizeIdentifier(seed.Type) + " institution in " + seed.City + ", " + seed.State +
             ". The profile highlights " + program_a + ", " +
             program_b + ", " + term_a + ", " + term_b +
-            ", enrollment context, research visibility, and the surrounding campus community.";
+            ", student body context, research visibility, and the surrounding campus community.";
 }
 
 static PersonBenchmarkSeed BuildPersonBenchmarkSeed(size_t index)
@@ -959,7 +959,7 @@ bool CreateFakeCollections(const std::string &base_url, const std::string &auth_
                 {"University of Washington Seattle",
                  "Washington public research university noted for medicine, computer science, public health, and close ties to regional technology and life-science employers."},
                 {"University of Florida",
-                 "Florida public flagship in Gainesville with nationally visible programs in engineering, business, agriculture, health, and a large in-state enrollment base."},
+                 "Florida public flagship in Gainesville with nationally visible programs in engineering, business, agriculture, health, and a large in-state student base."},
                 {"University of Illinois Urbana Champaign",
                  "Illinois public research university with standout engineering, computing, physics, and data-intensive research culture tied to both academia and industry."},
                 {"Georgia Institute of Technology",

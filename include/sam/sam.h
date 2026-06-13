@@ -161,7 +161,7 @@ class SAM
           size_t SkippedPendingRebuild = 0;
           size_t SkippedCancelled = 0;
           size_t SkippedNotIndexed = 0;
-          size_t SkippedLLMUnavailable = 0;
+          size_t SkippedUnavailable = 0;
           size_t SkippedThrottled = 0;
           size_t SkippedPaused = 0;
           size_t SkippedFlushInProgress = 0;
@@ -306,7 +306,7 @@ class SAM
      std::string GetAutoIndexPauseReason(uint64_t = 0) const { return ""; }
      bool IsFlushInProgress() const { return false; }
 
-     static std::vector<TermEntry> GenerateLLMTermsFromProfile(const std::string&, const Document&, const std::vector<TermEntry>&, std::string* = nullptr);
-     static std::vector<TermEntry> GenerateLLMTerms(const std::string&, const Document&, std::string* = nullptr);
-     static std::vector<TermEntry> ExpandDocumentTerms(const std::string&, const Document&, std::string* = nullptr);
+     std::vector<TermEntry> GenerateContextTermsFromProfile(const std::string&, const Document&, const std::vector<std::string>&, std::string* = nullptr) const;
+     std::vector<TermEntry> GenerateContextTerms(const std::string&, const Document&, std::string* = nullptr) const;
+     std::vector<TermEntry> ExpandDocumentTerms(const std::string&, const Document&, std::string* = nullptr) const;
 };

@@ -383,9 +383,7 @@ bool LogStream::RotateLogFile()
           }
 
           CurrentFileSizeValue = GetCurrentFileSize();
-
           LastRotationTime = std::time(nullptr);
-
           CleanupOldRotatedFiles();
 
           return true;
@@ -393,9 +391,7 @@ bool LogStream::RotateLogFile()
      catch (const std::exception &e)
      {
           ConsoleWriter::WriteError("ERROR: Exception during log rotation: " + std::string(e.what()) + ".", true);
-
           FileStream = std::make_unique<std::ofstream>(ConfigValue.target, std::ios::app);
-
           IsOpenValue = FileStream->is_open();
 
           return false;
@@ -456,8 +452,7 @@ void LogStream::CleanupOldRotatedFiles()
 
                for (const auto &RotatedFileItem : RotatedFilesList)
                {
-                    if (NowTime >= RotatedFileItem.first &&
-                        (NowTime - RotatedFileItem.first) >= MaxAgeSeconds)
+                    if (NowTime >= RotatedFileItem.first && (NowTime - RotatedFileItem.first) >= MaxAgeSeconds)
                     {
                          try
                          {
@@ -507,13 +502,9 @@ void LogStream::CleanupOldRotatedFiles()
 std::string LogStream::GenerateRotatedFilename(size_t SequenceNum)
 {
      fs::path LogPath(ConfigValue.target);
-
      fs::path LogDir = LogPath.parent_path();
-
      std::string LogBasename = LogPath.stem().string();
-
      std::string LogExtension = LogPath.extension().string();
-
      std::time_t NowTime = std::time(nullptr);
 
      struct tm TmBuf;
@@ -787,26 +778,31 @@ void LogManager::Log(LogLevel LevelValue, const std::string &Type, const std::st
                     LevelStrValue = "NONE";
                     break;
                }
+
                case LogLevel::LOG_CRITICAL:
                {
                     LevelStrValue = "CRITICAL";
                     break;
                }
+
                case LogLevel::LOG_SPARSE:
                {
                     LevelStrValue = "SPARSE";
                     break;
                }
+
                case LogLevel::LOG_NORMAL:
                {
                     LevelStrValue = " OK ";
                     break;
                }
+
                case LogLevel::LOG_VERBOSE:
                {
                     LevelStrValue = "VERBOSE";
                     break;
                }
+
                case LogLevel::LOG_DEBUG:
                {
                     LevelStrValue = "DEBUG";
@@ -1107,7 +1103,6 @@ bool LogManager::ShouldLog(const LogStream &StreamInstance, LogLevel LevelVal, c
 size_t LogManager::GetLogCount() const
 {
      std::lock_guard<std::mutex> Lock(ManagerMutex);
-
      return LogStreams.size();
 }
 
@@ -1116,7 +1111,6 @@ size_t LogManager::GetLogCount() const
 bool LogManager::GetDebugMode() const
 {
      std::lock_guard<std::mutex> Lock(ManagerMutex);
-
      return DebugMode;
 }
 

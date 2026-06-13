@@ -1644,7 +1644,7 @@ std::vector<std::string> FetchSearchDocumentIds(HLQueryCLI &cli,
      return document_ids;
 }
 
-static std::string NormalizeTalkLLMQuery(std::string query)
+static std::string NormalizeTalkAskQuery(std::string query)
 {
      query = TrimWhitespace(query);
 
@@ -2863,9 +2863,9 @@ void PrintHelp()
      std::cout << "  links    Show distributed links\n";
      std::cout << "  bw [kb|mb|gb]  Show total bandwidth transferred\n";
      std::cout << "  modules [1|0]  List loaded modules, core only with 1, optional only with 0\n";
-     std::cout << "  llm QUERY  Search the active collection with LLM-assisted document intent, for example: llm find docs about boston\n";
-     std::cout << "  see all  List async LLM/SAM search jobs\n";
-     std::cout << "  see JOB  Show one async LLM/SAM search job and its hits when complete\n";
+     std::cout << "  ask QUERY  Search the active collection with SAM-assisted document intent, for example: ask find docs about boston\n";
+     std::cout << "  see all  List async SAM search jobs\n";
+     std::cout << "  see JOB  Show one async SAM search job and its hits when complete\n";
      std::cout << "  module NAME [info|syntax|ROUTE [args...]]  Run one module command\n";
      std::cout << "  load NAME  Load one runtime module\n";
      std::cout << "  unload NAME  Unload one runtime module\n";
@@ -3022,7 +3022,7 @@ std::vector<std::string> GetTalkCommands()
          "links",
          "bw",
          "modules",
-         "llm",
+         "ask",
          "see",
          "module",
          "load",
@@ -5185,26 +5185,26 @@ bool ExecuteTalkCommand(const std::string &line,
           return true;
      }
 
-     if (command == "llm")
+     if (command == "ask")
      {
           if (parts.size() == 1)
           {
-               TalkPrintError("Usage: llm <question>");
+               TalkPrintError("Usage: ask <question>");
                return true;
           }
 
           if (state.CurrentCollection.empty())
           {
-               TalkPrintError("Usage: llm <question> requires an active collection");
+               TalkPrintError("Usage: ask <question> requires an active collection");
                TalkPrintInfo("Select one first with: use <collection>");
                return true;
           }
 
-          std::string query = NormalizeTalkLLMQuery(line.substr(parts.front().size()));
+          std::string query = NormalizeTalkAskQuery(line.substr(parts.front().size()));
 
           if (query.empty())
           {
-               TalkPrintError("Usage: llm <question>");
+               TalkPrintError("Usage: ask <question>");
                return true;
           }
 

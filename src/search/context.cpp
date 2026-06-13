@@ -2086,12 +2086,12 @@ static std::vector<SAM::TermEntry> SelectDiversifiedTerms(const std::vector<SAM:
      return Selected;
 }
 
-/* SAM::GenerateLLMTermsFromProfile - Generates LLM terms from a profile. */
+/* SAM::GenerateContextTermsFromProfile - Generates internal context terms from a profile. */
 
-std::vector<SAM::TermEntry> SAM::GenerateLLMTermsFromProfile(const std::string& Collection,
-                                                             const Document& Doc,
-                                                             const std::vector<std::string>& ProfileTerms,
-                                                             std::string* ErrorMessage) const
+std::vector<SAM::TermEntry> SAM::GenerateContextTermsFromProfile(const std::string& Collection,
+                                                                 const Document& Doc,
+                                                                 const std::vector<std::string>& ProfileTerms,
+                                                                 std::string* ErrorMessage) const
 {
      std::vector<TermEntry> Terms;
 
@@ -2101,7 +2101,7 @@ std::vector<SAM::TermEntry> SAM::GenerateLLMTermsFromProfile(const std::string& 
      }
 
      const int MaxIdeas = (Instance && Instance->Config)
-          ? std::max(4, Instance->Config->GetSamLLMMaxIdeas())
+          ? std::max(4, Instance->Config->GetSamContextMaxIdeas())
           : 8;
      const auto StartedAt = Now();
      std::unordered_map<std::string, size_t> IndexByTerm;
@@ -2227,14 +2227,14 @@ std::vector<SAM::TermEntry> SAM::GenerateLLMTermsFromProfile(const std::string& 
      return Terms;
 }
 
-/* SAM::GenerateLLMTerms - Generates LLM terms for a document. */
+/* SAM::GenerateContextTerms - Generates internal context terms for a document. */
 
-std::vector<SAM::TermEntry> SAM::GenerateLLMTerms(const std::string& Collection,
-                                                  const Document& Doc,
-                                                  std::string* ErrorMessage) const
+std::vector<SAM::TermEntry> SAM::GenerateContextTerms(const std::string& Collection,
+                                                      const Document& Doc,
+                                                      std::string* ErrorMessage) const
 {
      const CollectionProfile Profile = BuildCollectionProfile(Collection, Doc.ID);
-     return GenerateLLMTermsFromProfile(Collection, Doc, Profile.Terms, ErrorMessage);
+     return GenerateContextTermsFromProfile(Collection, Doc, Profile.Terms, ErrorMessage);
 }
 
 /* SAM::ExpandDocumentTerms - Expands the terms for a document. */
@@ -2244,7 +2244,7 @@ std::vector<SAM::TermEntry> SAM::ExpandDocumentTerms(const std::string& Collecti
                                                      std::string* ErrorMessage) const
 {
      const CollectionProfile Profile = BuildCollectionProfile(Collection, Doc.ID);
-     std::vector<TermEntry> Terms = GenerateLLMTermsFromProfile(Collection, Doc, Profile.Terms, ErrorMessage);
+     std::vector<TermEntry> Terms = GenerateContextTermsFromProfile(Collection, Doc, Profile.Terms, ErrorMessage);
 
      if (ShouldLogSAMContext())
      {

@@ -2144,14 +2144,14 @@ void HLQueryCLI::ShowSAMHistory(const std::string &collection_name,
      {
           std::string matches;
           std::string top_interaction;
-          std::string llm_intent = entry.value("resolved_interpretation", "");
+          std::string resolved_intent = entry.value("resolved_interpretation", "");
           std::string conclusion = entry.value("association_summary", "");
           const std::string enrichment_state =
                entry.value("enrichment_pending", false) ? "pending" : "ready";
 
           if (enrichment_state == "pending")
           {
-               llm_intent.clear();
+               resolved_intent.clear();
           }
 
           if (conclusion.empty())
@@ -2266,7 +2266,7 @@ void HLQueryCLI::ShowSAMHistory(const std::string &collection_name,
                     enrichment_state,
                     std::to_string(entry.value("uses", static_cast<uint64_t>(0))),
                     std::to_string(entry.value("interaction_uses", static_cast<uint64_t>(0))),
-                    llm_intent,
+                    resolved_intent,
                     matches,
                     conclusion
                });
@@ -2279,7 +2279,7 @@ void HLQueryCLI::ShowSAMHistory(const std::string &collection_name,
      }
      else
      {
-          PrintTable({"#", "Collection", "Query", "State", "Uses", "Int", "LLM Intent", "Matches", "Conclusion"}, rows);
+          PrintTable({"#", "Collection", "Query", "State", "Uses", "Int", "Intent", "Matches", "Conclusion"}, rows);
      }
 }
 
