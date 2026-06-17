@@ -23,5 +23,4 @@ class ServerConfig;
 class SearchAPI;
 class DBManager;
 class InvertedIndex;
-class SAM;
 struct SearchHit;

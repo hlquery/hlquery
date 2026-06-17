@@ -453,7 +453,7 @@ class AnalyticsManager
                             const std::string &RequesterUser,
                             bool Authenticated);
 
-     /* Records one query-bearing event such as a search query or SAM query signal. */
+     /* Records one query-bearing event such as a search query. */
 
      void RecordQueryEvent(const AnalyticsQueryEvent &Event);
 

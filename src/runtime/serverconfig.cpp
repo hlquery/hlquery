@@ -308,7 +308,6 @@ void ServerConfig::ApplyConfiguration()
      }
 
      auto AITag = ConfigReaderValue.GetTag("ai");
-     auto SAMTag = ConfigReaderValue.GetTag("sam");
      bool ResolveAIPathsRelativeToConfig = false;
      bool AutoFindModel = true;
 
@@ -336,22 +335,6 @@ void ServerConfig::ApplyConfiguration()
           return Tag->GetString("model", Fallback);
      };
 
-     auto HasAIModelAttributes = [](const std::shared_ptr<ConfigTag> &Tag) -> bool
-     {
-          if (!Tag)
-          {
-               return false;
-          }
-
-          return Tag->HasAttribute("models_dir") ||
-                 Tag->HasAttribute("model_name") ||
-                 Tag->HasAttribute("model") ||
-                 Tag->HasAttribute("model_path") ||
-                 Tag->HasAttribute("model_file") ||
-                 Tag->HasAttribute("auto_find") ||
-                 Tag->HasAttribute("relative");
-     };
-
      if (AITag)
      {
           AIEnabled = AITag->GetBool("enabled", AIEnabled);
@@ -360,173 +343,8 @@ void ServerConfig::ApplyConfiguration()
           ModelPathOverride = AITag->GetString("model_path", "");
           ModelFileOverride = AITag->GetString("model_file", ModelFileOverride);
           AutoFindModel = AITag->GetBool("auto_find", AutoFindModel);
-          SamEnabled = AITag->GetBool("sam_enabled", SamEnabled);
           ResolveAIPathsRelativeToConfig = AITag->GetBool("relative", ResolveAIPathsRelativeToConfig);
      }
-
-     if (SAMTag)
-     {
-          SamEnabled = SAMTag->GetBool("enabled", SamEnabled);
-
-          if (HasAIModelAttributes(SAMTag))
-          {
-               AIEnabled = SamEnabled;
-               AIModelsDirectory = SAMTag->GetString("models_dir", AIModelsDirectory);
-               AIModelName = ReadModelName(SAMTag, AIModelName);
-
-               if (ModelPathOverride.empty())
-               {
-                    ModelPathOverride = SAMTag->GetString("model_path", "");
-               }
-
-               if (ModelFileOverride.empty())
-               {
-                    ModelFileOverride = SAMTag->GetString("model_file", "");
-               }
-
-               AutoFindModel = SAMTag->GetBool("auto_find", AutoFindModel);
-               ResolveAIPathsRelativeToConfig = SAMTag->GetBool("relative", ResolveAIPathsRelativeToConfig);
-          }
-
-          SamDataDirectory = SAMTag->GetString("data_dir", SamDataDirectory);
-          SamSearchIdeasCollection = SAMTag->GetString("sam_search_ideas", SamSearchIdeasCollection);
-          SamRecordSearchIdeas = SAMTag->GetBool("record_search_ideas", SamRecordSearchIdeas);
-          SamRecordInteractions = SAMTag->GetBool("record_interactions", SamRecordInteractions);
-          SamSearchIdeaDedupeWindowMs =
-               SAMTag->GetIntRange("search_idea_dedupe_window_ms",
-                                    SamSearchIdeaDedupeWindowMs,
-                                    0,
-                                    7 * 24 * 60 * 60 * 1000);
-          SamSearchIdeaRetentionDays =
-               SAMTag->GetIntRange("search_idea_retention_days",
-                                    SamSearchIdeaRetentionDays,
-                                    0,
-                                    3650);
-          SamInteractionIdeaRetentionDays =
-               SAMTag->GetIntRange("interaction_idea_retention_days",
-                                    SamInteractionIdeaRetentionDays,
-                                    0,
-                                    3650);
-          SamInteractionDedupeWindowMs =
-               SAMTag->GetIntRange("interaction_dedupe_window_ms",
-                                    SamInteractionDedupeWindowMs,
-                                    0,
-                                    7 * 24 * 60 * 60 * 1000);
-          SamActorMetadataRetentionDays =
-               SAMTag->GetIntRange("actor_metadata_retention_days",
-                                    SamActorMetadataRetentionDays,
-                                    0,
-                                    3650);
-          SamInteractionMaxPerMinute =
-               SAMTag->GetIntRange("interaction_max_per_minute",
-                                    SamInteractionMaxPerMinute,
-                                    0,
-                                    1000000);
-          SamInteractionMaxPerHour =
-               SAMTag->GetIntRange("interaction_max_per_hour",
-                                    SamInteractionMaxPerHour,
-                                    0,
-                                    10000000);
-          SamInteractionMaxPerDocQueryPerHour =
-               SAMTag->GetIntRange("interaction_max_per_doc_query_per_hour",
-                                    SamInteractionMaxPerDocQueryPerHour,
-                                    0,
-                                    10000000);
-          SamIndexAll = SAMTag->GetBool("index_all", SamIndexAll);
-          SamAutoDetectCollectionLanguage =
-               SAMTag->GetBool("auto_detect_collection_language",
-                                SAMTag->GetBool("auto_language_detection",
-                                                SamAutoDetectCollectionLanguage));
-          SamSmartBackground = SAMTag->GetBool("background_improvements",
-                                               SAMTag->GetBool("smart_sam", SamSmartBackground));
-          SamLiveQueryImprovement =
-               SAMTag->GetBool("live_query_improvement", SamLiveQueryImprovement);
-          SamBackgroundImprovementIntervalMs =
-               SAMTag->GetIntRange("background_improvement_interval_ms",
-                                    SamBackgroundImprovementIntervalMs,
-                                    5000,
-                                    3600000);
-          SamBackgroundImprovementPollMs =
-               SAMTag->GetIntRange("background_improvement_poll_ms",
-                                    SamBackgroundImprovementPollMs,
-                                    1000,
-                                    300000);
-          SamAutoLexicalEnabled = SAMTag->GetBool("auto_lexical", SamAutoLexicalEnabled);
-          SamAutoSynonymsEnabled = SAMTag->GetBool("auto_synonyms", SamAutoSynonymsEnabled);
-          SamAutoStopwordsEnabled = SAMTag->GetBool("auto_stopwords", SamAutoStopwordsEnabled);
-          SamAutoLexicalMaxDocuments =
-               SAMTag->GetIntRange("auto_lexical_max_documents", SamAutoLexicalMaxDocuments, 1, 1000);
-          SamAutoSynonymMaxGroupsPerPass =
-               SAMTag->GetIntRange("auto_synonym_max_groups_per_pass", SamAutoSynonymMaxGroupsPerPass, 0, 128);
-          SamAutoSynonymMaxGroups =
-               SAMTag->GetIntRange("auto_synonym_max_groups", SamAutoSynonymMaxGroups, 0, 10000);
-          SamAutoSynonymMaxTermsPerGroup =
-               SAMTag->GetIntRange("auto_synonym_max_terms_per_group", SamAutoSynonymMaxTermsPerGroup, 1, 32);
-          SamAutoSynonymMinConfidence =
-               SAMTag->GetDoubleRange("auto_synonym_min_confidence", SamAutoSynonymMinConfidence, 0.0, 1.0);
-          SamAutoStopwordMaxWordsPerPass =
-               SAMTag->GetIntRange("auto_stopword_max_words_per_pass", SamAutoStopwordMaxWordsPerPass, 0, 128);
-          SamAutoStopwordMaxWords =
-               SAMTag->GetIntRange("auto_stopword_max_words", SamAutoStopwordMaxWords, 0, 10000);
-          SamAutoStopwordMinDocuments =
-               SAMTag->GetIntRange("auto_stopword_min_documents", SamAutoStopwordMinDocuments, 1, 1000);
-          SamAutoStopwordMinDocumentRatio =
-               SAMTag->GetDoubleRange("auto_stopword_min_document_ratio", SamAutoStopwordMinDocumentRatio, 0.0, 1.0);
-          Sam25DynamicQueryWeight = SAMTag->GetBool("sam25_dynamic_query_weight", Sam25DynamicQueryWeight);
-          Sam25ShortQueryPhraseBoost = SAMTag->GetDoubleRange("sam25_short_query_phrase_boost", Sam25ShortQueryPhraseBoost, 0.1, 5.0);
-          Sam25LongQueryPhraseBoost = SAMTag->GetDoubleRange("sam25_long_query_phrase_boost", Sam25LongQueryPhraseBoost, 0.1, 5.0);
-          Sam25SourcePhraseBoostTitle = SAMTag->GetDoubleRange("sam25_source_phrase_boost_title", Sam25SourcePhraseBoostTitle, 0.1, 5.0);
-          Sam25SourcePhraseBoostLabelPair = SAMTag->GetDoubleRange("sam25_source_phrase_boost_label_pair", Sam25SourcePhraseBoostLabelPair, 0.1, 5.0);
-          Sam25SourcePhraseBoostLabel = SAMTag->GetDoubleRange("sam25_source_phrase_boost_label", Sam25SourcePhraseBoostLabel, 0.1, 5.0);
-          Sam25SourcePhraseBoostContext = SAMTag->GetDoubleRange("sam25_source_phrase_boost_context", Sam25SourcePhraseBoostContext, 0.1, 5.0);
-          SamContextMaxIdeas = SAMTag->GetIntRange("sam_context_max_ideas", SamContextMaxIdeas, 4, 128);
-          SamLogContext = SAMTag->GetBool("sam_log_context", SamLogContext);
-          Sam25EnableIdf = SAMTag->GetBool("sam25_enable_idf", Sam25EnableIdf);
-          Sam25IdfFloor = SAMTag->GetDoubleRange("sam25_idf_floor", Sam25IdfFloor, 0.0, 10.0);
-          Sam25IdfCeiling = SAMTag->GetDoubleRange("sam25_idf_ceiling", Sam25IdfCeiling, 0.0, 10.0);
-          Sam25EnableDocPrior = SAMTag->GetBool("sam25_enable_doc_prior", Sam25EnableDocPrior);
-          Sam25DocPriorField = SAMTag->GetString("sam25_doc_prior_field", Sam25DocPriorField);
-          Sam25DocPriorWeight = SAMTag->GetDoubleRange("sam25_doc_prior_weight", Sam25DocPriorWeight, 0.0, 1.0);
-          Sam25OrderedSlop = SAMTag->GetIntRange("sam25_ordered_slop", Sam25OrderedSlop, 0, 32);
-          Sam25UnorderedWindowSlop = SAMTag->GetIntRange("sam25_unordered_window_slop", Sam25UnorderedWindowSlop, 0, 32);
-          Sam25ExactPhraseRequiresStopwords = SAMTag->GetBool("sam25_exact_phrase_requires_stopwords", Sam25ExactPhraseRequiresStopwords);
-          Sam25ExactPhraseIgnoreOuterStopwords = SAMTag->GetBool("sam25_exact_phrase_ignore_outer_stopwords", Sam25ExactPhraseIgnoreOuterStopwords);
-          Sam25RequireExactIdentifierTokens = SAMTag->GetBool("sam25_require_exact_identifier_tokens", Sam25RequireExactIdentifierTokens);
-          Sam25EnableSynonymExpansion = SAMTag->GetBool("sam25_enable_synonym_expansion", Sam25EnableSynonymExpansion);
-          Sam25SynonymBoost = SAMTag->GetDoubleRange("sam25_synonym_boost", Sam25SynonymBoost, 0.0, 5.0);
-          Sam25MaxSynonymsPerToken = SAMTag->GetIntRange("sam25_max_synonyms_per_token", Sam25MaxSynonymsPerToken, 0, 16);
-          Sam25EnableNoisePenalty = SAMTag->GetBool("sam25_enable_noise_penalty", Sam25EnableNoisePenalty);
-          Sam25NoisePenalty = SAMTag->GetDoubleRange("sam25_noise_penalty", Sam25NoisePenalty, 0.0, 1.0);
-          Sam25NoisePenaltyContextExtra = SAMTag->GetDoubleRange("sam25_noise_penalty_context_extra", Sam25NoisePenaltyContextExtra, 0.0, 1.0);
-          Sam25MinCoverage = SAMTag->GetDoubleRange("sam25_min_coverage", Sam25MinCoverage, 0.0, 1.0);
-          Sam25MinOrderedBoostForPhrase = SAMTag->GetDoubleRange("sam25_min_ordered_boost_for_phrase",
-               Sam25MinOrderedBoostForPhrase, 0.0, 1.0);
-          Sam25MinFinalScore = SAMTag->GetDoubleRange("sam25_min_final_score", Sam25MinFinalScore, 0.0, 1.0);
-          Sam25IntentDocMatchMinScore = SAMTag->GetDoubleRange("sam25_intent_doc_match_min_score", Sam25IntentDocMatchMinScore, 0.0, 1.0);
-          Sam25EnableSourceDocMerge = SAMTag->GetBool("sam25_enable_source_doc_merge", Sam25EnableSourceDocMerge);
-          Sam25SourceDocWeight = SAMTag->GetDoubleRange("sam25_source_doc_weight", Sam25SourceDocWeight, 0.0, 5.0);
-          Sam25SourceDocTitleWeight = SAMTag->GetDoubleRange("sam25_source_doc_title_weight", Sam25SourceDocTitleWeight, 0.0, 5.0);
-          Sam25SourceDocDescriptionWeight = SAMTag->GetDoubleRange("sam25_source_doc_description_weight",
-               Sam25SourceDocDescriptionWeight, 0.0, 5.0);
-          Sam25SourceDocLabelsWeight = SAMTag->GetDoubleRange("sam25_source_doc_labels_weight", Sam25SourceDocLabelsWeight, 0.0, 5.0);
-          Sam25SourceDocContentWeight = SAMTag->GetDoubleRange("sam25_source_doc_content_weight", Sam25SourceDocContentWeight, 0.0, 5.0);
-          Sam25SourceDocMinScore = SAMTag->GetDoubleRange("sam25_source_doc_min_score", Sam25SourceDocMinScore, 0.0, 1.0);
-          Sam25SourceDocMergeBonus = SAMTag->GetDoubleRange("sam25_source_doc_merge_bonus", Sam25SourceDocMergeBonus, 0.0, 1.0);
-          Sam25DebugExplain = SAMTag->GetBool("sam25_debug_explain", Sam25DebugExplain);
-          Sam25DebugLogTopK = SAMTag->GetIntRange("sam25_debug_log_top_k", Sam25DebugLogTopK, 0, 1000);
-          Sam25DebugIncludeComponents = SAMTag->GetBool("sam25_debug_include_components", Sam25DebugIncludeComponents);
-
-          if (SAMTag->HasAttribute("sam_data_dir"))
-          {
-               SamDataDirectory = SAMTag->GetString("sam_data_dir", SamDataDirectory);
-          }
-
-          if (!SAMTag->HasAttribute("sam_search_ideas") && SAMTag->HasAttribute("SAMID"))
-          {
-               SamSearchIdeasCollection = SAMTag->GetString("SAMID", SamSearchIdeasCollection);
-          }
-     }
-
      AIModelCatalog.clear();
 
      auto ModelTags = ConfigReaderValue.GetTags("model");
@@ -815,63 +633,7 @@ void ServerConfig::ApplyConfiguration()
     {
          AIModelPath.clear();
     }
-
-    if (!SamDataDirectory.empty())
-    {
-         std::filesystem::path SamPath(SamDataDirectory);
-
-         if (!SamPath.empty() && !SamPath.is_absolute())
-         {
-              const auto SamIt = SamPath.begin();
-              const bool HasFirstComponent = (SamIt != SamPath.end());
-              const std::string FirstComponent = HasFirstComponent ? SamIt->generic_string() : "";
-              const bool LooksConfigRelative = (FirstComponent == "." || FirstComponent == ".." || FirstComponent == "run");
-
-              if (!LooksConfigRelative)
-              {
-                   const std::filesystem::path RuntimeDataDir = RuntimePaths::ResolveRuntimeDataDir(this);
-
-                   if (!RuntimeDataDir.empty())
-                   {
-                        /* Accept both "sam" and "data/sam" as runtime-relative inputs.
-                         * The config ships with "data/sam", which should resolve to
-                         * <runtime>/data/sam instead of <runtime>/data/data/sam. */
-                        std::filesystem::path RelativeSamPath = SamPath;
-
-                        if (HasFirstComponent && FirstComponent == "data")
-                        {
-                             RelativeSamPath.clear();
-
-                             for (auto It = std::next(SamIt); It != SamPath.end(); ++It)
-                             {
-                                  RelativeSamPath /= *It;
-                             }
-                        }
-
-                        if (RelativeSamPath.empty())
-                        {
-                             RelativeSamPath = "sam";
-                        }
-
-                        SamDataDirectory = std::filesystem::absolute(RuntimeDataDir / RelativeSamPath).string();
-                   }
-                   else
-                   {
-                        SamDataDirectory = ResolveRelativePath(SamPath).string();
-                   }
-              }
-              else
-              {
-                   SamDataDirectory = ResolveRelativePath(SamPath).string();
-              }
-         }
-         else
-         {
-              SamDataDirectory = ResolveRelativePath(SamPath).string();
-         }
-    }
-
-    const bool HasExplicitAIConfig = (AITag != nullptr) || HasAIModelAttributes(SAMTag);
+    const bool HasExplicitAIConfig = (AITag != nullptr);
 
     if (HasExplicitAIConfig && AIEnabled)
     {

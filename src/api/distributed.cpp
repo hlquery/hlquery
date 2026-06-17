@@ -2817,7 +2817,6 @@ bool SearchAPI::ReplicateWriteRequest(const HttpRequest &Request,
                               ReplicaFlushSynced =
                                    ReplicaBody.value("success", false) &&
                                    ReplicaBody.value("database_synced", false) &&
-                                   ReplicaBody.value("sam_synced", false) &&
                                    ReplicaBody.value("replica_flush_synced", false);
                          }
                          catch (...)
@@ -2830,7 +2829,7 @@ bool SearchAPI::ReplicateWriteRequest(const HttpRequest &Request,
                               MarkSlaveDirty(Node.Endpoint);
                               std::string QueueError;
                               const bool Queued = QueuePendingReplication(Node.Endpoint, ReplicationRequest, false, &QueueError);
-                              Errors.push_back(Node.Endpoint + ": flush applied but replica did not confirm durable database/SAM sync" +
+                              Errors.push_back(Node.Endpoint + ": flush applied but replica did not confirm durable database sync" +
                                                (Queued ? std::string("") : "; " + QueueError));
                               continue;
                          }

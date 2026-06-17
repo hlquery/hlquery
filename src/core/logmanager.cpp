@@ -908,26 +908,31 @@ void LogManager::SafeLog(LogManager *SelfPointer, LogLevel LevelVal, const std::
                     LevelStrFallback = "NONE";
                     break;
                }
+
                case LogLevel::LOG_CRITICAL:
                {
                     LevelStrFallback = "CRITICAL";
                     break;
                }
+
                case LogLevel::LOG_SPARSE:
                {
                     LevelStrFallback = "SPARSE";
                     break;
                }
+
                case LogLevel::LOG_NORMAL:
                {
                     LevelStrFallback = " OK ";
                     break;
                }
+
                case LogLevel::LOG_VERBOSE:
                {
                     LevelStrFallback = "VERBOSE";
                     break;
                }
+
                case LogLevel::LOG_DEBUG:
                {
                     LevelStrFallback = "DEBUG";
@@ -955,26 +960,31 @@ void LogManager::SafeLog(LogManager *SelfPointer, LogLevel LevelVal, const std::
                     LevelStrSentinel = "NONE";
                     break;
                }
+
                case LogLevel::LOG_CRITICAL:
                {
                     LevelStrSentinel = "CRITICAL";
                     break;
                }
+
                case LogLevel::LOG_SPARSE:
                {
                     LevelStrSentinel = "SPARSE";
                     break;
                }
+
                case LogLevel::LOG_NORMAL:
                {
                     LevelStrSentinel = " OK ";
                     break;
                }
+
                case LogLevel::LOG_VERBOSE:
                {
                     LevelStrSentinel = "VERBOSE";
                     break;
                }
+
                case LogLevel::LOG_DEBUG:
                {
                     LevelStrSentinel = "DEBUG";
@@ -997,13 +1007,11 @@ bool LogManager::CreateLogsDirectory(const std::string &PathStr)
      try
      {
           fs::create_directories(PathStr);
-
           return true;
      }
      catch (const fs::filesystem_error &e)
      {
           ConsoleWriter::WriteError("Failed to create logs directory: " + std::string(e.what()) + ".", true);
-
           return false;
      }
 }
@@ -1050,9 +1058,9 @@ void LogManager::FlushAll()
 {
      std::lock_guard<std::mutex> Lock(ManagerMutex);
 
-     for (const auto &StreamItem : LogStreams)
+     for (const auto &Stream : LogStreams)
      {
-          StreamItem->Flush();
+          Stream->Flush();
      }
 }
 

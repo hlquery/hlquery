@@ -43,7 +43,6 @@
 #include "runtime/threadlimit.h"
 #include "search/rfusion.h"
 #include "search/cstore.h"
-#include "sam/sam.h"
 #include "search/storageengine.h"
 #include "search/lindex.h"
 #include "utils/consolewriter.h"
@@ -418,101 +417,6 @@ static void ClearReplicationResyncCollections(const std::string &SessionID)
      }
 
      (void)Instance->Database->Del(BuildReplicationResyncCollectionsKey(SessionID));
-}
-
-static void QueueSAMResyncReconciliation(const std::vector<std::string> &Collections,
-                                         const std::string &SessionID)
-{
-     if (!Instance || !Instance->Sam || !Instance->Sam->IsOpen())
-     {
-          return;
-     }
-
-     std::unordered_set<std::string> SeenCollections;
-     const std::string RebuildSource = "replication resync session " + SessionID;
-
-     for (const auto &Collection : Collections)
-     {
-          if (Collection.empty())
-          {
-               if (Instance->Logs)
-               {
-                    Instance->Logs->Debug("sam",
-                                          "Skipping SAM replication reconciliation for empty collection after resync session '" +
-                                               SessionID + "'.");
-               }
-
-               continue;
-          }
-
-          if (!SeenCollections.insert(Collection).second)
-          {
-               if (Instance->Logs)
-               {
-                    Instance->Logs->Debug("sam",
-                                          "Skipping duplicate SAM replication reconciliation for collection '" +
-                                               Collection + "' after resync session '" + SessionID + "'.");
-               }
-
-               continue;
-          }
-
-          if (!HybridStorageManagerInstance().CollectionExists(Collection))
-          {
-               if (Instance->Logs)
-               {
-                    Instance->Logs->Debug("sam",
-                                          "Skipping SAM replication reconciliation for missing collection '" +
-                                               Collection + "' after resync session '" + SessionID + "'.");
-               }
-
-               continue;
-          }
-
-          bool AlreadyRunning = false;
-          std::string ErrorMessage;
-
-          if (!Instance->Sam->StartRecreateCollectionAsync(Collection, &AlreadyRunning, &ErrorMessage, RebuildSource))
-          {
-               if (Instance->Logs && !ErrorMessage.empty())
-               {
-                    Instance->Logs->Normal("sam",
-                                           "Failed to queue SAM replication reconciliation for collection '" +
-                                                Collection + "' after resync session '" + SessionID +
-                                                "': " + ErrorMessage + ".");
-               }
-
-               continue;
-          }
-
-          if (Instance->Logs)
-          {
-               Instance->Logs->Debug("sam",
-                                     AlreadyRunning
-                                          ? "SAM replication reconciliation already running for collection '" +
-                                               Collection + "' after resync session '" + SessionID + "'."
-                                          : "Queued SAM replication reconciliation for collection '" +
-                                               Collection + "' after resync session '" + SessionID + "'.");
-          }
-     }
-}
-
-static const char *kSAMGlobalLexicalScope = "__global__";
-
-static std::vector<std::string> BuildSAMLexicalSyncTargets(const std::string &Collection,
-                                                           bool GlobalScope)
-{
-     if (GlobalScope)
-     {
-          return HybridStorageManagerInstance().ListCollections();
-     }
-
-     if (Collection.empty())
-     {
-          return {};
-     }
-
-     return {Collection};
 }
 
 static std::string GetReplicationOperationHeader(const HttpRequest &Request)
@@ -1004,9 +908,7 @@ void SearchAPI::FinalizeReplicationResyncRequest(const HttpRequest &Request,
           return;
      }
 
-     const std::vector<std::string> ResyncedCollections = LoadReplicationResyncCollections(SessionID);
-     QueueSAMResyncReconciliation(ResyncedCollections, SessionID);
-     ClearReplicationResyncCollections(SessionID);
+     const std::vector<std::string> ResyncedCollections = LoadReplicationResyncCollections(SessionID);     ClearReplicationResyncCollections(SessionID);
      Instance->Database->Del(kReplicationResyncStateKey);
      Instance->Database->SyncWAL();
 }
@@ -1147,20 +1049,6 @@ uint64_t SearchAPI::BumpCollectionMutationVersion(const std::string &Collection)
           CollectionMutationVersions[Collection] = next_version;
      }
 
-     if (Collection != "*" && Instance && Instance->Sam && Instance->Sam->IsOpen())
-     {
-          std::string SamError;
-
-          if (!Instance->Sam->NotifyCollectionChanged(Collection, next_version, &SamError) &&
-              Instance->Logs)
-          {
-               Instance->Logs->Normal("sam",
-                                      "Failed to mark collection '" + Collection +
-                                           "' dirty for automatic SAM rebuild: " +
-                                           (SamError.empty() ? std::string("unknown error") : SamError) + ".");
-          }
-     }
-
      return next_version;
 }
 
@@ -1168,63 +1056,6 @@ void SearchAPI::ResetCollectionMutationVersions()
 {
      std::lock_guard<std::mutex> lock(CollectionMutationMutex);
      CollectionMutationVersions.clear();
-}
-
-void SearchAPI::SyncSAMLexicalChange(const std::string& Collection, bool GlobalScope)
-{
-     if (!Instance || !Instance->Sam || !Instance->Sam->IsOpen())
-     {
-          return;
-     }
-
-     const std::string Scope = GlobalScope ? std::string(kSAMGlobalLexicalScope) : Collection;
-
-     if (Scope.empty())
-     {
-          return;
-     }
-
-     bool Updated = false;
-     std::string ErrorMessage;
-
-     if (!Instance->Sam->SyncLexicalResources(Scope, &Updated, &ErrorMessage))
-     {
-          if (Instance->Logs && !ErrorMessage.empty())
-          {
-               Instance->Logs->Normal("search_api",
-                                      "Failed to sync SAM lexical resources for '" + Scope +
-                                           "': " + ErrorMessage + ".");
-          }
-
-          return;
-     }
-
-     if (Instance->Logs && Updated)
-     {
-          Instance->Logs->Debug("search_api",
-                                "Synced SAM lexical resources for '" + Scope + "'.");
-     }
-
-     for (const auto &Target : BuildSAMLexicalSyncTargets(Collection, GlobalScope))
-     {
-          if (Target.empty())
-          {
-               continue;
-          }
-
-          bool AlreadyRunning = false;
-          ErrorMessage.clear();
-
-          if (!Instance->Sam->StartRecreateCollectionAsync(Target, &AlreadyRunning, &ErrorMessage, "lexical sync"))
-          {
-               if (Instance->Logs && !ErrorMessage.empty())
-               {
-                    Instance->Logs->Normal("search_api",
-                                           "Failed to queue SAM lexical refresh for collection '" +
-                                                Target + "': " + ErrorMessage + ".");
-               }
-          }
-     }
 }
 
 ReplicationStatusSnapshot SearchAPI::GetReplicationStatusSnapshot() const

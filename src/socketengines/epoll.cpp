@@ -1402,9 +1402,10 @@ void SocketEngine::DispatchTrialWrites()
                EH->OnEventHandlerWrite();
                Processed++;
 
-               /* No yielding for immediate publish message delivery */
-          }
-
+	               /* No yielding for immediate publish message delivery */
+	          }
+	
+	}
 }
 
 /*

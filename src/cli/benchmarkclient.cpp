@@ -2344,11 +2344,6 @@ HTTPResponse BenchmarkClient::FlushSync()
      return UpdateCounters("");
 }
 
-HTTPResponse BenchmarkClient::PauseSAM(uint64_t pause_until_ms)
-{
-     return MakeRequest("POST", "/sam/pause?pause=" + std::to_string(pause_until_ms));
-}
-
 /* Encodes a string for use in a URL. */
 
 std::string BenchmarkClient::UrlEncode(const std::string &value)

@@ -848,55 +848,6 @@ class SearchAPI
      /* HandleGetDocumentContext returns alternate contextual phrases for one document. */
 
      HttpResponse HandleGetDocumentContext(const HttpRequest& Request);
-
-     /* HandleSAMRebuild rebuilds SAM entries for one collection. */
-
-     HttpResponse HandleSAMRebuild(const HttpRequest& Request);
-
-     /* HandleSAMSearch searches one collection's SAM index. */
-
-     HttpResponse HandleSAMSearch(const HttpRequest& Request);
-
-     /* HandleSAMSearchJobs returns async SAM search job state. */
-
-     HttpResponse HandleSAMSearchJobs(const HttpRequest& Request);
-
-     /* HandleSAMStatus returns SAM indexing status for one collection. */
-
-     HttpResponse HandleSAMStatus(const HttpRequest& Request);
-
-     /* HandleSAMDebug returns recent SAM debug events. */
-
-     HttpResponse HandleSAMDebug(const HttpRequest& Request);
-
-     /* HandleSAMHistory returns recently recorded SAM search history entries. */
-
-     HttpResponse HandleSAMHistory(const HttpRequest& Request);
-
-     /* HandleSAMPause pauses automatic SAM background indexing (auto-index). */
-
-     HttpResponse HandleSAMPause(const HttpRequest& Request);
-
-     /* HandleSAMImprove runs low-priority SAM improvement for idle collections. */
-
-     HttpResponse HandleSAMImprove(const HttpRequest& Request);
-
-     /* HandleSAMFlushActorMetadata clears in-memory SAM actor metadata caches (IP/API key associations). */
-
-     HttpResponse HandleSAMFlushActorMetadata(const HttpRequest& Request);
-
-     /* HandleSAMListDocuments lists SAM-indexed documents for one collection. */
-
-     HttpResponse HandleSAMListDocuments(const HttpRequest& Request);
-
-     /* HandleSAMGetDocument fetches one SAM document entry by collection and ID. */
-
-     HttpResponse HandleSAMGetDocument(const HttpRequest& Request);
-
-     /* HandleSAMAddDocumentLabel appends a manual label to a stored document and SAM index. */
-
-     HttpResponse HandleSAMAddDocumentLabel(const HttpRequest& Request);
-
      /* HandleBulkImportDocuments handles bulk document imports. */
 
      HttpResponse HandleBulkImportDocuments(const HttpRequest& Request);
@@ -1228,16 +1179,6 @@ class SearchAPI
 
      void ResetCollectionMutationVersions();
 
-     /* Propagate synonym or stopword changes into SAM and queue affected collection rebuilds. */
-
-     void SyncSAMLexicalChange(const std::string& Collection, bool GlobalScope);
-
-     /* Learn bounded, source-tagged lexical resources from collection documents. */
-
-     bool ImproveSAMLexicalResources(const std::string& Collection,
-                                     size_t* SynonymUpdates,
-                                     size_t* StopwordUpdates,
-                                     std::string* ErrorMessage = nullptr);
 
      ReplicationStatusSnapshot GetReplicationStatusSnapshot() const;
 

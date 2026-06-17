@@ -44,7 +44,6 @@
 #include "core/hlquery.h"
 #include "core/socketengine.h"
 #include "runtime/threadlimit.h"
-#include "sam/sam.h"
 #include "search/rfusion.h"
 #include "search/cstore.h"
 #include "search/lindex.h"
@@ -223,39 +222,6 @@ static bool HealthSendPingRequest(const std::string &Host,
 static std::vector<std::string> HealthGetLocalLoadedModules();
 
 static bool HealthValidateRemoteModules(const std::string &ResponseBody, std::string *OutError);
-
-static bool HealthRemoteHasSAMEnabled(const nlohmann::json &Root, const std::vector<std::string> &RemoteModules)
-{
-     bool HasExplicitSAMState = false;
-     bool ExplicitSAMEnabled = false;
-
-     auto ReadSAMBool = [&](const nlohmann::json &Value)
-     {
-          if (Value.is_boolean())
-          {
-               HasExplicitSAMState = true;
-               ExplicitSAMEnabled = ExplicitSAMEnabled || Value.get<bool>();
-          }
-     };
-
-     if (Root.contains("sam_enabled"))
-     {
-          ReadSAMBool(Root["sam_enabled"]);
-     }
-
-     if (Root.contains("sam") && Root["sam"].is_object() && Root["sam"].contains("enabled"))
-     {
-          ReadSAMBool(Root["sam"]["enabled"]);
-     }
-
-     if (HasExplicitSAMState)
-     {
-          return ExplicitSAMEnabled;
-     }
-
-     (void)RemoteModules;
-     return false;
-}
 
 static void HealthProbeEndpoint(LinkEndpointInfo &Info, bool PingNode)
 {
@@ -811,16 +777,6 @@ static bool HealthValidateRemoteModules(const std::string &ResponseBody, std::st
           std::sort(RemoteModules.begin(), RemoteModules.end());
           RemoteModules.erase(std::unique(RemoteModules.begin(), RemoteModules.end()), RemoteModules.end());
 
-          const bool LocalSAMEnabled = Instance && Instance->Config && Instance->Config->GetSamEnabled();
-          if (LocalSAMEnabled && !HealthRemoteHasSAMEnabled(Root, RemoteModules))
-          {
-               if (OutError)
-               {
-                    *OutError = "Remote server has SAM disabled; linked child servers must enable SAM when the master has SAM enabled";
-               }
-               return false;
-          }
-
           if (RemoteModules == LocalModules)
           {
                return true;
@@ -1012,13 +968,6 @@ HttpResponse SearchAPI::HandleHealth(const HttpRequest &Request)
      {
           HealthJSON["demo_message"] = DemoMessage;
      }
-     const bool SamEnabled = Instance && Instance->Config && Instance->Config->GetSamEnabled();
-     const bool SamAvailable = SamEnabled && Instance && Instance->Sam && Instance->Sam->IsOpen();
-     HealthJSON["sam_enabled"] = SamEnabled;
-     HealthJSON["sam_available"] = SamAvailable;
-     HealthJSON["sam"] = {
-          {"enabled", SamEnabled},
-          {"available", SamAvailable}};
      HealthJSON["loaded_modules"] = nlohmann::json::array();
      if (Modules)
      {
@@ -1048,33 +997,9 @@ HttpResponse SearchAPI::HandleReady(const HttpRequest &Request)
      bool IsReady = IsInitialized();
      bool IsLoading = false;
      bool SyncInProgress = false;
-     bool SAMResyncPending = false;
-     size_t SAMResyncRunning = 0;
-
      if (Instance)
      {
           SyncInProgress = Instance->IsSyncInProgress();
-
-          if (Instance->Sam && Instance->Sam->IsOpen())
-          {
-               SAMResyncRunning = Instance->Sam->GetRunningCollectionJobCount();
-               const std::map<std::string, SAM::CollectionJobStatus> SAMStatuses =
-                    Instance->Sam->GetAllCollectionJobStatuses();
-
-               for (const auto &Entry : SAMStatuses)
-               {
-                    const SAM::CollectionJobStatus &Status = Entry.second;
-
-                    if (Status.Running ||
-                        Status.RetryScheduled ||
-                        Status.NeedsRetry ||
-                        Status.PendingDocuments > 0)
-                    {
-                         SAMResyncPending = true;
-                         break;
-                    }
-               }
-          }
 
           for (auto *ServerVal : Instance->HTTPServers)
           {
@@ -1093,8 +1018,6 @@ HttpResponse SearchAPI::HandleReady(const HttpRequest &Request)
           ReadyJSON["initialized"] = IsReady;
           ReadyJSON["loading"] = IsLoading;
           ReadyJSON["sync_in_progress"] = SyncInProgress;
-          ReadyJSON["sam_resync_pending"] = SAMResyncPending;
-          ReadyJSON["sam_resync_running"] = SAMResyncRunning;
           ReadyJSON["listeners_configured"] = Instance ? Instance->GetConfiguredListenerCount() : 0;
           ReadyJSON["listeners_started"] = Instance ? Instance->GetStartedListenerCount() : 0;
           ReadyJSON["listeners_skipped"] = Instance ? Instance->GetSkippedListenerCount() : 0;
@@ -1108,8 +1031,6 @@ HttpResponse SearchAPI::HandleReady(const HttpRequest &Request)
      ReadyJSON["initialized"] = true;
      ReadyJSON["loading"] = false;
      ReadyJSON["sync_in_progress"] = false;
-     ReadyJSON["sam_resync_pending"] = SAMResyncPending;
-     ReadyJSON["sam_resync_running"] = SAMResyncRunning;
      ReadyJSON["listeners_configured"] = Instance ? Instance->GetConfiguredListenerCount() : 0;
      ReadyJSON["listeners_started"] = Instance ? Instance->GetStartedListenerCount() : 0;
      ReadyJSON["listeners_skipped"] = Instance ? Instance->GetSkippedListenerCount() : 0;
@@ -1202,19 +1123,6 @@ HttpResponse SearchAPI::HandleStats(const HttpRequest &Request)
           StatsJSON["demo_mode"] = DemoMode;
           StatsJSON["readonly_mode"] = DemoMode;
           StatsJSON["io"] = BuildSocketIOStatsJSON();
-          const bool SamEnabled = Instance->Config && Instance->Config->GetSamEnabled();
-          const bool SamAvailable = SamEnabled && Instance->Sam && Instance->Sam->IsOpen();
-          StatsJSON["sam_enabled"] = SamEnabled;
-          StatsJSON["sam_available"] = SamAvailable;
-          StatsJSON["sam"] = {
-               {"enabled", SamEnabled},
-               {"available", SamAvailable},
-               {"smart_background", Instance->Config ? Instance->Config->GetSamSmartBackground() : true},
-               {"live_query_improvement", Instance->Config ? Instance->Config->GetSamLiveQueryImprovement() : false},
-               {"background_improvement_interval_ms",
-                Instance->Config ? Instance->Config->GetSamBackgroundImprovementIntervalMs() : 60000},
-               {"background_improvement_poll_ms",
-                Instance->Config ? Instance->Config->GetSamBackgroundImprovementPollMs() : 15000}};
           if (!DemoMessage.empty())
           {
                StatsJSON["demo_message"] = DemoMessage;
@@ -1528,8 +1436,6 @@ HttpResponse SearchAPI::HandleSearchConfig(const HttpRequest &Request)
      ConfigJSON["enable_fuzzy"] = Config->GetQuerySettingsEnableFuzzy();
      ConfigJSON["fuzzy_max_distance"] = Config->GetQuerySettingsFuzzyMaxDistance();
      ConfigJSON["require_exact_identifier_tokens"] = Config->GetQuerySettingsRequireExactIdentifierTokens();
-     ConfigJSON["sam25_require_exact_identifier_tokens"] = Config->GetSam25RequireExactIdentifierTokens();
-     ConfigJSON["sam_live_query_improvement"] = Config->GetSamLiveQueryImprovement();
      ConfigJSON["default_limit"] = Config->GetLimitsDefaultLimit();
      ConfigJSON["max_limit"] = Config->GetLimitsMaxLimit();
      ConfigJSON["min_limit"] = Config->GetLimitsMinLimit();
@@ -1710,35 +1616,6 @@ HttpResponse SearchAPI::HandleStartup(const HttpRequest &Request)
           StartupJSON["listeners_started"] = Instance->GetStartedListenerCount();
           StartupJSON["listeners_skipped"] = Instance->GetSkippedListenerCount();
           StartupJSON["listener_last_error"] = Instance->GetLastListenerError();
-
-          if (Instance->Sam && Instance->Sam->IsOpen())
-          {
-               bool SAMResyncPending = false;
-               const std::map<std::string, SAM::CollectionJobStatus> SAMStatuses =
-                    Instance->Sam->GetAllCollectionJobStatuses();
-
-               for (const auto &Entry : SAMStatuses)
-               {
-                    const SAM::CollectionJobStatus &Status = Entry.second;
-
-                    if (Status.Running ||
-                        Status.RetryScheduled ||
-                        Status.NeedsRetry ||
-                        Status.PendingDocuments > 0)
-                    {
-                         SAMResyncPending = true;
-                         break;
-                    }
-               }
-
-               StartupJSON["sam_resync_pending"] = SAMResyncPending;
-               StartupJSON["sam_resync_running"] = Instance->Sam->GetRunningCollectionJobCount();
-          }
-          else
-          {
-               StartupJSON["sam_resync_pending"] = false;
-               StartupJSON["sam_resync_running"] = 0;
-          }
 
           if (Instance->Modules)
           {

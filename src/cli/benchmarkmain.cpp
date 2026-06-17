@@ -1995,8 +1995,6 @@ static void PrintBenchmarkHelp(const char *program_name)
                << "  --prefix PREFIX    Custom prefix for benchmark collections (default: bench_{runid}_)\n"
                << "  --durability-config PATH  Load durability settings from config (e.g., run/conf/database.conf)\n"
                << "  --reuse-collections Reuse existing collections instead of deleting/recreating them\n"
-               << "  --pause-sam         Pause SAM auto-index during benchmark (default)\n"
-               << "  --no-pause-sam      Do not pause SAM auto-index during benchmark\n"
                << "  --skip-auth-check  Skip authentication requirement check (useful when auth is disabled)\n"
                << "  --unorganized      Create an 'unorganized' collection with non-standard schema for testing\n"
                << "  --log-file FILE    Structured log file (JSON lines format)\n"
@@ -2064,8 +2062,6 @@ int main(int argc, char *argv[])
 
           bool cleanup_benchmark_val = false;
           bool reuse_collections = false;
-          bool pause_sam = true;
-
           std::string log_file_val = "";
 
           bool skip_auth_check = false;
@@ -2212,16 +2208,7 @@ int main(int argc, char *argv[])
                else if (arg == "--reuse-collections")
                {
                     reuse_collections = true;
-               }
-               else if (arg == "--pause-sam")
-               {
-                    pause_sam = true;
-               }
-               else if (arg == "--no-pause-sam")
-               {
-                    pause_sam = false;
-               }
-               else if (arg == "--log-file")
+               }               else if (arg == "--log-file")
                {
                     log_file_val = RequireNextValue(i, arg);
                }
@@ -2735,55 +2722,6 @@ int main(int argc, char *argv[])
           auto start_time_val = Now();
 
           BenchmarkClient control_client(base_url, auth_token);
-
-          uint64_t sam_pause_until_ms = 0;
-
-          if (pause_sam)
-          {
-               const uint64_t now_ms = static_cast<uint64_t>(NowMs());
-               sam_pause_until_ms = now_ms + (5ULL * 60ULL * 1000ULL);
-
-               const HTTPResponse pause_response = control_client.PauseSAM(sam_pause_until_ms);
-               bool sam_pause_applied = false;
-
-               if (pause_response.StatusCode == 200)
-               {
-                    try
-                    {
-                         const nlohmann::json root = nlohmann::json::parse(pause_response.Body);
-                         sam_pause_applied = root.value("paused", false);
-                         sam_pause_until_ms = root.value("pause_until_ms", sam_pause_until_ms);
-                    }
-                    catch (const std::exception&)
-                    {
-                         sam_pause_applied = false;
-                    }
-               }
-
-               if (sam_pause_applied)
-               {
-                    std::cout << "SAM auto-index pause: enabled until " << sam_pause_until_ms
-                              << " ms (expires automatically).\n";
-               }
-               else
-               {
-                    std::cout << "SAM auto-index pause: failed";
-                    if (pause_response.StatusCode != -1)
-                    {
-                         std::cout << " (HTTP " << pause_response.StatusCode << ")";
-                    }
-                    if (!pause_response.ErrorMessage.empty())
-                    {
-                         std::cout << " - " << pause_response.ErrorMessage;
-                    }
-                    std::cout << ".\n";
-               }
-          }
-          else
-          {
-               std::cout << "SAM auto-index pause: disabled by --no-pause-sam.\n";
-          }
-
           if (advanced_mode)
           {
                advanced_metrics.RunID = run_id_val;

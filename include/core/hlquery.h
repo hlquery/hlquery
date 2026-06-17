@@ -274,11 +274,6 @@ class CoreExport hlquery
           return Logs != nullptr;
      }
 
-     bool HasSam() const
-     {
-          return Sam != nullptr;
-     }
-
      size_t GetConfiguredListenerCount() const
      {
           return ConfiguredListenerCount;
@@ -358,10 +353,6 @@ class CoreExport hlquery
      /* Server configuration object */
 
      std::unique_ptr<ServerConfig> Config;
-
-     /* Disabled SAM compatibility pointer. */
-
-     SAM* Sam = nullptr;
 
      /* Server statistics */
 

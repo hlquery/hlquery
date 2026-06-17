@@ -116,7 +116,7 @@ class CoreTimersModule final : public AutoRuntimeModule<CoreTimersModule>
 
                     if (Instance->Logs)
                     {
-                         Instance->Logs->Debug("core_timers", "Search/SAM response cache flushed by hourly timer.");
+                         Instance->Logs->Debug("core_timers", "Search response cache flushed by hourly timer.");
                     }
                }
                else if (NowTime > 0)

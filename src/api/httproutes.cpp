@@ -206,72 +206,6 @@ RouteAction ResolveHttpRoute(const HttpRequest &Request)
                return RouteAction::Flush;
           }
 
-          if (NormalizedPath == "/sam/rebuild" && Request.Method == "POST")
-          {
-               return RouteAction::SamRebuild;
-          }
-
-          if (NormalizedPath == "/sam/search" && Request.Method == "GET")
-          {
-               return RouteAction::SamSearch;
-          }
-
-          if ((NormalizedPath == "/sam/search_jobs" ||
-               NormalizedPath.rfind("/sam/search_jobs/", 0) == 0) &&
-              Request.Method == "GET")
-          {
-               return RouteAction::SamSearchJobs;
-          }
-
-          if (NormalizedPath == "/sam/status" && Request.Method == "GET")
-          {
-               return RouteAction::SamStatus;
-          }
-
-          if (NormalizedPath == "/sam/debug" && Request.Method == "GET")
-          {
-               return RouteAction::SamDebug;
-          }
-
-          if (NormalizedPath == "/sam/history" && Request.Method == "GET")
-          {
-               return RouteAction::SamHistory;
-          }
-
-          if (NormalizedPath == "/sam/pause" && Request.Method == "POST")
-          {
-               return RouteAction::SamPause;
-          }
-
-          if (NormalizedPath == "/sam/improve" && Request.Method == "POST")
-          {
-               return RouteAction::SamImprove;
-          }
-
-          if (NormalizedPath == "/sam/flush_actor_metadata" && Request.Method == "POST")
-          {
-               return RouteAction::SamFlushActorMetadata;
-          }
-
-          if (NormalizedPath == "/sam/documents" && Request.Method == "GET")
-          {
-               return RouteAction::SamListDocuments;
-          }
-
-          if (NormalizedPath.rfind("/sam/label/add/", 0) == 0 &&
-              NormalizedPath.size() > std::string("/sam/label/add/").size() &&
-              Request.Method == "POST")
-          {
-               return RouteAction::SamAddDocumentLabel;
-          }
-
-          if (NormalizedPath.rfind("/sam/documents/", 0) == 0 &&
-              NormalizedPath.size() > std::string("/sam/documents/").size() &&
-              Request.Method == "GET")
-          {
-               return RouteAction::SamGetDocument;
-          }
-
           const CollectionRouteInfo RouteInfo = BuildCollectionRouteInfo(NormalizedPath);
 
           const std::string &Method = Request.Method;
@@ -864,32 +798,7 @@ const char *RouteActionName(RouteAction ActionVal)
           case RouteAction::GetDocument:
                return "GetDocument";
           case RouteAction::GetDocumentContext:
-               return "GetDocumentContext";
-          case RouteAction::SamRebuild:
-               return "SamRebuild";
-          case RouteAction::SamSearch:
-               return "SamSearch";
-          case RouteAction::SamSearchJobs:
-               return "SamSearchJobs";
-          case RouteAction::SamStatus:
-               return "SamStatus";
-          case RouteAction::SamDebug:
-               return "SamDebug";
-          case RouteAction::SamHistory:
-               return "SamHistory";
-          case RouteAction::SamPause:
-               return "SamPause";
-          case RouteAction::SamImprove:
-               return "SamImprove";
-          case RouteAction::SamFlushActorMetadata:
-               return "SamFlushActorMetadata";
-          case RouteAction::SamListDocuments:
-               return "SamListDocuments";
-          case RouteAction::SamGetDocument:
-               return "SamGetDocument";
-          case RouteAction::SamAddDocumentLabel:
-               return "SamAddDocumentLabel";
-          case RouteAction::AddDocument:
+               return "GetDocumentContext";          case RouteAction::AddDocument:
                return "AddDocument";
           case RouteAction::BulkImportDocuments:
                return "BulkImportDocuments";

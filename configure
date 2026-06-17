@@ -868,7 +868,6 @@ sub generate_config_h {
     # Use paths from %config
     my $config_dir = $config{CONFDIR};
     my $data_dir = $config{DATADIR};
-    my $sam_data_dir = catdir($data_dir, 'sam');
     my $log_dir = $config{LOGDIR};
     my $pid_dir = $config{RUNDIR};
     my $admin_dir = catdir($data_dir, 'admin'); # Admin dir usually under data
@@ -889,7 +888,6 @@ sub generate_config_h {
         'HLQUERY_SYSTEM' => $system_name,
         'HLQUERY_CONFIG_DIR' => $config_dir,
         'HLQUERY_DATA_DIR' => $data_dir,
-        'HLQUERY_SAM_DATA_DIR' => $sam_data_dir,
         'HLQUERY_LOG_DIR' => $log_dir,
         'HLQUERY_ADMIN_DIR' => $admin_dir,
         'HLQUERY_PID_DIR' => $pid_dir,

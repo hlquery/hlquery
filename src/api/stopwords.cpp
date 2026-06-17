@@ -548,10 +548,7 @@ HttpResponse SearchAPI::HandleCreateStopword(const HttpRequest &Request)
                                          Code::SEARCH_INVALID_PARAMETER,
                                          "Replication journal incomplete.",
                                          ReplicationJournalError.empty() ? "Stopword was written locally but replication state was not committed durably." : ReplicationJournalError);
-          }
-
-          SyncSAMLexicalChange(CollectionName, IsGlobalScope);
-          BumpCollectionMutationVersion(IsGlobalScope ? "*" : CollectionName);
+          }          BumpCollectionMutationVersion(IsGlobalScope ? "*" : CollectionName);
 
           HttpResponse Response(Status::OK, StatusText(Status::OK), "application/json");
 
@@ -770,10 +767,7 @@ HttpResponse SearchAPI::HandleDeleteStopword(const HttpRequest &Request)
                                          Code::SEARCH_INVALID_PARAMETER,
                                          "Replication journal incomplete.",
                                          ReplicationJournalError.empty() ? "Stopword was deleted locally but replication state was not committed durably." : ReplicationJournalError);
-          }
-
-          SyncSAMLexicalChange(CollectionName, IsGlobalScope);
-          BumpCollectionMutationVersion(IsGlobalScope ? "*" : CollectionName);
+          }          BumpCollectionMutationVersion(IsGlobalScope ? "*" : CollectionName);
 
           HttpResponse Response(Status::OK, StatusText(Status::OK), "application/json");
 

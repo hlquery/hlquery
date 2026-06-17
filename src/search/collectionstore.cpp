@@ -28,7 +28,6 @@
 #include "search/storageengine.h"
 #include "search/cstore.h"
 #include "search/lindex.h"
-#include "sam/sam.h"
 #include "search/lang.h"
 #include "search/writeaheadlogvalidator.h"
 #include "utils/consolewriter.h"
@@ -50,11 +49,6 @@ static std::string GetCollectionConfigKey(const std::string &Name)
 
 static bool CollectionNeedsLanguageDetection(const std::string &Name)
 {
-     if (Instance && Instance->Config && !Instance->Config->GetSamAutoDetectCollectionLanguage())
-     {
-          return false;
-     }
-
      CollectionConfig config;
 
      if (!HybridStorageManagerInstance().GetCollectionConfig(Name, config))
@@ -71,27 +65,6 @@ static bool CollectionNeedsLanguageDetection(const std::string &Name)
 
      const std::string value = it->second;
      return value.empty() || value == "auto" || value == "und";
-}
-
-/* NotifySAMCollectionChanged - Notifies SAM that a collection changed. */
-
-static void NotifySAMCollectionChanged(const std::string &Collection)
-{
-     if (!Instance || !Instance->Sam || !Instance->Sam->IsOpen())
-     {
-          return;
-     }
-
-     std::string SamError;
-
-     if (!Instance->Sam->NotifyCollectionChanged(Collection, 0, &SamError) &&
-         Instance->Logs)
-     {
-          Instance->Logs->Normal("sam",
-                                 "Failed to mark collection '" + Collection +
-                                      "' dirty for automatic SAM rebuild: " +
-                                      (SamError.empty() ? std::string("unknown error") : SamError) + ".");
-     }
 }
 
 /* RefreshCollectionLanguageIfNeeded - Refreshes collection language metadata when detection is needed. */
@@ -1225,19 +1198,6 @@ bool HybridStorageManager::CreateCollection(const std::string &name, const Colle
 
 bool HybridStorageManager::DeleteCollection(const std::string &name)
 {
-     if (Instance && Instance->Sam && Instance->Sam->IsOpen())
-     {
-          std::string SAMCancelError;
-
-          if (!Instance->Sam->CancelCollectionWork(name, &SAMCancelError) &&
-              Instance->Logs && !SAMCancelError.empty())
-          {
-               Instance->Logs->Normal("hybrid_storage",
-                                      "DeleteCollection: Failed to cancel SAM work for '" + name +
-                                           "': " + SAMCancelError + ".");
-          }
-     }
-
      /*
       * Check if collection exists first (before acquiring lock to avoid deadlock).
       * Use a non-locking check by directly checking the in-memory map.
@@ -1660,20 +1620,6 @@ bool HybridStorageManager::DeleteCollection(const std::string &name)
           if (Instance && Instance->Logs)
           {
                Instance->Logs->Normal("hybrid_storage", "DeleteCollection: Error removing mmap index directory for '" + name + "': " + std::string(e.what()) + ".");
-          }
-     }
-
-     if (Instance && Instance->Sam && Instance->Sam->IsOpen())
-     {
-          std::string SAMDeleteError;
-
-          if (!Instance->Sam->DeleteCollection(name, &SAMDeleteError) &&
-              Instance->Logs)
-          {
-               Instance->Logs->Normal("hybrid_storage",
-                                      "DeleteCollection: Failed to purge SAM state for '" + name +
-                                           "': " +
-                                           (SAMDeleteError.empty() ? std::string("unknown error") : SAMDeleteError) + ".");
           }
      }
 
@@ -2192,9 +2138,6 @@ bool HybridStorageManager::AddDocument(const std::string &collection, const Docu
                     Instance->Logs->Debug("hybrid_storage", "AddDocument: Failed to index document '" + doc.ID + "': " + e.what() + ".");
                }
           }
-
-          NotifySAMCollectionChanged(collection);
-
           RefreshCollectionLanguageIfNeeded(collection, &doc);
      }
 
@@ -2369,9 +2312,7 @@ size_t HybridStorageManager::AddDocumentsBatch(const std::string &collection, co
      }
 
      if (count > 0)
-     {
-          NotifySAMCollectionChanged(collection);
-     }
+     {     }
 
      if (count > 0)
      {
@@ -2800,27 +2741,6 @@ bool HybridStorageManager::DeleteDocument(const std::string &collection, const s
 
                partial_cleanup_failed = true;
           }
-
-          if (Instance && Instance->Sam && Instance->Sam->IsOpen())
-          {
-               std::string sam_error;
-
-               if (!Instance->Sam->DeleteDocument(collection, document_id, &sam_error))
-               {
-                    if (Instance->Logs)
-                    {
-                         Instance->Logs->Normal("sam",
-                                                "Failed to remove SAM terms for '" + collection + "/" +
-                                                     document_id + "': " +
-                                                     (sam_error.empty() ? std::string("unknown error") : sam_error) + ".");
-                    }
-
-                    partial_cleanup_failed = true;
-               }
-          }
-
-          NotifySAMCollectionChanged(collection);
-
           /*
                 * Update collection metadata counter after delete to ensure accuracy.
                 * Use collection mutex to prevent race conditions.
@@ -3023,9 +2943,7 @@ bool HybridStorageManager::UpdateDocument(const std::string &collection, const D
      }
 
      if (index_success)
-     {
-          NotifySAMCollectionChanged(collection);
-     }
+     {     }
 
      /*
            * Invalidate cache after successful update.
@@ -4283,19 +4201,6 @@ bool HybridStorageManager::FlushAll()
      if (Instance && Instance->Logs)
      {
           Instance->Logs->Normal("hybrid_storage", "FlushAll: Starting complete flush - removing all data, indexes, caches, and mmap files.");
-     }
-
-     if (Instance->Sam && Instance->Sam->IsOpen())
-     {
-          std::string SAMCancelError;
-
-          if (!Instance->Sam->CancelAllWork(&SAMCancelError) &&
-              Instance->Logs && !SAMCancelError.empty())
-          {
-               Instance->Logs->Normal("hybrid_storage",
-                                      "FlushAll: Failed to cancel SAM work before destructive flush: " +
-                                           SAMCancelError + ".");
-          }
      }
 
      /*
