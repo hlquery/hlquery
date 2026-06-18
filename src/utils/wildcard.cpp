@@ -130,6 +130,11 @@ bool MatchExact(const char *Str, const char *Pattern)
 
 bool MatchPrefix(const char *Str, const char *Pattern, size_t PrefixLen)
 {
+     if (std::strlen(Str) < PrefixLen)
+     {
+          return false;
+     }
+
      /* Fast path: try case-sensitive first. */
 
      if (std::memcmp(Str, Pattern, PrefixLen) == 0)
@@ -280,6 +285,11 @@ bool MatchExactCaseSensitive(const char *Str, const char *Pattern)
 
 bool MatchPrefixCaseSensitive(const char *Str, const char *Pattern, size_t PrefixLen)
 {
+     if (std::strlen(Str) < PrefixLen)
+     {
+          return false;
+     }
+
      return std::memcmp(Str, Pattern, PrefixLen) == 0;
 }
 

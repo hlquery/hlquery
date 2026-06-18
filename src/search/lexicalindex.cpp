@@ -263,7 +263,6 @@ std::vector<std::string> InvertedIndex::ExtractTerms(const std::string &Text)
 
      const size_t MaxTextSize = 1000000;
      const std::string &TextToProcess = (Text.length() > MaxTextSize) ? Text.substr(0, MaxTextSize) : Text;
-     std::set<std::string> UniqueTerms;
      size_t Pos = 0;
      size_t TextLen = TextToProcess.length();
      const size_t MaxTerms = 100000;
@@ -325,11 +324,11 @@ std::vector<std::string> InvertedIndex::ExtractTerms(const std::string &Text)
 
                if (!Normalized.empty() && Normalized.length() >= 1)
                {
-                    UniqueTerms.insert(Normalized);
+                    Terms.push_back(Normalized);
 
                     if (IsNormalizedCashtag(Normalized))
                     {
-                         UniqueTerms.insert(Normalized.substr(1));
+                         Terms.push_back(Normalized.substr(1));
                     }
 
                     TermCount++;
@@ -337,7 +336,6 @@ std::vector<std::string> InvertedIndex::ExtractTerms(const std::string &Text)
           }
      }
 
-     Terms.assign(UniqueTerms.begin(), UniqueTerms.end());
      return Terms;
 }
 
@@ -1105,23 +1103,6 @@ bool InvertedIndex::UpdateDocument(const std::string &Collection, const Document
           Instance->Logs->Debug("inverted_index", "UpdateDocument: Updating document '" + OldDoc.ID + "' in collection '" + Collection + "'.");
      }
 
-     std::set<std::string> OldTerms;
-
-     if (!OldDoc.ID.empty())
-     {
-          auto DocTermsIt = DocumentTerms.find(Collection);
-
-          if (DocTermsIt != DocumentTerms.end())
-          {
-               auto TermsIt = DocTermsIt->second.find(OldDoc.ID);
-
-               if (TermsIt != DocTermsIt->second.end())
-               {
-                    OldTerms.insert(TermsIt->second.begin(), TermsIt->second.end());
-               }
-          }
-     }
-
      RemoveDocumentFromIndex(Collection, OldDoc.ID);
 
      std::vector<std::string> TitleTerms = ExtractTerms(NewDoc.Title);
@@ -1157,21 +1138,26 @@ bool InvertedIndex::UpdateDocument(const std::string &Collection, const Document
           tag_like_boost = Instance->Config->GetTagLikeBoost();
      }
 
-     std::set<std::string> AllTerms;
+     std::vector<std::string> AllTermsList;
+
+     std::set<std::string> AllTermsSet;
 
      for (const auto &Term : TitleTerms)
      {
-          AllTerms.insert(Term);
+          AllTermsList.push_back(Term);
+          AllTermsSet.insert(Term);
      }
 
      for (const auto &Term : ContentTerms)
      {
-          AllTerms.insert(Term);
+          AllTermsList.push_back(Term);
+          AllTermsSet.insert(Term);
      }
 
      for (const auto &Term : IDTerms)
      {
-          AllTerms.insert(Term);
+          AllTermsList.push_back(Term);
+          AllTermsSet.insert(Term);
      }
 
      for (const auto &Field : NewDoc.Fields)
@@ -1185,7 +1171,8 @@ bool InvertedIndex::UpdateDocument(const std::string &Collection, const Document
 
           for (const auto &Term : FieldTerms)
           {
-               AllTerms.insert(Term);
+               AllTermsList.push_back(Term);
+               AllTermsSet.insert(Term);
 
                if (is_title_like)
                {
@@ -1212,11 +1199,18 @@ bool InvertedIndex::UpdateDocument(const std::string &Collection, const Document
 
      DocTerms.clear();
 
-     size_t DocLength = 0;
+     size_t DocLength = AllTermsList.size();
 
-     size_t TermCount = 0;
-
+     std::unordered_map<std::string, std::vector<size_t>> TermPositions;
      std::unordered_map<std::string, std::unordered_map<std::string, std::vector<size_t>>> FieldTermPositions;
+
+     size_t Pos = 0;
+
+     for (const auto &Term : AllTermsList)
+     {
+          TermPositions[Term].push_back(Pos);
+          Pos++;
+     }
 
      for (const auto &[FieldName, FieldTerms] : FieldTermsByName)
      {
@@ -1267,13 +1261,12 @@ bool InvertedIndex::UpdateDocument(const std::string &Collection, const Document
           return Post;
      };
 
-     for (const auto &Term : AllTerms)
+     for (const auto &Term : AllTermsSet)
      {
-          TermCount++;
-
-          DocLength++;
+          auto PosIt = TermPositions.find(Term);
+          const std::vector<size_t> Positions = (PosIt != TermPositions.end()) ? PosIt->second : std::vector<size_t>{};
           const bool InTitle = std::find(TitleTerms.begin(), TitleTerms.end(), Term) != TitleTerms.end();
-          Posting Post = BuildPostingForTerm(Term, {TermCount}, InTitle);
+          Posting Post = BuildPostingForTerm(Term, Positions, InTitle);
 
           CollectionIndex[Term].push_back(Post);
 
@@ -1323,7 +1316,7 @@ bool InvertedIndex::UpdateDocument(const std::string &Collection, const Document
 
      if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
      {
-          Instance->Logs->Debug("inverted_index", "UpdateDocument: Updated document '" + NewDoc.ID + "' with " + std::to_string(AllTerms.size()) + " terms.");
+          Instance->Logs->Debug("inverted_index", "UpdateDocument: Updated document '" + NewDoc.ID + "' with " + std::to_string(AllTermsSet.size()) + " unique terms (length: " + std::to_string(DocLength) + ").");
      }
 
      MarkCollectionDirtyLocked(Collection);
@@ -1832,7 +1825,7 @@ std::vector<Posting> InvertedIndex::Search(const std::string &Collection, const 
                     TermScoreValue = CalculateBM25PlusScore(TermFreq, DocFreq, DocLengthValue, AvgDocLengthValue, static_cast<double>(CollectionSizeValue), K1, B, Delta);
                }
 
-               TotalScore += TermScoreValue;
+               TotalScore += TermScoreValue * std::max(0.0, TermDocIt->second.Score);
           }
 
           if (QueryTerms.size() >= 2)

@@ -186,6 +186,12 @@ std::vector<std::string> Tools::Split(const std::string &Str, const std::string 
 {
      std::vector<std::string> Result;
 
+     if (Delimiter.empty())
+     {
+          Result.push_back(Str);
+          return Result;
+     }
+
      size_t Start = 0;
      size_t End = Str.find(Delimiter);
 
@@ -247,6 +253,11 @@ bool Tools::EndsWith(const std::string &Str, const std::string &Suffix)
 
 std::string Tools::ReplaceAll(const std::string &Str, const std::string &From, const std::string &To)
 {
+     if (From.empty())
+     {
+          return Str;
+     }
+
      std::string Result = Str;
 
      size_t Pos = 0;
