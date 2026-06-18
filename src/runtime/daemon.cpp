@@ -47,10 +47,6 @@
 
 volatile sig_atomic_t ShuttingDown = 0;
 
-/* Tracks total SIGINT count for escalation policies. */
-
-volatile sig_atomic_t SigintCount = 0;
-
 /* Indicates a forced exit was requested. */
 
 volatile sig_atomic_t ForceExit = 0;
@@ -229,14 +225,14 @@ static bool ConfigurePipeFD(int FDValue)
 {
      int Flags = fcntl(FDValue, F_GETFL, 0);
 
-     if (Flags >= 0 && fcntl(FDValue, F_SETFL, Flags | O_NONBLOCK) < 0)
+     if (Flags < 0 || fcntl(FDValue, F_SETFL, Flags | O_NONBLOCK) < 0)
      {
           return false;
      }
 
      int FDFlags = fcntl(FDValue, F_GETFD, 0);
 
-     if (FDFlags >= 0 && fcntl(FDValue, F_SETFD, FDFlags | FD_CLOEXEC) < 0)
+     if (FDFlags < 0 || fcntl(FDValue, F_SETFD, FDFlags | FD_CLOEXEC) < 0)
      {
           return false;
      }
@@ -932,7 +928,6 @@ bool hlquery::ShouldForceExit()
 
 void hlquery::ResetSignalCounters()
 {
-     SigintCount 		= 0;
      ShuttingDown 		= 0;
      ForceExit 			= 0;
      PendingShutdownSignal 	= 0;
@@ -1089,7 +1084,6 @@ bool hlquery::CheckExistingProcess()
                               return false;
                          }
 
-                         PIDFdGuard.release();
                          return true;
                     }
 
@@ -1105,7 +1099,6 @@ bool hlquery::CheckExistingProcess()
                               return false;
                          }
 
-                         PIDFdGuard.release();
                          return true;
                     }
 

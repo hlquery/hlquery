@@ -400,10 +400,6 @@ int main(int argc, char **argv);
 
 extern volatile sig_atomic_t ShuttingDown;
 
-/* Count of SIGINT signals received */
-
-extern volatile sig_atomic_t SigintCount;
-
 /* Flag indicating the server should exit immediately without cleanup */
 
 extern volatile sig_atomic_t ForceExit;
