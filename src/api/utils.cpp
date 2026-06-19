@@ -968,7 +968,7 @@ std::vector<SearchHit> SearchAPI::ApplySorting(const std::vector<SearchHit> &Hit
                                    return Descending ? ScoreA > ScoreB : ScoreA < ScoreB;
                               }
 
-                              return CompareRankTieBreak(A, B);
+                              continue;
                          }
 
                          if (FieldName == "_score" || FieldName == "score")
@@ -981,7 +981,7 @@ std::vector<SearchHit> SearchAPI::ApplySorting(const std::vector<SearchHit> &Hit
                                    return Descending ? ScoreA > ScoreB : ScoreA < ScoreB;
                               }
 
-                              return CompareRankTieBreak(A, B);
+                              continue;
                          }
 
                          std::string AVal = A.Document.count(FieldName) ? A.Document.at(FieldName) : "";
@@ -1000,7 +1000,7 @@ std::vector<SearchHit> SearchAPI::ApplySorting(const std::vector<SearchHit> &Hit
                          }
                     }
 
-                    return false;
+                    return CompareRankTieBreak(A, B);
                });
 
      return SortedHits;
