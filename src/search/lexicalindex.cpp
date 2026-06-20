@@ -1614,6 +1614,16 @@ std::vector<Posting> InvertedIndex::Search(const std::string &Collection, const 
 
      double Delta = 1.0;
 
+     std::string SearchAlgorithm = "bm25+";
+
+     double IdfSmooth = 1.0;
+
+     bool NormalizeTFIDF = true;
+
+     double BM25Weight = 0.7;
+
+     double TFIDFWeight = 0.3;
+
      bool PivotEnabled = false;
 
      double PivotValue = 0.25;
@@ -1623,6 +1633,16 @@ std::vector<Posting> InvertedIndex::Search(const std::string &Collection, const 
      B = Instance->Config->GetRankingB();
 
      Delta = Instance->Config->GetRankingDelta();
+
+     SearchAlgorithm = Instance->Config->GetSearchAlgorithm();
+
+     IdfSmooth = Instance->Config->GetRankingIdfSmooth();
+
+     NormalizeTFIDF = Instance->Config->GetRankingNormalize();
+
+     BM25Weight = Instance->Config->GetRankingBm25Weight();
+
+     TFIDFWeight = Instance->Config->GetRankingTfidfWeight();
 
      PivotEnabled = Instance->Config->GetPivotNormEnabled();
 
@@ -1746,59 +1766,40 @@ std::vector<Posting> InvertedIndex::Search(const std::string &Collection, const 
 
      Results.reserve(DocScores.size());
 
-     /*
-      * Broad one-word queries can match a very large portion of the collection.
-      * Trim the candidate set using the cheap accumulated posting score before
-      * running the expensive BM25 and term-frequency pass across every document.
-      */
+     struct CandidateDocument
+     {
+          std::string DocumentID;
+          Posting *PostingValue;
+          double DocumentLength;
+     };
 
-     std::vector<std::pair<std::string, Posting *>> CandidateDocs;
+     std::vector<CandidateDocument> CandidateDocs;
      CandidateDocs.reserve(DocScores.size());
-     for (auto &[DocID, Post] : DocScores)
-     {
-          CandidateDocs.push_back({DocID, &Post});
-     }
 
-     if (Limit > 0 && CandidateDocs.size() > static_cast<size_t>(Limit))
      {
-          const size_t CandidateLimit = std::min(CandidateDocs.size(), std::max<size_t>(static_cast<size_t>(Limit) * 8, static_cast<size_t>(Limit) + 64));
+          std::lock_guard<std::mutex> Lock(IndexMutex);
+          const auto CollectionLengthsIt = DocumentLengths.find(Collection);
 
-          if (CandidateLimit < CandidateDocs.size())
+          for (auto &[DocID, Post] : DocScores)
           {
-               std::nth_element(CandidateDocs.begin(),
-                                CandidateDocs.begin() + static_cast<std::ptrdiff_t>(CandidateLimit),
-                                CandidateDocs.end(),
-                                [](const auto &Left, const auto &Right)
-                                {
-                                     if (Left.second->Score != Right.second->Score)
-                                     {
-                                          return Left.second->Score > Right.second->Score;
-                                     }
+               double DocLengthValue = 1.0;
+               if (CollectionLengthsIt != DocumentLengths.end())
+               {
+                    const auto DocLengthIt = CollectionLengthsIt->second.find(DocID);
+                    if (DocLengthIt != CollectionLengthsIt->second.end())
+                    {
+                         DocLengthValue = static_cast<double>(DocLengthIt->second);
+                    }
+               }
 
-                                     return Left.first < Right.first;
-                                });
-
-               CandidateDocs.resize(CandidateLimit);
+               CandidateDocs.push_back({DocID, &Post, DocLengthValue});
           }
      }
 
-     for (const auto &[DocID, PostPtr] : CandidateDocs)
+     for (const auto &[DocID, PostPtr, DocLengthValue] : CandidateDocs)
      {
           Posting &Post = *PostPtr;
           double MatchedTermScore = Post.Score;
-
-          double DocLengthValue = 1.0;
-
-          {
-               std::lock_guard<std::mutex> Lock(IndexMutex);
-
-               auto DocLenIt = DocumentLengths[Collection].find(DocID);
-
-               if (DocLenIt != DocumentLengths[Collection].end())
-               {
-                    DocLengthValue = static_cast<double>(DocLenIt->second);
-               }
-          }
 
           double TotalScore = 0.0;
 
@@ -1815,14 +1816,39 @@ std::vector<Posting> InvertedIndex::Search(const std::string &Collection, const 
                double DocFreq = static_cast<double>(TermDocs.size());
 
                double TermScoreValue = 0.0;
+               const double EffectiveB = PivotEnabled ? 0.0 : B;
+               const bool EffectiveTFIDFNormalization = NormalizeTFIDF && !PivotEnabled;
 
-               if (PivotEnabled)
+               if (SearchAlgorithm == "bm25")
                {
-                    TermScoreValue = CalculatePivotNormScore(TermFreq, DocFreq, DocLengthValue, AvgDocLengthValue, static_cast<double>(CollectionSizeValue), PivotValue);
+                    TermScoreValue = CalculateBM25PlusScore(TermFreq, DocFreq, DocLengthValue, AvgDocLengthValue, static_cast<double>(CollectionSizeValue), K1, EffectiveB, 0.0);
+               }
+               else if (SearchAlgorithm == "tfidf")
+               {
+                    TermScoreValue = CalculateTFIDFScore(TermFreq, DocFreq, DocLengthValue, static_cast<double>(CollectionSizeValue), IdfSmooth, EffectiveTFIDFNormalization);
+               }
+               else if (SearchAlgorithm == "hybrid")
+               {
+                    const double WeightTotal = BM25Weight + TFIDFWeight;
+                    if (WeightTotal > 0.0)
+                    {
+                         const double BM25Score = CalculateBM25PlusScore(TermFreq, DocFreq, DocLengthValue, AvgDocLengthValue, static_cast<double>(CollectionSizeValue), K1, EffectiveB, 0.0);
+                         const double TFIDFScore = CalculateTFIDFScore(TermFreq, DocFreq, DocLengthValue, static_cast<double>(CollectionSizeValue), IdfSmooth, EffectiveTFIDFNormalization);
+                         TermScoreValue = ((BM25Weight * BM25Score) + (TFIDFWeight * TFIDFScore)) / WeightTotal;
+                    }
                }
                else
                {
-                    TermScoreValue = CalculateBM25PlusScore(TermFreq, DocFreq, DocLengthValue, AvgDocLengthValue, static_cast<double>(CollectionSizeValue), K1, B, Delta);
+                    TermScoreValue = CalculateBM25PlusScore(TermFreq, DocFreq, DocLengthValue, AvgDocLengthValue, static_cast<double>(CollectionSizeValue), K1, EffectiveB, Delta);
+               }
+
+               if (PivotEnabled && AvgDocLengthValue > 0.0)
+               {
+                    const double PivotNorm = (1.0 - PivotValue) + PivotValue * (DocLengthValue / AvgDocLengthValue);
+                    if (PivotNorm > 0.0)
+                    {
+                         TermScoreValue /= PivotNorm;
+                    }
                }
 
                TotalScore += TermScoreValue * std::max(0.0, TermDocIt->second.Score);
@@ -1877,7 +1903,7 @@ std::vector<Posting> InvertedIndex::Search(const std::string &Collection, const 
 
      if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
      {
-          Instance->Logs->Debug("inverted_index", "Search: Found " + std::to_string(Results.size()) + " results for query '" + Query + "' (using " + (UseMMap ? "mmap" : "memory") + " index).");
+          Instance->Logs->Debug("inverted_index", "Search: Found " + std::to_string(Results.size()) + " results for query '" + Query + "' (algorithm=" + SearchAlgorithm + ", index=" + (UseMMap ? "mmap" : "memory") + ").");
      }
 
      return Results;
@@ -2295,7 +2321,13 @@ bool InvertedIndex::HasMMapIndex(const std::string &Collection) const
 
 double InvertedIndex::CalculateBM25PlusScore(double TermFreq, double DocFreq, double DocLength, double AvgDocLength, double CollectionSize, double K1, double B, double Delta) const
 {
-     if (CollectionSize <= 0 || DocFreq <= 0 || DocLength <= 0)
+     if (!std::isfinite(TermFreq) || !std::isfinite(DocFreq) ||
+         !std::isfinite(DocLength) || !std::isfinite(AvgDocLength) ||
+         !std::isfinite(CollectionSize) || !std::isfinite(K1) ||
+         !std::isfinite(B) || !std::isfinite(Delta) ||
+         TermFreq <= 0.0 || DocFreq <= 0.0 || CollectionSize <= 0.0 ||
+         DocFreq > CollectionSize || DocLength <= 0.0 || AvgDocLength <= 0.0 ||
+         K1 < 0.0 || B < 0.0 || B > 1.0 || Delta < 0.0)
      {
           return 0.0;
      }
@@ -2342,17 +2374,48 @@ double InvertedIndex::CalculateBM25PlusScore(double TermFreq, double DocFreq, do
           }
      }
 
-     double NormalizedLengthValue = DocLength / std::max(AvgDocLength, 1.0);
-     double NumeratorValue = (TermFreq + Delta) * (K1 + 1.0);
-     double DenominatorValue = TermFreq + Delta + K1 * (1.0 - B + B * NormalizedLengthValue);
+     const double NormalizedLengthValue = DocLength / AvgDocLength;
+     const double NumeratorValue = TermFreq * (K1 + 1.0);
+     const double DenominatorValue = TermFreq + K1 * (1.0 - B + B * NormalizedLengthValue);
 
      if (DenominatorValue <= 0.0)
      {
-          DenominatorValue = 1.0;
+          return 0.0;
      }
 
-     double ScoreValueResult = Idf * (NumeratorValue / DenominatorValue);
-     return ScoreValueResult;
+     const double ScoreValueResult = Idf * ((NumeratorValue / DenominatorValue) + Delta);
+     return std::isfinite(ScoreValueResult) ? ScoreValueResult : 0.0;
+}
+
+/* InvertedIndex::CalculateTFIDFScore - Computes sublinear TF-IDF. */
+
+double InvertedIndex::CalculateTFIDFScore(double TermFreq, double DocFreq, double DocLength, double CollectionSize, double IdfSmooth, bool Normalize) const
+{
+     if (!std::isfinite(TermFreq) || !std::isfinite(DocFreq) ||
+         !std::isfinite(DocLength) || !std::isfinite(CollectionSize) ||
+         !std::isfinite(IdfSmooth) || TermFreq <= 0.0 || DocFreq <= 0.0 ||
+         DocLength <= 0.0 || CollectionSize <= 0.0 || DocFreq > CollectionSize ||
+         IdfSmooth < 0.0)
+     {
+          return 0.0;
+     }
+
+     const double IdfDenominator = DocFreq + IdfSmooth;
+     const double IdfNumerator = CollectionSize + IdfSmooth;
+     if (IdfDenominator <= 0.0 || IdfNumerator <= 0.0)
+     {
+          return 0.0;
+     }
+
+     double TermWeight = 1.0 + std::log(TermFreq);
+     if (Normalize)
+     {
+          TermWeight /= std::sqrt(DocLength);
+     }
+
+     const double Idf = 1.0 + std::log(IdfNumerator / IdfDenominator);
+     const double Score = TermWeight * Idf;
+     return std::isfinite(Score) && Score > 0.0 ? Score : 0.0;
 }
 
 /*

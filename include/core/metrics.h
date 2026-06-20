@@ -132,6 +132,8 @@ class HLQueryMetrics
 
           bool ShouldPerformRetention() const;
 
+          void PerformRetentionUnlocked();
+
           void PerformDailyRetention();
 
           void PerformMonthlyRetention();

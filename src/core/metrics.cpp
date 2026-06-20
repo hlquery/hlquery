@@ -57,7 +57,7 @@ void HLQueryMetrics::MetricHistory::AddPoint(double Value)
 
      if (ShouldPerformRetention())
      {
-          PerformRetention();
+          PerformRetentionUnlocked();
 
           LastRetentionCheck = NowTime;
      }
@@ -252,6 +252,12 @@ void HLQueryMetrics::MetricHistory::Clear()
 void HLQueryMetrics::MetricHistory::PerformRetention()
 {
      std::lock_guard<std::mutex> Lock(PointsMutex);
+
+     PerformRetentionUnlocked();
+}
+
+void HLQueryMetrics::MetricHistory::PerformRetentionUnlocked()
+{
 
      if (Points.empty())
      {
@@ -451,7 +457,16 @@ int64_t HLQueryMetrics::MetricHistory::GetDayNumber(std::chrono::system_clock::t
 {
      auto TimeValue = std::chrono::system_clock::to_time_t(TimestampPoint);
 
-     return TimeValue / 86400;
+     struct tm TmBuf;
+
+     const std::tm *TmPtr = localtime_r(&TimeValue, &TmBuf);
+
+     if (!TmPtr)
+     {
+          return TimeValue / 86400;
+     }
+
+     return static_cast<int64_t>(TmPtr->tm_year) * 366 + TmPtr->tm_yday;
 }
 
 bool HLQueryMetrics::MetricHistory::IsSameDay(

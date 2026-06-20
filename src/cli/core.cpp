@@ -914,7 +914,9 @@ HLQueryCLI::HTTPResponse HLQueryCLI::MakeRequest(const std::string &method, cons
           if (response_str.size() + bytes_received > max_response_size)
           {
                close(sock);
+
 #ifdef HLQUERY_HAS_OPENSSL
+
                if (SSLObj)
                {
                     SSL_free(SSLObj);
@@ -1018,7 +1020,9 @@ HLQueryCLI::HTTPResponse HLQueryCLI::MakeRequest(const std::string &method, cons
 
      if (bytes_received < 0)
      {
+
 #ifdef HLQUERY_HAS_OPENSSL
+
           if (SSLObj)
           {
                SSL_free(SSLObj);
@@ -1047,6 +1051,7 @@ HLQueryCLI::HTTPResponse HLQueryCLI::MakeRequest(const std::string &method, cons
      }
 
 #ifdef HLQUERY_HAS_OPENSSL
+
      if (SSLObj)
      {
           SSL_free(SSLObj);
@@ -1057,7 +1062,9 @@ HLQueryCLI::HTTPResponse HLQueryCLI::MakeRequest(const std::string &method, cons
           SSL_CTX_free(SSLCtx);
           SSLCtx = nullptr;
      }
+
 #endif
+
      close(sock);
 
      /* Split headers from body and extract the HTTP status code. */

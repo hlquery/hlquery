@@ -137,6 +137,7 @@ bool hlquery::StartServer()
                }
                catch (...)
                {
+               
                }
           }
 
@@ -169,9 +170,7 @@ bool hlquery::StartServer()
                     if (PIDFileStream.is_open())
                     {
                          std::string PIDStrValue;
-
                          std::getline(PIDFileStream, PIDStrValue);
-
                          PIDFileStream.close();
 
                          if (!PIDStrValue.empty())

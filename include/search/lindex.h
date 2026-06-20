@@ -137,6 +137,10 @@ class InvertedIndex
 
      double CalculateBM25LScore(double TermFreq, double DocFreq, double DocLength, double AvgDocLength, double CollectionSize, double K1 = 1.2, double B = 0.75, double Delta = 0.5) const;
 
+     /* CalculateTFIDFScore computes TF-IDF with optional length normalization. */
+
+     double CalculateTFIDFScore(double TermFreq, double DocFreq, double DocLength, double CollectionSize, double IdfSmooth = 1.0, bool Normalize = true) const;
+
      /* CalculatePivotNormScore computes pivoted normalization score. */
 
      double CalculatePivotNormScore(double TermFreq, double DocFreq, double DocLength, double AvgDocLength, double CollectionSize, double Pivot = 0.25) const;
