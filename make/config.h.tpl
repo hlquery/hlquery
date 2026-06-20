@@ -126,7 +126,7 @@ ${HLQUERY_SSL_DEFINES}
 /* HTTP Server Configuration */
 /* Maximum requests per HTTP connection (keep-alive limit) */
 
-#define HTTP_MAX_REQUESTS_PER_CONNECTION 100
+#define HTTP_MAX_REQUESTS_PER_CONNECTION 10000
 
 /* HTTP keep-alive timeout in seconds */
 

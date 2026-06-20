@@ -491,6 +491,22 @@ bool DBManager::Set(const std::string &key, const std::string &value)
      ClearLastWriteError();
 
      rocksdb::Status status = DBValue->Put(GetWriteOptions(), key, value);
+
+     if (!status.ok())
+     {
+          const std::string message = "Set: " + status.ToString();
+          {
+               std::lock_guard<std::mutex> lock(LastWriteErrorMutex);
+               LastWriteErrorCode = "rocksdb_write_failed";
+               LastWriteErrorMessage = message;
+          }
+
+          if (Instance && Instance->Logs)
+          {
+               Instance->Logs->Critical("rocksdb", message + ".");
+          }
+     }
+
      return status.ok();
 }
 
@@ -581,6 +597,21 @@ size_t DBManager::BatchSet(const std::vector<std::pair<std::string, std::string>
      ClearLastWriteError();
 
      rocksdb::Status status = DBValue->Write(GetWriteOptions(), &batch);
+
+     if (!status.ok())
+     {
+          const std::string message = "BatchSet: " + status.ToString();
+          {
+               std::lock_guard<std::mutex> lock(LastWriteErrorMutex);
+               LastWriteErrorCode = "rocksdb_write_failed";
+               LastWriteErrorMessage = message;
+          }
+
+          if (Instance && Instance->Logs)
+          {
+               Instance->Logs->Critical("rocksdb", message + ".");
+          }
+     }
 
      return status.ok() ? key_values.size() : 0;
 }

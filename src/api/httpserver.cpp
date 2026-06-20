@@ -115,6 +115,81 @@ static int HexDigitValue(char C)
      return 10 + (C - 'a');
 }
 
+static bool HasValidRequestFramingHeaders(const std::string &HeadersPart, std::string *Error)
+{
+     std::istringstream Stream(HeadersPart);
+     std::string Line;
+     bool FirstLine = true;
+     size_t ContentLengthCount = 0;
+
+     while (std::getline(Stream, Line))
+     {
+          if (!Line.empty() && Line.back() == '\r')
+          {
+               Line.pop_back();
+          }
+
+          if (FirstLine)
+          {
+               FirstLine = false;
+               continue;
+          }
+
+          if (Line.empty())
+          {
+               break;
+          }
+
+          const size_t Colon = Line.find(':');
+          if (Colon == std::string::npos)
+          {
+               if (Error)
+               {
+                    *Error = "Malformed HTTP header line";
+               }
+               return false;
+          }
+
+          std::string Name = Line.substr(0, Colon);
+          Name.erase(0, Name.find_first_not_of(" \t"));
+          const size_t LastNameCharacter = Name.find_last_not_of(" \t");
+          if (LastNameCharacter == std::string::npos)
+          {
+               if (Error)
+               {
+                    *Error = "Empty HTTP header name";
+               }
+               return false;
+          }
+          Name.erase(LastNameCharacter + 1);
+          std::transform(Name.begin(), Name.end(), Name.begin(), [](unsigned char C)
+                         { return static_cast<char>(std::tolower(C)); });
+
+          if (Name == "content-length")
+          {
+               ++ContentLengthCount;
+               if (ContentLengthCount > 1)
+               {
+                    if (Error)
+                    {
+                         *Error = "Duplicate Content-Length headers are not allowed";
+                    }
+                    return false;
+               }
+          }
+          else if (Name == "transfer-encoding")
+          {
+               if (Error)
+               {
+                    *Error = "Transfer-Encoding is not supported";
+               }
+               return false;
+          }
+     }
+
+     return true;
+}
+
 /* Use HTTP status codes from core/httpcodes.h. */
 
 using http_code = HttpCodes::code;
@@ -752,6 +827,21 @@ void HttpConnection::OnEventHandlerRead()
                }
 
                SetFD(-1);
+               return;
+          }
+
+          std::string FramingError;
+          if (!HasValidRequestFramingHeaders(HeadersPart, &FramingError))
+          {
+               if (Instance && Instance->Logs)
+               {
+                    Instance->Logs->Critical("http", "Invalid request framing: " + FramingError + ".");
+               }
+
+               HttpResponse ErrorResp(400, "Bad Request", "application/json");
+               ErrorResp.Body = "{\"error\":\"Invalid request framing\"}";
+               KeepAlive = false;
+               SendResponse(ErrorResp);
                return;
           }
 
@@ -1640,6 +1730,21 @@ void HttpConnection::ProcessMultipleRequests()
                return;
           }
 
+          std::string FramingError;
+          if (!HasValidRequestFramingHeaders(HeadersPart, &FramingError))
+          {
+               if (Instance && Instance->Logs)
+               {
+                    Instance->Logs->Critical("http", "Invalid pipelined request framing: " + FramingError + ".");
+               }
+
+               HttpResponse ErrorResp(400, "Bad Request", "application/json");
+               ErrorResp.Body = "{\"error\":\"Invalid request framing\"}";
+               KeepAlive = false;
+               SendResponse(ErrorResp);
+               return;
+          }
+
           std::string HeadersLower = HeadersPart;
 
           std::transform(HeadersLower.begin(), HeadersLower.end(), HeadersLower.begin(), ::tolower);
@@ -1829,7 +1934,7 @@ void HttpConnection::ProcessMultipleRequests()
 
           /* Check if we should continue processing. */
 
-          if (!KeepAlive || RequestsProcessed >= HTTP_MAX_REQUESTS_PER_CONNECTION)
+          if (!KeepAlive || (RequestsProcessed >= HTTP_MAX_REQUESTS_PER_CONNECTION && RequestBuffer.empty()))
           {
                if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
                {
@@ -2157,14 +2262,31 @@ void HttpConnection::ProcessSingleRequest(const std::string &RequestStr)
 
      /* Check for keep-alive header. */
 
-     auto ConnHeader = Request.Headers.find("Connection");
+     KeepAlive = (Request.Version == "HTTP/1.1");
+
+     auto ConnHeader = Request.Headers.find("connection");
 
      if (ConnHeader != Request.Headers.end())
      {
-          KeepAlive = (ConnHeader->second == "keep-alive");
+          std::string ConnectionValue = ConnHeader->second;
+          std::transform(ConnectionValue.begin(), ConnectionValue.end(), ConnectionValue.begin(), [](unsigned char C)
+                         { return static_cast<char>(std::tolower(C)); });
+          if (ConnectionValue == "close")
+          {
+               KeepAlive = false;
+          }
+          else if (ConnectionValue == "keep-alive")
+          {
+               KeepAlive = true;
+          }
      }
 
      RequestsProcessed++;
+
+     if (RequestsProcessed >= HTTP_MAX_REQUESTS_PER_CONNECTION && RequestBuffer.empty())
+     {
+          KeepAlive = false;
+     }
 
      /* Route to search API handlers. */
 
@@ -2511,6 +2633,19 @@ void HttpConnection::ProcessSingleRequest(const std::string &RequestStr)
                SendResponse(ReadOnlyResponse);
                return;
           }
+     }
+
+     /* The structured resolver is authoritative. Do not let the legacy
+      * substring dispatcher reinterpret malformed or unsupported paths. */
+
+     if (ActionVal == RouteAction::NotFound)
+     {
+          Response = HttpResponse(404, "Not Found", "application/json");
+          Response.Body = "{\"error\":\"Route not found\",\"path\":\"" +
+                          API.EscapeJSONString(Request.Path) + "\"}";
+          RecordAnalyticsForResponse(Request, Response);
+          SendResponse(Response);
+          return;
      }
 
      Response = HttpResponse(404, "Not Found");
@@ -3054,7 +3189,7 @@ void HttpConnection::SendResponse(const HttpResponse &Response)
           ResponseStr += "Keep-Alive: timeout=";
           ResponseStr += std::to_string(HTTP_KEEP_ALIVE_TIMEOUT_SEC);
           ResponseStr += ", max=";
-          ResponseStr += std::to_string(HTTP_MAX_REQUESTS_PER_CONNECTION - RequestsProcessed);
+          ResponseStr += std::to_string(std::max(0, HTTP_MAX_REQUESTS_PER_CONNECTION - RequestsProcessed));
           ResponseStr += "\r\n";
      }
      else
@@ -3246,6 +3381,18 @@ void HttpConnection::ForceClose()
 
 bool HttpConnection::ParseHttpRequest(const std::string &RawRequest, HttpRequest &Request)
 {
+     const size_t RawHeaderEnd = RawRequest.find("\r\n\r\n");
+     if (RawHeaderEnd == std::string::npos || RawHeaderEnd + 4 > HTTP_MAX_HEADER_SIZE)
+     {
+          return false;
+     }
+
+     std::string FramingError;
+     if (!HasValidRequestFramingHeaders(RawRequest.substr(0, RawHeaderEnd + 4), &FramingError))
+     {
+          return false;
+     }
+
      std::istringstream ISS(RawRequest);
 
      std::string Line;

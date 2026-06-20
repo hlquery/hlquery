@@ -436,6 +436,27 @@ std::vector<std::pair<std::string, ComprehensiveSearchQuery>> SearchAPI::ParseMu
                     }
                }
 
+               if (SearchObj.contains("size") && !SearchObj.contains("per_page") && !SearchObj.contains("limit"))
+               {
+                    try
+                    {
+                         if (SearchObj["size"].is_number_integer())
+                         {
+                              SearchQueryObj.PerPage = SearchObj["size"].get<int>();
+                         }
+                         else if (SearchObj["size"].is_string())
+                         {
+                              SearchQueryObj.PerPage = std::stoi(SearchObj["size"].get<std::string>());
+                         }
+
+                         SearchQueryObj.PerPage = std::clamp(SearchQueryObj.PerPage, 1, 1000);
+                    }
+                    catch (...)
+                    {
+                         SearchQueryObj.PerPage = 10;
+                    }
+               }
+
                if (SearchObj.contains("page"))
                {
                     try
@@ -471,6 +492,29 @@ std::vector<std::pair<std::string, ComprehensiveSearchQuery>> SearchAPI::ParseMu
                          else if (SearchObj["offset"].is_string())
                          {
                               SearchQueryObj.Offset = std::stoi(SearchObj["offset"].get<std::string>());
+                         }
+
+                         SearchQueryObj.Offset = std::max(0, SearchQueryObj.Offset);
+                         SearchQueryObj.Page = (SearchQueryObj.Offset / SearchQueryObj.PerPage) + 1;
+                    }
+                    catch (...)
+                    {
+                         SearchQueryObj.Offset = 0;
+                         SearchQueryObj.Page = 1;
+                    }
+               }
+
+               if (SearchObj.contains("from") && !SearchObj.contains("offset"))
+               {
+                    try
+                    {
+                         if (SearchObj["from"].is_number_integer())
+                         {
+                              SearchQueryObj.Offset = SearchObj["from"].get<int>();
+                         }
+                         else if (SearchObj["from"].is_string())
+                         {
+                              SearchQueryObj.Offset = std::stoi(SearchObj["from"].get<std::string>());
                          }
 
                          SearchQueryObj.Offset = std::max(0, SearchQueryObj.Offset);
@@ -1102,6 +1146,18 @@ ComprehensiveSearchQuery SearchAPI::ParseComprehensiveSearchQuery(const std::uno
           }
      }
 
+     if (Params.count("size") && !Params.count("per_page") && !Params.count("limit"))
+     {
+          try
+          {
+               QueryObj.PerPage = std::clamp(std::stoi(Params.at("size")), 1, 1000);
+          }
+          catch (...)
+          {
+               QueryObj.PerPage = 10;
+          }
+     }
+
      if (Params.count("offset"))
      {
           try
@@ -1119,6 +1175,20 @@ ComprehensiveSearchQuery SearchAPI::ParseComprehensiveSearchQuery(const std::uno
                {
                     QueryObj.Page = (Offset / QueryObj.PerPage) + 1;
                }
+          }
+          catch (...)
+          {
+               QueryObj.Offset = 0;
+               QueryObj.Page = 1;
+          }
+     }
+
+     if (Params.count("from") && !Params.count("offset"))
+     {
+          try
+          {
+               QueryObj.Offset = std::max(0, std::stoi(Params.at("from")));
+               QueryObj.Page = (QueryObj.Offset / QueryObj.PerPage) + 1;
           }
           catch (...)
           {

@@ -970,6 +970,15 @@ HttpResponse SearchAPI::HandleVectorSearch(const HttpRequest &Request)
           return BuildErrorResponse(Status::BAD_REQUEST, Code::COLLECTION_INVALID_NAME, "Invalid collection name.");
      }
 
+     CollectionName = ResolveCollectionName(CollectionName);
+     if (CollectionName.empty() || !HybridStorageManagerInstance().CollectionExists(CollectionName))
+     {
+          return BuildErrorResponse(Status::NOT_FOUND,
+                                    Code::COLLECTION_NOT_FOUND,
+                                    "Collection not found.",
+                                    "The specified collection does not exist.");
+     }
+
      ComprehensiveSearchQuery SearchQueryObj;
 
      try

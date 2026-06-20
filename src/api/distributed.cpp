@@ -1683,15 +1683,21 @@ bool SearchAPI::TryDistributedSearch(const HttpRequest &Request,
      const int PerPage = Query.PerPage < 1 ? 100 : Query.PerPage;
      const std::size_t PageSize = static_cast<std::size_t>(Page);
      const std::size_t PerPageSize = static_cast<std::size_t>(PerPage);
-     const std::size_t FanoutPerPageSize = (PageSize > (std::numeric_limits<std::size_t>::max() / PerPageSize))
+     const std::size_t RequestedStart = Query.Offset > 0
+                                            ? static_cast<std::size_t>(Query.Offset)
+                                            : ((PageSize - 1) > (std::numeric_limits<std::size_t>::max() / PerPageSize)
+                                                   ? std::numeric_limits<std::size_t>::max()
+                                                   : (PageSize - 1) * PerPageSize);
+     const std::size_t FanoutPerPageSize = RequestedStart > (std::numeric_limits<std::size_t>::max() - PerPageSize)
                                                ? std::numeric_limits<std::size_t>::max()
-                                               : std::max(PerPageSize, PageSize * PerPageSize);
+                                               : std::max(PerPageSize, RequestedStart + PerPageSize);
      const int FanoutPerPage = (FanoutPerPageSize > static_cast<std::size_t>(std::numeric_limits<int>::max()))
                                    ? std::numeric_limits<int>::max()
                                    : static_cast<int>(FanoutPerPageSize);
      ComprehensiveSearchQuery FanoutQuery = Query;
      FanoutQuery.Page = 1;
      FanoutQuery.PerPage = FanoutPerPage;
+     FanoutQuery.Offset = 0;
 
      std::vector<SearchHit> AggregatedHits;
      std::map<std::string, std::map<std::string, int>> FacetCounts;
@@ -1772,8 +1778,34 @@ bool SearchAPI::TryDistributedSearch(const HttpRequest &Request,
 
           const auto RequestStart = ::Now();
           HttpRequest FanoutRequest = Request;
+          FanoutRequest.QueryParams.erase("offset");
+          FanoutRequest.QueryParams.erase("from");
+          FanoutRequest.QueryParams.erase("limit");
+          FanoutRequest.QueryParams.erase("size");
           FanoutRequest.QueryParams["page"] = "1";
           FanoutRequest.QueryParams["per_page"] = std::to_string(FanoutPerPage);
+
+          if (FanoutRequest.Method == "POST" && !FanoutRequest.Body.empty())
+          {
+               try
+               {
+                    nlohmann::json FanoutBody = nlohmann::json::parse(FanoutRequest.Body);
+                    if (FanoutBody.is_object())
+                    {
+                         FanoutBody.erase("offset");
+                         FanoutBody.erase("from");
+                         FanoutBody.erase("limit");
+                         FanoutBody.erase("size");
+                         FanoutBody["page"] = 1;
+                         FanoutBody["per_page"] = FanoutPerPage;
+                         FanoutRequest.Body = FanoutBody.dump();
+                    }
+               }
+               catch (...)
+               {
+                    /* The caller already validated the body; keep it unchanged on failure. */
+               }
+          }
 
           PeerRequestResult PeerResult;
           if (!ExecutePeerRequestWithFallback(Node.Host, Node.Port, Node.Endpoint, Node.UseSSL, FanoutRequest, TimeoutMS, UsePersistentTransport, PersistentBurst, AutoReconnect, ReconnectMS, PeerTokenSource::Cluster, &PeerResult))
@@ -2021,18 +2053,13 @@ bool SearchAPI::TryDistributedSearch(const HttpRequest &Request,
      }
 
      OutResult->Hits.clear();
-     const std::size_t PageIndex = static_cast<std::size_t>(Page - 1);
-     if (PageIndex <= (std::numeric_limits<std::size_t>::max() / PerPageSize))
+     const std::size_t Start = RequestedStart;
+     if (Start < AggregatedHits.size())
      {
-          const std::size_t Start = PageIndex * PerPageSize;
-
-          if (Start < AggregatedHits.size())
-          {
-               const std::size_t End = std::min(AggregatedHits.size(), Start + PerPageSize);
-               OutResult->Hits.insert(OutResult->Hits.end(),
-                                      AggregatedHits.begin() + static_cast<std::vector<SearchHit>::difference_type>(Start),
-                                      AggregatedHits.begin() + static_cast<std::vector<SearchHit>::difference_type>(End));
-          }
+          const std::size_t End = std::min(AggregatedHits.size(), Start + PerPageSize);
+          OutResult->Hits.insert(OutResult->Hits.end(),
+                                 AggregatedHits.begin() + static_cast<std::vector<SearchHit>::difference_type>(Start),
+                                 AggregatedHits.begin() + static_cast<std::vector<SearchHit>::difference_type>(End));
      }
 
      OutResult->Found = FoundTotal;

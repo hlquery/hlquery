@@ -1493,6 +1493,16 @@ std::vector<SearchHit> SearchAPI::ProcessLexicalSearch(const std::string &Collec
                }
           }
 
+          const bool NeedsFullPostProcessing = !Query.SortBy.empty() || !Query.FilterBy.empty() ||
+                                               !Query.FacetBy.empty() || !Query.GroupBy.empty() ||
+                                               !Query.Aggregations.empty();
+          if (NeedsFullPostProcessing)
+          {
+               const size_t CollectionDocumentCount = HybridStorageManager::GetInstance().GetCollectionDocumentCount(Collection);
+               const int PostProcessingLimit = static_cast<int>(std::min<size_t>(CollectionDocumentCount, 10000));
+               RequestedLimit = std::max(RequestedLimit, PostProcessingLimit);
+          }
+
           auto AllDocuments = HybridStorageManager::GetInstance().ListDocuments(Collection, RequestedLimit);
 
           for (const auto &DocObj : AllDocuments)

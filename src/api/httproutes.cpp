@@ -69,6 +69,19 @@ static bool PrefixRoute(const std::string &Path,
      return MatchesMethod(Method, Methods);
 }
 
+static bool SingleChildRoute(const std::string &Path,
+                             const std::string &Method,
+                             const std::string &Prefix,
+                             std::initializer_list<const char *> Methods)
+{
+     if (!PrefixRoute(Path, Method, Prefix, Methods))
+     {
+          return false;
+     }
+
+     return Path.find('/', Prefix.size()) == std::string::npos;
+}
+
 struct CollectionRouteInfo
 {
      std::vector<std::string> Segments;
@@ -93,6 +106,13 @@ struct CollectionRouteInfo
      bool IsOverridesRoot = false;
      bool IsOverridesChild = false;
      bool IsVectorSearchAlias = false;
+
+     bool IsReservedDocumentOperation() const
+     {
+          return IsDocumentsSearch || IsDocumentsImport || IsDocumentsFacetCounts ||
+                 IsDocumentsExport || IsDocumentsMaybe || IsDocumentsUpdateByQuery ||
+                 IsDocumentsDeleteByQuery;
+     }
 
      bool SegmentEquals(size_t Index, const std::string &Value) const
      {
@@ -156,14 +176,14 @@ static CollectionRouteInfo BuildCollectionRouteInfo(const std::string &Normalize
      Info.IsCollectionUpdate = Info.IsCollectionPath && Info.Segments.size() == 3 && Info.SegmentEquals(2, "update");
      Info.IsDocumentsRoot = Info.IsCollectionPath && Info.Segments.size() == 3 && Info.SegmentEquals(2, "documents");
      Info.IsDocumentsChild = Info.IsCollectionPath && Info.Segments.size() >= 4 && Info.SegmentEquals(2, "documents");
-     Info.IsDocumentsSearch = Info.IsDocumentsChild && Info.SegmentEquals(3, "search");
-     Info.IsDocumentsImport = Info.IsDocumentsChild && Info.SegmentEquals(3, "import");
-     Info.IsDocumentsFacetCounts = Info.IsDocumentsChild && Info.SegmentEquals(3, "facet_counts");
-     Info.IsDocumentsExport = Info.IsDocumentsChild && Info.SegmentEquals(3, "export");
-     Info.IsDocumentsMaybe = Info.IsDocumentsChild && Info.SegmentEquals(3, "maybe");
+     Info.IsDocumentsSearch = Info.IsDocumentsChild && Info.Segments.size() == 4 && Info.SegmentEquals(3, "search");
+     Info.IsDocumentsImport = Info.IsDocumentsChild && Info.Segments.size() == 4 && Info.SegmentEquals(3, "import");
+     Info.IsDocumentsFacetCounts = Info.IsDocumentsChild && Info.Segments.size() == 4 && Info.SegmentEquals(3, "facet_counts");
+     Info.IsDocumentsExport = Info.IsDocumentsChild && Info.Segments.size() == 4 && Info.SegmentEquals(3, "export");
+     Info.IsDocumentsMaybe = Info.IsDocumentsChild && Info.Segments.size() == 4 && Info.SegmentEquals(3, "maybe");
      Info.IsDocumentContext = Info.IsCollectionPath && Info.Segments.size() == 5 && Info.SegmentEquals(2, "documents") && Info.SegmentEquals(4, "context");
-     Info.IsDocumentsUpdateByQuery = Info.IsDocumentsChild && Info.SegmentEquals(3, "_update_by_query");
-     Info.IsDocumentsDeleteByQuery = Info.IsDocumentsChild && Info.SegmentEquals(3, "_delete_by_query");
+     Info.IsDocumentsUpdateByQuery = Info.IsDocumentsChild && Info.Segments.size() == 4 && Info.SegmentEquals(3, "_update_by_query");
+     Info.IsDocumentsDeleteByQuery = Info.IsDocumentsChild && Info.Segments.size() == 4 && Info.SegmentEquals(3, "_delete_by_query");
      Info.IsSynonymsRoot = Info.IsCollectionPath && Info.Segments.size() == 3 && Info.SegmentEquals(2, "synonyms");
      Info.IsSynonymsChild = Info.IsCollectionPath && Info.Segments.size() >= 4 && Info.SegmentEquals(2, "synonyms");
      Info.IsStopwordsRoot = Info.IsCollectionPath && Info.Segments.size() == 3 && Info.SegmentEquals(2, "stopwords");
@@ -303,17 +323,17 @@ RouteAction ResolveHttpRoute(const HttpRequest &Request)
                return RouteAction::ListGlobalSynonyms;
           }
 
-          if (PrefixRoute(Path, Method, "/synonyms/global/", {"POST", "PUT"}))
+          if (SingleChildRoute(Path, Method, "/synonyms/global/", {"POST", "PUT"}))
           {
                return RouteAction::UpsertGlobalSynonym;
           }
 
-          if (PrefixRoute(Path, Method, "/synonyms/global/", {"GET"}))
+          if (SingleChildRoute(Path, Method, "/synonyms/global/", {"GET"}))
           {
                return RouteAction::GetGlobalSynonym;
           }
 
-          if (PrefixRoute(Path, Method, "/synonyms/global/", {"DELETE"}))
+          if (SingleChildRoute(Path, Method, "/synonyms/global/", {"DELETE"}))
           {
                return RouteAction::DeleteGlobalSynonym;
           }
@@ -323,7 +343,7 @@ RouteAction ResolveHttpRoute(const HttpRequest &Request)
                return RouteAction::ListAllSynonyms;
           }
 
-          if (NormalizedPath == "/health")
+          if (NormalizedPath == "/health" && Method == "GET")
           {
                return RouteAction::Health;
           }
@@ -418,7 +438,7 @@ RouteAction ResolveHttpRoute(const HttpRequest &Request)
                return RouteAction::CreateGlobalStopword;
           }
 
-          if (PrefixRoute(Path, Method, "/stopwords/global/", {"DELETE"}))
+          if (SingleChildRoute(Path, Method, "/stopwords/global/", {"DELETE"}))
           {
                return RouteAction::DeleteGlobalStopword;
           }
@@ -443,7 +463,9 @@ RouteAction ResolveHttpRoute(const HttpRequest &Request)
                return RouteAction::ListAliases;
           }
 
-          if (RouteInfo.IsCollectionPath && (RouteInfo.SegmentEquals(2, "vector_search") || RouteInfo.IsVectorSearchAlias) && (Method == "GET" || Method == "POST"))
+          if (RouteInfo.IsCollectionPath && RouteInfo.Segments.size() == 3 &&
+              (RouteInfo.SegmentEquals(2, "vector_search") || RouteInfo.IsVectorSearchAlias) &&
+              (Method == "GET" || Method == "POST"))
           {
                return RouteAction::VectorSearch;
           }
@@ -503,7 +525,8 @@ RouteAction ResolveHttpRoute(const HttpRequest &Request)
                return RouteAction::GetDocumentContext;
           }
 
-          if (RouteInfo.IsDocumentsChild && RouteInfo.Segments.size() == 4 && !RouteInfo.IsDocumentsSearch && !RouteInfo.IsDocumentsMaybe && Method == "GET")
+          if (RouteInfo.IsDocumentsChild && RouteInfo.Segments.size() == 4 &&
+              !RouteInfo.IsReservedDocumentOperation() && Method == "GET")
           {
                return RouteAction::GetDocument;
           }
@@ -518,12 +541,14 @@ RouteAction ResolveHttpRoute(const HttpRequest &Request)
                return RouteAction::AddDocument;
           }
 
-          if (RouteInfo.IsDocumentsChild && RouteInfo.Segments.size() == 4 && !RouteInfo.IsDocumentsSearch && !RouteInfo.IsDocumentsMaybe && Method == "PUT")
+          if (RouteInfo.IsDocumentsChild && RouteInfo.Segments.size() == 4 &&
+              !RouteInfo.IsReservedDocumentOperation() && Method == "PUT")
           {
                return RouteAction::UpdateDocument;
           }
 
-          if (RouteInfo.IsDocumentsChild && RouteInfo.Segments.size() == 4 && !RouteInfo.IsDocumentsSearch && !RouteInfo.IsDocumentsMaybe && Method == "DELETE")
+          if (RouteInfo.IsDocumentsChild && RouteInfo.Segments.size() == 4 &&
+              !RouteInfo.IsReservedDocumentOperation() && Method == "DELETE")
           {
                return RouteAction::DeleteDocument;
           }
@@ -618,17 +643,17 @@ RouteAction ResolveHttpRoute(const HttpRequest &Request)
                return RouteAction::ListAliases;
           }
 
-          if (PrefixRoute(Path, Method, "/aliases/", {"POST", "PUT"}))
+          if (SingleChildRoute(Path, Method, "/aliases/", {"POST", "PUT"}))
           {
                return RouteAction::UpsertAlias;
           }
 
-          if (PrefixRoute(Path, Method, "/aliases/", {"GET"}))
+          if (SingleChildRoute(Path, Method, "/aliases/", {"GET"}))
           {
                return RouteAction::GetAlias;
           }
 
-          if (PrefixRoute(Path, Method, "/aliases/", {"DELETE"}))
+          if (SingleChildRoute(Path, Method, "/aliases/", {"DELETE"}))
           {
                return RouteAction::DeleteAlias;
           }
@@ -653,17 +678,17 @@ RouteAction ResolveHttpRoute(const HttpRequest &Request)
                return RouteAction::CreateUser;
           }
 
-          if (PrefixRoute(Path, Method, "/users/", {"GET"}))
+          if (SingleChildRoute(Path, Method, "/users/", {"GET"}))
           {
                return RouteAction::GetUser;
           }
 
-          if (PrefixRoute(Path, Method, "/users/", {"DELETE"}))
+          if (SingleChildRoute(Path, Method, "/users/", {"DELETE"}))
           {
                return RouteAction::DeleteUser;
           }
 
-          if (PrefixRoute(Path, Method, "/users/", {"PUT"}))
+          if (SingleChildRoute(Path, Method, "/users/", {"PUT"}))
           {
                return RouteAction::UpdateUser;
           }
@@ -678,17 +703,17 @@ RouteAction ResolveHttpRoute(const HttpRequest &Request)
                return RouteAction::CreateKey;
           }
 
-          if (PrefixRoute(Path, Method, "/keys/", {"GET"}))
+          if (SingleChildRoute(Path, Method, "/keys/", {"GET"}))
           {
                return RouteAction::GetKey;
           }
 
-          if (PrefixRoute(Path, Method, "/keys/", {"DELETE"}))
+          if (SingleChildRoute(Path, Method, "/keys/", {"DELETE"}))
           {
                return RouteAction::DeleteKey;
           }
 
-          if (PrefixRoute(Path, Method, "/keys/", {"PUT"}))
+          if (SingleChildRoute(Path, Method, "/keys/", {"PUT"}))
           {
                return RouteAction::UpdateKey;
           }

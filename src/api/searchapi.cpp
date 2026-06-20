@@ -2240,6 +2240,7 @@ bool SearchAPI::ValidateCollectionSchema(const CollectionConfig &Config, std::st
           "int32",
           "int64",
           "float",
+          "float[]",
           "double",
           "bool",
           "boolean",

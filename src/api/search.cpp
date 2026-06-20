@@ -1518,17 +1518,23 @@ HttpResponse SearchAPI::HandleSearch(const HttpRequest &Request)
 
      std::unordered_map<std::string, std::string> Params;
 
-     /* GET requests consume query parameters, while POST requests consume JSON bodies. */
+     /* Query-string parameters apply to both methods. JSON body values override them. */
+
+     Params.insert(Request.QueryParams.begin(), Request.QueryParams.end());
 
      if (Request.Method == "GET")
      {
-          Params.insert(Request.QueryParams.begin(), Request.QueryParams.end());
+          /* Query parameters were copied above. */
      }
      else
      {
           try
           {
-               Params = ParseSearchParamsFromJSON(Request.Body);
+               const auto BodyParams = ParseSearchParamsFromJSON(Request.Body);
+               for (const auto &Param : BodyParams)
+               {
+                    Params[Param.first] = Param.second;
+               }
           }
           catch (...)
           {
@@ -2391,6 +2397,17 @@ HttpResponse SearchAPI::HandleMultiSearch(const HttpRequest &Request)
           std::string Col = SearchRequests[I].first;
 
           ComprehensiveSearchQuery QueryObj = SearchRequests[I].second;
+
+          Col = ResolveCollectionName(Col);
+          if (Col.empty() || !HybridStorageManagerInstance().CollectionExists(Col))
+          {
+               nlohmann::json Err;
+               Err["error"] = "Collection not found";
+               Err["message"] = "The specified collection does not exist.";
+               Err["code"] = static_cast<int>(Code::COLLECTION_NOT_FOUND);
+               Results.push_back(Err);
+               continue;
+          }
 
           /* Scoped search: Append embedded filters from API key. */
 
