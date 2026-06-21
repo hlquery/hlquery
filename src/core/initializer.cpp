@@ -29,17 +29,17 @@
 #include "common/searchpool.h"
 #include "core/config.h"
 #include "core/helpers.h"
-#include "runtime/daemon.h"
-#include "core/modulemanager.h"
-#include "vendor/json/json.hpp"
 #include "core/hlquery.h"
+#include "core/modulemanager.h"
 #include "core/socketengine.h"
+#include "runtime/daemon.h"
 #include "runtime/threadlimit.h"
 #include "search/cstore.h"
 #include "search/lindex.h"
 #include "utils/consolewriter.h"
 #include "utils/infos.h"
 #include "utils/tools.h"
+#include "vendor/json/json.hpp"
 
 /* Handles core server logic initialization and early setup tasks */
 
@@ -60,12 +60,6 @@ bool hlquery::StartServer()
 
      setvbuf(stdout, nullptr, _IOLBF, 0);
      setvbuf(stderr, nullptr, _IOLBF, 0);
-
-     /* Initialize startup state tracking structures */
-
-     {
-          /* No-op, already initialized */
-     }
 
      /*
       * Load config file early to get server ID for PID file check.
@@ -137,7 +131,6 @@ bool hlquery::StartServer()
                }
                catch (...)
                {
-               
                }
           }
 
@@ -170,6 +163,7 @@ bool hlquery::StartServer()
                     if (PIDFileStream.is_open())
                     {
                          std::string PIDStrValue;
+
                          std::getline(PIDFileStream, PIDStrValue);
                          PIDFileStream.close();
 
@@ -239,8 +233,8 @@ bool hlquery::StartServer()
      }
 
      /*
-     * Initialize the socket engine before starting any higher-level APIs.
-     */
+      * Initialize the socket engine before starting any higher-level APIs.
+      */
 
      try
      {
@@ -290,7 +284,7 @@ bool hlquery::StartServer()
 
      std::string ModuleError;
 
-     if (!Modules->LoadModules(*Config, Logs.get(), ModuleError))
+     if (!Modules->LoadModules(*Config, ModuleError))
      {
           if (Logs)
           {
@@ -435,8 +429,8 @@ bool hlquery::StartServer()
      }
 
      /*
-     * Execute robust flushes to ensure all binding information is visible.
-     */
+      * Execute robust flushes to ensure all binding information is visible.
+      */
 
      fflush(stdout);
      fflush(stderr);
@@ -445,8 +439,8 @@ bool hlquery::StartServer()
      fflush(NULL);
 
      /*
-     * Transition the process into its final operational state (e.g. backgrounding).
-     */
+      * Transition the process into its final operational state (e.g. backgrounding).
+      */
 
      CompleteDaemonSetup();
 
@@ -519,10 +513,11 @@ bool hlquery::InitializeCore()
           if (IPFilter->IsEnabled())
           {
                auto OriginalEntriesList = IPFilter->GetOriginalEntries();
-
                auto ResolvedIPsList = IPFilter->GetAllowedIPs();
+
                auto DeniedEntriesList = IPFilter->GetDeniedEntries();
                auto DeniedResolvedList = IPFilter->GetDeniedIPs();
+
                bool HasHostDeny = (Config && Config->HasHostDeny());
 
                if (!OriginalEntriesList.empty())
@@ -568,6 +563,7 @@ bool hlquery::InitializeCore()
                     for (const auto &Entry : OriginalEntriesList)
                     {
                          std::string EntryLine = "       - " + Entry;
+
                          ConsoleWriter::WriteStartupPlainSafe(STDOUT_FILENO, EntryLine.c_str(), false);
                     }
                }
@@ -625,6 +621,7 @@ bool hlquery::InitializeCore()
                     for (const auto &Entry : DeniedEntriesList)
                     {
                          std::string EntryLine = "       - " + Entry;
+
                          ConsoleWriter::WriteStartupPlainSafe(STDOUT_FILENO, EntryLine.c_str(), false);
                     }
                }
@@ -715,16 +712,16 @@ void hlquery::DisplaySSLInfo()
           }
 
           std::string CertName = BindConfigInstance.ssl_cert.empty()
-                                      ? "<unset>"
-                                      : std::filesystem::path(BindConfigInstance.ssl_cert).filename().string();
+          ? "<unset>"
+          : std::filesystem::path(BindConfigInstance.ssl_cert).filename().string();
 
           std::string KeyName = BindConfigInstance.ssl_key.empty()
-                                     ? "<unset>"
-                                     : std::filesystem::path(BindConfigInstance.ssl_key).filename().string();
+          ? "<unset>"
+          : std::filesystem::path(BindConfigInstance.ssl_key).filename().string();
 
           std::string BindLine = "       - " + std::to_string(BindConfigInstance.port) +
-                                 " (cert=" + CertName +
-                                 ", key=" + KeyName;
+          " (cert=" + CertName +
+          ", key=" + KeyName;
 
           if (!BindConfigInstance.ssl_protocols.empty())
           {
@@ -776,19 +773,19 @@ bool hlquery::InitializeNoForkMode()
                     Logs->Debug("hlquery", "HTTP/HTTPS server will start on " + BindConfigValueInstance.address + ":" + std::to_string(BindConfigValueInstance.port) + " (" + BindConfigValueInstance.type + ").");
                }
 
-               HttpServer *new_server = nullptr;
-            
-               if (!InitializeHttpServer(BindConfigValueInstance, new_server, Logs.get()))
+               HttpServer *NewServer = nullptr;
+
+               if (!InitializeHttpServer(BindConfigValueInstance, NewServer))
                {
                     SetShutdownFlag();
                     return false;
                }
 
-               if (new_server)
+               if (NewServer)
                {
-                    new_server->SetLoading(true);
-                    new_server->SetReadyToAccept(true);
-                    HTTPServers.push_back(new_server);
+                    NewServer->SetLoading(true);
+                    NewServer->SetReadyToAccept(true);
+                    HTTPServers.push_back(NewServer);
                }
           }
      }
@@ -797,9 +794,9 @@ bool hlquery::InitializeNoForkMode()
      {
           if (Logs)
           {
-               Logs->Critical("hlquery", "No HTTP/HTTPS bind configurations found!");
+               Logs->Critical("hlquery", "No HTTP/HTTPS bind configurations found.");
           }
- 
+
           ConsoleWriter::WriteError("[FATAL] No HTTP/HTTPS bind configurations found! Check your configuration file.", true);
           SetShutdownFlag();
           return false;
@@ -852,6 +849,7 @@ void hlquery::WaitForMetadataScan()
 
      {
           std::lock_guard<std::mutex> Lock(StatsVal.StartupStateMutex);
+
           StatsVal.StartupStateInfo.MetadataScanStart = Instance ? Instance->Now() : Now();
      }
 
@@ -875,6 +873,7 @@ void hlquery::WaitForMetadataScan()
 
                          {
                               std::lock_guard<std::mutex> Lock(StatsVal.StartupStateMutex);
+
                               StatsVal.StartupStateInfo.StrictStartupMode = true;
                          }
 
@@ -889,6 +888,7 @@ void hlquery::WaitForMetadataScan()
                     {
                          {
                               std::lock_guard<std::mutex> Lock(StatsVal.StartupStateMutex);
+
                               StatsVal.StartupStateInfo.ReadonlyMode = true;
                          }
 
@@ -934,6 +934,7 @@ void hlquery::WaitForMetadataScan()
 
           {
                std::lock_guard<std::mutex> Lock(StatsVal.StartupStateMutex);
+
                StatsVal.StartupStateInfo.CollectionLoadStart = Instance ? Instance->Now() : Now();
           }
 
@@ -962,6 +963,7 @@ void hlquery::WaitForMetadataScan()
 
                {
                     std::lock_guard<std::mutex> Lock(StatsVal.StartupStateMutex);
+
                     StatsVal.StartupStateInfo.CollectionLoadEnd = Instance ? Instance->Now() : Now();
                     StatsVal.StartupStateInfo.CollectionsLoaded = CollectionsLoadedFlagFinal;
 
@@ -1051,9 +1053,9 @@ void hlquery::WaitForMetadataScan()
 
           if (CollectionsLoadedFlagFinal)
           {
-               for (auto *server : HTTPServers)
+               for (auto *Server : HTTPServers)
                {
-                    server->SetLoading(false);
+                    Server->SetLoading(false);
                }
 
                if (Logs)
@@ -1069,13 +1071,14 @@ void hlquery::WaitForMetadataScan()
                }
           }
 
-          for (auto *server : HTTPServers)
+          for (auto *Server : HTTPServers)
           {
-               server->SetReadyToAccept(true);
+               Server->SetReadyToAccept(true);
           }
 
           {
                std::lock_guard<std::mutex> Lock(StatsVal.StartupStateMutex);
+
                StatsVal.StartupStateInfo.ReadyTime = Instance ? Instance->Now() : Now();
           }
 
@@ -1097,510 +1100,512 @@ void hlquery::WaitForMetadataScan()
           /* Start background thread to await scan completion without blocking main thread */
 
           std::thread WaitThreadInstance([]()
-                                         {
-                                              if (Instance && Instance->Logs)
-                                              {
-                                                   Instance->Logs->Normal("hlquery", "Waiting for metadata scan to complete before accepting requests.");
-                                              }
+          {
+               if (Instance && Instance->Logs)
+               {
+                    Instance->Logs->Normal("hlquery", "Waiting for metadata scan to complete before accepting requests.");
+               }
 
-                                              const int MaxWaitSecondsCount = METADATA_SCAN_MAX_WAIT_SECONDS;
-                                              const int SleepMSValueCount = METADATA_SCAN_SLEEP_MS;
-                                              int WaitedMSValueCount = 0;
-                                              int LogIntervalMSCount = 5000;
-                                              int LastLoggedMSValueCount = 0;
+               const int MaxWaitSecondsCount = METADATA_SCAN_MAX_WAIT_SECONDS;
+               const int SleepMSValueCount = METADATA_SCAN_SLEEP_MS;
 
-                                              if (Instance && Instance->Logs)
-                                              {
-                                                   Instance->Logs->Normal("hlquery", "Waiting for metadata scan (max wait: " + std::to_string(MaxWaitSecondsCount) + "s).");
-                                              }
+               int WaitedMSValueCount = 0;
 
-                                              while (!HybridStorageManagerInstance().IsMetadataScanComplete() &&
-                                                     WaitedMSValueCount < MaxWaitSecondsCount * 1000)
-                                              {
-                                                   std::this_thread::sleep_for(std::chrono::milliseconds(SleepMSValueCount));
+               int LogIntervalMSCount = 5000;
+               int LastLoggedMSValueCount = 0;
 
-                                                   WaitedMSValueCount += SleepMSValueCount;
+               if (Instance && Instance->Logs)
+               {
+                    Instance->Logs->Normal("hlquery", "Waiting for metadata scan (max wait: " + std::to_string(MaxWaitSecondsCount) + "s).");
+               }
 
-                                                   if (WaitedMSValueCount - LastLoggedMSValueCount >= LogIntervalMSCount)
-                                                   {
-                                                        LastLoggedMSValueCount = WaitedMSValueCount;
+               while (!HybridStorageManagerInstance().IsMetadataScanComplete() &&
+               WaitedMSValueCount < MaxWaitSecondsCount * 1000)
+               {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(SleepMSValueCount));
 
-                                                        int RemainingSecondsLeft = (MaxWaitSecondsCount * 1000 - WaitedMSValueCount) / 1000;
+                    WaitedMSValueCount += SleepMSValueCount;
 
-                                                        if (Instance && Instance->Logs)
-                                                        {
-                                                             Instance->Logs->Normal("hlquery", "Still waiting for metadata scan (" + std::to_string(WaitedMSValueCount / 1000) + "s elapsed, " + std::to_string(RemainingSecondsLeft) + "s remaining).");
-                                                        }
-                                                   }
-                                              }
+                    if (WaitedMSValueCount - LastLoggedMSValueCount >= LogIntervalMSCount)
+                    {
+                         LastLoggedMSValueCount = WaitedMSValueCount;
 
-                                              {
-                                                   std::lock_guard<std::mutex> Lock(Instance->StatsVal.StartupStateMutex);
+                         int RemainingSecondsLeft = (MaxWaitSecondsCount * 1000 - WaitedMSValueCount) / 1000;
 
-                                                   Instance->StatsVal.StartupStateInfo.MetadataScanEnd = Instance->Now();
+                         if (Instance && Instance->Logs)
+                         {
+                              Instance->Logs->Normal("hlquery", "Still waiting for metadata scan (" + std::to_string(WaitedMSValueCount / 1000) + "s elapsed, " + std::to_string(RemainingSecondsLeft) + "s remaining).");
+                         }
+                    }
+               }
 
-                                                   Instance->StatsVal.StartupStateInfo.MetadataScanComplete =
-                                                        HybridStorageManagerInstance().IsMetadataScanComplete();
-                                              }
+               {
+                    std::lock_guard<std::mutex> Lock(Instance->StatsVal.StartupStateMutex);
 
-                                              if (!HybridStorageManagerInstance().IsMetadataScanComplete())
-                                              {
-                                                   if (Instance && Instance->Logs)
-                                                   {
-                                                        Instance->Logs->Critical("hlquery",
-                                                                                 "Metadata scan wait timeout after " + std::to_string(MaxWaitSecondsCount) +
-                                                                                      " seconds - server may have incomplete metadata.");
+                    Instance->StatsVal.StartupStateInfo.MetadataScanEnd = Instance->Now();
 
-                                                        Instance->StatsVal.SetHealthDegraded(true, "Metadata scan timeout after " + std::to_string(MaxWaitSecondsCount) + "s");
-                                                   }
-                                              }
+                    Instance->StatsVal.StartupStateInfo.MetadataScanComplete =
+                         HybridStorageManagerInstance().IsMetadataScanComplete();
+               }
 
-                                              bool MetadataCompleteStatus = HybridStorageManagerInstance().IsMetadataScanComplete();
+               if (!HybridStorageManagerInstance().IsMetadataScanComplete())
+               {
+                    if (Instance && Instance->Logs)
+                    {
+                         Instance->Logs->Critical("hlquery",
+                                                  "Metadata scan wait timeout after " + std::to_string(MaxWaitSecondsCount) +
+                                                       " seconds - server may have incomplete metadata.");
 
-                                              {
-                                                   std::lock_guard<std::mutex> Lock(Instance->StatsVal.StartupStateMutex);
+                         Instance->StatsVal.SetHealthDegraded(true, "Metadata scan timeout after " + std::to_string(MaxWaitSecondsCount) + "s");
+                    }
+               }
 
-                                                   Instance->StatsVal.StartupStateInfo.SyncStart = Instance->Now();
-                                              }
+               bool MetadataCompleteStatus = HybridStorageManagerInstance().IsMetadataScanComplete();
 
-                                              bool SyncCompleteStatusFlag = true;
+               {
+                    std::lock_guard<std::mutex> Lock(Instance->StatsVal.StartupStateMutex);
 
-                                              if (Instance)
-                                              {
-                                                   SyncCompleteStatusFlag = !Instance->IsSyncInProgress();
-                                              }
+                    Instance->StatsVal.StartupStateInfo.SyncStart = Instance->Now();
+               }
 
-                                              /* Attempt to force sync lock release if it appears stalled */
+               bool SyncCompleteStatusFlag = true;
 
-                                              if (!SyncCompleteStatusFlag && Instance)
-                                              {
-                                                   if (Instance->Logs)
-                                                   {
-                                                        Instance->Logs->Normal("hlquery", "Sync appears to be in progress from previous session - clearing sync lock to allow server to start.");
-                                                   }
-
-                                                   Instance->SetSyncInProgress(false);
-
-                                                   SyncCompleteStatusFlag = true;
-                                              }
-
-                                              int SyncWaitMSTracker = 0;
-
-                                              const int MaxSyncWaitMSTracker = 5000;
-
-                                              while (!SyncCompleteStatusFlag && SyncWaitMSTracker < MaxSyncWaitMSTracker)
-                                              {
-                                                   std::this_thread::sleep_for(std::chrono::milliseconds(100));
-
-                                                   SyncWaitMSTracker += 100;
-
-                                                   if (!Instance)
-                                                   {
-                                                        break;
-                                                   }
-
-                                                   SyncCompleteStatusFlag = !Instance->IsSyncInProgress();
-                                              }
-
-                                              if (!SyncCompleteStatusFlag && Instance)
-                                              {
-                                                   if (Instance->Logs)
-                                                   {
-                                                        Instance->Logs->Normal("hlquery", "Sync timeout after " + std::to_string(MaxSyncWaitMSTracker) + "ms - forcing sync complete to allow server to start.");
-                                                   }
-
-                                                   Instance->SetSyncInProgress(false);
-
-                                                   SyncCompleteStatusFlag = true;
-                                              }
-
-                                              {
-                                                   std::lock_guard<std::mutex> Lock(Instance->StatsVal.StartupStateMutex);
-
-                                                   Instance->StatsVal.StartupStateInfo.SyncEnd = Instance->Now();
-                                                   Instance->StatsVal.StartupStateInfo.SyncComplete = SyncCompleteStatusFlag;
-
-                                                   if (!SyncCompleteStatusFlag)
-                                                   {
-                                                        Instance->StatsVal.StartupStateInfo.SyncError = "Sync timeout after " + std::to_string(MaxSyncWaitMSTracker) + "ms";
-                                                   }
-                                              }
-
-                                              if (!SyncCompleteStatusFlag && Instance)
-                                              {
-                                                   SyncCompleteStatusFlag = true;
-
-                                                   {
-                                                        std::lock_guard<std::mutex> Lock(Instance->StatsVal.StartupStateMutex);
-
-                                                        Instance->StatsVal.StartupStateInfo.SyncComplete = true;
-                                                   }
-                                              }
-
-                                              /* Monitor system health based on initialization status */
-
-                                              if (!MetadataCompleteStatus || !SyncCompleteStatusFlag)
-                                              {
-                                                   std::string ReasonValueMsg = "";
-
-                                                   if (!MetadataCompleteStatus)
-                                                   {
-                                                        ReasonValueMsg += "metadata scan incomplete";
-                                                   }
-
-                                                   if (!SyncCompleteStatusFlag)
-                                                   {
-                                                        if (!ReasonValueMsg.empty())
-                                                        {
-                                                             ReasonValueMsg += ", ";
-                                                        }
-
-                                                        ReasonValueMsg += "sync incomplete";
-                                                   }
-
-                                                   if (Instance)
-                                                   {
-                                                        Instance->StatsVal.SetHealthDegraded(true, ReasonValueMsg);
-                                                   }
-                                              }
-
-                                              bool CollectionsAlreadyLoadedStatusFlag = false;
-
-                                              if (Instance && !Instance->HTTPServers.empty())
-                                              {
-                                                   bool all_not_loading = true;
-                                             
-                                                   for (auto *server : Instance->HTTPServers)
-                                                   {
-                                                        if (server->IsLoading())
-                                                        {
-                                                             all_not_loading = false;
-                                                             break;
-                                                        }
-                                                   }
-
-                                                   if (all_not_loading)
-                                                   {
-                                                        try
-                                                        {
-                                                             auto ExistingCollectionsMap = HybridStorageManagerInstance().ListCollections();
-
-                                                             if (!ExistingCollectionsMap.empty())
-                                                             {
-                                                                  CollectionsAlreadyLoadedStatusFlag = true;
-
-                                                                  if (Instance->Logs)
-                                                                  {
-                                                                       Instance->Logs->Normal("hlquery", "Collections already loaded (" + std::to_string(ExistingCollectionsMap.size()) + " collections) - skipping background loading in WaitForMetadataScan().");
-                                                                  }
-                                                             }
-                                                        }
-                                                        catch (...)
-                                                        {
-                                                             /* Ignore errors during status check */
-                                                        }
-                                                   }
-                                              }
-
-                                              if (!CollectionsAlreadyLoadedStatusFlag && MetadataCompleteStatus && SyncCompleteStatusFlag && Instance && Instance->Database)
-                                              {
-                                                   if (Instance && Instance->Logs)
-                                                   {
-                                                        Instance->Logs->Normal("hlquery", "Metadata scan and database sync completed - loading collections in background (collection creation allowed).");
-                                                   }
-
-                                                   {
-                                                        std::lock_guard<std::mutex> Lock(Instance->StatsVal.StartupStateMutex);
-
-                                                        Instance->StatsVal.StartupStateInfo.CollectionLoadStart = Instance->Now();
-                                                   }
-
-                                                   std::thread LoadThreadInstanceFinal([]()
-                                                                                       {
-                                                                                            bool InternalLoadedStatusFlag = false;
-
-                                                                                            std::vector<std::string> FailedCollectionsListFinal;
-
-                                                                                            try
-                                                                                            {
-                                                                                                 if (Instance && Instance->Logs)
-                                                                                                 {
-                                                                                                      Instance->Logs->Normal("hlquery", "Starting collection loading from LSM (queries blocked until complete).");
-                                                                                                 }
-
-                                                                                                 InternalLoadedStatusFlag = HybridStorageManagerInstance().LoadCollectionsFromRocksDB();
-
-                                                                                                 size_t CollectionCountFinalValue = 0;
-
-                                                                                                 if (Instance && Instance->Database && InternalLoadedStatusFlag)
-                                                                                                 {
-                                                                                                      try
-                                                                                                      {
-                                                                                                           auto CurrentCollectionsFinalList = HybridStorageManagerInstance().ListCollections();
-
-                                                                                                           CollectionCountFinalValue = CurrentCollectionsFinalList.size();
-                                                                                                      }
-                                                                                                      catch (...)
-                                                                                                      {
-                                                                                                           /* Ignore counting errors */
-                                                                                                      }
-                                                                                                 }
-
-                                                                                                 {
-                                                                                                      std::lock_guard<std::mutex> Lock(Instance->StatsVal.StartupStateMutex);
-
-                                                                                                      Instance->StatsVal.StartupStateInfo.CollectionLoadEnd = Instance->Now();
-
-                                                                                                      Instance->StatsVal.StartupStateInfo.CollectionsLoaded = InternalLoadedStatusFlag;
-
-                                                                                                      Instance->StatsVal.StartupStateInfo.CollectionsLoadedCount = CollectionCountFinalValue;
-
-                                                                                                      Instance->StatsVal.StartupStateInfo.FailedCollections = FailedCollectionsListFinal;
-
-                                                                                                      if (!InternalLoadedStatusFlag)
-                                                                                                      {
-                                                                                                           Instance->StatsVal.StartupStateInfo.CollectionsLoadFailed = true;
-
-                                                                                                           Instance->StatsVal.StartupStateInfo.CollectionLoadError = "LoadCollectionsFromRocksDB returned false";
-                                                                                                      }
-                                                                                                 }
-
-                                                                                                 if (Instance && Instance->Logs)
-                                                                                                 {
-                                                                                                      if (InternalLoadedStatusFlag)
-                                                                                                      {
-                                                                                                           Instance->Logs->Normal("hlquery", "Collections loaded successfully (" + std::to_string(CollectionCountFinalValue) + " collections found) - queries now allowed.");
-                                                                                                      }
-                                                                                                      else
-                                                                                                      {
-                                                                                                           Instance->Logs->Normal("hlquery", "Collection loading returned false - queries enabled but collections may not be fully loaded.");
-                                                                                                      }
-                                                                                                 }
-
-                                                                                                 if (!InternalLoadedStatusFlag)
-                                                                                                 {
-                                                                                                      if (Instance)
-                                                                                                      {
-                                                                                                           Instance->StatsVal.SetHealthDegraded(true, "Collection loading failed - lazy loading fallback");
-
-                                                                                                           {
-                                                                                                                std::lock_guard<std::mutex> Lock(Instance->StatsVal.StartupStateMutex);
-
-                                                                                                                Instance->StatsVal.StartupStateInfo.LazyLoadingFallback = true;
-                                                                                                           }
-
-                                                                                                           if (Instance->Logs)
-                                                                                                           {
-                                                                                                                Instance->Logs->Normal("hlquery", "Lazy loading fallback mode: Collections will load on first access.");
-                                                                                                           }
-                                                                                                      }
-                                                                                                 }
-
-                                                                                                 if (Instance && !Instance->HTTPServers.empty())
-                                                                                                 {
-                                                                                                      for (auto *server : Instance->HTTPServers)
-                                                                                                      {
-                                                                                                           server->SetLoading(false);
-                                                                                                      }
-
-                                                                                                      {
-                                                                                                           std::lock_guard<std::mutex> Lock(Instance->StatsVal.StartupStateMutex);
-
-                                                                                                           Instance->StatsVal.StartupStateInfo.ReadyTime = Instance->Now();
-                                                                                                      }
-
-                                                                                                      if (Instance->Logs)
-                                                                                                      {
-                                                                                                           auto StateInfoFinalVal = Instance->StatsVal.GetStartupState();
-
-                                                                                                           int64_t TimeToReadyFinalVal = 0;
-
-                                                                                                           if (StateInfoFinalVal.ReadyTime.time_since_epoch().count() > 0)
-                                                                                                           {
-                                                                                                                TimeToReadyFinalVal = std::chrono::duration_cast<std::chrono::milliseconds>(
-                                                                                                                                           StateInfoFinalVal.ReadyTime - StateInfoFinalVal.StartTime)
-                                                                                                                                           .count();
-                                                                                                           }
-
-                                                                                                           std::string StartupSummaryFinalMsg = "STARTUP_COMPLETE: ready_ms=" + std::to_string(TimeToReadyFinalVal) +
-                                                                                                                                                " collections=" + std::to_string(CollectionCountFinalValue) +
-                                                                                                                                                " restart_count=" + std::to_string(Instance->StatsVal.GetRestartCount()) +
-                                                                                                                                                (Instance->StatsVal.IsDirtyShutdown() ? " dirty_shutdown=yes" : " dirty_shutdown=no") +
-                                                                                                                                                (InternalLoadedStatusFlag ? " status=ok" : " status=degraded");
-
-                                                                                                           Instance->Logs->Normal("hlquery", StartupSummaryFinalMsg + ".");
-
-                                                                                                           Instance->Logs->Normal("hlquery", "Collection loading completed (" + std::to_string(CollectionCountFinalValue) + " collections) - HTTP servers now ready to accept queries.");
-                                                                                                      }
-                                                                                                 }
-                                                                                            }
-                                                                                            catch (const std::exception &e)
-                                                                                            {
-                                                                                                 {
-                                                                                                      std::lock_guard<std::mutex> Lock(Instance->StatsVal.StartupStateMutex);
-
-                                                                                                      Instance->StatsVal.StartupStateInfo.CollectionLoadEnd = Instance->Now();
-
-                                                                                                      Instance->StatsVal.StartupStateInfo.CollectionsLoadFailed = true;
-
-                                                                                                      Instance->StatsVal.StartupStateInfo.CollectionLoadError = std::string("Exception: ") + e.what();
-
-                                                                                                      Instance->StatsVal.StartupStateInfo.FailedCollections = FailedCollectionsListFinal;
-                                                                                                 }
-
-                                                                                                 if (Instance && Instance->Logs)
-                                                                                                 {
-                                                                                                      Instance->Logs->Critical("hlquery",
-                                                                                                                               "Exception loading collections: " + std::string(e.what()) +
-                                                                                                                                    " - Queries enabled but collections may not be fully loaded.");
-                                                                                                 }
-
-                                                                                                 if (Instance)
-                                                                                                 {
-                                                                                                      Instance->StatsVal.SetHealthDegraded(true, "Exception during collection loading: " + std::string(e.what()));
-                                                                                                 }
-
-                                                                                                 if (Instance && !Instance->HTTPServers.empty() && Instance->Logs)
-                                                                                                 {
-                                                                                                      Instance->Logs->Normal("hlquery", "Collection loading exception - queries remain blocked, collections will load on-demand.");
-                                                                                                 }
-                                                                                            }
-                                                                                            catch (...)
-                                                                                            {
-                                                                                                 {
-                                                                                                      std::lock_guard<std::mutex> Lock(Instance->StatsVal.StartupStateMutex);
-
-                                                                                                      Instance->StatsVal.StartupStateInfo.CollectionLoadEnd = Instance->Now();
-
-                                                                                                      Instance->StatsVal.StartupStateInfo.CollectionsLoadFailed = true;
-
-                                                                                                      Instance->StatsVal.StartupStateInfo.CollectionLoadError = "Unknown exception";
-
-                                                                                                      Instance->StatsVal.StartupStateInfo.FailedCollections = FailedCollectionsListFinal;
-                                                                                                 }
-
-                                                                                                 if (Instance && Instance->Logs)
-                                                                                                 {
-                                                                                                      Instance->Logs->Critical("hlquery",
-                                                                                                                               "Unknown exception loading collections - Queries enabled but collections may not be fully loaded.");
-                                                                                                 }
-
-                                                                                                 if (Instance)
-                                                                                                 {
-                                                                                                      Instance->StatsVal.SetHealthDegraded(true, "Unknown exception during collection loading");
-                                                                                                 }
-
-                                                                                                 if (Instance && !Instance->HTTPServers.empty() && Instance->Logs)
-                                                                                                 {
-                                                                                                      Instance->Logs->Normal("hlquery", "Collection loading unknown exception - queries remain blocked, collections will load on-demand.");
-                                                                                                 }
-                                                                                            }
-                                                                                       });
-
-                                                   {
-                                                        if (Instance)
-                                                        {
-                                                             Instance->AddBackgroundThread(std::move(LoadThreadInstanceFinal));
-                                                        }
-                                                   }
-                                              }
-                                              else
-                                              {
-                                                   if (Instance && Instance->Logs)
-                                                   {
-                                                        std::string MissingItemsListFinalStr = "";
-
-                                                        if (!MetadataCompleteStatus)
-                                                        {
-                                                             MissingItemsListFinalStr += "metadata scan";
-                                                        }
-
-                                                        if (!SyncCompleteStatusFlag)
-                                                        {
-                                                             if (!MissingItemsListFinalStr.empty())
-                                                             {
-                                                                  MissingItemsListFinalStr += ", ";
-                                                             }
-
-                                                             MissingItemsListFinalStr += "database sync";
-                                                        }
-
-                                                        if (!Instance || !Instance->Database)
-                                                        {
-                                                             if (!MissingItemsListFinalStr.empty())
-                                                             {
-                                                                  MissingItemsListFinalStr += ", ";
-                                                             }
-
-                                                             MissingItemsListFinalStr += "database not available";
-                                                        }
-
-                                                        Instance->Logs->Normal("hlquery", "Cannot load collections - " + MissingItemsListFinalStr + " not complete - Server will enable with lazy loading.");
-                                                   }
-
-                                                   if (Instance && !Instance->HTTPServers.empty())
-                                                   {
-                                                        for (auto *server : Instance->HTTPServers)
-                                                        {
-                                                             server->SetReadyToAccept(true);
-                                                        }
-                                                   }
-                                              }
-
-                                              if (MetadataCompleteStatus && SyncCompleteStatusFlag && Instance && !Instance->HTTPServers.empty())
-                                              {
-                                                   if (Instance->Logs && Instance->Logs->GetDebugMode())
-                                                   {
-                                                        Instance->Logs->Debug("hlquery", "WaitForMetadataScan: Enabling HTTP servers to accept connections (MetadataComplete=" + std::string(MetadataCompleteStatus ? "true" : "false") + ", SyncCompleteStatusFlag=" + std::string(SyncCompleteStatusFlag ? "true" : "false") + ", collections loading in background).");
-                                                   }
-
-                                                   for (auto *server : Instance->HTTPServers)
-                                                   {
-                                                        server->SetReadyToAccept(true);
-                                                   }
-
-                                                   if (Instance->Logs)
-                                                   {
-                                                        Instance->Logs->Normal("hlquery", "Metadata scan and database sync completed - HTTP servers accepting connections (collection creation allowed, queries blocked until collections load).");
-                                                   }
-                                              }
-                                              else
-                                              {
-                                                   if (Instance && !Instance->HTTPServers.empty())
-                                                   {
-                                                        for (auto *server : Instance->HTTPServers)
-                                                        {
-                                                             server->SetReadyToAccept(true);
-                                                        }
-
-                                                        if (Instance->Logs)
-                                                        {
-                                                             std::string ReasonMsgFinalText = "";
-
-                                                             if (!MetadataCompleteStatus)
-                                                             {
-                                                                  ReasonMsgFinalText += "metadata scan";
-                                                             }
-
-                                                             if (!SyncCompleteStatusFlag)
-                                                             {
-                                                                  if (!ReasonMsgFinalText.empty())
-                                                                  {
-                                                                       ReasonMsgFinalText += " and ";
-                                                                  }
-
-                                                                  ReasonMsgFinalText += "database sync";
-                                                             }
-
-                                                             Instance->Logs->Critical("hlquery",
-                                                                                      "Wait timeout - HTTP servers enabled (may have incomplete data: " + ReasonMsgFinalText +
-                                                                                           " not complete) - QUERIES MAY RETURN INCOMPLETE RESULTS.");
-                                                        }
-                                                   }
-                                              }
-
-                                              ThreadLimit::DecrementThreadCount();
-                                         });
+               if (Instance)
+               {
+                    SyncCompleteStatusFlag = !Instance->IsSyncInProgress();
+               }
+
+               /* Attempt to force sync lock release if it appears stalled */
+
+               if (!SyncCompleteStatusFlag && Instance)
+               {
+                    if (Instance->Logs)
+                    {
+                         Instance->Logs->Normal("hlquery", "Sync appears to be in progress from previous session - clearing sync lock to allow server to start.");
+                    }
+
+                    Instance->SetSyncInProgress(false);
+
+                    SyncCompleteStatusFlag = true;
+               }
+
+               int SyncWaitMSTracker = 0;
+
+               const int MaxSyncWaitMSTracker = 5000;
+
+               while (!SyncCompleteStatusFlag && SyncWaitMSTracker < MaxSyncWaitMSTracker)
+               {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+                    SyncWaitMSTracker += 100;
+
+                    if (!Instance)
+                    {
+                         break;
+                    }
+
+                    SyncCompleteStatusFlag = !Instance->IsSyncInProgress();
+               }
+
+               if (!SyncCompleteStatusFlag && Instance)
+               {
+                    if (Instance->Logs)
+                    {
+                         Instance->Logs->Normal("hlquery", "Sync timeout after " + std::to_string(MaxSyncWaitMSTracker) + "ms - forcing sync complete to allow server to start.");
+                    }
+
+                    Instance->SetSyncInProgress(false);
+
+                    SyncCompleteStatusFlag = true;
+               }
+
+               {
+                    std::lock_guard<std::mutex> Lock(Instance->StatsVal.StartupStateMutex);
+
+                    Instance->StatsVal.StartupStateInfo.SyncEnd = Instance->Now();
+                    Instance->StatsVal.StartupStateInfo.SyncComplete = SyncCompleteStatusFlag;
+
+                    if (!SyncCompleteStatusFlag)
+                    {
+                         Instance->StatsVal.StartupStateInfo.SyncError = "Sync timeout after " + std::to_string(MaxSyncWaitMSTracker) + "ms";
+                    }
+               }
+
+               if (!SyncCompleteStatusFlag && Instance)
+               {
+                    SyncCompleteStatusFlag = true;
+
+                    {
+                         std::lock_guard<std::mutex> Lock(Instance->StatsVal.StartupStateMutex);
+
+                         Instance->StatsVal.StartupStateInfo.SyncComplete = true;
+                    }
+               }
+
+               /* Monitor system health based on initialization status */
+
+               if (!MetadataCompleteStatus || !SyncCompleteStatusFlag)
+               {
+                    std::string ReasonValueMsg = "";
+
+                    if (!MetadataCompleteStatus)
+                    {
+                         ReasonValueMsg += "metadata scan incomplete";
+                    }
+
+                    if (!SyncCompleteStatusFlag)
+                    {
+                         if (!ReasonValueMsg.empty())
+                         {
+                              ReasonValueMsg += ", ";
+                         }
+
+                         ReasonValueMsg += "sync incomplete";
+                    }
+
+                    if (Instance)
+                    {
+                         Instance->StatsVal.SetHealthDegraded(true, ReasonValueMsg);
+                    }
+               }
+
+               bool CollectionsAlreadyLoadedStatusFlag = false;
+
+               if (Instance && !Instance->HTTPServers.empty())
+               {
+                    bool AllServersReady = true;
+
+                    for (auto *Server : Instance->HTTPServers)
+                    {
+                         if (Server->IsLoading())
+                         {
+                              AllServersReady = false;
+                              break;
+                         }
+                    }
+
+                    if (AllServersReady)
+                    {
+                         try
+                         {
+                              auto ExistingCollectionsMap = HybridStorageManagerInstance().ListCollections();
+
+                              if (!ExistingCollectionsMap.empty())
+                              {
+                                   CollectionsAlreadyLoadedStatusFlag = true;
+
+                                   if (Instance->Logs)
+                                   {
+                                        Instance->Logs->Normal("hlquery", "Collections already loaded (" + std::to_string(ExistingCollectionsMap.size()) + " collections) - skipping background loading in WaitForMetadataScan().");
+                                   }
+                              }
+                         }
+                         catch (...)
+                         {
+                              /* Ignore errors during status check */
+                         }
+                    }
+               }
+
+               if (!CollectionsAlreadyLoadedStatusFlag && MetadataCompleteStatus && SyncCompleteStatusFlag && Instance && Instance->Database)
+               {
+                    if (Instance && Instance->Logs)
+                    {
+                         Instance->Logs->Normal("hlquery", "Metadata scan and database sync completed - loading collections in background (collection creation allowed).");
+                    }
+
+                    {
+                         std::lock_guard<std::mutex> Lock(Instance->StatsVal.StartupStateMutex);
+
+                         Instance->StatsVal.StartupStateInfo.CollectionLoadStart = Instance->Now();
+                    }
+
+                    std::thread LoadThreadInstanceFinal([]()
+                    {
+                         bool InternalLoadedStatusFlag = false;
+
+                         std::vector<std::string> FailedCollectionsListFinal;
+
+                         try
+                         {
+                              if (Instance && Instance->Logs)
+                              {
+                                   Instance->Logs->Normal("hlquery", "Starting collection loading from LSM (queries blocked until complete).");
+                              }
+
+                              InternalLoadedStatusFlag = HybridStorageManagerInstance().LoadCollectionsFromRocksDB();
+
+                              size_t CollectionCountFinalValue = 0;
+
+                              if (Instance && Instance->Database && InternalLoadedStatusFlag)
+                              {
+                                   try
+                                   {
+                                        auto CurrentCollectionsFinalList = HybridStorageManagerInstance().ListCollections();
+
+                                        CollectionCountFinalValue = CurrentCollectionsFinalList.size();
+                                   }
+                                   catch (...)
+                                   {
+                                        /* Ignore counting errors */
+                                   }
+                              }
+
+                              {
+                                   std::lock_guard<std::mutex> Lock(Instance->StatsVal.StartupStateMutex);
+
+                                   Instance->StatsVal.StartupStateInfo.CollectionLoadEnd = Instance->Now();
+
+                                   Instance->StatsVal.StartupStateInfo.CollectionsLoaded = InternalLoadedStatusFlag;
+
+                                   Instance->StatsVal.StartupStateInfo.CollectionsLoadedCount = CollectionCountFinalValue;
+
+                                   Instance->StatsVal.StartupStateInfo.FailedCollections = FailedCollectionsListFinal;
+
+                                   if (!InternalLoadedStatusFlag)
+                                   {
+                                        Instance->StatsVal.StartupStateInfo.CollectionsLoadFailed = true;
+
+                                        Instance->StatsVal.StartupStateInfo.CollectionLoadError = "LoadCollectionsFromRocksDB returned false";
+                                   }
+                              }
+
+                              if (Instance && Instance->Logs)
+                              {
+                                   if (InternalLoadedStatusFlag)
+                                   {
+                                        Instance->Logs->Normal("hlquery", "Collections loaded successfully (" + std::to_string(CollectionCountFinalValue) + " collections found) - queries now allowed.");
+                                   }
+                                   else
+                                   {
+                                        Instance->Logs->Normal("hlquery", "Collection loading returned false - queries enabled but collections may not be fully loaded.");
+                                   }
+                              }
+
+                              if (!InternalLoadedStatusFlag)
+                              {
+                                   if (Instance)
+                                   {
+                                        Instance->StatsVal.SetHealthDegraded(true, "Collection loading failed - lazy loading fallback");
+
+                                        {
+                                             std::lock_guard<std::mutex> Lock(Instance->StatsVal.StartupStateMutex);
+
+                                             Instance->StatsVal.StartupStateInfo.LazyLoadingFallback = true;
+                                        }
+
+                                        if (Instance->Logs)
+                                        {
+                                             Instance->Logs->Normal("hlquery", "Lazy loading fallback mode: Collections will load on first access.");
+                                        }
+                                   }
+                              }
+
+                              if (Instance && !Instance->HTTPServers.empty())
+                              {
+                                   for (auto *Server : Instance->HTTPServers)
+                                   {
+                                        Server->SetLoading(false);
+                                   }
+
+                                   {
+                                        std::lock_guard<std::mutex> Lock(Instance->StatsVal.StartupStateMutex);
+
+                                        Instance->StatsVal.StartupStateInfo.ReadyTime = Instance->Now();
+                                   }
+
+                                   if (Instance->Logs)
+                                   {
+                                        auto StateInfoFinalVal = Instance->StatsVal.GetStartupState();
+
+                                        int64_t TimeToReadyFinalVal = 0;
+
+                                        if (StateInfoFinalVal.ReadyTime.time_since_epoch().count() > 0)
+                                        {
+                                             TimeToReadyFinalVal = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                             StateInfoFinalVal.ReadyTime - StateInfoFinalVal.StartTime)
+                                             .count();
+                                        }
+
+                                        std::string StartupSummaryFinalMsg = "STARTUP_COMPLETE: ready_ms=" + std::to_string(TimeToReadyFinalVal) +
+                                        " collections=" + std::to_string(CollectionCountFinalValue) +
+                                        " restart_count=" + std::to_string(Instance->StatsVal.GetRestartCount()) +
+                                        (Instance->StatsVal.IsDirtyShutdown() ? " dirty_shutdown=yes" : " dirty_shutdown=no") +
+                                        (InternalLoadedStatusFlag ? " status=ok" : " status=degraded");
+
+                                        Instance->Logs->Normal("hlquery", StartupSummaryFinalMsg + ".");
+
+                                        Instance->Logs->Normal("hlquery", "Collection loading completed (" + std::to_string(CollectionCountFinalValue) + " collections) - HTTP servers now ready to accept queries.");
+                                   }
+                              }
+                         }
+                         catch (const std::exception &e)
+                         {
+                              {
+                                   std::lock_guard<std::mutex> Lock(Instance->StatsVal.StartupStateMutex);
+
+                                   Instance->StatsVal.StartupStateInfo.CollectionLoadEnd = Instance->Now();
+
+                                   Instance->StatsVal.StartupStateInfo.CollectionsLoadFailed = true;
+
+                                   Instance->StatsVal.StartupStateInfo.CollectionLoadError = std::string("Exception: ") + e.what();
+
+                                   Instance->StatsVal.StartupStateInfo.FailedCollections = FailedCollectionsListFinal;
+                              }
+
+                              if (Instance && Instance->Logs)
+                              {
+                                   Instance->Logs->Critical("hlquery",
+                                                            "Exception loading collections: " + std::string(e.what()) +
+                                                                 " - Queries enabled but collections may not be fully loaded.");
+                              }
+
+                              if (Instance)
+                              {
+                                   Instance->StatsVal.SetHealthDegraded(true, "Exception during collection loading: " + std::string(e.what()));
+                              }
+
+                              if (Instance && !Instance->HTTPServers.empty() && Instance->Logs)
+                              {
+                                   Instance->Logs->Normal("hlquery", "Collection loading exception - queries remain blocked, collections will load on-demand.");
+                              }
+                         }
+                         catch (...)
+                         {
+                              {
+                                   std::lock_guard<std::mutex> Lock(Instance->StatsVal.StartupStateMutex);
+
+                                   Instance->StatsVal.StartupStateInfo.CollectionLoadEnd = Instance->Now();
+
+                                   Instance->StatsVal.StartupStateInfo.CollectionsLoadFailed = true;
+
+                                   Instance->StatsVal.StartupStateInfo.CollectionLoadError = "Unknown exception";
+
+                                   Instance->StatsVal.StartupStateInfo.FailedCollections = FailedCollectionsListFinal;
+                              }
+
+                              if (Instance && Instance->Logs)
+                              {
+                                   Instance->Logs->Critical("hlquery",
+                                                            "Unknown exception loading collections - Queries enabled but collections may not be fully loaded.");
+                              }
+
+                              if (Instance)
+                              {
+                                   Instance->StatsVal.SetHealthDegraded(true, "Unknown exception during collection loading");
+                              }
+
+                              if (Instance && !Instance->HTTPServers.empty() && Instance->Logs)
+                              {
+                                   Instance->Logs->Normal("hlquery", "Collection loading unknown exception - queries remain blocked, collections will load on-demand.");
+                              }
+                         }
+                    });
+
+                    {
+                         if (Instance)
+                         {
+                              Instance->AddBackgroundThread(std::move(LoadThreadInstanceFinal));
+                         }
+                    }
+               }
+               else
+               {
+                    if (Instance && Instance->Logs)
+                    {
+                         std::string MissingItemsListFinalStr = "";
+
+                         if (!MetadataCompleteStatus)
+                         {
+                              MissingItemsListFinalStr += "metadata scan";
+                         }
+
+                         if (!SyncCompleteStatusFlag)
+                         {
+                              if (!MissingItemsListFinalStr.empty())
+                              {
+                                   MissingItemsListFinalStr += ", ";
+                              }
+
+                              MissingItemsListFinalStr += "database sync";
+                         }
+
+                         if (!Instance || !Instance->Database)
+                         {
+                              if (!MissingItemsListFinalStr.empty())
+                              {
+                                   MissingItemsListFinalStr += ", ";
+                              }
+
+                              MissingItemsListFinalStr += "database not available";
+                         }
+
+                         Instance->Logs->Normal("hlquery", "Cannot load collections - " + MissingItemsListFinalStr + " not complete - Server will enable with lazy loading.");
+                    }
+
+                    if (Instance && !Instance->HTTPServers.empty())
+                    {
+                         for (auto *Server : Instance->HTTPServers)
+                         {
+                              Server->SetReadyToAccept(true);
+                         }
+                    }
+               }
+
+               if (MetadataCompleteStatus && SyncCompleteStatusFlag && Instance && !Instance->HTTPServers.empty())
+               {
+                    if (Instance->Logs && Instance->Logs->GetDebugMode())
+                    {
+                         Instance->Logs->Debug("hlquery", "WaitForMetadataScan: Enabling HTTP servers to accept connections (MetadataComplete=" + std::string(MetadataCompleteStatus ? "true" : "false") + ", SyncCompleteStatusFlag=" + std::string(SyncCompleteStatusFlag ? "true" : "false") + ", collections loading in background).");
+                    }
+
+                    for (auto *Server : Instance->HTTPServers)
+                    {
+                         Server->SetReadyToAccept(true);
+                    }
+
+                    if (Instance->Logs)
+                    {
+                         Instance->Logs->Normal("hlquery", "Metadata scan and database sync completed - HTTP servers accepting connections (collection creation allowed, queries blocked until collections load).");
+                    }
+               }
+               else
+               {
+                    if (Instance && !Instance->HTTPServers.empty())
+                    {
+                         for (auto *Server : Instance->HTTPServers)
+                         {
+                              Server->SetReadyToAccept(true);
+                         }
+
+                         if (Instance->Logs)
+                         {
+                              std::string ReasonMsgFinalText = "";
+
+                              if (!MetadataCompleteStatus)
+                              {
+                                   ReasonMsgFinalText += "metadata scan";
+                              }
+
+                              if (!SyncCompleteStatusFlag)
+                              {
+                                   if (!ReasonMsgFinalText.empty())
+                                   {
+                                        ReasonMsgFinalText += " and ";
+                                   }
+
+                                   ReasonMsgFinalText += "database sync";
+                              }
+
+                              Instance->Logs->Critical("hlquery",
+                                                       "Wait timeout - HTTP servers enabled (may have incomplete data: " + ReasonMsgFinalText +
+                                                            " not complete) - QUERIES MAY RETURN INCOMPLETE RESULTS.");
+                         }
+                    }
+               }
+
+               ThreadLimit::DecrementThreadCount();
+          });
 
           {
                if (Instance)
@@ -1665,9 +1670,9 @@ void hlquery::WaitForMetadataScan()
 
                if (CollectionsLoadedFlagFinalValue)
                {
-                    for (auto *server : HTTPServers)
+                    for (auto *Server : HTTPServers)
                     {
-                         server->SetLoading(false);
+                         Server->SetLoading(false);
                     }
 
                     if (Logs)
@@ -1679,27 +1684,25 @@ void hlquery::WaitForMetadataScan()
                {
                     if (Logs)
                     {
-                         Logs->Normal("hlquery",
-                                      "Thread limit reached - Collections not loaded, queries remain blocked (collections will load on-demand).");
+                         Logs->Normal("hlquery", "Thread limit reached - Collections not loaded, queries remain blocked (collections will load on-demand).");
                     }
                }
 
-               for (auto *server : HTTPServers)
+               for (auto *Server : HTTPServers)
                {
-                    server->SetReadyToAccept(true);
+                    Server->SetReadyToAccept(true);
                }
           }
           else
           {
                if (Logs)
                {
-                    Logs->Normal("hlquery",
-                                 "Thread limit reached - HTTP server enabled (metadata scan incomplete, collections not loaded, queries blocked).");
+                    Logs->Normal("hlquery", "Thread limit reached - HTTP server enabled (metadata scan incomplete, collections not loaded, queries blocked).");
                }
 
-               for (auto *server : HTTPServers)
+               for (auto *Server : HTTPServers)
                {
-                    server->SetReadyToAccept(true);
+                    Server->SetReadyToAccept(true);
                }
           }
      }

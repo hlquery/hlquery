@@ -25,6 +25,7 @@
 #include <vector>
 
 #include "common/actionlist.h"
+#include "core/config.h"
 #include "core/hlquery.h"
 #include "core/socketengine.h"
 
@@ -97,7 +98,7 @@ static int GetTimedWorkWakeupMs()
           }
      }
 
-     return 1000;
+     return SOCKET_ENGINE_TIMED_WORK_FALLBACK_MS;
 }
 
 static bool ApplyKevent(int kq, int fd, int16_t filter, uint16_t flags)
@@ -357,8 +358,8 @@ int SocketEngine::DispatchEvents()
      int timeout_ms = -1;
      if (HasPendingWork())
      {
-          timeout_ms = 0;
-          CurrentTimeoutMS.store(0, std::memory_order_relaxed);
+          timeout_ms = KQUEUE_PENDING_WORK_TIMEOUT_MS;
+          CurrentTimeoutMS.store(KQUEUE_PENDING_WORK_TIMEOUT_MS, std::memory_order_relaxed);
      }
      else
      {
@@ -460,7 +461,7 @@ void SocketEngine::DispatchTrialWrites()
           SocketEngine::PendingWritesCount.store(0, std::memory_order_relaxed);
      }
 
-     const size_t BatchSize = 256;
+     const size_t BatchSize = KQUEUE_BATCH_SIZE;
 
      for (size_t batch_start = 0; batch_start < WriteCandidates.size(); batch_start += BatchSize)
      {
@@ -568,21 +569,21 @@ void SocketEngine::AdaptTimeout()
      uint64_t CurrentConnectionsValue = ActiveConnections.load();
      int NewTimeoutValue = -1;
 
-     if (CurrentConnectionsValue > 10000)
+     if (CurrentConnectionsValue > SOCKET_ENGINE_ULTRA_HIGH_LOAD_CONNECTIONS)
      {
-          NewTimeoutValue = 0;
+          NewTimeoutValue = SOCKET_ENGINE_ULTRA_HIGH_LOAD_TIMEOUT_MS;
      }
-     else if (CurrentConnectionsValue > 5000)
+     else if (CurrentConnectionsValue > SOCKET_ENGINE_HIGH_LOAD_CONNECTIONS)
      {
-          NewTimeoutValue = 1;
+          NewTimeoutValue = SOCKET_ENGINE_HIGH_LOAD_TIMEOUT_MS;
      }
-     else if (CurrentConnectionsValue > 1000)
+     else if (CurrentConnectionsValue > SOCKET_ENGINE_MEDIUM_LOAD_CONNECTIONS)
      {
-          NewTimeoutValue = 5;
+          NewTimeoutValue = SOCKET_ENGINE_MEDIUM_LOAD_TIMEOUT_MS;
      }
-     else if (CurrentConnectionsValue > 100)
+     else if (CurrentConnectionsValue > SOCKET_ENGINE_LOW_MEDIUM_LOAD_CONNECTIONS)
      {
-          NewTimeoutValue = 10;
+          NewTimeoutValue = SOCKET_ENGINE_LOW_MEDIUM_LOAD_TIMEOUT_MS;
      }
 
      CurrentTimeoutMS.store(NewTimeoutValue);

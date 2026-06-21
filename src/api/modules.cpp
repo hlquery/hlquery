@@ -451,7 +451,7 @@ HttpResponse SearchAPI::HandleModuleLoad(const HttpRequest &Request)
 
      std::string ErrorMessage;
 
-     if (!Instance->Modules->LoadModule(*Instance->Config, target_module, Instance->Logs.get(), ErrorMessage))
+     if (!Instance->Modules->LoadModule(*Instance->Config, target_module, ErrorMessage))
      {
           return BuildErrorResponse(Status::BAD_REQUEST,
                                     MODULE_UNAVAILABLE,
@@ -496,7 +496,7 @@ HttpResponse SearchAPI::HandleModuleUnload(const HttpRequest &Request)
 
      std::string ErrorMessage;
 
-     if (!Instance->Modules->UnloadModule(target_module, Instance->Logs.get(), ErrorMessage))
+     if (!Instance->Modules->UnloadModule(target_module, ErrorMessage))
      {
           return BuildErrorResponse(Status::BAD_REQUEST,
                                     MODULE_UNAVAILABLE,

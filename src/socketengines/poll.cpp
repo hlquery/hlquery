@@ -27,6 +27,7 @@
 #include <vector>
 
 #include "common/actionlist.h"
+#include "core/config.h"
 #include "core/hlquery.h"
 #include "core/socketengine.h"
 #include "search/storageengine.h"
@@ -98,7 +99,7 @@ static int GetTimedWorkWakeupMs()
           }
      }
 
-     return 1000;
+     return SOCKET_ENGINE_TIMED_WORK_FALLBACK_MS;
 }
 
 /* Initializes the socket engine */
@@ -467,7 +468,7 @@ int SocketEngine::DispatchEvents()
 
      if (HasPendingWork())
      {
-          timeout_ms = 1;
+          timeout_ms = SOCKET_ENGINE_PENDING_WORK_TIMEOUT_MS;
 
           /*
          * Reset timeout immediately when pending work detected
@@ -1094,21 +1095,21 @@ void SocketEngine::AdaptTimeout()
      uint64_t CurrentConnectionsValue = ActiveConnections.load();
      int NewTimeoutValue = -1;
 
-     if (CurrentConnectionsValue > 10000)
+     if (CurrentConnectionsValue > SOCKET_ENGINE_ULTRA_HIGH_LOAD_CONNECTIONS)
      {
-          NewTimeoutValue = 0;
+          NewTimeoutValue = SOCKET_ENGINE_ULTRA_HIGH_LOAD_TIMEOUT_MS;
      }
-     else if (CurrentConnectionsValue > 5000)
+     else if (CurrentConnectionsValue > SOCKET_ENGINE_HIGH_LOAD_CONNECTIONS)
      {
-          NewTimeoutValue = 1;
+          NewTimeoutValue = SOCKET_ENGINE_HIGH_LOAD_TIMEOUT_MS;
      }
-     else if (CurrentConnectionsValue > 1000)
+     else if (CurrentConnectionsValue > SOCKET_ENGINE_MEDIUM_LOAD_CONNECTIONS)
      {
-          NewTimeoutValue = 5;
+          NewTimeoutValue = SOCKET_ENGINE_MEDIUM_LOAD_TIMEOUT_MS;
      }
-     else if (CurrentConnectionsValue > 100)
+     else if (CurrentConnectionsValue > SOCKET_ENGINE_LOW_MEDIUM_LOAD_CONNECTIONS)
      {
-          NewTimeoutValue = 10;
+          NewTimeoutValue = SOCKET_ENGINE_LOW_MEDIUM_LOAD_TIMEOUT_MS;
      }
 
      CurrentTimeoutMS.store(NewTimeoutValue);

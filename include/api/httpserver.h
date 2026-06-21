@@ -506,7 +506,7 @@ bool ValidateSSLConfig(const BindConfig& ConfigVal, std::string* ErrorMsg = null
 
 /* Initialize and start the HTTP server. */
 
-bool InitializeHttpServer(const BindConfig& ConfigVal, HttpServer*& HttpServerPtr, LogManager* Logs);
+bool InitializeHttpServer(const BindConfig& ConfigVal, HttpServer*& HttpServerPtr);
 
 /* Stop and destroy the HTTP server. */
 

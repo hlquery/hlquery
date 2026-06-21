@@ -26,6 +26,7 @@
 #include <unordered_set>
 
 #include "common/actionlist.h"
+#include "core/config.h"
 #include "runtime/exitmanager.h"
 #include "core/hlquery.h"
 #include "core/socketengine.h"
@@ -72,22 +73,11 @@ static std::mutex RegisteredFDsMutex;
 
 /* Zero-copy optimizations - lazy allocation to save memory if unused */
 
-static std::array<void *, 16> ZeroCopyBuffers{};
+static std::array<void *, EPOLL_ZERO_COPY_BUFFER_COUNT> ZeroCopyBuffers{};
 
 static std::atomic<size_t> ZeroCopyBufferIndex{0};
 
 static std::atomic<bool> ZeroCopyBuffersAllocated{false};
-
-/* 64KB buffers */
-
-static constexpr size_t ZERO_COPY_BUFFER_SIZE = 64 * 1024;
-
-/*
- * Maximum reasonable file descriptor value for validation
- * Most systems have much lower limits (typically 1024-4096), but allow higher for safety
- */
-
-static constexpr int MAX_REASONABLE_FD = 1000000;
 
 static int GetTimedWorkWakeupMs()
 {
@@ -106,7 +96,7 @@ static int GetTimedWorkWakeupMs()
           }
      }
 
-     return 1000;
+     return SOCKET_ENGINE_TIMED_WORK_FALLBACK_MS;
 }
 
 /* Initializes the socket engine */
@@ -244,7 +234,7 @@ void SocketEngine::InitializeAdvancedIO()
 
      {
           std::lock_guard<std::mutex> lock(PendingWritesMutex);
-          PendingWritesSet.reserve(1024);
+          PendingWritesSet.reserve(EPOLL_PENDING_WRITES_RESERVE);
      }
 
      /* Set optimal socket options */
@@ -304,29 +294,29 @@ void SocketEngine::AdaptTimeout()
 
      int NewTimeout = -1;
 
-     if (CurrentConnections > 10000)
+     if (CurrentConnections > SOCKET_ENGINE_ULTRA_HIGH_LOAD_CONNECTIONS)
      {
           /* Ultra-high load - use 0ms timeout (non-blocking) */
 
-          NewTimeout = 0;
+          NewTimeout = SOCKET_ENGINE_ULTRA_HIGH_LOAD_TIMEOUT_MS;
      }
-     else if (CurrentConnections > 5000)
+     else if (CurrentConnections > SOCKET_ENGINE_HIGH_LOAD_CONNECTIONS)
      {
           /* High load - use 1ms timeout */
 
-          NewTimeout = 1;
+          NewTimeout = SOCKET_ENGINE_HIGH_LOAD_TIMEOUT_MS;
      }
-     else if (CurrentConnections > 1000)
+     else if (CurrentConnections > SOCKET_ENGINE_MEDIUM_LOAD_CONNECTIONS)
      {
           /* Medium load - use 5ms timeout */
 
-          NewTimeout = 5;
+          NewTimeout = SOCKET_ENGINE_MEDIUM_LOAD_TIMEOUT_MS;
      }
-     else if (CurrentConnections > 100)
+     else if (CurrentConnections > SOCKET_ENGINE_LOW_MEDIUM_LOAD_CONNECTIONS)
      {
           /* Low-medium load - use 10ms timeout */
 
-          NewTimeout = 10;
+          NewTimeout = SOCKET_ENGINE_LOW_MEDIUM_LOAD_TIMEOUT_MS;
      }
 
      CurrentTimeoutMS.store(NewTimeout);
@@ -363,7 +353,7 @@ void *SocketEngine::GetZeroCopyBuffer()
 
           for (size_t i = 0; i < ZeroCopyBuffers.size(); ++i)
           {
-               ZeroCopyBuffers[i] = std::aligned_alloc(4096, ZERO_COPY_BUFFER_SIZE);
+               ZeroCopyBuffers[i] = std::aligned_alloc(EPOLL_ZERO_COPY_BUFFER_ALIGNMENT, EPOLL_ZERO_COPY_BUFFER_SIZE);
 
                if (!ZeroCopyBuffers[i])
                {
@@ -737,7 +727,7 @@ int SocketEngine::DispatchEvents()
 
      if (HasPendingWork())
      {
-          timeout_ms = 1;
+          timeout_ms = SOCKET_ENGINE_PENDING_WORK_TIMEOUT_MS;
 
           /*
          * Reset timeout immediately when pending work detected.
@@ -952,7 +942,7 @@ int SocketEngine::DispatchEvents()
                /* Validate fd before using it */
 
                int fd = EH->GetFD();
-               bool valid_fd = (fd >= 0 && fd <= MAX_REASONABLE_FD);
+               bool valid_fd = (fd >= 0 && fd <= EPOLL_MAX_REASONABLE_FD);
                int error_num = 0;
 
                if ((ev & EPOLLERR) && valid_fd)
@@ -1047,7 +1037,7 @@ int SocketEngine::DispatchEvents()
 
           int fd = EH->GetFD();
 
-          if (fd < 0 || fd > MAX_REASONABLE_FD)
+          if (fd < 0 || fd > EPOLL_MAX_REASONABLE_FD)
           {
                if (Instance && Instance->Logs)
                {
@@ -1134,7 +1124,7 @@ int SocketEngine::DispatchEvents()
 
           int fd = EH->GetFD();
 
-          if (fd < 0 || fd > MAX_REASONABLE_FD)
+          if (fd < 0 || fd > EPOLL_MAX_REASONABLE_FD)
           {
                if (Instance && Instance->Logs)
                {
@@ -1222,15 +1212,8 @@ int SocketEngine::DispatchEvents()
           int more_events;
           int loop_count = 0;
 
-          /* Prevent infinite loops */
-
-          const int MAX_LOOPS = 10;
-
-          /* Prevent processing too many events at once */
-
-          const int MAX_TOTAL_EVENTS = MAX_EVENTS * 20;
-
-          while (loop_count < MAX_LOOPS && total_processed < MAX_TOTAL_EVENTS)
+          while (loop_count < EPOLL_MAX_DRAIN_LOOPS &&
+                 total_processed < MAX_EVENTS * EPOLL_MAX_DRAIN_EVENTS_MULTIPLIER)
           {
                /* Re-check EpollFD validity before each call */
 
@@ -1274,7 +1257,7 @@ int SocketEngine::DispatchEvents()
                }
           }
 
-          if (loop_count >= MAX_LOOPS)
+          if (loop_count >= EPOLL_MAX_DRAIN_LOOPS)
           {
                if (Instance && Instance->Logs)
                {
@@ -1282,7 +1265,7 @@ int SocketEngine::DispatchEvents()
                }
           }
 
-          if (total_processed >= MAX_TOTAL_EVENTS)
+          if (total_processed >= MAX_EVENTS * EPOLL_MAX_DRAIN_EVENTS_MULTIPLIER)
           {
                if (Instance && Instance->Logs)
                {
