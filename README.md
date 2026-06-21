@@ -176,6 +176,10 @@ $schema = [
 
         ['name' => 'content', 'type' => 'string'],
 
+        /* Keep product identifiers as exact, non-fuzzy values. */
+
+        ['name' => 'sku', 'type' => 'keyword'],
+
         /* Save a numeric price for filters and sorts. */
 
         ['name' => 'price', 'type' => 'float'],

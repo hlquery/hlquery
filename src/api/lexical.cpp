@@ -1202,6 +1202,46 @@ static bool HasRequestedQueryFields(const std::vector<std::string> &query_by)
      return !query_by.empty();
 }
 
+static bool QueriesOnlyKeywordFields(const CollectionConfig &config,
+                                     const std::vector<std::string> &query_by)
+{
+     if (query_by.empty())
+     {
+          return false;
+     }
+
+     for (const auto &field_name : query_by)
+     {
+          if (field_name == "id")
+          {
+               continue;
+          }
+
+          const auto field_it = config.Fields.find(field_name);
+          if (field_it == config.Fields.end() || ToLowerCopy(field_it->second) != "keyword")
+          {
+               return false;
+          }
+     }
+
+     return true;
+}
+
+static bool KeywordFieldMatchesExact(const std::vector<std::pair<std::string, std::string>> &field_values,
+                                     const std::string &query,
+                                     bool case_sensitive)
+{
+     std::string normalized_query = TrimWhitespace(StripQuotes(query));
+     if (!case_sensitive)
+     {
+          normalized_query = ToLowerCopy(normalized_query);
+     }
+
+     return !normalized_query.empty() &&
+            std::any_of(field_values.begin(), field_values.end(), [&](const auto &field_value)
+                        { return TrimWhitespace(field_value.second) == normalized_query; });
+}
+
 static void AppendRequestedFieldValues(const Document &doc,
                                        const std::vector<std::string> &query_by,
                                        std::vector<std::pair<std::string, std::string>> &field_values,
@@ -1234,6 +1274,15 @@ static void AppendRequestedFieldValues(const Document &doc,
 
      for (const auto &field_name : query_by)
      {
+          if (field_name == "id")
+          {
+               if (!doc.ID.empty())
+               {
+                    field_values.push_back({"id", case_sensitive ? doc.ID : ToLowerCopy(doc.ID)});
+               }
+               continue;
+          }
+
           if (field_name == "title")
           {
                if (!doc.Title.empty())
@@ -1556,6 +1605,13 @@ std::vector<SearchHit> SearchAPI::ProcessLexicalSearch(const std::string &Collec
 
      auto &storage = HybridStorageManager::GetInstance();
 
+     CollectionConfig collection_config;
+     const bool exact_keyword_query =
+          !ParsedExpression.UsesStructuredSemantics &&
+          !Query.InlineFuzzy &&
+          storage.GetCollectionConfig(Collection, collection_config) &&
+          QueriesOnlyKeywordFields(collection_config, Query.QueryBy);
+
      storage.LazyLoadCollectionIndex(Collection);
 
      size_t collection_docs = storage.GetCollectionDocumentCount(Collection);
@@ -1611,7 +1667,11 @@ std::vector<SearchHit> SearchAPI::ProcessLexicalSearch(const std::string &Collec
 
      std::vector<std::string> QueryVariants;
      const bool restrict_to_query_fields = HasRequestedQueryFields(Query.QueryBy);
-     if (ParsedExpression.UsesStructuredSemantics)
+     if (exact_keyword_query)
+     {
+          QueryVariants.push_back(SearchQueryVal);
+     }
+     else if (ParsedExpression.UsesStructuredSemantics)
      {
           QueryVariants = BuildCandidateQueriesFromParsedExpression(ParsedExpression);
      }
@@ -1639,7 +1699,7 @@ std::vector<SearchHit> SearchAPI::ProcessLexicalSearch(const std::string &Collec
      for (const auto &Variant : QueryVariants)
      {
           auto VariantPostings = Instance->SearchIndex->Search(Collection,
-                                                               BuildIndexQueryForSearch(Variant, Query.Prefix),
+                                                               BuildIndexQueryForSearch(Variant, Query.Prefix && !exact_keyword_query),
                                                                SearchLimit,
                                                                restrict_to_query_fields ? Query.QueryBy : std::vector<std::string>{});
           for (const auto &Posting : VariantPostings)
@@ -1697,7 +1757,7 @@ std::vector<SearchHit> SearchAPI::ProcessLexicalSearch(const std::string &Collec
           query_variant_terms_list.push_back(base_query_terms);
      }
      const int effective_max_typos =
-          (Query.NumTypos > 0 && !base_query_terms.empty() &&
+          (!exact_keyword_query && Query.NumTypos > 0 && !base_query_terms.empty() &&
            (!require_exact_identifier_tokens || Query.NumTyposExplicit || !has_identifier_like_term) &&
            static_cast<int>(base_query_terms.size()) <= Query.TypoTokensThreshold)
                ? Query.NumTypos
@@ -1719,7 +1779,7 @@ std::vector<SearchHit> SearchAPI::ProcessLexicalSearch(const std::string &Collec
          (Postings.empty() || prefer_storage_scan_while_indexing || force_structured_scan || needs_typo_scan_fallback) &&
          (!has_in_memory_index || needs_zero_hit_storage_fallback || prefer_storage_scan_while_indexing || force_structured_scan || needs_typo_scan_fallback))
      {
-          const bool allow_prefix_match = Query.Prefix;
+          const bool allow_prefix_match = Query.Prefix && !exact_keyword_query;
 
           if (!query_variant_terms_list.empty())
           {
@@ -1767,7 +1827,7 @@ std::vector<SearchHit> SearchAPI::ProcessLexicalSearch(const std::string &Collec
                          scanned++;
 
                          std::vector<std::pair<std::string, std::string>> fields;
-                         AppendRequestedFieldValues(doc, restrict_to_query_fields ? Query.QueryBy : std::vector<std::string>{}, fields, Query.CaseSensitive);
+                         AppendRequestedFieldValues(doc, restrict_to_query_fields ? Query.QueryBy : std::vector<std::string>{}, fields, Query.CaseSensitive || exact_keyword_query);
 
                          int matched_terms = 0;
                          bool query_matches = true;
@@ -1783,12 +1843,14 @@ std::vector<SearchHit> SearchAPI::ProcessLexicalSearch(const std::string &Collec
                          }
                          else
                          {
-                              query_matches = MatchesAnyQueryVariant(fields,
-                                                                    query_variant_terms_list,
-                                                                    allow_prefix_match,
-                                                                    effective_max_typos,
-                                                                    Query.CaseSensitive,
-                                                                    &matched_terms);
+                              query_matches = exact_keyword_query
+                                                   ? KeywordFieldMatchesExact(fields, SearchQueryVal, true)
+                                                   : MatchesAnyQueryVariant(fields,
+                                                                            query_variant_terms_list,
+                                                                            allow_prefix_match,
+                                                                            effective_max_typos,
+                                                                            Query.CaseSensitive,
+                                                                            &matched_terms);
                           }
 
                          if (!query_matches)
@@ -1890,7 +1952,7 @@ std::vector<SearchHit> SearchAPI::ProcessLexicalSearch(const std::string &Collec
           if (!StorageDoc.ID.empty())
           {
                std::vector<std::pair<std::string, std::string>> selected_fields;
-               AppendRequestedFieldValues(StorageDoc, restrict_to_query_fields ? Query.QueryBy : std::vector<std::string>{}, selected_fields, Query.CaseSensitive);
+               AppendRequestedFieldValues(StorageDoc, restrict_to_query_fields ? Query.QueryBy : std::vector<std::string>{}, selected_fields, Query.CaseSensitive || exact_keyword_query);
 
                if (ParsedExpression.UsesStructuredSemantics)
                {
@@ -1904,7 +1966,12 @@ std::vector<SearchHit> SearchAPI::ProcessLexicalSearch(const std::string &Collec
                          continue;
                     }
                }
-               else if (!query_variant_terms_list.empty() &&
+               else if (exact_keyword_query &&
+                        !KeywordFieldMatchesExact(selected_fields, SearchQueryVal, true))
+               {
+                    continue;
+               }
+               else if (!exact_keyword_query && !query_variant_terms_list.empty() &&
                         !MatchesAnyQueryVariant(selected_fields, query_variant_terms_list, Query.Prefix, effective_max_typos, Query.CaseSensitive, nullptr))
                {
                     continue;
@@ -1965,7 +2032,7 @@ std::vector<SearchHit> SearchAPI::ProcessLexicalSearch(const std::string &Collec
 
      if (Hits.empty() && Query.AllowScanFallback && collection_docs > 0 && !query_variant_terms_list.empty())
      {
-          const bool allow_prefix_match = Query.Prefix;
+          const bool allow_prefix_match = Query.Prefix && !exact_keyword_query;
           const int scan_batch = 200;
           size_t scanned = 0;
           int offset = 0;
@@ -1995,7 +2062,7 @@ std::vector<SearchHit> SearchAPI::ProcessLexicalSearch(const std::string &Collec
                     scanned++;
 
                     std::vector<std::pair<std::string, std::string>> fields;
-                    AppendRequestedFieldValues(doc, restrict_to_query_fields ? Query.QueryBy : std::vector<std::string>{}, fields, Query.CaseSensitive);
+                    AppendRequestedFieldValues(doc, restrict_to_query_fields ? Query.QueryBy : std::vector<std::string>{}, fields, Query.CaseSensitive || exact_keyword_query);
 
                     int matched_terms = 0;
                     bool query_matches = ParsedExpression.UsesStructuredSemantics
@@ -2005,12 +2072,14 @@ std::vector<SearchHit> SearchAPI::ProcessLexicalSearch(const std::string &Collec
                                                                              allow_prefix_match,
                                                                              effective_max_typos,
                                                                              Query.CaseSensitive)
-                                             : MatchesAnyQueryVariant(fields,
-                                                                      query_variant_terms_list,
-                                                                      allow_prefix_match,
-                                                                      effective_max_typos,
-                                                                      Query.CaseSensitive,
-                                                                      &matched_terms);
+                                             : exact_keyword_query
+                                                  ? KeywordFieldMatchesExact(fields, SearchQueryVal, true)
+                                                  : MatchesAnyQueryVariant(fields,
+                                                                           query_variant_terms_list,
+                                                                           allow_prefix_match,
+                                                                           effective_max_typos,
+                                                                           Query.CaseSensitive,
+                                                                           &matched_terms);
 
                     if (!query_matches)
                     {

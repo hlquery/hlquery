@@ -2236,6 +2236,7 @@ bool SearchAPI::ValidateCollectionSchema(const CollectionConfig &Config, std::st
      static const std::unordered_set<std::string> AllowedTypes = {
           "string",
           "string[]",
+          "keyword",
           "int",
           "int32",
           "int64",
