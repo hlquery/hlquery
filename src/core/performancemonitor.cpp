@@ -10,7 +10,10 @@
  * For more details, please visit: https://docs.hlquery.com
  */
 
+#include <algorithm>
 #include <atomic>
+#include <array>
+#include <cctype>
 #include <chrono>
 #include <fstream>
 #include <iomanip>
@@ -348,17 +351,36 @@ class SystemResourceMonitor
           {
                std::istringstream Iss(LineContent);
 
+               unsigned int MajorNumber = 0;
+
+               unsigned int MinorNumber = 0;
+
                std::string DeviceName;
 
                uint64_t ReadsCount, ReadMergesCount, ReadSectorsCount, ReadTicksCount;
 
                uint64_t WritesCount, WriteMergesCount, WriteSectorsCount, WriteTicksCount;
 
-               if (Iss >> DeviceName >> ReadsCount >> ReadMergesCount >> ReadSectorsCount >> ReadTicksCount >> WritesCount >> WriteMergesCount >> WriteSectorsCount >> WriteTicksCount)
+               if (Iss >> MajorNumber >> MinorNumber >> DeviceName >> ReadsCount >> ReadMergesCount >>
+                   ReadSectorsCount >> ReadTicksCount >> WritesCount >> WriteMergesCount >>
+                   WriteSectorsCount >> WriteTicksCount)
                {
                     /* Only aggregate data for primary disk devices */
 
-                    if (DeviceName.find("sd") == 0 || DeviceName.find("nvme") == 0 || DeviceName.find("hd") == 0)
+                    const bool IsLetterSuffixedDisk =
+                         (DeviceName.rfind("sd", 0) == 0 || DeviceName.rfind("hd", 0) == 0) &&
+                         DeviceName.size() > 2 &&
+                         std::all_of(DeviceName.begin() + 2, DeviceName.end(),
+                                     [](unsigned char CharacterValue)
+                                     {
+                                          return std::isalpha(CharacterValue) != 0;
+                                     });
+
+                    const bool IsNVMeNamespace = DeviceName.rfind("nvme", 0) == 0 &&
+                                                  DeviceName.find('n', 4) != std::string::npos &&
+                                                  DeviceName.find('p', 4) == std::string::npos;
+
+                    if (IsLetterSuffixedDisk || IsNVMeNamespace)
                     {
                          TotalReadBytesValue += ReadSectorsCount * 512;
 
@@ -394,12 +416,25 @@ class SystemResourceMonitor
 
                std::string InterfaceName;
 
-               uint64_t RxBytesCount, RxPacketsCount, RxErrorsCount, RxDroppedCount;
+               std::array<uint64_t, 16> InterfaceCounters{};
 
-               uint64_t TxBytesCount, TxPacketsCount, TxErrorsCount, TxDroppedCount;
+               if (!(Iss >> InterfaceName))
+               {
+                    continue;
+               }
 
-               if (Iss >> InterfaceName >> RxBytesCount >> RxPacketsCount >> RxErrorsCount >> RxDroppedCount >>
-                   TxBytesCount >> TxPacketsCount >> TxErrorsCount >> TxDroppedCount)
+               bool ParsedAllCounters = true;
+
+               for (auto &CounterValue : InterfaceCounters)
+               {
+                    if (!(Iss >> CounterValue))
+                    {
+                         ParsedAllCounters = false;
+                         break;
+                    }
+               }
+
+               if (ParsedAllCounters)
                {
                     if (InterfaceName.back() == ':')
                     {
@@ -411,9 +446,9 @@ class SystemResourceMonitor
                     if (InterfaceName != "lo" && InterfaceName.find("veth") == std::string::npos &&
                         InterfaceName.find("docker") == std::string::npos)
                     {
-                         TotalRxBytesValue += RxBytesCount;
+                         TotalRxBytesValue += InterfaceCounters[0];
 
-                         TotalTxBytesValue += TxBytesCount;
+                         TotalTxBytesValue += InterfaceCounters[8];
                     }
                }
           }

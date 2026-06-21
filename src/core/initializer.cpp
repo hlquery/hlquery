@@ -1175,20 +1175,6 @@ void hlquery::WaitForMetadataScan()
                     SyncCompleteStatusFlag = !Instance->IsSyncInProgress();
                }
 
-               /* Attempt to force sync lock release if it appears stalled */
-
-               if (!SyncCompleteStatusFlag && Instance)
-               {
-                    if (Instance->Logs)
-                    {
-                         Instance->Logs->Normal("hlquery", "Sync appears to be in progress from previous session - clearing sync lock to allow server to start.");
-                    }
-
-                    Instance->SetSyncInProgress(false);
-
-                    SyncCompleteStatusFlag = true;
-               }
-
                int SyncWaitMSTracker = 0;
 
                const int MaxSyncWaitMSTracker = 5000;
@@ -1211,12 +1197,8 @@ void hlquery::WaitForMetadataScan()
                {
                     if (Instance->Logs)
                     {
-                         Instance->Logs->Normal("hlquery", "Sync timeout after " + std::to_string(MaxSyncWaitMSTracker) + "ms - forcing sync complete to allow server to start.");
+                         Instance->Logs->Critical("hlquery", "Sync timeout after " + std::to_string(MaxSyncWaitMSTracker) + "ms - startup will remain degraded until the active sync completes.");
                     }
-
-                    Instance->SetSyncInProgress(false);
-
-                    SyncCompleteStatusFlag = true;
                }
 
                {
@@ -1228,17 +1210,6 @@ void hlquery::WaitForMetadataScan()
                     if (!SyncCompleteStatusFlag)
                     {
                          Instance->StatsVal.StartupStateInfo.SyncError = "Sync timeout after " + std::to_string(MaxSyncWaitMSTracker) + "ms";
-                    }
-               }
-
-               if (!SyncCompleteStatusFlag && Instance)
-               {
-                    SyncCompleteStatusFlag = true;
-
-                    {
-                         std::lock_guard<std::mutex> Lock(Instance->StatsVal.StartupStateMutex);
-
-                         Instance->StatsVal.StartupStateInfo.SyncComplete = true;
                     }
                }
 

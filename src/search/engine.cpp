@@ -15,6 +15,7 @@
 #include <cstring>
 #include <filesystem>
 #include <limits>
+#include <mutex>
 #include <rocksdb/cache.h>
 #include <rocksdb/filter_policy.h>
 #include <rocksdb/statistics.h>
@@ -27,6 +28,43 @@
 #include "search/writeaheadlogvalidator.h"
 #include "utils/consolewriter.h"
 #include "utils/wildcard.h"
+
+namespace
+{
+     /* Serializes durable database syncs and exposes their lifecycle to readiness checks. */
+
+     class DatabaseSyncGuard
+     {
+        private:
+
+          hlquery *ServerInstance = nullptr;
+
+          std::unique_lock<std::mutex> SyncLock;
+
+        public:
+
+          explicit DatabaseSyncGuard(hlquery *ServerValue)
+              : ServerInstance(ServerValue)
+          {
+               if (ServerInstance)
+               {
+                    SyncLock = std::unique_lock<std::mutex>(ServerInstance->GetSyncMutex());
+                    ServerInstance->SetSyncInProgress(true);
+               }
+          }
+
+          ~DatabaseSyncGuard()
+          {
+               if (ServerInstance)
+               {
+                    ServerInstance->SetSyncInProgress(false);
+               }
+          }
+
+          DatabaseSyncGuard(const DatabaseSyncGuard &) = delete;
+          DatabaseSyncGuard &operator=(const DatabaseSyncGuard &) = delete;
+     };
+}
 
 /*
  * DBManager::DBManager - Builds a RocksDB configuration with safe defaults before config overrides load.
@@ -855,6 +893,8 @@ bool DBManager::FlushAndSync()
           return false;
      }
 
+     DatabaseSyncGuard SyncGuard(Instance);
+
      rocksdb::FlushOptions flush_opts;
 
      rocksdb::Status status = DBValue->Flush(flush_opts);
@@ -864,7 +904,7 @@ bool DBManager::FlushAndSync()
           return false;
      }
 
-     return SyncWAL();
+     return DBValue->SyncWAL().ok();
 }
 
 /* Sync WAL */
@@ -875,6 +915,8 @@ bool DBManager::SyncWAL()
      {
           return false;
      }
+
+     DatabaseSyncGuard SyncGuard(Instance);
 
      rocksdb::Status status = DBValue->SyncWAL();
 
