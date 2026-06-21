@@ -76,7 +76,7 @@ class HLQueryMetrics
 
           MetricHistory();
 
-          ~MetricHistory();
+          ~MetricHistory() = default;
 
           void AddPoint(double value);
 
@@ -128,11 +128,11 @@ class HLQueryMetrics
 
           std::chrono::system_clock::time_point GetCurrentTime() const;
 
-          bool ShouldStore() const;
+          bool ShouldStore(std::chrono::system_clock::time_point now) const;
 
-          bool ShouldPerformRetention() const;
+          bool ShouldPerformRetention(std::chrono::system_clock::time_point now) const;
 
-          void PerformRetentionUnlocked();
+          void PerformRetentionUnlocked(std::chrono::system_clock::time_point now);
 
           void PerformDailyRetention();
 

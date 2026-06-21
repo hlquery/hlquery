@@ -937,11 +937,9 @@ HttpResponse SearchAPI::HandleHealth(const HttpRequest &Request)
 
      if (Instance)
      {
-          HealthDegraded = Instance->StatsVal.IsHealthDegraded();
-          if (HealthDegraded)
-          {
-               HealthReason = Instance->StatsVal.GetHealthDegradedReason();
-          }
+          const auto HealthStatus = Instance->StatsVal.GetHealthStatus();
+          HealthDegraded = HealthStatus.Degraded;
+          HealthReason = HealthStatus.Reason;
           if (Instance->Users)
           {
                AuthEnabled = Instance->Users->IsAuthEnabled();

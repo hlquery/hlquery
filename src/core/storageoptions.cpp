@@ -22,6 +22,7 @@
 RocksDBOptions RocksDBOptions::LoadFromConfigReader(const ConfigReader &ReaderInstance)
 {
      RocksDBOptions OptionsResult = Default();
+     const RocksDBOptions DefaultOptions = Default();
 
      auto RocksDBSettingsTag = ReaderInstance.GetTag("database");
 
@@ -69,6 +70,21 @@ RocksDBOptions RocksDBOptions::LoadFromConfigReader(const ConfigReader &ReaderIn
 
      int ConfiguredMaxBackgroundCompactions = ParseRocksThreads("max_background_compactions", OptionsResult.MaxBackgroundCompactions);
 
+     if (ConfiguredMaxBackgroundJobs < 0)
+     {
+          ConfiguredMaxBackgroundJobs = DefaultOptions.MaxBackgroundJobs;
+     }
+
+     if (ConfiguredMaxBackgroundFlushes < 0)
+     {
+          ConfiguredMaxBackgroundFlushes = DefaultOptions.MaxBackgroundFlushes;
+     }
+
+     if (ConfiguredMaxBackgroundCompactions < 0)
+     {
+          ConfiguredMaxBackgroundCompactions = DefaultOptions.MaxBackgroundCompactions;
+     }
+
      /* Retrieve the global thread limit to perform automated resource scaling */
 
      int GlobalMaxThreadsValue = 0;
@@ -88,7 +104,7 @@ RocksDBOptions RocksDBOptions::LoadFromConfigReader(const ConfigReader &ReaderIn
 
           if (ConfiguredMaxBackgroundJobs == 0)
           {
-               ConfiguredMaxBackgroundJobs = std::max(2, AvailableForRocksDBCount / 2);
+               ConfiguredMaxBackgroundJobs = std::max(1, AvailableForRocksDBCount / 2);
           }
 
           if (ConfiguredMaxBackgroundCompactions == 0)
@@ -100,6 +116,14 @@ RocksDBOptions RocksDBOptions::LoadFromConfigReader(const ConfigReader &ReaderIn
           {
                ConfiguredMaxBackgroundFlushes = std::max(1, ConfiguredMaxBackgroundJobs - ConfiguredMaxBackgroundCompactions);
           }
+     }
+
+     if (ConfiguredMaxBackgroundJobs > 0)
+     {
+          ConfiguredMaxBackgroundCompactions = std::min(ConfiguredMaxBackgroundCompactions,
+                                                        ConfiguredMaxBackgroundJobs);
+          ConfiguredMaxBackgroundFlushes = std::min(ConfiguredMaxBackgroundFlushes,
+               ConfiguredMaxBackgroundJobs - ConfiguredMaxBackgroundCompactions);
      }
 
      /* Apply the validated background job configuration */
@@ -126,7 +150,12 @@ RocksDBOptions RocksDBOptions::LoadFromConfigReader(const ConfigReader &ReaderIn
 
      std::string CompressionTypeStr = RocksDBSettingsTag->GetString("compression", OptionsResult.Compression);
 
-     std::transform(CompressionTypeStr.begin(), CompressionTypeStr.end(), CompressionTypeStr.begin(), ::tolower);
+     const auto ToLower = [](unsigned char CharacterVal)
+     {
+          return static_cast<char>(std::tolower(CharacterVal));
+     };
+
+     std::transform(CompressionTypeStr.begin(), CompressionTypeStr.end(), CompressionTypeStr.begin(), ToLower);
 
      if (CompressionTypeStr == "none" || CompressionTypeStr == "snappy" || CompressionTypeStr == "zlib" ||
          CompressionTypeStr == "lz4" || CompressionTypeStr == "zstd")
@@ -136,7 +165,7 @@ RocksDBOptions RocksDBOptions::LoadFromConfigReader(const ConfigReader &ReaderIn
 
      std::string BottommostCompressionStr = RocksDBSettingsTag->GetString("bottommost_compression", OptionsResult.BottommostCompression);
 
-     std::transform(BottommostCompressionStr.begin(), BottommostCompressionStr.end(), BottommostCompressionStr.begin(), ::tolower);
+     std::transform(BottommostCompressionStr.begin(), BottommostCompressionStr.end(), BottommostCompressionStr.begin(), ToLower);
 
      if (BottommostCompressionStr == "none" || BottommostCompressionStr == "snappy" || BottommostCompressionStr == "zlib" ||
          BottommostCompressionStr == "lz4" || BottommostCompressionStr == "zstd")
@@ -162,7 +191,7 @@ RocksDBOptions RocksDBOptions::LoadFromConfigReader(const ConfigReader &ReaderIn
 
      std::string WALSyncModeStr = RocksDBSettingsTag->GetString("wal_sync_mode", OptionsResult.WALSyncMode);
 
-     std::transform(WALSyncModeStr.begin(), WALSyncModeStr.end(), WALSyncModeStr.begin(), ::tolower);
+     std::transform(WALSyncModeStr.begin(), WALSyncModeStr.end(), WALSyncModeStr.begin(), ToLower);
 
      if (WALSyncModeStr == "none" || WALSyncModeStr == "normal" || WALSyncModeStr == "full")
      {
@@ -181,7 +210,7 @@ RocksDBOptions RocksDBOptions::LoadFromConfigReader(const ConfigReader &ReaderIn
 
      std::string CompactionStyleStr = RocksDBSettingsTag->GetString("compaction_style", OptionsResult.CompactionStyle);
 
-     std::transform(CompactionStyleStr.begin(), CompactionStyleStr.end(), CompactionStyleStr.begin(), ::tolower);
+     std::transform(CompactionStyleStr.begin(), CompactionStyleStr.end(), CompactionStyleStr.begin(), ToLower);
 
      if (CompactionStyleStr == "level" || CompactionStyleStr == "universal" || CompactionStyleStr == "fifo")
      {
