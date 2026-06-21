@@ -411,6 +411,12 @@ void LogStream::CleanupOldRotatedFiles()
      {
           fs::path LogPath(ConfigValue.target);
           fs::path LogDir = LogPath.parent_path();
+
+          if (LogDir.empty())
+          {
+               LogDir = ".";
+          }
+
           std::string LogBasename = LogPath.stem().string();
           std::string LogExtension = LogPath.extension().string();
           std::vector<std::pair<std::time_t, fs::path>> RotatedFilesList;
@@ -518,14 +524,17 @@ std::string LogStream::GenerateRotatedFilename(size_t SequenceNum)
                         TmPtr->tm_year + 1900, TmPtr->tm_mon + 1, TmPtr->tm_mday,
                         TmPtr->tm_hour, TmPtr->tm_min, TmPtr->tm_sec);
 
-          if (LogExtension.empty())
+          const std::string RotatedExtension = LogExtension.empty() ? ".log" : LogExtension;
+          fs::path CandidatePath;
+
+          do
           {
-               return (LogDir / (LogBasename + "_" + std::string(TimestampStr) + ".log")).string();
+               CandidatePath = LogDir / (LogBasename + "_" + std::string(TimestampStr) + "_" +
+                                         std::to_string(SequenceNum++) + RotatedExtension);
           }
-          else
-          {
-               return (LogDir / (LogBasename + "_" + std::string(TimestampStr) + LogExtension)).string();
-          }
+          while (fs::exists(CandidatePath));
+
+          return CandidatePath.string();
      }
      else
      {
