@@ -54,15 +54,13 @@
 
 inline HttpResponse BuildErrorResponse(int HttpStatus, int ProtocolCode, const std::string &Error, const std::string &Message = "")
 {
-     (void)Error;
-
      HttpResponse Response(HttpStatus, StatusText(HttpStatus), "application/json");
 
      nlohmann::json ErrorJSON;
 
-     /* Use code_text as the error field to avoid duplication - code_text is the canonical error name. */
+     const std::string CodeTextVal = CodeText(ProtocolCode);
 
-     ErrorJSON["error"] = CodeText(ProtocolCode);
+     ErrorJSON["error"] = Error.empty() ? CodeTextVal : Error;
 
      if (!Message.empty())
      {
@@ -71,7 +69,7 @@ inline HttpResponse BuildErrorResponse(int HttpStatus, int ProtocolCode, const s
 
      ErrorJSON["code"] = ProtocolCode;
 
-     ErrorJSON["code_text"] = CodeText(ProtocolCode);
+     ErrorJSON["code_text"] = CodeTextVal;
 
      Response.Body = ErrorJSON.dump();
 

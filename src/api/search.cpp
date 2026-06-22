@@ -2395,7 +2395,7 @@ HttpResponse SearchAPI::HandleGlobalSearch(const HttpRequest &Request)
 
 HttpResponse SearchAPI::HandleMultiSearch(const HttpRequest &Request)
 {
-     if (Request.Method != "POST")
+     if (Request.Method != "GET" && Request.Method != "POST")
      {
           return HttpResponse(Status::METHOD_NOT_ALLOWED, StatusText(Status::METHOD_NOT_ALLOWED), "application/json");
      }
