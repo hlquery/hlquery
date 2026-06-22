@@ -15,6 +15,7 @@
 #include <array>
 #include <cctype>
 #include <chrono>
+#include <condition_variable>
 #include <fstream>
 #include <iomanip>
 #include <mutex>
@@ -178,6 +179,10 @@ class SystemResourceMonitor
 
      std::atomic<bool> ShutdownValue{false};
 
+     std::condition_variable ShutdownCondition;
+
+     std::mutex ShutdownMutex;
+
    public:
 
      /* Constructor that initiates the background resource monitoring thread */
@@ -201,6 +206,7 @@ class SystemResourceMonitor
      ~SystemResourceMonitor()
      {
           ShutdownValue.store(true);
+          ShutdownCondition.notify_all();
 
           if (MonitorThread.joinable())
           {
@@ -226,7 +232,6 @@ class SystemResourceMonitor
 
                     MonitorNetworkIO();
 
-                    std::this_thread::sleep_for(std::chrono::seconds(1));
                }
                catch (const std::exception &e)
                {
@@ -235,6 +240,12 @@ class SystemResourceMonitor
                          Instance->Logs->Critical("performance_monitor", "Resource monitoring error: " + std::string(e.what()) + ".");
                     }
                }
+
+               std::unique_lock<std::mutex> ShutdownLock(ShutdownMutex);
+               ShutdownCondition.wait_for(ShutdownLock, std::chrono::seconds(1), [this]()
+                                          {
+                                               return ShutdownValue.load();
+                                          });
           }
      }
 

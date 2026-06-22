@@ -11,7 +11,9 @@
  */
 
 #include <chrono>
+#include <filesystem>
 #include <fstream>
+#include <stdexcept>
 
 #include "core/hlquery.h"
 #include "vendor/json/json.hpp"
@@ -58,20 +60,42 @@ void hlquery::SaveCollectionsLoadSummary()
 
           /* Commit the summary data to a persistent file */
 
-          std::string SummaryFilePath = std::string(HLQUERY_DATA_DIR) + "/startup_summary.json";
+          const std::filesystem::path SummaryFilePath = std::filesystem::path(HLQUERY_DATA_DIR) / "startup_summary.json";
+          const std::filesystem::path TemporarySummaryFilePath = SummaryFilePath.string() + ".tmp";
 
-          std::ofstream SummaryFileStream(SummaryFilePath);
+          std::ofstream SummaryFileStream(TemporarySummaryFilePath, std::ios::out | std::ios::trunc);
 
-          if (SummaryFileStream.is_open())
+          if (!SummaryFileStream.is_open())
           {
-               SummaryFileStream << SummaryData.dump(2);
+               throw std::runtime_error("Unable to open temporary startup summary file: " + TemporarySummaryFilePath.string());
+          }
 
+          SummaryFileStream << SummaryData.dump(2);
+          SummaryFileStream.flush();
+
+          if (!SummaryFileStream.good())
+          {
                SummaryFileStream.close();
+               std::error_code RemoveError;
+               std::filesystem::remove(TemporarySummaryFilePath, RemoveError);
+               throw std::runtime_error("Unable to write temporary startup summary file: " + TemporarySummaryFilePath.string());
+          }
 
-               if (Logs)
-               {
-                    Logs->Normal("hlquery", "Collections load summary saved to " + SummaryFilePath + ".");
-               }
+          SummaryFileStream.close();
+
+          std::error_code RenameError;
+          std::filesystem::rename(TemporarySummaryFilePath, SummaryFilePath, RenameError);
+
+          if (RenameError)
+          {
+               std::error_code RemoveError;
+               std::filesystem::remove(TemporarySummaryFilePath, RemoveError);
+               throw std::filesystem::filesystem_error("Unable to publish startup summary", TemporarySummaryFilePath, SummaryFilePath, RenameError);
+          }
+
+          if (Logs)
+          {
+               Logs->Normal("hlquery", "Collections load summary saved to " + SummaryFilePath.string() + ".");
           }
      }
      catch (const std::exception &e)
