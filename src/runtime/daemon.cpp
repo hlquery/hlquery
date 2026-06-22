@@ -1652,6 +1652,7 @@ bool hlquery::Daemonize()
                print_ok("Now detaching.");
                newline();
                fflush(stdout);
+
                ExitManager::EmergencyExit(0);
           }
 

@@ -44,6 +44,8 @@ static std::string EnsureLogPeriod(const std::string &Message)
      return Message + ".";
 }
 
+/* Converts a filesystem timestamp to the system clock representation. */
+
 static std::time_t FileTimeToTimeT(const fs::file_time_type &WriteTimeVal)
 {
      const auto NowMS = NowMs();
@@ -150,10 +152,14 @@ void LogStream::WriteLog(LogLevel Level, const std::string &Type, const std::str
           }
      }
 
+     /* Prepare the normalized message and reusable output metadata. */
+
      std::string LogLine;
      size_t LineSize;
 
      std::string FinalMessage = EnsureLogPeriod(Message);
+
+     /* Write through the destination selected by the stream configuration. */
 
      if (ConfigValue.method == "file" && FileStream)
      {
@@ -218,6 +224,8 @@ std::string LogStream::FormatLogLine(LogLevel Level, const std::string &Type, co
      Result += GetTimestamp();
      Result += "] ";
 
+     /* Apply terminal colors only to diagnostic console output. */
+
      if (UseColors && Level == LogLevel::LOG_DEBUG)
      {
           Result += "\033[30m[\033[0m \033[96mDEBUG\033[0m \033[30m]\033[0m ";
@@ -235,6 +243,8 @@ std::string LogStream::FormatLogLine(LogLevel Level, const std::string &Type, co
           Result += Type;
           Result += "] ";
      }
+
+     /* Append the caller-provided message after all metadata fields. */
 
      Result += Message;
      return Result;
@@ -306,6 +316,8 @@ std::string LogStream::LogLevelToString(LogLevel Level)
 
 bool LogStream::ShouldRotate()
 {
+     /* Rotation applies only to an active file destination. */
+
      if (ConfigValue.method != "file" || !FileStream || !IsOpenValue)
      {
           return false;
@@ -318,6 +330,8 @@ bool LogStream::ShouldRotate()
 
      if (ConfigValue.rotation_interval != 0)
      {
+          /* Resolve symbolic daily and weekly intervals to seconds. */
+
           std::time_t NowTime = std::time(nullptr);
 
           std::time_t IntervalSeconds = 0;
@@ -359,6 +373,8 @@ bool LogStream::RotateLogFile()
 
      try
      {
+          /* Close and rename the active file before creating its replacement. */
+
           FileStream->close();
 
           RotationCount++;
@@ -381,6 +397,8 @@ bool LogStream::RotateLogFile()
           {
                return false;
           }
+
+          /* Reset rotation bookkeeping for the new active file. */
 
           CurrentFileSizeValue = GetCurrentFileSize();
           LastRotationTime = std::time(nullptr);
@@ -409,6 +427,8 @@ void LogStream::CleanupOldRotatedFiles()
 
      try
      {
+          /* Discover rotated files that share the active log basename. */
+
           fs::path LogPath(ConfigValue.target);
           fs::path LogDir = LogPath.parent_path();
 
@@ -450,6 +470,8 @@ void LogStream::CleanupOldRotatedFiles()
                          return a.first < b.first;
                     });
 
+          /* Remove files that exceed the configured age limit. */
+
           const std::time_t NowTime = std::time(nullptr);
 
           if (ConfigValue.max_age_days > 0)
@@ -482,6 +504,8 @@ void LogStream::CleanupOldRotatedFiles()
 
           if (ConfigValue.max_rotated_files > 0 && RotatedFilesList.size() > ConfigValue.max_rotated_files)
           {
+               /* Remove the oldest surplus files first. */
+
                size_t FilesToDeleteCount = RotatedFilesList.size() - ConfigValue.max_rotated_files;
 
                for (size_t i = 0; i < FilesToDeleteCount; ++i)
@@ -507,6 +531,8 @@ void LogStream::CleanupOldRotatedFiles()
 
 std::string LogStream::GenerateRotatedFilename(size_t SequenceNum)
 {
+     /* Preserve the original directory, basename, and extension. */
+
      fs::path LogPath(ConfigValue.target);
      fs::path LogDir = LogPath.parent_path();
      std::string LogBasename = LogPath.stem().string();
@@ -518,6 +544,8 @@ std::string LogStream::GenerateRotatedFilename(size_t SequenceNum)
 
      if (TmPtr)
      {
+          /* Combine local time and a sequence number to avoid collisions. */
+
           char TimestampStr[32];
 
           std::snprintf(TimestampStr, sizeof(TimestampStr), "%04d%02d%02d_%02d%02d%02d",
@@ -538,6 +566,8 @@ std::string LogStream::GenerateRotatedFilename(size_t SequenceNum)
      }
      else
      {
+          /* Fall back to a sequence-only filename if local time conversion fails. */
+
           if (LogExtension.empty())
           {
                return (LogDir / (LogBasename + ".log." + std::to_string(SequenceNum))).string();
@@ -600,6 +630,8 @@ bool LogManager::Initialize(const std::vector<LogConfig> &LogConfigs, bool Debug
 {
      std::lock_guard<std::mutex> Lock(ManagerMutex);
 
+     /* Capture runtime modes before constructing output streams. */
+
      this->DebugMode = DebugFlag;
      this->NoForkMode = NoForkFlag;
      this->VerboseMode = VerboseFlag;
@@ -612,6 +644,8 @@ bool LogManager::Initialize(const std::vector<LogConfig> &LogConfigs, bool Debug
      LogStreams.clear();
 
      CreateLogsDirectory(HLQUERY_LOG_DIR);
+
+     /* Provide console logging when no stream configuration is available. */
 
      if (LogConfigs.empty())
      {
@@ -649,6 +683,8 @@ bool LogManager::Initialize(const std::vector<LogConfig> &LogConfigs, bool Debug
 
           if (this->NoForkMode && this->DebugMode)
           {
+               /* Ensure foreground diagnostic sessions have a console destination. */
+
                bool HasConsoleFlag = false;
 
                for (const auto &StreamItem : LogStreams)
@@ -707,6 +743,8 @@ std::unique_ptr<LogManager> LogManager::CreateAndInitialize(class ServerConfig *
 
      if (!ConfigPointer->LoadConfig(ConfigFileLocation))
      {
+          /* Fall back to console output when configuration loading fails. */
+
           LogConfig DefaultConfig;
 
           DefaultConfig.method = "console";
@@ -740,6 +778,8 @@ std::unique_ptr<LogManager> LogManager::CreateAndInitialize(class ServerConfig *
 
 void LogManager::Log(LogLevel LevelValue, const std::string &Type, const std::string &Message)
 {
+     /* Reject calls made through a corrupted or stale manager instance. */
+
      uint32_t SentinelCheckVal = Sentinel;
 
      if (SentinelCheckVal != SENTINEL_VALUE)
@@ -756,6 +796,8 @@ void LogManager::Log(LogLevel LevelValue, const std::string &Type, const std::st
      bool VerboseModeFlag = false;
 
      std::vector<LogStream *> StreamsToLogList;
+
+     /* Snapshot matching streams while manager state is protected. */
 
      {
           std::lock_guard<std::mutex> Lock(ManagerMutex);
@@ -778,6 +820,8 @@ void LogManager::Log(LogLevel LevelValue, const std::string &Type, const std::st
 
      if (!IsInitializedFlag)
      {
+          /* Preserve message visibility through standard error before initialization. */
+
           const char *LevelStrValue = "UNKNOWN";
 
           switch (LevelValue)
@@ -826,6 +870,8 @@ void LogManager::Log(LogLevel LevelValue, const std::string &Type, const std::st
 
      bool HasConsoleStreamFlag = false;
 
+     /* Dispatch the message to each matching configured stream. */
+
      for (LogStream *StreamPtr : StreamsToLogList)
      {
           if (StreamPtr)
@@ -841,6 +887,8 @@ void LogManager::Log(LogLevel LevelValue, const std::string &Type, const std::st
 
      if (VerboseModeFlag && !HasConsoleStreamFlag && (LevelValue == LogLevel::LOG_DEBUG || LevelValue == LogLevel::LOG_VERBOSE))
      {
+          /* Mirror detailed foreground output when no console stream handled it. */
+
           const char *LevelStrFinal = "UNKNOWN";
 
           switch (LevelValue)
@@ -904,6 +952,8 @@ void LogManager::Debug(const std::string &Type, const std::string &Message)
 
 void LogManager::SafeLog(LogManager *SelfPointer, LogLevel LevelVal, const std::string &Type, const std::string &Message)
 {
+     /* Use standard error when no manager instance is available. */
+
      if (!SelfPointer)
      {
           std::string FinalMessage = EnsureLogPeriod(Message);
@@ -956,6 +1006,8 @@ void LogManager::SafeLog(LogManager *SelfPointer, LogLevel LevelVal, const std::
 
      if (SelfPointer->Sentinel != SENTINEL_VALUE)
      {
+          /* Report invalid state and retain the original message through fallback output. */
+
           ConsoleWriter::WriteError("[LOG_ERROR] LogManager object has invalid sentinel.", true);
 
           std::string FinalMessage = EnsureLogPeriod(Message);
@@ -1077,6 +1129,8 @@ void LogManager::FlushAll()
 
 bool LogManager::ShouldLog(const LogStream &StreamInstance, LogLevel LevelVal, const std::string &Type)
 {
+     /* Query-only streams reject every unrelated message type. */
+
      if (StreamInstance.ConfigValue.type == "query")
      {
           if (Type != "query")
@@ -1111,6 +1165,8 @@ bool LogManager::ShouldLog(const LogStream &StreamInstance, LogLevel LevelVal, c
      {
           return true;
      }
+
+     /* Exact type matching applies to every non-wildcard stream. */
 
      return (Type == StreamInstance.ConfigValue.type);
 }

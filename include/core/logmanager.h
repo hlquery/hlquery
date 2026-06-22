@@ -23,59 +23,83 @@
 #include "core/config.h"
 
 /*
- * Defines the supported logging severity levels used throughout
- * the logging system.
- * Each level controls how much operational detail is emitted
- * to the configured log targets.
+ * Defines logging severity levels in ascending order of detail.
+ * Stream thresholds use these values to filter emitted messages.
  */
 
 enum class LogLevel
 {
+     /* Disables log output. */
+
      LOG_NONE       =  0,
+
+     /* Reports failures that require immediate attention. */
+
      LOG_CRITICAL   =  1,
+
+     /* Reports infrequent high-level events. */
+
      LOG_SPARSE     =  2,
+
+     /* Reports normal operational events. */
+
      LOG_NORMAL     =  3,
+
+     /* Reports detailed operational events. */
+
      LOG_VERBOSE    =  4,
+
+     /* Reports diagnostic events. */
+
      LOG_DEBUG      =  5
 };
 
-/* Log target types. */
+/* Identifies the supported log output destinations. */
 
 enum class LogTarget
 {
+     /* Writes messages to a persistent file. */
+
      LOG_FILE,
+
+     /* Writes messages to the process console. */
+
      LOG_CONSOLE
 };
 
-/* Individual log configuration. */
+/* Stores routing, severity, rotation, and retention settings for one stream. */
 
 struct LogConfig
 {
-     /* Output routing configuration. */
+     /* Selects the output method. */
 
      std::string method;
 
-     /* Log type */
+     /* Filters messages by type, or accepts all types when set to an asterisk. */
      
      std::string type;
 
-     /* Output severity and target. */
+     /* Sets the highest detail level accepted by the stream. */
 
      LogLevel level = LogLevel::LOG_NORMAL;
 
-     /* File target */
+     /* Names the output file or console target. */
      
      std::string target;
 
-     /* Log rotation configuration. */
+     /* Sets the size threshold that triggers file rotation. */
 
      size_t max_size = 0;
 
+     /* Sets the time threshold that triggers file rotation. */
+
      int rotation_interval = 0;
 
-     /* Retention policy for rotated files. */
+     /* Limits the number of rotated files retained on disk. */
 
      size_t max_rotated_files = 10;
+
+     /* Limits retention according to file age in days. */
 
      size_t max_age_days = 0;
 
@@ -97,21 +121,27 @@ class CoreExport LogStream
 
      friend class LogManager;
 
-     /* Primary log configuration and output stream. */
+     /* Stores the effective stream configuration. */
 
      LogConfig ConfigValue;
 
+     /* Owns the file output stream when file logging is configured. */
+
      std::unique_ptr<std::ofstream> FileStream;
 
-     /* Stream state and serialization guard. */
+     /* Records whether the configured destination is available. */
 
      bool IsOpenValue;
 
+     /* Serializes writes, flushes, and file rotation. */
+
      std::mutex WriteMutex;
 
-     /* Rotation size tracking. */
+     /* Tracks the current file size used by size-based rotation. */
 
      size_t CurrentFileSizeValue;
+
+     /* Records when the most recent rotation completed. */
 
      std::time_t LastRotationTime;
 
@@ -119,11 +149,11 @@ class CoreExport LogStream
 
      size_t RotationCount;
 
-     /* Formats a log line without color output. */
+     /* Formats a log line without terminal color sequences. */
 
      std::string FormatLogLine(LogLevel level, const std::string& type, const std::string& message);
 
-     /* Formats a log line with optional color output. */
+     /* Formats a log line with optional terminal color sequences. */
 
      std::string FormatLogLine(LogLevel level, const std::string& type, const std::string& message, bool use_colors);
 
@@ -131,7 +161,7 @@ class CoreExport LogStream
 
      std::string GetTimestamp();
 
-     /* Converts LogLevel enum values to display strings. */
+     /* Converts a severity value to its fixed-width display label. */
 
      std::string LogLevelToString(LogLevel level);
 
@@ -147,7 +177,7 @@ class CoreExport LogStream
 
      void CleanupOldRotatedFiles();
 
-     /* Builds the rotated filename for a new log file. */
+     /* Builds a unique timestamped filename for a rotated log file. */
 
      std::string GenerateRotatedFilename(size_t sequence);
 
@@ -157,11 +187,11 @@ class CoreExport LogStream
 
    public:
 
-     /* Constructor. */
+     /* Opens and prepares the destination described by the configuration. */
 
      LogStream(const LogConfig& config);
 
-     /* Destructor. */
+     /* Flushes and closes the destination. */
 
      ~LogStream();
 
@@ -169,11 +199,11 @@ class CoreExport LogStream
 
      bool IsOpen() const;
 
-     /* Writes a log message to the stream. */
+     /* Formats and writes a log message to the configured destination. */
 
      void WriteLog(LogLevel level, const std::string& type, const std::string& message);
 
-     /* Flushes the stream. */
+     /* Flushes buffered file output. */
 
      void Flush();
 };
@@ -187,15 +217,19 @@ class CoreExport LogManager
 {
    private:
 
-     /* Sentinel values for integrity checks. */
+     /* Defines the value used to detect invalid manager instances. */
 
      static constexpr uint32_t SENTINEL_VALUE = 0xDEADBEEF;
 
+     /* Stores the per-instance integrity marker. */
+
      uint32_t Sentinel = SENTINEL_VALUE;
 
-     /* Owned log streams and synchronization guard. */
+     /* Owns every configured log stream. */
 
      std::vector<std::unique_ptr<LogStream>> LogStreams;
+
+     /* Protects manager state and the stream collection. */
 
      mutable std::mutex ManagerMutex;
 
@@ -203,15 +237,15 @@ class CoreExport LogManager
 
      bool Initialized;
 
-     /* Debug mode */
+     /* Enables diagnostic messages independently of stream thresholds. */
 
      bool DebugMode;
 
-     /* Fork and verbosity state flags. */
+     /* Records whether the process remains attached to its console. */
 
      bool NoForkMode;
 
-     /* Verbose mode */
+     /* Enables verbose output and diagnostic behavior. */
 
      bool VerboseMode;
 
@@ -233,15 +267,15 @@ class CoreExport LogManager
 
      ~LogManager();
 
-     /* Static factory method to create and initialize LogManager from configuration. */
+     /* Creates and initializes a manager from server configuration. */
 
      static std::unique_ptr<LogManager> CreateAndInitialize(class ServerConfig* config);
 
-     /* Initialize logging system from configuration. */
+     /* Initializes the logging system from stream configurations and mode flags. */
 
      bool Initialize(const std::vector<LogConfig>& log_configs, bool debug = false, bool nofork = false, bool verbose = false);
 
-     /* Log a message with specified level and type. */
+     /* Routes a message according to its severity and type. */
 
      void Log(LogLevel level, const std::string& type, const std::string& message);
 
@@ -257,23 +291,23 @@ class CoreExport LogManager
 
      void Debug(const std::string& type, const std::string& message);
 
-     /* Static thread-safe logging method. */
+     /* Safely logs through a manager pointer with fallback console output. */
 
      static void SafeLog(LogManager* self, LogLevel level, const std::string& type, const std::string& message);
 
-     /* Create default logs directory. */
+     /* Creates the default log directory when it does not exist. */
 
      static bool CreateLogsDirectory(const std::string& path = HLQUERY_LOG_DIR);
 
-     /* Convert string to LogLevel. */
+     /* Converts a textual severity name to a logging level. */
 
      static LogLevel StringToLogLevel(const std::string& level_str);
 
-     /* Flush all log streams. */
+     /* Flushes every active log stream. */
 
      void FlushAll();
 
-     /* Get the number of active log streams. */
+     /* Returns the number of active log streams. */
 
      size_t GetLogCount() const;
 
@@ -281,7 +315,7 @@ class CoreExport LogManager
 
      bool GetDebugMode() const;
 
-     /* Reset after fork - reopen all file streams. */
+     /* Restores logging state after the process forks. */
 
      void ResetAfterFork();
 };
