@@ -1268,6 +1268,13 @@ class ServerConfig
           return QuerySettingsEnableSynonyms;
      }
 
+     /* Returns whether stopword filtering is enabled. */
+
+     bool GetQuerySettingsEnableStopwords() const
+     {
+          return QuerySettingsEnableStopwords;
+     }
+
      /* Returns whether fuzzy queries are enabled. */
 
      bool GetQuerySettingsEnableFuzzy() const
@@ -2210,6 +2217,10 @@ class ServerConfig
      /* Enable synonyms. */
 
      bool QuerySettingsEnableSynonyms = true;
+
+     /* Enable stopword filtering. */
+
+     bool QuerySettingsEnableStopwords = true;
 
      /* Enable fuzzy queries. */
 

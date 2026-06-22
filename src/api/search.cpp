@@ -1657,6 +1657,31 @@ HttpResponse SearchAPI::HandleSearch(const HttpRequest &Request)
      }
 
      ComprehensiveSearchQuery SearchQueryObj = ParseComprehensiveSearchQuery(Params);
+     bool RequestCacheEnabled = true;
+     if (Instance && Instance->Config)
+     {
+          if (!Params.count("enable_synonyms"))
+          {
+               SearchQueryObj.EnableSynonyms = Instance->Config->GetQuerySettingsEnableSynonyms();
+          }
+          if (!Params.count("enable_stopwords"))
+          {
+               SearchQueryObj.EnableStopwords = Instance->Config->GetQuerySettingsEnableStopwords();
+          }
+
+          RequestCacheEnabled = Instance->Config->GetSearchOptionsRequestCache();
+          SearchResponseCache::Configure(
+               static_cast<uint64_t>(Instance->Config->GetPerformanceCacheTtlSeconds()) * 1000ULL,
+               static_cast<size_t>(Instance->Config->GetPerformanceMaxCacheSizeMb()) * 1024ULL * 1024ULL);
+     }
+     const auto RequestCacheIt = Params.find("request_cache");
+     if (RequestCacheIt != Params.end())
+     {
+          std::string Value = RequestCacheIt->second;
+          std::transform(Value.begin(), Value.end(), Value.begin(),
+                         [](unsigned char Ch) { return static_cast<char>(std::tolower(Ch)); });
+          RequestCacheEnabled = Value == "1" || Value == "true" || Value == "yes" || Value == "on";
+     }
      const bool IsGroupedSQLQuery = SQLApplyResult.Translation.Valid && SQLApplyResult.Translation.GroupedAggregates;
      const bool IsAggregateOnlySQLQuery = SQLApplyResult.Translation.Valid && SQLApplyResult.Translation.AggregateOnly;
      const bool IsDistinctSQLQuery = SQLApplyResult.Translation.Valid && SQLApplyResult.Translation.Distinct &&
@@ -1733,7 +1758,8 @@ HttpResponse SearchAPI::HandleSearch(const HttpRequest &Request)
                                               (SearchQueryObj.Aggregations.empty() || HasExplicitDistributedOverride);
 
      HttpResponse CachedResponse;
-     if (!NeedsCustomSQLExecution &&
+     const uint64_t SearchCacheGeneration = SearchResponseCache::GetGeneration(CollectionName);
+     if (RequestCacheEnabled && !NeedsCustomSQLExecution &&
          SearchResponseCache::Get("search", Request, CollectionName, CachedResponse))
      {
           return CachedResponse;
@@ -1752,7 +1778,10 @@ HttpResponse SearchAPI::HandleSearch(const HttpRequest &Request)
                ApplySQLDistinct(SearchResultObj, SQLApplyResult.Translation);
                Response.Body = GenerateComprehensiveSearchResponse(SearchResultObj, SearchQueryObj);
                AttachSearchResponseMeta(Response, SearchQueryObj, Request, CollectionName);
-               SearchResponseCache::Put("search", Request, CollectionName, Response);
+               if (RequestCacheEnabled)
+               {
+                    SearchResponseCache::Put("search", Request, CollectionName, Response, SearchCacheGeneration);
+               }
                /* Analytics fire for the final distributed response the same as local results. */
 
                if (SearchQueryObj.EnableAnalytics)
@@ -1905,9 +1934,9 @@ HttpResponse SearchAPI::HandleSearch(const HttpRequest &Request)
           FOREACH_MOD(OnSearchDocument, DocumentEvent);
      }
 
-     if (!NeedsCustomSQLExecution)
+     if (RequestCacheEnabled && !NeedsCustomSQLExecution)
      {
-          SearchResponseCache::Put("search", Request, CollectionName, Response);
+          SearchResponseCache::Put("search", Request, CollectionName, Response, SearchCacheGeneration);
      }
 
      return Response;

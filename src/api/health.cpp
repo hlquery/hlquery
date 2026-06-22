@@ -38,6 +38,8 @@
 
 #include "api/httpserver.h"
 #include "api/searchapi.h"
+#include "api/lexicalcache.h"
+#include "api/searchcache.h"
 #include "api/common.h"
 #include "api/userauth.h"
 #include "core/config.h"
@@ -1049,6 +1051,20 @@ HttpResponse SearchAPI::HandleMetrics(const HttpRequest &Request)
 
      MetricsJSON["status"] = "ok";
 
+     const auto ResponseCacheStats = SearchResponseCache::GetStats();
+     const auto LexicalCacheStats = LexicalQueryCache::GetStats();
+     MetricsJSON["cache"] = {
+          {"response_hits", ResponseCacheStats.Hits},
+          {"response_misses", ResponseCacheStats.Misses},
+          {"response_expired", ResponseCacheStats.Expired},
+          {"response_evictions", ResponseCacheStats.Evictions},
+          {"response_entries", ResponseCacheStats.Entries},
+          {"response_size_bytes", ResponseCacheStats.SizeBytes},
+          {"lexical_resource_hits", LexicalCacheStats.ResourceHits},
+          {"lexical_resource_misses", LexicalCacheStats.ResourceMisses},
+          {"lexical_expansion_hits", LexicalCacheStats.ExpansionHits},
+          {"lexical_expansion_misses", LexicalCacheStats.ExpansionMisses}};
+
      if (Instance)
      {
           auto State = Instance->StatsVal.GetStartupState();
@@ -1307,7 +1323,22 @@ HttpResponse SearchAPI::HandleCache(const HttpRequest &Request)
 
      HttpResponse Response(Status::OK, StatusText(Status::OK), "application/json");
 
-     Response.Body = "{\"status\":\"ok\"}";
+     const auto ResponseStats = SearchResponseCache::GetStats();
+     const auto LexicalStats = LexicalQueryCache::GetStats();
+     nlohmann::json Result;
+     Result["response_cache"] = {
+          {"hits", ResponseStats.Hits},
+          {"misses", ResponseStats.Misses},
+          {"expired", ResponseStats.Expired},
+          {"evictions", ResponseStats.Evictions},
+          {"entries", ResponseStats.Entries},
+          {"size_bytes", ResponseStats.SizeBytes}};
+     Result["lexical_cache"] = {
+          {"resource_hits", LexicalStats.ResourceHits},
+          {"resource_misses", LexicalStats.ResourceMisses},
+          {"expansion_hits", LexicalStats.ExpansionHits},
+          {"expansion_misses", LexicalStats.ExpansionMisses}};
+     Response.Body = Result.dump();
 
      return Response;
 }
@@ -1431,6 +1462,7 @@ HttpResponse SearchAPI::HandleSearchConfig(const HttpRequest &Request)
      ConfigJSON["min_query_length"] = Config->GetQuerySettingsMinQueryLength();
      ConfigJSON["enable_stemming"] = Config->GetQuerySettingsEnableStemming();
      ConfigJSON["enable_synonyms"] = Config->GetQuerySettingsEnableSynonyms();
+     ConfigJSON["enable_stopwords"] = Config->GetQuerySettingsEnableStopwords();
      ConfigJSON["enable_fuzzy"] = Config->GetQuerySettingsEnableFuzzy();
      ConfigJSON["fuzzy_max_distance"] = Config->GetQuerySettingsFuzzyMaxDistance();
      ConfigJSON["require_exact_identifier_tokens"] = Config->GetQuerySettingsRequireExactIdentifierTokens();

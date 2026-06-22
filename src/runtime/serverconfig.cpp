@@ -1158,6 +1158,8 @@ void ServerConfig::ApplyConfiguration()
 
           QuerySettingsEnableSynonyms = QuerySettingsTag->GetBool("enable_synonyms", QuerySettingsEnableSynonyms);
 
+          QuerySettingsEnableStopwords = QuerySettingsTag->GetBool("enable_stopwords", QuerySettingsEnableStopwords);
+
           QuerySettingsEnableFuzzy = QuerySettingsTag->GetBool("enable_fuzzy", QuerySettingsEnableFuzzy);
 
           QuerySettingsFuzzyMaxDistance = QuerySettingsTag->GetIntRange("fuzzy_max_distance", QuerySettingsFuzzyMaxDistance, 1, 5);

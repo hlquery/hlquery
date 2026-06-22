@@ -35,6 +35,8 @@
 #include <vector>
 
 #include "api/searchapi.h"
+#include "api/lexicalcache.h"
+#include "api/searchcache.h"
 #include "api/common.h"
 #include "api/lexicalsort.h"
 #include "core/config.h"
@@ -623,7 +625,18 @@ HttpResponse SearchAPI::HandleCreateOrUpdateSynonym(const HttpRequest &Request)
                                          Code::SEARCH_INVALID_PARAMETER,
                                          "Replication journal incomplete.",
                                          ReplicationJournalError.empty() ? "Synonym was written locally but replication state was not committed durably." : ReplicationJournalError);
-          }          BumpCollectionMutationVersion(IsGlobalScope ? "*" : CollectionName);
+          }
+          BumpCollectionMutationVersion(IsGlobalScope ? "*" : CollectionName);
+          if (IsGlobalScope)
+          {
+               LexicalQueryCache::InvalidateAll();
+               SearchResponseCache::InvalidateAll();
+          }
+          else
+          {
+               LexicalQueryCache::InvalidateCollection(CollectionName);
+               SearchResponseCache::InvalidateCollection(CollectionName);
+          }
 
           HttpResponse Response(Status::OK, StatusText(Status::OK), "application/json");
 
@@ -964,7 +977,18 @@ HttpResponse SearchAPI::HandleDeleteSynonym(const HttpRequest &Request)
                                          Code::SEARCH_INVALID_PARAMETER,
                                          "Replication journal incomplete.",
                                          ReplicationJournalError.empty() ? "Synonym was deleted locally but replication state was not committed durably." : ReplicationJournalError);
-          }          BumpCollectionMutationVersion(IsGlobalScope ? "*" : CollectionName);
+          }
+          BumpCollectionMutationVersion(IsGlobalScope ? "*" : CollectionName);
+          if (IsGlobalScope)
+          {
+               LexicalQueryCache::InvalidateAll();
+               SearchResponseCache::InvalidateAll();
+          }
+          else
+          {
+               LexicalQueryCache::InvalidateCollection(CollectionName);
+               SearchResponseCache::InvalidateCollection(CollectionName);
+          }
 
           HttpResponse Response(Status::OK, StatusText(Status::OK), "application/json");
 

@@ -15,6 +15,9 @@
 #include <chrono>
 #include <iostream>
 #include <map>
+#include <memory>
+#include <mutex>
+#include <deque>
 #include <set>
 #include <sstream>
 #include <string>
@@ -24,6 +27,7 @@
 #include <vector>
 
 #include "api/searchapi.h"
+#include "api/lexicalcache.h"
 #include "core/hlquery.h"
 #include "utils/wildcard.h"
 #include "vendor/json/json.hpp"
@@ -1027,7 +1031,105 @@ static void LoadStopwordsForCollection(const std::string &Collection, std::unord
      load_scope("stopwords:__global__");
 }
 
-static std::vector<std::string> BuildExpandedQueriesFromSynonyms(const std::string &QueryText, const std::string &Collection)
+struct LexicalResourceSnapshot
+{
+     std::unordered_map<std::string, std::vector<std::string>> SynonymGraph;
+     std::unordered_set<std::string> Stopwords;
+     uint64_t CollectionGeneration = 0;
+     uint64_t GlobalGeneration = 0;
+};
+
+struct ExpansionCacheEntry
+{
+     std::string Collection;
+     std::vector<std::string> Variants;
+};
+
+static std::mutex LexicalCacheMutex;
+static std::unordered_map<std::string, std::shared_ptr<const LexicalResourceSnapshot>> LexicalResourceEntries;
+static std::unordered_map<std::string, ExpansionCacheEntry> ExpansionEntries;
+static std::deque<std::string> ExpansionOrder;
+static std::unordered_map<std::string, uint64_t> CollectionGenerations;
+static uint64_t GlobalLexicalGeneration = 1;
+static std::atomic<uint64_t> ResourceCacheHits{0};
+static std::atomic<uint64_t> ResourceCacheMisses{0};
+static std::atomic<uint64_t> ExpansionCacheHits{0};
+static std::atomic<uint64_t> ExpansionCacheMisses{0};
+static constexpr size_t MaxExpansionCacheEntries = 4096;
+
+static std::pair<uint64_t, uint64_t> GetLexicalGenerationsLocked(const std::string &Collection)
+{
+     const auto It = CollectionGenerations.find(Collection);
+     return {It == CollectionGenerations.end() ? 0 : It->second, GlobalLexicalGeneration};
+}
+
+static std::shared_ptr<const LexicalResourceSnapshot> GetLexicalResourceSnapshot(const std::string &Collection)
+{
+     uint64_t CollectionGeneration = 0;
+     uint64_t GlobalGeneration = 0;
+     {
+          std::lock_guard<std::mutex> Lock(LexicalCacheMutex);
+          const auto Generations = GetLexicalGenerationsLocked(Collection);
+          CollectionGeneration = Generations.first;
+          GlobalGeneration = Generations.second;
+          const auto It = LexicalResourceEntries.find(Collection);
+          if (It != LexicalResourceEntries.end() &&
+              It->second->CollectionGeneration == CollectionGeneration &&
+              It->second->GlobalGeneration == GlobalGeneration)
+          {
+               ResourceCacheHits.fetch_add(1, std::memory_order_relaxed);
+               return It->second;
+          }
+     }
+
+     ResourceCacheMisses.fetch_add(1, std::memory_order_relaxed);
+     auto Snapshot = std::make_shared<LexicalResourceSnapshot>();
+     Snapshot->CollectionGeneration = CollectionGeneration;
+     Snapshot->GlobalGeneration = GlobalGeneration;
+     LoadSynonymGraphForCollection(Collection, Snapshot->SynonymGraph);
+     LoadStopwordsForCollection(Collection, Snapshot->Stopwords);
+
+     std::unique_lock<std::mutex> Lock(LexicalCacheMutex);
+     const auto CurrentGenerations = GetLexicalGenerationsLocked(Collection);
+     if (CurrentGenerations.first != CollectionGeneration || CurrentGenerations.second != GlobalGeneration)
+     {
+          Lock.unlock();
+          return GetLexicalResourceSnapshot(Collection);
+     }
+     LexicalResourceEntries[Collection] = Snapshot;
+     return Snapshot;
+}
+
+static std::string BuildExpansionCacheKey(const std::string &Collection,
+                                          const std::string &QueryText,
+                                          bool EnableSynonyms,
+                                          bool EnableStopwords,
+                                          uint64_t CollectionGeneration,
+                                          uint64_t GlobalGeneration)
+{
+     return Collection + "\n" + QueryText + "\n" +
+            (EnableSynonyms ? "1" : "0") + (EnableStopwords ? "1" : "0") + "\n" +
+            std::to_string(CollectionGeneration) + "\n" + std::to_string(GlobalGeneration);
+}
+
+static void PutExpansionCache(const std::string &Key,
+                              const std::string &Collection,
+                              const std::vector<std::string> &Variants)
+{
+     std::lock_guard<std::mutex> Lock(LexicalCacheMutex);
+     ExpansionEntries[Key] = {Collection, Variants};
+     ExpansionOrder.push_back(Key);
+     while (ExpansionEntries.size() > MaxExpansionCacheEntries && !ExpansionOrder.empty())
+     {
+          ExpansionEntries.erase(ExpansionOrder.front());
+          ExpansionOrder.pop_front();
+     }
+}
+
+static std::vector<std::string> BuildExpandedQueriesFromSynonyms(const std::string &QueryText,
+                                                                 const std::string &Collection,
+                                                                 bool EnableSynonyms,
+                                                                 bool EnableStopwords)
 {
      std::vector<std::string> Variants;
 
@@ -1037,8 +1139,20 @@ static std::vector<std::string> BuildExpandedQueriesFromSynonyms(const std::stri
           return Variants;
      }
 
-     std::unordered_map<std::string, std::vector<std::string>> SynonymGraph;
-     LoadSynonymGraphForCollection(Collection, SynonymGraph);
+     const auto Snapshot = GetLexicalResourceSnapshot(Collection);
+     const std::string CacheKey = BuildExpansionCacheKey(Collection, QueryText, EnableSynonyms, EnableStopwords,
+                                                         Snapshot->CollectionGeneration, Snapshot->GlobalGeneration);
+     {
+          std::lock_guard<std::mutex> Lock(LexicalCacheMutex);
+          const auto It = ExpansionEntries.find(CacheKey);
+          if (It != ExpansionEntries.end())
+          {
+               ExpansionCacheHits.fetch_add(1, std::memory_order_relaxed);
+               return It->second.Variants;
+          }
+     }
+     ExpansionCacheMisses.fetch_add(1, std::memory_order_relaxed);
+
      std::vector<std::string> Tokens;
      std::stringstream SS(QueryText);
      std::string Token;
@@ -1047,9 +1161,7 @@ static std::vector<std::string> BuildExpandedQueriesFromSynonyms(const std::stri
           Tokens.push_back(Token);
      }
 
-     std::unordered_set<std::string> Stopwords;
-     LoadStopwordsForCollection(Collection, Stopwords);
-     if (!Stopwords.empty())
+     if (EnableStopwords && !Snapshot->Stopwords.empty())
      {
           std::vector<std::string> Filtered;
           Filtered.reserve(Tokens.size());
@@ -1061,7 +1173,7 @@ static std::vector<std::string> BuildExpandedQueriesFromSynonyms(const std::stri
                {
                     continue;
                }
-               if (Stopwords.find(Normalized) != Stopwords.end())
+               if (Snapshot->Stopwords.find(Normalized) != Snapshot->Stopwords.end())
                {
                     continue;
                }
@@ -1073,6 +1185,7 @@ static std::vector<std::string> BuildExpandedQueriesFromSynonyms(const std::stri
 
      if (Tokens.empty())
      {
+          PutExpansionCache(CacheKey, Collection, Variants);
           return Variants;
      }
 
@@ -1087,8 +1200,9 @@ static std::vector<std::string> BuildExpandedQueriesFromSynonyms(const std::stri
      }
      Variants.push_back(BaseBuilder.str());
 
-     if (SynonymGraph.empty())
+     if (!EnableSynonyms || Snapshot->SynonymGraph.empty())
      {
+          PutExpansionCache(CacheKey, Collection, Variants);
           return Variants;
      }
 
@@ -1098,8 +1212,8 @@ static std::vector<std::string> BuildExpandedQueriesFromSynonyms(const std::stri
      for (size_t I = 0; I < Tokens.size() && Variants.size() < MaxVariants; ++I)
      {
           std::string Normalized = NormalizeTermSimple(Tokens[I]);
-          auto SynIt = SynonymGraph.find(Normalized);
-          if (Normalized.empty() || SynIt == SynonymGraph.end())
+          auto SynIt = Snapshot->SynonymGraph.find(Normalized);
+          if (Normalized.empty() || SynIt == Snapshot->SynonymGraph.end())
           {
                continue;
           }
@@ -1136,7 +1250,45 @@ static std::vector<std::string> BuildExpandedQueriesFromSynonyms(const std::stri
 
      std::sort(Variants.begin(), Variants.end());
      Variants.erase(std::unique(Variants.begin(), Variants.end()), Variants.end());
+     PutExpansionCache(CacheKey, Collection, Variants);
      return Variants;
+}
+
+void LexicalQueryCache::InvalidateCollection(const std::string &Collection)
+{
+     std::lock_guard<std::mutex> Lock(LexicalCacheMutex);
+     ++CollectionGenerations[Collection];
+     LexicalResourceEntries.erase(Collection);
+     for (auto It = ExpansionEntries.begin(); It != ExpansionEntries.end();)
+     {
+          if (It->second.Collection == Collection)
+          {
+               It = ExpansionEntries.erase(It);
+          }
+          else
+          {
+               ++It;
+          }
+     }
+}
+
+void LexicalQueryCache::InvalidateAll()
+{
+     std::lock_guard<std::mutex> Lock(LexicalCacheMutex);
+     ++GlobalLexicalGeneration;
+     LexicalResourceEntries.clear();
+     ExpansionEntries.clear();
+     ExpansionOrder.clear();
+}
+
+LexicalQueryCache::Stats LexicalQueryCache::GetStats()
+{
+     Stats Result;
+     Result.ResourceHits = ResourceCacheHits.load(std::memory_order_relaxed);
+     Result.ResourceMisses = ResourceCacheMisses.load(std::memory_order_relaxed);
+     Result.ExpansionHits = ExpansionCacheHits.load(std::memory_order_relaxed);
+     Result.ExpansionMisses = ExpansionCacheMisses.load(std::memory_order_relaxed);
+     return Result;
 }
 
 /*
@@ -1686,7 +1838,7 @@ std::vector<SearchHit> SearchAPI::ProcessLexicalSearch(const std::string &Collec
                }
                else
                {
-                    auto ExpandedVariants = BuildExpandedQueriesFromSynonyms(VariantSeed, Collection);
+                    auto ExpandedVariants = BuildExpandedQueriesFromSynonyms(VariantSeed, Collection, Query.EnableSynonyms, Query.EnableStopwords);
                     QueryVariants.insert(QueryVariants.end(), ExpandedVariants.begin(), ExpandedVariants.end());
                }
           }
@@ -1752,7 +1904,11 @@ std::vector<SearchHit> SearchAPI::ProcessLexicalSearch(const std::string &Collec
                query_variant_terms_list.push_back(std::move(VariantTerms));
           }
      }
-     if (query_variant_terms_list.empty() && !base_query_terms.empty())
+     /* An empty variant list after stopword processing means every query term
+      * was intentionally removed. Do not restore the unfiltered terms for the
+      * storage-scan fallback, or stopwords would only work on indexed reads. */
+     if (query_variant_terms_list.empty() && !base_query_terms.empty() &&
+         !(Query.EnableStopwords && QueryVariants.empty()))
      {
           query_variant_terms_list.push_back(base_query_terms);
      }

@@ -1008,6 +1008,16 @@ ComprehensiveSearchQuery SearchAPI::ParseComprehensiveSearchQuery(const std::uno
           QueryObj.CaseSensitive = ParseSearchBool(Params.at("case_sensitive"), false);
      }
 
+     if (Params.count("enable_synonyms"))
+     {
+          QueryObj.EnableSynonyms = ParseSearchBool(Params.at("enable_synonyms"), true);
+     }
+
+     if (Params.count("enable_stopwords"))
+     {
+          QueryObj.EnableStopwords = ParseSearchBool(Params.at("enable_stopwords"), true);
+     }
+
      if (Params.count("query_by"))
      {
           std::string QueryByValue = Params.at("query_by");
