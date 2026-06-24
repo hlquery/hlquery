@@ -54,9 +54,9 @@ void InsertDocumentsThread(const std::string &base_url, const std::string &auth_
 
 void InsertAdditionalDocumentsThread(const std::string &base_url, const std::string &auth_token, int num_collections, int start_doc_idx, int additional_docs, int thread_id, int thread_count, int batch_size, bool collect_metrics, int total_documents, const std::string &run_id, bool reuse_collections);
 
-void GetFinalCounts(BenchmarkClient &client, AdvancedMetrics &metrics, bool verbose);
+void GetFinalCounts(BenchmarkClient &client, AdvancedMetrics &metrics, bool verbose, int num_collections = -1);
 
-void CheckConsistency(BenchmarkClient &client, bool verbose);
+void CheckConsistency(BenchmarkClient &client, bool verbose, int num_collections = -1);
 
 std::vector<int64_t> CalculatePercentiles(const std::vector<int64_t> &timings);
 
@@ -1903,15 +1903,17 @@ bool LoadDurabilityConfig(const std::string &path, DurabilityConfig &config)
      return true;
 }
 
-int CountBenchmarkDocuments(const AdvancedMetrics &metrics)
+int CountBenchmarkDocuments(const AdvancedMetrics &metrics, int num_collections)
 {
      int total = 0;
 
-     for (const auto &entry : metrics.FinalPerCollectionCounts)
+     for (int i = 0; i < num_collections; i++)
      {
-          if (entry.first.rfind(g_collection_prefix, 0) == 0)
+          const auto it = metrics.FinalPerCollectionCounts.find(MakeBenchmarkCollectionName(i));
+
+          if (it != metrics.FinalPerCollectionCounts.end())
           {
-               total += entry.second;
+               total += it->second;
           }
      }
 
@@ -1992,7 +1994,7 @@ static void PrintBenchmarkHelp(const char *program_name)
                << "  --check-consistency      Check consistency of /status, /stats, /metrics, /doctotal\n"
                << "  --dry-run          Generate collections/docs in memory but don't send to server\n"
                << "  --cleanup          Delete all benchmark-tagged collections at end\n"
-               << "  --prefix PREFIX    Custom prefix for benchmark collections (default: bench_{runid}_)\n"
+               << "  --prefix PREFIX    Custom prefix for benchmark collections (default: bench_)\n"
                << "  --durability-config PATH  Load durability settings from config (e.g., run/conf/database.conf)\n"
                << "  --reuse-collections Reuse existing collections instead of deleting/recreating them\n"
                << "  --skip-auth-check  Skip authentication requirement check (useful when auth is disabled)\n"
@@ -2586,7 +2588,7 @@ int main(int argc, char *argv[])
 
                if (custom_prefix_val.empty() && !reuse_collections)
                {
-                    g_collection_prefix = "bench_" + run_id_val + "_";
+                    g_collection_prefix = "bench_";
                }
 
                bool fake_ok = CreateFakeCollections(base_url, auth_token, reuse_collections, verbose_mode);
@@ -2685,7 +2687,7 @@ int main(int argc, char *argv[])
 
           if (custom_prefix_val.empty() && !reuse_collections)
           {
-               g_collection_prefix = "bench_" + run_id_val + "_";
+               g_collection_prefix = "bench_";
           }
 
           std::cout << "HLQuery Benchmark Tool.\n";
@@ -2804,7 +2806,7 @@ int main(int argc, char *argv[])
 
                     for (const auto &col : existing_set_val)
                     {
-                         if (col.find(g_collection_prefix) == 0 || col.find("random_") == 0)
+                         if (IsBenchmarkCollectionNameForCurrentPrefix(col) || col.find("random_") == 0)
                          {
                               bench_collections_val.insert(col);
                          }
@@ -3249,7 +3251,7 @@ int main(int argc, char *argv[])
 
           if (enable_sanity_search && num_collections > 0)
           {
-               std::string sanity_collection = g_collection_prefix + "0";
+               std::string sanity_collection = MakeBenchmarkCollectionName(0);
                BenchmarkClient sanity_client(base_url, auth_token);
 
                if (verbose_mode)
@@ -3350,7 +3352,7 @@ int main(int argc, char *argv[])
 
                BenchmarkClient before_client(base_url, auth_token);
 
-               GetFinalCounts(before_client, before_metrics_val, verbose_mode);
+               GetFinalCounts(before_client, before_metrics_val, verbose_mode, num_collections);
 
                if (verbose_mode)
                {
@@ -3361,7 +3363,7 @@ int main(int argc, char *argv[])
 
           BenchmarkClient count_client_val(base_url, auth_token);
 
-          GetFinalCounts(count_client_val, advanced_metrics, verbose_mode);
+          GetFinalCounts(count_client_val, advanced_metrics, verbose_mode, num_collections);
 
           if (advanced_metrics.FinalDocumentsCount > 0 && static_cast<int>(advanced_metrics.FinalDocumentsCount) < documents_inserted.load())
           {
@@ -3372,7 +3374,7 @@ int main(int argc, char *argv[])
           }
 
           int expected_docs_val = num_documents + total_additional_docs_val;
-          int benchmark_docs_val = CountBenchmarkDocuments(advanced_metrics);
+          int benchmark_docs_val = CountBenchmarkDocuments(advanced_metrics, num_collections);
 
           if (benchmark_docs_val != expected_docs_val)
           {
@@ -3386,7 +3388,7 @@ int main(int argc, char *argv[])
           {
                if (!sanity_search_ran)
                {
-                    std::string sanity_collection = g_collection_prefix + "0";
+                    std::string sanity_collection = MakeBenchmarkCollectionName(0);
                     sanity_search_ok = RunSanitySearch(count_client_val, sanity_collection, "Lorem", verbose_mode);
                     sanity_search_ok2 = RunSanitySearch(count_client_val, sanity_collection, "Topic", verbose_mode);
                     sanity_search_ran = true;
@@ -3394,7 +3396,7 @@ int main(int argc, char *argv[])
 
                if (!sanity_search_ok || !sanity_search_ok2)
                {
-                    std::string sanity_collection = g_collection_prefix + "0";
+                    std::string sanity_collection = MakeBenchmarkCollectionName(0);
                     std::cerr << "\nERROR: Sanity search verification failed (collection: " << sanity_collection << ").\n";
                     std::cerr << "  This indicates documents are not searchable after commit.\n";
 
@@ -3426,7 +3428,7 @@ int main(int argc, char *argv[])
 
           if (check_consistency_val)
           {
-               CheckConsistency(count_client_val, verbose_mode);
+               CheckConsistency(count_client_val, verbose_mode, num_collections);
           }
 
           if (verify_after_restart)
@@ -3454,7 +3456,7 @@ int main(int argc, char *argv[])
 
                std::this_thread::sleep_for(std::chrono::milliseconds(500));
 
-               GetFinalCounts(restart_client, after_metrics_val, verbose_mode);
+               GetFinalCounts(restart_client, after_metrics_val, verbose_mode, num_collections);
 
                std::cout << "\n=== RESTART VERIFICATION RESULTS ===\n";
                std::cout << "Before restart:.\n";
@@ -3498,7 +3500,7 @@ int main(int argc, char *argv[])
                {
                     std::cout << "\nChecking consistency after restart...\n";
 
-                    CheckConsistency(restart_client, verbose_mode);
+                    CheckConsistency(restart_client, verbose_mode, num_collections);
                }
           }
 

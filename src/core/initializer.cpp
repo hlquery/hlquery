@@ -131,6 +131,7 @@ bool hlquery::StartServer()
                }
                catch (...)
                {
+
                }
           }
 
@@ -149,7 +150,6 @@ bool hlquery::StartServer()
           }
 
           std::string PIDFilePath = std::string(HLQUERY_PID_DIR) + "/" + PIDFileName;
-
           std::string ExistingPIDInfo = "";
 
           try
@@ -314,12 +314,10 @@ bool hlquery::StartServer()
                /* Execute data directory validation checks */
 
                bool ValidationPassedFlag = true;
-
                std::string ValidationErrorsMsg;
-
                std::string DataDirPath = std::string(HLQUERY_DATA_DIR);
-
                std::error_code EC;
+               
                const bool DataDirExists = std::filesystem::exists(DataDirPath, EC);
 
                if (EC)
@@ -330,7 +328,6 @@ bool hlquery::StartServer()
                else if (!DataDirExists)
                {
                     ValidationPassedFlag = false;
-
                     ValidationErrorsMsg += "Data directory does not exist: " + DataDirPath + "\n";
                }
                else if (!std::filesystem::is_directory(DataDirPath, EC))
@@ -343,7 +340,6 @@ bool hlquery::StartServer()
                     else
                     {
                          ValidationPassedFlag = false;
-
                          ValidationErrorsMsg += "Data directory is not a directory: " + DataDirPath + "\n";
                     }
                }
@@ -621,7 +617,6 @@ bool hlquery::InitializeCore()
                     for (const auto &Entry : DeniedEntriesList)
                     {
                          std::string EntryLine = "       - " + Entry;
-
                          ConsoleWriter::WriteStartupPlainSafe(STDOUT_FILENO, EntryLine.c_str(), false);
                     }
                }
@@ -849,7 +844,6 @@ void hlquery::WaitForMetadataScan()
 
      {
           std::lock_guard<std::mutex> Lock(StatsVal.StartupStateMutex);
-
           StatsVal.StartupStateInfo.MetadataScanStart = Instance ? Instance->Now() : Now();
      }
 
@@ -888,7 +882,6 @@ void hlquery::WaitForMetadataScan()
                     {
                          {
                               std::lock_guard<std::mutex> Lock(StatsVal.StartupStateMutex);
-
                               StatsVal.StartupStateInfo.ReadonlyMode = true;
                          }
 

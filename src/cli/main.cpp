@@ -34,6 +34,24 @@
 #include "utils/consolewriter.h"
 #include "vendor/json/json.hpp"
 
+static bool IsSimpleBenchmarkCollectionName(const std::string &collection_name)
+{
+     if (collection_name.rfind("bench_", 0) != 0 || collection_name.size() <= 6)
+     {
+          return false;
+     }
+
+     for (size_t i = 6; i < collection_name.size(); i++)
+     {
+          if (!std::isdigit(static_cast<unsigned char>(collection_name[i])))
+          {
+               return false;
+          }
+     }
+
+     return true;
+}
+
 /* Trims leading and trailing whitespace from a string value. */
 
 static std::string TrimWhitespace(const std::string &value)
@@ -2141,7 +2159,7 @@ int main(int argc, char *argv[])
                               {
                                    std::string col_name = col["name"].get<std::string>();
 
-                                   if (col_name.find("bench_collection_") == 0)
+                                   if (IsSimpleBenchmarkCollectionName(col_name))
                                    {
                                         bench_count++;
 

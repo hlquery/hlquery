@@ -52,6 +52,7 @@
 #include "vendor/json/json.hpp"
 
 static const char *kGlobalSynonymsCollection = "__global__";
+
 static bool IsGlobalSynonymsPath(const std::string &Path)
 {
      return Path == "/synonyms/global" || Path.find("/synonyms/global/") == 0;
@@ -177,6 +178,7 @@ HttpResponse SearchAPI::HandleListSynonyms(const HttpRequest &Request)
 
      std::string CollectionName;
      bool IsGlobalScope = false;
+
      if (!ResolveSynonymScope(Request.Path, ExtractCollectionFromPath(Request.Path), &CollectionName, &IsGlobalScope))
      {
           return HttpResponse(Status::BAD_REQUEST, StatusText(Status::BAD_REQUEST), "application/json");
@@ -246,6 +248,7 @@ HttpResponse SearchAPI::HandleListSynonyms(const HttpRequest &Request)
 
      LexicalSortOptions SortOptions;
      std::string SortError;
+
      if (!ResolveLexicalSortOptions(Request.QueryParams, "root", {"root", "id"}, &SortOptions, &SortError))
      {
           return BuildErrorResponse(Status::BAD_REQUEST, Code::SEARCH_INVALID_PARAMETER, "Invalid sort parameter.", SortError);
@@ -259,6 +262,7 @@ HttpResponse SearchAPI::HandleListSynonyms(const HttpRequest &Request)
                                           GetSynonymSortTieBreaker(Right),
                                           SortOptions.SortOrder);
      });
+
      Result["sort_by"] = SortOptions.SortBy;
      Result["sort_order"] = SortOptions.SortOrder;
      Result["synonyms"] = SynonymsArray;
@@ -293,7 +297,6 @@ HttpResponse SearchAPI::HandleListAllSynonyms(const HttpRequest &Request)
      for (const auto &CollectionName : Collections)
      {
           std::string SynonymsKey = "synonyms:" + CollectionName;
-
           std::string SynonymsJSON = HybridStorageManagerInstance().Get(SynonymsKey);
 
           nlohmann::json Entry;
@@ -318,6 +321,7 @@ HttpResponse SearchAPI::HandleListAllSynonyms(const HttpRequest &Request)
                }
                catch (const std::exception &)
                {
+               
                }
           }
 
@@ -356,7 +360,6 @@ HttpResponse SearchAPI::HandleListAllSynonyms(const HttpRequest &Request)
      }
 
      nlohmann::json Result;
-
      Result["collections"] = CollectionsJSON;
 
      HttpResponse Response(Status::OK, StatusText(Status::OK), "application/json");
@@ -490,9 +493,7 @@ HttpResponse SearchAPI::HandleCreateOrUpdateSynonym(const HttpRequest &Request)
           /* Get existing synonyms for this collection. */
 
           std::string SynonymsKey = "synonyms:" + CollectionName;
-
           std::string SynonymsJSON = HybridStorageManagerInstance().Get(SynonymsKey);
-
           nlohmann::json RootObj;
 
           if (!SynonymsJSON.empty())
@@ -540,6 +541,7 @@ HttpResponse SearchAPI::HandleCreateOrUpdateSynonym(const HttpRequest &Request)
                     Syn["root"] = SynonymData["root"];
                     Syn["synonyms"] = SynonymData["synonyms"];
                     Syn["updated_at"] = GetCurrentTimestamp();
+                
                     if (!Source.empty())
                     {
                          Syn["source"] = Source;
@@ -571,10 +573,12 @@ HttpResponse SearchAPI::HandleCreateOrUpdateSynonym(const HttpRequest &Request)
                NewSynonym["synonyms"] = SynonymData["synonyms"];
                NewSynonym["created_at"] = GetCurrentTimestamp();
                NewSynonym["updated_at"] = GetCurrentTimestamp();
+               
                if (!Source.empty())
                {
                     NewSynonym["source"] = Source;
                }
+               
                if (SynonymData.contains("confidence") && SynonymData["confidence"].is_number())
                {
                     NewSynonym["confidence"] = SynonymData["confidence"];
@@ -603,6 +607,7 @@ HttpResponse SearchAPI::HandleCreateOrUpdateSynonym(const HttpRequest &Request)
 
           std::string ReplicationOutboxID;
           std::string ReplicationJournalError;
+
           if (!PrepareReplicationOutboxRecord(Request, "upsert_synonym", &ReplicationOutboxID, &ReplicationJournalError))
           {
                return BuildErrorResponse(Status::SERVICE_UNAVAILABLE,
@@ -626,7 +631,9 @@ HttpResponse SearchAPI::HandleCreateOrUpdateSynonym(const HttpRequest &Request)
                                          "Replication journal incomplete.",
                                          ReplicationJournalError.empty() ? "Synonym was written locally but replication state was not committed durably." : ReplicationJournalError);
           }
+
           BumpCollectionMutationVersion(IsGlobalScope ? "*" : CollectionName);
+
           if (IsGlobalScope)
           {
                LexicalQueryCache::InvalidateAll();
@@ -644,6 +651,7 @@ HttpResponse SearchAPI::HandleCreateOrUpdateSynonym(const HttpRequest &Request)
           FOREACH_MOD(OnUpsertSynonym, CollectionName, SynonymID, IsGlobalScope, Request.RemoteAddress, Request.APIKeyID, !Request.APIKeyID.empty());
 
           std::string ReplicationError;
+
           if (!ReplicateWriteRequest(Request, "upsert_synonym", &ReplicationError))
           {
                return BuildErrorResponse(Status::SERVICE_UNAVAILABLE,
@@ -658,7 +666,6 @@ HttpResponse SearchAPI::HandleCreateOrUpdateSynonym(const HttpRequest &Request)
      catch (const nlohmann::json::parse_error &e)
      {
           HttpResponse Response(Status::BAD_REQUEST, StatusText(Status::BAD_REQUEST), "application/json");
-
           Response.Body = "{\"error\":\"Invalid JSON\",\"message\":\"Failed to parse JSON: " + EscapeJSONString(e.what()) + "\"}";
 
           return Response;
@@ -780,7 +787,6 @@ HttpResponse SearchAPI::HandleGetSynonym(const HttpRequest &Request)
                if (Syn.contains("id") && Syn["id"] == SynonymID)
                {
                     HttpResponse Response(Status::OK, StatusText(Status::OK), "application/json");
-
                     Response.Body = Syn.dump();
 
                     return Response;

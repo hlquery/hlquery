@@ -227,9 +227,7 @@ RouteAction ResolveHttpRoute(const HttpRequest &Request)
           }
 
           const CollectionRouteInfo RouteInfo = BuildCollectionRouteInfo(NormalizedPath);
-
           const std::string &Method = Request.Method;
-
           const std::string &Path = NormalizedPath;
 
           if (ExactRoute(Path, Method, {"/status", "/query"}, {"GET"}))

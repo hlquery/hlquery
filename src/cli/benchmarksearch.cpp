@@ -128,7 +128,7 @@ void RunSearches(const std::string &base_url, const std::string &auth_token)
 
      for (const auto &col : all_collections)
      {
-          if (col.find(g_collection_prefix) == 0 ||
+          if (IsBenchmarkCollectionNameForCurrentPrefix(col) ||
               col.find("random_") == 0 ||
               col == "unorganized" ||
               std::find(fake_collections.begin(), fake_collections.end(), col) != fake_collections.end())

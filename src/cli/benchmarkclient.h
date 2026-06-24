@@ -410,6 +410,10 @@ extern std::atomic<bool> g_flood_should_stop;
 
 extern std::string g_collection_prefix;
 
+std::string MakeBenchmarkCollectionName(int collection_index);
+
+bool IsBenchmarkCollectionNameForCurrentPrefix(const std::string &collection_name);
+
 extern bool verbose_mode;
 
 extern std::atomic<int> spinner_index;

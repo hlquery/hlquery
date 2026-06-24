@@ -1051,7 +1051,6 @@ bool hlquery::CheckExistingProcess()
           if (BytesReadCount <= 0)
           {
                unlink(PIDFilePath.c_str());
-
                return false;
           }
 

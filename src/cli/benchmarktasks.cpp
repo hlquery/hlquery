@@ -53,7 +53,7 @@ void DeleteCollectionsThread(const std::string &base_url, const std::string &aut
 
      for (int i = start_idx; i < end_idx; i++)
      {
-          std::string collection_name = g_collection_prefix + std::to_string(i);
+          std::string collection_name = MakeBenchmarkCollectionName(i);
 
           if (existing_collections.find(collection_name) != existing_collections.end())
           {
@@ -86,7 +86,7 @@ void CreateCollectionsThread(const std::string &base_url, const std::string &aut
      {
           auto start = Now();
 
-          std::string collection_name = g_collection_prefix + std::to_string(i);
+          std::string collection_name = MakeBenchmarkCollectionName(i);
 
           const int COLLECTION_TIMEOUT_MS = 10000;
 
@@ -165,7 +165,7 @@ void InsertAdditionalDocumentsThread(const std::string &base_url, const std::str
                return;
           }
 
-          std::string collection_name = g_collection_prefix + std::to_string(col_idx);
+          std::string collection_name = MakeBenchmarkCollectionName(col_idx);
 
           client.ResetConnection();
 
@@ -263,7 +263,7 @@ void InsertDocumentsThread(const std::string &base_url, const std::string &auth_
                return;
           }
 
-          std::string collection_name = g_collection_prefix + std::to_string(col_idx);
+          std::string collection_name = MakeBenchmarkCollectionName(col_idx);
           const int docs_in_collection = GetBenchmarkDocsForCollection(col_idx, docs_per_collection, remaining_docs);
 
           client.ResetConnection();

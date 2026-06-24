@@ -62,6 +62,7 @@ static nlohmann::json BuildDocumentJSON(const Document &Doc)
      {
           J["id"] = Doc.ID;
      }
+
      if (!Doc.Title.empty())
      {
           J["title"] = Doc.Title;
@@ -195,6 +196,7 @@ HttpResponse SearchAPI::HandleListDocuments(const HttpRequest &Request)
           }
           catch (...)
           {
+
           }
      }
 
@@ -218,6 +220,7 @@ HttpResponse SearchAPI::HandleListDocuments(const HttpRequest &Request)
           }
           catch (...)
           {
+          
           }
      }
 
@@ -242,14 +245,13 @@ HttpResponse SearchAPI::HandleListDocuments(const HttpRequest &Request)
      if (IncludeDateIt != Request.QueryParams.end())
      {
           std::string Value = IncludeDateIt->second;
-
           std::transform(Value.begin(), Value.end(), Value.begin(), ::tolower);
-
           IncludeCreatedAtVal = (Value == "true" || Value == "1" || Value == "yes");
      }
 
      const bool RequiresGlobalSort = !SortByStr.empty();
      std::vector<Document> Documents;
+
      const auto AppendStorageDocuments = [&Documents](const std::vector<Document> &StorageDocs)
      {
           Documents.reserve(Documents.size() + StorageDocs.size());
