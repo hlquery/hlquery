@@ -39,10 +39,15 @@
 #include "runtime/daemon.h"
 #include "runtime/exitmanager.h"
 #include "runtime/threadlimit.h"
+#include "runtime/timers.h"
 #include "core/config.h"
 #include "core/helpers.h"
 #include "core/hlquery.h"
+#include "core/metrics.h"
+#include "core/modulemanager.h"
+#include "core/modules.h"
 #include "core/socketengine.h"
+#include "sql/sql.h"
 #include "search/cstore.h"
 #include "search/lindex.h"
 #include "search/storageengine.h"
@@ -112,7 +117,7 @@ bool hlquery::Initialize()
           return true;
      }
 
-     WriteStartupBanner();
+     StartupBanner();
 
      /* Initialize the core server logic */
 
@@ -176,7 +181,7 @@ void hlquery::InitializeNetworkListeners()
      RunListeners();
 }
 
-void hlquery::WriteStartupBanner()
+void hlquery::StartupBanner()
 {
      newline();
      std::vector<std::string> loaded_modules;
@@ -251,7 +256,7 @@ void hlquery::Run()
 {
      /* Handle daemonization process if configured for background operation */
 
-     if (!CoreHelpers::PreflightSSLConfig(Config.get()))
+     if (!CoreHelpers::PreflightSSLConfig())
      {
           ExitManager::Exit(1);
      }
@@ -363,7 +368,7 @@ void hlquery::Run()
           {
                print_warning("Force exit requested, initiating graceful shutdown.");
                std::cout.flush();
-               ShuttingDown = 1;
+               SetShutdownFlag();
 
                break;
           }

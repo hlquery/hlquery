@@ -19,6 +19,7 @@
 #include "api/httpserver.h"
 #include "core/helpers.h"
 #include "core/hlquery.h"
+#include "runtime/timers.h"
 #include "runtime/daemon.h"
 #include "utils/consolewriter.h"
 #include "utils/infos.h"
@@ -29,7 +30,7 @@
 
 bool CoreHelpers::ShouldExitLoop()
 {
-     return ForceExit != 0 || ShuttingDown != 0;
+     return hlquery::ShouldForceExit() || hlquery::ShouldShutdown();
 }
 
 /* Transfers ownership of a worker thread to the application thread registry. */
@@ -155,15 +156,16 @@ void CoreHelpers::ProcessPeriodicTasks()
 
 /* Loads configuration when needed and validates every SSL-enabled bind. */
 
-bool CoreHelpers::PreflightSSLConfig(ServerConfig *ConfigPtr)
+bool CoreHelpers::PreflightSSLConfig()
 {
      /* Missing configuration does not require SSL preflight work. */
 
-     if (!ConfigPtr)
+     if (!Instance || !Instance->Config)
      {
           return true;
      }
 
+     ServerConfig *ConfigPtr = Instance->Config.get();
      const std::string &ConfigFileLoc = ConfigPtr->GetConfigFile();
 
      if (ConfigFileLoc.empty())

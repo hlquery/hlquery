@@ -51,6 +51,28 @@ HttpResponse ProcessRequestWithAPI(SearchAPI &API, const HttpRequest &Request);
 static bool ExtractAuthTokenFromRequest(const HttpRequest &Request, std::string &OutAuthHeader, std::string &OutToken);
 
 static RouteAction ResolveRouteWithFallback(const HttpRequest &Request);
+static bool IsPublicRouteAction(RouteAction ActionVal);
+static bool IsAdminOnlyRouteAction(RouteAction ActionVal);
+static bool IsModuleControlRoute(const HttpRequest &Request);
+static std::string NormalizeRequestPath(const std::string &Path);
+static bool IsModuleControlRoutePath(const std::string &Path);
+
+struct RouteContext
+{
+     std::string NormalizedPath;
+     RouteAction ActionVal = RouteAction::NotFound;
+     std::string CollectionName;
+     bool IsPublic = false;
+     bool IsAdminOnly = false;
+     bool IsModuleControl = false;
+     bool IsHealthCheck = false;
+     bool IsCollectionCreation = false;
+     bool IsDocumentImport = false;
+     bool IsListDocuments = false;
+     bool IsExpensiveQuery = false;
+};
+
+static RouteContext BuildRouteContext(const HttpRequest &Request, SearchAPI *API = nullptr);
 
 static bool ShouldUseAsyncHttpDispatch()
 {
@@ -310,16 +332,19 @@ static bool IsAuthorizedReplicationRequest(const HttpRequest &Request)
      return false;
 }
 
-static void RecordAnalyticsForResponse(const HttpRequest &Request, const HttpResponse &Response)
+static void RecordAnalyticsForResponse(const HttpRequest &Request, const HttpResponse &Response, RouteAction ActionVal)
 {
-     const RouteAction ActionVal = ResolveRouteWithFallback(Request);
-
      FOREACH_MOD(OnRequestAnalytics, Request, Response, ActionVal);
 
      if (Request.Authenticated)
      {
           FOREACH_MOD(OnAuthenticatedRequest, Request, ActionVal);
      }
+}
+
+static void RecordAnalyticsForResponse(const HttpRequest &Request, const HttpResponse &Response)
+{
+     RecordAnalyticsForResponse(Request, Response, ResolveRouteWithFallback(Request));
 }
 
 static bool IsMutatingRequestMethod(const HttpRequest &Request)
@@ -2324,16 +2349,9 @@ void HttpConnection::ProcessSingleRequest(const std::string &RequestStr)
      std::string KeyEmbeddedFilters;
      bool AuthenticatedRequest = false;
 
-     std::string NormalizedPath = Request.Path;
-
-     size_t QueryPosVal = NormalizedPath.find('?');
-
-     if (QueryPosVal != std::string::npos)
-     {
-          NormalizedPath = NormalizedPath.substr(0, QueryPosVal);
-     }
-
-     RouteAction ActionVal = ResolveRouteWithFallback(Request);
+     RouteContext Context = BuildRouteContext(Request, &API);
+     RouteAction ActionVal = Context.ActionVal;
+     const std::string &NormalizedPath = Context.NormalizedPath;
 
      if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
      {
@@ -2353,11 +2371,11 @@ void HttpConnection::ProcessSingleRequest(const std::string &RequestStr)
           }
 
           APIKeyAction ReqAction = MapRouteToKeyAction(ActionVal);
-          std::string ColNameVal = API.ExtractCollectionFromPath(Request.Path);
+          std::string ColNameVal = Context.CollectionName;
 
           /* Handle /multi_search and system endpoints. */
 
-          if (!IsPublicRouteAction(ActionVal) && ColNameVal.empty())
+          if (!Context.IsPublic && ColNameVal.empty())
           {
                if (ActionVal == RouteAction::MultiSearch || ActionVal == RouteAction::GlobalSearch)
                {
@@ -2388,7 +2406,7 @@ void HttpConnection::ProcessSingleRequest(const std::string &RequestStr)
                     ColNameVal = "*";
                }
           }
-          else if (!IsPublicRouteAction(ActionVal))
+          else if (!Context.IsPublic)
           {
                if (!KeyObj->CanAccessCollection(ColNameVal))
                {
@@ -2434,7 +2452,7 @@ void HttpConnection::ProcessSingleRequest(const std::string &RequestStr)
 
      /* Admin-only routes. */
 
-     if (IsAdminOnlyRouteAction(ActionVal))
+     if (Context.IsAdminOnly)
      {
           if (!IsAdminVal)
           {
@@ -2445,7 +2463,7 @@ void HttpConnection::ProcessSingleRequest(const std::string &RequestStr)
           }
      }
 
-     if (IsModuleControlRoute(Request) && !IsAdminVal)
+     if (Context.IsModuleControl && !IsAdminVal)
      {
           Response = HttpResponse(403, "Forbidden", "application/json");
           Response.Body = "{\"error\":\"Only administrators can access this endpoint\"}";
@@ -2490,7 +2508,7 @@ void HttpConnection::ProcessSingleRequest(const std::string &RequestStr)
      /* WORKAROUND: Handle /etc route in ProcessSingleRequest BEFORE setting 404. */
      /* Ensure /etc route is caught early and reliably (protocol codes for API communication). */
 
-     if (Request.Path == "/etc" && Request.Method == "GET")
+     if (ActionVal == RouteAction::Etc)
      {
           if (Instance && Instance->Logs)
           {
@@ -2643,7 +2661,7 @@ void HttpConnection::ProcessSingleRequest(const std::string &RequestStr)
           Response = HttpResponse(404, "Not Found", "application/json");
           Response.Body = "{\"error\":\"Route not found\",\"path\":\"" +
                           API.EscapeJSONString(Request.Path) + "\"}";
-          RecordAnalyticsForResponse(Request, Response);
+          RecordAnalyticsForResponse(Request, Response, ActionVal);
           SendResponse(Response);
           return;
      }
@@ -3067,7 +3085,7 @@ void HttpConnection::ProcessSingleRequest(const std::string &RequestStr)
           Response = API.HandleStatus(Request);
      }
 
-     RecordAnalyticsForResponse(Request, Response);
+     RecordAnalyticsForResponse(Request, Response, ActionVal);
      API.FinalizeReplicationOperation(Request, Response);
      API.FinalizeReplicationResyncRequest(Request, Response);
 
@@ -4960,60 +4978,7 @@ APIKeyAction MapRouteToKeyAction(RouteAction ActionVal)
 
 static RouteAction ResolveRouteWithFallback(const HttpRequest &Request)
 {
-     std::string Path = Request.Path;
-     const std::string &Method = Request.Method;
-
-     if (Path.size() > 1 && Path.back() == '/')
-     {
-          Path.pop_back();
-     }
-
-     if (Path == "/flush" && Method == "POST")
-     {
-          return RouteAction::Flush;
-     }
-
-     if (Path == "/ping" && Method == "GET")
-     {
-          return RouteAction::Ping;
-     }
-
-     if ((Path == "/rocksdb" || Path == "/_rocksdb") && Method == "GET")
-     {
-          return RouteAction::RocksDB;
-     }
-
-     if (Path == "/etc" && Method == "GET")
-     {
-          return RouteAction::Etc;
-     }
-
-     if (Path == "/connections" && Method == "GET")
-     {
-          return RouteAction::Connections;
-     }
-
-     if ((Path == "/startup" || Path == "/boot-status") && Method == "GET")
-     {
-          return RouteAction::Startup;
-     }
-
-     if ((Path == "/integrity" || Path == "/consistency") && Method == "GET")
-     {
-          return RouteAction::Integrity;
-     }
-
-     if (Path == "/self-check" && Method == "GET")
-     {
-          return RouteAction::SelfCheck;
-     }
-
-     if (Path == "/admin/storage_status" && Method == "GET")
-     {
-          return RouteAction::StorageStatus;
-     }
-
-     return ResolveHttpRoute(Request);
+     return BuildRouteContext(Request).ActionVal;
 }
 
 static bool IsPublicRouteAction(RouteAction ActionVal)
@@ -5048,19 +5013,29 @@ static bool IsAdminOnlyRouteAction(RouteAction ActionVal)
 
 static bool IsModuleControlRoute(const HttpRequest &Request)
 {
-     std::string Path = Request.Path;
-     const size_t QueryPos = Path.find('?');
+     return IsModuleControlRoutePath(NormalizeRequestPath(Request.Path));
+}
+
+static std::string NormalizeRequestPath(const std::string &Path)
+{
+     std::string NormalizedPath = Path;
+     const size_t QueryPos = NormalizedPath.find('?');
 
      if (QueryPos != std::string::npos)
      {
-          Path = Path.substr(0, QueryPos);
+          NormalizedPath = NormalizedPath.substr(0, QueryPos);
      }
 
-     if (Path.size() > 1 && Path.back() == '/')
+     if (NormalizedPath.size() > 1 && NormalizedPath.back() == '/')
      {
-          Path.pop_back();
+          NormalizedPath.pop_back();
      }
 
+     return NormalizedPath;
+}
+
+static bool IsModuleControlRoutePath(const std::string &Path)
+{
      return Path == "/loadmodule" ||
             Path == "/unloadmodule" ||
             Path.rfind("/loadmodule/", 0) == 0 ||
@@ -5069,6 +5044,32 @@ static bool IsModuleControlRoute(const HttpRequest &Request)
             Path == "/modules/unload" ||
             Path.rfind("/modules/load/", 0) == 0 ||
             Path.rfind("/modules/unload/", 0) == 0;
+}
+
+static RouteContext BuildRouteContext(const HttpRequest &Request, SearchAPI *API)
+{
+     RouteContext Context;
+     Context.NormalizedPath = NormalizeRequestPath(Request.Path);
+     Context.ActionVal = ResolveHttpRoute(Request);
+     Context.IsPublic = IsPublicRouteAction(Context.ActionVal);
+     Context.IsAdminOnly = IsAdminOnlyRouteAction(Context.ActionVal);
+     Context.IsModuleControl = IsModuleControlRoutePath(Context.NormalizedPath);
+     Context.IsHealthCheck = IsHealthLikePath(Context.NormalizedPath);
+     Context.IsCollectionCreation = Context.ActionVal == RouteAction::CreateCollection;
+     Context.IsDocumentImport = Context.ActionVal == RouteAction::BulkImportDocuments;
+     Context.IsListDocuments = Context.ActionVal == RouteAction::ListDocuments;
+     Context.IsExpensiveQuery = Context.ActionVal == RouteAction::DocumentSearch ||
+                                Context.ActionVal == RouteAction::VectorSearch ||
+                                Context.ActionVal == RouteAction::MultiSearch ||
+                                Context.ActionVal == RouteAction::GlobalSearch;
+
+     if (API && !Context.IsPublic && Context.ActionVal != RouteAction::MultiSearch &&
+         Context.ActionVal != RouteAction::GlobalSearch)
+     {
+          Context.CollectionName = API->ExtractCollectionFromPath(Context.NormalizedPath);
+     }
+
+     return Context;
 }
 
 /* ProcessRequestWithAPI handles requests with SearchAPI. */
@@ -5081,10 +5082,12 @@ HttpResponse ProcessRequestWithAPI(SearchAPI &API, const HttpRequest &Request)
      }
 
      RouteAction ActionVal = RouteAction::NotFound;
+     RouteContext Context;
 
      try
      {
-          ActionVal = ResolveRouteWithFallback(Request);
+          Context = BuildRouteContext(Request, &API);
+          ActionVal = Context.ActionVal;
 
           if (Instance && Instance->Logs)
           {
@@ -5136,7 +5139,7 @@ HttpResponse ProcessRequestWithAPI(SearchAPI &API, const HttpRequest &Request)
 
           /* Admin-only routes. */
 
-          if (IsAdminOnlyRouteAction(ActionVal))
+          if (Context.IsAdminOnly)
           {
                if (!IsAdminVal)
                {
@@ -5145,13 +5148,13 @@ HttpResponse ProcessRequestWithAPI(SearchAPI &API, const HttpRequest &Request)
                }
           }
 
-          if (IsModuleControlRoute(Request) && !IsAdminVal)
+          if (Context.IsModuleControl && !IsAdminVal)
           {
                LogAccessControl("Forbidden: non-admin attempted module control operation", Request);
                return HttpResponse(403, "Forbidden", "{\"error\":\"Only administrators can access this endpoint\"}");
           }
 
-          if (!IsAdminVal && !IsPublicRouteAction(ActionVal))
+          if (!IsAdminVal && !Context.IsPublic)
           {
                auto *KeyObj = APIKeyManager::Instance().ValidateKey(TokenVal);
 
@@ -5163,7 +5166,7 @@ HttpResponse ProcessRequestWithAPI(SearchAPI &API, const HttpRequest &Request)
                     }
 
                     APIKeyAction ReqAction = MapRouteToKeyAction(ActionVal);
-                    std::string ColNameVal = API.ExtractCollectionFromPath(Request.Path);
+                    std::string ColNameVal = Context.CollectionName;
 
                     /* Handle /multi_search and system endpoints. */
 
@@ -5255,35 +5258,7 @@ HttpResponse ProcessRequestWithAPI(SearchAPI &API, const HttpRequest &Request)
 
      if (Instance && !HybridStorageManagerInstance().IsMetadataScanComplete())
      {
-          /* Allow collection creation during metadata scan - it's safe and needed for benchmarks. */
-
-          bool IsCollectionCreation = (ActionVal == RouteAction::CreateCollection ||
-                                       (Request.Path == "/collections" && Request.Method == "POST"));
-
-          /* Allow document import during metadata scan - it's safe and needed for benchmarks. */
-
-          bool IsDocumentImport = (ActionVal == RouteAction::BulkImportDocuments ||
-                                   (Request.Method == "POST" &&
-                                    Request.Path.find("/collections/") == 0 &&
-                                    Request.Path.find("/documents/import") != std::string::npos));
-
-          /* CRITICAL FIX: Allow ListDocuments during metadata scan - it's a read operation and safe. */
-          /* Documents are in memory cache or can be loaded from LSM, so queries should work. */
-
-          bool IsListDocuments = (ActionVal == RouteAction::ListDocuments ||
-                                  (Request.Method == "GET" &&
-                                   Request.Path.find("/collections/") == 0 &&
-                                   Request.Path.find("/documents") != std::string::npos));
-
-          /* Block expensive queries (search) until collections are loaded after restart. */
-          /* Write operations (collection creation, document import) and simple reads (ListDocuments) are allowed. */
-
-          bool IsExpensiveQuery = (ActionVal == RouteAction::DocumentSearch ||
-                                   ActionVal == RouteAction::VectorSearch ||
-                                   (Request.Method == "GET" &&
-                                    Request.Path.find("/search") != std::string::npos));
-
-          if (IsExpensiveQuery && !IsCollectionCreation && !IsDocumentImport && !IsListDocuments)
+          if (Context.IsExpensiveQuery && !Context.IsCollectionCreation && !Context.IsDocumentImport && !Context.IsListDocuments)
           {
                HttpResponse ResponseVal(503, "Service Unavailable", "application/json");
 
@@ -5301,30 +5276,14 @@ HttpResponse ProcessRequestWithAPI(SearchAPI &API, const HttpRequest &Request)
 
      if (Instance && Instance->IsSyncInProgress())
      {
-          /* Allow health check endpoints during sync. */
-
-          bool IsHealthCheck = IsHealthLikePath(Request.Path);
-
-          /* Allow collection creation during sync - it's safe and needed for benchmarks. */
-
-          bool IsCollectionCreation = (ActionVal == RouteAction::CreateCollection ||
-                                       (Request.Path == "/collections" && Request.Method == "POST"));
-
-          /* Allow document import during sync - it's safe and needed for benchmarks. */
-
-          bool IsDocumentImport = (ActionVal == RouteAction::BulkImportDocuments ||
-                                   (Request.Method == "POST" &&
-                                    Request.Path.find("/collections/") == 0 &&
-                                    Request.Path.find("/documents/import") != std::string::npos));
-
           /* Block queries and other write operations during sync. */
 
           bool IsQuery = (Request.Method == "GET");
 
           bool IsOtherWrite = (Request.Method == "POST" || Request.Method == "PUT" || Request.Method == "DELETE") &&
-                              !IsCollectionCreation && !IsDocumentImport;
+                              !Context.IsCollectionCreation && !Context.IsDocumentImport;
 
-          if (!IsAuthorizedReplicationRequest(Request) && !IsHealthCheck && (IsQuery || IsOtherWrite))
+          if (!IsAuthorizedReplicationRequest(Request) && !Context.IsHealthCheck && (IsQuery || IsOtherWrite))
           {
                HttpResponse ResponseVal(503, "Service Unavailable", "application/json");
 

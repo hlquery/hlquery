@@ -11,23 +11,12 @@
  */
 
 #include <initializer_list>
+#include <string_view>
+#include <unordered_map>
 
 #include "api/httpserver.h"
 #include "core/hlquery.h"
 #include "utils/consolewriter.h"
-
-static bool MatchesAnyPath(const std::string &Path, std::initializer_list<const char *> Candidates)
-{
-     for (const char *Candidate : Candidates)
-     {
-          if (Path == Candidate)
-          {
-               return true;
-          }
-     }
-
-     return false;
-}
 
 static bool MatchesMethod(const std::string &Method, std::initializer_list<const char *> Candidates)
 {
@@ -40,14 +29,6 @@ static bool MatchesMethod(const std::string &Method, std::initializer_list<const
      }
 
      return false;
-}
-
-static bool ExactRoute(const std::string &Path,
-                       const std::string &Method,
-                       std::initializer_list<const char *> Paths,
-                       std::initializer_list<const char *> Methods)
-{
-     return MatchesAnyPath(Path, Paths) && MatchesMethod(Method, Methods);
 }
 
 static bool PrefixRoute(const std::string &Path,
@@ -84,7 +65,7 @@ static bool SingleChildRoute(const std::string &Path,
 
 struct CollectionRouteInfo
 {
-     std::vector<std::string> Segments;
+     std::vector<std::string_view> Segments;
      bool IsCollectionPath = false;
      bool IsCollectionRoot = false;
      bool IsCollectionLang = false;
@@ -114,7 +95,7 @@ struct CollectionRouteInfo
                  IsDocumentsDeleteByQuery;
      }
 
-     bool SegmentEquals(size_t Index, const std::string &Value) const
+     bool SegmentEquals(size_t Index, std::string_view Value) const
      {
           return Index < Segments.size() && Segments[Index] == Value;
      }
@@ -139,9 +120,9 @@ static std::string NormalizeRoutePath(const std::string &Path)
      return NormalizedPath;
 }
 
-static std::vector<std::string> SplitRouteSegments(const std::string &Path)
+static std::vector<std::string_view> SplitRouteSegments(std::string_view Path)
 {
-     std::vector<std::string> Segments;
+     std::vector<std::string_view> Segments;
 
      size_t Start = 0;
 
@@ -165,9 +146,15 @@ static std::vector<std::string> SplitRouteSegments(const std::string &Path)
      return Segments;
 }
 
-static CollectionRouteInfo BuildCollectionRouteInfo(const std::string &NormalizedPath)
+static CollectionRouteInfo BuildCollectionRouteInfo(std::string_view NormalizedPath)
 {
      CollectionRouteInfo Info;
+
+     if (NormalizedPath.rfind("/collections/", 0) != 0)
+     {
+          return Info;
+     }
+
      Info.Segments = SplitRouteSegments(NormalizedPath);
 
      Info.IsCollectionPath = Info.Segments.size() >= 2 && Info.SegmentEquals(0, "collections");
@@ -195,6 +182,104 @@ static CollectionRouteInfo BuildCollectionRouteInfo(const std::string &Normalize
      return Info;
 }
 
+static const std::unordered_map<std::string_view, RouteAction> &GetExactGetRoutes()
+{
+     static const std::unordered_map<std::string_view, RouteAction> Routes = {
+          {"/", RouteAction::Status},
+          {"/admin/storage_status", RouteAction::StorageStatus},
+          {"/aliases", RouteAction::ListAliases},
+          {"/boot-status", RouteAction::Startup},
+          {"/collections", RouteAction::ListCollections},
+          {"/collections/distributed", RouteAction::ListCollectionsDistributed},
+          {"/connections", RouteAction::Connections},
+          {"/consistency", RouteAction::Integrity},
+          {"/debug/counters", RouteAction::DebugCounters},
+          {"/doctotal", RouteAction::DocTotal},
+          {"/etc", RouteAction::Etc},
+          {"/health", RouteAction::Health},
+          {"/integrity", RouteAction::Integrity},
+          {"/keys", RouteAction::ListKeys},
+          {"/links", RouteAction::LinksList},
+          {"/links/ping", RouteAction::LinksPing},
+          {"/metrics", RouteAction::Metrics},
+          {"/metrics-history", RouteAction::MetricsHistory},
+          {"/metrics.json", RouteAction::Metrics},
+          {"/metrics/history", RouteAction::MetricsHistory},
+          {"/modules", RouteAction::ListModules},
+          {"/multi_search", RouteAction::MultiSearch},
+          {"/ping", RouteAction::Ping},
+          {"/query", RouteAction::Status},
+          {"/ready", RouteAction::Ready},
+          {"/repair", RouteAction::Repair},
+          {"/rocksdb", RouteAction::RocksDB},
+          {"/search", RouteAction::GlobalSearch},
+          {"/search-config", RouteAction::SearchConfig},
+          {"/self-check", RouteAction::SelfCheck},
+          {"/sql", RouteAction::DocumentSearch},
+          {"/startup", RouteAction::Startup},
+          {"/stats", RouteAction::Stats},
+          {"/status", RouteAction::Status},
+          {"/stopwords", RouteAction::ListAllStopwords},
+          {"/stopwords/global", RouteAction::ListGlobalStopwords},
+          {"/synonyms", RouteAction::ListAllSynonyms},
+          {"/synonyms/global", RouteAction::ListGlobalSynonyms},
+          {"/update-counters", RouteAction::UpdateCounters},
+          {"/users", RouteAction::ListUsers},
+          {"/_rocksdb", RouteAction::RocksDB},
+     };
+
+     return Routes;
+}
+
+static const std::unordered_map<std::string_view, RouteAction> &GetExactPostRoutes()
+{
+     static const std::unordered_map<std::string_view, RouteAction> Routes = {
+          {"/analytics/click", RouteAction::AnalyticsClick},
+          {"/collections", RouteAction::CreateCollection},
+          {"/flush", RouteAction::Flush},
+          {"/keys", RouteAction::CreateKey},
+          {"/links/connect", RouteAction::LinksConnect},
+          {"/links/disconnect", RouteAction::LinksDisconnect},
+          {"/loadmodule", RouteAction::ModuleAPI},
+          {"/multi_search", RouteAction::MultiSearch},
+          {"/repair", RouteAction::Repair},
+          {"/search", RouteAction::GlobalSearch},
+          {"/sql", RouteAction::DocumentSearch},
+          {"/stopwords/global", RouteAction::CreateGlobalStopword},
+          {"/unloadmodule", RouteAction::ModuleAPI},
+          {"/update-counters", RouteAction::UpdateCounters},
+          {"/users", RouteAction::CreateUser},
+     };
+
+     return Routes;
+}
+
+static RouteAction ResolveExactRoute(std::string_view Path, const std::string &Method)
+{
+     const std::unordered_map<std::string_view, RouteAction> *Routes = nullptr;
+
+     if (Method == "GET")
+     {
+          Routes = &GetExactGetRoutes();
+     }
+     else if (Method == "POST")
+     {
+          Routes = &GetExactPostRoutes();
+     }
+     else
+     {
+          return RouteAction::NotFound;
+     }
+
+     const auto RouteIt = Routes->find(Path);
+     if (RouteIt == Routes->end())
+     {
+          return RouteAction::NotFound;
+     }
+
+     return RouteIt->second;
+}
+
 RouteAction ResolveHttpRoute(const HttpRequest &Request)
 {
      if (Instance && Instance->Logs)
@@ -205,79 +290,13 @@ RouteAction ResolveHttpRoute(const HttpRequest &Request)
      try
      {
           const std::string NormalizedPath = NormalizeRoutePath(Request.Path);
-
-          if ((NormalizedPath == "/etc" || Request.Path == "/etc") && Request.Method == "GET")
-          {
-               if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
-               {
-                    Instance->Logs->Debug("http_routes", "MATCHED /etc route - returning protocol codes.");
-               }
-
-               return RouteAction::Etc;
-          }
-
-          if ((NormalizedPath == "/flush" || Request.Path == "/flush") && Request.Method == "POST")
-          {
-               if (Instance && Instance->Logs)
-               {
-                    Instance->Logs->Normal("http_routes", "MATCHED /flush route EARLY - normalized_path='" + NormalizedPath + "' path='" + Request.Path + "' method='" + Request.Method + "'.");
-               }
-
-               return RouteAction::Flush;
-          }
-
-          const CollectionRouteInfo RouteInfo = BuildCollectionRouteInfo(NormalizedPath);
           const std::string &Method = Request.Method;
           const std::string &Path = NormalizedPath;
 
-          if (ExactRoute(Path, Method, {"/status", "/query"}, {"GET"}))
+          const RouteAction ExactAction = ResolveExactRoute(Path, Method);
+          if (ExactAction != RouteAction::NotFound)
           {
-               return RouteAction::Status;
-          }
-
-          if (ExactRoute(Path, Method, {"/sql"}, {"GET", "POST"}))
-          {
-               return RouteAction::DocumentSearch;
-          }
-
-          if (ExactRoute(Path, Method, {"/search-config"}, {"GET"}))
-          {
-               return RouteAction::SearchConfig;
-          }
-
-          if (ExactRoute(Path, Method, {"/links"}, {"GET"}))
-          {
-               return RouteAction::LinksList;
-          }
-
-          if (ExactRoute(Path, Method, {"/links/ping"}, {"GET"}))
-          {
-               return RouteAction::LinksPing;
-          }
-
-          if (ExactRoute(Path, Method, {"/links/connect"}, {"POST"}))
-          {
-               return RouteAction::LinksConnect;
-          }
-
-          if (ExactRoute(Path, Method, {"/links/disconnect"}, {"POST"}))
-          {
-               return RouteAction::LinksDisconnect;
-          }
-
-          if (ExactRoute(Path, Method, {"/analytics/click"}, {"POST"}))
-          {
-               return RouteAction::AnalyticsClick;
-          }
-
-          if (ExactRoute(Path, Method, {"/modules"}, {"GET"}))
-          {
-               return RouteAction::ListModules;
-          }
-
-          if (ExactRoute(Path, Method, {"/loadmodule", "/unloadmodule"}, {"POST"}))
-          {
-               return RouteAction::ModuleAPI;
+               return ExactAction;
           }
 
           if (PrefixRoute(Path, Method, "/loadmodule/", {"POST"}) ||
@@ -296,31 +315,6 @@ RouteAction ResolveHttpRoute(const HttpRequest &Request)
                return RouteAction::ModuleAPI;
           }
 
-          if (ExactRoute(Path, Method, {"/startup", "/boot-status"}, {"GET"}))
-          {
-               return RouteAction::Startup;
-          }
-
-          if (ExactRoute(Path, Method, {"/integrity", "/consistency"}, {"GET"}))
-          {
-               return RouteAction::Integrity;
-          }
-
-          if (ExactRoute(Path, Method, {"/self-check"}, {"GET"}))
-          {
-               return RouteAction::SelfCheck;
-          }
-
-          if (ExactRoute(Path, Method, {"/admin/storage_status"}, {"GET"}))
-          {
-               return RouteAction::StorageStatus;
-          }
-
-          if (ExactRoute(Path, Method, {"/synonyms/global"}, {"GET"}))
-          {
-               return RouteAction::ListGlobalSynonyms;
-          }
-
           if (SingleChildRoute(Path, Method, "/synonyms/global/", {"POST", "PUT"}))
           {
                return RouteAction::UpsertGlobalSynonym;
@@ -336,125 +330,12 @@ RouteAction ResolveHttpRoute(const HttpRequest &Request)
                return RouteAction::DeleteGlobalSynonym;
           }
 
-          if (ExactRoute(Path, Method, {"/synonyms"}, {"GET"}))
-          {
-               return RouteAction::ListAllSynonyms;
-          }
-
-          if (NormalizedPath == "/health" && Method == "GET")
-          {
-               return RouteAction::Health;
-          }
-
-          if (NormalizedPath == "/ready" && Method == "GET")
-          {
-               return RouteAction::Ready;
-          }
-
-          if (NormalizedPath == "/ping" && Method == "GET")
-          {
-               if (Instance && Instance->Logs)
-               {
-                    Instance->Logs->Normal("http_routes", "MATCHED /ping route - normalized_path='" + NormalizedPath + "' method='" + Method + "' path='" + Request.Path + "'.");
-               }
-
-               return RouteAction::Ping;
-          }
-
-          if (ExactRoute(Path, Method, {"/rocksdb", "/_rocksdb"}, {"GET"}))
-          {
-               if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
-               {
-                    Instance->Logs->Debug("http_routes", "MATCHED RocksDB route! normalized_path=" + NormalizedPath + ".");
-               }
-
-               return RouteAction::RocksDB;
-          }
-
-          if (ExactRoute(Path, Method, {"/stats"}, {"GET"}))
-          {
-               return RouteAction::Stats;
-          }
-
-          if (ExactRoute(Path, Method, {"/metrics", "/metrics.json"}, {"GET"}))
-          {
-               return RouteAction::Metrics;
-          }
-
-          if (ExactRoute(Path, Method, {"/metrics/history", "/metrics-history"}, {"GET"}))
-          {
-               return RouteAction::MetricsHistory;
-          }
-
-          if (ExactRoute(Path, Method, {"/connections"}, {"GET"}))
-          {
-               return RouteAction::Connections;
-          }
-
-          if (ExactRoute(Path, Method, {"/doctotal"}, {"GET"}))
-          {
-               return RouteAction::DocTotal;
-          }
-
-          if (NormalizedPath == "/flush" && Method == "POST")
-          {
-               if (Instance && Instance->Logs)
-               {
-                    Instance->Logs->Normal("http_routes", "MATCHED /flush route - normalized_path='" + NormalizedPath + "' path='" + Path + "' method='" + Method + "'.");
-               }
-
-               return RouteAction::Flush;
-          }
-
-          if (ExactRoute(Path, Method, {"/update-counters"}, {"GET", "POST"}))
-          {
-               return RouteAction::UpdateCounters;
-          }
-
-          if (ExactRoute(Path, Method, {"/debug/counters"}, {"GET"}))
-          {
-               return RouteAction::DebugCounters;
-          }
-
-          if (ExactRoute(Path, Method, {"/repair"}, {"GET", "POST"}))
-          {
-               return RouteAction::Repair;
-          }
-
-          if (ExactRoute(Path, Method, {"/stopwords"}, {"GET"}))
-          {
-               return RouteAction::ListAllStopwords;
-          }
-
-          if (ExactRoute(Path, Method, {"/stopwords/global"}, {"GET"}))
-          {
-               return RouteAction::ListGlobalStopwords;
-          }
-
-          if (ExactRoute(Path, Method, {"/stopwords/global"}, {"POST"}))
-          {
-               return RouteAction::CreateGlobalStopword;
-          }
-
           if (SingleChildRoute(Path, Method, "/stopwords/global/", {"DELETE"}))
           {
                return RouteAction::DeleteGlobalStopword;
           }
 
-          if (ExactRoute(Path, Method, {"/collections/distributed"}, {"GET"}))
-          {
-               return RouteAction::ListCollectionsDistributed;
-          }
-
-          if (ExactRoute(Path, Method, {"/collections"}, {"GET"}))
-          {
-               return RouteAction::ListCollections;
-          }
-
-          if (ExactRoute(Path, Method, {"/collections"}, {"POST"}))
-          {
-               return RouteAction::CreateCollection;
-          }
+          const CollectionRouteInfo RouteInfo = BuildCollectionRouteInfo(NormalizedPath);
 
           if (RouteInfo.IsCollectionPath && RouteInfo.Segments.size() == 3 && RouteInfo.SegmentEquals(2, "aliases") && Method == "GET")
           {
@@ -636,11 +517,6 @@ RouteAction ResolveHttpRoute(const HttpRequest &Request)
                return RouteAction::DeleteOverride;
           }
 
-          if (ExactRoute(Path, Method, {"/aliases"}, {"GET"}))
-          {
-               return RouteAction::ListAliases;
-          }
-
           if (SingleChildRoute(Path, Method, "/aliases/", {"POST", "PUT"}))
           {
                return RouteAction::UpsertAlias;
@@ -654,26 +530,6 @@ RouteAction ResolveHttpRoute(const HttpRequest &Request)
           if (SingleChildRoute(Path, Method, "/aliases/", {"DELETE"}))
           {
                return RouteAction::DeleteAlias;
-          }
-
-          if (ExactRoute(Path, Method, {"/multi_search"}, {"GET", "POST"}))
-          {
-               return RouteAction::MultiSearch;
-          }
-
-          if (ExactRoute(Path, Method, {"/search"}, {"GET", "POST"}))
-          {
-               return RouteAction::GlobalSearch;
-          }
-
-          if (ExactRoute(Path, Method, {"/users"}, {"GET"}))
-          {
-               return RouteAction::ListUsers;
-          }
-
-          if (ExactRoute(Path, Method, {"/users"}, {"POST"}))
-          {
-               return RouteAction::CreateUser;
           }
 
           if (SingleChildRoute(Path, Method, "/users/", {"GET"}))
@@ -691,16 +547,6 @@ RouteAction ResolveHttpRoute(const HttpRequest &Request)
                return RouteAction::UpdateUser;
           }
 
-          if (ExactRoute(Path, Method, {"/keys"}, {"GET"}))
-          {
-               return RouteAction::ListKeys;
-          }
-
-          if (ExactRoute(Path, Method, {"/keys"}, {"POST"}))
-          {
-               return RouteAction::CreateKey;
-          }
-
           if (SingleChildRoute(Path, Method, "/keys/", {"GET"}))
           {
                return RouteAction::GetKey;
@@ -714,11 +560,6 @@ RouteAction ResolveHttpRoute(const HttpRequest &Request)
           if (SingleChildRoute(Path, Method, "/keys/", {"PUT"}))
           {
                return RouteAction::UpdateKey;
-          }
-
-          if (ExactRoute(Path, Method, {"/"}, {"GET"}))
-          {
-               return RouteAction::Status;
           }
 
           if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())

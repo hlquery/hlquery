@@ -16,8 +16,6 @@
 #include <string>
 #include <vector>
 
-class ServerConfig;
-
 class CoreHelpers
 {
    public:
@@ -38,7 +36,7 @@ class CoreHelpers
 
      /* Preflight SSL bind configuration before daemonization. */
 
-     static bool PreflightSSLConfig(ServerConfig *ConfigPtr);
+     static bool PreflightSSLConfig();
 
      /* Prints a startup section with one module name per line. */
 

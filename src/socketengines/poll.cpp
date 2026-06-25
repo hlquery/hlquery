@@ -29,7 +29,9 @@
 #include "common/actionlist.h"
 #include "core/config.h"
 #include "core/hlquery.h"
+#include "core/logmanager.h"
 #include "core/socketengine.h"
+#include "runtime/timers.h"
 #include "search/storageengine.h"
 
 /* HLQuery ae.c inspired - clean and simple poll backend */
@@ -405,18 +407,20 @@ void SocketEngine::DelFD(EventHandler *EH)
 
 int SocketEngine::DispatchEvents()
 {
+     const bool ShutdownRequested = hlquery::ShouldShutdown() || hlquery::ShouldForceExit();
+
      /* Always log entry to DispatchEvents for troubleshooting */
 
      if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
      {
-          Instance->Logs->Debug("socketengine", "DispatchEvents: ENTRY (PollFDs.size()=" + std::to_string(PollFDs.size()) + ", ShuttingDown=" + std::to_string(ShuttingDown) + ", ForceExit=" + std::to_string(ForceExit) + ").");
+          Instance->Logs->Debug("socketengine", "DispatchEvents: ENTRY (PollFDs.size()=" + std::to_string(PollFDs.size()) + ", ShuttingDown=" + std::to_string(hlquery::GetSignalShutdownState()) + ", ForceExit=" + std::to_string(hlquery::GetForceExitState()) + ").");
      }
 
      if (PollFDs.empty())
      {
           /* No file descriptors to monitor - check shutdown first */
 
-          if (ShuttingDown || ForceExit)
+          if (ShutdownRequested)
           {
                return 0; /* Don't sleep during shutdown */
           }
@@ -442,7 +446,7 @@ int SocketEngine::DispatchEvents()
      * to the main loop.
      */
 
-     if (ShuttingDown || ForceExit)
+     if (ShutdownRequested)
      {
           return 0; /* Don't call poll during shutdown */
      }
@@ -526,7 +530,7 @@ int SocketEngine::DispatchEvents()
      /* Re-check shutdown flags right before blocking call */
      /* Another thread could have set shutdown between the check above and this call */
 
-     if (ShuttingDown || ForceExit)
+     if (hlquery::ShouldShutdown() || hlquery::ShouldForceExit())
      {
           return 0; /* Don't block during shutdown */
      }
@@ -557,7 +561,7 @@ int SocketEngine::DispatchEvents()
           {
                /* Signal interrupted poll - check shutdown flags and retry if needed */
 
-               if (ShuttingDown || ForceExit)
+               if (hlquery::ShouldShutdown() || hlquery::ShouldForceExit())
                {
                     return 0; /* Shutdown requested, don't retry */
                }

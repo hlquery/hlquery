@@ -29,7 +29,9 @@
 #include "core/config.h"
 #include "runtime/exitmanager.h"
 #include "core/hlquery.h"
+#include "core/logmanager.h"
 #include "core/socketengine.h"
+#include "runtime/timers.h"
 #include "search/storageengine.h"
 #include "utils/consolewriter.h"
 
@@ -700,7 +702,7 @@ int SocketEngine::DispatchEvents()
      * (non-blocking) to return immediately to the main loop.
      */
 
-     if (ShuttingDown || ForceExit)
+     if (hlquery::ShouldShutdown() || hlquery::ShouldForceExit())
      {
           if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
           {

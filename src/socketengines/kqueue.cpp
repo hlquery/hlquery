@@ -27,6 +27,7 @@
 #include "common/actionlist.h"
 #include "core/config.h"
 #include "core/hlquery.h"
+#include "core/logmanager.h"
 #include "core/socketengine.h"
 
 #if defined(__APPLE__) || defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__) || defined(__DragonFly__)
@@ -336,21 +337,23 @@ void SocketEngine::DelFD(EventHandler *EH)
 
 int SocketEngine::DispatchEvents()
 {
+     const bool ShutdownRequested = hlquery::ShouldShutdown() || hlquery::ShouldForceExit();
+
      if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
      {
-          Instance->Logs->Debug("socketengine", "DispatchEvents: ENTRY (FDToHandler.size()=" + std::to_string(FDToHandler.size()) + ", ShuttingDown=" + std::to_string(ShuttingDown) + ", ForceExit=" + std::to_string(ForceExit) + ").");
+          Instance->Logs->Debug("socketengine", "DispatchEvents: ENTRY (FDToHandler.size()=" + std::to_string(FDToHandler.size()) + ", ShuttingDown=" + std::to_string(hlquery::GetSignalShutdownState()) + ", ForceExit=" + std::to_string(hlquery::GetForceExitState()) + ").");
      }
 
      if (FDToHandler.empty())
      {
-          if (ShuttingDown || ForceExit)
+          if (ShutdownRequested)
           {
                return 0;
           }
           return 0;
      }
 
-     if (ShuttingDown || ForceExit)
+     if (ShutdownRequested)
      {
           return 0;
      }

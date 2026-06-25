@@ -34,8 +34,11 @@
 #include "common/searchpool.h"
 #include "core/config.h"
 #include "core/helpers.h"
+#include "core/modulemanager.h"
 #include "runtime/daemon.h"
 #include "runtime/exitmanager.h"
+#include "runtime/timers.h"
+#include "common/listenmanager.h"
 #include "core/hlquery.h"
 #include "core/socketengine.h"
 #include "search/cstore.h"
@@ -43,21 +46,12 @@
 #include "utils/consolewriter.h"
 #include "utils/infos.h"
 
-/* Indicates a graceful shutdown was requested. */
+/* Signal state owned by the hlquery lifecycle manager. */
 
-volatile sig_atomic_t ShuttingDown = 0;
-
-/* Indicates a forced exit was requested. */
-
-volatile sig_atomic_t ForceExit = 0;
-
-/* Guards against re-entrant signal handling. */
-
-volatile sig_atomic_t InSignalHandler = 0;
-
-/* Holds a pending shutdown signal to be processed on the main loop. */
-
-volatile sig_atomic_t PendingShutdownSignal = 0;
+volatile sig_atomic_t hlquery::ShuttingDown = 0;
+volatile sig_atomic_t hlquery::ForceExit = 0;
+volatile sig_atomic_t hlquery::InSignalHandler = 0;
+volatile sig_atomic_t hlquery::PendingShutdownSignal = 0;
 
 /* Set while cleanup is running; escalation signals can then exit immediately. */
 
@@ -924,6 +918,20 @@ bool hlquery::ShouldForceExit()
      return ForceExit != 0;
 }
 
+/* Returns raw shutdown signal state for diagnostics. */
+
+sig_atomic_t hlquery::GetSignalShutdownState()
+{
+     return ShuttingDown;
+}
+
+/* Returns raw force-exit signal state for diagnostics. */
+
+sig_atomic_t hlquery::GetForceExitState()
+{
+     return ForceExit;
+}
+
 /* Reset all signals and shutdown counters to their default state. */
 
 void hlquery::ResetSignalCounters()
@@ -1571,7 +1579,6 @@ void hlquery::CompleteDaemonSetup()
           if (DaemonSyncPipe[1] >= 0)
           {
                fflush(stdout);
-
                fflush(stderr);
                std::cout.flush();
                std::cerr.flush();

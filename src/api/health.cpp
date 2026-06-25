@@ -44,6 +44,9 @@
 #include "api/userauth.h"
 #include "core/config.h"
 #include "core/hlquery.h"
+#include "core/metrics.h"
+#include "core/modulemanager.h"
+#include "core/modules.h"
 #include "core/socketengine.h"
 #include "runtime/threadlimit.h"
 #include "search/rfusion.h"
@@ -1091,6 +1094,112 @@ HttpResponse SearchAPI::HandleEtc(const HttpRequest &Request)
 
      ProtocolCodes["protocol_name"] = "hlquery";
      ProtocolCodes["version"] = 1;
+     ProtocolCodes["routes"] = {
+          {"etc", {{"method", "GET"}, {"path", "/etc"}}},
+          {"health", {{"method", "GET"}, {"path", "/health"}}},
+          {"info", {{"method", "GET"}, {"path", "/"}}},
+          {"ping", {{"method", "GET"}, {"path", "/ping"}}},
+          {"ready", {{"method", "GET"}, {"path", "/ready"}}},
+          {"status", {{"method", "GET"}, {"paths", {"/status", "/query"}}}},
+          {"stats", {{"method", "GET"}, {"path", "/stats"}}},
+          {"flush", {{"method", "POST"}, {"path", "/flush"}}}
+     };
+
+     ProtocolCodes["http_status_codes"] = {
+          {"OK", Status::OK},
+          {"CREATED", Status::CREATED},
+          {"ACCEPTED", Status::ACCEPTED},
+          {"NO_CONTENT", Status::NO_CONTENT},
+          {"MULTI_STATUS", Status::MULTI_STATUS},
+          {"MOVED_PERMANENTLY", Status::MOVED_PERMANENTLY},
+          {"FOUND", Status::FOUND},
+          {"NOT_MODIFIED", Status::NOT_MODIFIED},
+          {"BAD_REQUEST", Status::BAD_REQUEST},
+          {"UNAUTHORIZED", Status::UNAUTHORIZED},
+          {"FORBIDDEN", Status::FORBIDDEN},
+          {"NOT_FOUND", Status::NOT_FOUND},
+          {"METHOD_NOT_ALLOWED", Status::METHOD_NOT_ALLOWED},
+          {"CONFLICT", Status::CONFLICT},
+          {"PAYLOAD_TOO_LARGE", Status::PAYLOAD_TOO_LARGE},
+          {"UNPROCESSABLE_ENTITY", Status::UNPROCESSABLE_ENTITY},
+          {"TOO_MANY_REQUESTS", Status::TOO_MANY_REQUESTS},
+          {"INTERNAL_SERVER_ERROR", Status::INTERNAL_SERVER_ERROR},
+          {"NOT_IMPLEMENTED", Status::NOT_IMPLEMENTED},
+          {"BAD_GATEWAY", Status::BAD_GATEWAY},
+          {"SERVICE_UNAVAILABLE", Status::SERVICE_UNAVAILABLE},
+          {"GATEWAY_TIMEOUT", Status::GATEWAY_TIMEOUT}
+     };
+
+     ProtocolCodes["protocol_codes"] = {
+          {"SUCCESS", Code::SUCCESS},
+          {"OPERATION_COMPLETE", Code::OPERATION_COMPLETE},
+          {"COLLECTION_NOT_FOUND", Code::COLLECTION_NOT_FOUND},
+          {"COLLECTION_EMPTY", Code::COLLECTION_EMPTY},
+          {"COLLECTION_EXISTS", Code::COLLECTION_EXISTS},
+          {"COLLECTION_INVALID_NAME", Code::COLLECTION_INVALID_NAME},
+          {"COLLECTION_INVALID_SCHEMA", Code::COLLECTION_INVALID_SCHEMA},
+          {"COLLECTION_CREATED", Code::COLLECTION_CREATED},
+          {"COLLECTION_UPDATED", Code::COLLECTION_UPDATED},
+          {"COLLECTION_DELETED", Code::COLLECTION_DELETED},
+          {"DOCUMENT_NOT_FOUND", Code::DOCUMENT_NOT_FOUND},
+          {"DOCUMENT_INVALID_ID", Code::DOCUMENT_INVALID_ID},
+          {"DOCUMENT_INVALID_FORMAT", Code::DOCUMENT_INVALID_FORMAT},
+          {"DOCUMENT_CREATED", Code::DOCUMENT_CREATED},
+          {"DOCUMENT_UPDATED", Code::DOCUMENT_UPDATED},
+          {"DOCUMENT_DELETED", Code::DOCUMENT_DELETED},
+          {"DOCUMENT_BULK_IMPORTED", Code::DOCUMENT_BULK_IMPORTED},
+          {"SEARCH_INVALID_QUERY", Code::SEARCH_INVALID_QUERY},
+          {"SEARCH_INVALID_PARAMETER", Code::SEARCH_INVALID_PARAMETER},
+          {"SEARCH_NO_RESULTS", Code::SEARCH_NO_RESULTS},
+          {"SEARCH_SUCCESS", Code::SEARCH_SUCCESS},
+          {"SEARCH_EMPTY_QUERY", Code::SEARCH_EMPTY_QUERY},
+          {"SEARCH_INVALID_FIELD", Code::SEARCH_INVALID_FIELD},
+          {"VALIDATION_FAILED", Code::VALIDATION_FAILED},
+          {"VALIDATION_INVALID_JSON", Code::VALIDATION_INVALID_JSON},
+          {"VALIDATION_MISSING_FIELD", Code::VALIDATION_MISSING_FIELD},
+          {"VALIDATION_INVALID_TYPE", Code::VALIDATION_INVALID_TYPE},
+          {"VALIDATION_INVALID_VALUE", Code::VALIDATION_INVALID_VALUE},
+          {"AUTH_REQUIRED", Code::AUTH_REQUIRED},
+          {"AUTH_INVALID", Code::AUTH_INVALID},
+          {"AUTH_EXPIRED", Code::AUTH_EXPIRED},
+          {"AUTH_FORBIDDEN", Code::AUTH_FORBIDDEN},
+          {"SYSTEM_ERROR", Code::SYSTEM_ERROR},
+          {"SYSTEM_UNAVAILABLE", Code::SYSTEM_UNAVAILABLE},
+          {"SYSTEM_SYNCING", Code::SYSTEM_SYNCING},
+          {"SYSTEM_SHUTTING_DOWN", Code::SYSTEM_SHUTTING_DOWN},
+          {"SYSTEM_MAINTENANCE", Code::SYSTEM_MAINTENANCE},
+          {"STORAGE_ERROR", Code::STORAGE_ERROR},
+          {"STORAGE_FULL", Code::STORAGE_FULL},
+          {"STORAGE_IO_ERROR", Code::STORAGE_IO_ERROR},
+          {"STORAGE_LOCKED", Code::STORAGE_LOCKED},
+          {"SYNONYM_NOT_FOUND", Code::SYNONYM_NOT_FOUND},
+          {"SYNONYM_EXISTS", Code::SYNONYM_EXISTS},
+          {"SYNONYM_INVALID", Code::SYNONYM_INVALID},
+          {"SYNONYM_CREATED", Code::SYNONYM_CREATED},
+          {"SYNONYM_UPDATED", Code::SYNONYM_UPDATED},
+          {"SYNONYM_DELETED", Code::SYNONYM_DELETED},
+          {"STOPWORD_NOT_FOUND", Code::STOPWORD_NOT_FOUND},
+          {"STOPWORD_EXISTS", Code::STOPWORD_EXISTS},
+          {"STOPWORD_INVALID", Code::STOPWORD_INVALID},
+          {"STOPWORD_CREATED", Code::STOPWORD_CREATED},
+          {"STOPWORD_DELETED", Code::STOPWORD_DELETED},
+          {"OVERRIDE_NOT_FOUND", Code::OVERRIDE_NOT_FOUND},
+          {"OVERRIDE_EXISTS", Code::OVERRIDE_EXISTS},
+          {"OVERRIDE_INVALID", Code::OVERRIDE_INVALID},
+          {"OVERRIDE_CREATED", Code::OVERRIDE_CREATED},
+          {"OVERRIDE_UPDATED", Code::OVERRIDE_UPDATED},
+          {"OVERRIDE_DELETED", Code::OVERRIDE_DELETED},
+          {"ALIAS_NOT_FOUND", Code::ALIAS_NOT_FOUND},
+          {"ALIAS_EXISTS", Code::ALIAS_EXISTS},
+          {"ALIAS_INVALID", Code::ALIAS_INVALID},
+          {"ALIAS_CREATED", Code::ALIAS_CREATED},
+          {"ALIAS_UPDATED", Code::ALIAS_UPDATED},
+          {"ALIAS_DELETED", Code::ALIAS_DELETED},
+          {"MODULE_NOT_FOUND", Code::MODULE_NOT_FOUND},
+          {"MODULE_ROUTE_NOT_FOUND", Code::MODULE_ROUTE_NOT_FOUND},
+          {"MODULE_UNAVAILABLE", Code::MODULE_UNAVAILABLE},
+          {"RATE_LIMIT_EXCEEDED", Code::RATE_LIMIT_EXCEEDED}
+     };
 
      HttpResponse Response(Status::OK, StatusText(Status::OK), "application/json");
 
