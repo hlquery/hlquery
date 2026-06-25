@@ -822,32 +822,29 @@ void CheckConsistency(BenchmarkClient &client, bool verbose, int num_collections
           }
      }
 
-     if (num_collections <= 0 || g_collection_prefix != "bench_")
+     HTTPResponse doctotal_resp = client.GetDocTotal(g_collection_prefix);
+
+     if (doctotal_resp.StatusCode == 200)
      {
-          HTTPResponse doctotal_resp = client.GetDocTotal(g_collection_prefix);
-
-          if (doctotal_resp.StatusCode == 200)
+          try
           {
-               try
+               nlohmann::json doctotal_json = nlohmann::json::parse(doctotal_resp.Body);
+
+               if (doctotal_json.contains("coltotal"))
                {
-                    nlohmann::json doctotal_json = nlohmann::json::parse(doctotal_resp.Body);
-
-                    if (doctotal_json.contains("coltotal"))
-                    {
-                         endpoint_collections["/doctotal"] = doctotal_json["coltotal"].get<int>();
-                    }
-
-                    if (doctotal_json.contains("doctotal"))
-                    {
-                         endpoint_documents["/doctotal"] = doctotal_json["doctotal"].get<int>();
-                    }
+                    endpoint_collections["/doctotal"] = doctotal_json["coltotal"].get<int>();
                }
-               catch (...)
+
+               if (doctotal_json.contains("doctotal"))
                {
-                    if (verbose)
-                    {
-                         std::cerr << "  Warning: Could not parse /doctotal.\n";
-                    }
+                    endpoint_documents["/doctotal"] = doctotal_json["doctotal"].get<int>();
+               }
+          }
+          catch (...)
+          {
+               if (verbose)
+               {
+                    std::cerr << "  Warning: Could not parse /doctotal.\n";
                }
           }
      }

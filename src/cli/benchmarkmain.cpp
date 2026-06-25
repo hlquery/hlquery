@@ -1994,7 +1994,7 @@ static void PrintBenchmarkHelp(const char *program_name)
                << "  --check-consistency      Check consistency of /status, /stats, /metrics, /doctotal\n"
                << "  --dry-run          Generate collections/docs in memory but don't send to server\n"
                << "  --cleanup          Delete all benchmark-tagged collections at end\n"
-               << "  --prefix PREFIX    Custom prefix for benchmark collections (default: bench_)\n"
+               << "  --prefix PREFIX    Custom prefix for benchmark collections (default: bench_{runid}_)\n"
                << "  --durability-config PATH  Load durability settings from config (e.g., run/conf/database.conf)\n"
                << "  --reuse-collections Reuse existing collections instead of deleting/recreating them\n"
                << "  --skip-auth-check  Skip authentication requirement check (useful when auth is disabled)\n"
@@ -2588,7 +2588,7 @@ int main(int argc, char *argv[])
 
                if (custom_prefix_val.empty() && !reuse_collections)
                {
-                    g_collection_prefix = "bench_";
+                    g_collection_prefix = "bench_" + run_id_val + "_";
                }
 
                bool fake_ok = CreateFakeCollections(base_url, auth_token, reuse_collections, verbose_mode);
@@ -2687,7 +2687,7 @@ int main(int argc, char *argv[])
 
           if (custom_prefix_val.empty() && !reuse_collections)
           {
-               g_collection_prefix = "bench_";
+               g_collection_prefix = "bench_" + run_id_val + "_";
           }
 
           std::cout << "HLQuery Benchmark Tool.\n";
