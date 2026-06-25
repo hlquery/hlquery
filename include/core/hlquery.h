@@ -21,10 +21,18 @@
 #include <thread>
 #include <vector>
 
+#include "common/listenmanager.h"
+#include "common/searchpool.h"
 #include "runtime/clock.h"
+#include "runtime/serverconfig.h"
+#include "runtime/timers.h"
 #include "core/config.h"
 #include "core/forwards.h"
+#include "core/logmanager.h"
+#include "core/metrics.h"
+#include "core/modulemanager.h"
 #include "core/stats.h"
+#include "sql/sql.h"
 
 class HLQueryMetrics;
 class ListenManager;

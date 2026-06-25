@@ -18,6 +18,7 @@
 #include <mutex>
 #include <vector>
 
+#include "common/searchpool.h"
 #include "runtime/threadlimit.h"
 
 class HLQueryMetrics

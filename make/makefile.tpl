@@ -503,6 +503,7 @@ $(ROCKSDB_LIB):
 		      -DFAIL_ON_WARNINGS=OFF \
 		      -DWITH_GFLAGS=OFF \
 		      -DWITH_JEMALLOC=OFF \
+		      -DWITH_LIBURING=OFF \
 		      -DWITH_TBB=OFF \
 		      -DWITH_SNAPPY=OFF \
 		      -DWITH_LZ4=OFF \
