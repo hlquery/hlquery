@@ -626,6 +626,13 @@ class ServerConfig
           return RankingDelta;
      }
 
+     /* Returns BM25+ delta application mode: constant or frequency_scaled. */
+
+     std::string GetRankingDeltaMode() const
+     {
+          return RankingDeltaMode;
+     }
+
      /* TF-IDF parameters */
 
      /* Returns IDF smoothing parameter. */
@@ -670,6 +677,13 @@ class ServerConfig
      bool GetRankingIdfClampNegative() const
      {
           return RankingIdfClampNegative;
+     }
+
+     /* Returns legacy BM25 IDF floor factor used when negative IDF is clamped. */
+
+     double GetRankingIdfFloorFactor() const
+     {
+          return RankingIdfFloorFactor;
      }
 
      /* Returns hybrid merge method: linear or rrf. */
@@ -1874,6 +1888,10 @@ class ServerConfig
 
      double RankingDelta = 1.0;
 
+     /* BM25+ delta application mode. */
+
+     std::string RankingDeltaMode = "constant";
+
      /* TF-IDF parameters */
 
      /* IDF smoothing parameter. */
@@ -1891,6 +1909,10 @@ class ServerConfig
      /* Clamp negative BM25 IDF values to 0. */
 
      bool RankingIdfClampNegative = true;
+
+     /* Legacy BM25 IDF floor factor when clamping negative IDF. */
+
+     double RankingIdfFloorFactor = 0.05;
 
      /* Hybrid parameters */
 

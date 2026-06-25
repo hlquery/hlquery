@@ -2430,12 +2430,16 @@ double InvertedIndex::CalculateBM25PlusScore(double TermFreq, double DocFreq, do
      std::string IdfMode = "legacy";
      bool ClampNegative = true;
      double IdfSmoothValue = 1.0;
+     std::string DeltaMode = "constant";
+     double IdfFloorFactor = 0.05;
 
      if (Instance && Instance->Config)
      {
           IdfMode = Instance->Config->GetRankingIdfMode();
           ClampNegative = Instance->Config->GetRankingIdfClampNegative();
           IdfSmoothValue = std::max(0.0, Instance->Config->GetRankingIdfSmooth());
+          DeltaMode = Instance->Config->GetRankingDeltaMode();
+          IdfFloorFactor = std::max(0.0, Instance->Config->GetRankingIdfFloorFactor());
      }
 
      double Idf = 0.0;
@@ -2465,7 +2469,7 @@ double InvertedIndex::CalculateBM25PlusScore(double TermFreq, double DocFreq, do
 
           if (ClampNegative && Idf < 0.0)
           {
-               Idf = 0.05 * std::log1p(CollectionSize / DocFreq);
+               Idf = IdfFloorFactor * std::log1p(CollectionSize / DocFreq);
           }
      }
 
@@ -2479,7 +2483,7 @@ double InvertedIndex::CalculateBM25PlusScore(double TermFreq, double DocFreq, do
      }
 
      const double SaturatedFrequency = NumeratorValue / DenominatorValue;
-     const double DeltaContribution = Delta > 0.0 ? Delta * (TermFreq / (TermFreq + K1)) : 0.0;
+     const double DeltaContribution = DeltaMode == "frequency_scaled" && K1 > 0.0 ? Delta * (TermFreq / (TermFreq + K1)) : Delta;
      const double ScoreValueResult = Idf * (SaturatedFrequency + DeltaContribution);
      return std::isfinite(ScoreValueResult) ? ScoreValueResult : 0.0;
 }
@@ -2531,12 +2535,14 @@ double InvertedIndex::CalculateBM25LScore(double TermFreq, double DocFreq, doubl
      std::string IdfMode = "legacy";
      bool ClampNegative = true;
      double IdfSmoothValue = 1.0;
+     double IdfFloorFactor = 0.05;
 
      if (Instance && Instance->Config)
      {
           IdfMode = Instance->Config->GetRankingIdfMode();
           ClampNegative = Instance->Config->GetRankingIdfClampNegative();
           IdfSmoothValue = std::max(0.0, Instance->Config->GetRankingIdfSmooth());
+          IdfFloorFactor = std::max(0.0, Instance->Config->GetRankingIdfFloorFactor());
      }
 
      double Idf = 0.0;
@@ -2564,7 +2570,7 @@ double InvertedIndex::CalculateBM25LScore(double TermFreq, double DocFreq, doubl
 
           if (ClampNegative && Idf < 0.0)
           {
-               Idf = 0.0;
+               Idf = IdfFloorFactor * std::log1p(CollectionSize / DocFreq);
           }
      }
 
