@@ -110,6 +110,78 @@ static std::string BuildFieldScopedTerm(const std::string &field_name, const std
      return "__field__" + field_name + ":" + term;
 }
 
+/* AddQueryTermVariants - Adds conservative singular/plural variants for lexical lookup. */
+
+static void AddQueryTermVariants(const std::string &term, std::vector<std::pair<std::string, double>> &variants)
+{
+     if (term.empty())
+     {
+          return;
+     }
+
+     auto AddVariant = [&variants](const std::string &value, double weight)
+     {
+          if (value.empty())
+          {
+               return;
+          }
+
+          for (const auto &Existing : variants)
+          {
+               if (Existing.first == value)
+               {
+                    return;
+               }
+          }
+
+          variants.push_back({value, weight});
+     };
+
+     AddVariant(term, 1.0);
+
+     if (term.size() <= 3 || term.find('*') != std::string::npos || term.find('?') != std::string::npos)
+     {
+          return;
+     }
+
+     const char Last = term.back();
+
+     if (term.size() > 4 && term.substr(term.size() - 3) == "ies")
+     {
+          AddVariant(term.substr(0, term.size() - 3) + "y", 0.92);
+     }
+     else if (Last == 'y')
+     {
+          const char BeforeLast = term[term.size() - 2];
+          if (std::string("aeiou").find(BeforeLast) == std::string::npos)
+          {
+               AddVariant(term.substr(0, term.size() - 1) + "ies", 0.88);
+          }
+          else
+          {
+               AddVariant(term + "s", 0.86);
+          }
+     }
+     else if (term.size() > 4 && (term.substr(term.size() - 2) == "es"))
+     {
+          const std::string Stem = term.substr(0, term.size() - 2);
+          if (!Stem.empty() && (Stem.back() == 's' || Stem.back() == 'x' || Stem.back() == 'z' ||
+                                Stem.back() == 'h'))
+          {
+               AddVariant(Stem, 0.86);
+          }
+     }
+     else if (Last == 's' && term.size() > 4 && term.substr(term.size() - 2) != "ss")
+     {
+          AddVariant(term.substr(0, term.size() - 1), 0.88);
+     }
+     else
+     {
+          AddVariant(term + "s", 0.84);
+          AddVariant(term + "es", 0.80);
+     }
+}
+
 /* FieldNameHasToken - Checks if field name contains any token. */
 
 static bool FieldNameHasToken(const std::string &field_name, const std::initializer_list<const char *> &tokens)
@@ -1486,33 +1558,45 @@ std::vector<Posting> InvertedIndex::Search(const std::string &Collection, const 
                     continue;
                }
 
+               std::vector<std::pair<std::string, double>> TermVariants;
+               AddQueryTermVariants(Normalized, TermVariants);
+
                std::vector<Posting> Postings;
-               const std::vector<std::string> ScopedKeys = BuildScopedKeys(Normalized);
 
                if (HasMMapIndex)
                {
-                    for (const auto &ScopedKey : ScopedKeys)
+                    for (const auto &[VariantTerm, VariantWeight] : TermVariants)
                     {
-                         std::vector<Posting> ScopedPostings;
+                         const std::vector<std::string> ScopedKeys = BuildScopedKeys(VariantTerm);
 
-                         if (IsWildcardTerm(Normalized))
+                         for (const auto &ScopedKey : ScopedKeys)
                          {
-                              if (IsPrefixWildcardTerm(Normalized) && ScopedKey.size() > 1)
+                              std::vector<Posting> ScopedPostings;
+
+                              if (IsWildcardTerm(VariantTerm))
                               {
-                                   std::string Prefix = ScopedKey.substr(0, ScopedKey.size() - 1);
-                                   ScopedPostings = MMapIt->second->SearchPrefix(Prefix, 0);
+                                   if (IsPrefixWildcardTerm(VariantTerm) && ScopedKey.size() > 1)
+                                   {
+                                        std::string Prefix = ScopedKey.substr(0, ScopedKey.size() - 1);
+                                        ScopedPostings = MMapIt->second->SearchPrefix(Prefix, 0);
+                                   }
+                                   else
+                                   {
+                                        ScopedPostings = MMapIt->second->SearchWildcard(ScopedKey, 0);
+                                   }
                               }
                               else
                               {
-                                   ScopedPostings = MMapIt->second->SearchWildcard(ScopedKey, 0);
+                                   ScopedPostings = MMapIt->second->SearchTerm(ScopedKey);
                               }
-                         }
-                         else
-                         {
-                              ScopedPostings = MMapIt->second->SearchTerm(ScopedKey);
-                         }
 
-                         Postings.insert(Postings.end(), ScopedPostings.begin(), ScopedPostings.end());
+                              for (auto &ScopedPost : ScopedPostings)
+                              {
+                                   ScopedPost.Score *= VariantWeight;
+                              }
+
+                              Postings.insert(Postings.end(), ScopedPostings.begin(), ScopedPostings.end());
+                         }
                     }
                }
 
@@ -1534,53 +1618,64 @@ std::vector<Posting> InvertedIndex::Search(const std::string &Collection, const 
 
                if (HasMemoryIndex)
                {
-                    if (IsWildcardTerm(Normalized))
+                    for (const auto &[VariantTerm, VariantWeight] : TermVariants)
                     {
-                         for (const auto &ScopedKey : ScopedKeys)
-                         {
-                              for (const auto &[IndexedTerm, MemoryPostings] : CollectionIt->second)
-                              {
-                                   if (!Wildcard::Match(IndexedTerm, ScopedKey))
-                                   {
-                                        continue;
-                                   }
+                         const std::vector<std::string> ScopedKeys = BuildScopedKeys(VariantTerm);
 
-                                   for (const auto &Post : MemoryPostings)
+                         if (IsWildcardTerm(VariantTerm))
+                         {
+                              for (const auto &ScopedKey : ScopedKeys)
+                              {
+                                   for (const auto &[IndexedTerm, MemoryPostings] : CollectionIt->second)
                                    {
-                                        auto It = TermDocs.find(Post.DocumentID);
-                                        if (It == TermDocs.end())
+                                        if (!Wildcard::Match(IndexedTerm, ScopedKey))
                                         {
-                                             TermDocs[Post.DocumentID] = Post;
+                                             continue;
                                         }
-                                        else
+
+                                        for (const auto &Post : MemoryPostings)
                                         {
-                                             It->second.Score += Post.Score;
+                                             Posting WeightedPost = Post;
+                                             WeightedPost.Score *= VariantWeight;
+
+                                             auto It = TermDocs.find(WeightedPost.DocumentID);
+                                             if (It == TermDocs.end())
+                                             {
+                                                  TermDocs[WeightedPost.DocumentID] = WeightedPost;
+                                             }
+                                             else
+                                             {
+                                                  It->second.Score += WeightedPost.Score;
+                                             }
                                         }
                                    }
                               }
                          }
-                    }
-                    else
-                    {
-                         for (const auto &ScopedKey : ScopedKeys)
+                         else
                          {
-                              auto TermIt = CollectionIt->second.find(ScopedKey);
-
-                              if (TermIt == CollectionIt->second.end())
+                              for (const auto &ScopedKey : ScopedKeys)
                               {
-                                   continue;
-                              }
+                                   auto TermIt = CollectionIt->second.find(ScopedKey);
 
-                              for (const auto &Post : TermIt->second)
-                              {
-                                   auto It = TermDocs.find(Post.DocumentID);
-                                   if (It == TermDocs.end())
+                                   if (TermIt == CollectionIt->second.end())
                                    {
-                                        TermDocs[Post.DocumentID] = Post;
+                                        continue;
                                    }
-                                   else
+
+                                   for (const auto &Post : TermIt->second)
                                    {
-                                        It->second.Score += Post.Score;
+                                        Posting WeightedPost = Post;
+                                        WeightedPost.Score *= VariantWeight;
+
+                                        auto It = TermDocs.find(WeightedPost.DocumentID);
+                                        if (It == TermDocs.end())
+                                        {
+                                             TermDocs[WeightedPost.DocumentID] = WeightedPost;
+                                        }
+                                        else
+                                        {
+                                             It->second.Score += WeightedPost.Score;
+                                        }
                                    }
                               }
                          }
@@ -2370,7 +2465,7 @@ double InvertedIndex::CalculateBM25PlusScore(double TermFreq, double DocFreq, do
 
           if (ClampNegative && Idf < 0.0)
           {
-               Idf = 0.0;
+               Idf = 0.05 * std::log1p(CollectionSize / DocFreq);
           }
      }
 
@@ -2383,7 +2478,9 @@ double InvertedIndex::CalculateBM25PlusScore(double TermFreq, double DocFreq, do
           return 0.0;
      }
 
-     const double ScoreValueResult = Idf * ((NumeratorValue / DenominatorValue) + Delta);
+     const double SaturatedFrequency = NumeratorValue / DenominatorValue;
+     const double DeltaContribution = Delta > 0.0 ? Delta * (TermFreq / (TermFreq + K1)) : 0.0;
+     const double ScoreValueResult = Idf * (SaturatedFrequency + DeltaContribution);
      return std::isfinite(ScoreValueResult) ? ScoreValueResult : 0.0;
 }
 
