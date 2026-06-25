@@ -587,6 +587,27 @@ class ServerConfig
           return MaxEditDistance;
      }
 
+     /* Returns lexical term match mode: and, or, or min_should_match. */
+
+     std::string GetSearchMatchMode() const
+     {
+          return SearchMatchMode;
+     }
+
+     /* Returns minimum matching terms when match mode is min_should_match. */
+
+     int GetSearchMinShouldMatch() const
+     {
+          return SearchMinShouldMatch;
+     }
+
+     /* Returns limit multiplier for cheap pre-score candidate pruning. */
+
+     int GetSearchCandidatePruneMultiplier() const
+     {
+          return SearchCandidatePruneMultiplier;
+     }
+
      /* Returns highlight start marker. */
 
      std::string GetHighlightStart() const
@@ -624,13 +645,6 @@ class ServerConfig
      double GetRankingDelta() const
      {
           return RankingDelta;
-     }
-
-     /* Returns BM25+ delta application mode: constant or frequency_scaled. */
-
-     std::string GetRankingDeltaMode() const
-     {
-          return RankingDeltaMode;
      }
 
      /* TF-IDF parameters */
@@ -1864,6 +1878,18 @@ class ServerConfig
 
      int MaxEditDistance = 2;
 
+     /* Lexical term match mode. */
+
+     std::string SearchMatchMode = "and";
+
+     /* Minimum matching terms for min_should_match mode. */
+
+     int SearchMinShouldMatch = 1;
+
+     /* Candidate prune multiplier before full ranking. */
+
+     int SearchCandidatePruneMultiplier = 25;
+
      /* Highlight start marker. */
 
      std::string HighlightStart = "<mark>";
@@ -1887,10 +1913,6 @@ class ServerConfig
      /* BM25+ delta parameter. */
 
      double RankingDelta = 1.0;
-
-     /* BM25+ delta application mode. */
-
-     std::string RankingDeltaMode = "constant";
 
      /* TF-IDF parameters */
 

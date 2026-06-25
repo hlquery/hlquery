@@ -1454,10 +1454,12 @@ HttpResponse SearchAPI::HandleSearchConfig(const HttpRequest &Request)
      nlohmann::json ConfigJSON;
      ConfigJSON["algorithm"] = Config->GetSearchAlgorithm();
      ConfigJSON["default_ranking"] = Config->GetDefaultRanking();
+     ConfigJSON["match_mode"] = Config->GetSearchMatchMode();
+     ConfigJSON["min_should_match"] = Config->GetSearchMinShouldMatch();
+     ConfigJSON["candidate_prune_multiplier"] = Config->GetSearchCandidatePruneMultiplier();
      ConfigJSON["k1"] = Config->GetRankingK1();
      ConfigJSON["b"] = Config->GetRankingB();
      ConfigJSON["delta"] = Config->GetRankingDelta();
-     ConfigJSON["delta_mode"] = Config->GetRankingDeltaMode();
      ConfigJSON["idf_floor_factor"] = Config->GetRankingIdfFloorFactor();
      ConfigJSON["max_query_length"] = Config->GetQuerySettingsMaxQueryLength();
      ConfigJSON["max_query_terms"] = Config->GetQuerySettingsMaxQueryTerms();

@@ -990,6 +990,32 @@ void ServerConfig::ApplyConfiguration()
 
           MaxEditDistance = SearchSettingsTag->GetInt("max_edit_distance", MaxEditDistance);
 
+          {
+               std::string MatchModeValue = SearchSettingsTag->GetString("match_mode", SearchMatchMode);
+               std::transform(MatchModeValue.begin(), MatchModeValue.end(), MatchModeValue.begin(),
+                              [](unsigned char C)
+                              {
+                                   return static_cast<char>(std::tolower(C));
+                              });
+
+               if (MatchModeValue == "and" || MatchModeValue == "or" || MatchModeValue == "min_should_match")
+               {
+                    SearchMatchMode = MatchModeValue;
+               }
+               else if (!MatchModeValue.empty())
+               {
+                    ConsoleWriter::WriteError("Invalid search match_mode specified: '" + MatchModeValue + "'.");
+
+                    ConsoleWriter::WriteError("Valid match modes are: and, or, min_should_match.");
+
+                    ExitManager::Exit(1);
+               }
+          }
+
+          SearchMinShouldMatch = SearchSettingsTag->GetIntRange("min_should_match", SearchMinShouldMatch, 1, 1000);
+
+          SearchCandidatePruneMultiplier = SearchSettingsTag->GetIntRange("candidate_prune_multiplier", SearchCandidatePruneMultiplier, 0, 1000);
+
           HighlightStart = SearchSettingsTag->GetString("highlight_start", HighlightStart);
 
           HighlightEnd = SearchSettingsTag->GetString("highlight_end", HighlightEnd);
@@ -1011,19 +1037,6 @@ void ServerConfig::ApplyConfiguration()
           RankingB = RankingParamsTag->GetDoubleRange("b", RankingB, 0.0, 1.0);
 
           RankingDelta = RankingParamsTag->GetDoubleRange("delta", RankingDelta, 0.0, 10.0);
-
-          {
-               std::string DeltaModeValue = RankingParamsTag->GetString("delta_mode", RankingDeltaMode);
-               std::transform(DeltaModeValue.begin(), DeltaModeValue.end(), DeltaModeValue.begin(),
-                              [](unsigned char C)
-                              {
-                                   return static_cast<char>(std::tolower(C));
-                              });
-               if (DeltaModeValue == "constant" || DeltaModeValue == "frequency_scaled")
-               {
-                    RankingDeltaMode = DeltaModeValue;
-               }
-          }
 
           RankingIDFSmooth = RankingParamsTag->GetDouble("idf_smooth", RankingIDFSmooth);
 
@@ -1068,7 +1081,7 @@ void ServerConfig::ApplyConfiguration()
 
           if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
           {
-               Instance->Logs->Debug("serverconfig", "Loaded ranking parameters: k1=" + std::to_string(RankingK1) + ", b=" + std::to_string(RankingB) + ", delta=" + std::to_string(RankingDelta) + ", delta_mode=" + RankingDeltaMode + ", idf_smooth=" + std::to_string(RankingIDFSmooth) + ", idf_mode=" + RankingIdfMode + ", idf_clamp_negative=" + std::string(RankingIdfClampNegative ? "true" : "false") + ", idf_floor_factor=" + std::to_string(RankingIdfFloorFactor) + ", normalize=" + std::string(RankingNormalize ? "true" : "false") + ", bm25_weight=" + std::to_string(RankingBM25Weight) + ", tfidf_weight=" + std::to_string(RankingTFIDFWeight) + ", url_token_boost=" + std::to_string(UrlTokenBoost) + ", url_tld_weight=" + std::to_string(UrlTldWeight) + ", title_like_boost=" + std::to_string(TitleLikeBoost) + ", tag_like_boost=" + std::to_string(TagLikeBoost) + ", exact_match_boost=" + std::to_string(ExactMatchBoost) + ", title_exact_boost=" + std::to_string(TitleExactBoost) + ", proximity_boost_scale=" + std::to_string(ProximityBoostScale) + ", proximity_boost_max=" + std::to_string(ProximityBoostMax) + ".");
+               Instance->Logs->Debug("serverconfig", "Loaded ranking parameters: k1=" + std::to_string(RankingK1) + ", b=" + std::to_string(RankingB) + ", delta=" + std::to_string(RankingDelta) + ", idf_smooth=" + std::to_string(RankingIDFSmooth) + ", idf_mode=" + RankingIdfMode + ", idf_clamp_negative=" + std::string(RankingIdfClampNegative ? "true" : "false") + ", idf_floor_factor=" + std::to_string(RankingIdfFloorFactor) + ", normalize=" + std::string(RankingNormalize ? "true" : "false") + ", bm25_weight=" + std::to_string(RankingBM25Weight) + ", tfidf_weight=" + std::to_string(RankingTFIDFWeight) + ", url_token_boost=" + std::to_string(UrlTokenBoost) + ", url_tld_weight=" + std::to_string(UrlTldWeight) + ", title_like_boost=" + std::to_string(TitleLikeBoost) + ", tag_like_boost=" + std::to_string(TagLikeBoost) + ", exact_match_boost=" + std::to_string(ExactMatchBoost) + ", title_exact_boost=" + std::to_string(TitleExactBoost) + ", proximity_boost_scale=" + std::to_string(ProximityBoostScale) + ", proximity_boost_max=" + std::to_string(ProximityBoostMax) + ".");
           }
      }
 

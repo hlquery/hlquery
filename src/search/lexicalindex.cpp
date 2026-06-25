@@ -1500,6 +1500,7 @@ std::vector<Posting> InvertedIndex::Search(const std::string &Collection, const 
      }
 
      std::vector<std::unordered_map<std::string, Posting>> TermResults;
+     size_t ValidQueryTermCount = 0;
 
      auto IsWildcardTerm = [](const std::string &term) -> bool
      {
@@ -1557,6 +1558,8 @@ std::vector<Posting> InvertedIndex::Search(const std::string &Collection, const 
                {
                     continue;
                }
+
+               ValidQueryTermCount++;
 
                std::vector<std::pair<std::string, double>> TermVariants;
                AddQueryTermVariants(Normalized, TermVariants);
@@ -1684,12 +1687,17 @@ std::vector<Posting> InvertedIndex::Search(const std::string &Collection, const 
 
                if (TermDocs.empty())
                {
-                    if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
+                    if (Instance && Instance->Config && Instance->Config->GetSearchMatchMode() == "and")
                     {
-                         Instance->Logs->Debug("inverted_index", "Search: Term '" + Normalized + "' not found in index, returning empty results (AND logic).");
+                         if (Instance->Logs && Instance->Logs->GetDebugMode())
+                         {
+                              Instance->Logs->Debug("inverted_index", "Search: Term '" + Normalized + "' not found in index, returning empty results (AND logic).");
+                         }
+
+                         return {};
                     }
 
-                    return {};
+                    continue;
                }
 
                TermResults.push_back(TermDocs);
@@ -1702,6 +1710,7 @@ std::vector<Posting> InvertedIndex::Search(const std::string &Collection, const 
      }
 
      std::unordered_map<std::string, Posting> DocScores;
+     std::unordered_map<std::string, size_t> DocMatchCounts;
 
      double K1 = 1.2;
 
@@ -1723,6 +1732,12 @@ std::vector<Posting> InvertedIndex::Search(const std::string &Collection, const 
 
      double PivotValue = 0.25;
 
+     std::string MatchMode = "and";
+
+     int MinShouldMatch = 1;
+
+     int CandidatePruneMultiplier = 25;
+
      K1 = Instance->Config->GetRankingK1();
 
      B = Instance->Config->GetRankingB();
@@ -1742,6 +1757,23 @@ std::vector<Posting> InvertedIndex::Search(const std::string &Collection, const 
      PivotEnabled = Instance->Config->GetPivotNormEnabled();
 
      PivotValue = Instance->Config->GetPivotNormPivot();
+
+     MatchMode = Instance->Config->GetSearchMatchMode();
+
+     MinShouldMatch = Instance->Config->GetSearchMinShouldMatch();
+
+     CandidatePruneMultiplier = Instance->Config->GetSearchCandidatePruneMultiplier();
+
+     size_t RequiredMatches = TermResults.size();
+     if (MatchMode == "or")
+     {
+          RequiredMatches = 1;
+     }
+     else if (MatchMode == "min_should_match")
+     {
+          RequiredMatches = static_cast<size_t>(std::max(1, MinShouldMatch));
+          RequiredMatches = std::min(RequiredMatches, TermResults.size());
+     }
 
      double AvgDocLengthValue = 1.0;
 
@@ -1774,87 +1806,146 @@ std::vector<Posting> InvertedIndex::Search(const std::string &Collection, const 
                     return TermResults[IndexA].size() < TermResults[IndexB].size();
                });
 
-     for (const auto &Pair : TermResults[TermOrder[0]])
+     if (MatchMode == "and")
      {
-          DocScores[Pair.first] = Pair.second;
-     }
-
-     for (size_t Idx = 1; Idx < TermOrder.size(); ++Idx)
-     {
-          size_t I = TermOrder[Idx];
-
-          const auto &CurrentTermDocs = TermResults[I];
-
-          if (CurrentTermDocs.size() > DocScores.size() * 10 && DocScores.size() > 100)
+          for (const auto &Pair : TermResults[TermOrder[0]])
           {
-               std::vector<std::pair<std::string, Posting>> SortedDocs(DocScores.begin(), DocScores.end());
-
-               std::sort(SortedDocs.begin(), SortedDocs.end(), [](const auto &DocA, const auto &DocB)
-                         {
-                              return DocA.first < DocB.first;
-                         });
-
-               std::vector<std::pair<std::string, Posting>> SortedCurrent(CurrentTermDocs.begin(), CurrentTermDocs.end());
-
-               std::sort(SortedCurrent.begin(), SortedCurrent.end(), [](const auto &DocA, const auto &DocB)
-                         {
-                              return DocA.first < DocB.first;
-                         });
-
-               std::unordered_map<std::string, Posting> Intersection;
-
-               size_t Pos1 = 0;
-
-               size_t Pos2 = 0;
-
-               while (Pos1 < SortedDocs.size() && Pos2 < SortedCurrent.size())
-               {
-                    if (SortedDocs[Pos1].first < SortedCurrent[Pos2].first)
-                    {
-                         Pos1++;
-                    }
-                    else if (SortedCurrent[Pos2].first < SortedDocs[Pos1].first)
-                    {
-                         Pos2++;
-                    }
-                    else
-                    {
-                         Intersection[SortedDocs[Pos1].first] = SortedDocs[Pos1].second;
-
-                         for (const auto &PosVal : SortedCurrent[Pos2].second.Positions)
-                         {
-                              Intersection[SortedDocs[Pos1].first].Positions.push_back(PosVal);
-                         }
-
-                         Pos1++;
-
-                         Pos2++;
-                    }
-               }
-
-               DocScores = std::move(Intersection);
+               DocScores[Pair.first] = Pair.second;
+               DocMatchCounts[Pair.first] = 1;
           }
-          else
-          {
-               std::unordered_map<std::string, Posting> Intersection;
 
-               for (const auto &Pair : CurrentTermDocs)
+          for (size_t Idx = 1; Idx < TermOrder.size(); ++Idx)
+          {
+               size_t I = TermOrder[Idx];
+
+               const auto &CurrentTermDocs = TermResults[I];
+
+               if (CurrentTermDocs.size() > DocScores.size() * 10 && DocScores.size() > 100)
+               {
+                    std::vector<std::pair<std::string, Posting>> SortedDocs(DocScores.begin(), DocScores.end());
+
+                    std::sort(SortedDocs.begin(), SortedDocs.end(), [](const auto &DocA, const auto &DocB)
+                              {
+                                   return DocA.first < DocB.first;
+                              });
+
+                    std::vector<std::pair<std::string, Posting>> SortedCurrent(CurrentTermDocs.begin(), CurrentTermDocs.end());
+
+                    std::sort(SortedCurrent.begin(), SortedCurrent.end(), [](const auto &DocA, const auto &DocB)
+                              {
+                                   return DocA.first < DocB.first;
+                              });
+
+                    std::unordered_map<std::string, Posting> Intersection;
+                    std::unordered_map<std::string, size_t> IntersectionCounts;
+
+                    size_t Pos1 = 0;
+
+                    size_t Pos2 = 0;
+
+                    while (Pos1 < SortedDocs.size() && Pos2 < SortedCurrent.size())
+                    {
+                         if (SortedDocs[Pos1].first < SortedCurrent[Pos2].first)
+                         {
+                              Pos1++;
+                         }
+                         else if (SortedCurrent[Pos2].first < SortedDocs[Pos1].first)
+                         {
+                              Pos2++;
+                         }
+                         else
+                         {
+                              Intersection[SortedDocs[Pos1].first] = SortedDocs[Pos1].second;
+
+                              for (const auto &PosVal : SortedCurrent[Pos2].second.Positions)
+                              {
+                                   Intersection[SortedDocs[Pos1].first].Positions.push_back(PosVal);
+                              }
+
+                              IntersectionCounts[SortedDocs[Pos1].first] = DocMatchCounts[SortedDocs[Pos1].first] + 1;
+
+                              Pos1++;
+
+                              Pos2++;
+                         }
+                    }
+
+                    DocScores = std::move(Intersection);
+                    DocMatchCounts = std::move(IntersectionCounts);
+               }
+               else
+               {
+                    std::unordered_map<std::string, Posting> Intersection;
+                    std::unordered_map<std::string, size_t> IntersectionCounts;
+
+                    for (const auto &Pair : CurrentTermDocs)
+                    {
+                         auto It = DocScores.find(Pair.first);
+
+                         if (It != DocScores.end())
+                         {
+                              Intersection[Pair.first] = It->second;
+
+                              for (const auto &PosVal : Pair.second.Positions)
+                              {
+                                   Intersection[Pair.first].Positions.push_back(PosVal);
+                              }
+
+                              IntersectionCounts[Pair.first] = DocMatchCounts[Pair.first] + 1;
+                         }
+                    }
+
+                    DocScores = std::move(Intersection);
+                    DocMatchCounts = std::move(IntersectionCounts);
+               }
+          }
+     }
+     else
+     {
+          for (const auto &TermDocs : TermResults)
+          {
+               for (const auto &Pair : TermDocs)
                {
                     auto It = DocScores.find(Pair.first);
 
-                    if (It != DocScores.end())
+                    if (It == DocScores.end())
                     {
-                         Intersection[Pair.first] = It->second;
+                         DocScores[Pair.first] = Pair.second;
+                    }
+                    else
+                    {
+                         It->second.Score += Pair.second.Score;
 
                          for (const auto &PosVal : Pair.second.Positions)
                          {
-                              Intersection[Pair.first].Positions.push_back(PosVal);
+                              It->second.Positions.push_back(PosVal);
                          }
                     }
-               }
 
-               DocScores = std::move(Intersection);
+                    DocMatchCounts[Pair.first]++;
+               }
           }
+
+          if (RequiredMatches > 1)
+          {
+               for (auto It = DocScores.begin(); It != DocScores.end();)
+               {
+                    if (DocMatchCounts[It->first] < RequiredMatches)
+                    {
+                         DocMatchCounts.erase(It->first);
+                         It = DocScores.erase(It);
+                    }
+                    else
+                    {
+                         ++It;
+                    }
+               }
+          }
+     }
+
+     if (DocScores.empty())
+     {
+          return {};
      }
 
      std::vector<Posting> Results;
@@ -1888,6 +1979,29 @@ std::vector<Posting> InvertedIndex::Search(const std::string &Collection, const 
                }
 
                CandidateDocs.push_back({DocID, &Post, DocLengthValue});
+          }
+     }
+
+     if (Limit > 0 && CandidatePruneMultiplier > 0)
+     {
+          const size_t CandidateLimitValue = std::max(static_cast<size_t>(Limit), static_cast<size_t>(Limit) * static_cast<size_t>(CandidatePruneMultiplier));
+
+          if (CandidateDocs.size() > CandidateLimitValue)
+          {
+               std::nth_element(CandidateDocs.begin(),
+                                CandidateDocs.begin() + static_cast<std::ptrdiff_t>(CandidateLimitValue),
+                                CandidateDocs.end(),
+                                [](const CandidateDocument &DocA, const CandidateDocument &DocB)
+                                {
+                                     if (DocA.PostingValue->Score != DocB.PostingValue->Score)
+                                     {
+                                          return DocA.PostingValue->Score > DocB.PostingValue->Score;
+                                     }
+
+                                     return DocA.DocumentID < DocB.DocumentID;
+                                });
+
+               CandidateDocs.resize(CandidateLimitValue);
           }
      }
 
@@ -1954,6 +2068,13 @@ std::vector<Posting> InvertedIndex::Search(const std::string &Collection, const 
                double ProximityBoostValue = CalculateProximityBoost(QueryTerms, {Post}, DocID);
 
                TotalScore *= ProximityBoostValue;
+          }
+
+          if (ValidQueryTermCount > 1)
+          {
+               const double MatchedTerms = static_cast<double>(DocMatchCounts[DocID]);
+               const double CoverageRatio = std::min(1.0, MatchedTerms / static_cast<double>(ValidQueryTermCount));
+               TotalScore *= 0.75 + (0.25 * CoverageRatio);
           }
 
           Post.Score = TotalScore;
@@ -2430,7 +2551,6 @@ double InvertedIndex::CalculateBM25PlusScore(double TermFreq, double DocFreq, do
      std::string IdfMode = "legacy";
      bool ClampNegative = true;
      double IdfSmoothValue = 1.0;
-     std::string DeltaMode = "constant";
      double IdfFloorFactor = 0.05;
 
      if (Instance && Instance->Config)
@@ -2438,7 +2558,6 @@ double InvertedIndex::CalculateBM25PlusScore(double TermFreq, double DocFreq, do
           IdfMode = Instance->Config->GetRankingIdfMode();
           ClampNegative = Instance->Config->GetRankingIdfClampNegative();
           IdfSmoothValue = std::max(0.0, Instance->Config->GetRankingIdfSmooth());
-          DeltaMode = Instance->Config->GetRankingDeltaMode();
           IdfFloorFactor = std::max(0.0, Instance->Config->GetRankingIdfFloorFactor());
      }
 
@@ -2483,8 +2602,7 @@ double InvertedIndex::CalculateBM25PlusScore(double TermFreq, double DocFreq, do
      }
 
      const double SaturatedFrequency = NumeratorValue / DenominatorValue;
-     const double DeltaContribution = DeltaMode == "frequency_scaled" && K1 > 0.0 ? Delta * (TermFreq / (TermFreq + K1)) : Delta;
-     const double ScoreValueResult = Idf * (SaturatedFrequency + DeltaContribution);
+     const double ScoreValueResult = Idf * (SaturatedFrequency + Delta);
      return std::isfinite(ScoreValueResult) ? ScoreValueResult : 0.0;
 }
 
