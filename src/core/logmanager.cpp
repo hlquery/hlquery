@@ -11,6 +11,7 @@
  */
 
 #include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <cstring>
 #include <filesystem>
@@ -54,6 +55,90 @@ static std::time_t FileTimeToTimeT(const fs::file_time_type &WriteTimeVal)
           WriteTimeVal - fs::file_time_type::clock::now() + SystemNow);
 
      return std::chrono::system_clock::to_time_t(SctpTimePoint);
+}
+
+/* Returns true only for filenames produced by GenerateRotatedFilename(). */
+
+static bool IsGeneratedRotatedLogName(const std::string &Filename,
+                                      const std::string &LogBasename,
+                                      const std::string &LogExtension)
+{
+     const std::string RotatedExtension = LogExtension.empty() ? ".log" : LogExtension;
+     const std::string TimestampPrefix = LogBasename + "_";
+
+     if (Filename.rfind(TimestampPrefix, 0) == 0 &&
+         Filename.size() > TimestampPrefix.size() + 16 + RotatedExtension.size() &&
+         Filename.compare(Filename.size() - RotatedExtension.size(), RotatedExtension.size(), RotatedExtension) == 0)
+     {
+          const size_t DateStart = TimestampPrefix.size();
+          const size_t DateEnd = DateStart + 8;
+
+          for (size_t I = DateStart; I < DateEnd; ++I)
+          {
+               if (!std::isdigit(static_cast<unsigned char>(Filename[I])))
+               {
+                    return false;
+               }
+          }
+
+          if (Filename[DateEnd] != '_')
+          {
+               return false;
+          }
+
+          const size_t TimeStart = DateEnd + 1;
+          const size_t TimeEnd = TimeStart + 6;
+
+          for (size_t I = TimeStart; I < TimeEnd; ++I)
+          {
+               if (!std::isdigit(static_cast<unsigned char>(Filename[I])))
+               {
+                    return false;
+               }
+          }
+
+          if (Filename[TimeEnd] != '_')
+          {
+               return false;
+          }
+
+          const size_t SequenceStart = TimeEnd + 1;
+          const size_t SequenceEnd = Filename.size() - RotatedExtension.size();
+
+          if (SequenceStart >= SequenceEnd)
+          {
+               return false;
+          }
+
+          for (size_t I = SequenceStart; I < SequenceEnd; ++I)
+          {
+               if (!std::isdigit(static_cast<unsigned char>(Filename[I])))
+               {
+                    return false;
+               }
+          }
+
+          return true;
+     }
+
+     const std::string LegacyPrefix = LogExtension.empty()
+          ? LogBasename + ".log."
+          : LogBasename + LogExtension + ".";
+
+     if (Filename.rfind(LegacyPrefix, 0) != 0 || Filename.size() == LegacyPrefix.size())
+     {
+          return false;
+     }
+
+     for (size_t I = LegacyPrefix.size(); I < Filename.size(); ++I)
+     {
+          if (!std::isdigit(static_cast<unsigned char>(Filename[I])))
+          {
+               return false;
+          }
+     }
+
+     return true;
 }
 
 /* LogStream implementation for handling individual logging targets. */
@@ -453,16 +538,12 @@ void LogStream::CleanupOldRotatedFiles()
                     {
                          std::string FilenameStr = EntryItem.path().filename().string();
 
-                         if (FilenameStr.find(LogBasename) != std::string::npos &&
-                             FilenameStr != LogPath.filename().string())
+                         if (FilenameStr != LogPath.filename().string() &&
+                             IsGeneratedRotatedLogName(FilenameStr, LogBasename, LogExtension))
                          {
-                              if (FilenameStr.find(".log.") != std::string::npos ||
-                                  FilenameStr.find("_") != std::string::npos)
-                              {
-                                   auto WriteTimeVal = fs::last_write_time(EntryItem);
-                                   std::time_t CfTimeVal = FileTimeToTimeT(WriteTimeVal);
-                                   RotatedFilesList.push_back({CfTimeVal, EntryItem.path()});
-                              }
+                              auto WriteTimeVal = fs::last_write_time(EntryItem);
+                              std::time_t CfTimeVal = FileTimeToTimeT(WriteTimeVal);
+                              RotatedFilesList.push_back({CfTimeVal, EntryItem.path()});
                          }
                     }
                }
@@ -794,32 +875,13 @@ void LogManager::Log(LogLevel LevelValue, const std::string &Type, const std::st
      }
 
      std::string FinalMessage = EnsureLogPeriod(Message);
-     bool IsInitializedFlag = false;
-     bool VerboseModeFlag = false;
-     std::vector<LogStream *> StreamsToLogList;
 
-     /* Snapshot matching streams while manager state is protected. */
+     /* Keep manager state protected while dispatching so reinitialization cannot
+      * invalidate stream objects selected for this message. */
 
-     {
-          std::lock_guard<std::mutex> Lock(ManagerMutex);
+     std::lock_guard<std::mutex> Lock(ManagerMutex);
 
-          IsInitializedFlag = Initialized;
-
-          VerboseModeFlag = VerboseMode;
-
-          if (IsInitializedFlag)
-          {
-               for (const auto &StreamItem : LogStreams)
-               {
-                    if (StreamItem && ShouldLog(*StreamItem, LevelValue, Type))
-                    {
-                         StreamsToLogList.push_back(StreamItem.get());
-                    }
-               }
-          }
-     }
-
-     if (!IsInitializedFlag)
+     if (!Initialized)
      {
           /* Preserve message visibility through standard error before initialization. */
 
@@ -873,9 +935,9 @@ void LogManager::Log(LogLevel LevelValue, const std::string &Type, const std::st
 
      /* Dispatch the message to each matching configured stream. */
 
-     for (LogStream *StreamPtr : StreamsToLogList)
+     for (const auto &StreamPtr : LogStreams)
      {
-          if (StreamPtr)
+          if (StreamPtr && ShouldLog(*StreamPtr, LevelValue, Type))
           {
                StreamPtr->WriteLog(LevelValue, Type, Message);
 
@@ -886,7 +948,7 @@ void LogManager::Log(LogLevel LevelValue, const std::string &Type, const std::st
           }
      }
 
-     if (VerboseModeFlag && !HasConsoleStreamFlag && (LevelValue == LogLevel::LOG_DEBUG || LevelValue == LogLevel::LOG_VERBOSE))
+     if (VerboseMode && !HasConsoleStreamFlag && (LevelValue == LogLevel::LOG_DEBUG || LevelValue == LogLevel::LOG_VERBOSE))
      {
           /* Mirror detailed foreground output when no console stream handled it. */
 

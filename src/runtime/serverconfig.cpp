@@ -691,6 +691,13 @@ void ServerConfig::ApplyConfiguration()
 
                NewBindInstance.port = BindTagEntry->GetInt("port", 9200);
 
+               if (NewBindInstance.port < 1 || NewBindInstance.port > 65535)
+               {
+                    throw std::runtime_error("Invalid bind port '" + std::to_string(NewBindInstance.port) +
+                                             "' for address '" + NewBindInstance.address +
+                                             "'. Valid TCP ports are 1-65535.");
+               }
+
                NewBindInstance.type = BindTagEntry->GetString("type", "clients");
                std::transform(NewBindInstance.type.begin(), NewBindInstance.type.end(), NewBindInstance.type.begin(),
                               [](unsigned char C)

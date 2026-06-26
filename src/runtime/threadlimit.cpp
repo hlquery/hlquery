@@ -131,11 +131,9 @@ size_t ThreadLimit::CalculateThreadCount(size_t RequestedThreads, int PriorityVa
 
 size_t ThreadLimit::CalculateThreadDistribution(size_t TotalRequestedPerPool, size_t NumPools)
 {
-     size_t MaxLimitVal = GetMaxThreads();
-
-     size_t CurrentTotal = CurrentThreads.load();
-
-     size_t AvailableTotal = (CurrentTotal < MaxLimitVal) ? (MaxLimitVal - CurrentTotal) : 0;
+     size_t MaxLimitVal        =   GetMaxThreads();
+     size_t CurrentTotal       =   CurrentThreads.load();
+     size_t AvailableTotal     =   (CurrentTotal < MaxLimitVal) ? (MaxLimitVal - CurrentTotal) : 0;
 
      if (NumPools == 0)
      {
@@ -144,10 +142,9 @@ size_t ThreadLimit::CalculateThreadDistribution(size_t TotalRequestedPerPool, si
 
      /* Compute the baseline thread count for each pool */
 
-     size_t BaseThreadsPerPool = AvailableTotal / NumPools;
-
-     size_t ExtraThreadsCount = AvailableTotal % NumPools;
-
+     size_t BaseThreadsPerPool =   AvailableTotal / NumPools;
+     size_t ExtraThreadsCount  =   AvailableTotal % NumPools;
+ 
      /* Determine individual pool allocation, adding extra capacity if available */
 
      size_t AllocatedPerPool = BaseThreadsPerPool;
@@ -175,11 +172,17 @@ void ThreadLimit::SetThreadName(const char *ThreadNameStr)
 {
 
 #ifdef __linux__
+
      pthread_setname_np(pthread_self(), ThreadNameStr);
+
 #elif defined(__APPLE__) || defined(__MACH__)
+
      pthread_setname_np(ThreadNameStr);
+
 #else
+
      (void)ThreadNameStr;
+
 #endif
 
 }

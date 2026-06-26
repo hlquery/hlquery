@@ -476,12 +476,31 @@ bool ConfigReader::LoadFile(const std::string &Filename)
      /* Parse the content (handles comments, includes, and tag parsing) */
 
      std::string ProcessedContent;
+     std::filesystem::path ConfigPath(Filename);
+     std::string ConfigCanonicalPath;
 
-     if (!ProcessCommentsAndIncludes(Content, ProcessedContent))
+     try
      {
+          ConfigPath = std::filesystem::canonical(ConfigPath);
+          ConfigCanonicalPath = ConfigPath.string();
+     }
+     catch (const std::exception &)
+     {
+          std::error_code Ec;
+          ConfigPath = std::filesystem::absolute(ConfigPath, Ec);
+          ConfigCanonicalPath = ConfigPath.string();
+     }
+
+     ActiveIncludes.insert(ConfigCanonicalPath);
+
+     if (!ProcessCommentsAndIncludes(Content, ProcessedContent, ConfigPath.parent_path().string(), ConfigCanonicalPath))
+     {
+          ActiveIncludes.erase(ConfigCanonicalPath);
           ConsoleWriter::WriteError("Failed to process configuration content: " + Filename + ".");
           return false;
      }
+
+     ActiveIncludes.erase(ConfigCanonicalPath);
 
      if (!ParseContent(ProcessedContent))
      {
@@ -987,7 +1006,10 @@ void ConfigTag::SetAttribute(const std::string &Key, const std::string &Value)
      Attributes[Key] = Value;
 }
 
-bool ConfigReader::ProcessCommentsAndIncludes(const std::string &Content, std::string &out_content)
+bool ConfigReader::ProcessCommentsAndIncludes(const std::string &Content,
+                                              std::string &out_content,
+                                              const std::string &BaseDir,
+                                              const std::string &SourceFile)
 {
      std::istringstream Iss(Content);
 
@@ -1049,15 +1071,80 @@ bool ConfigReader::ProcessCommentsAndIncludes(const std::string &Content, std::s
                std::string IncludeFileStr = IncludeMatch[1].str();
 
                std::string IncludeContent;
+               std::string IncludeCanonicalPath;
 
-               if (!LoadIncludeFile(IncludeFileStr, IncludeContent))
+               if (!LoadIncludeFile(IncludeFileStr, IncludeContent, BaseDir, IncludeCanonicalPath))
                {
                     return false;
                }
 
-               std::string ProcessedInclude;
+               if (ActiveIncludes.find(IncludeCanonicalPath) != ActiveIncludes.end())
+               {
+                    ErrorMsg = "Circular include detected";
+                    ErrorMsg += "\n  File: " + IncludeCanonicalPath;
+                    ErrorMsg += "\n  Requested from: " + SourceFile;
+                    ErrorMsg += "\n  This file is already being processed in the include chain";
+                    ErrorMsg += "\n  Solution: Remove the circular dependency";
+                    ConsoleWriter::WriteError("Circular include detected: " + IncludeCanonicalPath + ".");
+                    ConsoleWriter::WriteInfo("Solution: Remove the circular dependency or restructure the configuration.");
 
-               if (!ProcessCommentsAndIncludes(IncludeContent, ProcessedInclude))
+                    if (Instance && Instance->Logs)
+                    {
+                         Instance->Logs->Critical("configreader", ErrorMsg + ".");
+                    }
+
+                    return false;
+               }
+
+               if (IncludeDepth + 1 > CONFIG_READER_MAX_INCLUDE_DEPTH)
+               {
+                    ErrorMsg = "Maximum include depth exceeded";
+                    ErrorMsg += "\n  Current depth: " + std::to_string(IncludeDepth + 1) + " (max: " + std::to_string(CONFIG_READER_MAX_INCLUDE_DEPTH) + ")";
+                    ErrorMsg += "\n  Include file: " + IncludeCanonicalPath;
+                    ErrorMsg += "\n  Requested from: " + SourceFile;
+                    ErrorMsg += "\n  This usually indicates circular includes in your configuration";
+                    ErrorMsg += "\n  Solutions:";
+                    ErrorMsg += "\n     - Check for files that include each other (A includes B, B includes A)";
+                    ErrorMsg += "\n     - Remove circular include dependencies";
+                    ErrorMsg += "\n     - Restructure configuration to avoid deep nesting";
+                    ConsoleWriter::WriteError("Maximum include depth exceeded. This usually indicates circular includes.");
+                    ConsoleWriter::WriteInfo("Solutions: Check for circular includes, remove dependencies, restructure configuration.");
+
+                    if (Instance && Instance->Logs)
+                    {
+                         Instance->Logs->Critical("configreader", ErrorMsg + ".");
+                    }
+
+                    return false;
+               }
+
+               struct ActiveIncludeScope
+               {
+                    ConfigReader *Reader;
+                    std::string Path;
+
+                    ActiveIncludeScope(ConfigReader *ReaderPtr, const std::string &PathValue)
+                         : Reader(ReaderPtr), Path(PathValue)
+                    {
+                         Reader->ActiveIncludes.insert(Path);
+                         Reader->IncludeDepth++;
+                    }
+
+                    ~ActiveIncludeScope()
+                    {
+                         Reader->ActiveIncludes.erase(Path);
+                         Reader->IncludeDepth--;
+                    }
+               };
+
+               ActiveIncludeScope Scope(this, IncludeCanonicalPath);
+               std::string ProcessedInclude;
+               std::filesystem::path IncludePath(IncludeCanonicalPath);
+
+               if (!ProcessCommentsAndIncludes(IncludeContent,
+                                               ProcessedInclude,
+                                               IncludePath.parent_path().string(),
+                                               IncludeCanonicalPath))
                {
                     return false;
                }
@@ -1077,74 +1164,21 @@ bool ConfigReader::ProcessCommentsAndIncludes(const std::string &Content, std::s
      return true;
 }
 
-bool ConfigReader::LoadIncludeFile(const std::string &Filename, std::string &out_content)
+bool ConfigReader::LoadIncludeFile(const std::string &Filename,
+                                   std::string &out_content,
+                                   const std::string &BaseDir,
+                                   std::string &CanonicalPath)
 {
-     /* Prevent runaway recursion by tracking include depth */
+     /* Make include file path relative to the file that requested it. */
 
-     struct IncludeTracker
+     std::filesystem::path IncludePath(Filename);
+
+     if (!IncludePath.is_absolute())
      {
-          ConfigReader *Reader;
-          std::string CanonicalPath;
-          bool Inserted = false;
-
-          IncludeTracker(ConfigReader *reader) : Reader(reader)
-          {
-               Reader->IncludeDepth++;
-          }
-
-          bool Enter(const std::string &Path)
-          {
-               CanonicalPath = Path;
-               auto Result = Reader->ActiveIncludes.insert(CanonicalPath);
-               Inserted = Result.second;
-               return Inserted;
-          }
-
-          ~IncludeTracker()
-          {
-               if (Inserted && !CanonicalPath.empty())
-               {
-                    Reader->ActiveIncludes.erase(CanonicalPath);
-               }
-               Reader->IncludeDepth--;
-          }
-     };
-
-     const int MaxIncludeDepth = CONFIG_READER_MAX_INCLUDE_DEPTH;
-
-     IncludeTracker Tracker(this);
-
-     if (IncludeDepth > MaxIncludeDepth)
-     {
-          ErrorMsg = "Maximum include depth exceeded";
-          ErrorMsg += "\n  Current depth: " + std::to_string(IncludeDepth) + " (max: " + std::to_string(MaxIncludeDepth) + ")";
-          ErrorMsg += "\n  Include file: " + Filename;
-          ErrorMsg += "\n  Requested from: " + FileName;
-          ErrorMsg += "\n  This usually indicates circular includes in your configuration";
-          ErrorMsg += "\n  Solutions:";
-          ErrorMsg += "\n     - Check for files that include each other (A includes B, B includes A)";
-          ErrorMsg += "\n     - Remove circular include dependencies";
-          ErrorMsg += "\n     - Restructure configuration to avoid deep nesting";
-          ConsoleWriter::WriteError("Maximum include depth exceeded. This usually indicates circular includes.");
-          ConsoleWriter::WriteInfo("Solutions: Check for circular includes, remove dependencies, restructure configuration.");
-
-          if (Instance && Instance->Logs)
-          {
-               Instance->Logs->Critical("configreader", ErrorMsg + ".");
-          }
-
-          return false;
+          IncludePath = std::filesystem::path(BaseDir) / IncludePath;
      }
 
-     /* Make include file path relative to the directory containing the main config file */
-
-     std::filesystem::path ConfigDir = std::filesystem::path(FileName).parent_path();
-
-     std::filesystem::path IncludePath = ConfigDir / Filename;
-
      /* Normalize the path so circular includes can be detected reliably */
-
-     std::string CanonicalPath;
 
      try
      {
@@ -1154,11 +1188,11 @@ bool ConfigReader::LoadIncludeFile(const std::string &Filename, std::string &out
      {
           ErrorMsg = "Cannot resolve include file path";
           ErrorMsg += "\n  Include file: " + IncludePath.string();
-          ErrorMsg += "\n  Requested from: " + FileName;
+          ErrorMsg += "\n  Requested from: " + BaseDir;
           ErrorMsg += "\n  Error: " + std::string(e.what());
           ErrorMsg += "\n  Check:";
           ErrorMsg += "\n     - Include file exists: ls -l \"" + IncludePath.string() + "\"";
-          ErrorMsg += "\n     - Path is relative to config file directory: " + ConfigDir.string();
+          ErrorMsg += "\n     - Path is relative to config file directory: " + BaseDir;
           ErrorMsg += "\n     - Use absolute path if relative path fails";
           ErrorMsg += "\n     - Check for typos in the include filename";
           ConsoleWriter::WriteError("Cannot resolve include file path: " + IncludePath.string() + ".");
@@ -1179,28 +1213,6 @@ bool ConfigReader::LoadIncludeFile(const std::string &Filename, std::string &out
           ErrorMsg += "\n  Check file path and permissions";
           ConsoleWriter::WriteError("Cannot resolve include file path.");
           ConsoleWriter::WriteInfo("Check file path and permissions.");
-
-          if (Instance && Instance->Logs)
-          {
-               Instance->Logs->Critical("configreader", ErrorMsg + ".");
-          }
-
-          return false;
-     }
-
-     /* Abort if a file tries to include itself indirectly */
-
-     if (!Tracker.Enter(CanonicalPath))
-     {
-          ErrorMsg = "Circular include detected";
-          ErrorMsg += "\n  File: " + CanonicalPath;
-          ErrorMsg += "\n  Requested from: " + FileName;
-          ErrorMsg += "\n  This file is already being processed in the include chain";
-          ErrorMsg += "\n  Solution: Remove the circular dependency";
-          ErrorMsg += "\n     Example: If A.conf includes B.conf and B.conf includes A.conf,";
-          ErrorMsg += "\n     remove one of the includes or restructure the configuration";
-          ConsoleWriter::WriteError("Circular include detected: " + CanonicalPath + ".");
-          ConsoleWriter::WriteInfo("Solution: Remove the circular dependency or restructure the configuration.");
 
           if (Instance && Instance->Logs)
           {
