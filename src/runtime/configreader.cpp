@@ -17,6 +17,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <limits>
 #include <regex>
 #include <sstream>
 #include <system_error>
@@ -924,7 +925,11 @@ bool ConfigTag::GetBool(const std::string &Key, bool DefaultValue) const
      {
           std::string Value = it->second;
 
-          std::transform(Value.begin(), Value.end(), Value.begin(), ::tolower);
+          std::transform(Value.begin(), Value.end(), Value.begin(),
+                         [](unsigned char C)
+                         {
+                              return static_cast<char>(std::tolower(C));
+                         });
 
           if (Value == "true" || Value == "yes" || Value == "1" || Value == "on" || Value == "enabled")
           {
@@ -1367,7 +1372,11 @@ bool ConfigReader::ValidateRequiredTags()
 
      std::string FilenameLower = FilePath.filename().string();
 
-     std::transform(FilenameLower.begin(), FilenameLower.end(), FilenameLower.begin(), ::tolower);
+     std::transform(FilenameLower.begin(), FilenameLower.end(), FilenameLower.begin(),
+                    [](unsigned char C)
+                    {
+                         return static_cast<char>(std::tolower(C));
+                    });
 
      /* Search config files don't require <server> tag - they only need <search> tags */
 
@@ -1581,7 +1590,7 @@ bool ConfigReader::ValidateTagName(const std::string &TagName)
 
      for (char c : TagName)
      {
-          if (!std::isalnum(c) && c != '_')
+          if (!std::isalnum(static_cast<unsigned char>(c)) && c != '_')
           {
                if (Instance && Instance->Logs)
                {
@@ -1709,7 +1718,7 @@ bool ConfigReader::ValidateAttributeValue(const std::string &Key, const std::str
 
      for (char c : Value)
      {
-          if (std::iscntrl(c) && c != '\t' && c != '\n' && c != '\r')
+          if (std::iscntrl(static_cast<unsigned char>(c)) && c != '\t' && c != '\n' && c != '\r')
           {
                if (Instance && Instance->Logs)
                {
@@ -1729,7 +1738,7 @@ bool ConfigReader::ValidateAttributeValue(const std::string &Key, const std::str
 
           for (char c : Value)
           {
-               if (!std::isspace(c))
+               if (!std::isspace(static_cast<unsigned char>(c)))
                {
                     AllWhitespaceFlag = false;
                     break;
@@ -1776,7 +1785,7 @@ std::string ConfigTag::GetStringNonEmpty(const std::string &Key, const std::stri
 
      for (char c : Value)
      {
-          if (!std::isspace(c))
+          if (!std::isspace(static_cast<unsigned char>(c)))
           {
                AllWhitespaceFlagVal = false;
                break;
@@ -1907,7 +1916,11 @@ size_t ConfigTag::GetSize(const std::string &Key, size_t DefaultValue) const
 
                std::string LowerStrVal = ValueStrValue;
 
-               std::transform(LowerStrVal.begin(), LowerStrVal.end(), LowerStrVal.begin(), ::tolower);
+               std::transform(LowerStrVal.begin(), LowerStrVal.end(), LowerStrVal.begin(),
+                              [](unsigned char C)
+                              {
+                                   return static_cast<char>(std::tolower(C));
+                              });
 
                /* Extract numeric part and unit */
 
@@ -1958,21 +1971,34 @@ size_t ConfigTag::GetSize(const std::string &Key, size_t DefaultValue) const
                     return DefaultValue;
                }
 
-               /* Calculate final size in bytes */
+               /* Validate before converting to size_t. */
 
-               size_t FinalResultValue = static_cast<size_t>(NumericValueResult * MultiplierVal);
-
-               /* Validate result is reasonable (not negative, not overflow) */
-
-               if (NumericValueResult < 0)
+               if (NumericValueResult < 0 || std::isnan(NumericValueResult) || std::isinf(NumericValueResult))
                {
                     if (Instance && Instance->Logs)
                     {
-                         Instance->Logs->Normal("configreader", "WARNING: Negative size value for tag '" + Name + "' attribute '" + Key + "': " + it->second + " (using default: " + std::to_string(DefaultValue) + ").");
+                         Instance->Logs->Normal("configreader", "WARNING: Invalid size value for tag '" + Name + "' attribute '" + Key + "': " + it->second + " (using default: " + std::to_string(DefaultValue) + ").");
                     }
 
                     return DefaultValue;
                }
+
+               long double BytesValue = static_cast<long double>(NumericValueResult) *
+                                        static_cast<long double>(MultiplierVal);
+
+               if (BytesValue > static_cast<long double>(std::numeric_limits<size_t>::max()))
+               {
+                    if (Instance && Instance->Logs)
+                    {
+                         Instance->Logs->Normal("configreader", "WARNING: Size value too large for tag '" + Name + "' attribute '" + Key + "': " + it->second + " (using default: " + std::to_string(DefaultValue) + ").");
+                    }
+
+                    return DefaultValue;
+               }
+
+               /* Calculate final size in bytes */
+
+               size_t FinalResultValue = static_cast<size_t>(BytesValue);
 
                return FinalResultValue;
           }

@@ -334,6 +334,9 @@ enum class ModuleHook : size_t
      OnAuthenticatedRequest,
      OnPingRequest,
      OnDBRequest,
+     OnStatsRequest,
+     OnMetricsRequest,
+     OnCacheRequest,
      OnSearchCollection,
      OnSearchDocument,
      ComputeSearchWeightMultiplier,
@@ -450,6 +453,12 @@ class RuntimeModule
                !std::is_same_v<decltype(&Derived::OnPingRequest), decltype(&RuntimeModule::OnPingRequest)>;
           Hooks[static_cast<size_t>(ModuleHook::OnDBRequest)] =
                !std::is_same_v<decltype(&Derived::OnDBRequest), decltype(&RuntimeModule::OnDBRequest)>;
+          Hooks[static_cast<size_t>(ModuleHook::OnStatsRequest)] =
+               !std::is_same_v<decltype(&Derived::OnStatsRequest), decltype(&RuntimeModule::OnStatsRequest)>;
+          Hooks[static_cast<size_t>(ModuleHook::OnMetricsRequest)] =
+               !std::is_same_v<decltype(&Derived::OnMetricsRequest), decltype(&RuntimeModule::OnMetricsRequest)>;
+          Hooks[static_cast<size_t>(ModuleHook::OnCacheRequest)] =
+               !std::is_same_v<decltype(&Derived::OnCacheRequest), decltype(&RuntimeModule::OnCacheRequest)>;
           Hooks[static_cast<size_t>(ModuleHook::OnSearchCollection)] =
                !std::is_same_v<decltype(&Derived::OnSearchCollection), decltype(&RuntimeModule::OnSearchCollection)>;
           Hooks[static_cast<size_t>(ModuleHook::OnSearchDocument)] =
@@ -733,6 +742,27 @@ class RuntimeModule
      /* Called after a database status request has been handled successfully. */
 
      virtual void OnDBRequest(const HttpRequest&)
+     {
+
+     }
+
+     /* Called after a stats request has been handled successfully. */
+
+     virtual void OnStatsRequest(const HttpRequest&)
+     {
+
+     }
+
+     /* Called after a metrics request has been handled successfully. */
+
+     virtual void OnMetricsRequest(const HttpRequest&)
+     {
+
+     }
+
+     /* Called after a cache-inspection request has been handled successfully. */
+
+     virtual void OnCacheRequest(const HttpRequest&)
      {
 
      }

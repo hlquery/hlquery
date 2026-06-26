@@ -1146,7 +1146,11 @@ LogLevel LogManager::StringToLogLevel(const std::string &LevelStr)
 {
      std::string LowerLevelValue = LevelStr;
 
-     std::transform(LowerLevelValue.begin(), LowerLevelValue.end(), LowerLevelValue.begin(), ::tolower);
+     std::transform(LowerLevelValue.begin(), LowerLevelValue.end(), LowerLevelValue.begin(),
+                    [](unsigned char C)
+                    {
+                         return static_cast<char>(std::tolower(C));
+                    });
 
      if (LowerLevelValue == "critical" || LowerLevelValue == "crit")
      {
@@ -1248,24 +1252,6 @@ bool LogManager::GetDebugMode() const
 {
      std::lock_guard<std::mutex> Lock(ManagerMutex);
      return DebugMode;
-}
-
-/* Identifies and returns all log streams that should process a given message. */
-
-std::vector<LogStream *> LogManager::GetStreamsForLogging(LogLevel LevelVal, const std::string &Type)
-{
-     std::lock_guard<std::mutex> Lock(ManagerMutex);
-     std::vector<LogStream *> ResultList;
-
-     for (const auto &Stream : LogStreams)
-     {
-          if (ShouldLog(*Stream, LevelVal, Type))
-          {
-               ResultList.push_back(Stream.get());
-          }
-     }
-
-     return ResultList;
 }
 
 /* Resets internal state after a process fork to ensure operational integrity. */

@@ -5008,6 +5008,9 @@ static bool IsAdminOnlyRouteAction(RouteAction ActionVal)
              ActionVal == RouteAction::LinksDisconnect ||
              ActionVal == RouteAction::Flush ||
              ActionVal == RouteAction::Repair ||
+             ActionVal == RouteAction::Cache ||
+             ActionVal == RouteAction::ModuleLoad ||
+             ActionVal == RouteAction::ModuleUnload ||
              ActionVal == RouteAction::StorageStatus);
 }
 
@@ -5358,6 +5361,9 @@ HttpResponse ProcessRequestWithAPI(SearchAPI &API, const HttpRequest &Request)
                case RouteAction::MetricsHistory:
                     return API.HandleMetricsHistory(Request);
 
+               case RouteAction::Cache:
+                    return API.HandleCache(Request);
+
                case RouteAction::Connections:
                     return API.HandleConnections(Request);
 
@@ -5580,6 +5586,12 @@ HttpResponse ProcessRequestWithAPI(SearchAPI &API, const HttpRequest &Request)
 
                case RouteAction::GetModuleSyntax:
                     return API.HandleModuleSyntax(Request);
+
+               case RouteAction::ModuleLoad:
+                    return API.HandleModuleLoad(Request);
+
+               case RouteAction::ModuleUnload:
+                    return API.HandleModuleUnload(Request);
 
                case RouteAction::ModuleAPI:
                     return API.HandleModuleAPI(Request);

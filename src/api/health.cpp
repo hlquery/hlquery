@@ -1081,6 +1081,8 @@ HttpResponse SearchAPI::HandleMetrics(const HttpRequest &Request)
 
      Response.Body = MetricsJSON.dump();
 
+     FOREACH_MOD(OnMetricsRequest, Request);
+
      return Response;
 }
 
@@ -1387,6 +1389,8 @@ HttpResponse SearchAPI::HandleStats(const HttpRequest &Request)
 
      Response.Body = StatsJSON.dump();
 
+     FOREACH_MOD(OnStatsRequest, Request);
+
      return Response;
 }
 
@@ -1448,6 +1452,8 @@ HttpResponse SearchAPI::HandleCache(const HttpRequest &Request)
           {"expansion_hits", LexicalStats.ExpansionHits},
           {"expansion_misses", LexicalStats.ExpansionMisses}};
      Response.Body = Result.dump();
+
+     FOREACH_MOD(OnCacheRequest, Request);
 
      return Response;
 }

@@ -253,10 +253,6 @@ class CoreExport LogManager
 
      bool ShouldLog(const LogStream& stream, LogLevel level, const std::string& type);
 
-     /* Collects matching streams for a message. */
-
-     std::vector<LogStream*> GetStreamsForLogging(LogLevel level, const std::string& type);
-
    public:
 
      /* Constructor. */

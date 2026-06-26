@@ -164,6 +164,27 @@ class DebugRuntimeModule final : public AutoRuntimeModule<DebugRuntimeModule>
                 ", api_key=" + (Request.APIKeyID.empty() ? "-" : Request.APIKeyID));
      }
 
+     void OnStatsRequest(const HttpRequest &Request) override
+     {
+          Trace("stats request: method=" + Request.Method +
+                ", path=" + Request.Path +
+                ", api_key=" + (Request.APIKeyID.empty() ? "-" : Request.APIKeyID));
+     }
+
+     void OnMetricsRequest(const HttpRequest &Request) override
+     {
+          Trace("metrics request: method=" + Request.Method +
+                ", path=" + Request.Path +
+                ", api_key=" + (Request.APIKeyID.empty() ? "-" : Request.APIKeyID));
+     }
+
+     void OnCacheRequest(const HttpRequest &Request) override
+     {
+          Trace("cache request: method=" + Request.Method +
+                ", path=" + Request.Path +
+                ", api_key=" + (Request.APIKeyID.empty() ? "-" : Request.APIKeyID));
+     }
+
      void OnSearchCollection(const SearchEvent &Event) override
      {
           Trace("search collection: collection=" + Event.Collection +

@@ -189,6 +189,7 @@ static const std::unordered_map<std::string_view, RouteAction> &GetExactGetRoute
           {"/admin/storage_status", RouteAction::StorageStatus},
           {"/aliases", RouteAction::ListAliases},
           {"/boot-status", RouteAction::Startup},
+          {"/cache", RouteAction::Cache},
           {"/collections", RouteAction::ListCollections},
           {"/collections/distributed", RouteAction::ListCollectionsDistributed},
           {"/connections", RouteAction::Connections},
@@ -240,13 +241,13 @@ static const std::unordered_map<std::string_view, RouteAction> &GetExactPostRout
           {"/keys", RouteAction::CreateKey},
           {"/links/connect", RouteAction::LinksConnect},
           {"/links/disconnect", RouteAction::LinksDisconnect},
-          {"/loadmodule", RouteAction::ModuleAPI},
+          {"/loadmodule", RouteAction::ModuleLoad},
           {"/multi_search", RouteAction::MultiSearch},
           {"/repair", RouteAction::Repair},
           {"/search", RouteAction::GlobalSearch},
           {"/sql", RouteAction::DocumentSearch},
           {"/stopwords/global", RouteAction::CreateGlobalStopword},
-          {"/unloadmodule", RouteAction::ModuleAPI},
+          {"/unloadmodule", RouteAction::ModuleUnload},
           {"/update-counters", RouteAction::UpdateCounters},
           {"/users", RouteAction::CreateUser},
      };
@@ -299,10 +300,14 @@ RouteAction ResolveHttpRoute(const HttpRequest &Request)
                return ExactAction;
           }
 
-          if (PrefixRoute(Path, Method, "/loadmodule/", {"POST"}) ||
-              PrefixRoute(Path, Method, "/unloadmodule/", {"POST"}))
+          if (PrefixRoute(Path, Method, "/loadmodule/", {"POST"}))
           {
-               return RouteAction::ModuleAPI;
+               return RouteAction::ModuleLoad;
+          }
+
+          if (PrefixRoute(Path, Method, "/unloadmodule/", {"POST"}))
+          {
+               return RouteAction::ModuleUnload;
           }
 
           if (PrefixRoute(Path, Method, "/modules/", {"GET", "POST", "PUT", "DELETE"}))
@@ -310,6 +315,16 @@ RouteAction ResolveHttpRoute(const HttpRequest &Request)
                if (Path.rfind("/syntax") == Path.size() - 7 && Method == "GET")
                {
                     return RouteAction::GetModuleSyntax;
+               }
+
+               if (PrefixRoute(Path, Method, "/modules/load/", {"POST"}))
+               {
+                    return RouteAction::ModuleLoad;
+               }
+
+               if (PrefixRoute(Path, Method, "/modules/unload/", {"POST"}))
+               {
+                    return RouteAction::ModuleUnload;
                }
 
                return RouteAction::ModuleAPI;
@@ -609,6 +624,8 @@ const char *RouteActionName(RouteAction ActionVal)
                return "Metrics";
           case RouteAction::MetricsHistory:
                return "MetricsHistory";
+          case RouteAction::Cache:
+               return "Cache";
           case RouteAction::Connections:
                return "Connections";
           case RouteAction::RocksDB:
@@ -764,6 +781,10 @@ const char *RouteActionName(RouteAction ActionVal)
                return "ListModules";
           case RouteAction::GetModuleSyntax:
                return "GetModuleSyntax";
+          case RouteAction::ModuleLoad:
+               return "ModuleLoad";
+          case RouteAction::ModuleUnload:
+               return "ModuleUnload";
           case RouteAction::ModuleAPI:
                return "ModuleAPI";
           case RouteAction::NotFound:

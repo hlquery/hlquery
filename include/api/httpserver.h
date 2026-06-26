@@ -97,6 +97,7 @@ enum class RouteAction
      Stats,
      Metrics,
      MetricsHistory,
+     Cache,
      Connections,
      RocksDB,
      DocTotal,
@@ -175,6 +176,8 @@ enum class RouteAction
      AnalyticsClick,
      ListModules,
      GetModuleSyntax,
+     ModuleLoad,
+     ModuleUnload,
      ModuleAPI,
      NotFound
 };
