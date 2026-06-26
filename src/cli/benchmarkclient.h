@@ -331,9 +331,9 @@ struct AdvancedMetrics
 
      int Phase1CollectionsSkipped;
 
-     int Phase2DocumentsInserted;
+     int64_t Phase2DocumentsInserted;
 
-     int Phase2DocumentsSkipped;
+     int64_t Phase2DocumentsSkipped;
 
      double Phase1ThroughputCollectionsPerSec;
 
@@ -341,11 +341,11 @@ struct AdvancedMetrics
 
      double TotalThroughputDocsPerSec;
 
-     int FinalCollectionsCount = 0;
+     int64_t FinalCollectionsCount = 0;
 
-     int FinalDocumentsCount = 0;
+     int64_t FinalDocumentsCount = 0;
 
-     std::map<std::string, int> FinalPerCollectionCounts;
+     std::map<std::string, int64_t> FinalPerCollectionCounts;
 
      std::vector<std::string> FinalCollectionNames;
 
@@ -430,9 +430,9 @@ extern std::mutex log_mutex;
 
 extern std::atomic<int> collections_created;
 
-extern std::atomic<int> documents_inserted;
+extern std::atomic<int64_t> documents_inserted;
 
-extern std::atomic<int> additional_documents_inserted;
+extern std::atomic<int64_t> additional_documents_inserted;
 
 extern std::atomic<int> collections_skipped;
 

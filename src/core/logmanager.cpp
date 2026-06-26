@@ -289,18 +289,22 @@ std::string LogStream::LogLevelToString(LogLevel Level)
           {
                return "CRIT";
           }
+
           case LogLevel::LOG_SPARSE:
           {
                return "SPAR";
           }
+
           case LogLevel::LOG_NORMAL:
           {
                return " OK ";
           }
+
           case LogLevel::LOG_VERBOSE:
           {
                return "VERB";
           }
+
           case LogLevel::LOG_DEBUG:
           {
                return "DEBG";
@@ -790,11 +794,8 @@ void LogManager::Log(LogLevel LevelValue, const std::string &Type, const std::st
      }
 
      std::string FinalMessage = EnsureLogPeriod(Message);
-
      bool IsInitializedFlag = false;
-
      bool VerboseModeFlag = false;
-
      std::vector<LogStream *> StreamsToLogList;
 
      /* Snapshot matching streams while manager state is protected. */

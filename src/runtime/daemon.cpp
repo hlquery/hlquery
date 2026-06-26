@@ -898,9 +898,7 @@ void hlquery::ProcessDeferredSignals()
 
      if (Instance && Instance->Logs)
      {
-          Instance->Logs->Normal("daemon",
-                                 "Processing shutdown signal " + std::to_string(SignalNum) +
-                                      " (cleanup deferred to main shutdown path).");
+          Instance->Logs->Normal("daemon", "Processing shutdown signal " + std::to_string(SignalNum) + " (cleanup deferred to main shutdown path).");
      }
 }
 

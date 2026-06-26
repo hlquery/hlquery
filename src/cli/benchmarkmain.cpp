@@ -1903,9 +1903,9 @@ bool LoadDurabilityConfig(const std::string &path, DurabilityConfig &config)
      return true;
 }
 
-int CountBenchmarkDocuments(const AdvancedMetrics &metrics, int num_collections)
+int64_t CountBenchmarkDocuments(const AdvancedMetrics &metrics, int num_collections)
 {
-     int total = 0;
+     int64_t total = 0;
 
      for (int i = 0; i < num_collections; i++)
      {
@@ -3297,15 +3297,38 @@ int main(int argc, char *argv[])
                }
           }
 
+          BenchmarkClient count_client_val(base_url, auth_token);
+
+          GetFinalCounts(count_client_val, advanced_metrics, verbose_mode, num_collections);
+
+          if (advanced_metrics.FinalDocumentsCount > 0 && advanced_metrics.FinalDocumentsCount < documents_inserted.load())
+          {
+               std::cerr << "\nERROR: Server reports " << advanced_metrics.FinalDocumentsCount << " documents but benchmark inserted " << documents_inserted.load() << ".\n";
+               std::cerr << "  This may indicate data loss or counting issues!.\n";
+
+               return 1;
+          }
+
+          int64_t expected_docs_val = static_cast<int64_t>(num_documents) + static_cast<int64_t>(total_additional_docs_val);
+          int64_t benchmark_docs_val = CountBenchmarkDocuments(advanced_metrics, num_collections);
+
+          if (benchmark_docs_val != expected_docs_val)
+          {
+               std::cerr << "\nERROR: Benchmark collections report " << benchmark_docs_val << " documents, expected " << expected_docs_val << ".\n";
+               std::cerr << "  This indicates missing or extra documents in benchmark collections.\n";
+
+               return 1;
+          }
+
           std::cout << "\n";
           std::cout << "Benchmark Complete!.\n";
           std::cout << "\n";
           std::cout << "Collections created: " << collections_created.load() << ".\n";
           std::cout << "Collections skipped: " << collections_skipped.load() << ".\n";
           std::cout << "Target documents: " << num_documents << " base + " << total_additional_docs_val << " additional.\n";
-          int total_inserted = documents_inserted.load();
-          int additional_inserted = additional_documents_inserted.load();
-          int base_inserted = total_inserted - additional_inserted;
+          int64_t total_inserted = documents_inserted.load();
+          int64_t additional_inserted = additional_documents_inserted.load();
+          int64_t base_inserted = total_inserted - additional_inserted;
           std::cout << "Documents inserted: " << total_inserted << " (base: " << base_inserted << ", additional: " << additional_inserted << ").\n";
           std::cout << "Documents skipped: " << documents_skipped.load() << ".\n";
           std::cout << "Ingest time: " << ingest_duration_ms << " ms.\n";
@@ -3359,29 +3382,6 @@ int main(int argc, char *argv[])
                     std::cout << "  Initial collections: " << before_metrics_val.FinalCollectionsCount << ".\n";
                     std::cout << "  Initial documents: " << before_metrics_val.FinalDocumentsCount << ".\n";
                }
-          }
-
-          BenchmarkClient count_client_val(base_url, auth_token);
-
-          GetFinalCounts(count_client_val, advanced_metrics, verbose_mode, num_collections);
-
-          if (advanced_metrics.FinalDocumentsCount > 0 && static_cast<int>(advanced_metrics.FinalDocumentsCount) < documents_inserted.load())
-          {
-               std::cerr << "\nERROR: Server reports " << advanced_metrics.FinalDocumentsCount << " documents but benchmark inserted " << documents_inserted.load() << ".\n";
-               std::cerr << "  This may indicate data loss or counting issues!.\n";
-
-               return 1;
-          }
-
-          int expected_docs_val = num_documents + total_additional_docs_val;
-          int benchmark_docs_val = CountBenchmarkDocuments(advanced_metrics, num_collections);
-
-          if (benchmark_docs_val != expected_docs_val)
-          {
-               std::cerr << "\nERROR: Benchmark collections report " << benchmark_docs_val << " documents, expected " << expected_docs_val << ".\n";
-               std::cerr << "  This indicates missing or extra documents in benchmark collections.\n";
-
-               return 1;
           }
 
           if (enable_sanity_search && num_collections > 0)

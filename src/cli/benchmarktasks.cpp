@@ -45,6 +45,21 @@ static std::string MakeBenchmarkDocumentID(int collection_index, int document_in
      return std::to_string(collection_index) + "_" + std::to_string(document_index);
 }
 
+static int NormalizeInsertedCount(int inserted, size_t batch_size)
+{
+     if (inserted < 0)
+     {
+          return 0;
+     }
+
+     if (static_cast<size_t>(inserted) > batch_size)
+     {
+          return static_cast<int>(batch_size);
+     }
+
+     return inserted;
+}
+
 /* Deletes collections in a thread. */
 
 void DeleteCollectionsThread(const std::string &base_url, const std::string &auth_token, int start_idx, int end_idx, int total_collections, const std::set<std::string> &existing_collections)
@@ -152,7 +167,7 @@ void CreateCollectionsThread(const std::string &base_url, const std::string &aut
 
 void InsertAdditionalDocumentsThread(const std::string &base_url, const std::string &auth_token, int num_collections, int start_doc_idx, int additional_docs, int thread_id, int thread_count, int batch_size, bool collect_metrics, int total_documents, const std::string &run_id, bool reuse_collections)
 {
-     BenchmarkClient client(base_url, auth_token);
+     BenchmarkClient client(base_url, auth_token, reuse_collections);
 
      client.Reset();
 
@@ -210,11 +225,12 @@ void InsertAdditionalDocumentsThread(const std::string &base_url, const std::str
                }
 
                auto batch_end_time = Now();
+               inserted = NormalizeInsertedCount(inserted, batch.size());
 
                documents_inserted.fetch_add(inserted);
-               documents_skipped.fetch_add(batch.size() - inserted);
+               documents_skipped.fetch_add(static_cast<int>(batch.size()) - inserted);
                additional_documents_inserted.fetch_add(inserted);
-               additional_documents_skipped.fetch_add(batch.size() - inserted);
+               additional_documents_skipped.fetch_add(static_cast<int>(batch.size()) - inserted);
 
                if (collect_metrics)
                {
@@ -307,9 +323,10 @@ void InsertDocumentsThread(const std::string &base_url, const std::string &auth_
                }
 
                auto batch_end_time = Now();
+               inserted = NormalizeInsertedCount(inserted, batch.size());
 
                documents_inserted.fetch_add(inserted);
-               documents_skipped.fetch_add(batch.size() - inserted);
+               documents_skipped.fetch_add(static_cast<int>(batch.size()) - inserted);
 
                if (collect_metrics)
                {

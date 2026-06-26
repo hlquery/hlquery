@@ -59,7 +59,7 @@ HTTPResponse MakeSSLMissingResponse()
 
 extern std::atomic<int> collections_created;
 
-extern std::atomic<int> documents_inserted;
+extern std::atomic<int64_t> documents_inserted;
 
 extern std::atomic<int> collections_skipped;
 
@@ -1934,7 +1934,14 @@ int BenchmarkClient::InsertDocumentsBulkRequest(const std::string &collection, c
 
                if (result.contains("imported"))
                {
-                    return result["imported"].get<int>();
+                    int imported = result["imported"].get<int>();
+
+                    if (imported < 0)
+                    {
+                         return 0;
+                    }
+
+                    return std::min(imported, static_cast<int>(docs.size()));
                }
           }
           catch (...)

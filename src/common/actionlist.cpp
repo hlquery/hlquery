@@ -284,7 +284,6 @@ void ActionList::ProcessActions()
                catch (const std::exception &e)
                {
                     Failed++;
-
                     TotalFailed.fetch_add(1, std::memory_order_relaxed);
 
                     if (Instance && Instance->Logs)
@@ -295,7 +294,6 @@ void ActionList::ProcessActions()
                catch (...)
                {
                     Failed++;
-
                     TotalFailed.fetch_add(1, std::memory_order_relaxed);
 
                     if (Instance && Instance->Logs)
