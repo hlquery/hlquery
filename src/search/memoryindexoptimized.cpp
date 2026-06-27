@@ -46,111 +46,52 @@ MMapIndex::TermEntry MMapIndex::FindTermOptimized(const std::string &TermParam) 
 {
      TermEntry Ent = {0, 0, 0};
 
-     if (!Valid || TermParam.empty())
+     if (!Valid || TermParam.empty() || !TermMapData || TermMapSize <= sizeof(uint32_t))
      {
           return Ent;
      }
 
-     if (TermMapData && TermMapSize > sizeof(uint32_t))
+     const uint8_t *Ptr = TermMapData + sizeof(uint32_t);
+     const uint8_t *EndPtr = TermMapData + TermMapSize;
+
+     for (uint32_t I = 0; I < TermCount && Ptr < EndPtr; ++I)
      {
-          const uint8_t *StartPtr = TermMapData + sizeof(uint32_t);
-          const uint8_t *EndPtr = TermMapData + TermMapSize;
-
-          const uint8_t *LeftPtr = StartPtr;
-          const uint8_t *RightPtr = EndPtr;
-
-          size_t Iterations = 0;
-          const size_t MaxIterations = (TermCount > 0) ? (static_cast<size_t>(TermCount) + 8) : 1024;
-
-          while (LeftPtr < RightPtr)
+          if (Ptr + sizeof(uint16_t) > EndPtr)
           {
-               const uint8_t *MidPtr = LeftPtr + (RightPtr - LeftPtr) / 2;
-               const uint8_t *EntryStart = MidPtr;
+               break;
+          }
 
-               /* Midpoints can land inside a packed entry, so walk backward until the length prefix looks valid. */
+          uint16_t TermLenValue = 0;
+          std::memcpy(&TermLenValue, Ptr, sizeof(TermLenValue));
+          Ptr += sizeof(uint16_t);
 
-               if (++Iterations > MaxIterations)
-               {
-                    if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
-                    {
-                         Instance->Logs->Debug("mmap_index", "FindTermOptimized aborted after exceeding iteration limit.");
-                    }
+          if (Ptr + TermLenValue + sizeof(uint64_t) + sizeof(uint32_t) > EndPtr)
+          {
+               break;
+          }
 
-                    break;
-               }
+          const char *MapTermPtr = reinterpret_cast<const char *>(Ptr);
+          const int CmpResultValue = fast_string_compare(TermParam.c_str(), MapTermPtr, TermParam.length(), TermLenValue);
 
-               if (EntryStart > StartPtr)
-               {
-                    const uint8_t *ScanPtr = EntryStart - 1;
-                    size_t BackScan = 0;
+          Ptr += TermLenValue;
 
-                    while (ScanPtr > StartPtr && BackScan < 256)
-                    {
-                         if (ScanPtr >= StartPtr + sizeof(uint16_t))
-                         {
-                              uint16_t PotentialLen = *reinterpret_cast<const uint16_t *>(ScanPtr - sizeof(uint16_t) + 1);
+          uint64_t PostingsOffsetValue = 0;
+          uint32_t PostingsLengthValue = 0;
+          std::memcpy(&PostingsOffsetValue, Ptr, sizeof(PostingsOffsetValue));
+          Ptr += sizeof(PostingsOffsetValue);
+          std::memcpy(&PostingsLengthValue, Ptr, sizeof(PostingsLengthValue));
+          Ptr += sizeof(PostingsLengthValue);
 
-                              if (PotentialLen > 0 && PotentialLen < 256)
-                              {
-                                   const uint8_t *PotentialStart = ScanPtr - sizeof(uint16_t) + 1;
+          if (CmpResultValue == 0)
+          {
+               Ent.PostingsOffset = PostingsOffsetValue;
+               Ent.PostingsLength = PostingsLengthValue;
+               return Ent;
+          }
 
-                                   if (PotentialStart + sizeof(uint16_t) + PotentialLen + sizeof(uint64_t) + sizeof(uint32_t) <= EntryStart)
-                                   {
-                                        EntryStart = PotentialStart;
-
-                                        break;
-                                   }
-                              }
-                         }
-
-                         ScanPtr--;
-                         BackScan++;
-                    }
-               }
-
-               if (EntryStart + sizeof(uint16_t) > EndPtr)
-               {
-                    break;
-               }
-
-               uint16_t TermLenValue = *reinterpret_cast<const uint16_t *>(EntryStart);
-
-               EntryStart += sizeof(uint16_t);
-
-               if (EntryStart + TermLenValue > EndPtr)
-               {
-                    break;
-               }
-
-               const char *MapTermPtr = reinterpret_cast<const char *>(EntryStart);
-
-               int CmpResultValue = fast_string_compare(TermParam.c_str(), MapTermPtr, TermParam.length(), TermLenValue);
-
-               if (CmpResultValue == 0)
-               {
-                    EntryStart += TermLenValue;
-
-                    if (EntryStart + sizeof(uint64_t) + sizeof(uint32_t) <= EndPtr)
-                    {
-                         Ent.PostingsOffset = *reinterpret_cast<const uint64_t *>(EntryStart);
-
-                         Ent.PostingsLength = *reinterpret_cast<const uint32_t *>(EntryStart + sizeof(uint64_t));
-
-                         return Ent;
-                    }
-
-                    break;
-               }
-
-               if (CmpResultValue < 0)
-               {
-                    RightPtr = EntryStart - sizeof(uint16_t);
-               }
-               else
-               {
-                    EntryStart += TermLenValue + sizeof(uint64_t) + sizeof(uint32_t);
-                    LeftPtr = EntryStart;
-               }
+          if (CmpResultValue < 0)
+          {
+               break;
           }
      }
 
@@ -299,7 +240,8 @@ std::vector<Posting> MMapIndex::DecodePostingsOptimized(const uint8_t *DataParam
           return PostingsList;
      }
 
-     uint32_t DocCountValue = *reinterpret_cast<const uint32_t *>(DataParam);
+     uint32_t DocCountValue = 0;
+     std::memcpy(&DocCountValue, DataParam, sizeof(DocCountValue));
 
      const uint8_t *Ptr = DataParam + sizeof(uint32_t);
      const uint8_t *EndPtr = DataParam + LengthParam;
@@ -346,7 +288,8 @@ std::vector<Posting> MMapIndex::DecodePostingsOptimized(const uint8_t *DataParam
                break;
           }
 
-          float ScoreValue = *reinterpret_cast<const float *>(Ptr);
+          float ScoreValue = 0.0F;
+          std::memcpy(&ScoreValue, Ptr, sizeof(ScoreValue));
 
           Ptr += sizeof(float);
 
@@ -355,7 +298,8 @@ std::vector<Posting> MMapIndex::DecodePostingsOptimized(const uint8_t *DataParam
                break;
           }
 
-          uint16_t DocIDLenVal = *reinterpret_cast<const uint16_t *>(Ptr);
+          uint16_t DocIDLenVal = 0;
+          std::memcpy(&DocIDLenVal, Ptr, sizeof(DocIDLenVal));
 
           Ptr += sizeof(uint16_t);
 

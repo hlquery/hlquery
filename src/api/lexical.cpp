@@ -1817,6 +1817,63 @@ std::vector<SearchHit> SearchAPI::ProcessLexicalSearch(const std::string &Collec
           collection_index_complete = storage.IsCollectionIndexComplete(Collection, collection_docs);
      }
 
+     if (ParsedExpression.UsesStructuredSemantics &&
+         BuildCandidateQueriesFromParsedExpression(ParsedExpression).empty())
+     {
+          const bool restrict_to_query_fields = HasRequestedQueryFields(Query.QueryBy);
+          const bool allow_prefix_match = Query.Prefix && !exact_keyword_query;
+          const int requested_limit = Query.PerPage > 0 ? std::min(Query.PerPage, 1000) : 100;
+          const int scan_batch = 200;
+          int offset = 0;
+
+          while (static_cast<int>(Hits.size()) < requested_limit)
+          {
+               auto docs = storage.ListDocuments(Collection, scan_batch, offset);
+               if (docs.empty())
+               {
+                    break;
+               }
+
+               for (const auto &doc : docs)
+               {
+                    if (static_cast<int>(Hits.size()) >= requested_limit)
+                    {
+                         break;
+                    }
+
+                    if (!EvaluateParsedQueryExpression(doc,
+                                                       ParsedExpression,
+                                                       restrict_to_query_fields ? Query.QueryBy : std::vector<std::string>{},
+                                                       allow_prefix_match,
+                                                       0,
+                                                       Query.CaseSensitive))
+                    {
+                         continue;
+                    }
+
+                    SearchHit HitObj;
+                    HitObj.Document["id"] = doc.ID;
+                    HitObj.Document["title"] = doc.Title;
+                    HitObj.Document["content"] = doc.Content;
+                    HitObj.Document["score"] = std::to_string(doc.Score);
+                    HitObj.Document["timestamp"] = std::to_string(doc.Timestamp);
+
+                    for (const auto &Field : doc.Fields)
+                    {
+                         HitObj.Document[Field.first] = Field.second;
+                    }
+
+                    HitObj.TextMatch = 1.0F;
+                    HitObj.Weight = CalculateWeight(HitObj);
+                    Hits.push_back(std::move(HitObj));
+               }
+
+               offset += scan_batch;
+          }
+
+          return Hits;
+     }
+
      std::vector<std::string> QueryVariants;
      const bool restrict_to_query_fields = HasRequestedQueryFields(Query.QueryBy);
      if (exact_keyword_query)

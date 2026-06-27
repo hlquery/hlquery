@@ -11,6 +11,7 @@
  */
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstring>
 #include <filesystem>
@@ -22,6 +23,177 @@
 #include "search/lindex.h"
 #include "search/mindex.h"
 #include "utils/wildcard.h"
+
+namespace
+{
+     constexpr uint32_t kMMapIndexVersion = 1;
+     constexpr uint32_t kMMapIndexEndianMarker = 0x01020304U;
+     constexpr size_t kMMapFileHeaderSize = 40;
+     constexpr uint64_t kFnv64Offset = 14695981039346656037ULL;
+     constexpr uint64_t kFnv64Prime = 1099511628211ULL;
+     constexpr uint32_t kFnv32Offset = 2166136261U;
+     constexpr uint32_t kFnv32Prime = 16777619U;
+
+     const std::array<uint8_t, 8> kTermsMagic = {'H', 'L', 'Q', 'T', 'E', 'R', 'M', '1'};
+     const std::array<uint8_t, 8> kTermMapMagic = {'H', 'L', 'Q', 'T', 'M', 'A', 'P', '1'};
+     const std::array<uint8_t, 8> kTermIndexMagic = {'H', 'L', 'Q', 'T', 'I', 'D', 'X', '1'};
+     const std::array<uint8_t, 8> kPostingsMagic = {'H', 'L', 'Q', 'P', 'O', 'S', 'T', '1'};
+
+     uint64_t StableChecksum64(const uint8_t *Data, size_t Length)
+     {
+          uint64_t Hash = kFnv64Offset;
+
+          for (size_t I = 0; I < Length; ++I)
+          {
+               Hash ^= Data[I];
+               Hash *= kFnv64Prime;
+          }
+
+          return Hash;
+     }
+
+     uint32_t StableHash32(const std::string &Value)
+     {
+          uint32_t Hash = kFnv32Offset;
+
+          for (unsigned char C : Value)
+          {
+               Hash ^= C;
+               Hash *= kFnv32Prime;
+          }
+
+          return Hash;
+     }
+
+     void AppendBytes(std::vector<uint8_t> &Buffer, const void *Data, size_t Length)
+     {
+          const uint8_t *Bytes = static_cast<const uint8_t *>(Data);
+          Buffer.insert(Buffer.end(), Bytes, Bytes + Length);
+     }
+
+     template <typename T>
+     void AppendValue(std::vector<uint8_t> &Buffer, const T &Value)
+     {
+          AppendBytes(Buffer, &Value, sizeof(Value));
+     }
+
+     bool WriteMMapFile(const std::string &Path, const std::array<uint8_t, 8> &Magic, const std::vector<uint8_t> &Payload)
+     {
+          std::ofstream Out(Path, std::ios::binary);
+
+          if (!Out)
+          {
+               return false;
+          }
+
+          const uint32_t Version = kMMapIndexVersion;
+          const uint32_t HeaderSize = static_cast<uint32_t>(kMMapFileHeaderSize);
+          const uint32_t Endian = kMMapIndexEndianMarker;
+          const uint32_t Reserved = 0;
+          const uint64_t PayloadSize = static_cast<uint64_t>(Payload.size());
+          const uint64_t Checksum = StableChecksum64(Payload.data(), Payload.size());
+
+          Out.write(reinterpret_cast<const char *>(Magic.data()), Magic.size());
+          Out.write(reinterpret_cast<const char *>(&Version), sizeof(Version));
+          Out.write(reinterpret_cast<const char *>(&HeaderSize), sizeof(HeaderSize));
+          Out.write(reinterpret_cast<const char *>(&Endian), sizeof(Endian));
+          Out.write(reinterpret_cast<const char *>(&Reserved), sizeof(Reserved));
+          Out.write(reinterpret_cast<const char *>(&PayloadSize), sizeof(PayloadSize));
+          Out.write(reinterpret_cast<const char *>(&Checksum), sizeof(Checksum));
+
+          if (!Payload.empty())
+          {
+               Out.write(reinterpret_cast<const char *>(Payload.data()), Payload.size());
+          }
+
+          return Out.good();
+     }
+
+     template <typename T>
+     bool ReadValue(const uint8_t *Base, size_t Size, size_t Offset, T &Out)
+     {
+          if (Offset > Size || sizeof(T) > Size - Offset)
+          {
+               return false;
+          }
+
+          std::memcpy(&Out, Base + Offset, sizeof(T));
+          return true;
+     }
+
+     bool ValidateMMapFile(const uint8_t *Base,
+                           size_t FileSize,
+                           const std::array<uint8_t, 8> &Magic,
+                           const uint8_t *&Payload,
+                           size_t &PayloadSize,
+                           const std::string &Path)
+     {
+          if (!Base || FileSize < kMMapFileHeaderSize)
+          {
+               if (Instance && Instance->Logs)
+               {
+                    Instance->Logs->Normal("mmap_index", "Index file too small or missing header: " + Path + ".");
+               }
+               return false;
+          }
+
+          if (!std::equal(Magic.begin(), Magic.end(), Base))
+          {
+               if (Instance && Instance->Logs)
+               {
+                    Instance->Logs->Normal("mmap_index", "Invalid index file magic: " + Path + ".");
+               }
+               return false;
+          }
+
+          uint32_t Version = 0;
+          uint32_t HeaderSize = 0;
+          uint32_t Endian = 0;
+          uint64_t StoredPayloadSize = 0;
+          uint64_t StoredChecksum = 0;
+
+          if (!ReadValue(Base, FileSize, 8, Version) ||
+              !ReadValue(Base, FileSize, 12, HeaderSize) ||
+              !ReadValue(Base, FileSize, 16, Endian) ||
+              !ReadValue(Base, FileSize, 24, StoredPayloadSize) ||
+              !ReadValue(Base, FileSize, 32, StoredChecksum))
+          {
+               return false;
+          }
+
+          if (Version != kMMapIndexVersion || HeaderSize != kMMapFileHeaderSize || Endian != kMMapIndexEndianMarker)
+          {
+               if (Instance && Instance->Logs)
+               {
+                    Instance->Logs->Normal("mmap_index", "Unsupported index file header: " + Path + ".");
+               }
+               return false;
+          }
+
+          if (StoredPayloadSize > FileSize - HeaderSize)
+          {
+               if (Instance && Instance->Logs)
+               {
+                    Instance->Logs->Normal("mmap_index", "Invalid index payload size: " + Path + ".");
+               }
+               return false;
+          }
+
+          Payload = Base + HeaderSize;
+          PayloadSize = static_cast<size_t>(StoredPayloadSize);
+
+          if (StableChecksum64(Payload, PayloadSize) != StoredChecksum)
+          {
+               if (Instance && Instance->Logs)
+               {
+                    Instance->Logs->Normal("mmap_index", "Index checksum mismatch: " + Path + ".");
+               }
+               return false;
+          }
+
+          return true;
+     }
+}
 
 /*
  * IndexWriter - Writes the in-memory index to disk layout.
@@ -89,13 +261,11 @@ void IndexWriter::WritePostings(std::vector<uint8_t> &PostingsBuffer, const std:
 
      SortedPostings.reserve(Postings.size());
 
-     std::hash<std::string> Hasher;
-
      for (const auto &Post : Postings)
      {
           HashedPosting Entry;
 
-          Entry.Hash = static_cast<uint32_t>(Hasher(Post.DocumentID));
+          Entry.Hash = StableHash32(Post.DocumentID);
           Entry.Post = Post;
 
           SortedPostings.push_back(std::move(Entry));
@@ -175,36 +345,24 @@ bool IndexWriter::WriteIndex(const std::unordered_map<std::string, std::unordere
 
           std::filesystem::create_directories(std::filesystem::path(TermsFile).parent_path());
 
-          std::ofstream TermsOut(TermsFile, std::ios::binary);
-
-          if (!TermsOut)
-          {
-               Instance->Logs->Normal("mmap_index", "Failed to open terms.bin for writing.");
-
-               return false;
-          }
+          std::vector<uint8_t> TermsBuffer;
 
           for (const auto &TermValue : Terms)
           {
-               TermsOut.write(TermValue.c_str(), TermValue.length());
-
-               TermsOut.put('\0');
+               TermsBuffer.insert(TermsBuffer.end(), TermValue.begin(), TermValue.end());
+               TermsBuffer.push_back('\0');
           }
 
-          TermsOut.close();
+          if (!WriteMMapFile(TermsFile, kTermsMagic, TermsBuffer))
+          {
+               Instance->Logs->Normal("mmap_index", "Failed to write terms.bin.");
+
+               return false;
+          }
 
           /* Write postings to postings.bin and track offsets per term. */
 
           std::string PostingsFile = IndexDir + "/" + Collection + "/postings.bin";
-
-          std::ofstream PostingsOut(PostingsFile, std::ios::binary);
-
-          if (!PostingsOut)
-          {
-               Instance->Logs->Normal("mmap_index", "Failed to open postings.bin for writing.");
-
-               return false;
-          }
 
           std::vector<uint8_t> PostingsBuffer;
 
@@ -237,26 +395,22 @@ bool IndexWriter::WriteIndex(const std::unordered_map<std::string, std::unordere
                CurrentOffset += PostingsLength;
           }
 
-          PostingsOut.write(reinterpret_cast<const char *>(PostingsBuffer.data()), PostingsBuffer.size());
+          if (!WriteMMapFile(PostingsFile, kPostingsMagic, PostingsBuffer))
+          {
+               Instance->Logs->Normal("mmap_index", "Failed to write postings.bin.");
 
-          PostingsOut.close();
+               return false;
+          }
 
           /* Write complete term->offset map for fast direct lookup. */
 
           std::string TermMapFile = IndexDir + "/" + Collection + "/term_map.bin";
 
-          std::ofstream TermMapOut(TermMapFile, std::ios::binary);
-
-          if (!TermMapOut)
-          {
-               Instance->Logs->Normal("mmap_index", "Failed to open term_map.bin for writing.");
-
-               return false;
-          }
+          std::vector<uint8_t> TermMapBuffer;
 
           uint32_t TermCountValue = static_cast<uint32_t>(Terms.size());
 
-          TermMapOut.write(reinterpret_cast<const char *>(&TermCountValue), sizeof(TermCountValue));
+          AppendValue(TermMapBuffer, TermCountValue);
 
           for (const std::string &TermValue : Terms)
           {
@@ -271,16 +425,18 @@ bool IndexWriter::WriteIndex(const std::unordered_map<std::string, std::unordere
                uint64_t PostingsOffsetValue = OffsetIt->second.first;
                uint32_t PostingsLengthValue = OffsetIt->second.second;
 
-               TermMapOut.write(reinterpret_cast<const char *>(&TermLenValue), sizeof(TermLenValue));
-
-               TermMapOut.write(TermValue.c_str(), TermLenValue);
-
-               TermMapOut.write(reinterpret_cast<const char *>(&PostingsOffsetValue), sizeof(PostingsOffsetValue));
-
-               TermMapOut.write(reinterpret_cast<const char *>(&PostingsLengthValue), sizeof(PostingsLengthValue));
+               AppendValue(TermMapBuffer, TermLenValue);
+               AppendBytes(TermMapBuffer, TermValue.c_str(), TermLenValue);
+               AppendValue(TermMapBuffer, PostingsOffsetValue);
+               AppendValue(TermMapBuffer, PostingsLengthValue);
           }
 
-          TermMapOut.close();
+          if (!WriteMMapFile(TermMapFile, kTermMapMagic, TermMapBuffer))
+          {
+               Instance->Logs->Normal("mmap_index", "Failed to write term_map.bin.");
+
+               return false;
+          }
 
           /* Precompute byte offsets within terms.bin for each term. */
 
@@ -300,20 +456,12 @@ bool IndexWriter::WriteIndex(const std::unordered_map<std::string, std::unordere
 
           std::string TermIndexFileValue = IndexDir + "/" + Collection + "/term_index.bin";
 
-          std::ofstream TermIndexOut(TermIndexFileValue, std::ios::binary);
-
-          if (!TermIndexOut)
-          {
-               Instance->Logs->Normal("mmap_index", "Failed to open term_index.bin for writing.");
-
-               return false;
-          }
+          std::vector<uint8_t> TermIndexBuffer;
 
           uint32_t TermCountTotal = static_cast<uint32_t>(Terms.size());
 
-          TermIndexOut.write(reinterpret_cast<const char *>(&TermCountTotal), sizeof(TermCountTotal));
-
-          TermIndexOut.write(reinterpret_cast<const char *>(&IndexIntervalConst), sizeof(IndexIntervalConst));
+          AppendValue(TermIndexBuffer, TermCountTotal);
+          AppendValue(TermIndexBuffer, IndexIntervalConst);
 
           for (size_t I = 0; I < Terms.size(); I += IndexIntervalConst)
           {
@@ -331,18 +479,21 @@ bool IndexWriter::WriteIndex(const std::unordered_map<std::string, std::unordere
                     PostingsLengthValue = OffsetIt->second.second;
                }
 
-               TermIndexOut.write(reinterpret_cast<const char *>(&TermsFileOffsetValue), sizeof(TermsFileOffsetValue));
+               AppendValue(TermIndexBuffer, TermsFileOffsetValue);
 
                uint32_t TermLenVal = static_cast<uint32_t>(TermValue.length());
 
-               TermIndexOut.write(reinterpret_cast<const char *>(&TermLenVal), sizeof(TermLenVal));
-
-               TermIndexOut.write(reinterpret_cast<const char *>(&PostingsOffsetValue), sizeof(PostingsOffsetValue));
-
-               TermIndexOut.write(reinterpret_cast<const char *>(&PostingsLengthValue), sizeof(PostingsLengthValue));
+               AppendValue(TermIndexBuffer, TermLenVal);
+               AppendValue(TermIndexBuffer, PostingsOffsetValue);
+               AppendValue(TermIndexBuffer, PostingsLengthValue);
           }
 
-          TermIndexOut.close();
+          if (!WriteMMapFile(TermIndexFileValue, kTermIndexMagic, TermIndexBuffer))
+          {
+               Instance->Logs->Normal("mmap_index", "Failed to write term_index.bin.");
+
+               return false;
+          }
 
           Instance->Logs->Normal("mmap_index", "Wrote index for collection '" + Collection + "': " + std::to_string(Terms.size()) + " terms, " + std::to_string(PostingsBuffer.size()) + " bytes postings.");
 
@@ -373,30 +524,38 @@ void MMapIndex::Unmap()
 {
      if (TermsMMap && TermsMMap != MAP_FAILED)
      {
-          munmap(TermsMMap, TermsSize);
+          munmap(TermsMMap, TermsMappedSize);
 
           TermsMMap = nullptr;
+          TermsMappedSize = 0;
+          TermsSize = 0;
      }
 
      if (TermMapMMap && TermMapMMap != MAP_FAILED)
      {
-          munmap(TermMapMMap, TermMapSize);
+          munmap(TermMapMMap, TermMapMappedSize);
 
           TermMapMMap = nullptr;
+          TermMapMappedSize = 0;
+          TermMapSize = 0;
      }
 
      if (TermIndexMMap && TermIndexMMap != MAP_FAILED)
      {
-          munmap(TermIndexMMap, TermIndexSize);
+          munmap(TermIndexMMap, TermIndexMappedSize);
 
           TermIndexMMap = nullptr;
+          TermIndexMappedSize = 0;
+          TermIndexSize = 0;
      }
 
      if (PostingsMMap && PostingsMMap != MAP_FAILED)
      {
-          munmap(PostingsMMap, PostingsSize);
+          munmap(PostingsMMap, PostingsMappedSize);
 
           PostingsMMap = nullptr;
+          PostingsMappedSize = 0;
+          PostingsSize = 0;
      }
 }
 
@@ -457,9 +616,9 @@ bool MMapIndex::LoadIndex(const std::string &IndexDirParam, const std::string &C
                return false;
           }
 
-          TermsSize = std::filesystem::file_size(TermsFile);
+          TermsMappedSize = std::filesystem::file_size(TermsFile);
 
-          TermsMMap = mmap(nullptr, TermsSize, PROT_READ, MAP_PRIVATE, TermsFd, 0);
+          TermsMMap = mmap(nullptr, TermsMappedSize, PROT_READ, MAP_PRIVATE, TermsFd, 0);
 
           close(TermsFd);
 
@@ -468,23 +627,34 @@ bool MMapIndex::LoadIndex(const std::string &IndexDirParam, const std::string &C
                return false;
           }
 
-          TermsData = reinterpret_cast<const uint8_t *>(TermsMMap);
+          if (!ValidateMMapFile(reinterpret_cast<const uint8_t *>(TermsMMap), TermsMappedSize, kTermsMagic, TermsData, TermsSize, TermsFile))
+          {
+               Unmap();
+
+               return false;
+          }
 
           int TermMapFd = open(TermMapFile.c_str(), O_RDONLY);
 
           if (TermMapFd >= 0)
           {
-               TermMapSize = std::filesystem::file_size(TermMapFile);
+               TermMapMappedSize = std::filesystem::file_size(TermMapFile);
 
-               TermMapMMap = mmap(nullptr, TermMapSize, PROT_READ, MAP_PRIVATE, TermMapFd, 0);
+               TermMapMMap = mmap(nullptr, TermMapMappedSize, PROT_READ, MAP_PRIVATE, TermMapFd, 0);
 
                close(TermMapFd);
 
                if (TermMapMMap != MAP_FAILED)
                {
-                    TermMapData = reinterpret_cast<const uint8_t *>(TermMapMMap);
+                    if (!ValidateMMapFile(reinterpret_cast<const uint8_t *>(TermMapMMap), TermMapMappedSize, kTermMapMagic, TermMapData, TermMapSize, TermMapFile) ||
+                        TermMapSize < sizeof(uint32_t))
+                    {
+                         Unmap();
 
-                    TermCount = *reinterpret_cast<const uint32_t *>(TermMapData);
+                         return false;
+                    }
+
+                    std::memcpy(&TermCount, TermMapData, sizeof(TermCount));
                }
                else
                {
@@ -506,19 +676,23 @@ bool MMapIndex::LoadIndex(const std::string &IndexDirParam, const std::string &C
 
                if (TermIndexFd >= 0)
                {
-                    TermIndexSize = std::filesystem::file_size(TermIndexFile);
+                    TermIndexMappedSize = std::filesystem::file_size(TermIndexFile);
 
-                    TermIndexMMap = mmap(nullptr, TermIndexSize, PROT_READ, MAP_PRIVATE, TermIndexFd, 0);
+                    TermIndexMMap = mmap(nullptr, TermIndexMappedSize, PROT_READ, MAP_PRIVATE, TermIndexFd, 0);
 
                     close(TermIndexFd);
 
                     if (TermIndexMMap != MAP_FAILED)
                     {
-                         TermIndexData = reinterpret_cast<const uint8_t *>(TermIndexMMap);
+                         if (!ValidateMMapFile(reinterpret_cast<const uint8_t *>(TermIndexMMap), TermIndexMappedSize, kTermIndexMagic, TermIndexData, TermIndexSize, TermIndexFile) ||
+                             TermIndexSize < sizeof(uint32_t) * 2)
+                         {
+                              Unmap();
 
-                         const uint32_t *Header = reinterpret_cast<const uint32_t *>(TermIndexData);
+                              return false;
+                         }
 
-                         IndexInterval = Header[1];
+                         std::memcpy(&IndexInterval, TermIndexData + sizeof(uint32_t), sizeof(IndexInterval));
                     }
                }
           }
@@ -532,9 +706,9 @@ bool MMapIndex::LoadIndex(const std::string &IndexDirParam, const std::string &C
                return false;
           }
 
-          PostingsSize = std::filesystem::file_size(PostingsFile);
+          PostingsMappedSize = std::filesystem::file_size(PostingsFile);
 
-          PostingsMMap = mmap(nullptr, PostingsSize, PROT_READ, MAP_PRIVATE, PostingsFd, 0);
+          PostingsMMap = mmap(nullptr, PostingsMappedSize, PROT_READ, MAP_PRIVATE, PostingsFd, 0);
 
           close(PostingsFd);
 
@@ -545,7 +719,12 @@ bool MMapIndex::LoadIndex(const std::string &IndexDirParam, const std::string &C
                return false;
           }
 
-          PostingsData = reinterpret_cast<const uint8_t *>(PostingsMMap);
+          if (!ValidateMMapFile(reinterpret_cast<const uint8_t *>(PostingsMMap), PostingsMappedSize, kPostingsMagic, PostingsData, PostingsSize, PostingsFile))
+          {
+               Unmap();
+
+               return false;
+          }
 
           Valid = true;
 
@@ -599,7 +778,8 @@ std::vector<Posting> MMapIndex::DecodePostings(const uint8_t *DataParam, size_t 
           return PostingsList;
      }
 
-     uint32_t DocCountValue = *reinterpret_cast<const uint32_t *>(DataParam);
+     uint32_t DocCountValue = 0;
+     std::memcpy(&DocCountValue, DataParam, sizeof(DocCountValue));
 
      const uint8_t *Ptr = DataParam + sizeof(uint32_t);
      const uint8_t *EndPtr = DataParam + LengthParam;
@@ -639,7 +819,8 @@ std::vector<Posting> MMapIndex::DecodePostings(const uint8_t *DataParam, size_t 
                break;
           }
 
-          float ScoreValue = *reinterpret_cast<const float *>(Ptr);
+          float ScoreValue = 0.0F;
+          std::memcpy(&ScoreValue, Ptr, sizeof(ScoreValue));
 
           Ptr += sizeof(float);
 
@@ -648,7 +829,8 @@ std::vector<Posting> MMapIndex::DecodePostings(const uint8_t *DataParam, size_t 
                break;
           }
 
-          uint16_t DocIDLenVal = *reinterpret_cast<const uint16_t *>(Ptr);
+          uint16_t DocIDLenVal = 0;
+          std::memcpy(&DocIDLenVal, Ptr, sizeof(DocIDLenVal));
 
           Ptr += sizeof(uint16_t);
 
@@ -685,6 +867,11 @@ std::vector<Posting> MMapIndex::SearchTerm(const std::string &TermValue) const
      TermEntry Ent = FindTerm(TermValue);
 
      if (Ent.PostingsLength == 0)
+     {
+          return {};
+     }
+
+     if (!PostingsData || Ent.PostingsOffset > PostingsSize || Ent.PostingsLength > PostingsSize - Ent.PostingsOffset)
      {
           return {};
      }

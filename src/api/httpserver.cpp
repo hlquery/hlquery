@@ -56,6 +56,8 @@ static bool IsAdminOnlyRouteAction(RouteAction ActionVal);
 static bool IsModuleControlRoute(const HttpRequest &Request);
 static std::string NormalizeRequestPath(const std::string &Path);
 static bool IsModuleControlRoutePath(const std::string &Path);
+static bool IsAuthorizedReplicationRequest(const HttpRequest &Request);
+static bool IsHealthLikePath(const std::string &Path);
 
 struct RouteContext
 {
@@ -226,6 +228,71 @@ static void LogAccessControl(const std::string &Reason, const HttpRequest &Reque
      {
           Instance->Logs->Normal("access_control", Reason + " (endpoint: " + Request.Path + ", method: " + Request.Method + ", remote: " + Request.RemoteAddress + ":" + std::to_string(Request.RemotePort) + ").");
      }
+}
+
+static bool AuthorizeHttpRequest(HttpRequest &Request, HttpResponse &Response)
+{
+     if (!Instance || !Instance->Users)
+     {
+          Response = HttpResponse(http_code::INTERNAL_SERVER_ERROR, StatusText(http_code::INTERNAL_SERVER_ERROR), "application/json");
+          Response.Body = "{\"error\":\"Authentication system not available\"}";
+          return false;
+     }
+
+     UserAuthManager &AuthManager = *Instance->Users;
+
+     std::string AuthHeader;
+     std::string AuthToken;
+     bool HasAuthToken = ExtractAuthTokenFromRequest(Request, AuthHeader, AuthToken);
+
+     if (!AuthManager.IsAuthEnabled() && HasAuthToken && !IsAuthorizedReplicationRequest(Request) &&
+         !IsHealthLikePath(Request.Path))
+     {
+          Response = HttpResponse(http_code::FORBIDDEN, StatusText(http_code::FORBIDDEN), "application/json");
+          Response.Body = "{\"error\":\"Authentication is disabled\",\"message\":\"Tokens are not accepted when authentication is disabled. Remove the Authorization header or X-API-Key header.\"}";
+
+          LogAccessControl("Forbidden: token provided while auth is disabled", Request);
+
+          return false;
+     }
+
+     if (!AuthManager.IsAuthEnabled() || IsHealthLikePath(Request.Path))
+     {
+          return true;
+     }
+
+     if (!HasAuthToken)
+     {
+          Response = HttpResponse(http_code::UNAUTHORIZED, StatusText(http_code::UNAUTHORIZED), "application/json");
+          Response.Body = "{\"error\":\"Authentication required\",\"message\":\"Missing Authorization header or X-API-Key\"}";
+          Response.Headers["WWW-Authenticate"] = "Bearer";
+
+          LogAccessControl("Unauthorized: missing authentication token", Request);
+
+          return false;
+     }
+
+     auto *KeyObj = APIKeyManager::Instance().ValidateKey(AuthToken);
+
+     if (!KeyObj)
+     {
+          AuthResult AuthResultVal = AuthManager.AuthenticateRequest(AuthHeader);
+
+          if (!AuthResultVal.Valid)
+          {
+               Response = HttpResponse(http_code::UNAUTHORIZED, StatusText(http_code::UNAUTHORIZED), "application/json");
+               Response.Body = "{\"error\":\"Authentication failed\",\"message\":\"" + AuthResultVal.ErrorMessage + "\"}";
+               Response.Headers["WWW-Authenticate"] = "Bearer";
+
+               LogAccessControl("Unauthorized: authentication failed (" + AuthResultVal.ErrorMessage + ")", Request);
+
+               return false;
+          }
+     }
+
+     Request.Authenticated = true;
+
+     return true;
 }
 
 static std::string GetHeaderValueInsensitive(const std::map<std::string, std::string> &Headers, const std::string &Name)
@@ -1490,101 +1557,12 @@ void HttpConnection::ProcessRequest()
           return;
      }
 
-     /* Check authentication if enabled. */
+     HttpResponse AuthResponse;
 
-     auto *InstanceVal = Instance;
-
-     if (!InstanceVal || !Instance->Users)
+     if (!AuthorizeHttpRequest(Request, AuthResponse))
      {
-          HttpResponse Response(http_code::INTERNAL_SERVER_ERROR, StatusText(http_code::INTERNAL_SERVER_ERROR));
-
-          Response.Body = "{\"error\":\"Authentication system not available\"}";
-          Response.Headers["Content-Type"] = "application/json";
-
-          SendResponse(Response);
-
+          SendResponse(AuthResponse);
           return;
-     }
-
-     UserAuthManager &AuthManager = *Instance->Users;
-
-     /* Check if a token is provided (even when auth is disabled). */
-
-     std::string AuthHeader;
-     std::string AuthToken;
-     bool HasAuthToken = ExtractAuthTokenFromRequest(Request, AuthHeader, AuthToken);
-
-     /* SECURITY: If auth is disabled but a token is provided, reject the request. */
-
-     if (!AuthManager.IsAuthEnabled() && HasAuthToken && !IsAuthorizedReplicationRequest(Request) &&
-         !IsHealthLikePath(Request.Path))
-     {
-          HttpResponse Response(http_code::FORBIDDEN, StatusText(http_code::FORBIDDEN), "application/json");
-
-          Response.Body = "{\"error\":\"Authentication is disabled\",\"message\":\"Tokens are not accepted when authentication is disabled. Remove the Authorization header or X-API-Key header.\"}";
-
-          LogAccessControl("Forbidden: token provided while auth is disabled", Request);
-
-          SendResponse(Response);
-
-          return;
-     }
-
-     bool AuthenticatedRequest = false;
-
-     if (AuthManager.IsAuthEnabled())
-     {
-          /* Skip auth for health, status, and ping endpoints (status is needed to check auth requirement). */
-
-          if (!IsHealthLikePath(Request.Path))
-          {
-               if (!HasAuthToken)
-               {
-                    HttpResponse Response(http_code::UNAUTHORIZED, StatusText(http_code::UNAUTHORIZED), "application/json");
-
-                    Response.Body = "{\"error\":\"Authentication required\",\"message\":\"Missing Authorization header or X-API-Key\"}";
-                    Response.Headers["WWW-Authenticate"] = "Bearer";
-
-                    LogAccessControl("Unauthorized: missing authentication token", Request);
-
-                    SendResponse(Response);
-
-                    return;
-               }
-
-               /* Allow API keys as an alternative to user auth. */
-
-               std::string TokenVal = AuthToken;
-
-               auto *KeyObj = APIKeyManager::Instance().ValidateKey(TokenVal);
-
-               if (!KeyObj)
-               {
-                    AuthResult AuthResultVal = AuthManager.AuthenticateRequest(AuthHeader);
-
-                    if (!AuthResultVal.Valid)
-                    {
-                         HttpResponse Response(http_code::UNAUTHORIZED, StatusText(http_code::UNAUTHORIZED), "application/json");
-
-                         Response.Body = "{\"error\":\"Authentication failed\",\"message\":\"" + AuthResultVal.ErrorMessage + "\"}";
-                         Response.Headers["WWW-Authenticate"] = "Bearer";
-
-                         LogAccessControl("Unauthorized: authentication failed (" + AuthResultVal.ErrorMessage + ")", Request);
-
-                         SendResponse(Response);
-
-                         return;
-                    }
-               }
-
-               AuthenticatedRequest = true;
-          }
-     }
-
-     if (AuthenticatedRequest)
-     {
-          HttpRequest &ModRequest = const_cast<HttpRequest &>(Request);
-          ModRequest.Authenticated = true;
      }
 
      /* Route to search API handlers. */
@@ -2208,81 +2186,10 @@ void HttpConnection::ProcessSingleRequest(const std::string &RequestStr)
           }
      }
 
-     /* Check authentication if enabled. */
-
-     if (Instance && Instance->Users)
+     if (!AuthorizeHttpRequest(Request, Response))
      {
-          UserAuthManager &AuthManagerVal = *Instance->Users;
-
-          /* Check if a token is provided (even when auth is disabled). */
-
-          std::string AuthHeader;
-          std::string AuthToken;
-          bool HasAuthToken = ExtractAuthTokenFromRequest(Request, AuthHeader, AuthToken);
-
-          /* SECURITY: If auth is disabled but a token is provided, reject the request. */
-          /* Allow /health, /status, and /ping without auth even if token is provided. */
-
-          if (!AuthManagerVal.IsAuthEnabled() && HasAuthToken && !IsAuthorizedReplicationRequest(Request) &&
-              !IsHealthLikePath(Request.Path))
-          {
-               Response = HttpResponse(http_code::FORBIDDEN, StatusText(http_code::FORBIDDEN), "application/json");
-
-               Response.Body = "{\"error\":\"Authentication is disabled\",\"message\":\"Tokens are not accepted when authentication is disabled. Remove the Authorization header or X-API-Key header.\"}";
-
-               LogAccessControl("Forbidden: token provided while auth is disabled", Request);
-
-               SendResponse(Response);
-
-               return;
-          }
-
-          if (AuthManagerVal.IsAuthEnabled())
-          {
-               /* Skip auth for health, status, and ping endpoints (status is needed to check auth requirement). */
-
-               if (!IsHealthLikePath(Request.Path))
-               {
-                    if (!HasAuthToken)
-                    {
-                         Response = HttpResponse(http_code::UNAUTHORIZED, StatusText(http_code::UNAUTHORIZED), "application/json");
-
-                         Response.Body = "{\"error\":\"Authentication required\",\"message\":\"Missing Authorization header or X-API-Key\"}";
-                         Response.Headers["WWW-Authenticate"] = "Bearer";
-
-                         LogAccessControl("Unauthorized: missing authentication token", Request);
-
-                         SendResponse(Response);
-
-                         return;
-                    }
-
-                    /* Allow API keys as an alternative to user auth. */
-
-                    std::string TokenVal = AuthToken;
-
-                    auto *KeyObj = APIKeyManager::Instance().ValidateKey(TokenVal);
-
-                    if (!KeyObj)
-                    {
-                         AuthResult AuthResultVal = AuthManagerVal.AuthenticateRequest(AuthHeader);
-
-                         if (!AuthResultVal.Valid)
-                         {
-                              Response = HttpResponse(http_code::UNAUTHORIZED, StatusText(http_code::UNAUTHORIZED), "application/json");
-
-                              Response.Body = "{\"error\":\"Authentication failed\",\"message\":\"" + AuthResultVal.ErrorMessage + "\"}";
-                              Response.Headers["WWW-Authenticate"] = "Bearer";
-
-                              LogAccessControl("Unauthorized: authentication failed (" + AuthResultVal.ErrorMessage + ")", Request);
-
-                              SendResponse(Response);
-
-                              return;
-                         }
-                    }
-               }
-          }
+          SendResponse(Response);
+          return;
      }
 
      /* Check for keep-alive header. */

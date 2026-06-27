@@ -1477,8 +1477,57 @@ std::vector<Posting> InvertedIndex::Search(const std::string &Collection, const 
      }
 
      std::vector<std::string> QueryTerms = ExtractTerms(Query);
+     std::vector<std::string> NegativeTerms;
 
-     if (QueryTerms.empty())
+     {
+          std::istringstream QueryStream(Query);
+          std::string TokenValue;
+          bool NextTokenIsNegative = false;
+
+          while (QueryStream >> TokenValue)
+          {
+               std::string LowerToken = TokenValue;
+               std::transform(LowerToken.begin(), LowerToken.end(), LowerToken.begin(), ToLowerAsciiSafe);
+
+               if (LowerToken == "not")
+               {
+                    NextTokenIsNegative = true;
+                    continue;
+               }
+
+               bool IsNegativeToken = NextTokenIsNegative;
+               NextTokenIsNegative = false;
+
+               if (!TokenValue.empty() && TokenValue.front() == '!')
+               {
+                    IsNegativeToken = true;
+                    TokenValue.erase(0, 1);
+               }
+
+               if (IsNegativeToken)
+               {
+                    std::string NormalizedNegative = NormalizeTerm(TokenValue);
+
+                    if (!NormalizedNegative.empty())
+                    {
+                         NegativeTerms.push_back(NormalizedNegative);
+                    }
+               }
+          }
+     }
+
+     if (!NegativeTerms.empty())
+     {
+          std::unordered_set<std::string> NegativeTermSet(NegativeTerms.begin(), NegativeTerms.end());
+
+          QueryTerms.erase(std::remove_if(QueryTerms.begin(), QueryTerms.end(), [&NegativeTermSet](const std::string &TermValue)
+                         {
+                              return TermValue == "not" || NegativeTermSet.find(TermValue) != NegativeTermSet.end();
+                         }),
+                         QueryTerms.end());
+     }
+
+     if (QueryTerms.empty() && NegativeTerms.empty())
      {
           return {};
      }
@@ -1500,6 +1549,7 @@ std::vector<Posting> InvertedIndex::Search(const std::string &Collection, const 
      }
 
      std::vector<std::unordered_map<std::string, Posting>> TermResults;
+     std::unordered_set<std::string> NegativeDocIDs;
      size_t ValidQueryTermCount = 0;
 
      auto IsWildcardTerm = [](const std::string &term) -> bool
@@ -1550,21 +1600,10 @@ std::vector<Posting> InvertedIndex::Search(const std::string &Collection, const 
                                     MMapIt->second->GetTermCount() > 0;
           const bool HasMemoryIndex = CollectionIt != Index.end() && !CollectionIt->second.empty();
 
-          for (const auto &TermValue : QueryTerms)
+          auto LoadTermDocs = [&](const std::string &Normalized, std::unordered_map<std::string, Posting> &TermDocs)
           {
-               std::string Normalized = NormalizeTerm(TermValue);
-
-               if (Normalized.empty())
-               {
-                    continue;
-               }
-
-               ValidQueryTermCount++;
-
                std::vector<std::pair<std::string, double>> TermVariants;
                AddQueryTermVariants(Normalized, TermVariants);
-
-               std::vector<Posting> Postings;
 
                if (HasMMapIndex)
                {
@@ -1596,26 +1635,19 @@ std::vector<Posting> InvertedIndex::Search(const std::string &Collection, const 
                               for (auto &ScopedPost : ScopedPostings)
                               {
                                    ScopedPost.Score *= VariantWeight;
+
+                                   auto It = TermDocs.find(ScopedPost.DocumentID);
+                                   if (It == TermDocs.end())
+                                   {
+                                        TermDocs[ScopedPost.DocumentID] = ScopedPost;
+                                        TermDocs[ScopedPost.DocumentID].Collection = Collection;
+                                   }
+                                   else
+                                   {
+                                        It->second.Score += ScopedPost.Score;
+                                   }
                               }
-
-                              Postings.insert(Postings.end(), ScopedPostings.begin(), ScopedPostings.end());
                          }
-                    }
-               }
-
-               std::unordered_map<std::string, Posting> TermDocs;
-
-               for (const auto &Post : Postings)
-               {
-                    auto It = TermDocs.find(Post.DocumentID);
-                    if (It == TermDocs.end())
-                    {
-                         TermDocs[Post.DocumentID] = Post;
-                         TermDocs[Post.DocumentID].Collection = Collection;
-                    }
-                    else
-                    {
-                         It->second.Score += Post.Score;
                     }
                }
 
@@ -1684,6 +1716,40 @@ std::vector<Posting> InvertedIndex::Search(const std::string &Collection, const 
                          }
                     }
                }
+          };
+
+          for (const auto &TermValue : NegativeTerms)
+          {
+               std::string Normalized = NormalizeTerm(TermValue);
+
+               if (Normalized.empty())
+               {
+                    continue;
+               }
+
+               std::unordered_map<std::string, Posting> TermDocs;
+               LoadTermDocs(Normalized, TermDocs);
+
+               for (const auto &Pair : TermDocs)
+               {
+                    NegativeDocIDs.insert(Pair.first);
+               }
+          }
+
+          for (const auto &TermValue : QueryTerms)
+          {
+               std::string Normalized = NormalizeTerm(TermValue);
+
+               if (Normalized.empty())
+               {
+                    continue;
+               }
+
+               ValidQueryTermCount++;
+
+               std::unordered_map<std::string, Posting> TermDocs;
+
+               LoadTermDocs(Normalized, TermDocs);
 
                if (TermDocs.empty())
                {
@@ -1701,6 +1767,51 @@ std::vector<Posting> InvertedIndex::Search(const std::string &Collection, const 
                }
 
                TermResults.push_back(TermDocs);
+          }
+
+          if (TermResults.empty() && !NegativeTerms.empty())
+          {
+               std::unordered_map<std::string, Posting> AllDocs;
+
+               auto DocsIt = DocumentTerms.find(Collection);
+
+               if (DocsIt != DocumentTerms.end())
+               {
+                    for (const auto &DocPair : DocsIt->second)
+                    {
+                         Posting Post;
+                         Post.DocumentID = DocPair.first;
+                         Post.Collection = Collection;
+                         Post.Score = 1.0;
+                         AllDocs[Post.DocumentID] = std::move(Post);
+                    }
+               }
+
+               if (HasMemoryIndex)
+               {
+                    for (const auto &[IndexedTerm, MemoryPostings] : CollectionIt->second)
+                    {
+                         (void)IndexedTerm;
+
+                         for (const auto &PostValue : MemoryPostings)
+                         {
+                              if (PostValue.DocumentID.empty())
+                              {
+                                   continue;
+                              }
+
+                              Posting Post = PostValue;
+                              Post.Collection = Collection;
+                              Post.Score = std::max(Post.Score, 1.0);
+                              AllDocs.emplace(Post.DocumentID, std::move(Post));
+                         }
+                    }
+               }
+
+               if (!AllDocs.empty())
+               {
+                    TermResults.push_back(std::move(AllDocs));
+               }
           }
      }
 
@@ -1940,6 +2051,15 @@ std::vector<Posting> InvertedIndex::Search(const std::string &Collection, const 
                          ++It;
                     }
                }
+          }
+     }
+
+     if (!NegativeDocIDs.empty())
+     {
+          for (const auto &DocID : NegativeDocIDs)
+          {
+               DocScores.erase(DocID);
+               DocMatchCounts.erase(DocID);
           }
      }
 
