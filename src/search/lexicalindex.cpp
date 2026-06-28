@@ -207,6 +207,49 @@ void InvertedIndex::MarkCollectionDirtyLocked(const std::string &Collection)
      CollectionLastMutation[Collection] = std::chrono::steady_clock::now();
 }
 
+size_t InvertedIndex::EnsureCollectionTotalLengthLocked(const std::string &Collection)
+{
+     auto TotalIt = CollectionTotalLengths.find(Collection);
+
+     if (TotalIt != CollectionTotalLengths.end())
+     {
+          return TotalIt->second;
+     }
+
+     size_t TotalLength = 0;
+     auto LengthsIt = DocumentLengths.find(Collection);
+
+     if (LengthsIt != DocumentLengths.end())
+     {
+          for (const auto &[DocID, Length] : LengthsIt->second)
+          {
+               (void)DocID;
+               TotalLength += Length;
+          }
+     }
+
+     CollectionTotalLengths[Collection] = TotalLength;
+     return TotalLength;
+}
+
+void InvertedIndex::RefreshCollectionStatsFromTotalLocked(const std::string &Collection)
+{
+     auto LengthsIt = DocumentLengths.find(Collection);
+     const size_t DocCountValue = (LengthsIt != DocumentLengths.end()) ? LengthsIt->second.size() : 0;
+
+     DocCounts[Collection] = DocCountValue;
+
+     if (DocCountValue == 0)
+     {
+          CollectionTotalLengths[Collection] = 0;
+          AvgDocLengths[Collection] = 1.0;
+          return;
+     }
+
+     const size_t TotalLength = EnsureCollectionTotalLengthLocked(Collection);
+     AvgDocLengths[Collection] = static_cast<double>(TotalLength) / static_cast<double>(DocCountValue);
+}
+
 /* InvertedIndex::SelectFlushCollectionsLocked - Selects dirty collections to flush while the caller holds the lock. */
 
 std::vector<std::string> InvertedIndex::SelectFlushCollectionsLocked(uint64_t MinDirtyAgeSeconds, size_t MaxCollections) const
@@ -776,6 +819,13 @@ void InvertedIndex::RemoveDocumentFromIndex(const std::string &Collection, const
 
      if (DocLengthsIt != DocumentLengths.end())
      {
+          const auto RemovedLengthIt = DocLengthsIt->second.find(DocID);
+          if (RemovedLengthIt != DocLengthsIt->second.end())
+          {
+               const size_t CurrentTotal = EnsureCollectionTotalLengthLocked(Collection);
+               CollectionTotalLengths[Collection] = (CurrentTotal > RemovedLengthIt->second) ? (CurrentTotal - RemovedLengthIt->second) : 0;
+          }
+
           DocLengthsIt->second.erase(DocID);
 
           if (DocLengthsIt->second.empty())
@@ -784,31 +834,7 @@ void InvertedIndex::RemoveDocumentFromIndex(const std::string &Collection, const
           }
      }
 
-     auto DocLengthsItAfter = DocumentLengths.find(Collection);
-
-     if (DocLengthsItAfter != DocumentLengths.end() && !DocLengthsItAfter->second.empty())
-     {
-          size_t TotalLength = 0;
-
-          size_t DocCountValue = 0;
-
-          for (const auto &[DocIDIter, Length] : DocLengthsItAfter->second)
-          {
-               TotalLength += Length;
-
-               DocCountValue++;
-          }
-
-          DocCounts[Collection] = DocCountValue;
-
-          AvgDocLengths[Collection] = (DocCountValue > 0) ? static_cast<double>(TotalLength) / static_cast<double>(DocCountValue) : 1.0;
-     }
-     else
-     {
-          AvgDocLengths[Collection] = 1.0;
-
-          DocCounts[Collection] = 0;
-     }
+     RefreshCollectionStatsFromTotalLocked(Collection);
 }
 
 /*
@@ -832,8 +858,10 @@ bool InvertedIndex::AddDocument(const std::string &Collection, const Document &D
      auto DocTermsIt = DocumentTerms.find(Collection);
 
      size_t CollectionDocCount = (DocTermsIt != DocumentTerms.end()) ? DocTermsIt->second.size() : 0;
+     const bool DocumentAlreadyIndexed = DocTermsIt != DocumentTerms.end() &&
+                                         DocTermsIt->second.find(Doc.ID) != DocTermsIt->second.end();
 
-     if (CollectionDocCount >= INVERTED_INDEX_MAX_DOCUMENTS_PER_COLLECTION)
+     if (!DocumentAlreadyIndexed && CollectionDocCount >= INVERTED_INDEX_MAX_DOCUMENTS_PER_COLLECTION)
      {
           if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
           {
@@ -1104,33 +1132,10 @@ bool InvertedIndex::AddDocument(const std::string &Collection, const Document &D
           }
      }
 
+     const size_t CurrentTotalLength = EnsureCollectionTotalLengthLocked(Collection);
      DocumentLengths[Collection][Doc.ID] = DocLength;
-
-     auto DocLengthsIt = DocumentLengths.find(Collection);
-
-     if (DocLengthsIt != DocumentLengths.end() && !DocLengthsIt->second.empty())
-     {
-          size_t TotalLength = 0;
-
-          size_t DocCountValue = 0;
-
-          for (const auto &[DocID, Length] : DocLengthsIt->second)
-          {
-               TotalLength += Length;
-
-               DocCountValue++;
-          }
-
-          DocCounts[Collection] = DocCountValue;
-
-          AvgDocLengths[Collection] = (DocCountValue > 0) ? static_cast<double>(TotalLength) / static_cast<double>(DocCountValue) : 1.0;
-     }
-     else
-     {
-          AvgDocLengths[Collection] = 1.0;
-
-          DocCounts[Collection] = 0;
-     }
+     CollectionTotalLengths[Collection] = CurrentTotalLength + DocLength;
+     RefreshCollectionStatsFromTotalLocked(Collection);
 
      if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
      {
@@ -1358,33 +1363,10 @@ bool InvertedIndex::UpdateDocument(const std::string &Collection, const Document
           }
      }
 
+     const size_t CurrentTotalLength = EnsureCollectionTotalLengthLocked(Collection);
      DocumentLengths[Collection][NewDoc.ID] = DocLength;
-
-     auto DocLengthsIt = DocumentLengths.find(Collection);
-
-     if (DocLengthsIt != DocumentLengths.end() && !DocLengthsIt->second.empty())
-     {
-          size_t TotalLength = 0;
-
-          size_t DocCountValue = 0;
-
-          for (const auto &[DocID, Length] : DocLengthsIt->second)
-          {
-               TotalLength += Length;
-
-               DocCountValue++;
-          }
-
-          DocCounts[Collection] = DocCountValue;
-
-          AvgDocLengths[Collection] = (DocCountValue > 0) ? static_cast<double>(TotalLength) / static_cast<double>(DocCountValue) : 1.0;
-     }
-     else
-     {
-          AvgDocLengths[Collection] = 1.0;
-
-          DocCounts[Collection] = 0;
-     }
+     CollectionTotalLengths[Collection] = CurrentTotalLength + DocLength;
+     RefreshCollectionStatsFromTotalLocked(Collection);
 
      if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
      {
@@ -2353,6 +2335,8 @@ void InvertedIndex::DeleteCollection(const std::string &Collection)
 
      DocumentLengths.erase(Collection);
 
+     CollectionTotalLengths.erase(Collection);
+
      DocCounts.erase(Collection);
 
      AvgDocLengths.erase(Collection);
@@ -2389,6 +2373,14 @@ void InvertedIndex::Clear()
      Index.clear();
 
      DocumentTerms.clear();
+
+     DocumentLengths.clear();
+
+     CollectionTotalLengths.clear();
+
+     DocCounts.clear();
+
+     AvgDocLengths.clear();
 
      MMapIndexes.clear();
 
@@ -2532,23 +2524,118 @@ std::string InvertedIndex::GetIndexDir() const
 
 size_t InvertedIndex::FlushToDisk(const std::string &IndexDir, uint64_t MinDirtyAgeSeconds, size_t MaxCollections)
 {
-     std::lock_guard<std::mutex> Lock(IndexMutex);
-
      if (Instance && Instance->Logs)
      {
           Instance->Logs->Normal("inverted_index", "FlushToDisk: Flushing indexes to disk.");
      }
 
-     const std::vector<std::string> CollectionsToFlush = SelectFlushCollectionsLocked(MinDirtyAgeSeconds, MaxCollections);
+     struct FlushWorkItem
+     {
+          std::string Collection;
+          std::chrono::steady_clock::time_point MutationTime;
+          std::unordered_map<std::string, std::vector<Posting>> IndexSnapshot;
+     };
+
+     std::vector<FlushWorkItem> WorkItems;
+
+     {
+          std::lock_guard<std::mutex> Lock(IndexMutex);
+          const std::vector<std::string> CollectionsToFlush = SelectFlushCollectionsLocked(MinDirtyAgeSeconds, MaxCollections);
+
+          WorkItems.reserve(CollectionsToFlush.size());
+
+          for (const auto &Collection : CollectionsToFlush)
+          {
+               auto IndexIt = Index.find(Collection);
+
+               if (IndexIt == Index.end() || IndexIt->second.empty())
+               {
+                    DirtyCollections.erase(Collection);
+                    continue;
+               }
+
+               auto ExistingMMapIt = MMapIndexes.find(Collection);
+
+               if (ExistingMMapIt != MMapIndexes.end() &&
+                   ExistingMMapIt->second &&
+                   ExistingMMapIt->second->IsValid() &&
+                   CollectionLastFlush.find(Collection) == CollectionLastFlush.end())
+               {
+                    if (Instance && Instance->Logs)
+                    {
+                         Instance->Logs->Normal("inverted_index", "FlushToDisk: Deferred collection '" + Collection + "' because it has a loaded mmap snapshot and only partial in-memory mutations; segment merge or rebuild is required before overwriting the snapshot.");
+                    }
+
+                    continue;
+               }
+
+               auto MutationIt = CollectionLastMutation.find(Collection);
+               const auto MutationTime = (MutationIt != CollectionLastMutation.end())
+                    ? MutationIt->second
+                    : std::chrono::steady_clock::time_point{};
+
+               WorkItems.push_back({Collection, MutationTime, IndexIt->second});
+          }
+     }
 
      size_t FlushedCollections = 0;
 
-     for (const auto &Collection : CollectionsToFlush)
+     for (const auto &WorkItem : WorkItems)
      {
-          if (FlushCollectionToDiskLocked(IndexDir, Collection))
+          const std::string FlushMarker = "flush_pending:" + WorkItem.Collection;
+
+          if (Instance && Instance->Database)
           {
-               FlushedCollections++;
+               Instance->Database->Set(FlushMarker, "1");
           }
+
+          IndexWriter CollectionWriter(IndexDir, WorkItem.Collection);
+          std::unordered_map<std::string, std::unordered_map<std::string, std::vector<Posting>>> SingleCollection;
+          SingleCollection[WorkItem.Collection] = WorkItem.IndexSnapshot;
+
+          if (!CollectionWriter.WriteIndex(SingleCollection))
+          {
+               if (Instance && Instance->Logs)
+               {
+                    Instance->Logs->Normal("inverted_index", "FlushToDisk: Failed to flush collection '" + WorkItem.Collection + "'.");
+               }
+
+               continue;
+          }
+
+          auto MMapIdx = MMapIndex::Open(IndexDir, WorkItem.Collection);
+
+          {
+               std::lock_guard<std::mutex> Lock(IndexMutex);
+
+               if (MMapIdx && MMapIdx->IsValid())
+               {
+                    MMapIndexes[WorkItem.Collection] = std::move(MMapIdx);
+               }
+
+               auto MutationIt = CollectionLastMutation.find(WorkItem.Collection);
+               const bool HasNewMutation = MutationIt != CollectionLastMutation.end() &&
+                    MutationIt->second > WorkItem.MutationTime;
+
+               if (!HasNewMutation)
+               {
+                    DirtyCollections.erase(WorkItem.Collection);
+               }
+
+               CollectionLastFlush[WorkItem.Collection] = std::chrono::steady_clock::now();
+          }
+
+          if (Instance && Instance->Database)
+          {
+               Instance->Database->Del(FlushMarker);
+          }
+
+          if (Instance && Instance->Logs)
+          {
+               Instance->Logs->Normal("inverted_index", "FlushToDisk: Flushed collection '" + WorkItem.Collection + "' to disk.");
+          }
+
+          FlushedCollections++;
      }
 
      if (Instance && Instance->Database && FlushedCollections > 0)
@@ -2964,24 +3051,14 @@ void InvertedIndex::UpdateCollectionStatistics(const std::string &Collection)
      {
           AvgDocLengths[Collection] = 1.0;
           DocCounts[Collection] = 0;
+          CollectionTotalLengths[Collection] = 0;
 
           return;
      }
 
-     size_t TotalLengthValue = 0;
-
-     size_t DocCountValue = 0;
-
-     for (const auto &[DocID, Length] : DocLengthsIt->second)
-     {
-          TotalLengthValue += Length;
-
-          DocCountValue++;
-     }
-
-     DocCounts[Collection] = DocCountValue;
-
-     AvgDocLengths[Collection] = (DocCountValue > 0) ? static_cast<double>(TotalLengthValue) / static_cast<double>(DocCountValue) : 1.0;
+     CollectionTotalLengths.erase(Collection);
+     EnsureCollectionTotalLengthLocked(Collection);
+     RefreshCollectionStatsFromTotalLocked(Collection);
 }
 
 /*

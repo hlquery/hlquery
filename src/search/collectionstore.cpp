@@ -19,6 +19,7 @@
 #include <set>
 #include <sstream>
 #include <thread>
+#include <unordered_map>
 #include <vendor/json/json.hpp>
 
 #include "api/searchcache.h"
@@ -709,27 +710,7 @@ void HybridStorageManager::UpdateCollectionCounters(bool force)
 
           time_t timestamp = time(nullptr);
 
-          /* Parse existing metadata if present */
-
-          if (!meta_value.empty())
-          {
-               size_t colon_pos = meta_value.find(':');
-
-               if (colon_pos != std::string::npos)
-               {
-                    stored_count = std::stoull(meta_value.substr(0, colon_pos));
-
-                    if (colon_pos + 1 < meta_value.size())
-                    {
-                         time_t parsed_ts = std::stoull(meta_value.substr(colon_pos + 1));
-
-                         if (parsed_ts > 0)
-                         {
-                              timestamp = parsed_ts;
-                         }
-                    }
-               }
-          }
+          ParseCollectionMetaValue(meta_value, &stored_count, &timestamp);
 
           /* Update metadata only if count changed or if it was missing */
 
@@ -831,25 +812,7 @@ void HybridStorageManager::UpdateCollectionCountersPrefix(const std::string &pre
 
           time_t timestamp = time(nullptr);
 
-          if (!meta_value.empty())
-          {
-               size_t colon_pos = meta_value.find(':');
-
-               if (colon_pos != std::string::npos)
-               {
-                    stored_count = std::stoull(meta_value.substr(0, colon_pos));
-
-                    if (colon_pos + 1 < meta_value.size())
-                    {
-                         time_t parsed_ts = std::stoull(meta_value.substr(colon_pos + 1));
-
-                         if (parsed_ts > 0)
-                         {
-                              timestamp = parsed_ts;
-                         }
-                    }
-               }
-          }
+          ParseCollectionMetaValue(meta_value, &stored_count, &timestamp);
 
           if (actual_count != stored_count || meta_value.empty())
           {
@@ -2051,27 +2014,7 @@ bool HybridStorageManager::AddDocument(const std::string &collection, const Docu
 
           time_t timestamp = time(nullptr);
 
-          /* Parse existing metadata if present */
-
-          if (!meta_value.empty())
-          {
-               size_t colon_pos = meta_value.find(':');
-
-               if (colon_pos != std::string::npos)
-               {
-                    current_count = std::stoull(meta_value.substr(0, colon_pos));
-
-                    if (colon_pos + 1 < meta_value.size())
-                    {
-                         time_t parsed_ts = std::stoull(meta_value.substr(colon_pos + 1));
-
-                         if (parsed_ts > 0)
-                         {
-                              timestamp = parsed_ts;
-                         }
-                    }
-               }
-          }
+          ParseCollectionMetaValue(meta_value, &current_count, &timestamp);
 
           /* Increment count for new documents (upsert: overwrites don't change count) */
 
@@ -2165,8 +2108,10 @@ size_t HybridStorageManager::AddDocumentsBatch(const std::string &collection, co
      /* Prepare all documents for batch write (upsert: includes both new and existing) */
 
      std::vector<std::pair<std::string, std::string>> batch_data;
+     std::unordered_map<std::string, size_t> batch_key_index;
 
      batch_data.reserve(documents.size());
+     batch_key_index.reserve(documents.size());
 
      for (const auto &doc : documents)
      {
@@ -2202,7 +2147,17 @@ size_t HybridStorageManager::AddDocumentsBatch(const std::string &collection, co
 
           std::string doc_data = SerializeDocumentData(doc, timestamp_to_store);
 
-          batch_data.push_back({doc_key, doc_data});
+          const auto ExistingIt = batch_key_index.find(doc_key);
+
+          if (ExistingIt != batch_key_index.end())
+          {
+               batch_data[ExistingIt->second].second = std::move(doc_data);
+          }
+          else
+          {
+               batch_key_index.emplace(doc_key, batch_data.size());
+               batch_data.push_back({doc_key, std::move(doc_data)});
+          }
      }
 
      if (batch_data.empty())
@@ -2254,14 +2209,9 @@ size_t HybridStorageManager::AddDocumentsBatch(const std::string &collection, co
           }
           else
           {
-               for (const auto &doc : documents)
+               for (const auto &[doc_key, doc_data] : batch_data)
                {
-                    if (doc.ID.empty())
-                    {
-                         continue;
-                    }
-
-                    const std::string doc_key = "doc:" + collection + ":" + doc.ID;
+                    (void)doc_data;
 
                     if (!Instance->Database->Exists(doc_key))
                     {
@@ -2758,25 +2708,7 @@ bool HybridStorageManager::DeleteDocument(const std::string &collection, const s
 
                time_t timestamp = time(nullptr);
 
-               if (!meta_value.empty())
-               {
-                    size_t colon_pos = meta_value.find(':');
-
-                    if (colon_pos != std::string::npos)
-                    {
-                         current_count = std::stoull(meta_value.substr(0, colon_pos));
-
-                         if (colon_pos + 1 < meta_value.size())
-                         {
-                              time_t parsed_ts = std::stoull(meta_value.substr(colon_pos + 1));
-
-                              if (parsed_ts > 0)
-                              {
-                                   timestamp = parsed_ts;
-                              }
-                         }
-                    }
-               }
+               ParseCollectionMetaValue(meta_value, &current_count, &timestamp);
 
                if (current_count > 0)
                {
@@ -4306,16 +4238,38 @@ bool HybridStorageManager::FlushAll()
 
      try
      {
-          const std::vector<std::string> all_keys = Instance->Database->Keys("*");
+          size_t removed_keys = 0;
+          static constexpr size_t FlushAllResidualBatchSize = 1000;
 
-          for (const auto &key : all_keys)
+          while (true)
           {
-               Instance->Database->Del(key);
+               const std::vector<std::string> keys = Instance->Database->PrefixKeys("", 0, FlushAllResidualBatchSize);
+
+               if (keys.empty())
+               {
+                    break;
+               }
+
+               size_t removed_this_batch = 0;
+
+               for (const auto &key : keys)
+               {
+                    if (Instance->Database->Del(key) > 0)
+                    {
+                         removed_keys++;
+                         removed_this_batch++;
+                    }
+               }
+
+               if (removed_this_batch == 0)
+               {
+                    break;
+               }
           }
 
           if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
           {
-               Instance->Logs->Debug("hybrid_storage", "FlushAll: Final sweep removed " + std::to_string(all_keys.size()) + " residual key(s).");
+               Instance->Logs->Debug("hybrid_storage", "FlushAll: Final sweep removed " + std::to_string(removed_keys) + " residual key(s).");
           }
      }
      catch (const std::exception &e)

@@ -89,6 +89,10 @@ class InvertedIndex
 
      std::unordered_map<std::string, double> AvgDocLengths;
 
+     /* CollectionTotalLengths stores summed document lengths per collection for O(1) stats updates. */
+
+     std::unordered_map<std::string, size_t> CollectionTotalLengths;
+
      /* DocCounts stores document count per collection. */
 
      std::unordered_map<std::string, size_t> DocCounts;
@@ -128,6 +132,14 @@ class InvertedIndex
      /* RemoveDocumentFromIndex removes a document from term postings. */
 
      void RemoveDocumentFromIndex(const std::string& Collection, const std::string& DocID);
+
+     /* EnsureCollectionTotalLengthLocked initializes total length while IndexMutex is held. */
+
+     size_t EnsureCollectionTotalLengthLocked(const std::string& Collection);
+
+     /* RefreshCollectionStatsFromTotalLocked refreshes derived stats while IndexMutex is held. */
+
+     void RefreshCollectionStatsFromTotalLocked(const std::string& Collection);
 
      /* CalculateBM25PlusScore computes BM25+ score. */
 

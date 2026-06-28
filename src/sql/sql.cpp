@@ -12,23 +12,43 @@
 
 #include "sql/internal.h"
 
+#include <cctype>
+
 bool SQLService::LooksLikeSelect(const std::string &sql_text) const
 {
-     /* This helper is intentionally lightweight and does not fully validate SQL syntax. */
+     std::size_t index = 0;
 
-     const std::string trimmed = SQLTrimWhitespace(sql_text);
+     while (index < sql_text.size() && std::isspace(static_cast<unsigned char>(sql_text[index])) != 0)
+     {
+          ++index;
+     }
 
-     if (trimmed.size() < 6)
+     if (index >= sql_text.size() || !SQLIsIdentifierStart(sql_text[index]))
      {
           return false;
      }
 
-     return SQLToUpperASCII(trimmed.substr(0, 6)) == "SELECT";
+     const std::size_t start = index++;
+
+     while (index < sql_text.size() && SQLIsIdentifierChar(sql_text[index]))
+     {
+          ++index;
+     }
+
+     return SQLToUpperASCII(sql_text.substr(start, index - start)) == "SELECT";
 }
 
 SQLTranslationResult SQLService::ParseSelect(const std::string &sql_text) const
 {
-     /* The service currently supports a subset of SQL and routes SELECT through the same parser entry point. */
+     /* SELECT parsing shares the common parser but enforces the public entry point contract. */
 
-     return Parse(sql_text);
+     SQLTranslationResult result = Parse(sql_text);
+
+     if (result.Valid && result.Type != SQLTranslationResult::StatementType::Select)
+     {
+          result.Valid = false;
+          result.Error = "Expected SELECT statement.";
+     }
+
+     return result;
 }
