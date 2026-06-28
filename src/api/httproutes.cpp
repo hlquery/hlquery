@@ -320,7 +320,7 @@ RouteAction ResolveHttpRoute(const HttpRequest &Request)
                return RouteAction::ModuleUnload;
           }
 
-          if (PrefixRoute(Path, Method, "/modules/", {"GET", "POST", "PUT", "DELETE"}))
+          if (PrefixRoute(Path, Method, "/modules/", {"GET", "POST", "PUT", "DELETE", "PATCH"}))
           {
                if (Path.rfind("/syntax") == Path.size() - 7 && Method == "GET")
                {
@@ -728,7 +728,8 @@ const char *RouteActionName(RouteAction ActionVal)
           case RouteAction::GetDocument:
                return "GetDocument";
           case RouteAction::GetDocumentContext:
-               return "GetDocumentContext";          case RouteAction::AddDocument:
+               return "GetDocumentContext";
+          case RouteAction::AddDocument:
                return "AddDocument";
           case RouteAction::BulkImportDocuments:
                return "BulkImportDocuments";
