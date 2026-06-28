@@ -37,27 +37,24 @@ namespace
      {
         private:
 
-          hlquery *ServerInstance = nullptr;
-
           std::unique_lock<std::mutex> SyncLock;
 
         public:
 
-          explicit DatabaseSyncGuard(hlquery *ServerValue)
-              : ServerInstance(ServerValue)
+          DatabaseSyncGuard()
           {
-               if (ServerInstance)
+               if (Instance)
                {
-                    SyncLock = std::unique_lock<std::mutex>(ServerInstance->GetSyncMutex());
-                    ServerInstance->SetSyncInProgress(true);
+                    SyncLock = std::unique_lock<std::mutex>(Instance->GetSyncMutex());
+                    Instance->SetSyncInProgress(true);
                }
           }
 
           ~DatabaseSyncGuard()
           {
-               if (ServerInstance)
+               if (Instance)
                {
-                    ServerInstance->SetSyncInProgress(false);
+                    Instance->SetSyncInProgress(false);
                }
           }
 
@@ -893,7 +890,7 @@ bool DBManager::FlushAndSync()
           return false;
      }
 
-     DatabaseSyncGuard SyncGuard(Instance);
+     DatabaseSyncGuard SyncGuard;
 
      rocksdb::FlushOptions flush_opts;
 
@@ -916,7 +913,7 @@ bool DBManager::SyncWAL()
           return false;
      }
 
-     DatabaseSyncGuard SyncGuard(Instance);
+     DatabaseSyncGuard SyncGuard;
 
      rocksdb::Status status = DBValue->SyncWAL();
 
