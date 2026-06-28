@@ -1900,14 +1900,15 @@ HttpResponse SearchAPI::HandleUpdateCounters(const HttpRequest &Request)
 
      HttpResponse Response(Status::OK, StatusText(Status::OK), "application/json");
 
+     nlohmann::json ResponseJSON;
+     ResponseJSON["status"] = "ok";
+
      if (!prefix_filter.empty())
      {
-          Response.Body = "{\"status\":\"ok\",\"prefix\":\"" + prefix_filter + "\"}";
+          ResponseJSON["prefix"] = prefix_filter;
      }
-     else
-     {
-          Response.Body = "{\"status\":\"ok\"}";
-     }
+
+     Response.Body = ResponseJSON.dump();
 
      return Response;
 }

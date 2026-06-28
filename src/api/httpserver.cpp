@@ -38,6 +38,7 @@
 #include "core/modulemanager.h"
 #include "utils/consolewriter.h"
 #include "utils/jsonbuilder.h"
+#include "vendor/json/json.hpp"
 
 #define HTTP_MAX_HEADER_SIZE (64 * 1024)
 
@@ -281,7 +282,12 @@ static bool AuthorizeHttpRequest(HttpRequest &Request, HttpResponse &Response)
           if (!AuthResultVal.Valid)
           {
                Response = HttpResponse(http_code::UNAUTHORIZED, StatusText(http_code::UNAUTHORIZED), "application/json");
-               Response.Body = "{\"error\":\"Authentication failed\",\"message\":\"" + AuthResultVal.ErrorMessage + "\"}";
+
+               nlohmann::json AuthErrorJSON;
+               AuthErrorJSON["error"] = "Authentication failed";
+               AuthErrorJSON["message"] = AuthResultVal.ErrorMessage;
+               Response.Body = AuthErrorJSON.dump();
+
                Response.Headers["WWW-Authenticate"] = "Bearer";
 
                LogAccessControl("Unauthorized: authentication failed (" + AuthResultVal.ErrorMessage + ")", Request);
@@ -426,13 +432,24 @@ static HttpResponse BuildBackpressureResponse(const std::string &Source, const s
 {
      HttpResponse Response(503, "Service Unavailable", "application/json");
      Response.Headers["Retry-After"] = "2";
-     Response.Body = "{\"error\":\"server_overloaded\",\"source\":\"" + Source + "\",\"message\":\"" + Message + "\"}";
+
+     nlohmann::json Body;
+     Body["error"] = "server_overloaded";
+     Body["source"] = Source;
+     Body["message"] = Message;
+     Response.Body = Body.dump();
+
      return Response;
 }
 
 static std::string BuildBackpressureRawResponse(const std::string &Source, const std::string &Message)
 {
-     const std::string Body = "{\"error\":\"server_overloaded\",\"source\":\"" + Source + "\",\"message\":\"" + Message + "\"}";
+     nlohmann::json BodyJSON;
+     BodyJSON["error"] = "server_overloaded";
+     BodyJSON["source"] = Source;
+     BodyJSON["message"] = Message;
+
+     const std::string Body = BodyJSON.dump();
      std::string Response = "HTTP/1.1 503 Service Unavailable\r\n";
      Response += "Content-Type: application/json\r\n";
      Response += "Server: hlquery/1.0\r\n";
@@ -1569,10 +1586,7 @@ void HttpConnection::ProcessRequest()
 
      SearchAPI &API = SearchAPI::GetInstance();
 
-     HttpResponse ResponseVal = HttpResponse(404, "Not Found");
-
-     ResponseVal.Body = "{\"error\":\"Route not found\",\"path\":\"" + Request.Path + "\"}";
-     ResponseVal.Headers["Content-Type"] = "application/json";
+     HttpResponse ResponseVal = BuildRouteNotFoundResponse(Request.Path);
 
      if (Instance && Instance->Logs)
      {
@@ -2318,7 +2332,12 @@ void HttpConnection::ProcessSingleRequest(const std::string &RequestStr)
                if (!KeyObj->CanAccessCollection(ColNameVal))
                {
                     Response = HttpResponse(403, "Forbidden", "application/json");
-                    Response.Body = "{\"error\":\"Access to collection '" + ColNameVal + "' not allowed for this key\"}";
+
+                    nlohmann::json ErrorJSON;
+                    ErrorJSON["error"] = "Access to collection not allowed for this key";
+                    ErrorJSON["collection"] = ColNameVal;
+                    Response.Body = ErrorJSON.dump();
+
                     LogAccessControl("Forbidden: key '" + KeyObj->ID + "' cannot access collection '" + ColNameVal + "'", Request);
                     SendResponse(Response);
                     return;
@@ -2565,18 +2584,13 @@ void HttpConnection::ProcessSingleRequest(const std::string &RequestStr)
 
      if (ActionVal == RouteAction::NotFound)
      {
-          Response = HttpResponse(404, "Not Found", "application/json");
-          Response.Body = "{\"error\":\"Route not found\",\"path\":\"" +
-                          API.EscapeJSONString(Request.Path) + "\"}";
+          Response = BuildRouteNotFoundResponse(Request.Path);
           RecordAnalyticsForResponse(Request, Response, ActionVal);
           SendResponse(Response);
           return;
      }
 
-     Response = HttpResponse(404, "Not Found");
-
-     Response.Body = "{\"error\":\"Route not found\",\"path\":\"" + Request.Path + "\"}";
-     Response.Headers["Content-Type"] = "application/json";
+     Response = BuildRouteNotFoundResponse(Request.Path);
 
      if (Instance && Instance->Logs)
      {
@@ -5552,10 +5566,7 @@ HttpResponse ProcessRequestWithAPI(SearchAPI &API, const HttpRequest &Request)
 
      /* Always return JSON response for API clients. */
 
-     HttpResponse ResponseVal(404, "Not Found");
-
-     ResponseVal.Headers["Content-Type"] = "application/json";
-     ResponseVal.Body = "{\"error\":\"Route not found\",\"path\":\"" + Request.Path + "\",\"method\":\"" + Request.Method + "\"}";
+     HttpResponse ResponseVal = BuildRouteNotFoundResponse(Request.Path, Request.Method);
 
      return ResponseVal;
 }

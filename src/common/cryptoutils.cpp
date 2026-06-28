@@ -24,6 +24,25 @@
 
 #endif
 
+namespace
+{
+     std::string HexBytes(const unsigned char *Data, size_t Len)
+     {
+          static constexpr char HexChars[] = "0123456789abcdef";
+
+          std::string Result;
+          Result.resize(Len * 2);
+
+          for (size_t I = 0; I < Len; ++I)
+          {
+               Result[I * 2] = HexChars[(Data[I] >> 4) & 0x0F];
+               Result[I * 2 + 1] = HexChars[Data[I] & 0x0F];
+          }
+
+          return Result;
+     }
+}
+
 std::vector<uint8_t> SHA256(const void *data, size_t len)
 {
      std::vector<uint8_t> Out(32);
@@ -72,6 +91,11 @@ std::vector<uint8_t> HMACSHA256(const void *key, size_t keylen, const void *data
 
      /* Fallback: XOR key into data then hash */
 
+     if (keylen == 0)
+     {
+          return SHA256(data, len);
+     }
+
      std::vector<uint8_t> Buf(len);
 
      const uint8_t *K = static_cast<const uint8_t *>(key);
@@ -118,19 +142,7 @@ std::vector<uint8_t> RandomBytes(size_t len)
 
 std::string Hex(const std::vector<uint8_t> &bytes)
 {
-     std::ostringstream OSS;
-
-     OSS.setf(std::ios::hex, std::ios::basefield);
-     OSS.setf(std::ios::right, std::ios::adjustfield);
-
-     for (auto B : bytes)
-     {
-          OSS.width(2);
-          OSS.fill('0');
-          OSS << static_cast<int>(B);
-     }
-
-     return OSS.str();
+     return HexBytes(bytes.data(), bytes.size());
 }
 
 std::string MD5(const std::string &input)
@@ -159,19 +171,7 @@ std::string MD5(const std::string &input)
 
      EVP_MD_CTX_free(CTX);
 
-     std::ostringstream OSS;
-
-     OSS.setf(std::ios::hex, std::ios::basefield);
-     OSS.setf(std::ios::right, std::ios::adjustfield);
-
-     for (int i = 0; i < MD5_DIGEST_LENGTH; i++)
-     {
-          OSS.width(2);
-          OSS.fill('0');
-          OSS << static_cast<int>(Hash[i]);
-     }
-
-     return OSS.str();
+     return HexBytes(Hash, MD5_DIGEST_LENGTH);
 
 #else
 
@@ -266,6 +266,11 @@ std::string AES256Encrypt(const std::string &plaintext, const std::string &key)
 
      /* Fallback: XOR with key (NOT SECURE, for testing only) */
 
+     if (key.empty())
+     {
+          return "";
+     }
+
      std::string Result = plaintext;
 
      for (size_t i = 0; i < Result.size(); ++i)
@@ -350,6 +355,11 @@ std::string AES256Decrypt(const std::string &ciphertext, const std::string &key)
 #else
 
      /* Fallback: XOR with key (NOT SECURE, for testing only) */
+
+     if (key.empty())
+     {
+          return "";
+     }
 
      std::string Result = ciphertext;
 

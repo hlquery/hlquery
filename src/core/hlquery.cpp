@@ -62,9 +62,9 @@ hlquery *Instance = nullptr;
 
 int main(int argc, char **argv)
 {
-     auto InstanceOwner = std::make_unique<hlquery>(argc, argv);
+     Instance = new hlquery(argc, argv);
      Instance->Run();
-     InstanceOwner.reset();
+     delete Instance;
      Instance = nullptr;
 
      return 0;

@@ -416,18 +416,15 @@ void DaemonHandler::ProcessSocketEngineOptimization()
 
      /* Track activity levels based on socket event deltas */
 
-     int CurrentEventCount = SocketEngine::GetEventCount();
-
-     int LastCount = LastEventCount.load(std::memory_order_relaxed);
-
-     int EventsDelta = CurrentEventCount - LastCount;
+     int CurrentEventCount  =  SocketEngine::GetEventCount();
+     int LastCount          =  LastEventCount.load(std::memory_order_relaxed);
+     int EventsDelta        =  CurrentEventCount - LastCount;
 
      /* Any positive delta means the engine is still actively consuming socket work. */
 
      if (EventsDelta > 0)
      {
           int BusyCount = ConsecutiveBusyIterations.fetch_add(1, std::memory_order_relaxed);
-
           ConsecutiveIdleIterations.store(0, std::memory_order_relaxed);
 
           /*
@@ -437,7 +434,6 @@ void DaemonHandler::ProcessSocketEngineOptimization()
            */
 
           AdaptiveSleepMS.store(0, std::memory_order_relaxed);
-
           HighThroughputModeValue.store(1, std::memory_order_relaxed);
 
           if (BusyCount > 100)
@@ -478,7 +474,6 @@ void DaemonHandler::ProcessSocketEngineOptimization()
       */
 
      (void)HighThroughputModeValue.load(std::memory_order_relaxed);
-
      (void)AdaptiveSleepMS.load(std::memory_order_relaxed);
 }
 

@@ -34,6 +34,7 @@
 #include "common/searchpool.h"
 #include "runtime/serverconfig.h"
 #include "core/socketengine.h"
+#include "vendor/json/json.hpp"
 
 /* HTTP Request structure. */
 
@@ -84,6 +85,24 @@ struct HttpResponse
           Headers["Server"] = "hlquery/1.0";
      }
 };
+
+inline HttpResponse BuildRouteNotFoundResponse(const std::string& Path, const std::string& Method = std::string())
+{
+     HttpResponse Response(404, "Not Found", "application/json");
+
+     nlohmann::json Body;
+     Body["error"] = "Route not found";
+     Body["path"] = Path;
+
+     if (!Method.empty())
+     {
+          Body["method"] = Method;
+     }
+
+     Response.Body = Body.dump();
+
+     return Response;
+}
 
 /* Route actions returned by HTTP route resolution. */
 

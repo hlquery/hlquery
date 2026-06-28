@@ -308,17 +308,6 @@ void ActionList::ProcessActions()
           TotalProcessed.fetch_add(Processed, std::memory_order_relaxed);
           CurrentProcessingCount.store(0, std::memory_order_relaxed);
 
-          /* Clear processed actions efficiently. */
-
-          Batch.clear();
-
-          /* Shrink vector if it grew too large. */
-
-          if (Batch.capacity() > INITIAL_CAPACITY * 4)
-          {
-               std::vector<ActionList::Action>().swap(Batch);
-          }
-
           if (Instance && Instance->Logs && Processed > 0)
           {
                Instance->Logs->Debug("action_list", "Processed " + std::to_string(Processed) + " actions" + (Failed > 0 ? " (" + std::to_string(Failed) + " failed)" : "") + ".");

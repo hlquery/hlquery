@@ -1270,7 +1270,11 @@ HttpResponse SearchAPI::HandleUpdateDocument(const HttpRequest &Request)
                {
                     HttpResponse Response(Status::BAD_REQUEST, StatusText(Status::BAD_REQUEST), "application/json");
 
-                    Response.Body = "{\"error\":\"Invalid field value for '" + Key + "'\",\"message\":\"" + EscapeJSONString(FieldError) + "\"}";
+                    nlohmann::json ErrorJSON;
+                    ErrorJSON["error"] = "Invalid field value";
+                    ErrorJSON["field"] = Key;
+                    ErrorJSON["message"] = FieldError;
+                    Response.Body = ErrorJSON.dump();
 
                     return Response;
                }
