@@ -86,6 +86,8 @@ struct CollectionRouteInfo
      bool IsStopwordsChild = false;
      bool IsOverridesRoot = false;
      bool IsOverridesChild = false;
+     bool IsCurationsRoot = false;
+     bool IsCurationsChild = false;
      bool IsVectorSearchAlias = false;
 
      bool IsReservedDocumentOperation() const
@@ -177,6 +179,8 @@ static CollectionRouteInfo BuildCollectionRouteInfo(std::string_view NormalizedP
      Info.IsStopwordsChild = Info.IsCollectionPath && Info.Segments.size() >= 4 && Info.SegmentEquals(2, "stopwords");
      Info.IsOverridesRoot = Info.IsCollectionPath && Info.Segments.size() == 3 && Info.SegmentEquals(2, "overrides");
      Info.IsOverridesChild = Info.IsCollectionPath && Info.Segments.size() >= 4 && Info.SegmentEquals(2, "overrides");
+     Info.IsCurationsRoot = Info.IsCollectionPath && Info.Segments.size() == 3 && (Info.SegmentEquals(2, "curations") || Info.SegmentEquals(2, "curation_sets"));
+     Info.IsCurationsChild = Info.IsCollectionPath && Info.Segments.size() >= 4 && (Info.SegmentEquals(2, "curations") || Info.SegmentEquals(2, "curation_sets"));
      Info.IsVectorSearchAlias = Info.IsCollectionPath && Info.Segments.size() == 3 && Info.SegmentEquals(2, "search");
 
      return Info;
@@ -209,6 +213,7 @@ static const std::unordered_map<std::string_view, RouteAction> &GetExactGetRoute
           {"/modules", RouteAction::ListModules},
           {"/multi_search", RouteAction::MultiSearch},
           {"/ping", RouteAction::Ping},
+          {"/presets", RouteAction::ListPresets},
           {"/query", RouteAction::Status},
           {"/ready", RouteAction::Ready},
           {"/repair", RouteAction::Repair},
@@ -222,8 +227,12 @@ static const std::unordered_map<std::string_view, RouteAction> &GetExactGetRoute
           {"/status", RouteAction::Status},
           {"/stopwords", RouteAction::ListAllStopwords},
           {"/stopwords/global", RouteAction::ListGlobalStopwords},
+          {"/stopword_sets", RouteAction::ListAllStopwords},
+          {"/stopword_sets/global", RouteAction::ListGlobalStopwords},
           {"/synonyms", RouteAction::ListAllSynonyms},
           {"/synonyms/global", RouteAction::ListGlobalSynonyms},
+          {"/synonym_sets", RouteAction::ListAllSynonyms},
+          {"/synonym_sets/global", RouteAction::ListGlobalSynonyms},
           {"/update-counters", RouteAction::UpdateCounters},
           {"/users", RouteAction::ListUsers},
           {"/_rocksdb", RouteAction::RocksDB},
@@ -246,6 +255,7 @@ static const std::unordered_map<std::string_view, RouteAction> &GetExactPostRout
           {"/repair", RouteAction::Repair},
           {"/search", RouteAction::GlobalSearch},
           {"/sql", RouteAction::DocumentSearch},
+          {"/stopword_sets/global", RouteAction::CreateGlobalStopword},
           {"/stopwords/global", RouteAction::CreateGlobalStopword},
           {"/unloadmodule", RouteAction::ModuleUnload},
           {"/update-counters", RouteAction::UpdateCounters},
@@ -335,7 +345,29 @@ RouteAction ResolveHttpRoute(const HttpRequest &Request)
                return RouteAction::UpsertGlobalSynonym;
           }
 
+          if (SingleChildRoute(Path, Method, "/synonym_sets/global/", {"POST", "PUT"}))
+          {
+               return RouteAction::UpsertGlobalSynonym;
+          }
+
+          if (PrefixRoute(Path, Method, "/synonym_sets/global/items/", {"POST", "PUT"}) &&
+              SplitRouteSegments(Path).size() == 4)
+          {
+               return RouteAction::UpsertGlobalSynonym;
+          }
+
           if (SingleChildRoute(Path, Method, "/synonyms/global/", {"GET"}))
+          {
+               return RouteAction::GetGlobalSynonym;
+          }
+
+          if (SingleChildRoute(Path, Method, "/synonym_sets/global/", {"GET"}))
+          {
+               return RouteAction::GetGlobalSynonym;
+          }
+
+          if (PrefixRoute(Path, Method, "/synonym_sets/global/items/", {"GET"}) &&
+              SplitRouteSegments(Path).size() == 4)
           {
                return RouteAction::GetGlobalSynonym;
           }
@@ -345,7 +377,29 @@ RouteAction ResolveHttpRoute(const HttpRequest &Request)
                return RouteAction::DeleteGlobalSynonym;
           }
 
+          if (SingleChildRoute(Path, Method, "/synonym_sets/global/", {"DELETE"}))
+          {
+               return RouteAction::DeleteGlobalSynonym;
+          }
+
+          if (PrefixRoute(Path, Method, "/synonym_sets/global/items/", {"DELETE"}) &&
+              SplitRouteSegments(Path).size() == 4)
+          {
+               return RouteAction::DeleteGlobalSynonym;
+          }
+
           if (SingleChildRoute(Path, Method, "/stopwords/global/", {"DELETE"}))
+          {
+               return RouteAction::DeleteGlobalStopword;
+          }
+
+          if (SingleChildRoute(Path, Method, "/stopword_sets/global/", {"DELETE"}))
+          {
+               return RouteAction::DeleteGlobalStopword;
+          }
+
+          if (PrefixRoute(Path, Method, "/stopword_sets/global/items/", {"DELETE"}) &&
+              SplitRouteSegments(Path).size() == 4)
           {
                return RouteAction::DeleteGlobalStopword;
           }
@@ -477,26 +531,6 @@ RouteAction ResolveHttpRoute(const HttpRequest &Request)
                return RouteAction::MaybeSuggest;
           }
 
-          if (RouteInfo.IsSynonymsRoot && Method == "GET")
-          {
-               return RouteAction::ListSynonyms;
-          }
-
-          if (RouteInfo.IsSynonymsChild && RouteInfo.Segments.size() == 4 && (Method == "POST" || Method == "PUT"))
-          {
-               return RouteAction::UpsertSynonym;
-          }
-
-          if (RouteInfo.IsSynonymsChild && RouteInfo.Segments.size() == 4 && Method == "GET")
-          {
-               return RouteAction::GetSynonym;
-          }
-
-          if (RouteInfo.IsSynonymsChild && RouteInfo.Segments.size() == 4 && Method == "DELETE")
-          {
-               return RouteAction::DeleteSynonym;
-          }
-
           if (RouteInfo.IsStopwordsRoot && Method == "GET")
           {
                return RouteAction::ListStopwords;
@@ -512,22 +546,22 @@ RouteAction ResolveHttpRoute(const HttpRequest &Request)
                return RouteAction::DeleteStopword;
           }
 
-          if (RouteInfo.IsOverridesRoot && Method == "GET")
+          if ((RouteInfo.IsOverridesRoot || RouteInfo.IsCurationsRoot) && Method == "GET")
           {
                return RouteAction::ListOverrides;
           }
 
-          if (RouteInfo.IsOverridesChild && RouteInfo.Segments.size() == 4 && (Method == "POST" || Method == "PUT"))
+          if ((RouteInfo.IsOverridesChild || RouteInfo.IsCurationsChild) && RouteInfo.Segments.size() == 4 && (Method == "POST" || Method == "PUT"))
           {
                return RouteAction::UpsertOverride;
           }
 
-          if (RouteInfo.IsOverridesChild && RouteInfo.Segments.size() == 4 && Method == "GET")
+          if ((RouteInfo.IsOverridesChild || RouteInfo.IsCurationsChild) && RouteInfo.Segments.size() == 4 && Method == "GET")
           {
                return RouteAction::GetOverride;
           }
 
-          if (RouteInfo.IsOverridesChild && RouteInfo.Segments.size() == 4 && Method == "DELETE")
+          if ((RouteInfo.IsOverridesChild || RouteInfo.IsCurationsChild) && RouteInfo.Segments.size() == 4 && Method == "DELETE")
           {
                return RouteAction::DeleteOverride;
           }
@@ -575,6 +609,21 @@ RouteAction ResolveHttpRoute(const HttpRequest &Request)
           if (SingleChildRoute(Path, Method, "/keys/", {"PUT"}))
           {
                return RouteAction::UpdateKey;
+          }
+
+          if (SingleChildRoute(Path, Method, "/presets/", {"POST", "PUT"}))
+          {
+               return RouteAction::UpsertPreset;
+          }
+
+          if (SingleChildRoute(Path, Method, "/presets/", {"GET"}))
+          {
+               return RouteAction::GetPreset;
+          }
+
+          if (SingleChildRoute(Path, Method, "/presets/", {"DELETE"}))
+          {
+               return RouteAction::DeletePreset;
           }
 
           if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
@@ -775,6 +824,14 @@ const char *RouteActionName(RouteAction ActionVal)
                return "UpdateKey";
           case RouteAction::DeleteKey:
                return "DeleteKey";
+          case RouteAction::ListPresets:
+               return "ListPresets";
+          case RouteAction::UpsertPreset:
+               return "UpsertPreset";
+          case RouteAction::GetPreset:
+               return "GetPreset";
+          case RouteAction::DeletePreset:
+               return "DeletePreset";
           case RouteAction::AnalyticsClick:
                return "AnalyticsClick";
           case RouteAction::ListModules:

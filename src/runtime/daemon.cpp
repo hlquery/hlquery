@@ -1915,11 +1915,15 @@ void hlquery::Cleanup()
                          Instance->Logs->Normal("shutdown", "Cleanup: Attempting database flush.");
                     }
 
-                    Instance->Database->Flush();
+                    const bool Flushed = Instance->Database->Flush();
 
-                    if (Instance && Instance->Logs)
+                    if (Flushed && Instance && Instance->Logs)
                     {
                          Instance->Logs->Normal("shutdown", "Cleanup: Database flush completed successfully.");
+                    }
+                    else if (Instance && Instance->Logs)
+                    {
+                         Instance->Logs->Normal("shutdown", "Cleanup: Database flush failed.");
                     }
                }
                catch (const std::exception &e)

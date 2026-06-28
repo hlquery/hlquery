@@ -410,6 +410,7 @@ bool DBManager::Initialize()
 
      if (status.ok() && db_ptr)
      {
+          std::lock_guard<std::mutex> lock(DBValueMutex);
           DBValue = std::move(db_ptr);
      }
      else if (!status.ok())
@@ -436,6 +437,8 @@ bool DBManager::Initialize()
 
 void DBManager::Shutdown()
 {
+     std::lock_guard<std::mutex> lock(DBValueMutex);
+
      if (DBValue)
      {
           DBValue.reset();
@@ -448,6 +451,8 @@ void DBManager::Shutdown()
 
 bool DBManager::IsOpen() const
 {
+     std::lock_guard<std::mutex> lock(DBValueMutex);
+
      return DBValue != nullptr;
 }
 
@@ -502,6 +507,37 @@ void DBManager::ClearLastWriteError()
      std::lock_guard<std::mutex> lock(LastWriteErrorMutex);
      LastWriteErrorCode.clear();
      LastWriteErrorMessage.clear();
+}
+
+/*
+ * DBManager::RecordSyncFailure - Captures the last failed flush or WAL sync for diagnostics.
+ */
+
+void DBManager::RecordSyncFailure(const char *operation, const std::string &code, const rocksdb::Status &status)
+{
+     const std::string message = std::string(operation) + ": " + status.ToString();
+
+     {
+          std::lock_guard<std::mutex> lock(LastSyncErrorMutex);
+          LastSyncErrorCode = code;
+          LastSyncErrorMessage = message;
+     }
+
+     if (Instance && Instance->Logs)
+     {
+          Instance->Logs->Normal("rocksdb", message + ".");
+     }
+}
+
+/*
+ * DBManager::ClearLastSyncError - Clears the sticky sync error after a successful flush or sync operation.
+ */
+
+void DBManager::ClearLastSyncError()
+{
+     std::lock_guard<std::mutex> lock(LastSyncErrorMutex);
+     LastSyncErrorCode.clear();
+     LastSyncErrorMessage.clear();
 }
 
 /*
@@ -873,18 +909,33 @@ std::string DBManager::MakeKey(const std::string &key)
 
 /* Flush memtables to disk */
 
-void DBManager::Flush()
+bool DBManager::Flush()
 {
-     if (DBValue)
+     std::lock_guard<std::mutex> lock(DBValueMutex);
+
+     if (!DBValue)
      {
-          DBValue->Flush(rocksdb::FlushOptions());
+          return false;
      }
+
+     rocksdb::Status status = DBValue->Flush(rocksdb::FlushOptions());
+
+     if (!status.ok())
+     {
+          RecordSyncFailure("Flush", "rocksdb_flush_failed", status);
+          return false;
+     }
+
+     ClearLastSyncError();
+     return true;
 }
 
 /* Flush memtables and sync WAL */
 
 bool DBManager::FlushAndSync()
 {
+     std::lock_guard<std::mutex> lock(DBValueMutex);
+
      if (!DBValue)
      {
           return false;
@@ -898,16 +949,28 @@ bool DBManager::FlushAndSync()
 
      if (!status.ok())
      {
+          RecordSyncFailure("FlushAndSync.Flush", "rocksdb_flush_failed", status);
           return false;
      }
 
-     return DBValue->SyncWAL().ok();
+     status = DBValue->SyncWAL();
+
+     if (!status.ok())
+     {
+          RecordSyncFailure("FlushAndSync.SyncWAL", "rocksdb_wal_sync_failed", status);
+          return false;
+     }
+
+     ClearLastSyncError();
+     return true;
 }
 
 /* Sync WAL */
 
 bool DBManager::SyncWAL()
 {
+     std::lock_guard<std::mutex> lock(DBValueMutex);
+
      if (!DBValue)
      {
           return false;
@@ -917,7 +980,14 @@ bool DBManager::SyncWAL()
 
      rocksdb::Status status = DBValue->SyncWAL();
 
-     return status.ok();
+     if (!status.ok())
+     {
+          RecordSyncFailure("SyncWAL", "rocksdb_wal_sync_failed", status);
+          return false;
+     }
+
+     ClearLastSyncError();
+     return true;
 }
 
 /* Trigger manual compaction */
@@ -1016,6 +1086,15 @@ std::unordered_map<std::string, std::string> DBManager::Info()
           {
                info["last_write_error_code"] = LastWriteErrorCode;
                info["last_write_error_message"] = LastWriteErrorMessage;
+          }
+     }
+
+     {
+          std::lock_guard<std::mutex> lock(LastSyncErrorMutex);
+          if (!LastSyncErrorCode.empty())
+          {
+               info["last_sync_error_code"] = LastSyncErrorCode;
+               info["last_sync_error_message"] = LastSyncErrorMessage;
           }
      }
 

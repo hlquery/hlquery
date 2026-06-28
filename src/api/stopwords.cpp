@@ -105,7 +105,10 @@ static std::string StopwordJSONValueToText(const nlohmann::json &Value)
 
 static bool IsGlobalStopwordsPath(const std::string &Path)
 {
-     return Path == "/stopwords/global" || Path.find("/stopwords/global/") == 0;
+     return Path == "/stopwords/global" ||
+            Path.find("/stopwords/global/") == 0 ||
+            Path == "/stopword_sets/global" ||
+            Path.find("/stopword_sets/global/") == 0;
 }
 
 static bool ResolveStopwordScope(const std::string &Path,

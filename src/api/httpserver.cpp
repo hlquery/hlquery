@@ -250,7 +250,7 @@ static bool AuthorizeHttpRequest(HttpRequest &Request, HttpResponse &Response)
          !IsHealthLikePath(Request.Path))
      {
           Response = HttpResponse(http_code::FORBIDDEN, StatusText(http_code::FORBIDDEN), "application/json");
-          Response.Body = "{\"error\":\"Authentication is disabled\",\"message\":\"Tokens are not accepted when authentication is disabled. Remove the Authorization header or X-API-Key header.\"}";
+          Response.Body = "{\"error\":\"Authentication is disabled\",\"message\":\"Tokens are not accepted when authentication is disabled. Remove the Authorization, X-API-Key, or X-TYPESENSE-API-KEY header.\"}";
 
           LogAccessControl("Forbidden: token provided while auth is disabled", Request);
 
@@ -265,7 +265,7 @@ static bool AuthorizeHttpRequest(HttpRequest &Request, HttpResponse &Response)
      if (!HasAuthToken)
      {
           Response = HttpResponse(http_code::UNAUTHORIZED, StatusText(http_code::UNAUTHORIZED), "application/json");
-          Response.Body = "{\"error\":\"Authentication required\",\"message\":\"Missing Authorization header or X-API-Key\"}";
+          Response.Body = "{\"error\":\"Authentication required\",\"message\":\"Missing Authorization, X-API-Key, or X-TYPESENSE-API-KEY header\"}";
           Response.Headers["WWW-Authenticate"] = "Bearer";
 
           LogAccessControl("Unauthorized: missing authentication token", Request);
@@ -497,6 +497,16 @@ static bool ExtractAuthTokenFromRequest(const HttpRequest &Request, std::string 
           if (APIKeyIt == Request.Headers.end())
           {
                APIKeyIt = Request.Headers.find("x-api-key");
+          }
+
+          if (APIKeyIt == Request.Headers.end())
+          {
+               APIKeyIt = Request.Headers.find("X-TYPESENSE-API-KEY");
+          }
+
+          if (APIKeyIt == Request.Headers.end())
+          {
+               APIKeyIt = Request.Headers.find("x-typesense-api-key");
           }
 
           if (APIKeyIt != Request.Headers.end())
@@ -2257,6 +2267,15 @@ void HttpConnection::ProcessSingleRequest(const std::string &RequestStr)
           {
                TokenVal = APIKeyIt->second;
           }
+          else
+          {
+               APIKeyIt = Request.Headers.find("x-typesense-api-key");
+
+               if (APIKeyIt != Request.Headers.end())
+               {
+                    TokenVal = APIKeyIt->second;
+               }
+          }
      }
 
      if (TokenVal.find("Bearer ") == 0)
@@ -2660,6 +2679,22 @@ void HttpConnection::ProcessSingleRequest(const std::string &RequestStr)
      {
           Response = API.HandleUpdateKey(Request);
      }
+     else if (NormalizedPath == "/presets" && Request.Method == "GET")
+     {
+          Response = API.HandleListPresets(Request);
+     }
+     else if (NormalizedPath.find("/presets/") == 0 && (Request.Method == "POST" || Request.Method == "PUT"))
+     {
+          Response = API.HandleCreateOrUpdatePreset(Request);
+     }
+     else if (NormalizedPath.find("/presets/") == 0 && Request.Method == "GET")
+     {
+          Response = API.HandleGetPreset(Request);
+     }
+     else if (NormalizedPath.find("/presets/") == 0 && Request.Method == "DELETE")
+     {
+          Response = API.HandleDeletePreset(Request);
+     }
 
      /* Check for synonyms/stopwords/overrides FIRST before search to avoid false matches. */
      /* Check synonyms BEFORE search, because synonym IDs might contain "search". */
@@ -2789,19 +2824,23 @@ void HttpConnection::ProcessSingleRequest(const std::string &RequestStr)
      {
           Response = API.HandleListAllSynonyms(Request);
      }
-     else if (Request.Path == "/synonyms/global" && Request.Method == "GET")
+     else if (Request.Path == "/synonym_sets" && Request.Method == "GET")
+     {
+          Response = API.HandleListAllSynonyms(Request);
+     }
+     else if ((Request.Path == "/synonyms/global" || Request.Path == "/synonym_sets/global") && Request.Method == "GET")
      {
           Response = API.HandleListGlobalSynonyms(Request);
      }
-     else if (Request.Path.find("/synonyms/global/") == 0 && (Request.Method == "POST" || Request.Method == "PUT"))
+     else if ((Request.Path.find("/synonyms/global/") == 0 || Request.Path.find("/synonym_sets/global/") == 0) && (Request.Method == "POST" || Request.Method == "PUT"))
      {
           Response = API.HandleCreateOrUpdateGlobalSynonym(Request);
      }
-     else if (Request.Path.find("/synonyms/global/") == 0 && Request.Method == "GET")
+     else if ((Request.Path.find("/synonyms/global/") == 0 || Request.Path.find("/synonym_sets/global/") == 0) && Request.Method == "GET")
      {
           Response = API.HandleGetGlobalSynonym(Request);
      }
-     else if (Request.Path.find("/synonyms/global/") == 0 && Request.Method == "DELETE")
+     else if ((Request.Path.find("/synonyms/global/") == 0 || Request.Path.find("/synonym_sets/global/") == 0) && Request.Method == "DELETE")
      {
           Response = API.HandleDeleteGlobalSynonym(Request);
      }
@@ -2809,15 +2848,19 @@ void HttpConnection::ProcessSingleRequest(const std::string &RequestStr)
      {
           Response = API.HandleListAllStopwords(Request);
      }
-     else if (Request.Path == "/stopwords/global" && Request.Method == "GET")
+     else if (Request.Path == "/stopword_sets" && Request.Method == "GET")
+     {
+          Response = API.HandleListAllStopwords(Request);
+     }
+     else if ((Request.Path == "/stopwords/global" || Request.Path == "/stopword_sets/global") && Request.Method == "GET")
      {
           Response = API.HandleListGlobalStopwords(Request);
      }
-     else if (Request.Path == "/stopwords/global" && Request.Method == "POST")
+     else if ((Request.Path == "/stopwords/global" || Request.Path == "/stopword_sets/global") && Request.Method == "POST")
      {
           Response = API.HandleCreateGlobalStopword(Request);
      }
-     else if (Request.Path.find("/stopwords/global/") == 0 && Request.Method == "DELETE")
+     else if ((Request.Path.find("/stopwords/global/") == 0 || Request.Path.find("/stopword_sets/global/") == 0) && Request.Method == "DELETE")
      {
           Response = API.HandleDeleteGlobalStopword(Request);
      }
@@ -2864,11 +2907,11 @@ void HttpConnection::ProcessSingleRequest(const std::string &RequestStr)
      {
           Response = API.HandleGetCollectionLanguage(Request);
      }
-     else if (Request.Path.find("/collections/") == 0 && NormalizedPath.find("/search") == std::string::npos && Request.Path.find("/documents") == std::string::npos && Request.Path.find("/synonyms") == std::string::npos && Request.Path.find("/stopwords") == std::string::npos && Request.Path.find("/overrides") == std::string::npos && Request.Path.find("/aliases") == std::string::npos && Request.Method == "GET")
+     else if (Request.Path.find("/collections/") == 0 && NormalizedPath.find("/search") == std::string::npos && Request.Path.find("/documents") == std::string::npos && Request.Path.find("/synonyms") == std::string::npos && Request.Path.find("/stopwords") == std::string::npos && Request.Path.find("/overrides") == std::string::npos && Request.Path.find("/curations") == std::string::npos && Request.Path.find("/curation_sets") == std::string::npos && Request.Path.find("/aliases") == std::string::npos && Request.Method == "GET")
      {
           Response = API.HandleGetCollection(Request);
      }
-     else if (Request.Path.find("/collections/") == 0 && Request.Path.find("/documents") == std::string::npos && Request.Path.find("/synonyms") == std::string::npos && Request.Path.find("/stopwords") == std::string::npos && Request.Path.find("/overrides") == std::string::npos && Request.Path.find("/aliases") == std::string::npos && Request.Method == "DELETE")
+     else if (Request.Path.find("/collections/") == 0 && Request.Path.find("/documents") == std::string::npos && Request.Path.find("/synonyms") == std::string::npos && Request.Path.find("/stopwords") == std::string::npos && Request.Path.find("/overrides") == std::string::npos && Request.Path.find("/curations") == std::string::npos && Request.Path.find("/curation_sets") == std::string::npos && Request.Path.find("/aliases") == std::string::npos && Request.Method == "DELETE")
      {
           Response = API.HandleDeleteCollection(Request);
      }
@@ -2923,7 +2966,15 @@ void HttpConnection::ProcessSingleRequest(const std::string &RequestStr)
      {
           Response = API.HandleListOverrides(Request);
      }
+     else if (Request.Path.find("/collections/") == 0 && (Request.Path.find("/curations") != std::string::npos || Request.Path.find("/curation_sets") != std::string::npos) && Request.Path.find("/curations/") == std::string::npos && Request.Path.find("/curation_sets/") == std::string::npos && Request.Method == "GET")
+     {
+          Response = API.HandleListOverrides(Request);
+     }
      else if (Request.Path.find("/collections/") == 0 && Request.Path.find("/overrides/") != std::string::npos && (Request.Method == "POST" || Request.Method == "PUT"))
+     {
+          Response = API.HandleCreateOrUpdateOverride(Request);
+     }
+     else if (Request.Path.find("/collections/") == 0 && (Request.Path.find("/curations/") != std::string::npos || Request.Path.find("/curation_sets/") != std::string::npos) && (Request.Method == "POST" || Request.Method == "PUT"))
      {
           Response = API.HandleCreateOrUpdateOverride(Request);
      }
@@ -2931,7 +2982,15 @@ void HttpConnection::ProcessSingleRequest(const std::string &RequestStr)
      {
           Response = API.HandleGetOverride(Request);
      }
+     else if (Request.Path.find("/collections/") == 0 && (Request.Path.find("/curations/") != std::string::npos || Request.Path.find("/curation_sets/") != std::string::npos) && Request.Method == "GET")
+     {
+          Response = API.HandleGetOverride(Request);
+     }
      else if (Request.Path.find("/collections/") == 0 && Request.Path.find("/overrides/") != std::string::npos && Request.Method == "DELETE")
+     {
+          Response = API.HandleDeleteOverride(Request);
+     }
+     else if (Request.Path.find("/collections/") == 0 && (Request.Path.find("/curations/") != std::string::npos || Request.Path.find("/curation_sets/") != std::string::npos) && Request.Method == "DELETE")
      {
           Response = API.HandleDeleteOverride(Request);
      }
@@ -3140,7 +3199,7 @@ void HttpConnection::SendResponse(const HttpResponse &Response)
 
      ResponseStr += "Access-Control-Allow-Origin: *\r\n";
      ResponseStr += "Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS, PATCH\r\n";
-     ResponseStr += "Access-Control-Allow-Headers: Content-Type, Authorization, Accept, X-Requested-With, X-API-Key, X-Request-Id\r\n";
+     ResponseStr += "Access-Control-Allow-Headers: Content-Type, Authorization, Accept, X-Requested-With, X-API-Key, X-TYPESENSE-API-KEY, X-Request-Id\r\n";
      ResponseStr += "Access-Control-Max-Age: 86400\r\n";
 
      /* Headers. */
@@ -4920,6 +4979,10 @@ static bool IsAdminOnlyRouteAction(RouteAction ActionVal)
              ActionVal == RouteAction::GetKey ||
              ActionVal == RouteAction::DeleteKey ||
              ActionVal == RouteAction::UpdateKey ||
+             ActionVal == RouteAction::ListPresets ||
+             ActionVal == RouteAction::UpsertPreset ||
+             ActionVal == RouteAction::GetPreset ||
+             ActionVal == RouteAction::DeletePreset ||
              ActionVal == RouteAction::ListUsers ||
              ActionVal == RouteAction::CreateUser ||
              ActionVal == RouteAction::GetUser ||
@@ -5039,6 +5102,16 @@ HttpResponse ProcessRequestWithAPI(SearchAPI &API, const HttpRequest &Request)
                if (APIKeyIt == Request.Headers.end())
                {
                     APIKeyIt = Request.Headers.find("x-api-key");
+               }
+
+               if (APIKeyIt == Request.Headers.end())
+               {
+                    APIKeyIt = Request.Headers.find("X-TYPESENSE-API-KEY");
+               }
+
+               if (APIKeyIt == Request.Headers.end())
+               {
+                    APIKeyIt = Request.Headers.find("x-typesense-api-key");
                }
 
                if (APIKeyIt != Request.Headers.end())
@@ -5498,6 +5571,18 @@ HttpResponse ProcessRequestWithAPI(SearchAPI &API, const HttpRequest &Request)
 
                case RouteAction::UpdateKey:
                     return API.HandleUpdateKey(Request);
+
+               case RouteAction::ListPresets:
+                    return API.HandleListPresets(Request);
+
+               case RouteAction::UpsertPreset:
+                    return API.HandleCreateOrUpdatePreset(Request);
+
+               case RouteAction::GetPreset:
+                    return API.HandleGetPreset(Request);
+
+               case RouteAction::DeletePreset:
+                    return API.HandleDeletePreset(Request);
 
                case RouteAction::AnalyticsClick:
                     return API.HandleAnalyticsClick(Request);

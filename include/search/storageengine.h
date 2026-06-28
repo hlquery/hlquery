@@ -48,6 +48,10 @@ class DBManager
 
      std::unique_ptr<rocksdb::DB> DBValue;
 
+     /* DBValueMutex serializes DB handle flush/sync operations with shutdown. */
+
+     mutable std::mutex DBValueMutex;
+
      /* OptionsValue stores RocksDB options. */
 
      rocksdb::Options OptionsValue;
@@ -86,6 +90,12 @@ class DBManager
      std::string LastWriteErrorCode;
      std::string LastWriteErrorMessage;
 
+     /* Stores details of the most recent flush or WAL sync failure. */
+
+     mutable std::mutex LastSyncErrorMutex;
+     std::string LastSyncErrorCode;
+     std::string LastSyncErrorMessage;
+
      /* Counters for oversized WAL entry rejections. */
 
      std::atomic<uint64_t> RejectedWALEntriesTotal{0};
@@ -99,6 +109,14 @@ class DBManager
      /* Clears stale write error state after successful validation. */
 
      void ClearLastWriteError();
+
+     /* Records durable sync failures for logs and status endpoints. */
+
+     void RecordSyncFailure(const char* operation, const std::string& code, const rocksdb::Status& status);
+
+     /* Clears stale sync failure state after a successful flush or sync operation. */
+
+     void ClearLastSyncError();
 
    public:
 
@@ -178,9 +196,9 @@ class DBManager
 
      std::string MakeKey(const std::string& key);
 
-     /* Flush flushes pending writes. */
+     /* Flush flushes pending writes and reports whether RocksDB accepted it. */
 
-     void Flush();
+     bool Flush();
 
      /* FlushAndSync flushes and syncs WAL. */
 

@@ -34,13 +34,6 @@
 #include "core/stats.h"
 #include "sql/sql.h"
 
-class HLQueryMetrics;
-class ListenManager;
-class ModuleManager;
-class SQLService;
-class ThreadPoolManager;
-class TimerManager;
-
 /* Global hlquery engine instance exported. */
 
 CoreExport extern hlquery* Instance;

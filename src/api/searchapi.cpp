@@ -1278,6 +1278,13 @@ std::string SearchAPI::ExtractSynonymIdFromPath(const std::string &Path)
           return Match[1].str();
      }
 
+     std::regex GlobalSynonymSetRegex(R"(/synonym_sets/global/(?:items/)?([^/]+))");
+
+     if (std::regex_search(Path, Match, GlobalSynonymSetRegex))
+     {
+          return Match[1].str();
+     }
+
      return "";
 }
 
@@ -1303,6 +1310,12 @@ std::string SearchAPI::ExtractStopwordFromPath(const std::string &Path)
           return Match[1].str();
      }
 
+     std::regex GlobalStopwordSetRegex(R"(/stopword_sets/global/(?:items/)?([^/]+))");
+     if (std::regex_search(Path, Match, GlobalStopwordSetRegex))
+     {
+          return Match[1].str();
+     }
+
      return "";
 }
 
@@ -1312,7 +1325,7 @@ std::string SearchAPI::ExtractOverrideIdFromPath(const std::string &Path)
 {
      /* Extract override ID from paths like /collections/{name}/overrides/{id}. */
 
-     std::regex OverrideRegex(R"(/collections/[^/]+/overrides/([^/]+))");
+     std::regex OverrideRegex(R"(/collections/[^/]+/(?:overrides|curations|curation_sets)/([^/]+))");
      std::smatch Match;
 
      if (std::regex_search(Path, Match, OverrideRegex))

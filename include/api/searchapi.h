@@ -940,6 +940,22 @@ class SearchAPI
 
      HttpResponse HandleUpdateKey(const HttpRequest& Request);
 
+     /* HandleListPresets handles search preset listing requests. */
+
+     HttpResponse HandleListPresets(const HttpRequest& Request);
+
+     /* HandleCreateOrUpdatePreset handles search preset upserts. */
+
+     HttpResponse HandleCreateOrUpdatePreset(const HttpRequest& Request);
+
+     /* HandleGetPreset handles search preset retrieval requests. */
+
+     HttpResponse HandleGetPreset(const HttpRequest& Request);
+
+     /* HandleDeletePreset handles search preset deletion requests. */
+
+     HttpResponse HandleDeletePreset(const HttpRequest& Request);
+
      /* HandleAnalyticsClick handles click analytics requests. */
 
      HttpResponse HandleAnalyticsClick(const HttpRequest& Request);

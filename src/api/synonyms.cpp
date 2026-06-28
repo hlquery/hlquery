@@ -55,12 +55,15 @@ static const char *kGlobalSynonymsCollection = "__global__";
 
 static bool IsGlobalSynonymsPath(const std::string &Path)
 {
-     return Path == "/synonyms/global" || Path.find("/synonyms/global/") == 0;
+     return Path == "/synonyms/global" ||
+            Path.find("/synonyms/global/") == 0 ||
+            Path == "/synonym_sets/global" ||
+            Path.find("/synonym_sets/global/") == 0;
 }
 
 static std::string ExtractGlobalSynonymId(const std::string &Path)
 {
-     std::regex GlobalSynonymRegex(R"(^/synonyms/global/([^/?]+))");
+     std::regex GlobalSynonymRegex(R"(^/(?:synonyms|synonym_sets)/global/(?:items/)?([^/?]+))");
      std::smatch Match;
 
      if (std::regex_search(Path, Match, GlobalSynonymRegex))
