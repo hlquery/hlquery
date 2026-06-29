@@ -50,6 +50,16 @@ static void LogUnknownModuleDispatchFailure(const RuntimeModule *Module, const c
      LogModuleDispatchFailure(Module, EventName, "unknown exception");
 }
 
+void ModuleManager::LogDispatchFailure(const RuntimeModule *Module, const char *EventName, const std::string &ErrorMessage)
+{
+     LogModuleDispatchFailure(Module, EventName, ErrorMessage);
+}
+
+void ModuleManager::LogUnknownDispatchFailure(const RuntimeModule *Module, const char *EventName)
+{
+     LogUnknownModuleDispatchFailure(Module, EventName);
+}
+
 /* Appends one candidate path only once after normalizing path syntax. */
 
 static void PushUniquePath(std::vector<std::filesystem::path> &Paths, const std::filesystem::path &PathValue)
@@ -105,15 +115,19 @@ static bool ModuleRuntimeNameMatchesRequest(const RuntimeModule &Module, const s
 void ModuleManager::SetDemoModeState(bool Active, const std::string &Message)
 {
      std::lock_guard<std::mutex> Lock(DemoStateMutex);
-     DemoModeActive = Active;
+
+     bool &ActiveState = DemoModeStaging ? StagedDemoModeActive : DemoModeActive;
+     std::string &MessageState = DemoModeStaging ? StagedDemoModeMessage : DemoModeMessage;
+
+     ActiveState = Active;
 
      if (Active)
      {
-          DemoModeMessage = Message;
+          MessageState = Message;
      }
      else
      {
-          DemoModeMessage.clear();
+          MessageState.clear();
      }
 }
 
@@ -245,7 +259,24 @@ bool ModuleManager::LoadModule(const ServerConfig &Config,
           return false;
      }
 
-     std::shared_ptr<RuntimeModule> Module(CreateFn());
+     std::shared_ptr<RuntimeModule> Module;
+
+     try
+     {
+          Module.reset(CreateFn());
+     }
+     catch (const std::exception &Ex)
+     {
+          dlclose(Handle);
+          ErrorMessage = "Module '" + ModuleName + "' threw during creation: " + std::string(Ex.what());
+          return false;
+     }
+     catch (...)
+     {
+          dlclose(Handle);
+          ErrorMessage = "Module '" + ModuleName + "' threw during creation: unknown exception.";
+          return false;
+     }
 
      if (!Module)
      {
@@ -591,8 +622,6 @@ std::string ModuleManager::ResolveModulePath(const ServerConfig &Config, const S
 bool ModuleManager::LoadConfiguredModules(const ServerConfig &Config, std::string &ErrorMessage)
 {
      std::vector<LoadedModule> StagedModules;
-     bool PreviousDemoModeActive = false;
-     std::string PreviousDemoModeMessage;
 
      {
           std::unique_lock<std::shared_mutex> Lock(ModulesMutex);
@@ -601,10 +630,9 @@ bool ModuleManager::LoadConfiguredModules(const ServerConfig &Config, std::strin
 
      {
           std::lock_guard<std::mutex> DemoLock(DemoStateMutex);
-          PreviousDemoModeActive = DemoModeActive;
-          PreviousDemoModeMessage = DemoModeMessage;
-          DemoModeActive = false;
-          DemoModeMessage.clear();
+          DemoModeStaging = true;
+          StagedDemoModeActive = false;
+          StagedDemoModeMessage.clear();
      }
 
      /* Any failure during staging rolls back only the newly opened handles. */
@@ -637,8 +665,9 @@ bool ModuleManager::LoadConfiguredModules(const ServerConfig &Config, std::strin
           StagedModules.clear();
 
           std::lock_guard<std::mutex> DemoLock(DemoStateMutex);
-          DemoModeActive = PreviousDemoModeActive;
-          DemoModeMessage = PreviousDemoModeMessage;
+          DemoModeStaging = false;
+          StagedDemoModeActive = false;
+          StagedDemoModeMessage.clear();
      };
 
      /* Modules are created, started, and validated off to the side before replacing the live registry. */
@@ -714,7 +743,26 @@ bool ModuleManager::LoadConfiguredModules(const ServerConfig &Config, std::strin
                return false;
           }
 
-          std::shared_ptr<RuntimeModule> Module(CreateFn());
+          std::shared_ptr<RuntimeModule> Module;
+
+          try
+          {
+               Module.reset(CreateFn());
+          }
+          catch (const std::exception &Ex)
+          {
+               dlclose(Handle);
+               ErrorMessage = "Module '" + ModuleName + "' threw during creation: " + std::string(Ex.what());
+               RollbackStagedModules();
+               return false;
+          }
+          catch (...)
+          {
+               dlclose(Handle);
+               ErrorMessage = "Module '" + ModuleName + "' threw during creation: unknown exception.";
+               RollbackStagedModules();
+               return false;
+          }
 
           if (!Module)
           {
@@ -801,6 +849,13 @@ bool ModuleManager::LoadConfiguredModules(const ServerConfig &Config, std::strin
           PreviousModules = std::move(Modules);
           Modules = std::move(StagedModules);
           RebuildHookRegistriesLocked();
+
+          std::lock_guard<std::mutex> DemoLock(DemoStateMutex);
+          DemoModeActive = StagedDemoModeActive;
+          DemoModeMessage = StagedDemoModeActive ? StagedDemoModeMessage : "";
+          DemoModeStaging = false;
+          StagedDemoModeActive = false;
+          StagedDemoModeMessage.clear();
      }
 
      UnloadModuleList(std::move(PreviousModules));

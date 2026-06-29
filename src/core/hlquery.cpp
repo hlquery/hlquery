@@ -62,7 +62,7 @@ hlquery *Instance = nullptr;
 
 int main(int argc, char **argv)
 {
-     Instance = new hlquery(argc, argv);
+     new hlquery(argc, argv);
      Instance->Run();
      delete Instance;
      Instance = nullptr;
