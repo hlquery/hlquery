@@ -48,6 +48,7 @@
 #include "core/modulemanager.h"
 #include "core/modules.h"
 #include "core/socketengine.h"
+#include "runtime/daemon.h"
 #include "runtime/threadlimit.h"
 #include "search/rfusion.h"
 #include "search/cstore.h"
@@ -967,6 +968,14 @@ HttpResponse SearchAPI::HandleHealth(const HttpRequest &Request)
      HealthJSON["auth_required"] = AuthEnabled;
      HealthJSON["demo_mode"] = DemoMode;
      HealthJSON["readonly_mode"] = DemoMode;
+     {
+          const auto DaemonStats = DaemonHandler::GetOptimizationStats();
+          HealthJSON["daemon"] = {
+               {"pressure_score", DaemonStats.pressure_score},
+               {"admission_open", DaemonStats.admission_open != 0},
+               {"lazy_interval", DaemonStats.lazy_interval},
+               {"maintenance_deferrals", DaemonStats.maintenance_deferrals}};
+     }
      if (!DemoMessage.empty())
      {
           HealthJSON["demo_message"] = DemoMessage;
@@ -1248,6 +1257,42 @@ HttpResponse SearchAPI::HandleStats(const HttpRequest &Request)
           StatsJSON["demo_mode"] = DemoMode;
           StatsJSON["readonly_mode"] = DemoMode;
           StatsJSON["io"] = BuildSocketIOStatsJSON();
+          {
+               const auto DaemonStats = DaemonHandler::GetOptimizationStats();
+               nlohmann::json DaemonJSON;
+               DaemonJSON["adaptive_sleep_ms"] = DaemonStats.adaptive_sleep_ms;
+               DaemonJSON["high_throughput_mode"] = DaemonStats.high_throughput_mode != 0;
+               DaemonJSON["consecutive_busy_iterations"] = DaemonStats.consecutive_busy_iterations;
+               DaemonJSON["consecutive_idle_iterations"] = DaemonStats.consecutive_idle_iterations;
+               DaemonJSON["last_event_count"] = DaemonStats.last_event_count;
+               DaemonJSON["current_event_count"] = DaemonStats.current_event_count;
+               DaemonJSON["events_delta"] = DaemonStats.events_delta;
+               DaemonJSON["lazy_processing_counter"] = DaemonStats.lazy_processing_counter;
+               DaemonJSON["batch_size"] = DaemonStats.batch_size;
+               DaemonJSON["lazy_interval"] = DaemonStats.lazy_interval;
+               DaemonJSON["pressure_score"] = DaemonStats.pressure_score;
+               DaemonJSON["admission_open"] = DaemonStats.admission_open != 0;
+               DaemonJSON["maintenance_runs"] = DaemonStats.maintenance_runs;
+               DaemonJSON["maintenance_deferrals"] = DaemonStats.maintenance_deferrals;
+               DaemonJSON["queues"] = {
+                    {"pending_actions", DaemonStats.pending_actions},
+                    {"http", DaemonStats.http_queue},
+                    {"search", DaemonStats.search_queue},
+                    {"write", DaemonStats.write_queue},
+                    {"management", DaemonStats.management_queue}};
+
+               nlohmann::json StageArray = nlohmann::json::array();
+               for (const auto &Stage : DaemonStats.stages)
+               {
+                    StageArray.push_back({
+                         {"name", Stage.name},
+                         {"runs", Stage.runs},
+                         {"deferrals", Stage.deferrals},
+                         {"last_runtime_us", Stage.last_runtime_us}});
+               }
+               DaemonJSON["stages"] = StageArray;
+               StatsJSON["daemon"] = DaemonJSON;
+          }
           if (!DemoMessage.empty())
           {
                StatsJSON["demo_message"] = DemoMessage;

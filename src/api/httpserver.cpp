@@ -54,7 +54,6 @@ static bool ExtractAuthTokenFromRequest(const HttpRequest &Request, std::string 
 static RouteAction ResolveRouteWithFallback(const HttpRequest &Request);
 static bool IsPublicRouteAction(RouteAction ActionVal);
 static bool IsAdminOnlyRouteAction(RouteAction ActionVal);
-static bool IsModuleControlRoute(const HttpRequest &Request);
 static std::string NormalizeRequestPath(const std::string &Path);
 static bool IsModuleControlRoutePath(const std::string &Path);
 static bool IsAuthorizedReplicationRequest(const HttpRequest &Request);
@@ -535,7 +534,6 @@ static bool ExtractAuthTokenFromRequest(const HttpRequest &Request, std::string 
 static RouteAction ResolveRouteWithFallback(const HttpRequest &Request);
 static bool IsPublicRouteAction(RouteAction ActionVal);
 static bool IsAdminOnlyRouteAction(RouteAction ActionVal);
-static bool IsModuleControlRoute(const HttpRequest &Request);
 APIKeyAction MapRouteToKeyAction(RouteAction ActionVal);
 
 /* HttpConnection implementation. */
@@ -4996,11 +4994,6 @@ static bool IsAdminOnlyRouteAction(RouteAction ActionVal)
              ActionVal == RouteAction::ModuleLoad ||
              ActionVal == RouteAction::ModuleUnload ||
              ActionVal == RouteAction::StorageStatus);
-}
-
-static bool IsModuleControlRoute(const HttpRequest &Request)
-{
-     return IsModuleControlRoutePath(NormalizeRequestPath(Request.Path));
 }
 
 static std::string NormalizeRequestPath(const std::string &Path)

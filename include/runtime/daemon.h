@@ -12,8 +12,11 @@
 
 #pragma once
 
+#include <array>
 #include <atomic>
+#include <cstddef>
 #include <cstdint>
+#include <string>
 
 #include "core/hlquery.h"
 
@@ -25,6 +28,8 @@
 class DaemonHandler
 {
    private:
+
+     static constexpr std::size_t StageCountValue = 5;
 
      /* Static optimization state variables */
 
@@ -56,7 +61,49 @@ class DaemonHandler
 
      static std::atomic<int> BatchSize;
 
+     /* Current adaptive lazy-maintenance interval. */
+
+     static std::atomic<int> LazyInterval;
+
+     /* Last computed daemon pressure score in the 0-100 range. */
+
+     static std::atomic<int> PressureScore;
+
+     /* Whether optional daemon work is currently being admitted. */
+
+     static std::atomic<int> AdmissionOpenValue;
+
+     /* Total optional maintenance runs admitted by the scheduler. */
+
+     static std::atomic<uint64_t> MaintenanceRuns;
+
+     /* Total optional maintenance runs deferred by admission control. */
+
+     static std::atomic<uint64_t> MaintenanceDeferrals;
+
+     static std::array<std::atomic<uint64_t>, StageCountValue> StageRuns;
+     static std::array<std::atomic<uint64_t>, StageCountValue> StageDeferrals;
+     static std::array<std::atomic<int>, StageCountValue> StageLastRuntimeUS;
+
    public:
+
+     enum DaemonStage : std::size_t
+     {
+          StageSocketPacing = 0,
+          StageLazyMaintenance,
+          StageStorageHealth,
+          StageQueryPressure,
+          StageCompactionPressure,
+          StageCount
+     };
+
+     struct StageStats
+     {
+          std::string name;
+          uint64_t runs;
+          uint64_t deferrals;
+          int last_runtime_us;
+     };
 
      /* Stores runtime counters used to track adaptive sleep behavior
       * and daemon throughput adjustments.
@@ -73,6 +120,17 @@ class DaemonHandler
           int events_delta;
           uint64_t lazy_processing_counter;
           int batch_size;
+          int lazy_interval;
+          int pressure_score;
+          int admission_open;
+          uint64_t maintenance_runs;
+          uint64_t maintenance_deferrals;
+          size_t pending_actions;
+          size_t http_queue;
+          size_t search_queue;
+          size_t write_queue;
+          size_t management_queue;
+          std::array<StageStats, StageCountValue> stages;
      };
 
      /* Constructor */

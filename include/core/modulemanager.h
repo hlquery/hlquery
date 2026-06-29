@@ -17,7 +17,6 @@
 #include <ctime>
 #include <exception>
 #include <functional>
-#include <iostream>
 #include <memory>
 #include <mutex>
 #include <shared_mutex>
@@ -173,6 +172,18 @@ class ModuleManager
 
     std::string DemoModeMessage;
 
+    /* Indicates that a config reload is collecting demo state from staged modules */
+
+    bool DemoModeStaging = false;
+
+    /* Demo mode state produced by modules being staged during config reload */
+
+    bool StagedDemoModeActive = false;
+
+    /* User-visible reason produced by staged modules during config reload */
+
+    std::string StagedDemoModeMessage;
+
     /* 
      * Releases retired modules whose handles can now be cleaned up.
      * This finalizes deferred unload work after the active lists are updated.
@@ -238,9 +249,17 @@ class ModuleManager
 
      /* 
       * Finds one loaded module and returns both the instance and execution state.
-      */
+     */
 
      bool GetModuleReference(const std::string& Name, ModuleReference* Module) const;
+
+     /* Records one module hook failure through the module manager logger. */
+
+     static void LogDispatchFailure(const RuntimeModule* Module, const char* EventName, const std::string& ErrorMessage);
+
+     /* Records one module hook failure when the exception type is unknown. */
+
+     static void LogUnknownDispatchFailure(const RuntimeModule* Module, const char* EventName);
 
      /*
       * Runs a pre-check callback for each module in a snapshot.
@@ -273,14 +292,12 @@ class ModuleManager
                catch (const std::exception& Ex)
                {
                     EndModuleCallback(Module);
-                    const std::string ModuleName = Module.Instance ? Module.Instance->GetName() : "unknown";
-                    std::cerr << "Module '" << ModuleName << "' threw during " << EventName << ": " << Ex.what() << std::endl;
+                    LogDispatchFailure(Module.Instance.get(), EventName, Ex.what());
                }
                catch (...)
                {
                     EndModuleCallback(Module);
-                    const std::string ModuleName = Module.Instance ? Module.Instance->GetName() : "unknown";
-                    std::cerr << "Module '" << ModuleName << "' threw during " << EventName << ": unknown exception" << std::endl;
+                    LogUnknownDispatchFailure(Module.Instance.get(), EventName);
                }
           }
 
