@@ -68,6 +68,11 @@ class Parser
      bool MatchKeyword(const std::string &keyword);
      bool IsClauseKeyword(const std::string &keyword) const;
      bool PeekStartsClause() const;
+     static bool CanReadClause(const std::string &clause_name,
+                               int clause_rank,
+                               int &current_rank,
+                               std::set<std::string> &seen_clauses,
+                               std::string &error);
 
      bool ParseSelectList(SQLTranslationResult &result);
      bool ParseCollection(SQLTranslationResult &result);

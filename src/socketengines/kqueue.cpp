@@ -25,7 +25,9 @@
 #include <vector>
 
 #include "common/actionlist.h"
+#include "core/config.h"
 #include "core/hlquery.h"
+#include "core/logmanager.h"
 #include "core/socketengine.h"
 
 #if defined(__APPLE__) || defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__) || defined(__DragonFly__)
@@ -97,7 +99,7 @@ static int GetTimedWorkWakeupMs()
           }
      }
 
-     return 1000;
+     return SOCKET_ENGINE_TIMED_WORK_FALLBACK_MS;
 }
 
 static bool ApplyKevent(int kq, int fd, int16_t filter, uint16_t flags)
@@ -335,21 +337,23 @@ void SocketEngine::DelFD(EventHandler *EH)
 
 int SocketEngine::DispatchEvents()
 {
+     const bool ShutdownRequested = hlquery::ShouldShutdown() || hlquery::ShouldForceExit();
+
      if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
      {
-          Instance->Logs->Debug("socketengine", "DispatchEvents: ENTRY (FDToHandler.size()=" + std::to_string(FDToHandler.size()) + ", ShuttingDown=" + std::to_string(ShuttingDown) + ", ForceExit=" + std::to_string(ForceExit) + ").");
+          Instance->Logs->Debug("socketengine", "DispatchEvents: ENTRY (FDToHandler.size()=" + std::to_string(FDToHandler.size()) + ", ShuttingDown=" + std::to_string(hlquery::GetSignalShutdownState()) + ", ForceExit=" + std::to_string(hlquery::GetForceExitState()) + ").");
      }
 
      if (FDToHandler.empty())
      {
-          if (ShuttingDown || ForceExit)
+          if (ShutdownRequested)
           {
                return 0;
           }
           return 0;
      }
 
-     if (ShuttingDown || ForceExit)
+     if (ShutdownRequested)
      {
           return 0;
      }
@@ -357,8 +361,8 @@ int SocketEngine::DispatchEvents()
      int timeout_ms = -1;
      if (HasPendingWork())
      {
-          timeout_ms = 0;
-          CurrentTimeoutMS.store(0, std::memory_order_relaxed);
+          timeout_ms = KQUEUE_PENDING_WORK_TIMEOUT_MS;
+          CurrentTimeoutMS.store(KQUEUE_PENDING_WORK_TIMEOUT_MS, std::memory_order_relaxed);
      }
      else
      {
@@ -460,7 +464,7 @@ void SocketEngine::DispatchTrialWrites()
           SocketEngine::PendingWritesCount.store(0, std::memory_order_relaxed);
      }
 
-     const size_t BatchSize = 256;
+     const size_t BatchSize = KQUEUE_BATCH_SIZE;
 
      for (size_t batch_start = 0; batch_start < WriteCandidates.size(); batch_start += BatchSize)
      {
@@ -568,21 +572,21 @@ void SocketEngine::AdaptTimeout()
      uint64_t CurrentConnectionsValue = ActiveConnections.load();
      int NewTimeoutValue = -1;
 
-     if (CurrentConnectionsValue > 10000)
+     if (CurrentConnectionsValue > SOCKET_ENGINE_ULTRA_HIGH_LOAD_CONNECTIONS)
      {
-          NewTimeoutValue = 0;
+          NewTimeoutValue = SOCKET_ENGINE_ULTRA_HIGH_LOAD_TIMEOUT_MS;
      }
-     else if (CurrentConnectionsValue > 5000)
+     else if (CurrentConnectionsValue > SOCKET_ENGINE_HIGH_LOAD_CONNECTIONS)
      {
-          NewTimeoutValue = 1;
+          NewTimeoutValue = SOCKET_ENGINE_HIGH_LOAD_TIMEOUT_MS;
      }
-     else if (CurrentConnectionsValue > 1000)
+     else if (CurrentConnectionsValue > SOCKET_ENGINE_MEDIUM_LOAD_CONNECTIONS)
      {
-          NewTimeoutValue = 5;
+          NewTimeoutValue = SOCKET_ENGINE_MEDIUM_LOAD_TIMEOUT_MS;
      }
-     else if (CurrentConnectionsValue > 100)
+     else if (CurrentConnectionsValue > SOCKET_ENGINE_LOW_MEDIUM_LOAD_CONNECTIONS)
      {
-          NewTimeoutValue = 10;
+          NewTimeoutValue = SOCKET_ENGINE_LOW_MEDIUM_LOAD_TIMEOUT_MS;
      }
 
      CurrentTimeoutMS.store(NewTimeoutValue);

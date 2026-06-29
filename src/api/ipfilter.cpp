@@ -260,11 +260,8 @@ bool IPFilter::Initialize(const std::string &AllowedIPsConfig, const std::string
                     if (IsWildcardHostname(Entry))
                     {
                          DeniedWildcardHostnames.push_back(Entry);
-
                          HasDenyEntries = true;
-
                          HasDenyWildcardHostnames = true;
-
                          HasDenyHostnames = true;
 
                          if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
@@ -278,11 +275,8 @@ bool IPFilter::Initialize(const std::string &AllowedIPsConfig, const std::string
                     if (IsHostname(Entry))
                     {
                          DeniedRegularHostnames.push_back(Entry);
-
                          HasDenyEntries = true;
-
                          HasDenyHostnames = true;
-
                          std::vector<std::string> ResolvedIPs;
 
                          if (ResolveHostname(Entry, ResolvedIPs, true))
@@ -652,8 +646,9 @@ void IPFilter::FlushDNSCache()
      {
           std::lock_guard<std::mutex> CacheLock(CacheMutex);
 
-          DNSCount = DNSCache.size();
-          ReverseCount = ReverseDNSCache.size();
+          DNSCount 	   =   DNSCache.size();
+          ReverseCount     =   ReverseDNSCache.size();
+ 
           DNSCache.clear();
           ReverseDNSCache.clear();
           DNSCacheOrder.clear();
@@ -795,21 +790,15 @@ bool IPFilter::ResolveHostname(const std::string &Hostname, std::vector<std::str
           if (It != DNSCache.end())
           {
                ResolvedIPs = It->second;
-
                return !ResolvedIPs.empty();
           }
      }
 
      struct addrinfo Hints;
-
      struct addrinfo *Result = nullptr;
-
      std::memset(&Hints, 0, sizeof(Hints));
-
      Hints.ai_family = AF_INET;
-
      Hints.ai_socktype = SOCK_STREAM;
-
      int StatusVal = getaddrinfo(Hostname.c_str(), nullptr, &Hints, &Result);
 
      if (StatusVal != 0)
@@ -862,7 +851,6 @@ bool IPFilter::ResolveHostname(const std::string &Hostname, std::vector<std::str
           }
 
           DNSCache[Hostname] = ResolvedIPs;
-
           DNSCacheOrder.push_back(Hostname);
      }
 
@@ -899,7 +887,6 @@ bool IPFilter::IsHostname(const std::string &StrVal) const
 bool IPFilter::IsValidIP(const std::string &IP) const
 {
      struct sockaddr_in SA;
-
      return inet_pton(AF_INET, IP.c_str(), &(SA.sin_addr)) == 1;
 }
 
@@ -967,9 +954,7 @@ bool IPFilter::IsIPInCIDR(const std::string &IP, const std::string &CIDR) const
      }
 
      uint32_t Network = ntohl(NetworkAddr.sin_addr.s_addr);
-
      uint32_t Address = ntohl(IPAddr.sin_addr.s_addr);
-
      uint32_t Mask = (0xFFFFFFFF << (32 - MaskBits)) & 0xFFFFFFFF;
 
      return (Address & Mask) == (Network & Mask);
@@ -996,7 +981,6 @@ bool IPFilter::MatchWildcardHostname(const std::string &Hostname, const std::str
           if (!Suffix.empty() && Hostname.length() > Suffix.length())
           {
                std::string HostnameSuffix = Hostname.substr(Hostname.length() - Suffix.length());
-
                return HostnameSuffix == Suffix && Hostname[Hostname.length() - Suffix.length() - 1] == '.';
           }
      }
@@ -1050,7 +1034,6 @@ std::string IPFilter::ReverseDNS(const std::string &IP) const
           if (ReverseDNSCache.size() >= DNSCacheMaxSize)
           {
                ReverseDNSCache.clear();
-
                ReverseDNSCacheOrder.clear();
 
                if (Instance && Instance->Logs)

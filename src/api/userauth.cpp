@@ -29,8 +29,6 @@
 #include "utils/consolewriter.h"
 #include "utils/infos.h"
 
-namespace
-{
 constexpr size_t kMaxUserNameLen = 256;
 constexpr size_t kMaxUserTokenLen = 1024;
 constexpr size_t kMaxUserDescLen = 4096;
@@ -39,7 +37,7 @@ constexpr size_t kMaxUsersDatSize = 64 * 1024 * 1024;
 
 /* WriteFileAtomic writes data to a temp file, fsyncs, then renames into place. */
 
-bool WriteFileAtomic(const std::string &FilePath, const std::string &Contents)
+static bool WriteFileAtomic(const std::string &FilePath, const std::string &Contents)
 {
      std::error_code EC;
 
@@ -119,7 +117,6 @@ std::string GetUsersEncryptionKey()
      }
 
      return "hlquery-users-acl-encryption-key-v1";
-}
 }
 /* Initialize initializes UserAuthManager. */
 

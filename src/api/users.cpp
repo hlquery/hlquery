@@ -107,7 +107,9 @@ static std::set<UserFlag> ParseFlags(const json &FlagsValue, std::string &ErrorM
                {
                     continue;
                }
+           
                AddFlag(Item);
+           
                if (!ErrorMsg.empty())
                {
                     return {};
@@ -123,7 +125,9 @@ static std::set<UserFlag> ParseFlags(const json &FlagsValue, std::string &ErrorM
                     ErrorMsg = "Flags must be strings";
                     return {};
                }
+           
                AddFlag(FlagVal.get<std::string>());
+           
                if (!ErrorMsg.empty())
                {
                     return {};
@@ -211,6 +215,7 @@ HttpResponse SearchAPI::HandleCreateUser(const HttpRequest &Request)
      }
 
      json Body;
+
      try
      {
           Body = json::parse(Request.Body.empty() ? "{}" : Request.Body);
@@ -279,6 +284,7 @@ HttpResponse SearchAPI::HandleCreateUser(const HttpRequest &Request)
      }
 
      std::string Description = "";
+
      if (Body.contains("description") && Body["description"].is_string())
      {
           Description = Body["description"].get<std::string>();
@@ -422,6 +428,7 @@ HttpResponse SearchAPI::HandleUpdateUser(const HttpRequest &Request)
      }
 
      std::string ErrorMsg;
+
      if (Body.contains("flags"))
      {
           auto Flags = ParseFlags(Body["flags"], ErrorMsg);
@@ -429,19 +436,23 @@ HttpResponse SearchAPI::HandleUpdateUser(const HttpRequest &Request)
           {
                return MakeJSONResponse(400, "Bad Request", "{\"error\":\"" + ErrorMsg + "\"}");
           }
+
           Updated.Flags = Flags;
      }
 
      bool IncludeToken = false;
+
      if (Body.contains("token") && Body["token"].is_string())
      {
           std::string Token = Body["token"].get<std::string>();
+
           if (!Token.empty() && Token != Updated.Token)
           {
                if (Instance->Users->IsValidToken(Token))
                {
                     return MakeJSONResponse(409, "Conflict", "{\"error\":\"Token already in use\"}");
                }
+               
                Updated.Token = Token;
                IncludeToken = true;
           }

@@ -19,8 +19,6 @@
 #include "core/logmanager.h"
 #include "utils/consolewriter.h"
 
-namespace
-{
 #ifdef HLQUERY_HAS_OPENSSL
 void EnsureOpenSSLInitialized()
 {
@@ -38,7 +36,6 @@ void EnsureOpenSSLInitialized()
      }
 }
 #endif
-}
 /* Validate SSL settings without binding sockets (preflight). */
 
 bool ValidateSSLConfig(const BindConfig &Config, std::string *ErrorMsg)
@@ -150,7 +147,7 @@ bool ValidateSSLConfig(const BindConfig &Config, std::string *ErrorMsg)
 
 /* InitializeHttpServer initializes and starts the HTTP server. */
 
-bool InitializeHttpServer(const BindConfig &Config, HttpServer *&HttpServerPtr, LogManager *LogsPtr)
+bool InitializeHttpServer(const BindConfig &Config, HttpServer *&HttpServerPtr)
 {
 #ifdef HLQUERY_HAS_OPENSSL
      EnsureOpenSSLInitialized();
@@ -182,9 +179,9 @@ bool InitializeHttpServer(const BindConfig &Config, HttpServer *&HttpServerPtr, 
 
           if (!ServerObj->Start())
           {
-               if (LogsPtr)
+               if (Instance && Instance->Logs)
                {
-                    LogsPtr->Normal("hlquery", "Failed to start HTTP server on port " + std::to_string(Config.port) + ".");
+                    Instance->Logs->Normal("hlquery", "Failed to start HTTP server on port " + std::to_string(Config.port) + ".");
                }
 
                ConsoleWriter::WriteError("[FATAL] Failed to start HTTP server on port " + std::to_string(Config.port) + " (" + Config.type + ").", true);
@@ -196,9 +193,9 @@ bool InitializeHttpServer(const BindConfig &Config, HttpServer *&HttpServerPtr, 
 
           HttpServerPtr = NewServer;
 
-          if (LogsPtr)
+          if (Instance && Instance->Logs)
           {
-               LogsPtr->Normal("hlquery", "HTTP server started on port " + std::to_string(Config.port) + ".");
+               Instance->Logs->Normal("hlquery", "HTTP server started on port " + std::to_string(Config.port) + ".");
           }
 
           return true;
@@ -212,9 +209,9 @@ bool InitializeHttpServer(const BindConfig &Config, HttpServer *&HttpServerPtr, 
                NewServer = nullptr;
           }
 
-          if (LogsPtr)
+          if (Instance && Instance->Logs)
           {
-               LogsPtr->Normal("hlquery", "Exception starting HTTP server: " + std::string(E.what()) + ".");
+               Instance->Logs->Normal("hlquery", "Exception starting HTTP server: " + std::string(E.what()) + ".");
           }
 
           if (HttpServerPtr)
@@ -235,9 +232,9 @@ bool InitializeHttpServer(const BindConfig &Config, HttpServer *&HttpServerPtr, 
                NewServer = nullptr;
           }
 
-          if (LogsPtr)
+          if (Instance && Instance->Logs)
           {
-               LogsPtr->Normal("hlquery", "Unknown exception starting HTTP server.");
+               Instance->Logs->Normal("hlquery", "Unknown exception starting HTTP server.");
           }
 
           if (HttpServerPtr)

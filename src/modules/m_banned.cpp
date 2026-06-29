@@ -25,8 +25,6 @@
 #include "utils/protocol.h"
 #include "vendor/json/json.hpp"
 
-namespace
-{
 /* Empty seed set that users can leave unchanged if they want no defaults. */
 
 const std::vector<std::string> EmptySeedWords = {};
@@ -90,7 +88,6 @@ const std::vector<std::string> &GetSupportedScopes()
           "alias"};
 
      return scopes;
-}
 }
 class BannedRuntimeModule final : public AutoRuntimeModule<BannedRuntimeModule>
 {

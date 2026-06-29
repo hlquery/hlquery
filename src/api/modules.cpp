@@ -21,12 +21,9 @@
 #include "utils/protocol.h"
 #include "vendor/json/json.hpp"
 
-namespace
-{
 std::string NormalizeModulePath(const std::string &Path)
 {
      std::string normalized_path = Path;
-
      const size_t query_pos = normalized_path.find('?');
 
      if (query_pos != std::string::npos)
@@ -149,6 +146,7 @@ std::string ExtractControlledModuleName(const HttpRequest &Request)
           }
           catch (...)
           {
+
           }
      }
 
@@ -158,6 +156,7 @@ std::string ExtractControlledModuleName(const HttpRequest &Request)
 std::string ExtractAuthTokenFromRequest(const HttpRequest &Request)
 {
      auto AuthIt = Request.Headers.find("Authorization");
+
      if (AuthIt == Request.Headers.end())
      {
           AuthIt = Request.Headers.find("authorization");
@@ -297,7 +296,6 @@ nlohmann::json BuildModuleWithCommandsJSON(const ModuleAPIDescription &Descripti
      }
 
      return module_json;
-}
 }
 HttpResponse SearchAPI::HandleListModules(const HttpRequest &Request)
 {
@@ -453,7 +451,7 @@ HttpResponse SearchAPI::HandleModuleLoad(const HttpRequest &Request)
 
      std::string ErrorMessage;
 
-     if (!Instance->Modules->LoadModule(*Instance->Config, target_module, Instance->Logs.get(), ErrorMessage))
+     if (!Instance->Modules->LoadModule(*Instance->Config, target_module, ErrorMessage))
      {
           return BuildErrorResponse(Status::BAD_REQUEST,
                                     MODULE_UNAVAILABLE,
@@ -498,7 +496,7 @@ HttpResponse SearchAPI::HandleModuleUnload(const HttpRequest &Request)
 
      std::string ErrorMessage;
 
-     if (!Instance->Modules->UnloadModule(target_module, Instance->Logs.get(), ErrorMessage))
+     if (!Instance->Modules->UnloadModule(target_module, ErrorMessage))
      {
           return BuildErrorResponse(Status::BAD_REQUEST,
                                     MODULE_UNAVAILABLE,

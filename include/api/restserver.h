@@ -108,7 +108,7 @@ class RestServer
 
      bool isRunning() const
      {
-          return running_;
+          return RunningState;
      }
 
      /* Attach the database used by route handlers. */
@@ -167,7 +167,7 @@ class RestServer
 
      /* Running state flag */
 
-     bool running_;
+     bool RunningState;
 
      /* Database dependency used by handlers */
 

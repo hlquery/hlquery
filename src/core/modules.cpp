@@ -140,6 +140,7 @@ static void ParseJSONBodyParameters(const std::string &Body, ModuleCommandReques
      }
      catch (...)
      {
+
      }
 }
 /* Returns the storage prefix reserved for this module. */

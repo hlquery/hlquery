@@ -17,10 +17,8 @@
 #include <iomanip>
 #include <iostream>
 #include <limits>
-#include <deque>
 #include <list>
 #include <map>
-#include <mutex>
 #include <sstream>
 #include <string>
 #include <unordered_map>
@@ -33,157 +31,9 @@
 #include "api/searchcache.h"
 #include "core/hlquery.h"
 #include "core/modulemanager.h"
-#include "sam/sam.h"
 #include "sql/sql.h"
 #include "utils/protocol.h"
 #include "vendor/json/json.hpp"
-
-namespace
-{
-     class SAMTrainingDedupe
-     {
-       public:
-         explicit SAMTrainingDedupe(size_t MaxEntries)
-             : Max(MaxEntries)
-         {
-         }
-
-         bool ShouldAllow(const std::string& Key, uint64_t NowMS, uint64_t WindowMS)
-         {
-              if (WindowMS == 0 || Key.empty())
-              {
-                   return true;
-              }
-
-              std::lock_guard<std::mutex> Lock(Mutex);
-
-              auto It = LastSeen.find(Key);
-              if (It != LastSeen.end())
-              {
-                   if (NowMS >= It->second && (NowMS - It->second) < WindowMS)
-                   {
-                        return false;
-                   }
-                   It->second = NowMS;
-                   return true;
-              }
-
-              LastSeen.emplace(Key, NowMS);
-              Order.push_back(Key);
-
-              while (Order.size() > Max)
-              {
-                   LastSeen.erase(Order.front());
-                   Order.pop_front();
-              }
-
-              return true;
-         }
-
-       private:
-         const size_t Max;
-         std::mutex Mutex;
-         std::unordered_map<std::string, uint64_t> LastSeen;
-         std::deque<std::string> Order;
-     };
-
-     static SAMTrainingDedupe gSearchIdeaDedupe(16384);
-
-     std::string NormalizeControlToken(std::string Value)
-     {
-          const size_t Start = Value.find_first_not_of(" \t\r\n");
-
-          if (Start == std::string::npos)
-          {
-               return "";
-          }
-
-          const size_t End = Value.find_last_not_of(" \t\r\n");
-          Value = Value.substr(Start, End - Start + 1);
-
-          std::transform(Value.begin(), Value.end(), Value.begin(),
-                         [](unsigned char C)
-                         {
-                              return static_cast<char>(std::tolower(C));
-                         });
-
-          return Value;
-     }
-
-     bool IsTruthyControlToken(const std::string& Value)
-     {
-          const std::string Token = NormalizeControlToken(Value);
-          return Token == "1" || Token == "true" || Token == "yes" || Token == "on" || Token == "skip";
-     }
-
-     bool IsFalsyControlToken(const std::string& Value)
-     {
-          const std::string Token = NormalizeControlToken(Value);
-          return Token == "0" || Token == "false" || Token == "no" || Token == "off";
-     }
-
-     bool ShouldSkipSAMRecording(const HttpRequest& Request)
-     {
-          const auto SkipIt = Request.QueryParams.find("skip");
-          if (SkipIt != Request.QueryParams.end() && IsTruthyControlToken(SkipIt->second))
-          {
-               return true;
-          }
-
-          const auto SkipRecordIt = Request.QueryParams.find("skip_record");
-          if (SkipRecordIt != Request.QueryParams.end() && IsTruthyControlToken(SkipRecordIt->second))
-          {
-               return true;
-          }
-
-          const auto NoRecordIt = Request.QueryParams.find("no_record");
-          if (NoRecordIt != Request.QueryParams.end() && IsTruthyControlToken(NoRecordIt->second))
-          {
-               return true;
-          }
-
-          const auto RecordIt = Request.QueryParams.find("record");
-          if (RecordIt != Request.QueryParams.end() && IsFalsyControlToken(RecordIt->second))
-          {
-               return true;
-          }
-
-          auto HeaderIt = Request.Headers.find("X-HLQ-Skip-SAM-Record");
-          if (HeaderIt == Request.Headers.end())
-          {
-               HeaderIt = Request.Headers.find("x-hlq-skip-sam-record");
-          }
-
-          return HeaderIt != Request.Headers.end() && IsTruthyControlToken(HeaderIt->second);
-     }
-
-     bool ShouldRecordSAMSearchIdea(const HttpRequest& Request,
-                                   const std::string& Collection,
-                                   const std::string& Query)
-     {
-          if (ShouldSkipSAMRecording(Request))
-          {
-               return false;
-          }
-
-          if (!Instance || !Instance->Config || !Instance->Config->GetSamRecordSearchIdeas())
-          {
-               return false;
-          }
-
-          const int WindowMs = Instance->Config->GetSamSearchIdeaDedupeWindowMs();
-          if (WindowMs <= 0)
-          {
-               return true;
-          }
-
-          const uint64_t NowMS = static_cast<uint64_t>(NowMs());
-          const uint64_t WindowMS = static_cast<uint64_t>(WindowMs);
-          const std::string ActorKey = Request.APIKeyID.empty() ? Request.RemoteAddress : Request.APIKeyID;
-          const std::string Key = ActorKey + "\n" + Collection + "\n" + Query;
-          return gSearchIdeaDedupe.ShouldAllow(Key, NowMS, WindowMS);
-     }
-}
 
 /* Stores the maybe-suggestion policy for a document search response. */
 
@@ -228,42 +78,6 @@ static float ScoreForMergedHit(const SearchHit &Hit)
      const float base_score = Hit.HybridScore > 0.0f ? Hit.HybridScore : (Hit.VectorScore > 0.0f ? Hit.VectorScore : Hit.TextMatch);
      const float weight = (std::isfinite(Hit.Weight) && Hit.Weight > 0.0f) ? Hit.Weight : 1.0f;
      return base_score * weight;
-}
-
-static std::vector<SAM::SearchIdeaDocumentRef> BuildSAMSearchIdeaDocuments(const std::vector<SearchHit> &Hits,
-                                                                           size_t MaxDocuments = 6)
-{
-     std::vector<SAM::SearchIdeaDocumentRef> Documents;
-     std::unordered_set<std::string> Seen;
-
-     for (const auto &Hit : Hits)
-     {
-          auto IDIt = Hit.Document.find("id");
-
-          if (IDIt == Hit.Document.end() || IDIt->second.empty() || !Seen.insert(IDIt->second).second)
-          {
-               continue;
-          }
-
-          SAM::SearchIdeaDocumentRef Document;
-          Document.DocumentID = IDIt->second;
-
-          auto TitleIt = Hit.Document.find("title");
-          if (TitleIt != Hit.Document.end())
-          {
-               Document.Title = TitleIt->second;
-          }
-
-          Document.Score = std::max(0.05f, ScoreForMergedHit(Hit));
-          Documents.push_back(std::move(Document));
-
-          if (Documents.size() >= MaxDocuments)
-          {
-               break;
-          }
-     }
-
-     return Documents;
 }
 
 /* Parses an optional integer parameter used by maybe-suggestion settings. */
@@ -1704,17 +1518,23 @@ HttpResponse SearchAPI::HandleSearch(const HttpRequest &Request)
 
      std::unordered_map<std::string, std::string> Params;
 
-     /* GET requests consume query parameters, while POST requests consume JSON bodies. */
+     /* Query-string parameters apply to both methods. JSON body values override them. */
+
+     Params.insert(Request.QueryParams.begin(), Request.QueryParams.end());
 
      if (Request.Method == "GET")
      {
-          Params.insert(Request.QueryParams.begin(), Request.QueryParams.end());
+          /* Query parameters were copied above. */
      }
      else
      {
           try
           {
-               Params = ParseSearchParamsFromJSON(Request.Body);
+               const auto BodyParams = ParseSearchParamsFromJSON(Request.Body);
+               for (const auto &Param : BodyParams)
+               {
+                    Params[Param.first] = Param.second;
+               }
           }
           catch (...)
           {
@@ -1837,6 +1657,31 @@ HttpResponse SearchAPI::HandleSearch(const HttpRequest &Request)
      }
 
      ComprehensiveSearchQuery SearchQueryObj = ParseComprehensiveSearchQuery(Params);
+     bool RequestCacheEnabled = true;
+     if (Instance && Instance->Config)
+     {
+          if (!Params.count("enable_synonyms"))
+          {
+               SearchQueryObj.EnableSynonyms = Instance->Config->GetQuerySettingsEnableSynonyms();
+          }
+          if (!Params.count("enable_stopwords"))
+          {
+               SearchQueryObj.EnableStopwords = Instance->Config->GetQuerySettingsEnableStopwords();
+          }
+
+          RequestCacheEnabled = Instance->Config->GetSearchOptionsRequestCache();
+          SearchResponseCache::Configure(
+               static_cast<uint64_t>(Instance->Config->GetPerformanceCacheTtlSeconds()) * 1000ULL,
+               static_cast<size_t>(Instance->Config->GetPerformanceMaxCacheSizeMb()) * 1024ULL * 1024ULL);
+     }
+     const auto RequestCacheIt = Params.find("request_cache");
+     if (RequestCacheIt != Params.end())
+     {
+          std::string Value = RequestCacheIt->second;
+          std::transform(Value.begin(), Value.end(), Value.begin(),
+                         [](unsigned char Ch) { return static_cast<char>(std::tolower(Ch)); });
+          RequestCacheEnabled = Value == "1" || Value == "true" || Value == "yes" || Value == "on";
+     }
      const bool IsGroupedSQLQuery = SQLApplyResult.Translation.Valid && SQLApplyResult.Translation.GroupedAggregates;
      const bool IsAggregateOnlySQLQuery = SQLApplyResult.Translation.Valid && SQLApplyResult.Translation.AggregateOnly;
      const bool IsDistinctSQLQuery = SQLApplyResult.Translation.Valid && SQLApplyResult.Translation.Distinct &&
@@ -1913,7 +1758,8 @@ HttpResponse SearchAPI::HandleSearch(const HttpRequest &Request)
                                               (SearchQueryObj.Aggregations.empty() || HasExplicitDistributedOverride);
 
      HttpResponse CachedResponse;
-     if (!NeedsCustomSQLExecution &&
+     const uint64_t SearchCacheGeneration = SearchResponseCache::GetGeneration(CollectionName);
+     if (RequestCacheEnabled && !NeedsCustomSQLExecution &&
          SearchResponseCache::Get("search", Request, CollectionName, CachedResponse))
      {
           return CachedResponse;
@@ -1932,25 +1778,10 @@ HttpResponse SearchAPI::HandleSearch(const HttpRequest &Request)
                ApplySQLDistinct(SearchResultObj, SQLApplyResult.Translation);
                Response.Body = GenerateComprehensiveSearchResponse(SearchResultObj, SearchQueryObj);
                AttachSearchResponseMeta(Response, SearchQueryObj, Request, CollectionName);
-               SearchResponseCache::Put("search", Request, CollectionName, Response);
-
-               if (!SearchQueryObj.Q.empty() && SearchQueryObj.Q != "*" &&
-                   Instance && Instance->Sam && Instance->Sam->IsOpen() &&
-                   ShouldRecordSAMSearchIdea(Request, CollectionName, SearchQueryObj.Q))
+               if (RequestCacheEnabled)
                {
-                    const auto IdeaDocuments = BuildSAMSearchIdeaDocuments(SearchResultObj.Hits);
-                    if (Instance->Sam->RecordSearchIdea(CollectionName, SearchQueryObj.Q, IdeaDocuments))
-                    {
-                         FOREACH_MOD(OnSamSearch,
-                                     CollectionName,
-                                     SearchQueryObj.Q,
-                                     static_cast<uint64_t>(IdeaDocuments.size()),
-                                     Request.RemoteAddress,
-                                     Request.APIKeyID,
-                                     !Request.APIKeyID.empty());
-                    }
+                    SearchResponseCache::Put("search", Request, CollectionName, Response, SearchCacheGeneration);
                }
-
                /* Analytics fire for the final distributed response the same as local results. */
 
                if (SearchQueryObj.EnableAnalytics)
@@ -2080,24 +1911,6 @@ HttpResponse SearchAPI::HandleSearch(const HttpRequest &Request)
      AttachSearchResponseMeta(Response, SearchQueryObj, Request, CollectionName);
 
      /* Analytics are emitted after the response body is finalized so counts match the payload. */
-
-     if (!SearchQueryObj.Q.empty() && SearchQueryObj.Q != "*" &&
-         Instance && Instance->Sam && Instance->Sam->IsOpen() &&
-         ShouldRecordSAMSearchIdea(Request, CollectionName, SearchQueryObj.Q))
-     {
-          const auto IdeaDocuments = BuildSAMSearchIdeaDocuments(SearchResultObj.Hits);
-          if (Instance->Sam->RecordSearchIdea(CollectionName, SearchQueryObj.Q, IdeaDocuments))
-          {
-               FOREACH_MOD(OnSamSearch,
-                           CollectionName,
-                           SearchQueryObj.Q,
-                           static_cast<uint64_t>(IdeaDocuments.size()),
-                           Request.RemoteAddress,
-                           Request.APIKeyID,
-                           !Request.APIKeyID.empty());
-          }
-     }
-
      if (SearchQueryObj.EnableAnalytics)
      {
           const std::string SearchCollection = CollectionName.empty() ? "*" : CollectionName;
@@ -2121,9 +1934,9 @@ HttpResponse SearchAPI::HandleSearch(const HttpRequest &Request)
           FOREACH_MOD(OnSearchDocument, DocumentEvent);
      }
 
-     if (!NeedsCustomSQLExecution)
+     if (RequestCacheEnabled && !NeedsCustomSQLExecution)
      {
-          SearchResponseCache::Put("search", Request, CollectionName, Response);
+          SearchResponseCache::Put("search", Request, CollectionName, Response, SearchCacheGeneration);
      }
 
      return Response;
@@ -2582,7 +2395,7 @@ HttpResponse SearchAPI::HandleGlobalSearch(const HttpRequest &Request)
 
 HttpResponse SearchAPI::HandleMultiSearch(const HttpRequest &Request)
 {
-     if (Request.Method != "POST")
+     if (Request.Method != "GET" && Request.Method != "POST")
      {
           return HttpResponse(Status::METHOD_NOT_ALLOWED, StatusText(Status::METHOD_NOT_ALLOWED), "application/json");
      }
@@ -2613,6 +2426,17 @@ HttpResponse SearchAPI::HandleMultiSearch(const HttpRequest &Request)
           std::string Col = SearchRequests[I].first;
 
           ComprehensiveSearchQuery QueryObj = SearchRequests[I].second;
+
+          Col = ResolveCollectionName(Col);
+          if (Col.empty() || !HybridStorageManagerInstance().CollectionExists(Col))
+          {
+               nlohmann::json Err;
+               Err["error"] = "Collection not found";
+               Err["message"] = "The specified collection does not exist.";
+               Err["code"] = static_cast<int>(Code::COLLECTION_NOT_FOUND);
+               Results.push_back(Err);
+               continue;
+          }
 
           /* Scoped search: Append embedded filters from API key. */
 
@@ -2887,10 +2711,19 @@ ComprehensiveSearchResult SearchAPI::PerformComprehensiveSearch(const std::strin
      }
      else
      {
-          std::stable_sort(Hits.begin(), Hits.end(), [this](const SearchHit &A, const SearchHit &B)
-                           {
-                                return GetEffectiveScore(A) > GetEffectiveScore(B);
-                           });
+          const std::vector<std::string> DefaultSortBy = ResolveDefaultCollectionSortBy(Collection);
+
+          if (!DefaultSortBy.empty())
+          {
+               Hits = ApplySorting(Hits, DefaultSortBy);
+          }
+          else
+          {
+               std::stable_sort(Hits.begin(), Hits.end(), [this](const SearchHit &A, const SearchHit &B)
+                                {
+                                     return GetEffectiveScore(A) > GetEffectiveScore(B);
+                                });
+          }
      }
 
      if (Query.PreserveMatchedHits)

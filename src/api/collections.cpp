@@ -39,12 +39,12 @@
 
 #include "api/searchapi.h"
 #include "api/common.h"
+#include "api/searchcache.h"
 #include "core/config.h"
 #include "core/hlquery.h"
 #include "core/modulemanager.h"
 #include "core/socketengine.h"
 #include "runtime/threadlimit.h"
-#include "sam/sam.h"
 #include "search/rfusion.h"
 #include "search/cstore.h"
 #include "search/lindex.h"
@@ -81,6 +81,7 @@ static std::string ParseCollectionMaybeToken(const std::string &value)
 {
      std::string out;
      out.reserve(value.size());
+
      for (unsigned char c : value)
      {
           if (!std::isspace(c))
@@ -88,6 +89,7 @@ static std::string ParseCollectionMaybeToken(const std::string &value)
                out.push_back(static_cast<char>(std::tolower(c)));
           }
      }
+
      return out;
 }
 
@@ -101,6 +103,18 @@ static bool IsCollectionMaybeFalsyToken(const std::string &token)
      return token == "0" || token == "false" || token == "no" || token == "off";
 }
 
+static bool IsCollectionTruthyParam(const std::map<std::string, std::string> &params, const std::string &name)
+{
+     auto it = params.find(name);
+
+     if (it == params.end())
+     {
+          return false;
+     }
+
+     return IsCollectionMaybeTruthyToken(ParseCollectionMaybeToken(it->second));
+}
+
 static CollectionMaybeSettings ParseCollectionMaybeSettings(const std::map<std::string, std::string> &params)
 {
      CollectionMaybeSettings out;
@@ -109,6 +123,7 @@ static CollectionMaybeSettings ParseCollectionMaybeSettings(const std::map<std::
      constexpr int default_limit = 5;
 
      auto itMaybe = params.find("maybe");
+
      if (itMaybe != params.end())
      {
           std::string raw = itMaybe->second;
@@ -127,6 +142,7 @@ static CollectionMaybeSettings ParseCollectionMaybeSettings(const std::map<std::
 
           std::string normalized;
           normalized.reserve(raw.size());
+
           for (unsigned char c : raw)
           {
                if (c == ':' || c == ';' || c == '|')
@@ -146,6 +162,7 @@ static CollectionMaybeSettings ParseCollectionMaybeSettings(const std::map<std::
           std::stringstream ss(normalized);
           std::string part;
           std::vector<std::string> parts;
+
           while (std::getline(ss, part, ','))
           {
                if (!part.empty())
@@ -166,6 +183,7 @@ static CollectionMaybeSettings ParseCollectionMaybeSettings(const std::map<std::
      }
 
      auto itMin = params.find("maybe_min");
+
      if (itMin != params.end() && !explicit_disable)
      {
           out.Enabled = true;
@@ -173,6 +191,7 @@ static CollectionMaybeSettings ParseCollectionMaybeSettings(const std::map<std::
      }
 
      auto itLimit = params.find("maybe_limit");
+
      if (itLimit != params.end() && !explicit_disable)
      {
           out.Enabled = true;
@@ -643,6 +662,7 @@ static bool DistSendHttpRequest(const std::string &Endpoint,
      std::string StatusLine;
      std::getline(HeaderStream, StatusLine);
      int StatusCode = 0;
+
      if (!StatusLine.empty())
      {
           std::istringstream StatusSS(StatusLine);
@@ -654,10 +674,12 @@ static bool DistSendHttpRequest(const std::string &Endpoint,
      {
           *OutStatus = StatusCode;
      }
+
      if (OutBody)
      {
           *OutBody = BodyStr;
      }
+
      return true;
 }
 
@@ -1125,6 +1147,7 @@ HttpResponse SearchAPI::HandleDeleteCollection(const HttpRequest &Request)
 
      std::string ReplicationOutboxID;
      std::string ReplicationJournalError;
+
      if (!PrepareReplicationOutboxRecord(Request, "delete_collection", &ReplicationOutboxID, &ReplicationJournalError))
      {
           return BuildErrorResponse(Status::SERVICE_UNAVAILABLE,
@@ -1207,13 +1230,6 @@ HttpResponse SearchAPI::HandleFlush(const HttpRequest &Request)
 
      auto CollectionsList = HybridStorageManagerInstance().ListCollections();
      size_t CollectionsCount = CollectionsList.size();
-     bool SamWasAvailable = false;
-     bool SamFlushPauseStarted = false;
-     bool SamCancelled = false;
-     bool SamCleared = false;
-     size_t SamQueuedJobsCleared = 0;
-     std::string SamError;
-
      std::string ReplicationOutboxID;
      std::string ReplicationJournalError;
      if (!PrepareReplicationOutboxRecord(Request, "flush", &ReplicationOutboxID, &ReplicationJournalError))
@@ -1225,45 +1241,10 @@ HttpResponse SearchAPI::HandleFlush(const HttpRequest &Request)
      }
 
      /* Perform complete flush - removes all data, indexes, caches, and starts from scratch. */
-
-     if (Instance && Instance->Sam && Instance->Sam->IsOpen())
-     {
-          SamWasAvailable = true;
-          const uint64_t NowMS = static_cast<uint64_t>(NowMs());
-          constexpr uint64_t kFlushSamPauseWindowMS = 5ULL * 60ULL * 1000ULL;
-          SamFlushPauseStarted = Instance->Sam->BeginFlushPause(NowMS + kFlushSamPauseWindowMS, &SamError);
-
-          if (!SamFlushPauseStarted)
-          {
-               ClearReplicationOutboxRecord(ReplicationOutboxID);
-               return BuildErrorResponse(Status::CONFLICT,
-                                         Code::SEARCH_INVALID_PARAMETER,
-                                         "SAM flush already in progress",
-                                         SamError.empty() ? "Another flush is already coordinating SAM work." : SamError);
-          }
-
-          SamQueuedJobsCleared = Instance->Sam->ClearQueuedAutoIndexJobs();
-          SamCancelled = Instance->Sam->CancelAllWork(&SamError);
-
-          if (Instance->Logs)
-          {
-               Instance->Logs->Normal("search_api",
-                                      "HandleFlush: paused SAM auto-index and cancelled SAM work before flush; cleared " +
-                                           std::to_string(SamQueuedJobsCleared) +
-                                           " queued SAM job(s)" +
-                                           (SamError.empty() ? "." : ": " + SamError + "."));
-          }
-     }
-
      bool SuccessVal = HybridStorageManagerInstance().FlushAll();
 
      if (!SuccessVal)
      {
-          if (Instance && Instance->Sam && SamFlushPauseStarted)
-          {
-               Instance->Sam->EndFlushPause();
-          }
-
           ClearReplicationOutboxRecord(ReplicationOutboxID);
           HttpResponse Response(Status::INTERNAL_SERVER_ERROR, StatusText(Status::INTERNAL_SERVER_ERROR), "application/json");
 
@@ -1271,44 +1252,6 @@ HttpResponse SearchAPI::HandleFlush(const HttpRequest &Request)
 
           return Response;
      }
-
-     if (Instance && Instance->Sam && SamWasAvailable)
-     {
-          std::string RecreateError;
-          SamCleared = Instance->Sam->Recreate(&RecreateError);
-          if (SamCleared)
-          {
-               std::string FlushError;
-               SamCleared = Instance->Sam->FlushAndSync(&FlushError);
-
-               if (!SamCleared && RecreateError.empty())
-               {
-                    RecreateError = FlushError;
-               }
-          }
-
-          if (SamFlushPauseStarted)
-          {
-               Instance->Sam->EndFlushPause();
-          }
-
-          if (!SamCleared)
-          {
-               SamError = RecreateError.empty() ? std::string("Failed to clear SAM state after flush.") : RecreateError;
-
-               if (Instance->Logs)
-               {
-                    Instance->Logs->Normal("search_api", "HandleFlush: SAM flush cleanup failed: " + SamError + ".");
-               }
-
-               ClearReplicationOutboxRecord(ReplicationOutboxID);
-               return BuildErrorResponse(Status::SERVICE_UNAVAILABLE,
-                                         Code::SEARCH_INVALID_PARAMETER,
-                                         "SAM flush sync failed",
-                                         SamError);
-          }
-     }
-
      if (Request.Headers.count("X-HLQ-Resync-Session") || Request.Headers.count("x-hlq-resync-session"))
      {
           MaybeTriggerCrashInjection("replication_resync_flush");
@@ -1334,22 +1277,7 @@ HttpResponse SearchAPI::HandleFlush(const HttpRequest &Request)
      ResponseJSON["collections_deleted"] = CollectionsCount;
      ResponseJSON["indexes_cleared"] = true;
      ResponseJSON["caches_cleared"] = true;
-     ResponseJSON["mmap_indexes_removed"] = true;
-     ResponseJSON["sam_paused_for_flush"] = SamWasAvailable;
-     ResponseJSON["sam_flush_pause_started"] = SamFlushPauseStarted;
-     ResponseJSON["sam_pause_reason"] = SamFlushPauseStarted ? "flush" : "";
-     ResponseJSON["sam_cancelled"] = SamCancelled;
-     ResponseJSON["sam_queued_jobs_cleared"] = SamQueuedJobsCleared;
-     ResponseJSON["sam_cleared"] = SamCleared;
-     ResponseJSON["database_synced"] = true;
-     ResponseJSON["sam_synced"] = !SamWasAvailable || SamCleared;
-     ResponseJSON["replica_flush_synced"] = true;
-     ResponseJSON["sam_flush_unpaused"] = SamFlushPauseStarted;
-     if (!SamError.empty())
-     {
-          ResponseJSON["sam_error"] = SamError;
-     }
-     ResponseJSON["success"] = true;
+     ResponseJSON["mmap_indexes_removed"] = true;     ResponseJSON["success"] = true;
 
      HttpResponse Response(Status::OK, StatusText(Status::OK), "application/json");
 
@@ -1464,6 +1392,12 @@ HttpResponse SearchAPI::HandleListCollections(const HttpRequest &Request)
           return HttpResponse(Status::METHOD_NOT_ALLOWED, StatusText(Status::METHOD_NOT_ALLOWED), "application/json");
      }
 
+     HttpResponse CachedResponse;
+     if (SearchResponseCache::Get("collections", Request, "*", CachedResponse))
+     {
+          return CachedResponse;
+     }
+
      long long OffsetVal = 0;
      long long LimitVal = -1;
      std::string PatternVal;
@@ -1471,8 +1405,11 @@ HttpResponse SearchAPI::HandleListCollections(const HttpRequest &Request)
      std::string SortByVal = "name:asc";
      std::string SortOrderVal;
      CollectionMaybeSettings MaybeCfg = ParseCollectionMaybeSettings(Request.QueryParams);
+     const bool NamesOnly = IsCollectionTruthyParam(Request.QueryParams, "names_only") ||
+                            IsCollectionTruthyParam(Request.QueryParams, "name_only");
 
      auto OffsetIt = Request.QueryParams.find("offset");
+
      if (OffsetIt != Request.QueryParams.end())
      {
           try
@@ -1490,6 +1427,7 @@ HttpResponse SearchAPI::HandleListCollections(const HttpRequest &Request)
      }
 
      auto LimitIt = Request.QueryParams.find("limit");
+
      if (LimitIt != Request.QueryParams.end())
      {
           try
@@ -1640,6 +1578,7 @@ HttpResponse SearchAPI::HandleListCollections(const HttpRequest &Request)
      std::string SortFieldName = SortByVal;
      bool Descending = false;
      size_t ColonPos = SortByVal.find(':');
+
      if (ColonPos != std::string::npos)
      {
           SortFieldName = SortByVal.substr(0, ColonPos);
@@ -1726,7 +1665,16 @@ HttpResponse SearchAPI::HandleListCollections(const HttpRequest &Request)
      nlohmann::json ResponseJSON;
      ResponseJSON["collections"] = nlohmann::json::array();
 
-     if (SortNeedsMetadata)
+     if (NamesOnly && !SortNeedsMetadata)
+     {
+          for (size_t I = Start; I < End; ++I)
+          {
+               nlohmann::json Entry;
+               Entry["name"] = FilteredCollections[I];
+               ResponseJSON["collections"].push_back(Entry);
+          }
+     }
+     else if (SortNeedsMetadata)
      {
           for (size_t I = Start; I < End; ++I)
           {
@@ -1756,7 +1704,7 @@ HttpResponse SearchAPI::HandleListCollections(const HttpRequest &Request)
           }
      }
 
-     ResponseJSON["total"] = TotalCount;
+     ResponseJSON["total"] = AllCollections.size();
      ResponseJSON["found"] = TotalCount;
      ResponseJSON["offset"] = OffsetVal;
      if (LimitVal > 0)
@@ -1789,10 +1737,12 @@ HttpResponse SearchAPI::HandleListCollections(const HttpRequest &Request)
                     }
 
                     size_t PrefixLen = 0;
+         
                     while (PrefixLen < NameLower.size() && PrefixLen < SearchLowerMaybe.size() && NameLower[PrefixLen] == SearchLowerMaybe[PrefixLen])
                     {
                          PrefixLen++;
                     }
+         
                     Score += static_cast<int>(PrefixLen) * 4;
                }
                else if (!PatternVal.empty())
@@ -1853,6 +1803,7 @@ HttpResponse SearchAPI::HandleListCollections(const HttpRequest &Request)
 
      HttpResponse Response(Status::OK, StatusText(Status::OK), "application/json");
      Response.Body = ResponseJSON.dump();
+     SearchResponseCache::Put("collections", Request, "*", Response);
      return Response;
 }
 
@@ -1991,14 +1942,6 @@ HttpResponse SearchAPI::HandleListCollectionsDistributed(const HttpRequest &Requ
           RemoteRequest.Method = "GET";
           RemoteRequest.Path = "/collections";
           RemoteRequest.QueryParams.clear();
-          if (!PatternVal.empty())
-          {
-               RemoteRequest.QueryParams["pattern"] = PatternVal;
-          }
-          else if (!SearchVal.empty())
-          {
-               RemoteRequest.QueryParams["search"] = SearchVal;
-          }
           RemoteRequest.Body.clear();
 
           int StatusCode = 0;
@@ -2048,6 +1991,7 @@ HttpResponse SearchAPI::HandleListCollectionsDistributed(const HttpRequest &Requ
           SortFieldName = SortByVal.substr(0, ColonPos);
           std::string Order = SortByVal.substr(ColonPos + 1);
           Order = DistToLowerCopy(DistTrimCopy(Order));
+         
           if (Order == "desc")
           {
                Descending = true;
@@ -2063,12 +2007,14 @@ HttpResponse SearchAPI::HandleListCollectionsDistributed(const HttpRequest &Requ
      }
 
      SortFieldName = DistToLowerCopy(DistTrimCopy(SortFieldName));
+
      if (SortFieldName.empty())
      {
           SortFieldName = "name";
      }
 
      bool UseWildcard = false;
+
      if (!PatternVal.empty())
      {
           UseWildcard = true;
@@ -2165,7 +2111,7 @@ HttpResponse SearchAPI::HandleListCollectionsDistributed(const HttpRequest &Requ
      }
 
      ResponseJSON["collections"] = CollectionsArray;
-     ResponseJSON["total"] = TotalCount;
+     ResponseJSON["total"] = CollectionsMap.size();
      ResponseJSON["found"] = TotalCount;
      ResponseJSON["offset"] = OffsetVal;
      if (LimitVal > 0)
@@ -2193,6 +2139,12 @@ HttpResponse SearchAPI::HandleGetCollection(const HttpRequest &Request)
      if (CollectionName.empty())
      {
           return HttpResponse(Status::BAD_REQUEST, StatusText(Status::BAD_REQUEST), "application/json");
+     }
+
+     HttpResponse CachedResponse;
+     if (SearchResponseCache::Get("collections", Request, CollectionName, CachedResponse))
+     {
+          return CachedResponse;
      }
 
      try
@@ -2297,6 +2249,7 @@ HttpResponse SearchAPI::HandleGetCollection(const HttpRequest &Request)
           ResponseJSON["sortable_fields"] = nlohmann::json::array();
           Response.Body = ResponseJSON.dump();
 
+          SearchResponseCache::Put("collections", Request, CollectionName, Response);
           return Response;
      }
      catch (const std::exception &E)
@@ -2339,6 +2292,12 @@ HttpResponse SearchAPI::HandleGetCollectionLanguage(const HttpRequest &Request)
      if (CollectionName.empty())
      {
           return HttpResponse(Status::BAD_REQUEST, StatusText(Status::BAD_REQUEST), "application/json");
+     }
+
+     HttpResponse CachedResponse;
+     if (SearchResponseCache::Get("collections", Request, CollectionName, CachedResponse))
+     {
+          return CachedResponse;
      }
 
      if (!HybridStorageManagerInstance().CollectionExists(CollectionName))
@@ -2427,6 +2386,7 @@ HttpResponse SearchAPI::HandleGetCollectionLanguage(const HttpRequest &Request)
 
      HttpResponse Response(Status::OK, StatusText(Status::OK), "application/json");
      Response.Body = Root.dump();
+     SearchResponseCache::Put("collections", Request, CollectionName, Response);
      return Response;
 }
 

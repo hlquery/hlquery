@@ -223,6 +223,16 @@ enum Tickers : uint32_t {
   GET_UPDATES_SINCE_CALLS,
   WAL_FILE_SYNCED,  // Number of times WAL sync is done
   WAL_FILE_BYTES,   // Number of bytes written to WAL
+  // Number of WAL rotations that consumed an async precreated WAL.
+  WAL_PRECREATE_HIT,
+  // Number of WAL rotations that found no async precreated WAL to consume.
+  WAL_PRECREATE_MISS,
+  // Number of WAL rotations that waited for an in-flight WAL precreation.
+  WAL_PRECREATE_WAITED,
+  // Total foreground wait time for in-flight WAL precreation.
+  WAL_PRECREATE_WAIT_MICROS,
+  // Number of async WAL precreation attempts that failed.
+  WAL_PRECREATE_FAILED,
 
   // Writes can be processed by requesting thread or by the thread at the
   // head of the writers queue.
@@ -582,6 +592,26 @@ enum Tickers : uint32_t {
   PREFETCH_MEMORY_BYTES_RELEASED,
   // # of prefetch requests that were blocked waiting for memory
   PREFETCH_MEMORY_REQUESTS_BLOCKED,
+
+  // # of range tombstones inserted by read-path conversion from contiguous
+  // point tombstones
+  READ_PATH_RANGE_TOMBSTONES_INSERTED,
+  // # of range tombstones not inserted. Reasons include:
+  // - iterator's snapshot predates the memtable
+  // - tombstones may be uncommitted (transactions)
+  // - memtable already has a covering range tombstone
+  // - memtable switched to immutable state
+  READ_PATH_RANGE_TOMBSTONES_DISCARDED,
+
+  // Number of times file open metadata was retrieved from the file system
+  // via GetFileOpenMetadata() (when fast_sst_open is enabled)
+  FILE_OPEN_METADATA_RETRIEVED,
+  // Number of times file open metadata was passed to NewRandomAccessFile()
+  // via FileOptions::file_metadata (on DB open / table cache miss)
+  FILE_OPEN_METADATA_PASSED,
+
+  // # of times MANIFEST content validation detected corruption on DB close
+  MANIFEST_VALIDATION_FAILURE_COUNT,
 
   TICKER_ENUM_MAX
 };

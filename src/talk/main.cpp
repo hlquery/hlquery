@@ -17,24 +17,23 @@
 #include <algorithm>
 #include <arpa/inet.h>
 #include <cctype>
-#include <chrono>
 #include <cstring>
 #include <cstdlib>
 #include <fstream>
 #include <filesystem>
+#include <iomanip>
 #include <sstream>
 #include <set>
 #include <iostream>
 #include <netinet/in.h>
 #include <string>
 #include <sys/socket.h>
-#include <thread>
 #include <unordered_set>
 #include <vector>
 
 #include "cli/app.h"
 #include "cli/cliutils.h"
-#include "core/typedefs.h"
+#include "core/helpers.h"
 #include "talk/session.h"
 #include "vendor/json/json.hpp"
 
@@ -875,92 +874,6 @@ std::vector<std::string> TokenizeInput(const std::string &line)
      return parts;
 }
 
-static std::vector<std::string> TokenizeInputPreserveQuotes(const std::string &line)
-{
-     std::vector<std::string> parts;
-     std::string current;
-     char quote_character = '\0';
-     bool escape_next = false;
-
-     for (char character : line)
-     {
-          if (escape_next)
-          {
-               current.push_back(character);
-               escape_next = false;
-               continue;
-          }
-
-          if (character == '\\')
-          {
-               escape_next = true;
-               current.push_back(character);
-               continue;
-          }
-
-          if (quote_character != '\0')
-          {
-               current.push_back(character);
-
-               if (character == quote_character)
-               {
-                    quote_character = '\0';
-               }
-
-               continue;
-          }
-
-          if (character == '"' || character == '\'')
-          {
-               quote_character = character;
-               current.push_back(character);
-               continue;
-          }
-
-          if (std::isspace(static_cast<unsigned char>(character)) != 0)
-          {
-               if (!current.empty())
-               {
-                    parts.push_back(current);
-                    current.clear();
-               }
-
-               continue;
-          }
-
-          current.push_back(character);
-     }
-
-     if (escape_next)
-     {
-          current.push_back('\\');
-     }
-
-     if (!current.empty())
-     {
-          parts.push_back(current);
-     }
-
-     return parts;
-}
-
-static bool IsQuotedToken(const std::string &token)
-{
-     return token.size() >= 2 &&
-            ((token.front() == '"' && token.back() == '"') ||
-             (token.front() == '\'' && token.back() == '\''));
-}
-
-static std::string StripOuterQuotes(const std::string &value)
-{
-     if (!IsQuotedToken(value))
-     {
-          return value;
-     }
-
-     return value.substr(1, value.size() - 2);
-}
-
 /* Validate an unsigned integer token used for list and ID references. */
 
 bool IsUnsignedInteger(const std::string &value)
@@ -1373,23 +1286,36 @@ std::vector<std::string> FetchDocumentIds(HLQueryCLI &cli, const std::string &co
      return document_ids;
 }
 
-std::vector<std::string> FetchSAMDocumentIds(HLQueryCLI &cli, const std::string &collection_name, int offset = 0, int limit = 1000)
+bool FetchAndPrintDocumentList(HLQueryCLI &cli,
+                               TalkState &state,
+                               const std::string &collection_name,
+                               int offset,
+                               int limit)
 {
-     std::vector<std::string> document_ids;
+     state.LastListedDocumentIds.clear();
 
      if (collection_name.empty())
      {
-          return document_ids;
+          TalkPrintError("Collection name is required");
+          return false;
      }
 
-     std::string path = "/sam/documents?collection=" + hlquery_cli::UrlEncode(collection_name);
-     path += "&offset=" + std::to_string(offset) + "&limit=" + std::to_string(limit);
+     std::string path = "/collections/" + hlquery_cli::UrlEncode(collection_name) + "/documents";
+     path += "?offset=" + std::to_string(offset) + "&limit=" + std::to_string(limit);
 
+     TalkPrintInfo("Fetching documents for '" + collection_name + "'");
      HLQueryCLI::HTTPResponse response = cli.MakeRequest("GET", path);
+
+     if (response.StatusCode == 404)
+     {
+          TalkPrintError("Collection not found: " + collection_name);
+          return false;
+     }
 
      if (response.StatusCode != 200)
      {
-          return document_ids;
+          TalkPrintError("Failed to list documents for collection '" + collection_name + "'");
+          return false;
      }
 
      try
@@ -1398,69 +1324,92 @@ std::vector<std::string> FetchSAMDocumentIds(HLQueryCLI &cli, const std::string 
 
           if (!root.contains("documents") || !root["documents"].is_array())
           {
-               return document_ids;
+               TalkPrintError("Invalid documents data");
+               return false;
           }
 
-          for (const auto &doc : root["documents"])
+          const nlohmann::json &documents = root["documents"];
+          const size_t display_count = documents.size();
+          size_t total_count = display_count;
+
+          if (root.contains("total") && root["total"].is_number_unsigned())
           {
-               if (doc.contains("id") && doc["id"].is_string())
+               total_count = root["total"].get<size_t>();
+          }
+          else if (root.contains("total") && root["total"].is_number_integer())
+          {
+               total_count = static_cast<size_t>(std::max<long long>(0, root["total"].get<long long>()));
+          }
+
+          if (display_count == 0)
+          {
+               TalkPrintInfo("No documents found in collection '" + collection_name + "'");
+               return true;
+          }
+
+          std::cout << "Found " << display_count << " document(s)";
+
+          if (offset > 0 || static_cast<size_t>(limit) != display_count)
+          {
+               std::cout << " (showing " << (offset + 1) << "-" << (offset + display_count) << " of " << total_count << ").";
+          }
+          else if (total_count > display_count)
+          {
+               std::cout << " (showing first " << display_count << " of " << total_count << ").";
+          }
+
+          std::cout << " in collection '" << collection_name << "':\n\n";
+
+          std::vector<std::vector<std::string>> rows;
+          rows.reserve(display_count);
+
+          for (size_t index = 0; index < display_count; ++index)
+          {
+               const nlohmann::json &document = documents[index];
+
+               if (!document.contains("id") || !document["id"].is_string())
                {
-                    document_ids.push_back(doc["id"].get<std::string>());
+                    continue;
                }
-          }
-     }
-     catch (...)
-     {
-     }
 
-     return document_ids;
-}
+               int field_count = 0;
 
-std::vector<std::string> FetchSAMSearchDocumentIds(HLQueryCLI &cli,
-                                                   const std::string &collection_name,
-                                                   const std::string &query,
-                                                   int limit = 1000)
-{
-     std::vector<std::string> document_ids;
-
-     if (collection_name.empty() || query.empty())
-     {
-          return document_ids;
-     }
-
-     std::string path = "/sam/search?collection=" + hlquery_cli::UrlEncode(collection_name) +
-                        "&q=" + hlquery_cli::UrlEncode(query) +
-                        "&limit=" + std::to_string(limit);
-
-     HLQueryCLI::HTTPResponse response = cli.MakeRequest("GET", path);
-
-     if (response.StatusCode != 200)
-     {
-          return document_ids;
-     }
-
-     try
-     {
-          nlohmann::json root = nlohmann::json::parse(response.Body);
-
-          if (!root.contains("hits") || !root["hits"].is_array())
-          {
-               return document_ids;
-          }
-
-          for (const auto &hit : root["hits"])
-          {
-               if (hit.contains("id") && hit["id"].is_string())
+               for (const auto &entry : document.items())
                {
-                    document_ids.push_back(hit["id"].get<std::string>());
-               }
-          }
-     }
-     catch (...)
-     {
-     }
+                    const std::string &key = entry.key();
+                    const nlohmann::json &value = entry.value();
 
-     return document_ids;
+                    if (key == "id" || key == "score" || key == "timestamp" || key == "collection_id")
+                    {
+                         continue;
+                    }
+
+                    if (value.is_null())
+                    {
+                         continue;
+                    }
+
+                    if (value.is_string() && value.get<std::string>().empty())
+                    {
+                         continue;
+                    }
+
+                    ++field_count;
+               }
+
+               const std::string document_id = document["id"].get<std::string>();
+               state.LastListedDocumentIds.push_back(document_id);
+               rows.push_back({std::to_string(index + 1), document_id, std::to_string(field_count) + " fields"});
+          }
+
+          cli.PrintTable({"#", "Document ID", "Fields"}, rows);
+          return true;
+     }
+     catch (const std::exception &)
+     {
+          TalkPrintError("Failed to parse documents response");
+          return false;
+     }
 }
 
 std::vector<std::string> FetchSearchDocumentIds(HLQueryCLI &cli,
@@ -1515,6 +1464,43 @@ std::vector<std::string> FetchSearchDocumentIds(HLQueryCLI &cli,
      }
 
      return document_ids;
+}
+
+static std::string NormalizeTalkAskQuery(std::string query)
+{
+     query = TrimWhitespace(query);
+
+     if (query.size() >= 2 &&
+         ((query.front() == '"' && query.back() == '"') ||
+          (query.front() == '\'' && query.back() == '\'')))
+     {
+          query = query.substr(1, query.size() - 2);
+          query = TrimWhitespace(query);
+     }
+
+     std::string lowered = ToLower(query);
+     const std::vector<std::string> prefixes = {
+          "find documents about ",
+          "find docs about ",
+          "search documents about ",
+          "search docs about ",
+          "documents about ",
+          "docs about ",
+          "find documents ",
+          "find docs ",
+          "search documents ",
+          "search docs "
+     };
+
+     for (const std::string &prefix : prefixes)
+     {
+          if (lowered.rfind(prefix, 0) == 0 && query.size() > prefix.size())
+          {
+               return TrimWhitespace(query.substr(prefix.size()));
+          }
+     }
+
+     return query;
 }
 
 static bool CollectionLikelyMultiLanguage(HLQueryCLI &cli,
@@ -1648,66 +1634,29 @@ bool FetchDocumentIdAtPosition(HLQueryCLI &cli,
      }
 }
 
-bool FetchSAMDocumentIdAtPosition(HLQueryCLI &cli,
-                                  const std::string &collection_name,
-                                  size_t document_index,
-                                  std::string &document_id)
-{
-     document_id.clear();
-
-     if (collection_name.empty())
-     {
-          return false;
-     }
-
-     std::string path = "/sam/documents?collection=" + hlquery_cli::UrlEncode(collection_name);
-     path += "&offset=" + std::to_string(document_index) + "&limit=1";
-
-     HLQueryCLI::HTTPResponse response = cli.MakeRequest("GET", path);
-
-     if (response.StatusCode != 200)
-     {
-          return false;
-     }
-
-     try
-     {
-          nlohmann::json root = nlohmann::json::parse(response.Body);
-
-          if (!root.contains("documents") || !root["documents"].is_array() || root["documents"].empty())
-          {
-               return false;
-          }
-
-          const nlohmann::json &document = root["documents"][0];
-
-          if (!document.contains("id") || !document["id"].is_string())
-          {
-               return false;
-          }
-
-          document_id = document["id"].get<std::string>();
-          return true;
-     }
-     catch (...)
-     {
-          return false;
-     }
-}
-
 /* Fetch collection names to support numeric selection in the REPL. */
 
-std::vector<std::string> FetchCollectionNames(HLQueryCLI &cli, int offset = 0, int limit = 1000)
+std::vector<std::string> FetchCollectionNames(HLQueryCLI &cli,
+                                              int offset = 0,
+                                              int limit = 1000,
+                                              std::string *error_message = nullptr,
+                                              int timeout_seconds = -1)
 {
      std::vector<std::string> collection_names;
 
      std::string path = "/collections";
-     path += "?offset=" + std::to_string(offset) + "&limit=" + std::to_string(limit);
+     path += "?offset=" + std::to_string(offset) + "&limit=" + std::to_string(limit) + "&names_only=1";
 
-     HLQueryCLI::HTTPResponse response = cli.MakeRequest("GET", path);
+     HLQueryCLI::HTTPResponse response = cli.MakeRequest("GET", path, "", timeout_seconds);
 
      if (response.StatusCode != 200)
      {
+          if (error_message != nullptr)
+          {
+               *error_message = response.StatusCode == -1 ? TrimWhitespace(response.Body)
+                                                          : "HTTP " + std::to_string(response.StatusCode);
+          }
+
           return collection_names;
      }
 
@@ -1733,6 +1682,123 @@ std::vector<std::string> FetchCollectionNames(HLQueryCLI &cli, int offset = 0, i
      }
 
      return collection_names;
+}
+
+bool TalkCollectionExists(HLQueryCLI &cli, const std::string &collection_name, int timeout_seconds = -1)
+{
+     if (collection_name.empty() || collection_name.find_first_of(" \t\n\r") != std::string::npos)
+     {
+          return false;
+     }
+
+     const HLQueryCLI::HTTPResponse response =
+          cli.MakeRequest("GET", "/collections/" + hlquery_cli::UrlEncode(collection_name), "", timeout_seconds);
+     return response.StatusCode == 200;
+}
+
+bool FetchAndPrintCollectionList(HLQueryCLI &cli,
+                                 TalkState &state,
+                                 int offset,
+                                 int limit)
+{
+     std::string path = "/collections";
+     path += "?offset=" + std::to_string(offset) + "&limit=" + std::to_string(limit);
+
+     TalkPrintInfo("Fetching collections");
+     HLQueryCLI::HTTPResponse response = cli.MakeRequest("GET", path);
+
+     if (response.StatusCode != 200)
+     {
+          TalkPrintError(response.StatusCode == -1 ? "Failed to fetch collections: " + TrimWhitespace(response.Body)
+                                                   : "Failed to fetch collections");
+          return false;
+     }
+
+     try
+     {
+          nlohmann::json root = nlohmann::json::parse(response.Body);
+
+          if (!root.contains("collections") || !root["collections"].is_array())
+          {
+               TalkPrintError("Invalid collections data");
+               return false;
+          }
+
+          const nlohmann::json &collections = root["collections"];
+          const size_t display_count = collections.size();
+          const size_t total_count = root.contains("total") && root["total"].is_number_unsigned()
+                                      ? root["total"].get<size_t>()
+                                      : display_count;
+          const size_t found_count = root.contains("found") && root["found"].is_number_unsigned()
+                                      ? root["found"].get<size_t>()
+                                      : display_count;
+
+          state.LastListedCollections.clear();
+          state.LastListedDocumentIds.clear();
+
+          if (display_count == 0)
+          {
+               TalkPrintInfo("No collections found");
+               return true;
+          }
+
+          if (root.contains("total"))
+          {
+               std::cout << "Showing " << display_count << " out of " << found_count << " matched collection(s) (total " << total_count << " in system).";
+          }
+          else
+          {
+               std::cout << "Found " << display_count << " collection(s).";
+          }
+
+          if (offset > 0)
+          {
+               std::cout << " (from offset " << offset << ").";
+          }
+
+          if (display_count < found_count || (display_count == 1000 && limit >= 1000))
+          {
+               std::cout << "\nNote: More collections available. Use 'ls <offset> <limit>' to see more.";
+          }
+
+          std::cout << ":\n\n";
+
+          std::vector<std::vector<std::string>> rows;
+          rows.reserve(display_count);
+
+          for (size_t index = 0; index < display_count; ++index)
+          {
+               const nlohmann::json &collection = collections[index];
+
+               if (!collection.contains("name") || !collection["name"].is_string())
+               {
+                    continue;
+               }
+
+               const std::string collection_name = collection["name"].get<std::string>();
+               int document_count = 0;
+
+               if (collection.contains("num_documents") && collection["num_documents"].is_number_integer())
+               {
+                    document_count = collection["num_documents"].get<int>();
+               }
+
+               state.LastListedCollections.push_back(collection_name);
+               const std::string document_count_text =
+                    collection.contains("num_documents") && collection["num_documents"].is_number_integer()
+                         ? std::to_string(document_count) + " docs"
+                         : "-";
+               rows.push_back({std::to_string(offset + index + 1), collection_name, document_count_text});
+          }
+
+          cli.PrintTable({"#", "Collection Name", "Documents"}, rows);
+          return true;
+     }
+     catch (const std::exception &)
+     {
+          TalkPrintError("Failed to parse collections response");
+          return false;
+     }
 }
 
 /* Fetch collection names from a collection-name search result page. */
@@ -1973,185 +2039,6 @@ bool ResolveCollectionDocumentReference(HLQueryCLI &cli,
      return false;
 }
 
-bool ResolveSAMDocumentReference(HLQueryCLI &cli,
-                                 const std::string &collection_name,
-                                 const std::string &value,
-                                 const std::vector<std::string> &listed_document_ids,
-                                 std::string &document_id,
-                                 std::string &error_message)
-{
-     document_id = value;
-     error_message.clear();
-
-     if (!IsUnsignedInteger(value))
-     {
-          return true;
-     }
-
-     const size_t document_index = static_cast<size_t>(std::stoul(value));
-
-     if (document_index == 0)
-     {
-          error_message = "Document number must be greater than 0";
-          return false;
-     }
-
-     if (document_index <= listed_document_ids.size())
-     {
-          document_id = listed_document_ids[document_index - 1];
-          return true;
-     }
-
-     if (FetchSAMDocumentIdAtPosition(cli, collection_name, document_index - 1, document_id))
-     {
-          return true;
-     }
-
-     error_message = "SAM document number out of range for collection '" + collection_name + "'";
-     return false;
-}
-
-bool ResolveSAMCollectionReference(const TalkState &state,
-                                   HLQueryCLI &cli,
-                                   const std::string &value,
-                                   std::string &collection_name,
-                                   std::string &error_message)
-{
-     collection_name = value;
-     error_message.clear();
-
-     if (!state.CurrentCollection.empty() && value == state.CurrentCollection)
-     {
-          return true;
-     }
-
-     if (cli.CollectionExists(value))
-     {
-          return true;
-     }
-
-     if (ResolveTalkAliasCollection(state, cli, value, collection_name))
-     {
-          return true;
-     }
-
-     error_message = "Collection not found: " + value;
-     return false;
-}
-
-bool ParseSAMDocumentTarget(const std::string &value,
-                            const std::string &active_collection,
-                            std::string &collection_name,
-                            std::string &document_id,
-                            std::string &error_message)
-{
-     collection_name.clear();
-     document_id.clear();
-     error_message.clear();
-
-     const size_t slash_pos = value.find('/');
-
-     if (slash_pos == std::string::npos)
-     {
-          if (active_collection.empty())
-          {
-               error_message = "Usage: sam open <document-id> or sam open <collection>/<document-id>";
-               return false;
-          }
-
-          collection_name = active_collection;
-          document_id = value;
-          return !document_id.empty();
-     }
-
-     if (slash_pos == 0 || slash_pos + 1 >= value.size())
-     {
-          error_message = "Usage: sam open <document-id> or sam open <collection>/<document-id>";
-          return false;
-     }
-
-     collection_name = value.substr(0, slash_pos);
-     document_id = value.substr(slash_pos + 1);
-     return true;
-}
-
-bool StreamSAMDebug(HLQueryCLI &cli,
-                    const std::string &collection_name,
-                    int limit)
-{
-     uint64_t since_sequence = 0;
-     int idle_polls = 0;
-
-     TalkPrintInfo("Streaming SAM debug for '" + collection_name + "'");
-
-     while (true)
-     {
-          const std::string path = "/sam/debug?collection=" + hlquery_cli::UrlEncode(collection_name) +
-                                   "&since=" + std::to_string(since_sequence) +
-                                   "&limit=" + std::to_string(limit);
-          HLQueryCLI::HTTPResponse response = cli.MakeRequest("GET", path);
-
-          if (response.StatusCode != 200)
-          {
-               TalkPrintError("Failed to fetch SAM debug events");
-               return false;
-          }
-
-          nlohmann::json root;
-
-          try
-          {
-               root = nlohmann::json::parse(response.Body);
-          }
-          catch (const std::exception &)
-          {
-               TalkPrintError("Failed to parse SAM debug response");
-               return false;
-          }
-
-          bool saw_event = false;
-
-          if (root.contains("events") && root["events"].is_array())
-          {
-               for (const auto &event : root["events"])
-               {
-                    const uint64_t sequence = event.value("sequence", static_cast<uint64_t>(0));
-                    const std::string message = event.value("message", "");
-
-                    if (sequence > since_sequence)
-                    {
-                         since_sequence = sequence;
-                    }
-
-                    if (!message.empty())
-                    {
-                         std::cout << "[sam] " << message << "\n";
-                         saw_event = true;
-                    }
-               }
-          }
-
-          const bool running = root.value("running", false);
-
-          if (saw_event)
-          {
-               idle_polls = 0;
-          }
-          else
-          {
-               ++idle_polls;
-          }
-
-          if (!running && idle_polls >= 2)
-          {
-               TalkPrintInfo("SAM debug stream ended for '" + collection_name + "'");
-               return true;
-          }
-
-          std::this_thread::sleep_for(std::chrono::milliseconds(700));
-     }
-}
-
 /* Resolve a numeric collection reference against the last listed names. */
 
 bool EnsureCachedCollectionNames(HLQueryCLI &cli,
@@ -2166,11 +2053,19 @@ bool EnsureCachedCollectionNames(HLQueryCLI &cli,
           return true;
      }
 
-     state.LastListedCollections = FetchCollectionNames(cli, 0, 1000);
+     TalkPrintInfo("Resolving numeric collection reference '" + value + "'");
+     TalkPrintInfo("Fetching collection list for reference lookup");
+     std::string fetch_error;
+     state.LastListedCollections = FetchCollectionNames(cli, 0, 1000, &fetch_error);
 
      if (state.LastListedCollections.empty())
      {
-          error_message = "Failed to fetch collections; cannot resolve numeric reference. Run 'ls' to retry or use a collection name.";
+          error_message = "Failed to fetch collections; cannot resolve numeric reference. Run 'ls' to retry, use a collection name, or raise --timeout.";
+          if (!fetch_error.empty())
+          {
+               error_message += " (" + fetch_error + ")";
+          }
+
           return false;
      }
 
@@ -2280,16 +2175,6 @@ void PrintHelp()
      std::cout << "           Use quotes for multi-word queries, for example: search \"lime juice\"\n";
      std::cout << "  maybe QUERY [collection] [limit] [min_results]\n";
      std::cout << "           Suggest likely intended phrases through the daemon maybe endpoint\n";
-     std::cout << "  sam help  Show SAM subcommands\n";
-     std::cout << "  sam ID  Show contextual lookup phrases for one document in the active collection\n";
-     std::cout << "  sam run COL  Start background SAM indexing for one collection\n";
-     std::cout << "  sam search [COL] QUERY [limit]  Search SAM phrases in the current or specified collection\n";
-     std::cout << "  sam status [COL]  Show current SAM background indexing status\n";
-     std::cout << "  sam history [COL] [limit]  Show recent SAM search history\n";
-     std::cout << "  sam int|inst|interactions [COL] [limit]  Show learned SAM interaction refinements\n";
-     std::cout << "  sam debug [COL] [limit]  Stream live SAM debug events for one collection\n";
-     std::cout << "  sam list [COL] [offset limit]  List SAM-indexed documents for one collection\n";
-     std::cout << "  sam open ID|COL/ID  Open one SAM-indexed document\n";
      std::cout << "  connect [HOST:PORT|URL]  Connect to one endpoint, or retry the current node plus all /links endpoints\n";
      std::cout << "  run N COMMAND  Execute one talk command N times, for example: run 5 sql: select * from books\n";
      std::cout << "  sql: SELECT ... FROM ...  Run a SQL query through the daemon /sql route\n";
@@ -2312,7 +2197,7 @@ void PrintHelp()
      std::cout << "  links    Show distributed links\n";
      std::cout << "  bw [kb|mb|gb]  Show total bandwidth transferred\n";
      std::cout << "  modules [1|0]  List loaded modules, core only with 1, optional only with 0\n";
-     std::cout << "  llm      Show active LLM runtime information\n";
+     std::cout << "  ask QUERY  Search the active collection, for example: ask find docs about boston\n";
      std::cout << "  module NAME [info|syntax|ROUTE [args...]]  Run one module command\n";
      std::cout << "  load NAME  Load one runtime module\n";
      std::cout << "  unload NAME  Unload one runtime module\n";
@@ -2328,21 +2213,6 @@ void PrintHelp()
      std::cout << "  help     Show this help\n";
      std::cout << "  exit     Quit the shell\n";
      std::cout << "  quit     Quit the shell\n";
-}
-
-void PrintSAMHelp()
-{
-     std::cout << "SAM commands:\n";
-     std::cout << "  sam help  Show SAM subcommands\n";
-     std::cout << "  sam ID  Show contextual lookup phrases for one document in the active collection\n";
-     std::cout << "  sam run COL  Start background SAM indexing for one collection\n";
-     std::cout << "  sam search [COL] QUERY [limit]  Search SAM phrases in the current or specified collection\n";
-     std::cout << "  sam status [COL]  Show current SAM background indexing status\n";
-     std::cout << "  sam history [COL] [limit]  Show recent SAM search history\n";
-     std::cout << "  sam int|inst|interactions [COL] [limit]  Show learned SAM interaction refinements\n";
-     std::cout << "  sam debug [COL] [limit]  Stream live SAM debug events for one collection\n";
-     std::cout << "  sam list [COL] [offset limit]  List SAM-indexed documents for one collection\n";
-     std::cout << "  sam open ID|COL/ID  Open one SAM-indexed document\n";
 }
 
 /* Print syntax guidance for the overloaded select command. */
@@ -2390,9 +2260,6 @@ void SetCurrentCollection(TalkState &state, const std::string &collection_name)
 
      state.CurrentCollection = collection_name;
      state.LastListedDocumentIds.clear();
-     state.LastListedSAMDocumentIds.clear();
-     state.LastSAMSearchCollection.clear();
-     state.LastSAMSearchQuery.clear();
 }
 
 bool GoBackCollection(TalkState &state)
@@ -2406,14 +2273,12 @@ bool GoBackCollection(TalkState &state)
 
           state.CurrentCollection.clear();
           state.LastListedDocumentIds.clear();
-          state.LastListedSAMDocumentIds.clear();
           return true;
      }
 
      state.CurrentCollection = state.CollectionHistory.back();
      state.CollectionHistory.pop_back();
      state.LastListedDocumentIds.clear();
-     state.LastListedSAMDocumentIds.clear();
      return true;
 }
 
@@ -2459,13 +2324,12 @@ std::vector<std::string> GetTalkCommands()
          "copy",
          "delete",
          "maybe",
-         "sam",
          "stats",
          "ping",
          "links",
          "bw",
          "modules",
-         "llm",
+         "ask",
          "module",
          "load",
          "loadmodule",
@@ -2481,22 +2345,6 @@ std::vector<std::string> GetTalkCommands()
          "sql:"};
 }
 
-std::vector<std::string> GetTalkSAMCommands()
-{
-     return {
-         "help",
-         "run",
-         "search",
-         "status",
-         "history",
-         "int",
-         "inst",
-         "interactions",
-         "debug",
-         "ls",
-         "list",
-         "open"};
-}
 
 bool IsBuiltinTalkCommand(const std::string &command)
 {
@@ -2708,48 +2556,7 @@ int CompleteTalkCommandLine(const char *line, char *buffer, size_t buffer_size)
           return CompleteTalkCandidate(current, GetTalkCommands(), buffer, buffer_size);
      }
 
-     std::istringstream parser(current);
-     std::string command;
-     std::string subcommand;
-
-     parser >> command;
-
-     if (ToLower(command) != "sam")
-     {
-          return 0;
-     }
-
-     parser >> subcommand;
-
-     std::string remaining;
-     std::getline(parser, remaining);
-
-     if (!remaining.empty())
-     {
-          return 0;
-     }
-
-     if (std::isspace(static_cast<unsigned char>(current.back())) != 0)
-     {
-          subcommand.clear();
-     }
-
-     char subcommand_buffer[256] = {0};
-
-     if (CompleteTalkCandidate(subcommand, GetTalkSAMCommands(), subcommand_buffer, sizeof(subcommand_buffer)) == 0)
-     {
-          return 0;
-     }
-
-     const std::string completion = "sam " + std::string(subcommand_buffer);
-
-     if (completion.size() <= current.size() || completion.size() >= buffer_size)
-     {
-          return 0;
-     }
-
-     std::memcpy(buffer, completion.c_str(), completion.size() + 1);
-     return 1;
+     return 0;
 }
 
 bool ExecuteTalkCommand(const std::string &line,
@@ -2878,15 +2685,9 @@ bool ExecuteTalkCommand(const std::string &line,
 
      if (command == "help")
      {
-          if (parts.size() == 2 && parts[1] == "sam")
-          {
-               PrintSAMHelp();
-               return true;
-          }
-
           if (parts.size() != 1)
           {
-               TalkPrintError("Usage: help or help sam");
+               TalkPrintError("Usage: help");
                return true;
           }
 
@@ -3036,6 +2837,7 @@ bool ExecuteTalkCommand(const std::string &line,
           }
 
           const std::string collection_name = parts[1];
+          TalkPrintInfo("Selecting collection '" + collection_name + "'");
 
           std::string resolved_collection_name;
           std::string error_message;
@@ -3052,7 +2854,8 @@ bool ExecuteTalkCommand(const std::string &line,
                return true;
           }
 
-          if (!cli.CollectionExists(resolved_collection_name))
+          TalkPrintInfo("Verifying collection '" + resolved_collection_name + "'");
+          if (!TalkCollectionExists(cli, resolved_collection_name))
           {
                std::string alias_collection;
 
@@ -3108,7 +2911,7 @@ bool ExecuteTalkCommand(const std::string &line,
                return true;
           }
 
-          if (!cli.CollectionExists(resolved_collection_name))
+          if (!TalkCollectionExists(cli, resolved_collection_name))
           {
                std::string alias_collection;
 
@@ -3299,7 +3102,7 @@ bool ExecuteTalkCommand(const std::string &line,
                return true;
           }
 
-          if (!cli.CollectionExists(resolved_collection_name))
+          if (!TalkCollectionExists(cli, resolved_collection_name))
           {
                TalkPrintError("Collection not found: " + resolved_collection_name);
                return true;
@@ -3332,8 +3135,7 @@ bool ExecuteTalkCommand(const std::string &line,
                     return true;
                }
 
-               state.LastListedDocumentIds = FetchDocumentIds(cli, collection_name, offset, limit);
-               cli.ListDocuments(collection_name, offset, limit);
+               FetchAndPrintDocumentList(cli, state, collection_name, offset, limit);
                return true;
           }
 
@@ -3345,14 +3147,11 @@ bool ExecuteTalkCommand(const std::string &line,
 
           if (state.CurrentCollection.empty())
           {
-               state.LastListedCollections = FetchCollectionNames(cli, offset, limit);
-               state.LastListedDocumentIds.clear();
-               cli.ListCollections(offset, limit);
+               FetchAndPrintCollectionList(cli, state, offset, limit);
                return true;
           }
 
-          state.LastListedDocumentIds = FetchDocumentIds(cli, state.CurrentCollection, offset, limit);
-          cli.ListDocuments(state.CurrentCollection, offset, limit);
+          FetchAndPrintDocumentList(cli, state, state.CurrentCollection, offset, limit);
           return true;
      }
 
@@ -3387,9 +3186,7 @@ bool ExecuteTalkCommand(const std::string &line,
                return true;
           }
 
-          state.LastListedCollections = FetchCollectionNames(cli, offset, limit);
-          state.LastListedDocumentIds.clear();
-          cli.ListCollections(offset, limit);
+          FetchAndPrintCollectionList(cli, state, offset, limit);
           return true;
      }
 
@@ -3912,516 +3709,6 @@ bool ExecuteTalkCommand(const std::string &line,
           cli.MaybeSuggest(query_str, collection_name, limit_val, min_results_val, false);
           return true;
      }
-
-     if (command == "sam")
-     {
-          const std::vector<std::string> raw_parts = TokenizeInputPreserveQuotes(line);
-
-          if (parts.size() >= 2 && parts[1] == "help")
-          {
-               if (parts.size() != 2)
-               {
-                    TalkPrintError("Usage: sam help");
-                    return true;
-               }
-
-               PrintSAMHelp();
-               return true;
-          }
-
-          if (parts.size() >= 2 && parts[1] == "run")
-          {
-               if (parts.size() != 3)
-               {
-                    TalkPrintError("Usage: sam run <collection>");
-                    return true;
-               }
-
-               std::string collection_name;
-               std::string error_message;
-
-               if (!ResolveSAMCollectionReference(state, cli, parts[2], collection_name, error_message))
-               {
-                    TalkPrintError(error_message);
-                    return true;
-               }
-
-               cli.RebuildSAMCollection(collection_name);
-               return true;
-          }
-
-          if (parts.size() >= 2 && parts[1] == "search")
-          {
-               std::string collection_name;
-               std::string query_text;
-               int limit_val = 20;
-               std::string error_message;
-               size_t query_start_index = 0;
-               size_t query_end_index = parts.size();
-
-               if (state.CurrentCollection.empty())
-               {
-                    if (parts.size() < 4)
-                    {
-                         TalkPrintError("Usage: sam search <collection> <query> [limit]");
-                         return true;
-                    }
-
-                    if (!ResolveSAMCollectionReference(state, cli, parts[2], collection_name, error_message))
-                    {
-                         TalkPrintError(error_message);
-                         return true;
-                    }
-
-                    query_start_index = 3;
-               }
-               else
-               {
-                    if (parts.size() < 3)
-                    {
-                         TalkPrintError("Usage: sam search <query> [limit]");
-                         return true;
-                    }
-
-                    collection_name = state.CurrentCollection;
-                    query_start_index = 2;
-               }
-
-               if ((query_end_index - query_start_index) >= 2 && IsUnsignedInteger(parts[query_end_index - 1]))
-               {
-                    limit_val = std::stoi(parts[query_end_index - 1]);
-                    query_end_index--;
-               }
-
-               if (query_end_index <= query_start_index)
-               {
-                    TalkPrintError(state.CurrentCollection.empty()
-                         ? "Usage: sam search <collection> <query> [limit]"
-                         : "Usage: sam search <query> [limit]");
-                    return true;
-               }
-
-               if ((query_end_index - query_start_index) == 1 &&
-                   raw_parts.size() > query_start_index &&
-                   IsQuotedToken(raw_parts[query_start_index]))
-               {
-                    query_text = StripOuterQuotes(raw_parts[query_start_index]);
-               }
-               else
-               {
-                    for (size_t index = query_start_index; index < query_end_index; ++index)
-                    {
-                         if (!query_text.empty())
-                         {
-                              query_text.push_back(' ');
-                         }
-
-                         query_text += parts[index];
-                    }
-               }
-
-               query_text = TrimWhitespace(query_text);
-
-               if (limit_val <= 0)
-               {
-                    TalkPrintError("SAM search limit must be a positive integer");
-                    return true;
-               }
-
-               state.LastSAMSearchCollection = collection_name;
-               state.LastSAMSearchQuery = query_text;
-               state.LastListedSAMDocumentIds = FetchSAMSearchDocumentIds(cli, collection_name, query_text, limit_val);
-               if (state.LastListedSAMDocumentIds.empty())
-               {
-                    state.LastListedDocumentIds = FetchSearchDocumentIds(cli, collection_name, query_text, limit_val);
-               }
-               else
-               {
-                    state.LastListedDocumentIds.clear();
-               }
-
-               cli.SearchSAM(collection_name, query_text, limit_val);
-               return true;
-          }
-
-          if (parts.size() >= 2 && parts[1] == "status")
-          {
-               std::string collection_name;
-               std::string error_message;
-
-               if (parts.size() == 2)
-               {
-                    collection_name = state.CurrentCollection;
-               }
-               else if (parts.size() == 3)
-               {
-                    if (!ResolveSAMCollectionReference(state, cli, parts[2], collection_name, error_message))
-                    {
-                         TalkPrintError(error_message);
-                         return true;
-                    }
-               }
-               else
-               {
-                    TalkPrintError("Usage: sam status [collection]");
-                    return true;
-               }
-
-               cli.ShowSAMStatus(collection_name);
-               return true;
-          }
-
-          if (parts.size() >= 2 && parts[1] == "history")
-          {
-               std::string collection_name;
-               std::string error_message;
-               int limit = 100;
-
-               if (parts.size() == 2)
-               {
-                    collection_name = state.CurrentCollection;
-               }
-               else if (parts.size() == 3)
-               {
-                    if (IsUnsignedInteger(parts[2]))
-                    {
-                         limit = std::stoi(parts[2]);
-                         collection_name = state.CurrentCollection;
-                    }
-                    else if (!ResolveSAMCollectionReference(state, cli, parts[2], collection_name, error_message))
-                    {
-                         TalkPrintError(error_message);
-                         return true;
-                    }
-               }
-               else if (parts.size() == 4)
-               {
-                    if (!ResolveSAMCollectionReference(state, cli, parts[2], collection_name, error_message))
-                    {
-                         TalkPrintError(error_message);
-                         return true;
-                    }
-
-                    if (!IsUnsignedInteger(parts[3]))
-                    {
-                         TalkPrintError("SAM history limit must be a positive integer");
-                         return true;
-                    }
-
-                    limit = std::stoi(parts[3]);
-               }
-               else
-               {
-                    TalkPrintError("Usage: sam history [collection] [limit]");
-                    return true;
-               }
-
-               cli.ShowSAMHistory(collection_name, limit);
-               return true;
-          }
-
-          if (parts.size() >= 2 &&
-              (parts[1] == "int" || parts[1] == "inst" || parts[1] == "interactions"))
-          {
-               std::string collection_name;
-               std::string error_message;
-               int limit = 100;
-
-               if (parts.size() == 2)
-               {
-                    collection_name = state.CurrentCollection;
-               }
-               else if (parts.size() == 3)
-               {
-                    if (IsUnsignedInteger(parts[2]))
-                    {
-                         limit = std::stoi(parts[2]);
-                         collection_name = state.CurrentCollection;
-                    }
-                    else if (!ResolveSAMCollectionReference(state, cli, parts[2], collection_name, error_message))
-                    {
-                         TalkPrintError(error_message);
-                         return true;
-                    }
-               }
-               else if (parts.size() == 4)
-               {
-                    if (!ResolveSAMCollectionReference(state, cli, parts[2], collection_name, error_message))
-                    {
-                         TalkPrintError(error_message);
-                         return true;
-                    }
-
-                    if (!IsUnsignedInteger(parts[3]))
-                    {
-                         TalkPrintError("SAM interaction limit must be a positive integer");
-                         return true;
-                    }
-
-                    limit = std::stoi(parts[3]);
-               }
-               else
-               {
-                    TalkPrintError("Usage: sam int [collection] [limit]");
-                    return true;
-               }
-
-               cli.ShowSAMHistory(collection_name, limit, false, true);
-               return true;
-          }
-
-          if (parts.size() >= 2 && parts[1] == "debug")
-          {
-               std::string collection_name;
-               int limit = 100;
-               std::string error_message;
-
-               if (parts.size() == 2)
-               {
-                    if (state.CurrentCollection.empty())
-                    {
-                         TalkPrintError("Usage: sam debug [collection] [limit]");
-                         return true;
-                    }
-
-                    collection_name = state.CurrentCollection;
-               }
-               else if (parts.size() == 3)
-               {
-                    if (IsUnsignedInteger(parts[2]))
-                    {
-                         if (state.CurrentCollection.empty())
-                         {
-                              TalkPrintError("Usage: sam debug [collection] [limit]");
-                              return true;
-                         }
-
-                         collection_name = state.CurrentCollection;
-                         limit = std::stoi(parts[2]);
-                    }
-                    else
-                    {
-                         if (!ResolveSAMCollectionReference(state, cli, parts[2], collection_name, error_message))
-                         {
-                              TalkPrintError(error_message);
-                              return true;
-                         }
-                    }
-               }
-               else if (parts.size() == 4)
-               {
-                    if (!ResolveSAMCollectionReference(state, cli, parts[2], collection_name, error_message))
-                    {
-                         TalkPrintError(error_message);
-                         return true;
-                    }
-
-                    if (!IsUnsignedInteger(parts[3]) || std::stoi(parts[3]) <= 0)
-                    {
-                         TalkPrintError("SAM debug limit must be a positive integer");
-                         return true;
-                    }
-
-                    limit = std::stoi(parts[3]);
-               }
-               else
-               {
-                    TalkPrintError("Usage: sam debug [collection] [limit]");
-                    return true;
-               }
-
-               if (limit <= 0)
-               {
-                    limit = 100;
-               }
-
-               StreamSAMDebug(cli, collection_name, limit);
-               return true;
-          }
-
-          if (parts.size() >= 2 && (parts[1] == "ls" || parts[1] == "list"))
-          {
-               std::string collection_name;
-               int offset = 0;
-               int limit = 20;
-               std::string error_message;
-
-               if (parts.size() == 2)
-               {
-                    if (state.CurrentCollection.empty())
-                    {
-                         TalkPrintError("Usage: sam list [collection] [offset limit]");
-                         return true;
-                    }
-
-                    collection_name = state.CurrentCollection;
-               }
-               else if (parts.size() == 3)
-               {
-                    if (IsUnsignedInteger(parts[2]))
-                    {
-                         if (state.CurrentCollection.empty())
-                         {
-                              TalkPrintError("Usage: sam list [collection] [offset limit]");
-                              return true;
-                         }
-
-                         collection_name = state.CurrentCollection;
-                         offset = std::stoi(parts[2]);
-                    }
-                    else
-                    {
-                         if (!ResolveSAMCollectionReference(state, cli, parts[2], collection_name, error_message))
-                         {
-                              TalkPrintError(error_message);
-                              return true;
-                         }
-                    }
-               }
-               else if (parts.size() == 4)
-               {
-                    if (!ResolveSAMCollectionReference(state, cli, parts[2], collection_name, error_message))
-                    {
-                         TalkPrintError(error_message);
-                         return true;
-                    }
-
-                    if (!IsUnsignedInteger(parts[3]))
-                    {
-                         TalkPrintError("SAM list offset must be a non-negative integer");
-                         return true;
-                    }
-
-                    offset = std::stoi(parts[3]);
-               }
-               else if (parts.size() == 5)
-               {
-                    if (!ResolveSAMCollectionReference(state, cli, parts[2], collection_name, error_message))
-                    {
-                         TalkPrintError(error_message);
-                         return true;
-                    }
-
-                    if (!IsUnsignedInteger(parts[3]) || !IsUnsignedInteger(parts[4]))
-                    {
-                         TalkPrintError("SAM list offset and limit must be non-negative integers");
-                         return true;
-                    }
-
-                    offset = std::stoi(parts[3]);
-                    limit = std::stoi(parts[4]);
-               }
-               else
-               {
-                    TalkPrintError("Usage: sam list [collection] [offset limit]");
-                    return true;
-               }
-
-               state.LastListedSAMDocumentIds = FetchSAMDocumentIds(cli, collection_name, offset, limit);
-               state.LastSAMSearchCollection.clear();
-               state.LastSAMSearchQuery.clear();
-               cli.ListSAMDocuments(collection_name, offset, limit);
-               return true;
-          }
-
-          if (parts.size() >= 2 && parts[1] == "open")
-          {
-               if (parts.size() != 3)
-               {
-                    TalkPrintError("Usage: sam open <document-id> or sam open <collection>/<document-id>");
-                    return true;
-               }
-
-               std::string collection_name;
-               std::string document_id;
-               std::string error_message;
-
-               if (!ParseSAMDocumentTarget(parts[2], state.CurrentCollection, collection_name, document_id, error_message))
-               {
-                    TalkPrintError(error_message);
-                    return true;
-               }
-
-               std::string resolved_collection;
-
-               if (!ResolveSAMCollectionReference(state, cli, collection_name, resolved_collection, error_message))
-               {
-                    TalkPrintError(error_message);
-                    return true;
-               }
-
-               if (IsUnsignedInteger(document_id) &&
-                   !state.LastListedSAMDocumentIds.empty())
-               {
-                    std::string resolved_document_id;
-                    if (!ResolveSAMDocumentReference(cli,
-                                                     resolved_collection,
-                                                     document_id,
-                                                     state.LastListedSAMDocumentIds,
-                                                     resolved_document_id,
-                                                     error_message))
-                    {
-                         TalkPrintError(error_message);
-                         return true;
-                    }
-
-                    document_id = resolved_document_id;
-               }
-               else if (IsUnsignedInteger(document_id) &&
-                        resolved_collection == state.CurrentCollection)
-               {
-                    std::string resolved_document_id;
-
-                    if (!ResolveCollectionDocumentReference(cli,
-                                                            resolved_collection,
-                                                            document_id,
-                                                            state.LastListedDocumentIds,
-                                                            resolved_document_id,
-                                                            error_message))
-                    {
-                         TalkPrintError(error_message);
-                         return true;
-                    }
-
-                    document_id = resolved_document_id;
-               }
-
-               std::string interaction_query;
-
-               if (resolved_collection == state.LastSAMSearchCollection)
-               {
-                    interaction_query = state.LastSAMSearchQuery;
-               }
-
-               cli.OpenSAMDocument(resolved_collection, document_id, false, interaction_query);
-               return true;
-          }
-
-          if (state.CurrentCollection.empty())
-          {
-               TalkPrintError("No active collection. Use 'use <collection>' first");
-               return true;
-          }
-
-          if (parts.size() != 2)
-          {
-               TalkPrintError("Usage: sam <document-id|number>");
-               return true;
-          }
-
-          std::string document_id;
-          std::string error_message;
-
-          if (!ResolveCollectionDocumentReference(cli, state.CurrentCollection, parts[1], state.LastListedDocumentIds, document_id, error_message))
-          {
-               TalkPrintError(error_message);
-               return true;
-          }
-
-          cli.ShowDocumentContext(state.CurrentCollection, document_id);
-          return true;
-     }
-
      if (command == "stats")
      {
           if (parts.size() != 1)
@@ -4526,18 +3813,57 @@ bool ExecuteTalkCommand(const std::string &line,
           return true;
      }
 
-     if (command == "llm")
+     if (command == "ask")
      {
-          if (parts.size() != 1)
+          if (parts.size() == 1)
           {
-               TalkPrintError("Usage: llm");
+               TalkPrintError("Usage: ask <question>");
                return true;
           }
 
-          cli.ShowLLMInfo();
+          if (state.CurrentCollection.empty())
+          {
+               TalkPrintError("Usage: ask <question> requires an active collection");
+               TalkPrintInfo("Select one first with: use <collection>");
+               return true;
+          }
+
+          std::string query = NormalizeTalkAskQuery(line.substr(parts.front().size()));
+
+          if (query.empty())
+          {
+               TalkPrintError("Usage: ask <question>");
+               return true;
+          }
+
+          const int limit = 20;
+
+          state.LastListedCollections.clear();
+          state.LastListedDocumentIds.clear();
+
+          cli.SearchDocuments(state.CurrentCollection,
+                              query,
+                              limit,
+                              0,
+                              "",
+                              false,
+                              false,
+                              "",
+                              "",
+                              "",
+                              30,
+                              -1,
+                              -1,
+                              false);
+          state.LastListedDocumentIds = FetchSearchDocumentIds(cli, state.CurrentCollection, query, limit);
+
+          if (!state.LastListedDocumentIds.empty())
+          {
+               TalkPrintInfo("Use 'open 1' to inspect a result.");
+          }
+
           return true;
      }
-
      if (command == "module")
      {
           if (parts.size() < 2)

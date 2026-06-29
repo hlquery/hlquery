@@ -23,11 +23,41 @@
 #include "core/hlquery.h"
 #include "listenmanager.h"
 
+namespace
+{
+     bool SetCloseOnExec(int FDValue)
+     {
+          int Flags = fcntl(FDValue, F_GETFD);
+
+          if (Flags < 0)
+          {
+               return false;
+          }
+
+          return fcntl(FDValue, F_SETFD, Flags | FD_CLOEXEC) == 0;
+     }
+
+     bool SetNonBlocking(int FDValue)
+     {
+          int Flags = fcntl(FDValue, F_GETFL);
+
+          if (Flags < 0)
+          {
+               return false;
+          }
+
+          return fcntl(FDValue, F_SETFL, Flags | O_NONBLOCK) == 0;
+     }
+}
+
 /* Constructor */
 
 ListenManager::ListenManager(const std::string &address, int port_num) : BindAddr(address), Port(port_num)
 {
-     Instance->Logs->Debug("listenmanager", "ListenManager created for " + address + ":" + std::to_string(port_num) + ".");
+     if (Instance && Instance->Logs)
+     {
+          Instance->Logs->Debug("listenmanager", "ListenManager created for " + address + ":" + std::to_string(port_num) + ".");
+     }
 }
 
 /* Destructor */
@@ -39,7 +69,6 @@ ListenManager::~ListenManager()
           /* Cache FD before DelFD() to prevent use-after-free */
 
           int fd_val = GetFD();
-
           SocketEngine::DelFD(this);
 
           if (fd_val >= 0)
@@ -54,11 +83,16 @@ ListenManager::~ListenManager()
      }
 }
 
-std::vector<std::unique_ptr<ListenManager>> ListenManager::CreateCustomProtocolListeners(const ServerConfig &Config)
+std::vector<std::unique_ptr<ListenManager>> ListenManager::CreateCustomProtocolListeners()
 {
-     const auto &BindConfigs = Config.GetBindConfigs();
      std::vector<std::unique_ptr<ListenManager>> Listeners;
 
+     if (!Instance || !Instance->HasConfig())
+     {
+          return Listeners;
+     }
+
+     const auto &BindConfigs = Instance->GetConfig().GetBindConfigs();
      Listeners.reserve(BindConfigs.size());
 
      if (Instance && Instance->Logs)
@@ -141,6 +175,7 @@ bool ListenManager::BindAndListen()
 
      /* Set SO_REUSEPORT for load balancing across multiple processes (if supported) */
 
+#ifdef SO_REUSEPORT
      if (setsockopt(fd_val, SOL_SOCKET, SO_REUSEPORT, &opt, sizeof(opt)) < 0)
      {
           /* SO_REUSEPORT may not be supported on all systems - log but don't fail */
@@ -150,10 +185,11 @@ bool ListenManager::BindAndListen()
                Instance->Logs->Debug("listenmanager", "SO_REUSEPORT not supported: " + std::string(strerror(errno)) + ".");
           }
      }
+#endif
 
      /* Set non-blocking */
 
-     if (fcntl(fd_val, F_SETFL, fcntl(fd_val, F_GETFL) | O_NONBLOCK) < 0)
+     if (!SetNonBlocking(fd_val))
      {
           if (Instance && Instance->Logs)
           {
@@ -212,11 +248,9 @@ bool ListenManager::BindAndListen()
 
      /* Ensure listen fd will not leak across exec() */
 
-     int Clo = fcntl(fd_val, F_GETFD);
-
-     if (Clo != -1)
+     if (!SetCloseOnExec(fd_val) && Instance && Instance->Logs)
      {
-          fcntl(fd_val, F_SETFD, Clo | FD_CLOEXEC);
+          Instance->Logs->Debug("listenmanager", "Failed to set FD_CLOEXEC on listener: " + std::string(strerror(errno)) + ".");
      }
 
      if (!SocketEngine::AddFD(this, EPOLLIN))
@@ -246,7 +280,6 @@ void ListenManager::OnEventHandlerRead()
      struct sockaddr_in ClientAddr;
      socklen_t ClientLen = sizeof(ClientAddr);
      int ConnectionsProcessed = 0;
-     bool LimitReached = false;
 
      /*
       * Accept connections until queue is drained or limit is reached
@@ -261,45 +294,6 @@ void ListenManager::OnEventHandlerRead()
      {
           if (ConnectionsProcessed >= MAX_CONNECTIONS_PER_TICK)
           {
-               LimitReached = true;
-               int TestFD = accept(GetFD(), reinterpret_cast<struct sockaddr *>(&ClientAddr), &ClientLen);
-
-               if (TestFD < 0)
-               {
-                    int SavedErrno = errno;
-
-#if EAGAIN == EWOULDBLOCK
-
-                    if (SavedErrno == EAGAIN)
-                    {
-#else
-
-                    if (SavedErrno == EAGAIN || SavedErrno == EWOULDBLOCK)
-                    {
-
-#endif
-                         /* Queue is drained, safe to break */
-
-                         break;
-                    }
-
-                    /* Other error - close TestFD if it was valid, then break */
-
-                    if (TestFD >= 0)
-                    {
-                         close(TestFD);
-                    }
-
-                    break;
-               }
-
-               /*
-                * Still have connections, but we've hit the limit 
-                * Close the test connection and break (remaining will be processed next tick) 
-                */
-
-               close(TestFD);
-
                if (Instance && Instance->Logs)
                {
                     Instance->Logs->Debug("listenmanager", "Connection slice limit reached (" + std::to_string(MAX_CONNECTIONS_PER_TICK) + "), processing remaining in next tick.");
@@ -311,6 +305,7 @@ void ListenManager::OnEventHandlerRead()
                break;
           }
 
+          ClientLen = sizeof(ClientAddr);
           int ClientFD = accept(GetFD(), reinterpret_cast<struct sockaddr *>(&ClientAddr), &ClientLen);
 
           if (ClientFD < 0)
@@ -381,26 +376,35 @@ void ListenManager::OnEventHandlerRead()
                }
           }
 
-          char ClientIP[INET_ADDRSTRLEN];
-          inet_ntop(AF_INET, &ClientAddr.sin_addr, ClientIP, INET_ADDRSTRLEN);
+          char ClientIP[INET_ADDRSTRLEN] = {0};
+          if (!inet_ntop(AF_INET, &ClientAddr.sin_addr, ClientIP, INET_ADDRSTRLEN))
+          {
+               std::strncpy(ClientIP, "unknown", sizeof(ClientIP) - 1);
+          }
+
           int ClientPortValue = ntohs(ClientAddr.sin_port);
 
           /* Set CLOEXEC to avoid fd leaking across exec */
 
-          int Flags = fcntl(ClientFD, F_GETFD);
-
-          if (Flags >= 0)
+          if (!SetCloseOnExec(ClientFD))
           {
-               fcntl(ClientFD, F_SETFD, Flags | FD_CLOEXEC);
+               if (Instance && Instance->Logs)
+               {
+                    Instance->Logs->Debug("listenmanager", "Failed to set FD_CLOEXEC on accepted client: " + std::string(strerror(errno)) + ".");
+               }
           }
 
           /* Set client socket non-blocking */
 
-          Flags = fcntl(ClientFD, F_GETFL);
-
-          if (Flags >= 0)
+          if (!SetNonBlocking(ClientFD))
           {
-               fcntl(ClientFD, F_SETFL, Flags | O_NONBLOCK);
+               if (Instance && Instance->Logs)
+               {
+                    Instance->Logs->Normal("listenmanager", "Failed to set accepted client non-blocking: " + std::string(strerror(errno)) + ".");
+               }
+
+               close(ClientFD);
+               continue;
           }
 
           /* Optimize TCP for low-latency, high-throughput messaging */
@@ -427,9 +431,9 @@ void ListenManager::OnEventHandlerRead()
 
           /* Configure keepalive parameters for faster dead connection detection */
 
-          int KeepIdle  = 10; /* Start keepalive after 10 seconds of inactivity */
-          int KeepIntvl = 5; /* Send keepalive probes every 5 seconds */
-          int KeepCnt   = 3; /* Send 3 probes before considering connection dead */
+          int KeepIdle  = 10;   /* Start keepalive after 10 seconds of inactivity */
+          int KeepIntvl = 5;    /* Send keepalive probes every 5 seconds */
+          int KeepCnt   = 3;    /* Send 3 probes before considering connection dead */
 
 #if defined(__APPLE__) && defined(TCP_KEEPALIVE)
 
@@ -496,15 +500,14 @@ void ListenManager::OnEventHandlerRead()
                }
           }
 
-          Instance->Logs->Debug("listenmanager", "Accepted connection from " + std::string(ClientIP) + ":" + std::to_string(ClientPortValue) + " (fd: " + std::to_string(ClientFD) + ").");
+          if (Instance && Instance->Logs)
+          {
+               Instance->Logs->Debug("listenmanager", "Accepted connection from " + std::string(ClientIP) + ":" + std::to_string(ClientPortValue) + " (fd: " + std::to_string(ClientFD) + ").");
+          }
+
           close(ClientFD);
 
           ConnectionsProcessed++;
-     }
-
-     if (LimitReached && ConnectionsProcessed > 0)
-     {
-
      }
 }
 

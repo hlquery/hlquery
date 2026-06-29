@@ -28,6 +28,12 @@ class ServerStats
 {
    public:
 
+     struct HealthStatus
+     {
+          bool Degraded = false;
+          std::string Reason;
+     };
+
      /* Constructor */
 
      ServerStats();
@@ -59,6 +65,10 @@ class ServerStats
      /* Returns true if health is degraded */
 
      bool IsHealthDegraded() const;
+
+     /* Returns a consistent health status and reason snapshot */
+
+     HealthStatus GetHealthStatus() const;
 
      /* Returns the reason for degraded health */
 
@@ -137,5 +147,5 @@ class ServerStats
 
      /* Server startup time */
 
-     time_t StartupTime;
+     std::atomic<time_t> StartupTime;
 };

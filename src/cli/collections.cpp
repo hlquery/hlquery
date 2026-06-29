@@ -25,8 +25,6 @@
 #include "cli/cliutils.h"
 #include "app.h"
 
-namespace
-{
 /* Build a create-collection payload from collection metadata returned by the server. */
 
 nlohmann::json BuildCreatePayloadFromCollectionInfo(const nlohmann::json &source_info, const std::string &target_name)
@@ -76,7 +74,6 @@ nlohmann::json BuildCreatePayloadFromCollectionInfo(const nlohmann::json &source
      return create_payload;
 }
 
-}
 
 /* Lists collections. */
 

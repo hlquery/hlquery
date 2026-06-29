@@ -16,6 +16,89 @@
 
 #include "sql/parser_internal.h"
 
+static bool SQLIsReservedValueKeyword(const std::string &upper)
+{
+     /* Keywords that mark SQL syntax must not be accepted as unquoted scalar values. */
+
+     static const std::set<std::string> reserved_keywords =
+     {
+          "AND",
+          "AS",
+          "BETWEEN",
+          "BY",
+          "CONTAINS",
+          "DELETE",
+          "DESC",
+          "DROP",
+          "FETCH",
+          "FIRST",
+          "FROM",
+          "GROUP",
+          "HAVING",
+          "ILIKE",
+          "IN",
+          "INSERT",
+          "INTO",
+          "IS",
+          "LIKE",
+          "LIMIT",
+          "NEXT",
+          "NOT",
+          "OFFSET",
+          "ONLY",
+          "OR",
+          "ORDER",
+          "ROW",
+          "ROWS",
+          "SELECT",
+          "SHOW",
+          "UPDATE",
+          "VALUES",
+          "WHERE"
+     };
+
+     return reserved_keywords.count(upper) > 0;
+}
+
+static bool SQLCanUseTokenAsValue(const SQLToken &token)
+{
+     /* Quoted tokens are always literal values, even when their contents look like syntax. */
+
+     if (!token.Text.empty() &&
+         (token.Text.front() == '\'' || token.Text.front() == '"' || token.Text.front() == '`'))
+     {
+          return true;
+     }
+
+     static const std::set<std::string> invalid_value_tokens =
+     {
+          ",",
+          "(",
+          ")",
+          "*",
+          ";",
+          "=",
+          "!=",
+          "<>",
+          ">",
+          ">=",
+          "<",
+          "<="
+     };
+
+     if (invalid_value_tokens.count(token.Text) > 0)
+     {
+          return false;
+     }
+
+     if (token.Upper == "TRUE" || token.Upper == "FALSE" || token.Upper == "NULL")
+     {
+          return true;
+     }
+
+     return !SQLIsReservedValueKeyword(token.Upper);
+}
+
 /* AST to translation result conversion. */
 
 SQLTranslationResult Parser::BuildTranslationResultFromAST(const SQLTranslationResult &template_result,
@@ -36,6 +119,7 @@ SQLTranslationResult Parser::BuildTranslationResultFromAST(const SQLTranslationR
      result.Query.Offset = statement.Offset;
      result.Query.Page = (statement.Limit > 0) ? ((statement.Offset / statement.Limit) + 1) : 1;
      result.Query.GroupBy = statement.GroupBy;
+     result.Query.IncludeFields.clear();
      result.Query.SortBy.clear();
      result.SelectFields.clear();
      result.AggregateSpecs.clear();
@@ -170,10 +254,18 @@ SQLTranslationResult Parser::Parse()
 
      /* Consume optional clauses until the statement terminator. */
 
+     int clause_rank = 0;
+     std::set<std::string> seen_clauses;
+
      while (!AtEnd())
      {
           if (MatchKeyword("WHERE"))
           {
+               if (!CanReadClause("WHERE", 1, clause_rank, seen_clauses, result.Error))
+               {
+                    return result;
+               }
+
                if (!ParseWhere(result))
                {
                     return result;
@@ -183,6 +275,11 @@ SQLTranslationResult Parser::Parse()
 
           if (MatchKeyword("ORDER"))
           {
+               if (!CanReadClause("ORDER BY", 4, clause_rank, seen_clauses, result.Error))
+               {
+                    return result;
+               }
+
                if (!MatchKeyword("BY"))
                {
                     result.Error = "Expected BY after ORDER.";
@@ -199,6 +296,11 @@ SQLTranslationResult Parser::Parse()
 
           if (MatchKeyword("GROUP"))
           {
+               if (!CanReadClause("GROUP BY", 2, clause_rank, seen_clauses, result.Error))
+               {
+                    return result;
+               }
+
                if (!MatchKeyword("BY"))
                {
                     result.Error = "Expected BY after GROUP.";
@@ -215,6 +317,11 @@ SQLTranslationResult Parser::Parse()
 
           if (MatchKeyword("HAVING"))
           {
+               if (!CanReadClause("HAVING", 3, clause_rank, seen_clauses, result.Error))
+               {
+                    return result;
+               }
+
                if (!ParseHaving(result))
                {
                     return result;
@@ -225,6 +332,11 @@ SQLTranslationResult Parser::Parse()
 
           if (MatchKeyword("LIMIT"))
           {
+               if (!CanReadClause("LIMIT", 5, clause_rank, seen_clauses, result.Error))
+               {
+                    return result;
+               }
+
                result.HasExplicitLimit = true;
                ParsedStatement.HasExplicitLimit = true;
 
@@ -242,6 +354,8 @@ SQLTranslationResult Parser::Parse()
                {
                     result.Query.Offset = parsed_offset;
                     ParsedStatement.Offset = parsed_offset;
+                    seen_clauses.insert("OFFSET");
+                    clause_rank = 6;
                }
 
                continue;
@@ -249,6 +363,11 @@ SQLTranslationResult Parser::Parse()
 
           if (MatchKeyword("OFFSET"))
           {
+               if (!CanReadClause("OFFSET", 6, clause_rank, seen_clauses, result.Error))
+               {
+                    return result;
+               }
+
                if (!ParseNonNegativeInt(result.Query.Offset, "OFFSET", &result.Error))
                {
                     return result;
@@ -266,6 +385,17 @@ SQLTranslationResult Parser::Parse()
 
           if (MatchKeyword("FETCH"))
           {
+               if (seen_clauses.count("LIMIT") > 0)
+               {
+                    result.Error = "SQL FETCH cannot be combined with LIMIT.";
+                    return result;
+               }
+
+               if (!CanReadClause("FETCH", 7, clause_rank, seen_clauses, result.Error))
+               {
+                    return result;
+               }
+
                result.HasExplicitLimit = true;
 
                ParsedStatement.HasExplicitLimit = true;
@@ -297,53 +427,79 @@ SQLTranslationResult Parser::Parse()
           return result;
      }
 
+     bool has_aggregate_select_item = false;
+     bool has_field_select_item = false;
+
+     for (const auto &SelectItem : ParsedStatement.SelectItems)
+     {
+          if (SelectItem.Type == SQLASTSelectItem::ItemType::Aggregate)
+          {
+               has_aggregate_select_item = true;
+               continue;
+          }
+
+          if (SelectItem.Type == SQLASTSelectItem::ItemType::Field)
+          {
+               has_field_select_item = true;
+          }
+     }
+
      /* Aggregate-only SELECT statements return a single row with aggregation payload only. */
 
-     if (!result.AggregateSpecs.empty() && result.SelectFields.empty())
+     if (has_aggregate_select_item && !has_field_select_item)
      {
-          result.Query.Aggregations = AggregateConfig.dump();
           result.AggregateOnly = true;
-          result.Query.PerPage = 1;
+          ParsedStatement.Limit = 1;
      }
 
      /* Mixed aggregate + field selection requires GROUP BY and is restricted by current hlquery capabilities. */
 
-     if (!result.AggregateSpecs.empty() && !result.SelectFields.empty())
+     if (has_aggregate_select_item && has_field_select_item)
      {
-          if (result.Distinct)
+          if (ParsedStatement.Distinct)
           {
                result.Error = "DISTINCT with aggregate SELECT expressions is not supported by hlquery SQL yet.";
                return result;
           }
 
-          if (result.Query.GroupBy.empty())
+          if (ParsedStatement.GroupBy.empty())
           {
                result.Error = "Mixing aggregate expressions with regular selected fields requires GROUP BY in hlquery SQL.";
                return result;
           }
 
-          std::set<std::string> GroupByFields(result.Query.GroupBy.begin(), result.Query.GroupBy.end());
-          for (const auto &Field : result.SelectFields)
+          std::set<std::string> GroupByFields(ParsedStatement.GroupBy.begin(), ParsedStatement.GroupBy.end());
+          for (const auto &SelectItem : ParsedStatement.SelectItems)
           {
-               if (GroupByFields.find(Field.SourceName) == GroupByFields.end())
+               if (SelectItem.Type != SQLASTSelectItem::ItemType::Field)
                {
-                    result.Error = "Selected field '" + Field.SourceName + "' must appear in GROUP BY when aggregate expressions are present.";
+                    continue;
+               }
+
+               if (GroupByFields.find(SelectItem.SourceName) == GroupByFields.end())
+               {
+                    result.Error = "Selected field '" + SelectItem.SourceName + "' must appear in GROUP BY when aggregate expressions are present.";
                     return result;
                }
           }
 
           result.GroupedAggregates = true;
-          result.Query.Aggregations = AggregateConfig.dump();
 
-          for (const auto &AggSpec : result.AggregateSpecs)
+          for (const auto &SelectItem : ParsedStatement.SelectItems)
           {
-               if (AggSpec.FunctionName == "STATS")
+               if (SelectItem.Type == SQLASTSelectItem::ItemType::Aggregate &&
+                   SelectItem.FunctionName == "STATS")
                {
                     result.Error = "STATS() is not supported together with GROUP BY in hlquery SQL yet.";
                     return result;
                }
           }
      }
+
+     /* Mark the AST as valid and translate it into the public result structure. */
+
+     ParsedStatement.Valid = true;
+     result = BuildTranslationResultFromAST(result, ParsedStatement, AggregateConfig);
 
      /* ORDER BY may reference output aliases; normalize them back to source field names when possible. */
 
@@ -366,10 +522,7 @@ SQLTranslationResult Parser::Parse()
           }
      }
 
-     /* Mark the AST as valid and translate it into the public result structure. */
-
-     ParsedStatement.Valid = true;
-     return BuildTranslationResultFromAST(result, ParsedStatement, AggregateConfig);
+     return result;
 }
 
 bool Parser::TryConsumeASTNode(const std::string &label, std::string *error)
@@ -467,6 +620,29 @@ bool Parser::MatchKeyword(const std::string &keyword)
      return true;
 }
 
+bool Parser::CanReadClause(const std::string &clause_name,
+                           int clause_rank,
+                           int &current_rank,
+                           std::set<std::string> &seen_clauses,
+                           std::string &error)
+{
+     if (seen_clauses.count(clause_name) > 0)
+     {
+          error = "Duplicate SQL " + clause_name + " clause.";
+          return false;
+     }
+
+     if (clause_rank < current_rank)
+     {
+          error = "SQL " + clause_name + " clause appears out of order.";
+          return false;
+     }
+
+     seen_clauses.insert(clause_name);
+     current_rank = clause_rank;
+     return true;
+}
+
 bool Parser::IsClauseKeyword(const std::string &keyword) const
 {
      return keyword == "FROM" || keyword == "WHERE" || keyword == "ORDER" || keyword == "GROUP" ||
@@ -522,8 +698,6 @@ bool Parser::ParseSelectList(SQLTranslationResult &result)
                     return false;
                }
 
-               result.Query.IncludeFields.push_back(field_name);
-               result.SelectFields.push_back({field_name, output_name});
                SelectedFields.push_back(output_name);
                SelectedOutputFields.push_back({field_name, output_name});
                SelectAliases[SQLToUpperASCII(output_name)] = output_name;
@@ -538,7 +712,7 @@ bool Parser::ParseSelectList(SQLTranslationResult &result)
           Advance();
      }
 
-     if (result.Query.IncludeFields.empty() && AggregateConfig.empty())
+     if (ParsedStatement.SelectItems.empty())
      {
           result.Error = "SELECT field list cannot be empty.";
           return false;
@@ -902,6 +1076,7 @@ bool Parser::ParseComparison(std::string &out, std::string *error, bool allow_ag
           {
                *error = "Operator '" + op + "' is not supported by hlquery SQL yet.";
           }
+
           return false;
      }
 
@@ -911,6 +1086,7 @@ bool Parser::ParseComparison(std::string &out, std::string *error, bool allow_ag
           {
                *error = "Unsupported operator '" + op_token->Text + "' in WHERE clause.";
           }
+
           return false;
      }
 
@@ -930,6 +1106,7 @@ bool Parser::ParseComparison(std::string &out, std::string *error, bool allow_ag
                {
                     *error = "NOT only supports equality comparisons in hlquery SQL.";
                }
+
                return false;
           }
      }
@@ -942,6 +1119,7 @@ bool Parser::ParseComparison(std::string &out, std::string *error, bool allow_ag
           {
                *error = "Expected comparison value after operator '" + op + "'.";
           }
+
           return false;
      }
 
@@ -1122,12 +1300,19 @@ bool Parser::ParseValue(std::string &out)
           return false;
      }
 
-     const SQLToken *token = Advance();
+     const SQLToken *token = Peek();
 
      if (!token)
      {
           return false;
      }
+
+     if (!SQLCanUseTokenAsValue(*token))
+     {
+          return false;
+     }
+
+     Advance();
 
      if (!token->Text.empty() &&
          (token->Text.front() == '\'' || token->Text.front() == '"' || token->Text.front() == '`'))
@@ -1260,8 +1445,7 @@ bool Parser::ParseAggregateSelectItem(SQLTranslationResult &result)
 
      SelectedFields.push_back(aggregation_name);
      SelectAliases[SQLToUpperASCII(aggregation_name)] = aggregation_name;
-     result.AggregateSpecs.push_back({function_name, field_name, aggregation_name, count_all, distinct_values});
-     CurrentAggregateSpecs = result.AggregateSpecs;
+     CurrentAggregateSpecs.push_back({function_name, field_name, aggregation_name, count_all, distinct_values});
      ParsedStatement.SelectItems.push_back({SQLASTSelectItem::ItemType::Aggregate,
                                             field_name,
                                             aggregation_name,
@@ -1324,6 +1508,7 @@ bool Parser::ParseAggregateReference(std::string &out, std::string *error)
      Advance();
 
      bool distinct_values = false;
+
      if (MatchKeyword("DISTINCT"))
      {
           distinct_values = true;
@@ -1595,7 +1780,7 @@ bool Parser::ParseBetween(const std::string &field_name, bool negate, std::strin
 
      if (negate)
      {
-          out = field_name + ":<" + low_value + "||" + field_name + ":>" + high_value;
+          out = "(" + field_name + ":<" + low_value + "||" + field_name + ":>" + high_value + ")";
      }
      else
      {
@@ -1854,7 +2039,7 @@ bool Parser::ParseInList(const std::string &field_name, bool negate, std::string
           expression << rendered_terms[index];
      }
 
-     out = expression.str();
+     out = rendered_terms.size() > 1 ? "(" + expression.str() + ")" : expression.str();
      return true;
 }
 

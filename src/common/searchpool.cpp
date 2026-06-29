@@ -28,8 +28,21 @@
 #include "runtime/threadlimit.h"
 #include "search/storageengine.h"
 
+namespace
+{
+     std::chrono::steady_clock::time_point PoolNow()
+     {
+          if (Instance)
+          {
+               return Instance->Now();
+          }
+
+          return std::chrono::steady_clock::now();
+     }
+}
+
 SearchThreadPool::SearchThreadPool(const ThreadPoolConfig &config)
-    : Config(config), StartTime(Instance->Now())
+    : Config(config), StartTime(PoolNow())
 {
      /* Initialize work stealing queues */
 
@@ -142,16 +155,63 @@ void SearchThreadPool::Start()
 
           ThreadLimit::IncrementThreadCount();
 
-          worker_ptr->Thread = std::thread([this, worker_ptr, i]()
-                                           {
-                                                /* Set thread name */
+          try
+          {
+               worker_ptr->Thread = std::thread([this, worker_ptr, i]()
+                                                {
+                                                     /* Set thread name */
 
-                                                std::string thread_name = "hlquery:search:" + std::to_string(i);
+                                                     std::string thread_name = "hlquery:search:" + std::to_string(i);
 
-                                                ThreadLimit::SetThreadName(thread_name.c_str());
+                                                     ThreadLimit::SetThreadName(thread_name.c_str());
 
-                                                WorkerLoop(worker_ptr, i);
-                                           });
+                                                     WorkerLoop(worker_ptr, i);
+                                                });
+          }
+          catch (const std::exception &e)
+          {
+               {
+                    std::lock_guard<std::mutex> Lock(WorkersMutex);
+
+                    if (!Workers.empty() && Workers.back().get() == worker_ptr)
+                    {
+                         Workers.pop_back();
+                    }
+
+                    ActiveWorkerCount.store(Workers.size(), std::memory_order_release);
+               }
+
+               ThreadLimit::DecrementThreadCount();
+
+               if (Instance && Instance->Logs)
+               {
+                    Instance->Logs->Normal("thread_pool", "Thread creation failed: " + std::string(e.what()) + ", stopping at " + std::to_string(i) + " threads.");
+               }
+
+               break;
+          }
+          catch (...)
+          {
+               {
+                    std::lock_guard<std::mutex> Lock(WorkersMutex);
+
+                    if (!Workers.empty() && Workers.back().get() == worker_ptr)
+                    {
+                         Workers.pop_back();
+                    }
+
+                    ActiveWorkerCount.store(Workers.size(), std::memory_order_release);
+               }
+
+               ThreadLimit::DecrementThreadCount();
+
+               if (Instance && Instance->Logs)
+               {
+                    Instance->Logs->Normal("thread_pool", "Thread creation failed with unknown error, stopping at " + std::to_string(i) + " threads.");
+               }
+
+               break;
+          }
 
           if (Config.EnableCPUAffinity && !CPUCores.empty())
           {
@@ -166,7 +226,7 @@ void SearchThreadPool::Start()
 
 void SearchThreadPool::Shutdown()
 {
-     ShutdownFlag = true;
+     ShutdownFlag.store(true, std::memory_order_release);
 
      QueueCV.notify_all();
 
@@ -237,12 +297,13 @@ void SearchThreadPool::Shutdown()
 
 void SearchThreadPool::Pause()
 {
-     Paused = true;
+     Paused.store(true, std::memory_order_release);
+     QueueCV.notify_all();
 }
 
 void SearchThreadPool::Resume()
 {
-     Paused = false;
+     Paused.store(false, std::memory_order_release);
      QueueCV.notify_all();
 }
 
@@ -253,6 +314,10 @@ SearchThreadPool::PoolStats SearchThreadPool::GetStats()
      Stats.ActiveThreads = 0;
      Stats.CompletedTasks = CompletedTasks.load();
      Stats.RejectedTasks = RejectedTasks.load();
+     Stats.QueueSize = 0;
+     Stats.TotalThreads = 0;
+     Stats.AvgTaskTimeMS = 0.0;
+     Stats.CPUUtilization = 0.0;
 
      std::lock_guard<std::mutex> WorkersLock(WorkersMutex);
 
@@ -274,20 +339,23 @@ SearchThreadPool::PoolStats SearchThreadPool::GetStats()
 
      /* Calculate average task time */
 
-     if (CompletedTasks.load() > 0)
+     const size_t Completed = CompletedTasks.load(std::memory_order_relaxed);
+     const double TotalTaskTime = TotalTaskTimeMS.load(std::memory_order_relaxed);
+
+     if (Completed > 0)
      {
-          Stats.AvgTaskTimeMS = TotalTaskTimeMS.load() / CompletedTasks.load();
+          Stats.AvgTaskTimeMS = TotalTaskTime / static_cast<double>(Completed);
      }
 
      /* Calculate CPU utilization (simplified) */
 
-     auto now = Instance->Now();
+     auto now = PoolNow();
 
      auto TotalTime = std::chrono::duration_cast<std::chrono::milliseconds>(now - StartTime).count();
 
      if (TotalTime > 0)
      {
-          Stats.CPUUtilization = (TotalTaskTimeMS.load() / TotalTime) * 100.0;
+          Stats.CPUUtilization = (TotalTaskTime / static_cast<double>(TotalTime)) * 100.0;
      }
 
      return Stats;
@@ -295,7 +363,13 @@ SearchThreadPool::PoolStats SearchThreadPool::GetStats()
 
 void SearchThreadPool::ScaleUp(size_t additional_threads)
 {
-     size_t CurrentThreads = Workers.size();
+     size_t CurrentThreads = 0;
+
+     {
+          std::lock_guard<std::mutex> Lock(WorkersMutex);
+          CurrentThreads = Workers.size();
+     }
+
      size_t TargetThreads = std::min(CurrentThreads + additional_threads, Config.MaxThreads);
 
      ScaleThreads(TargetThreads);
@@ -303,9 +377,15 @@ void SearchThreadPool::ScaleUp(size_t additional_threads)
 
 void SearchThreadPool::ScaleDown(size_t threads_to_remove)
 {
-     size_t CurrentThreads = Workers.size();
+     size_t CurrentThreads = 0;
 
-     size_t TargetThreads = std::max(CurrentThreads - threads_to_remove, Config.CoreThreads);
+     {
+          std::lock_guard<std::mutex> Lock(WorkersMutex);
+          CurrentThreads = Workers.size();
+     }
+
+     size_t RemainingThreads = (threads_to_remove >= CurrentThreads) ? 0 : CurrentThreads - threads_to_remove;
+     size_t TargetThreads = std::max(RemainingThreads, Config.CoreThreads);
 
      ScaleThreads(TargetThreads);
 }
@@ -360,14 +440,22 @@ void SearchThreadPool::WorkerLoop(WorkerThread *worker, size_t worker_id)
           {
                std::unique_lock<std::mutex> lock(QueueMutex);
 
-               while (TaskQueue.empty() && !ShutdownFlag && worker->Running.load() && !Paused)
-               {
-                    QueueCV.wait(lock);
-               }
+               QueueCV.wait(lock,
+                            [this, worker]()
+                            {
+                                 return ShutdownFlag.load(std::memory_order_acquire) ||
+                                        !worker->Running.load(std::memory_order_acquire) ||
+                                        (!Paused.load(std::memory_order_acquire) && !TaskQueue.empty());
+                            });
 
-               if (ShutdownFlag || !worker->Running.load())
+               if (ShutdownFlag.load(std::memory_order_acquire) || !worker->Running.load(std::memory_order_acquire))
                {
                     break;
+               }
+
+               if (Paused.load(std::memory_order_acquire))
+               {
+                    continue;
                }
 
                if (!TaskQueue.empty())
@@ -389,7 +477,7 @@ void SearchThreadPool::WorkerLoop(WorkerThread *worker, size_t worker_id)
           {
                worker->Busy = true;
 
-               auto start_time = Instance->Now();
+               auto start_time = PoolNow();
 
                try
                {
@@ -400,7 +488,7 @@ void SearchThreadPool::WorkerLoop(WorkerThread *worker, size_t worker_id)
                     /* Log error but continue processing */
                }
 
-               auto end_time = Instance->Now();
+               auto end_time = PoolNow();
 
                UpdateStatistics(start_time, end_time);
 

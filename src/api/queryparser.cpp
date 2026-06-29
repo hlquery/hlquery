@@ -23,6 +23,33 @@
 #include "core/hlquery.h"
 #include "vendor/json/json.hpp"
 
+static bool ParseSearchBool(const std::string &Value, bool DefaultValue = false)
+{
+     if (Value.empty())
+     {
+          return DefaultValue;
+     }
+
+     std::string Lowered = Value;
+     std::transform(Lowered.begin(), Lowered.end(), Lowered.begin(),
+                    [](unsigned char C)
+                    {
+                         return static_cast<char>(std::tolower(C));
+                    });
+
+     if (Lowered == "1" || Lowered == "true" || Lowered == "yes" || Lowered == "on")
+     {
+          return true;
+     }
+
+     if (Lowered == "0" || Lowered == "false" || Lowered == "no" || Lowered == "off")
+     {
+          return false;
+     }
+
+     return DefaultValue;
+}
+
 static void ApplyInlineQueryDirectives(std::string &QueryText, bool &CaseSensitive)
 {
      if (QueryText.empty())
@@ -332,13 +359,7 @@ std::vector<std::pair<std::string, ComprehensiveSearchQuery>> SearchAPI::ParseMu
                     }
                     else if (SearchObj["case_sensitive"].is_string())
                     {
-                         std::string CaseValue = SearchObj["case_sensitive"].get<std::string>();
-                         std::transform(CaseValue.begin(), CaseValue.end(), CaseValue.begin(),
-                                        [](unsigned char C)
-                                        {
-                                             return static_cast<char>(std::tolower(C));
-                                        });
-                         SearchQueryObj.CaseSensitive = (CaseValue == "true" || CaseValue == "1" || CaseValue == "yes" || CaseValue == "on");
+                         SearchQueryObj.CaseSensitive = ParseSearchBool(SearchObj["case_sensitive"].get<std::string>());
                     }
                }
 
@@ -394,6 +415,48 @@ std::vector<std::pair<std::string, ComprehensiveSearchQuery>> SearchAPI::ParseMu
                     }
                }
 
+               if (SearchObj.contains("limit"))
+               {
+                    try
+                    {
+                         if (SearchObj["limit"].is_number())
+                         {
+                              SearchQueryObj.PerPage = SearchObj["limit"].get<int>();
+                         }
+                         else if (SearchObj["limit"].is_string())
+                         {
+                              SearchQueryObj.PerPage = std::stoi(SearchObj["limit"].get<std::string>());
+                         }
+
+                         SearchQueryObj.PerPage = std::max(1, std::min(1000, SearchQueryObj.PerPage));
+                    }
+                    catch (...)
+                    {
+                         SearchQueryObj.PerPage = 100;
+                    }
+               }
+
+               if (SearchObj.contains("size") && !SearchObj.contains("per_page") && !SearchObj.contains("limit"))
+               {
+                    try
+                    {
+                         if (SearchObj["size"].is_number_integer())
+                         {
+                              SearchQueryObj.PerPage = SearchObj["size"].get<int>();
+                         }
+                         else if (SearchObj["size"].is_string())
+                         {
+                              SearchQueryObj.PerPage = std::stoi(SearchObj["size"].get<std::string>());
+                         }
+
+                         SearchQueryObj.PerPage = std::clamp(SearchQueryObj.PerPage, 1, 1000);
+                    }
+                    catch (...)
+                    {
+                         SearchQueryObj.PerPage = 10;
+                    }
+               }
+
                if (SearchObj.contains("page"))
                {
                     try
@@ -418,6 +481,52 @@ std::vector<std::pair<std::string, ComprehensiveSearchQuery>> SearchAPI::ParseMu
                     }
                }
 
+               if (SearchObj.contains("offset"))
+               {
+                    try
+                    {
+                         if (SearchObj["offset"].is_number())
+                         {
+                              SearchQueryObj.Offset = SearchObj["offset"].get<int>();
+                         }
+                         else if (SearchObj["offset"].is_string())
+                         {
+                              SearchQueryObj.Offset = std::stoi(SearchObj["offset"].get<std::string>());
+                         }
+
+                         SearchQueryObj.Offset = std::max(0, SearchQueryObj.Offset);
+                         SearchQueryObj.Page = (SearchQueryObj.Offset / SearchQueryObj.PerPage) + 1;
+                    }
+                    catch (...)
+                    {
+                         SearchQueryObj.Offset = 0;
+                         SearchQueryObj.Page = 1;
+                    }
+               }
+
+               if (SearchObj.contains("from") && !SearchObj.contains("offset"))
+               {
+                    try
+                    {
+                         if (SearchObj["from"].is_number_integer())
+                         {
+                              SearchQueryObj.Offset = SearchObj["from"].get<int>();
+                         }
+                         else if (SearchObj["from"].is_string())
+                         {
+                              SearchQueryObj.Offset = std::stoi(SearchObj["from"].get<std::string>());
+                         }
+
+                         SearchQueryObj.Offset = std::max(0, SearchQueryObj.Offset);
+                         SearchQueryObj.Page = (SearchQueryObj.Offset / SearchQueryObj.PerPage) + 1;
+                    }
+                    catch (...)
+                    {
+                         SearchQueryObj.Offset = 0;
+                         SearchQueryObj.Page = 1;
+                    }
+               }
+
                if (SearchObj.contains("highlight"))
                {
                     if (SearchObj["highlight"].is_boolean())
@@ -426,7 +535,7 @@ std::vector<std::pair<std::string, ComprehensiveSearchQuery>> SearchAPI::ParseMu
                     }
                     else if (SearchObj["highlight"].is_string())
                     {
-                         SearchQueryObj.Highlight = (SearchObj["highlight"].get<std::string>() == "true");
+                         SearchQueryObj.Highlight = ParseSearchBool(SearchObj["highlight"].get<std::string>());
                     }
                }
 
@@ -438,13 +547,7 @@ std::vector<std::pair<std::string, ComprehensiveSearchQuery>> SearchAPI::ParseMu
                     }
                     else if (SearchObj["prefix"].is_string())
                     {
-                         std::string PrefixValue = SearchObj["prefix"].get<std::string>();
-                         std::transform(PrefixValue.begin(), PrefixValue.end(), PrefixValue.begin(),
-                                        [](unsigned char C)
-                                        {
-                                             return static_cast<char>(std::tolower(C));
-                                        });
-                         SearchQueryObj.Prefix = (PrefixValue == "true" || PrefixValue == "1" || PrefixValue == "yes" || PrefixValue == "on");
+                         SearchQueryObj.Prefix = ParseSearchBool(SearchObj["prefix"].get<std::string>());
                     }
                }
 
@@ -895,32 +998,6 @@ ComprehensiveSearchQuery SearchAPI::ParseComprehensiveSearchQuery(const std::uno
 {
      ComprehensiveSearchQuery QueryObj;
 
-     auto ParseBool = [](const std::string &Val, bool DefaultVal = false) -> bool
-     {
-          if (Val.empty())
-          {
-               return DefaultVal;
-          }
-
-          std::string Lower = Val;
-          std::transform(Lower.begin(), Lower.end(), Lower.begin(), [](unsigned char C)
-                         {
-                              return static_cast<char>(std::tolower(C));
-                         });
-
-          if (Lower == "1" || Lower == "true" || Lower == "yes" || Lower == "on")
-          {
-               return true;
-          }
-
-          if (Lower == "0" || Lower == "false" || Lower == "no" || Lower == "off")
-          {
-               return false;
-          }
-
-          return DefaultVal;
-     };
-
      if (Params.count("q"))
      {
           QueryObj.Q = Params.at("q");
@@ -928,7 +1005,17 @@ ComprehensiveSearchQuery SearchAPI::ParseComprehensiveSearchQuery(const std::uno
 
      if (Params.count("case_sensitive"))
      {
-          QueryObj.CaseSensitive = ParseBool(Params.at("case_sensitive"), false);
+          QueryObj.CaseSensitive = ParseSearchBool(Params.at("case_sensitive"), false);
+     }
+
+     if (Params.count("enable_synonyms"))
+     {
+          QueryObj.EnableSynonyms = ParseSearchBool(Params.at("enable_synonyms"), true);
+     }
+
+     if (Params.count("enable_stopwords"))
+     {
+          QueryObj.EnableStopwords = ParseSearchBool(Params.at("enable_stopwords"), true);
      }
 
      if (Params.count("query_by"))
@@ -1069,6 +1156,18 @@ ComprehensiveSearchQuery SearchAPI::ParseComprehensiveSearchQuery(const std::uno
           }
      }
 
+     if (Params.count("size") && !Params.count("per_page") && !Params.count("limit"))
+     {
+          try
+          {
+               QueryObj.PerPage = std::clamp(std::stoi(Params.at("size")), 1, 1000);
+          }
+          catch (...)
+          {
+               QueryObj.PerPage = 10;
+          }
+     }
+
      if (Params.count("offset"))
      {
           try
@@ -1094,6 +1193,20 @@ ComprehensiveSearchQuery SearchAPI::ParseComprehensiveSearchQuery(const std::uno
           }
      }
 
+     if (Params.count("from") && !Params.count("offset"))
+     {
+          try
+          {
+               QueryObj.Offset = std::max(0, std::stoi(Params.at("from")));
+               QueryObj.Page = (QueryObj.Offset / QueryObj.PerPage) + 1;
+          }
+          catch (...)
+          {
+               QueryObj.Offset = 0;
+               QueryObj.Page = 1;
+          }
+     }
+
      if (QueryObj.PerPage <= 0)
      {
           QueryObj.PerPage = 100;
@@ -1106,7 +1219,7 @@ ComprehensiveSearchQuery SearchAPI::ParseComprehensiveSearchQuery(const std::uno
 
      if (Params.count("highlight"))
      {
-          QueryObj.Highlight = (Params.at("highlight") == "true");
+          QueryObj.Highlight = ParseSearchBool(Params.at("highlight"), false);
      }
      else if (!QueryObj.Q.empty())
      {
@@ -1205,17 +1318,17 @@ ComprehensiveSearchQuery SearchAPI::ParseComprehensiveSearchQuery(const std::uno
 
      if (Params.count("prefix"))
      {
-          QueryObj.Prefix = ParseBool(Params.at("prefix"), false);
+          QueryObj.Prefix = ParseSearchBool(Params.at("prefix"), false);
      }
 
      if (Params.count("prioritize_exact_match"))
      {
-          QueryObj.PrioritizeExactMatch = ParseBool(Params.at("prioritize_exact_match"), true);
+          QueryObj.PrioritizeExactMatch = ParseSearchBool(Params.at("prioritize_exact_match"), true);
      }
 
      if (Params.count("exhaustive_search"))
      {
-          QueryObj.ExhaustiveSearch = ParseBool(Params.at("exhaustive_search"), false);
+          QueryObj.ExhaustiveSearch = ParseSearchBool(Params.at("exhaustive_search"), false);
      }
 
      if (Params.count("aggregations"))
@@ -1225,12 +1338,12 @@ ComprehensiveSearchQuery SearchAPI::ParseComprehensiveSearchQuery(const std::uno
 
      if (Params.count("include_created_at"))
      {
-          QueryObj.IncludeCreatedAt = ParseBool(Params.at("include_created_at"), false);
+          QueryObj.IncludeCreatedAt = ParseSearchBool(Params.at("include_created_at"), false);
      }
 
      if (Params.count("include_distance"))
      {
-          QueryObj.IncludeVectorDistance = ParseBool(Params.at("include_distance"), false);
+          QueryObj.IncludeVectorDistance = ParseSearchBool(Params.at("include_distance"), false);
      }
 
      if (Params.count("hybrid_alpha"))

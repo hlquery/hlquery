@@ -20,10 +20,8 @@
 #include <unordered_set>
 #include <vector>
 
-namespace
-{
-     constexpr uint64_t kSearchCacheTTLMS = 3600ULL * 1000ULL;
-     constexpr size_t kSearchCacheMaxEntries = 4096;
+     constexpr uint64_t kDefaultSearchCacheTTLMS = 3600ULL * 1000ULL;
+     constexpr size_t kDefaultSearchCacheMaxSize = 512ULL * 1024ULL * 1024ULL;
 
      struct CacheEntry
      {
@@ -31,6 +29,8 @@ namespace
           std::string Collection;
           uint64_t CreatedMS = 0;
           uint64_t GlobalEpoch = 0;
+          uint64_t CollectionGeneration = 0;
+          size_t SizeBytes = 0;
      };
 
      std::mutex CacheMutex;
@@ -38,6 +38,15 @@ namespace
      std::deque<std::string> EntryOrder;
      std::unordered_map<std::string, std::unordered_set<std::string>> KeysByCollection;
      uint64_t GlobalEpoch = 1;
+     uint64_t MutationClock = 1;
+     std::unordered_map<std::string, uint64_t> CollectionGenerations;
+     uint64_t CacheTTLMS = kDefaultSearchCacheTTLMS;
+     size_t CacheMaxSizeBytes = kDefaultSearchCacheMaxSize;
+     size_t CacheSizeBytes = 0;
+     uint64_t CacheHits = 0;
+     uint64_t CacheMisses = 0;
+     uint64_t CacheExpired = 0;
+     uint64_t CacheEvictions = 0;
 
      uint64_t CurrentMS()
      {
@@ -95,17 +104,64 @@ namespace
                }
           }
 
+          CacheSizeBytes = It->second.SizeBytes > CacheSizeBytes ? 0 : CacheSizeBytes - It->second.SizeBytes;
           Entries.erase(It);
      }
 
      void TrimLocked()
      {
-          while (Entries.size() > kSearchCacheMaxEntries && !EntryOrder.empty())
+          while (CacheSizeBytes > CacheMaxSizeBytes && !EntryOrder.empty())
           {
+               if (Entries.find(EntryOrder.front()) != Entries.end())
+               {
+                    ++CacheEvictions;
+               }
                RemoveKeyLocked(EntryOrder.front());
                EntryOrder.pop_front();
           }
      }
+
+     size_t EstimateEntrySize(const std::string& Key, const HttpResponse& Response)
+     {
+          size_t Size = Key.size() + Response.Body.size() + Response.StatusText.size();
+          for (const auto& Header : Response.Headers)
+          {
+               Size += Header.first.size() + Header.second.size();
+          }
+          return Size + sizeof(CacheEntry);
+     }
+
+     uint64_t CurrentGenerationLocked(const std::string& Collection)
+     {
+          const auto It = CollectionGenerations.find(Collection);
+          return std::max(GlobalEpoch, It == CollectionGenerations.end() ? 0 : It->second);
+     }
+
+void SearchResponseCache::Configure(uint64_t TTLMS, size_t MaxSizeBytes)
+{
+     std::lock_guard<std::mutex> Lock(CacheMutex);
+     CacheTTLMS = std::max<uint64_t>(1, TTLMS);
+     CacheMaxSizeBytes = std::max<size_t>(1, MaxSizeBytes);
+     TrimLocked();
+}
+
+SearchResponseCache::Stats SearchResponseCache::GetStats()
+{
+     std::lock_guard<std::mutex> Lock(CacheMutex);
+     Stats Result;
+     Result.Hits = CacheHits;
+     Result.Misses = CacheMisses;
+     Result.Expired = CacheExpired;
+     Result.Evictions = CacheEvictions;
+     Result.Entries = Entries.size();
+     Result.SizeBytes = CacheSizeBytes;
+     return Result;
+}
+
+uint64_t SearchResponseCache::GetGeneration(const std::string& Collection)
+{
+     std::lock_guard<std::mutex> Lock(CacheMutex);
+     return CurrentGenerationLocked(Collection);
 }
 
 bool SearchResponseCache::Get(const std::string& Namespace,
@@ -120,20 +176,28 @@ bool SearchResponseCache::Get(const std::string& Namespace,
      const auto It = Entries.find(Key);
      if (It == Entries.end())
      {
+          ++CacheMisses;
           return false;
      }
 
      const CacheEntry& Entry = It->second;
-     const bool Expired = NowMS < Entry.CreatedMS || (NowMS - Entry.CreatedMS) >= kSearchCacheTTLMS;
+     const bool Expired = NowMS < Entry.CreatedMS || (NowMS - Entry.CreatedMS) >= CacheTTLMS;
      const bool GlobalStale = Entry.GlobalEpoch != GlobalEpoch;
+     const bool CollectionStale = Entry.CollectionGeneration != CurrentGenerationLocked(Collection);
 
-     if (Expired || GlobalStale)
+     if (Expired || GlobalStale || CollectionStale)
      {
+          ++CacheMisses;
+          if (Expired)
+          {
+               ++CacheExpired;
+          }
           RemoveKeyLocked(Key);
           return false;
      }
 
      Response = Entry.Response;
+     ++CacheHits;
      Response.Headers["X-HLQ-Cache"] = "hit";
      return true;
 }
@@ -141,7 +205,8 @@ bool SearchResponseCache::Get(const std::string& Namespace,
 void SearchResponseCache::Put(const std::string& Namespace,
                               const HttpRequest& Request,
                               const std::string& Collection,
-                              const HttpResponse& Response)
+                              const HttpResponse& Response,
+                              uint64_t ExpectedGeneration)
 {
      if (Response.StatusCode != 200)
      {
@@ -155,11 +220,19 @@ void SearchResponseCache::Put(const std::string& Namespace,
      Entry.CreatedMS = CurrentMS();
 
      const std::string Key = BuildKey(Namespace, Request);
+     Entry.SizeBytes = EstimateEntrySize(Key, Entry.Response);
      std::lock_guard<std::mutex> Lock(CacheMutex);
 
+     const uint64_t CurrentGeneration = CurrentGenerationLocked(Collection);
+     if (ExpectedGeneration != 0 && ExpectedGeneration != CurrentGeneration)
+     {
+          return;
+     }
      Entry.GlobalEpoch = GlobalEpoch;
+     Entry.CollectionGeneration = CurrentGeneration;
      RemoveKeyLocked(Key);
      Entries[Key] = std::move(Entry);
+     CacheSizeBytes += Entries[Key].SizeBytes;
      KeysByCollection[Collection].insert(Key);
      EntryOrder.push_back(Key);
      TrimLocked();
@@ -171,12 +244,15 @@ void SearchResponseCache::InvalidateCollection(const std::string& Collection)
 
      if (Collection.empty())
      {
-          ++GlobalEpoch;
+          GlobalEpoch = ++MutationClock;
           Entries.clear();
           EntryOrder.clear();
           KeysByCollection.clear();
+          CacheSizeBytes = 0;
           return;
      }
+
+     CollectionGenerations[Collection] = ++MutationClock;
 
      auto EraseGroup = [&](const std::string& Group)
      {
@@ -201,10 +277,11 @@ void SearchResponseCache::InvalidateCollection(const std::string& Collection)
 void SearchResponseCache::InvalidateAll()
 {
      std::lock_guard<std::mutex> Lock(CacheMutex);
-     ++GlobalEpoch;
+     GlobalEpoch = ++MutationClock;
      Entries.clear();
      EntryOrder.clear();
      KeysByCollection.clear();
+     CacheSizeBytes = 0;
 }
 
 size_t SearchResponseCache::FlushExpired(uint64_t MaxAgeMS)

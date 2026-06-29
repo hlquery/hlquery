@@ -11,6 +11,7 @@
  */
 
 #include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <cstring>
 #include <filesystem>
@@ -44,6 +45,8 @@ static std::string EnsureLogPeriod(const std::string &Message)
      return Message + ".";
 }
 
+/* Converts a filesystem timestamp to the system clock representation. */
+
 static std::time_t FileTimeToTimeT(const fs::file_time_type &WriteTimeVal)
 {
      const auto NowMS = NowMs();
@@ -52,6 +55,90 @@ static std::time_t FileTimeToTimeT(const fs::file_time_type &WriteTimeVal)
           WriteTimeVal - fs::file_time_type::clock::now() + SystemNow);
 
      return std::chrono::system_clock::to_time_t(SctpTimePoint);
+}
+
+/* Returns true only for filenames produced by GenerateRotatedFilename(). */
+
+static bool IsGeneratedRotatedLogName(const std::string &Filename,
+                                      const std::string &LogBasename,
+                                      const std::string &LogExtension)
+{
+     const std::string RotatedExtension = LogExtension.empty() ? ".log" : LogExtension;
+     const std::string TimestampPrefix = LogBasename + "_";
+
+     if (Filename.rfind(TimestampPrefix, 0) == 0 &&
+         Filename.size() > TimestampPrefix.size() + 16 + RotatedExtension.size() &&
+         Filename.compare(Filename.size() - RotatedExtension.size(), RotatedExtension.size(), RotatedExtension) == 0)
+     {
+          const size_t DateStart = TimestampPrefix.size();
+          const size_t DateEnd = DateStart + 8;
+
+          for (size_t I = DateStart; I < DateEnd; ++I)
+          {
+               if (!std::isdigit(static_cast<unsigned char>(Filename[I])))
+               {
+                    return false;
+               }
+          }
+
+          if (Filename[DateEnd] != '_')
+          {
+               return false;
+          }
+
+          const size_t TimeStart = DateEnd + 1;
+          const size_t TimeEnd = TimeStart + 6;
+
+          for (size_t I = TimeStart; I < TimeEnd; ++I)
+          {
+               if (!std::isdigit(static_cast<unsigned char>(Filename[I])))
+               {
+                    return false;
+               }
+          }
+
+          if (Filename[TimeEnd] != '_')
+          {
+               return false;
+          }
+
+          const size_t SequenceStart = TimeEnd + 1;
+          const size_t SequenceEnd = Filename.size() - RotatedExtension.size();
+
+          if (SequenceStart >= SequenceEnd)
+          {
+               return false;
+          }
+
+          for (size_t I = SequenceStart; I < SequenceEnd; ++I)
+          {
+               if (!std::isdigit(static_cast<unsigned char>(Filename[I])))
+               {
+                    return false;
+               }
+          }
+
+          return true;
+     }
+
+     const std::string LegacyPrefix = LogExtension.empty()
+          ? LogBasename + ".log."
+          : LogBasename + LogExtension + ".";
+
+     if (Filename.rfind(LegacyPrefix, 0) != 0 || Filename.size() == LegacyPrefix.size())
+     {
+          return false;
+     }
+
+     for (size_t I = LegacyPrefix.size(); I < Filename.size(); ++I)
+     {
+          if (!std::isdigit(static_cast<unsigned char>(Filename[I])))
+          {
+               return false;
+          }
+     }
+
+     return true;
 }
 
 /* LogStream implementation for handling individual logging targets. */
@@ -150,10 +237,14 @@ void LogStream::WriteLog(LogLevel Level, const std::string &Type, const std::str
           }
      }
 
+     /* Prepare the normalized message and reusable output metadata. */
+
      std::string LogLine;
      size_t LineSize;
 
      std::string FinalMessage = EnsureLogPeriod(Message);
+
+     /* Write through the destination selected by the stream configuration. */
 
      if (ConfigValue.method == "file" && FileStream)
      {
@@ -218,6 +309,8 @@ std::string LogStream::FormatLogLine(LogLevel Level, const std::string &Type, co
      Result += GetTimestamp();
      Result += "] ";
 
+     /* Apply terminal colors only to diagnostic console output. */
+
      if (UseColors && Level == LogLevel::LOG_DEBUG)
      {
           Result += "\033[30m[\033[0m \033[96mDEBUG\033[0m \033[30m]\033[0m ";
@@ -235,6 +328,8 @@ std::string LogStream::FormatLogLine(LogLevel Level, const std::string &Type, co
           Result += Type;
           Result += "] ";
      }
+
+     /* Append the caller-provided message after all metadata fields. */
 
      Result += Message;
      return Result;
@@ -279,18 +374,22 @@ std::string LogStream::LogLevelToString(LogLevel Level)
           {
                return "CRIT";
           }
+
           case LogLevel::LOG_SPARSE:
           {
                return "SPAR";
           }
+
           case LogLevel::LOG_NORMAL:
           {
                return " OK ";
           }
+
           case LogLevel::LOG_VERBOSE:
           {
                return "VERB";
           }
+
           case LogLevel::LOG_DEBUG:
           {
                return "DEBG";
@@ -306,6 +405,8 @@ std::string LogStream::LogLevelToString(LogLevel Level)
 
 bool LogStream::ShouldRotate()
 {
+     /* Rotation applies only to an active file destination. */
+
      if (ConfigValue.method != "file" || !FileStream || !IsOpenValue)
      {
           return false;
@@ -318,6 +419,8 @@ bool LogStream::ShouldRotate()
 
      if (ConfigValue.rotation_interval != 0)
      {
+          /* Resolve symbolic daily and weekly intervals to seconds. */
+
           std::time_t NowTime = std::time(nullptr);
 
           std::time_t IntervalSeconds = 0;
@@ -359,6 +462,8 @@ bool LogStream::RotateLogFile()
 
      try
      {
+          /* Close and rename the active file before creating its replacement. */
+
           FileStream->close();
 
           RotationCount++;
@@ -382,10 +487,10 @@ bool LogStream::RotateLogFile()
                return false;
           }
 
+          /* Reset rotation bookkeeping for the new active file. */
+
           CurrentFileSizeValue = GetCurrentFileSize();
-
           LastRotationTime = std::time(nullptr);
-
           CleanupOldRotatedFiles();
 
           return true;
@@ -393,9 +498,7 @@ bool LogStream::RotateLogFile()
      catch (const std::exception &e)
      {
           ConsoleWriter::WriteError("ERROR: Exception during log rotation: " + std::string(e.what()) + ".", true);
-
           FileStream = std::make_unique<std::ofstream>(ConfigValue.target, std::ios::app);
-
           IsOpenValue = FileStream->is_open();
 
           return false;
@@ -413,8 +516,16 @@ void LogStream::CleanupOldRotatedFiles()
 
      try
      {
+          /* Discover rotated files that share the active log basename. */
+
           fs::path LogPath(ConfigValue.target);
           fs::path LogDir = LogPath.parent_path();
+
+          if (LogDir.empty())
+          {
+               LogDir = ".";
+          }
+
           std::string LogBasename = LogPath.stem().string();
           std::string LogExtension = LogPath.extension().string();
           std::vector<std::pair<std::time_t, fs::path>> RotatedFilesList;
@@ -427,16 +538,12 @@ void LogStream::CleanupOldRotatedFiles()
                     {
                          std::string FilenameStr = EntryItem.path().filename().string();
 
-                         if (FilenameStr.find(LogBasename) != std::string::npos &&
-                             FilenameStr != LogPath.filename().string())
+                         if (FilenameStr != LogPath.filename().string() &&
+                             IsGeneratedRotatedLogName(FilenameStr, LogBasename, LogExtension))
                          {
-                              if (FilenameStr.find(".log.") != std::string::npos ||
-                                  FilenameStr.find("_") != std::string::npos)
-                              {
-                                   auto WriteTimeVal = fs::last_write_time(EntryItem);
-                                   std::time_t CfTimeVal = FileTimeToTimeT(WriteTimeVal);
-                                   RotatedFilesList.push_back({CfTimeVal, EntryItem.path()});
-                              }
+                              auto WriteTimeVal = fs::last_write_time(EntryItem);
+                              std::time_t CfTimeVal = FileTimeToTimeT(WriteTimeVal);
+                              RotatedFilesList.push_back({CfTimeVal, EntryItem.path()});
                          }
                     }
                }
@@ -448,6 +555,8 @@ void LogStream::CleanupOldRotatedFiles()
                          return a.first < b.first;
                     });
 
+          /* Remove files that exceed the configured age limit. */
+
           const std::time_t NowTime = std::time(nullptr);
 
           if (ConfigValue.max_age_days > 0)
@@ -456,8 +565,7 @@ void LogStream::CleanupOldRotatedFiles()
 
                for (const auto &RotatedFileItem : RotatedFilesList)
                {
-                    if (NowTime >= RotatedFileItem.first &&
-                        (NowTime - RotatedFileItem.first) >= MaxAgeSeconds)
+                    if (NowTime >= RotatedFileItem.first && (NowTime - RotatedFileItem.first) >= MaxAgeSeconds)
                     {
                          try
                          {
@@ -481,6 +589,8 @@ void LogStream::CleanupOldRotatedFiles()
 
           if (ConfigValue.max_rotated_files > 0 && RotatedFilesList.size() > ConfigValue.max_rotated_files)
           {
+               /* Remove the oldest surplus files first. */
+
                size_t FilesToDeleteCount = RotatedFilesList.size() - ConfigValue.max_rotated_files;
 
                for (size_t i = 0; i < FilesToDeleteCount; ++i)
@@ -506,14 +616,12 @@ void LogStream::CleanupOldRotatedFiles()
 
 std::string LogStream::GenerateRotatedFilename(size_t SequenceNum)
 {
+     /* Preserve the original directory, basename, and extension. */
+
      fs::path LogPath(ConfigValue.target);
-
      fs::path LogDir = LogPath.parent_path();
-
      std::string LogBasename = LogPath.stem().string();
-
      std::string LogExtension = LogPath.extension().string();
-
      std::time_t NowTime = std::time(nullptr);
 
      struct tm TmBuf;
@@ -521,23 +629,30 @@ std::string LogStream::GenerateRotatedFilename(size_t SequenceNum)
 
      if (TmPtr)
      {
+          /* Combine local time and a sequence number to avoid collisions. */
+
           char TimestampStr[32];
 
           std::snprintf(TimestampStr, sizeof(TimestampStr), "%04d%02d%02d_%02d%02d%02d",
                         TmPtr->tm_year + 1900, TmPtr->tm_mon + 1, TmPtr->tm_mday,
                         TmPtr->tm_hour, TmPtr->tm_min, TmPtr->tm_sec);
 
-          if (LogExtension.empty())
+          const std::string RotatedExtension = LogExtension.empty() ? ".log" : LogExtension;
+          fs::path CandidatePath;
+
+          do
           {
-               return (LogDir / (LogBasename + "_" + std::string(TimestampStr) + ".log")).string();
+               CandidatePath = LogDir / (LogBasename + "_" + std::string(TimestampStr) + "_" +
+                                         std::to_string(SequenceNum++) + RotatedExtension);
           }
-          else
-          {
-               return (LogDir / (LogBasename + "_" + std::string(TimestampStr) + LogExtension)).string();
-          }
+          while (fs::exists(CandidatePath));
+
+          return CandidatePath.string();
      }
      else
      {
+          /* Fall back to a sequence-only filename if local time conversion fails. */
+
           if (LogExtension.empty())
           {
                return (LogDir / (LogBasename + ".log." + std::to_string(SequenceNum))).string();
@@ -600,6 +715,8 @@ bool LogManager::Initialize(const std::vector<LogConfig> &LogConfigs, bool Debug
 {
      std::lock_guard<std::mutex> Lock(ManagerMutex);
 
+     /* Capture runtime modes before constructing output streams. */
+
      this->DebugMode = DebugFlag;
      this->NoForkMode = NoForkFlag;
      this->VerboseMode = VerboseFlag;
@@ -612,6 +729,8 @@ bool LogManager::Initialize(const std::vector<LogConfig> &LogConfigs, bool Debug
      LogStreams.clear();
 
      CreateLogsDirectory(HLQUERY_LOG_DIR);
+
+     /* Provide console logging when no stream configuration is available. */
 
      if (LogConfigs.empty())
      {
@@ -649,6 +768,8 @@ bool LogManager::Initialize(const std::vector<LogConfig> &LogConfigs, bool Debug
 
           if (this->NoForkMode && this->DebugMode)
           {
+               /* Ensure foreground diagnostic sessions have a console destination. */
+
                bool HasConsoleFlag = false;
 
                for (const auto &StreamItem : LogStreams)
@@ -707,6 +828,8 @@ std::unique_ptr<LogManager> LogManager::CreateAndInitialize(class ServerConfig *
 
      if (!ConfigPointer->LoadConfig(ConfigFileLocation))
      {
+          /* Fall back to console output when configuration loading fails. */
+
           LogConfig DefaultConfig;
 
           DefaultConfig.method = "console";
@@ -740,6 +863,8 @@ std::unique_ptr<LogManager> LogManager::CreateAndInitialize(class ServerConfig *
 
 void LogManager::Log(LogLevel LevelValue, const std::string &Type, const std::string &Message)
 {
+     /* Reject calls made through a corrupted or stale manager instance. */
+
      uint32_t SentinelCheckVal = Sentinel;
 
      if (SentinelCheckVal != SENTINEL_VALUE)
@@ -751,33 +876,15 @@ void LogManager::Log(LogLevel LevelValue, const std::string &Type, const std::st
 
      std::string FinalMessage = EnsureLogPeriod(Message);
 
-     bool IsInitializedFlag = false;
+     /* Keep manager state protected while dispatching so reinitialization cannot
+      * invalidate stream objects selected for this message. */
 
-     bool VerboseModeFlag = false;
+     std::lock_guard<std::mutex> Lock(ManagerMutex);
 
-     std::vector<LogStream *> StreamsToLogList;
-
+     if (!Initialized)
      {
-          std::lock_guard<std::mutex> Lock(ManagerMutex);
+          /* Preserve message visibility through standard error before initialization. */
 
-          IsInitializedFlag = Initialized;
-
-          VerboseModeFlag = VerboseMode;
-
-          if (IsInitializedFlag)
-          {
-               for (const auto &StreamItem : LogStreams)
-               {
-                    if (StreamItem && ShouldLog(*StreamItem, LevelValue, Type))
-                    {
-                         StreamsToLogList.push_back(StreamItem.get());
-                    }
-               }
-          }
-     }
-
-     if (!IsInitializedFlag)
-     {
           const char *LevelStrValue = "UNKNOWN";
 
           switch (LevelValue)
@@ -787,26 +894,31 @@ void LogManager::Log(LogLevel LevelValue, const std::string &Type, const std::st
                     LevelStrValue = "NONE";
                     break;
                }
+
                case LogLevel::LOG_CRITICAL:
                {
                     LevelStrValue = "CRITICAL";
                     break;
                }
+
                case LogLevel::LOG_SPARSE:
                {
                     LevelStrValue = "SPARSE";
                     break;
                }
+
                case LogLevel::LOG_NORMAL:
                {
                     LevelStrValue = " OK ";
                     break;
                }
+
                case LogLevel::LOG_VERBOSE:
                {
                     LevelStrValue = "VERBOSE";
                     break;
                }
+
                case LogLevel::LOG_DEBUG:
                {
                     LevelStrValue = "DEBUG";
@@ -821,9 +933,11 @@ void LogManager::Log(LogLevel LevelValue, const std::string &Type, const std::st
 
      bool HasConsoleStreamFlag = false;
 
-     for (LogStream *StreamPtr : StreamsToLogList)
+     /* Dispatch the message to each matching configured stream. */
+
+     for (const auto &StreamPtr : LogStreams)
      {
-          if (StreamPtr)
+          if (StreamPtr && ShouldLog(*StreamPtr, LevelValue, Type))
           {
                StreamPtr->WriteLog(LevelValue, Type, Message);
 
@@ -834,8 +948,10 @@ void LogManager::Log(LogLevel LevelValue, const std::string &Type, const std::st
           }
      }
 
-     if (VerboseModeFlag && !HasConsoleStreamFlag && (LevelValue == LogLevel::LOG_DEBUG || LevelValue == LogLevel::LOG_VERBOSE))
+     if (VerboseMode && !HasConsoleStreamFlag && (LevelValue == LogLevel::LOG_DEBUG || LevelValue == LogLevel::LOG_VERBOSE))
      {
+          /* Mirror detailed foreground output when no console stream handled it. */
+
           const char *LevelStrFinal = "UNKNOWN";
 
           switch (LevelValue)
@@ -899,6 +1015,8 @@ void LogManager::Debug(const std::string &Type, const std::string &Message)
 
 void LogManager::SafeLog(LogManager *SelfPointer, LogLevel LevelVal, const std::string &Type, const std::string &Message)
 {
+     /* Use standard error when no manager instance is available. */
+
      if (!SelfPointer)
      {
           std::string FinalMessage = EnsureLogPeriod(Message);
@@ -912,26 +1030,31 @@ void LogManager::SafeLog(LogManager *SelfPointer, LogLevel LevelVal, const std::
                     LevelStrFallback = "NONE";
                     break;
                }
+
                case LogLevel::LOG_CRITICAL:
                {
                     LevelStrFallback = "CRITICAL";
                     break;
                }
+
                case LogLevel::LOG_SPARSE:
                {
                     LevelStrFallback = "SPARSE";
                     break;
                }
+
                case LogLevel::LOG_NORMAL:
                {
                     LevelStrFallback = " OK ";
                     break;
                }
+
                case LogLevel::LOG_VERBOSE:
                {
                     LevelStrFallback = "VERBOSE";
                     break;
                }
+
                case LogLevel::LOG_DEBUG:
                {
                     LevelStrFallback = "DEBUG";
@@ -946,6 +1069,8 @@ void LogManager::SafeLog(LogManager *SelfPointer, LogLevel LevelVal, const std::
 
      if (SelfPointer->Sentinel != SENTINEL_VALUE)
      {
+          /* Report invalid state and retain the original message through fallback output. */
+
           ConsoleWriter::WriteError("[LOG_ERROR] LogManager object has invalid sentinel.", true);
 
           std::string FinalMessage = EnsureLogPeriod(Message);
@@ -959,26 +1084,31 @@ void LogManager::SafeLog(LogManager *SelfPointer, LogLevel LevelVal, const std::
                     LevelStrSentinel = "NONE";
                     break;
                }
+
                case LogLevel::LOG_CRITICAL:
                {
                     LevelStrSentinel = "CRITICAL";
                     break;
                }
+
                case LogLevel::LOG_SPARSE:
                {
                     LevelStrSentinel = "SPARSE";
                     break;
                }
+
                case LogLevel::LOG_NORMAL:
                {
                     LevelStrSentinel = " OK ";
                     break;
                }
+
                case LogLevel::LOG_VERBOSE:
                {
                     LevelStrSentinel = "VERBOSE";
                     break;
                }
+
                case LogLevel::LOG_DEBUG:
                {
                     LevelStrSentinel = "DEBUG";
@@ -1001,13 +1131,11 @@ bool LogManager::CreateLogsDirectory(const std::string &PathStr)
      try
      {
           fs::create_directories(PathStr);
-
           return true;
      }
      catch (const fs::filesystem_error &e)
      {
           ConsoleWriter::WriteError("Failed to create logs directory: " + std::string(e.what()) + ".", true);
-
           return false;
      }
 }
@@ -1018,7 +1146,11 @@ LogLevel LogManager::StringToLogLevel(const std::string &LevelStr)
 {
      std::string LowerLevelValue = LevelStr;
 
-     std::transform(LowerLevelValue.begin(), LowerLevelValue.end(), LowerLevelValue.begin(), ::tolower);
+     std::transform(LowerLevelValue.begin(), LowerLevelValue.end(), LowerLevelValue.begin(),
+                    [](unsigned char C)
+                    {
+                         return static_cast<char>(std::tolower(C));
+                    });
 
      if (LowerLevelValue == "critical" || LowerLevelValue == "crit")
      {
@@ -1054,9 +1186,9 @@ void LogManager::FlushAll()
 {
      std::lock_guard<std::mutex> Lock(ManagerMutex);
 
-     for (const auto &StreamItem : LogStreams)
+     for (const auto &Stream : LogStreams)
      {
-          StreamItem->Flush();
+          Stream->Flush();
      }
 }
 
@@ -1064,6 +1196,8 @@ void LogManager::FlushAll()
 
 bool LogManager::ShouldLog(const LogStream &StreamInstance, LogLevel LevelVal, const std::string &Type)
 {
+     /* Query-only streams reject every unrelated message type. */
+
      if (StreamInstance.ConfigValue.type == "query")
      {
           if (Type != "query")
@@ -1099,6 +1233,8 @@ bool LogManager::ShouldLog(const LogStream &StreamInstance, LogLevel LevelVal, c
           return true;
      }
 
+     /* Exact type matching applies to every non-wildcard stream. */
+
      return (Type == StreamInstance.ConfigValue.type);
 }
 
@@ -1107,7 +1243,6 @@ bool LogManager::ShouldLog(const LogStream &StreamInstance, LogLevel LevelVal, c
 size_t LogManager::GetLogCount() const
 {
      std::lock_guard<std::mutex> Lock(ManagerMutex);
-
      return LogStreams.size();
 }
 
@@ -1116,27 +1251,7 @@ size_t LogManager::GetLogCount() const
 bool LogManager::GetDebugMode() const
 {
      std::lock_guard<std::mutex> Lock(ManagerMutex);
-
      return DebugMode;
-}
-
-/* Identifies and returns all log streams that should process a given message. */
-
-std::vector<LogStream *> LogManager::GetStreamsForLogging(LogLevel LevelVal, const std::string &Type)
-{
-     std::lock_guard<std::mutex> Lock(ManagerMutex);
-
-     std::vector<LogStream *> ResultList;
-
-     for (const auto &StreamItem : LogStreams)
-     {
-          if (ShouldLog(*StreamItem, LevelVal, Type))
-          {
-               ResultList.push_back(StreamItem.get());
-          }
-     }
-
-     return ResultList;
 }
 
 /* Resets internal state after a process fork to ensure operational integrity. */

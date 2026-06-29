@@ -98,9 +98,15 @@ class ConfigReader
 
      std::string TrimWhitespace(const std::string& str);
 
-     bool ProcessCommentsAndIncludes(const std::string& content, std::string& out_content);
+     bool ProcessCommentsAndIncludes(const std::string& content,
+                                     std::string& out_content,
+                                     const std::string& base_dir,
+                                     const std::string& source_file);
 
-     bool LoadIncludeFile(const std::string& filename, std::string& out_content);
+     bool LoadIncludeFile(const std::string& filename,
+                          std::string& out_content,
+                          const std::string& base_dir,
+                          std::string& canonical_path);
 };
 
 /* Represents a configuration tag with attributes */

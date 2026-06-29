@@ -46,6 +46,7 @@ SQLTranslationResult Parser::ParseInsertStatement(SQLTranslationResult result)
      /* Field list. */
 
      std::vector<std::string> field_names;
+     std::set<std::string> seen_field_names;
      while (!AtEnd())
      {
           std::string field_name;
@@ -55,6 +56,13 @@ SQLTranslationResult Parser::ParseInsertStatement(SQLTranslationResult result)
                return result;
           }
 
+          if (seen_field_names.count(field_name) > 0)
+          {
+               result.Error = "Duplicate field '" + field_name + "' in INSERT field list.";
+               return result;
+          }
+
+          seen_field_names.insert(field_name);
           field_names.push_back(field_name);
 
           if (PeekText() == ",")
@@ -185,10 +193,18 @@ SQLTranslationResult Parser::ParseDeleteStatement(SQLTranslationResult result)
      result.Query.Q = "*";
      result.Query.Highlight = false;
 
+     int clause_rank = 0;
+     std::set<std::string> seen_clauses;
+
      while (!AtEnd())
      {
           if (MatchKeyword("WHERE"))
           {
+               if (!CanReadClause("WHERE", 1, clause_rank, seen_clauses, result.Error))
+               {
+                    return result;
+               }
+
                if (!ParseWhere(result))
                {
                     return result;
@@ -198,6 +214,11 @@ SQLTranslationResult Parser::ParseDeleteStatement(SQLTranslationResult result)
 
           if (MatchKeyword("ORDER"))
           {
+               if (!CanReadClause("ORDER BY", 2, clause_rank, seen_clauses, result.Error))
+               {
+                    return result;
+               }
+
                if (!MatchKeyword("BY"))
                {
                     result.Error = "Expected BY after ORDER.";
@@ -214,6 +235,11 @@ SQLTranslationResult Parser::ParseDeleteStatement(SQLTranslationResult result)
 
           if (MatchKeyword("LIMIT"))
           {
+               if (!CanReadClause("LIMIT", 3, clause_rank, seen_clauses, result.Error))
+               {
+                    return result;
+               }
+
                result.HasExplicitLimit = true;
 
                int parsed_offset = 0;
@@ -228,6 +254,8 @@ SQLTranslationResult Parser::ParseDeleteStatement(SQLTranslationResult result)
                {
                     result.Query.Offset = parsed_offset;
                     ParsedStatement.Offset = parsed_offset;
+                    seen_clauses.insert("OFFSET");
+                    clause_rank = 4;
                }
 
                ParsedStatement.HasExplicitLimit = true;
@@ -238,6 +266,11 @@ SQLTranslationResult Parser::ParseDeleteStatement(SQLTranslationResult result)
 
           if (MatchKeyword("OFFSET"))
           {
+               if (!CanReadClause("OFFSET", 4, clause_rank, seen_clauses, result.Error))
+               {
+                    return result;
+               }
+
                int pending_offset = 0;
 
                if (!ParseNonNegativeInt(pending_offset, "OFFSET", &result.Error))
@@ -257,6 +290,17 @@ SQLTranslationResult Parser::ParseDeleteStatement(SQLTranslationResult result)
 
           if (MatchKeyword("FETCH"))
           {
+               if (seen_clauses.count("LIMIT") > 0)
+               {
+                    result.Error = "SQL FETCH cannot be combined with LIMIT.";
+                    return result;
+               }
+
+               if (!CanReadClause("FETCH", 5, clause_rank, seen_clauses, result.Error))
+               {
+                    return result;
+               }
+
                result.HasExplicitLimit = true;
                if (!ParseFetchClause(result.Query.PerPage, &result.Error))
                {
@@ -414,6 +458,7 @@ bool Parser::ParseInsertValue(nlohmann::json &out, std::string *error)
                }
                catch (...)
                {
+               
                }
           }
 
@@ -424,6 +469,7 @@ bool Parser::ParseInsertValue(nlohmann::json &out, std::string *error)
           }
           catch (...)
           {
+          
           }
      }
 

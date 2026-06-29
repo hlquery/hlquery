@@ -25,11 +25,6 @@ HLQueryMetrics::MetricHistory::MetricHistory()
 
 }
 
-HLQueryMetrics::MetricHistory::~MetricHistory()
-{
-
-}
-
 std::chrono::system_clock::time_point HLQueryMetrics::MetricHistory::GetCurrentTime() const
 {
      if (Instance)
@@ -46,7 +41,7 @@ void HLQueryMetrics::MetricHistory::AddPoint(double Value)
 
      const auto NowTime = GetCurrentTime();
 
-     if (!ShouldStore())
+     if (!ShouldStore(NowTime))
      {
           return;
      }
@@ -55,9 +50,9 @@ void HLQueryMetrics::MetricHistory::AddPoint(double Value)
 
      LastStorageTime = NowTime;
 
-     if (ShouldPerformRetention())
+     if (ShouldPerformRetention(NowTime))
      {
-          PerformRetention();
+          PerformRetentionUnlocked(NowTime);
 
           LastRetentionCheck = NowTime;
      }
@@ -78,12 +73,23 @@ std::vector<HLQueryMetrics::MetricPoint> HLQueryMetrics::MetricHistory::GetPoint
 
      std::vector<MetricPoint> ResultList;
 
-     for (const auto &PointItem : Points)
-     {
-          if (PointItem.Timestamp >= StartTime && PointItem.Timestamp <= EndTime)
+     const auto FirstPoint = std::lower_bound(Points.begin(), Points.end(), StartTime,
+          [](const MetricPoint &PointItem, const auto &Timestamp)
           {
-               ResultList.push_back(PointItem);
-          }
+               return PointItem.Timestamp < Timestamp;
+          });
+
+     const auto LastPoint = std::upper_bound(FirstPoint, Points.end(), EndTime,
+          [](const auto &Timestamp, const MetricPoint &PointItem)
+          {
+               return Timestamp < PointItem.Timestamp;
+          });
+
+     ResultList.reserve(static_cast<std::size_t>(std::distance(FirstPoint, LastPoint)));
+
+     for (auto PointIt = FirstPoint; PointIt != LastPoint; ++PointIt)
+     {
+          ResultList.push_back(*PointIt);
      }
 
      return ResultList;
@@ -253,12 +259,18 @@ void HLQueryMetrics::MetricHistory::PerformRetention()
 {
      std::lock_guard<std::mutex> Lock(PointsMutex);
 
+     const auto NowTime = GetCurrentTime();
+     PerformRetentionUnlocked(NowTime);
+     LastRetentionCheck = NowTime;
+}
+
+void HLQueryMetrics::MetricHistory::PerformRetentionUnlocked(std::chrono::system_clock::time_point NowTime)
+{
+
      if (Points.empty())
      {
           return;
      }
-
-     const auto NowTime = GetCurrentTime();
 
      auto OldestPointTimestamp = Points.front().Timestamp;
 
@@ -288,9 +300,12 @@ void HLQueryMetrics::MetricHistory::PerformRetention()
      LastRetentionStats.ExecutedAt = NowTime;
 }
 
-bool HLQueryMetrics::MetricHistory::ShouldStore() const
+bool HLQueryMetrics::MetricHistory::ShouldStore(std::chrono::system_clock::time_point NowTime) const
 {
-     const auto NowTime = GetCurrentTime();
+     if (Points.empty())
+     {
+          return true;
+     }
 
      auto ElapsedTime = std::chrono::duration_cast<std::chrono::minutes>(
           NowTime - LastStorageTime);
@@ -298,10 +313,8 @@ bool HLQueryMetrics::MetricHistory::ShouldStore() const
      return ElapsedTime.count() >= STORAGE_INTERVAL_MINUTES;
 }
 
-bool HLQueryMetrics::MetricHistory::ShouldPerformRetention() const
+bool HLQueryMetrics::MetricHistory::ShouldPerformRetention(std::chrono::system_clock::time_point NowTime) const
 {
-     const auto NowTime = GetCurrentTime();
-
      auto ElapsedTime = std::chrono::duration_cast<std::chrono::minutes>(
           NowTime - LastRetentionCheck);
 
@@ -330,6 +343,11 @@ void HLQueryMetrics::MetricHistory::PerformDailyRetention()
      struct tm TmBuf;
 
      std::tm *TmPtr = localtime_r(&TimeValue, &TmBuf);
+
+     if (!TmPtr)
+     {
+          return;
+     }
 
      TmPtr->tm_hour = 0;
      TmPtr->tm_min = 0;
@@ -417,6 +435,11 @@ void HLQueryMetrics::MetricHistory::PerformMonthlyRetention()
 
                std::tm *TmPtrPoint = localtime_r(&PointTimeVal, &TmBufPoint);
 
+               if (!TmPtrPoint)
+               {
+                    continue;
+               }
+
                int PointHourVal = TmPtrPoint->tm_hour;
 
                auto BestTimeVal = std::chrono::system_clock::to_time_t(BestPointForDay.Timestamp);
@@ -424,6 +447,12 @@ void HLQueryMetrics::MetricHistory::PerformMonthlyRetention()
                struct tm TmBufBest;
 
                std::tm *TmPtrBest = localtime_r(&BestTimeVal, &TmBufBest);
+
+               if (!TmPtrBest)
+               {
+                    BestPointForDay = PointItem;
+                    continue;
+               }
 
                int BestHourVal = TmPtrBest->tm_hour;
 
@@ -451,7 +480,16 @@ int64_t HLQueryMetrics::MetricHistory::GetDayNumber(std::chrono::system_clock::t
 {
      auto TimeValue = std::chrono::system_clock::to_time_t(TimestampPoint);
 
-     return TimeValue / 86400;
+     struct tm TmBuf;
+
+     const std::tm *TmPtr = localtime_r(&TimeValue, &TmBuf);
+
+     if (!TmPtr)
+     {
+          return TimeValue / 86400;
+     }
+
+     return static_cast<int64_t>(TmPtr->tm_year) * 366 + TmPtr->tm_yday;
 }
 
 bool HLQueryMetrics::MetricHistory::IsSameDay(

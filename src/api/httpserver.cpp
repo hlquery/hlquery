@@ -38,6 +38,7 @@
 #include "core/modulemanager.h"
 #include "utils/consolewriter.h"
 #include "utils/jsonbuilder.h"
+#include "vendor/json/json.hpp"
 
 #define HTTP_MAX_HEADER_SIZE (64 * 1024)
 
@@ -51,6 +52,30 @@ HttpResponse ProcessRequestWithAPI(SearchAPI &API, const HttpRequest &Request);
 static bool ExtractAuthTokenFromRequest(const HttpRequest &Request, std::string &OutAuthHeader, std::string &OutToken);
 
 static RouteAction ResolveRouteWithFallback(const HttpRequest &Request);
+static bool IsPublicRouteAction(RouteAction ActionVal);
+static bool IsAdminOnlyRouteAction(RouteAction ActionVal);
+static bool IsModuleControlRoute(const HttpRequest &Request);
+static std::string NormalizeRequestPath(const std::string &Path);
+static bool IsModuleControlRoutePath(const std::string &Path);
+static bool IsAuthorizedReplicationRequest(const HttpRequest &Request);
+static bool IsHealthLikePath(const std::string &Path);
+
+struct RouteContext
+{
+     std::string NormalizedPath;
+     RouteAction ActionVal = RouteAction::NotFound;
+     std::string CollectionName;
+     bool IsPublic = false;
+     bool IsAdminOnly = false;
+     bool IsModuleControl = false;
+     bool IsHealthCheck = false;
+     bool IsCollectionCreation = false;
+     bool IsDocumentImport = false;
+     bool IsListDocuments = false;
+     bool IsExpensiveQuery = false;
+};
+
+static RouteContext BuildRouteContext(const HttpRequest &Request, SearchAPI *API = nullptr);
 
 static bool ShouldUseAsyncHttpDispatch()
 {
@@ -115,6 +140,81 @@ static int HexDigitValue(char C)
      return 10 + (C - 'a');
 }
 
+static bool HasValidRequestFramingHeaders(const std::string &HeadersPart, std::string *Error)
+{
+     std::istringstream Stream(HeadersPart);
+     std::string Line;
+     bool FirstLine = true;
+     size_t ContentLengthCount = 0;
+
+     while (std::getline(Stream, Line))
+     {
+          if (!Line.empty() && Line.back() == '\r')
+          {
+               Line.pop_back();
+          }
+
+          if (FirstLine)
+          {
+               FirstLine = false;
+               continue;
+          }
+
+          if (Line.empty())
+          {
+               break;
+          }
+
+          const size_t Colon = Line.find(':');
+          if (Colon == std::string::npos)
+          {
+               if (Error)
+               {
+                    *Error = "Malformed HTTP header line";
+               }
+               return false;
+          }
+
+          std::string Name = Line.substr(0, Colon);
+          Name.erase(0, Name.find_first_not_of(" \t"));
+          const size_t LastNameCharacter = Name.find_last_not_of(" \t");
+          if (LastNameCharacter == std::string::npos)
+          {
+               if (Error)
+               {
+                    *Error = "Empty HTTP header name";
+               }
+               return false;
+          }
+          Name.erase(LastNameCharacter + 1);
+          std::transform(Name.begin(), Name.end(), Name.begin(), [](unsigned char C)
+                         { return static_cast<char>(std::tolower(C)); });
+
+          if (Name == "content-length")
+          {
+               ++ContentLengthCount;
+               if (ContentLengthCount > 1)
+               {
+                    if (Error)
+                    {
+                         *Error = "Duplicate Content-Length headers are not allowed";
+                    }
+                    return false;
+               }
+          }
+          else if (Name == "transfer-encoding")
+          {
+               if (Error)
+               {
+                    *Error = "Transfer-Encoding is not supported";
+               }
+               return false;
+          }
+     }
+
+     return true;
+}
+
 /* Use HTTP status codes from core/httpcodes.h. */
 
 using http_code = HttpCodes::code;
@@ -129,6 +229,76 @@ static void LogAccessControl(const std::string &Reason, const HttpRequest &Reque
      {
           Instance->Logs->Normal("access_control", Reason + " (endpoint: " + Request.Path + ", method: " + Request.Method + ", remote: " + Request.RemoteAddress + ":" + std::to_string(Request.RemotePort) + ").");
      }
+}
+
+static bool AuthorizeHttpRequest(HttpRequest &Request, HttpResponse &Response)
+{
+     if (!Instance || !Instance->Users)
+     {
+          Response = HttpResponse(http_code::INTERNAL_SERVER_ERROR, StatusText(http_code::INTERNAL_SERVER_ERROR), "application/json");
+          Response.Body = "{\"error\":\"Authentication system not available\"}";
+          return false;
+     }
+
+     UserAuthManager &AuthManager = *Instance->Users;
+
+     std::string AuthHeader;
+     std::string AuthToken;
+     bool HasAuthToken = ExtractAuthTokenFromRequest(Request, AuthHeader, AuthToken);
+
+     if (!AuthManager.IsAuthEnabled() && HasAuthToken && !IsAuthorizedReplicationRequest(Request) &&
+         !IsHealthLikePath(Request.Path))
+     {
+          Response = HttpResponse(http_code::FORBIDDEN, StatusText(http_code::FORBIDDEN), "application/json");
+          Response.Body = "{\"error\":\"Authentication is disabled\",\"message\":\"Tokens are not accepted when authentication is disabled. Remove the Authorization, X-API-Key, or X-TYPESENSE-API-KEY header.\"}";
+
+          LogAccessControl("Forbidden: token provided while auth is disabled", Request);
+
+          return false;
+     }
+
+     if (!AuthManager.IsAuthEnabled() || IsHealthLikePath(Request.Path))
+     {
+          return true;
+     }
+
+     if (!HasAuthToken)
+     {
+          Response = HttpResponse(http_code::UNAUTHORIZED, StatusText(http_code::UNAUTHORIZED), "application/json");
+          Response.Body = "{\"error\":\"Authentication required\",\"message\":\"Missing Authorization, X-API-Key, or X-TYPESENSE-API-KEY header\"}";
+          Response.Headers["WWW-Authenticate"] = "Bearer";
+
+          LogAccessControl("Unauthorized: missing authentication token", Request);
+
+          return false;
+     }
+
+     auto *KeyObj = APIKeyManager::Instance().ValidateKey(AuthToken);
+
+     if (!KeyObj)
+     {
+          AuthResult AuthResultVal = AuthManager.AuthenticateRequest(AuthHeader);
+
+          if (!AuthResultVal.Valid)
+          {
+               Response = HttpResponse(http_code::UNAUTHORIZED, StatusText(http_code::UNAUTHORIZED), "application/json");
+
+               nlohmann::json AuthErrorJSON;
+               AuthErrorJSON["error"] = "Authentication failed";
+               AuthErrorJSON["message"] = AuthResultVal.ErrorMessage;
+               Response.Body = AuthErrorJSON.dump();
+
+               Response.Headers["WWW-Authenticate"] = "Bearer";
+
+               LogAccessControl("Unauthorized: authentication failed (" + AuthResultVal.ErrorMessage + ")", Request);
+
+               return false;
+          }
+     }
+
+     Request.Authenticated = true;
+
+     return true;
 }
 
 static std::string GetHeaderValueInsensitive(const std::map<std::string, std::string> &Headers, const std::string &Name)
@@ -235,16 +405,19 @@ static bool IsAuthorizedReplicationRequest(const HttpRequest &Request)
      return false;
 }
 
-static void RecordAnalyticsForResponse(const HttpRequest &Request, const HttpResponse &Response)
+static void RecordAnalyticsForResponse(const HttpRequest &Request, const HttpResponse &Response, RouteAction ActionVal)
 {
-     const RouteAction ActionVal = ResolveRouteWithFallback(Request);
-
      FOREACH_MOD(OnRequestAnalytics, Request, Response, ActionVal);
 
      if (Request.Authenticated)
      {
           FOREACH_MOD(OnAuthenticatedRequest, Request, ActionVal);
      }
+}
+
+static void RecordAnalyticsForResponse(const HttpRequest &Request, const HttpResponse &Response)
+{
+     RecordAnalyticsForResponse(Request, Response, ResolveRouteWithFallback(Request));
 }
 
 static bool IsMutatingRequestMethod(const HttpRequest &Request)
@@ -259,13 +432,24 @@ static HttpResponse BuildBackpressureResponse(const std::string &Source, const s
 {
      HttpResponse Response(503, "Service Unavailable", "application/json");
      Response.Headers["Retry-After"] = "2";
-     Response.Body = "{\"error\":\"server_overloaded\",\"source\":\"" + Source + "\",\"message\":\"" + Message + "\"}";
+
+     nlohmann::json Body;
+     Body["error"] = "server_overloaded";
+     Body["source"] = Source;
+     Body["message"] = Message;
+     Response.Body = Body.dump();
+
      return Response;
 }
 
 static std::string BuildBackpressureRawResponse(const std::string &Source, const std::string &Message)
 {
-     const std::string Body = "{\"error\":\"server_overloaded\",\"source\":\"" + Source + "\",\"message\":\"" + Message + "\"}";
+     nlohmann::json BodyJSON;
+     BodyJSON["error"] = "server_overloaded";
+     BodyJSON["source"] = Source;
+     BodyJSON["message"] = Message;
+
+     const std::string Body = BodyJSON.dump();
      std::string Response = "HTTP/1.1 503 Service Unavailable\r\n";
      Response += "Content-Type: application/json\r\n";
      Response += "Server: hlquery/1.0\r\n";
@@ -313,6 +497,16 @@ static bool ExtractAuthTokenFromRequest(const HttpRequest &Request, std::string 
           if (APIKeyIt == Request.Headers.end())
           {
                APIKeyIt = Request.Headers.find("x-api-key");
+          }
+
+          if (APIKeyIt == Request.Headers.end())
+          {
+               APIKeyIt = Request.Headers.find("X-TYPESENSE-API-KEY");
+          }
+
+          if (APIKeyIt == Request.Headers.end())
+          {
+               APIKeyIt = Request.Headers.find("x-typesense-api-key");
           }
 
           if (APIKeyIt != Request.Headers.end())
@@ -752,6 +946,21 @@ void HttpConnection::OnEventHandlerRead()
                }
 
                SetFD(-1);
+               return;
+          }
+
+          std::string FramingError;
+          if (!HasValidRequestFramingHeaders(HeadersPart, &FramingError))
+          {
+               if (Instance && Instance->Logs)
+               {
+                    Instance->Logs->Critical("http", "Invalid request framing: " + FramingError + ".");
+               }
+
+               HttpResponse ErrorResp(400, "Bad Request", "application/json");
+               ErrorResp.Body = "{\"error\":\"Invalid request framing\"}";
+               KeepAlive = false;
+               SendResponse(ErrorResp);
                return;
           }
 
@@ -1375,111 +1584,19 @@ void HttpConnection::ProcessRequest()
           return;
      }
 
-     /* Check authentication if enabled. */
+     HttpResponse AuthResponse;
 
-     auto *InstanceVal = Instance;
-
-     if (!InstanceVal || !Instance->Users)
+     if (!AuthorizeHttpRequest(Request, AuthResponse))
      {
-          HttpResponse Response(http_code::INTERNAL_SERVER_ERROR, StatusText(http_code::INTERNAL_SERVER_ERROR));
-
-          Response.Body = "{\"error\":\"Authentication system not available\"}";
-          Response.Headers["Content-Type"] = "application/json";
-
-          SendResponse(Response);
-
+          SendResponse(AuthResponse);
           return;
-     }
-
-     UserAuthManager &AuthManager = *Instance->Users;
-
-     /* Check if a token is provided (even when auth is disabled). */
-
-     std::string AuthHeader;
-     std::string AuthToken;
-     bool HasAuthToken = ExtractAuthTokenFromRequest(Request, AuthHeader, AuthToken);
-
-     /* SECURITY: If auth is disabled but a token is provided, reject the request. */
-
-     if (!AuthManager.IsAuthEnabled() && HasAuthToken && !IsAuthorizedReplicationRequest(Request) &&
-         !IsHealthLikePath(Request.Path))
-     {
-          HttpResponse Response(http_code::FORBIDDEN, StatusText(http_code::FORBIDDEN), "application/json");
-
-          Response.Body = "{\"error\":\"Authentication is disabled\",\"message\":\"Tokens are not accepted when authentication is disabled. Remove the Authorization header or X-API-Key header.\"}";
-
-          LogAccessControl("Forbidden: token provided while auth is disabled", Request);
-
-          SendResponse(Response);
-
-          return;
-     }
-
-     bool AuthenticatedRequest = false;
-
-     if (AuthManager.IsAuthEnabled())
-     {
-          /* Skip auth for health, status, and ping endpoints (status is needed to check auth requirement). */
-
-          if (!IsHealthLikePath(Request.Path))
-          {
-               if (!HasAuthToken)
-               {
-                    HttpResponse Response(http_code::UNAUTHORIZED, StatusText(http_code::UNAUTHORIZED), "application/json");
-
-                    Response.Body = "{\"error\":\"Authentication required\",\"message\":\"Missing Authorization header or X-API-Key\"}";
-                    Response.Headers["WWW-Authenticate"] = "Bearer";
-
-                    LogAccessControl("Unauthorized: missing authentication token", Request);
-
-                    SendResponse(Response);
-
-                    return;
-               }
-
-               /* Allow API keys as an alternative to user auth. */
-
-               std::string TokenVal = AuthToken;
-
-               auto *KeyObj = APIKeyManager::Instance().ValidateKey(TokenVal);
-
-               if (!KeyObj)
-               {
-                    AuthResult AuthResultVal = AuthManager.AuthenticateRequest(AuthHeader);
-
-                    if (!AuthResultVal.Valid)
-                    {
-                         HttpResponse Response(http_code::UNAUTHORIZED, StatusText(http_code::UNAUTHORIZED), "application/json");
-
-                         Response.Body = "{\"error\":\"Authentication failed\",\"message\":\"" + AuthResultVal.ErrorMessage + "\"}";
-                         Response.Headers["WWW-Authenticate"] = "Bearer";
-
-                         LogAccessControl("Unauthorized: authentication failed (" + AuthResultVal.ErrorMessage + ")", Request);
-
-                         SendResponse(Response);
-
-                         return;
-                    }
-               }
-
-               AuthenticatedRequest = true;
-          }
-     }
-
-     if (AuthenticatedRequest)
-     {
-          HttpRequest &ModRequest = const_cast<HttpRequest &>(Request);
-          ModRequest.Authenticated = true;
      }
 
      /* Route to search API handlers. */
 
      SearchAPI &API = SearchAPI::GetInstance();
 
-     HttpResponse ResponseVal = HttpResponse(404, "Not Found");
-
-     ResponseVal.Body = "{\"error\":\"Route not found\",\"path\":\"" + Request.Path + "\"}";
-     ResponseVal.Headers["Content-Type"] = "application/json";
+     HttpResponse ResponseVal = BuildRouteNotFoundResponse(Request.Path);
 
      if (Instance && Instance->Logs)
      {
@@ -1637,6 +1754,21 @@ void HttpConnection::ProcessMultipleRequests()
                KeepAlive = false;
                SendResponse(ErrorResp);
 
+               return;
+          }
+
+          std::string FramingError;
+          if (!HasValidRequestFramingHeaders(HeadersPart, &FramingError))
+          {
+               if (Instance && Instance->Logs)
+               {
+                    Instance->Logs->Critical("http", "Invalid pipelined request framing: " + FramingError + ".");
+               }
+
+               HttpResponse ErrorResp(400, "Bad Request", "application/json");
+               ErrorResp.Body = "{\"error\":\"Invalid request framing\"}";
+               KeepAlive = false;
+               SendResponse(ErrorResp);
                return;
           }
 
@@ -1829,7 +1961,7 @@ void HttpConnection::ProcessMultipleRequests()
 
           /* Check if we should continue processing. */
 
-          if (!KeepAlive || RequestsProcessed >= HTTP_MAX_REQUESTS_PER_CONNECTION)
+          if (!KeepAlive || (RequestsProcessed >= HTTP_MAX_REQUESTS_PER_CONNECTION && RequestBuffer.empty()))
           {
                if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
                {
@@ -2078,93 +2210,39 @@ void HttpConnection::ProcessSingleRequest(const std::string &RequestStr)
           }
      }
 
-     /* Check authentication if enabled. */
-
-     if (Instance && Instance->Users)
+     if (!AuthorizeHttpRequest(Request, Response))
      {
-          UserAuthManager &AuthManagerVal = *Instance->Users;
-
-          /* Check if a token is provided (even when auth is disabled). */
-
-          std::string AuthHeader;
-          std::string AuthToken;
-          bool HasAuthToken = ExtractAuthTokenFromRequest(Request, AuthHeader, AuthToken);
-
-          /* SECURITY: If auth is disabled but a token is provided, reject the request. */
-          /* Allow /health, /status, and /ping without auth even if token is provided. */
-
-          if (!AuthManagerVal.IsAuthEnabled() && HasAuthToken && !IsAuthorizedReplicationRequest(Request) &&
-              !IsHealthLikePath(Request.Path))
-          {
-               Response = HttpResponse(http_code::FORBIDDEN, StatusText(http_code::FORBIDDEN), "application/json");
-
-               Response.Body = "{\"error\":\"Authentication is disabled\",\"message\":\"Tokens are not accepted when authentication is disabled. Remove the Authorization header or X-API-Key header.\"}";
-
-               LogAccessControl("Forbidden: token provided while auth is disabled", Request);
-
-               SendResponse(Response);
-
-               return;
-          }
-
-          if (AuthManagerVal.IsAuthEnabled())
-          {
-               /* Skip auth for health, status, and ping endpoints (status is needed to check auth requirement). */
-
-               if (!IsHealthLikePath(Request.Path))
-               {
-                    if (!HasAuthToken)
-                    {
-                         Response = HttpResponse(http_code::UNAUTHORIZED, StatusText(http_code::UNAUTHORIZED), "application/json");
-
-                         Response.Body = "{\"error\":\"Authentication required\",\"message\":\"Missing Authorization header or X-API-Key\"}";
-                         Response.Headers["WWW-Authenticate"] = "Bearer";
-
-                         LogAccessControl("Unauthorized: missing authentication token", Request);
-
-                         SendResponse(Response);
-
-                         return;
-                    }
-
-                    /* Allow API keys as an alternative to user auth. */
-
-                    std::string TokenVal = AuthToken;
-
-                    auto *KeyObj = APIKeyManager::Instance().ValidateKey(TokenVal);
-
-                    if (!KeyObj)
-                    {
-                         AuthResult AuthResultVal = AuthManagerVal.AuthenticateRequest(AuthHeader);
-
-                         if (!AuthResultVal.Valid)
-                         {
-                              Response = HttpResponse(http_code::UNAUTHORIZED, StatusText(http_code::UNAUTHORIZED), "application/json");
-
-                              Response.Body = "{\"error\":\"Authentication failed\",\"message\":\"" + AuthResultVal.ErrorMessage + "\"}";
-                              Response.Headers["WWW-Authenticate"] = "Bearer";
-
-                              LogAccessControl("Unauthorized: authentication failed (" + AuthResultVal.ErrorMessage + ")", Request);
-
-                              SendResponse(Response);
-
-                              return;
-                         }
-                    }
-               }
-          }
+          SendResponse(Response);
+          return;
      }
 
      /* Check for keep-alive header. */
 
-     auto ConnHeader = Request.Headers.find("Connection");
+     KeepAlive = (Request.Version == "HTTP/1.1");
+
+     auto ConnHeader = Request.Headers.find("connection");
 
      if (ConnHeader != Request.Headers.end())
      {
-          KeepAlive = (ConnHeader->second == "keep-alive");
+          std::string ConnectionValue = ConnHeader->second;
+          std::transform(ConnectionValue.begin(), ConnectionValue.end(), ConnectionValue.begin(), [](unsigned char C)
+                         { return static_cast<char>(std::tolower(C)); });
+          if (ConnectionValue == "close")
+          {
+               KeepAlive = false;
+          }
+          else if (ConnectionValue == "keep-alive")
+          {
+               KeepAlive = true;
+          }
      }
 
      RequestsProcessed++;
+
+     if (RequestsProcessed >= HTTP_MAX_REQUESTS_PER_CONNECTION && RequestBuffer.empty())
+     {
+          KeepAlive = false;
+     }
 
      /* Route to search API handlers. */
 
@@ -2189,6 +2267,15 @@ void HttpConnection::ProcessSingleRequest(const std::string &RequestStr)
           {
                TokenVal = APIKeyIt->second;
           }
+          else
+          {
+               APIKeyIt = Request.Headers.find("x-typesense-api-key");
+
+               if (APIKeyIt != Request.Headers.end())
+               {
+                    TokenVal = APIKeyIt->second;
+               }
+          }
      }
 
      if (TokenVal.find("Bearer ") == 0)
@@ -2202,16 +2289,9 @@ void HttpConnection::ProcessSingleRequest(const std::string &RequestStr)
      std::string KeyEmbeddedFilters;
      bool AuthenticatedRequest = false;
 
-     std::string NormalizedPath = Request.Path;
-
-     size_t QueryPosVal = NormalizedPath.find('?');
-
-     if (QueryPosVal != std::string::npos)
-     {
-          NormalizedPath = NormalizedPath.substr(0, QueryPosVal);
-     }
-
-     RouteAction ActionVal = ResolveRouteWithFallback(Request);
+     RouteContext Context = BuildRouteContext(Request, &API);
+     RouteAction ActionVal = Context.ActionVal;
+     const std::string &NormalizedPath = Context.NormalizedPath;
 
      if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
      {
@@ -2231,11 +2311,11 @@ void HttpConnection::ProcessSingleRequest(const std::string &RequestStr)
           }
 
           APIKeyAction ReqAction = MapRouteToKeyAction(ActionVal);
-          std::string ColNameVal = API.ExtractCollectionFromPath(Request.Path);
+          std::string ColNameVal = Context.CollectionName;
 
           /* Handle /multi_search and system endpoints. */
 
-          if (!IsPublicRouteAction(ActionVal) && ColNameVal.empty())
+          if (!Context.IsPublic && ColNameVal.empty())
           {
                if (ActionVal == RouteAction::MultiSearch || ActionVal == RouteAction::GlobalSearch)
                {
@@ -2266,12 +2346,17 @@ void HttpConnection::ProcessSingleRequest(const std::string &RequestStr)
                     ColNameVal = "*";
                }
           }
-          else if (!IsPublicRouteAction(ActionVal))
+          else if (!Context.IsPublic)
           {
                if (!KeyObj->CanAccessCollection(ColNameVal))
                {
                     Response = HttpResponse(403, "Forbidden", "application/json");
-                    Response.Body = "{\"error\":\"Access to collection '" + ColNameVal + "' not allowed for this key\"}";
+
+                    nlohmann::json ErrorJSON;
+                    ErrorJSON["error"] = "Access to collection not allowed for this key";
+                    ErrorJSON["collection"] = ColNameVal;
+                    Response.Body = ErrorJSON.dump();
+
                     LogAccessControl("Forbidden: key '" + KeyObj->ID + "' cannot access collection '" + ColNameVal + "'", Request);
                     SendResponse(Response);
                     return;
@@ -2312,7 +2397,7 @@ void HttpConnection::ProcessSingleRequest(const std::string &RequestStr)
 
      /* Admin-only routes. */
 
-     if (IsAdminOnlyRouteAction(ActionVal))
+     if (Context.IsAdminOnly)
      {
           if (!IsAdminVal)
           {
@@ -2323,7 +2408,7 @@ void HttpConnection::ProcessSingleRequest(const std::string &RequestStr)
           }
      }
 
-     if (IsModuleControlRoute(Request) && !IsAdminVal)
+     if (Context.IsModuleControl && !IsAdminVal)
      {
           Response = HttpResponse(403, "Forbidden", "application/json");
           Response.Body = "{\"error\":\"Only administrators can access this endpoint\"}";
@@ -2368,7 +2453,7 @@ void HttpConnection::ProcessSingleRequest(const std::string &RequestStr)
      /* WORKAROUND: Handle /etc route in ProcessSingleRequest BEFORE setting 404. */
      /* Ensure /etc route is caught early and reliably (protocol codes for API communication). */
 
-     if (Request.Path == "/etc" && Request.Method == "GET")
+     if (ActionVal == RouteAction::Etc)
      {
           if (Instance && Instance->Logs)
           {
@@ -2513,10 +2598,18 @@ void HttpConnection::ProcessSingleRequest(const std::string &RequestStr)
           }
      }
 
-     Response = HttpResponse(404, "Not Found");
+     /* The structured resolver is authoritative. Do not let the legacy
+      * substring dispatcher reinterpret malformed or unsupported paths. */
 
-     Response.Body = "{\"error\":\"Route not found\",\"path\":\"" + Request.Path + "\"}";
-     Response.Headers["Content-Type"] = "application/json";
+     if (ActionVal == RouteAction::NotFound)
+     {
+          Response = BuildRouteNotFoundResponse(Request.Path);
+          RecordAnalyticsForResponse(Request, Response, ActionVal);
+          SendResponse(Response);
+          return;
+     }
+
+     Response = BuildRouteNotFoundResponse(Request.Path);
 
      if (Instance && Instance->Logs)
      {
@@ -2586,49 +2679,21 @@ void HttpConnection::ProcessSingleRequest(const std::string &RequestStr)
      {
           Response = API.HandleUpdateKey(Request);
      }
-     else if (NormalizedPath == "/sam/rebuild" && Request.Method == "POST")
+     else if (NormalizedPath == "/presets" && Request.Method == "GET")
      {
-          Response = API.HandleSAMRebuild(Request);
+          Response = API.HandleListPresets(Request);
      }
-     else if (NormalizedPath == "/sam/search" && Request.Method == "GET")
+     else if (NormalizedPath.find("/presets/") == 0 && (Request.Method == "POST" || Request.Method == "PUT"))
      {
-          Response = API.HandleSAMSearch(Request);
+          Response = API.HandleCreateOrUpdatePreset(Request);
      }
-     else if (NormalizedPath == "/sam/status" && Request.Method == "GET")
+     else if (NormalizedPath.find("/presets/") == 0 && Request.Method == "GET")
      {
-          Response = API.HandleSAMStatus(Request);
+          Response = API.HandleGetPreset(Request);
      }
-     else if (NormalizedPath == "/sam/debug" && Request.Method == "GET")
+     else if (NormalizedPath.find("/presets/") == 0 && Request.Method == "DELETE")
      {
-          Response = API.HandleSAMDebug(Request);
-     }
-     else if (NormalizedPath == "/sam/history" && Request.Method == "GET")
-     {
-          Response = API.HandleSAMHistory(Request);
-     }
-     else if (NormalizedPath == "/sam/pause" && Request.Method == "POST")
-     {
-          Response = API.HandleSAMPause(Request);
-     }
-     else if (NormalizedPath == "/sam/improve" && Request.Method == "POST")
-     {
-          Response = API.HandleSAMImprove(Request);
-     }
-     else if (NormalizedPath == "/sam/flush_actor_metadata" && Request.Method == "POST")
-     {
-          Response = API.HandleSAMFlushActorMetadata(Request);
-     }
-     else if (NormalizedPath == "/sam/documents" && Request.Method == "GET")
-     {
-          Response = API.HandleSAMListDocuments(Request);
-     }
-     else if (NormalizedPath.find("/sam/label/add/") == 0 && Request.Method == "POST")
-     {
-          Response = API.HandleSAMAddDocumentLabel(Request);
-     }
-     else if (NormalizedPath.find("/sam/documents/") == 0 && Request.Method == "GET")
-     {
-          Response = API.HandleSAMGetDocument(Request);
+          Response = API.HandleDeletePreset(Request);
      }
 
      /* Check for synonyms/stopwords/overrides FIRST before search to avoid false matches. */
@@ -2759,19 +2824,23 @@ void HttpConnection::ProcessSingleRequest(const std::string &RequestStr)
      {
           Response = API.HandleListAllSynonyms(Request);
      }
-     else if (Request.Path == "/synonyms/global" && Request.Method == "GET")
+     else if (Request.Path == "/synonym_sets" && Request.Method == "GET")
+     {
+          Response = API.HandleListAllSynonyms(Request);
+     }
+     else if ((Request.Path == "/synonyms/global" || Request.Path == "/synonym_sets/global") && Request.Method == "GET")
      {
           Response = API.HandleListGlobalSynonyms(Request);
      }
-     else if (Request.Path.find("/synonyms/global/") == 0 && (Request.Method == "POST" || Request.Method == "PUT"))
+     else if ((Request.Path.find("/synonyms/global/") == 0 || Request.Path.find("/synonym_sets/global/") == 0) && (Request.Method == "POST" || Request.Method == "PUT"))
      {
           Response = API.HandleCreateOrUpdateGlobalSynonym(Request);
      }
-     else if (Request.Path.find("/synonyms/global/") == 0 && Request.Method == "GET")
+     else if ((Request.Path.find("/synonyms/global/") == 0 || Request.Path.find("/synonym_sets/global/") == 0) && Request.Method == "GET")
      {
           Response = API.HandleGetGlobalSynonym(Request);
      }
-     else if (Request.Path.find("/synonyms/global/") == 0 && Request.Method == "DELETE")
+     else if ((Request.Path.find("/synonyms/global/") == 0 || Request.Path.find("/synonym_sets/global/") == 0) && Request.Method == "DELETE")
      {
           Response = API.HandleDeleteGlobalSynonym(Request);
      }
@@ -2779,15 +2848,19 @@ void HttpConnection::ProcessSingleRequest(const std::string &RequestStr)
      {
           Response = API.HandleListAllStopwords(Request);
      }
-     else if (Request.Path == "/stopwords/global" && Request.Method == "GET")
+     else if (Request.Path == "/stopword_sets" && Request.Method == "GET")
+     {
+          Response = API.HandleListAllStopwords(Request);
+     }
+     else if ((Request.Path == "/stopwords/global" || Request.Path == "/stopword_sets/global") && Request.Method == "GET")
      {
           Response = API.HandleListGlobalStopwords(Request);
      }
-     else if (Request.Path == "/stopwords/global" && Request.Method == "POST")
+     else if ((Request.Path == "/stopwords/global" || Request.Path == "/stopword_sets/global") && Request.Method == "POST")
      {
           Response = API.HandleCreateGlobalStopword(Request);
      }
-     else if (Request.Path.find("/stopwords/global/") == 0 && Request.Method == "DELETE")
+     else if ((Request.Path.find("/stopwords/global/") == 0 || Request.Path.find("/stopword_sets/global/") == 0) && Request.Method == "DELETE")
      {
           Response = API.HandleDeleteGlobalStopword(Request);
      }
@@ -2834,11 +2907,11 @@ void HttpConnection::ProcessSingleRequest(const std::string &RequestStr)
      {
           Response = API.HandleGetCollectionLanguage(Request);
      }
-     else if (Request.Path.find("/collections/") == 0 && NormalizedPath.find("/search") == std::string::npos && Request.Path.find("/documents") == std::string::npos && Request.Path.find("/synonyms") == std::string::npos && Request.Path.find("/stopwords") == std::string::npos && Request.Path.find("/overrides") == std::string::npos && Request.Path.find("/aliases") == std::string::npos && Request.Method == "GET")
+     else if (Request.Path.find("/collections/") == 0 && NormalizedPath.find("/search") == std::string::npos && Request.Path.find("/documents") == std::string::npos && Request.Path.find("/synonyms") == std::string::npos && Request.Path.find("/stopwords") == std::string::npos && Request.Path.find("/overrides") == std::string::npos && Request.Path.find("/curations") == std::string::npos && Request.Path.find("/curation_sets") == std::string::npos && Request.Path.find("/aliases") == std::string::npos && Request.Method == "GET")
      {
           Response = API.HandleGetCollection(Request);
      }
-     else if (Request.Path.find("/collections/") == 0 && Request.Path.find("/documents") == std::string::npos && Request.Path.find("/synonyms") == std::string::npos && Request.Path.find("/stopwords") == std::string::npos && Request.Path.find("/overrides") == std::string::npos && Request.Path.find("/aliases") == std::string::npos && Request.Method == "DELETE")
+     else if (Request.Path.find("/collections/") == 0 && Request.Path.find("/documents") == std::string::npos && Request.Path.find("/synonyms") == std::string::npos && Request.Path.find("/stopwords") == std::string::npos && Request.Path.find("/overrides") == std::string::npos && Request.Path.find("/curations") == std::string::npos && Request.Path.find("/curation_sets") == std::string::npos && Request.Path.find("/aliases") == std::string::npos && Request.Method == "DELETE")
      {
           Response = API.HandleDeleteCollection(Request);
      }
@@ -2893,7 +2966,15 @@ void HttpConnection::ProcessSingleRequest(const std::string &RequestStr)
      {
           Response = API.HandleListOverrides(Request);
      }
+     else if (Request.Path.find("/collections/") == 0 && (Request.Path.find("/curations") != std::string::npos || Request.Path.find("/curation_sets") != std::string::npos) && Request.Path.find("/curations/") == std::string::npos && Request.Path.find("/curation_sets/") == std::string::npos && Request.Method == "GET")
+     {
+          Response = API.HandleListOverrides(Request);
+     }
      else if (Request.Path.find("/collections/") == 0 && Request.Path.find("/overrides/") != std::string::npos && (Request.Method == "POST" || Request.Method == "PUT"))
+     {
+          Response = API.HandleCreateOrUpdateOverride(Request);
+     }
+     else if (Request.Path.find("/collections/") == 0 && (Request.Path.find("/curations/") != std::string::npos || Request.Path.find("/curation_sets/") != std::string::npos) && (Request.Method == "POST" || Request.Method == "PUT"))
      {
           Response = API.HandleCreateOrUpdateOverride(Request);
      }
@@ -2901,7 +2982,15 @@ void HttpConnection::ProcessSingleRequest(const std::string &RequestStr)
      {
           Response = API.HandleGetOverride(Request);
      }
+     else if (Request.Path.find("/collections/") == 0 && (Request.Path.find("/curations/") != std::string::npos || Request.Path.find("/curation_sets/") != std::string::npos) && Request.Method == "GET")
+     {
+          Response = API.HandleGetOverride(Request);
+     }
      else if (Request.Path.find("/collections/") == 0 && Request.Path.find("/overrides/") != std::string::npos && Request.Method == "DELETE")
+     {
+          Response = API.HandleDeleteOverride(Request);
+     }
+     else if (Request.Path.find("/collections/") == 0 && (Request.Path.find("/curations/") != std::string::npos || Request.Path.find("/curation_sets/") != std::string::npos) && Request.Method == "DELETE")
      {
           Response = API.HandleDeleteOverride(Request);
      }
@@ -2953,10 +3042,6 @@ void HttpConnection::ProcessSingleRequest(const std::string &RequestStr)
      {
           Response = API.HandleStats(Request);
      }
-     else if (Request.Path == "/llm" && Request.Method == "GET")
-     {
-          Response = API.HandleLLM(Request);
-     }
      else if (Request.Path == "/doctotal" && Request.Method == "GET")
      {
           Response = API.HandleDocTotal(Request);
@@ -2980,7 +3065,7 @@ void HttpConnection::ProcessSingleRequest(const std::string &RequestStr)
           Response = API.HandleStatus(Request);
      }
 
-     RecordAnalyticsForResponse(Request, Response);
+     RecordAnalyticsForResponse(Request, Response, ActionVal);
      API.FinalizeReplicationOperation(Request, Response);
      API.FinalizeReplicationResyncRequest(Request, Response);
 
@@ -3102,7 +3187,7 @@ void HttpConnection::SendResponse(const HttpResponse &Response)
           ResponseStr += "Keep-Alive: timeout=";
           ResponseStr += std::to_string(HTTP_KEEP_ALIVE_TIMEOUT_SEC);
           ResponseStr += ", max=";
-          ResponseStr += std::to_string(HTTP_MAX_REQUESTS_PER_CONNECTION - RequestsProcessed);
+          ResponseStr += std::to_string(std::max(0, HTTP_MAX_REQUESTS_PER_CONNECTION - RequestsProcessed));
           ResponseStr += "\r\n";
      }
      else
@@ -3114,7 +3199,7 @@ void HttpConnection::SendResponse(const HttpResponse &Response)
 
      ResponseStr += "Access-Control-Allow-Origin: *\r\n";
      ResponseStr += "Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS, PATCH\r\n";
-     ResponseStr += "Access-Control-Allow-Headers: Content-Type, Authorization, Accept, X-Requested-With, X-API-Key, X-Request-Id\r\n";
+     ResponseStr += "Access-Control-Allow-Headers: Content-Type, Authorization, Accept, X-Requested-With, X-API-Key, X-TYPESENSE-API-KEY, X-Request-Id\r\n";
      ResponseStr += "Access-Control-Max-Age: 86400\r\n";
 
      /* Headers. */
@@ -3294,6 +3379,18 @@ void HttpConnection::ForceClose()
 
 bool HttpConnection::ParseHttpRequest(const std::string &RawRequest, HttpRequest &Request)
 {
+     const size_t RawHeaderEnd = RawRequest.find("\r\n\r\n");
+     if (RawHeaderEnd == std::string::npos || RawHeaderEnd + 4 > HTTP_MAX_HEADER_SIZE)
+     {
+          return false;
+     }
+
+     std::string FramingError;
+     if (!HasValidRequestFramingHeaders(RawRequest.substr(0, RawHeaderEnd + 4), &FramingError))
+     {
+          return false;
+     }
+
      std::istringstream ISS(RawRequest);
 
      std::string Line;
@@ -4253,11 +4350,9 @@ HttpResponse HttpServer::HandleHealth(const HttpRequest &Request)
 
      if (Instance)
      {
-          HealthDegraded = Instance->StatsVal.IsHealthDegraded();
-          if (HealthDegraded)
-          {
-               HealthReason = Instance->StatsVal.GetHealthDegradedReason();
-          }
+          const auto HealthStatus = Instance->StatsVal.GetHealthStatus();
+          HealthDegraded = HealthStatus.Degraded;
+          HealthReason = HealthStatus.Reason;
      }
 
      HttpResponseBuilder Builder(200, "OK");
@@ -4574,10 +4669,22 @@ void HttpServer::AcceptConnection()
 
                /* Protect Connections vector with mutex. */
 
+               HttpConnection *RegisteredConnection = NewConnection.get();
+
                {
                     std::lock_guard<std::mutex> Lock(ConnectionsMutex);
 
                     Connections.push_back(std::move(NewConnection));
+               }
+
+               /*
+                * Drain any request bytes that arrived before or during epoll registration.
+                * With edge-triggered epoll, relying only on a later readiness edge can leave
+                * a freshly accepted client idle until the peer times out.
+                */
+               if (RegisteredConnection && RegisteredConnection->HasFD())
+               {
+                    RegisteredConnection->OnEventHandlerRead();
                }
 
                /* Active connection counter is incremented in AddFD(). */
@@ -4789,12 +4896,6 @@ APIKeyAction MapRouteToKeyAction(RouteAction ActionVal)
           case RouteAction::GetDocument:
           case RouteAction::ListDocuments:
           case RouteAction::GetDocumentContext:
-          case RouteAction::SamSearch:
-          case RouteAction::SamStatus:
-          case RouteAction::SamDebug:
-          case RouteAction::SamHistory:
-          case RouteAction::SamListDocuments:
-          case RouteAction::SamGetDocument:
           case RouteAction::FacetCounts:
           case RouteAction::ExportDocuments:
                return APIKeyAction::SEARCH;
@@ -4850,17 +4951,6 @@ APIKeyAction MapRouteToKeyAction(RouteAction ActionVal)
           case RouteAction::BulkImportDocuments:
                return APIKeyAction::IMPORT;
 
-          case RouteAction::SamRebuild:
-               return APIKeyAction::UPDATE;
-          case RouteAction::SamPause:
-               return APIKeyAction::UPDATE;
-          case RouteAction::SamImprove:
-               return APIKeyAction::UPDATE;
-          case RouteAction::SamAddDocumentLabel:
-               return APIKeyAction::UPDATE;
-          case RouteAction::SamFlushActorMetadata:
-               return APIKeyAction::ALL;
-
           default:
                return APIKeyAction::SEARCH;
      }
@@ -4868,60 +4958,7 @@ APIKeyAction MapRouteToKeyAction(RouteAction ActionVal)
 
 static RouteAction ResolveRouteWithFallback(const HttpRequest &Request)
 {
-     std::string Path = Request.Path;
-     const std::string &Method = Request.Method;
-
-     if (Path.size() > 1 && Path.back() == '/')
-     {
-          Path.pop_back();
-     }
-
-     if (Path == "/flush" && Method == "POST")
-     {
-          return RouteAction::Flush;
-     }
-
-     if (Path == "/ping" && Method == "GET")
-     {
-          return RouteAction::Ping;
-     }
-
-     if ((Path == "/rocksdb" || Path == "/_rocksdb") && Method == "GET")
-     {
-          return RouteAction::RocksDB;
-     }
-
-     if (Path == "/etc" && Method == "GET")
-     {
-          return RouteAction::Etc;
-     }
-
-     if (Path == "/connections" && Method == "GET")
-     {
-          return RouteAction::Connections;
-     }
-
-     if ((Path == "/startup" || Path == "/boot-status") && Method == "GET")
-     {
-          return RouteAction::Startup;
-     }
-
-     if ((Path == "/integrity" || Path == "/consistency") && Method == "GET")
-     {
-          return RouteAction::Integrity;
-     }
-
-     if (Path == "/self-check" && Method == "GET")
-     {
-          return RouteAction::SelfCheck;
-     }
-
-     if (Path == "/admin/storage_status" && Method == "GET")
-     {
-          return RouteAction::StorageStatus;
-     }
-
-     return ResolveHttpRoute(Request);
+     return BuildRouteContext(Request).ActionVal;
 }
 
 static bool IsPublicRouteAction(RouteAction ActionVal)
@@ -4942,6 +4979,10 @@ static bool IsAdminOnlyRouteAction(RouteAction ActionVal)
              ActionVal == RouteAction::GetKey ||
              ActionVal == RouteAction::DeleteKey ||
              ActionVal == RouteAction::UpdateKey ||
+             ActionVal == RouteAction::ListPresets ||
+             ActionVal == RouteAction::UpsertPreset ||
+             ActionVal == RouteAction::GetPreset ||
+             ActionVal == RouteAction::DeletePreset ||
              ActionVal == RouteAction::ListUsers ||
              ActionVal == RouteAction::CreateUser ||
              ActionVal == RouteAction::GetUser ||
@@ -4951,25 +4992,37 @@ static bool IsAdminOnlyRouteAction(RouteAction ActionVal)
              ActionVal == RouteAction::LinksDisconnect ||
              ActionVal == RouteAction::Flush ||
              ActionVal == RouteAction::Repair ||
-             ActionVal == RouteAction::StorageStatus ||
-             ActionVal == RouteAction::SamFlushActorMetadata);
+             ActionVal == RouteAction::Cache ||
+             ActionVal == RouteAction::ModuleLoad ||
+             ActionVal == RouteAction::ModuleUnload ||
+             ActionVal == RouteAction::StorageStatus);
 }
 
 static bool IsModuleControlRoute(const HttpRequest &Request)
 {
-     std::string Path = Request.Path;
-     const size_t QueryPos = Path.find('?');
+     return IsModuleControlRoutePath(NormalizeRequestPath(Request.Path));
+}
+
+static std::string NormalizeRequestPath(const std::string &Path)
+{
+     std::string NormalizedPath = Path;
+     const size_t QueryPos = NormalizedPath.find('?');
 
      if (QueryPos != std::string::npos)
      {
-          Path = Path.substr(0, QueryPos);
+          NormalizedPath = NormalizedPath.substr(0, QueryPos);
      }
 
-     if (Path.size() > 1 && Path.back() == '/')
+     if (NormalizedPath.size() > 1 && NormalizedPath.back() == '/')
      {
-          Path.pop_back();
+          NormalizedPath.pop_back();
      }
 
+     return NormalizedPath;
+}
+
+static bool IsModuleControlRoutePath(const std::string &Path)
+{
      return Path == "/loadmodule" ||
             Path == "/unloadmodule" ||
             Path.rfind("/loadmodule/", 0) == 0 ||
@@ -4978,6 +5031,32 @@ static bool IsModuleControlRoute(const HttpRequest &Request)
             Path == "/modules/unload" ||
             Path.rfind("/modules/load/", 0) == 0 ||
             Path.rfind("/modules/unload/", 0) == 0;
+}
+
+static RouteContext BuildRouteContext(const HttpRequest &Request, SearchAPI *API)
+{
+     RouteContext Context;
+     Context.NormalizedPath = NormalizeRequestPath(Request.Path);
+     Context.ActionVal = ResolveHttpRoute(Request);
+     Context.IsPublic = IsPublicRouteAction(Context.ActionVal);
+     Context.IsAdminOnly = IsAdminOnlyRouteAction(Context.ActionVal);
+     Context.IsModuleControl = IsModuleControlRoutePath(Context.NormalizedPath);
+     Context.IsHealthCheck = IsHealthLikePath(Context.NormalizedPath);
+     Context.IsCollectionCreation = Context.ActionVal == RouteAction::CreateCollection;
+     Context.IsDocumentImport = Context.ActionVal == RouteAction::BulkImportDocuments;
+     Context.IsListDocuments = Context.ActionVal == RouteAction::ListDocuments;
+     Context.IsExpensiveQuery = Context.ActionVal == RouteAction::DocumentSearch ||
+                                Context.ActionVal == RouteAction::VectorSearch ||
+                                Context.ActionVal == RouteAction::MultiSearch ||
+                                Context.ActionVal == RouteAction::GlobalSearch;
+
+     if (API && !Context.IsPublic && Context.ActionVal != RouteAction::MultiSearch &&
+         Context.ActionVal != RouteAction::GlobalSearch)
+     {
+          Context.CollectionName = API->ExtractCollectionFromPath(Context.NormalizedPath);
+     }
+
+     return Context;
 }
 
 /* ProcessRequestWithAPI handles requests with SearchAPI. */
@@ -4990,10 +5069,12 @@ HttpResponse ProcessRequestWithAPI(SearchAPI &API, const HttpRequest &Request)
      }
 
      RouteAction ActionVal = RouteAction::NotFound;
+     RouteContext Context;
 
      try
      {
-          ActionVal = ResolveRouteWithFallback(Request);
+          Context = BuildRouteContext(Request, &API);
+          ActionVal = Context.ActionVal;
 
           if (Instance && Instance->Logs)
           {
@@ -5023,6 +5104,16 @@ HttpResponse ProcessRequestWithAPI(SearchAPI &API, const HttpRequest &Request)
                     APIKeyIt = Request.Headers.find("x-api-key");
                }
 
+               if (APIKeyIt == Request.Headers.end())
+               {
+                    APIKeyIt = Request.Headers.find("X-TYPESENSE-API-KEY");
+               }
+
+               if (APIKeyIt == Request.Headers.end())
+               {
+                    APIKeyIt = Request.Headers.find("x-typesense-api-key");
+               }
+
                if (APIKeyIt != Request.Headers.end())
                {
                     TokenVal = APIKeyIt->second;
@@ -5045,7 +5136,7 @@ HttpResponse ProcessRequestWithAPI(SearchAPI &API, const HttpRequest &Request)
 
           /* Admin-only routes. */
 
-          if (IsAdminOnlyRouteAction(ActionVal))
+          if (Context.IsAdminOnly)
           {
                if (!IsAdminVal)
                {
@@ -5054,13 +5145,13 @@ HttpResponse ProcessRequestWithAPI(SearchAPI &API, const HttpRequest &Request)
                }
           }
 
-          if (IsModuleControlRoute(Request) && !IsAdminVal)
+          if (Context.IsModuleControl && !IsAdminVal)
           {
                LogAccessControl("Forbidden: non-admin attempted module control operation", Request);
                return HttpResponse(403, "Forbidden", "{\"error\":\"Only administrators can access this endpoint\"}");
           }
 
-          if (!IsAdminVal && !IsPublicRouteAction(ActionVal))
+          if (!IsAdminVal && !Context.IsPublic)
           {
                auto *KeyObj = APIKeyManager::Instance().ValidateKey(TokenVal);
 
@@ -5072,7 +5163,7 @@ HttpResponse ProcessRequestWithAPI(SearchAPI &API, const HttpRequest &Request)
                     }
 
                     APIKeyAction ReqAction = MapRouteToKeyAction(ActionVal);
-                    std::string ColNameVal = API.ExtractCollectionFromPath(Request.Path);
+                    std::string ColNameVal = Context.CollectionName;
 
                     /* Handle /multi_search and system endpoints. */
 
@@ -5164,35 +5255,7 @@ HttpResponse ProcessRequestWithAPI(SearchAPI &API, const HttpRequest &Request)
 
      if (Instance && !HybridStorageManagerInstance().IsMetadataScanComplete())
      {
-          /* Allow collection creation during metadata scan - it's safe and needed for benchmarks. */
-
-          bool IsCollectionCreation = (ActionVal == RouteAction::CreateCollection ||
-                                       (Request.Path == "/collections" && Request.Method == "POST"));
-
-          /* Allow document import during metadata scan - it's safe and needed for benchmarks. */
-
-          bool IsDocumentImport = (ActionVal == RouteAction::BulkImportDocuments ||
-                                   (Request.Method == "POST" &&
-                                    Request.Path.find("/collections/") == 0 &&
-                                    Request.Path.find("/documents/import") != std::string::npos));
-
-          /* CRITICAL FIX: Allow ListDocuments during metadata scan - it's a read operation and safe. */
-          /* Documents are in memory cache or can be loaded from LSM, so queries should work. */
-
-          bool IsListDocuments = (ActionVal == RouteAction::ListDocuments ||
-                                  (Request.Method == "GET" &&
-                                   Request.Path.find("/collections/") == 0 &&
-                                   Request.Path.find("/documents") != std::string::npos));
-
-          /* Block expensive queries (search) until collections are loaded after restart. */
-          /* Write operations (collection creation, document import) and simple reads (ListDocuments) are allowed. */
-
-          bool IsExpensiveQuery = (ActionVal == RouteAction::DocumentSearch ||
-                                   ActionVal == RouteAction::VectorSearch ||
-                                   (Request.Method == "GET" &&
-                                    Request.Path.find("/search") != std::string::npos));
-
-          if (IsExpensiveQuery && !IsCollectionCreation && !IsDocumentImport && !IsListDocuments)
+          if (Context.IsExpensiveQuery && !Context.IsCollectionCreation && !Context.IsDocumentImport && !Context.IsListDocuments)
           {
                HttpResponse ResponseVal(503, "Service Unavailable", "application/json");
 
@@ -5210,30 +5273,14 @@ HttpResponse ProcessRequestWithAPI(SearchAPI &API, const HttpRequest &Request)
 
      if (Instance && Instance->IsSyncInProgress())
      {
-          /* Allow health check endpoints during sync. */
-
-          bool IsHealthCheck = IsHealthLikePath(Request.Path);
-
-          /* Allow collection creation during sync - it's safe and needed for benchmarks. */
-
-          bool IsCollectionCreation = (ActionVal == RouteAction::CreateCollection ||
-                                       (Request.Path == "/collections" && Request.Method == "POST"));
-
-          /* Allow document import during sync - it's safe and needed for benchmarks. */
-
-          bool IsDocumentImport = (ActionVal == RouteAction::BulkImportDocuments ||
-                                   (Request.Method == "POST" &&
-                                    Request.Path.find("/collections/") == 0 &&
-                                    Request.Path.find("/documents/import") != std::string::npos));
-
           /* Block queries and other write operations during sync. */
 
           bool IsQuery = (Request.Method == "GET");
 
           bool IsOtherWrite = (Request.Method == "POST" || Request.Method == "PUT" || Request.Method == "DELETE") &&
-                              !IsCollectionCreation && !IsDocumentImport;
+                              !Context.IsCollectionCreation && !Context.IsDocumentImport;
 
-          if (!IsAuthorizedReplicationRequest(Request) && !IsHealthCheck && (IsQuery || IsOtherWrite))
+          if (!IsAuthorizedReplicationRequest(Request) && !Context.IsHealthCheck && (IsQuery || IsOtherWrite))
           {
                HttpResponse ResponseVal(503, "Service Unavailable", "application/json");
 
@@ -5307,6 +5354,9 @@ HttpResponse ProcessRequestWithAPI(SearchAPI &API, const HttpRequest &Request)
 
                case RouteAction::MetricsHistory:
                     return API.HandleMetricsHistory(Request);
+
+               case RouteAction::Cache:
+                    return API.HandleCache(Request);
 
                case RouteAction::Connections:
                     return API.HandleConnections(Request);
@@ -5405,40 +5455,6 @@ HttpResponse ProcessRequestWithAPI(SearchAPI &API, const HttpRequest &Request)
 
                case RouteAction::GetDocumentContext:
                     return API.HandleGetDocumentContext(Request);
-
-               case RouteAction::SamRebuild:
-                    return API.HandleSAMRebuild(Request);
-
-               case RouteAction::SamSearch:
-                    return API.HandleSAMSearch(Request);
-
-               case RouteAction::SamStatus:
-                    return API.HandleSAMStatus(Request);
-
-               case RouteAction::SamDebug:
-                    return API.HandleSAMDebug(Request);
-
-               case RouteAction::SamHistory:
-                    return API.HandleSAMHistory(Request);
-
-               case RouteAction::SamPause:
-                    return API.HandleSAMPause(Request);
-
-               case RouteAction::SamImprove:
-                    return API.HandleSAMImprove(Request);
-
-               case RouteAction::SamFlushActorMetadata:
-                    return API.HandleSAMFlushActorMetadata(Request);
-
-               case RouteAction::SamListDocuments:
-                    return API.HandleSAMListDocuments(Request);
-
-               case RouteAction::SamGetDocument:
-                    return API.HandleSAMGetDocument(Request);
-
-               case RouteAction::SamAddDocumentLabel:
-                    return API.HandleSAMAddDocumentLabel(Request);
-
                case RouteAction::AddDocument:
                     return API.HandleAddDocument(Request);
 
@@ -5556,6 +5572,18 @@ HttpResponse ProcessRequestWithAPI(SearchAPI &API, const HttpRequest &Request)
                case RouteAction::UpdateKey:
                     return API.HandleUpdateKey(Request);
 
+               case RouteAction::ListPresets:
+                    return API.HandleListPresets(Request);
+
+               case RouteAction::UpsertPreset:
+                    return API.HandleCreateOrUpdatePreset(Request);
+
+               case RouteAction::GetPreset:
+                    return API.HandleGetPreset(Request);
+
+               case RouteAction::DeletePreset:
+                    return API.HandleDeletePreset(Request);
+
                case RouteAction::AnalyticsClick:
                     return API.HandleAnalyticsClick(Request);
 
@@ -5564,6 +5592,12 @@ HttpResponse ProcessRequestWithAPI(SearchAPI &API, const HttpRequest &Request)
 
                case RouteAction::GetModuleSyntax:
                     return API.HandleModuleSyntax(Request);
+
+               case RouteAction::ModuleLoad:
+                    return API.HandleModuleLoad(Request);
+
+               case RouteAction::ModuleUnload:
+                    return API.HandleModuleUnload(Request);
 
                case RouteAction::ModuleAPI:
                     return API.HandleModuleAPI(Request);
@@ -5617,10 +5651,7 @@ HttpResponse ProcessRequestWithAPI(SearchAPI &API, const HttpRequest &Request)
 
      /* Always return JSON response for API clients. */
 
-     HttpResponse ResponseVal(404, "Not Found");
-
-     ResponseVal.Headers["Content-Type"] = "application/json";
-     ResponseVal.Body = "{\"error\":\"Route not found\",\"path\":\"" + Request.Path + "\",\"method\":\"" + Request.Method + "\"}";
+     HttpResponse ResponseVal = BuildRouteNotFoundResponse(Request.Path, Request.Method);
 
      return ResponseVal;
 }

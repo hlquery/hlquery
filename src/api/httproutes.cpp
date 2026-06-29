@@ -11,23 +11,12 @@
  */
 
 #include <initializer_list>
+#include <string_view>
+#include <unordered_map>
 
 #include "api/httpserver.h"
 #include "core/hlquery.h"
 #include "utils/consolewriter.h"
-
-static bool MatchesAnyPath(const std::string &Path, std::initializer_list<const char *> Candidates)
-{
-     for (const char *Candidate : Candidates)
-     {
-          if (Path == Candidate)
-          {
-               return true;
-          }
-     }
-
-     return false;
-}
 
 static bool MatchesMethod(const std::string &Method, std::initializer_list<const char *> Candidates)
 {
@@ -40,14 +29,6 @@ static bool MatchesMethod(const std::string &Method, std::initializer_list<const
      }
 
      return false;
-}
-
-static bool ExactRoute(const std::string &Path,
-                       const std::string &Method,
-                       std::initializer_list<const char *> Paths,
-                       std::initializer_list<const char *> Methods)
-{
-     return MatchesAnyPath(Path, Paths) && MatchesMethod(Method, Methods);
 }
 
 static bool PrefixRoute(const std::string &Path,
@@ -69,9 +50,22 @@ static bool PrefixRoute(const std::string &Path,
      return MatchesMethod(Method, Methods);
 }
 
+static bool SingleChildRoute(const std::string &Path,
+                             const std::string &Method,
+                             const std::string &Prefix,
+                             std::initializer_list<const char *> Methods)
+{
+     if (!PrefixRoute(Path, Method, Prefix, Methods))
+     {
+          return false;
+     }
+
+     return Path.find('/', Prefix.size()) == std::string::npos;
+}
+
 struct CollectionRouteInfo
 {
-     std::vector<std::string> Segments;
+     std::vector<std::string_view> Segments;
      bool IsCollectionPath = false;
      bool IsCollectionRoot = false;
      bool IsCollectionLang = false;
@@ -92,9 +86,18 @@ struct CollectionRouteInfo
      bool IsStopwordsChild = false;
      bool IsOverridesRoot = false;
      bool IsOverridesChild = false;
+     bool IsCurationsRoot = false;
+     bool IsCurationsChild = false;
      bool IsVectorSearchAlias = false;
 
-     bool SegmentEquals(size_t Index, const std::string &Value) const
+     bool IsReservedDocumentOperation() const
+     {
+          return IsDocumentsSearch || IsDocumentsImport || IsDocumentsFacetCounts ||
+                 IsDocumentsExport || IsDocumentsMaybe || IsDocumentsUpdateByQuery ||
+                 IsDocumentsDeleteByQuery;
+     }
+
+     bool SegmentEquals(size_t Index, std::string_view Value) const
      {
           return Index < Segments.size() && Segments[Index] == Value;
      }
@@ -119,9 +122,9 @@ static std::string NormalizeRoutePath(const std::string &Path)
      return NormalizedPath;
 }
 
-static std::vector<std::string> SplitRouteSegments(const std::string &Path)
+static std::vector<std::string_view> SplitRouteSegments(std::string_view Path)
 {
-     std::vector<std::string> Segments;
+     std::vector<std::string_view> Segments;
 
      size_t Start = 0;
 
@@ -145,9 +148,15 @@ static std::vector<std::string> SplitRouteSegments(const std::string &Path)
      return Segments;
 }
 
-static CollectionRouteInfo BuildCollectionRouteInfo(const std::string &NormalizedPath)
+static CollectionRouteInfo BuildCollectionRouteInfo(std::string_view NormalizedPath)
 {
      CollectionRouteInfo Info;
+
+     if (NormalizedPath.rfind("/collections/", 0) != 0)
+     {
+          return Info;
+     }
+
      Info.Segments = SplitRouteSegments(NormalizedPath);
 
      Info.IsCollectionPath = Info.Segments.size() >= 2 && Info.SegmentEquals(0, "collections");
@@ -156,23 +165,130 @@ static CollectionRouteInfo BuildCollectionRouteInfo(const std::string &Normalize
      Info.IsCollectionUpdate = Info.IsCollectionPath && Info.Segments.size() == 3 && Info.SegmentEquals(2, "update");
      Info.IsDocumentsRoot = Info.IsCollectionPath && Info.Segments.size() == 3 && Info.SegmentEquals(2, "documents");
      Info.IsDocumentsChild = Info.IsCollectionPath && Info.Segments.size() >= 4 && Info.SegmentEquals(2, "documents");
-     Info.IsDocumentsSearch = Info.IsDocumentsChild && Info.SegmentEquals(3, "search");
-     Info.IsDocumentsImport = Info.IsDocumentsChild && Info.SegmentEquals(3, "import");
-     Info.IsDocumentsFacetCounts = Info.IsDocumentsChild && Info.SegmentEquals(3, "facet_counts");
-     Info.IsDocumentsExport = Info.IsDocumentsChild && Info.SegmentEquals(3, "export");
-     Info.IsDocumentsMaybe = Info.IsDocumentsChild && Info.SegmentEquals(3, "maybe");
+     Info.IsDocumentsSearch = Info.IsDocumentsChild && Info.Segments.size() == 4 && Info.SegmentEquals(3, "search");
+     Info.IsDocumentsImport = Info.IsDocumentsChild && Info.Segments.size() == 4 && Info.SegmentEquals(3, "import");
+     Info.IsDocumentsFacetCounts = Info.IsDocumentsChild && Info.Segments.size() == 4 && Info.SegmentEquals(3, "facet_counts");
+     Info.IsDocumentsExport = Info.IsDocumentsChild && Info.Segments.size() == 4 && Info.SegmentEquals(3, "export");
+     Info.IsDocumentsMaybe = Info.IsDocumentsChild && Info.Segments.size() == 4 && Info.SegmentEquals(3, "maybe");
      Info.IsDocumentContext = Info.IsCollectionPath && Info.Segments.size() == 5 && Info.SegmentEquals(2, "documents") && Info.SegmentEquals(4, "context");
-     Info.IsDocumentsUpdateByQuery = Info.IsDocumentsChild && Info.SegmentEquals(3, "_update_by_query");
-     Info.IsDocumentsDeleteByQuery = Info.IsDocumentsChild && Info.SegmentEquals(3, "_delete_by_query");
+     Info.IsDocumentsUpdateByQuery = Info.IsDocumentsChild && Info.Segments.size() == 4 && Info.SegmentEquals(3, "_update_by_query");
+     Info.IsDocumentsDeleteByQuery = Info.IsDocumentsChild && Info.Segments.size() == 4 && Info.SegmentEquals(3, "_delete_by_query");
      Info.IsSynonymsRoot = Info.IsCollectionPath && Info.Segments.size() == 3 && Info.SegmentEquals(2, "synonyms");
      Info.IsSynonymsChild = Info.IsCollectionPath && Info.Segments.size() >= 4 && Info.SegmentEquals(2, "synonyms");
      Info.IsStopwordsRoot = Info.IsCollectionPath && Info.Segments.size() == 3 && Info.SegmentEquals(2, "stopwords");
      Info.IsStopwordsChild = Info.IsCollectionPath && Info.Segments.size() >= 4 && Info.SegmentEquals(2, "stopwords");
      Info.IsOverridesRoot = Info.IsCollectionPath && Info.Segments.size() == 3 && Info.SegmentEquals(2, "overrides");
      Info.IsOverridesChild = Info.IsCollectionPath && Info.Segments.size() >= 4 && Info.SegmentEquals(2, "overrides");
+     Info.IsCurationsRoot = Info.IsCollectionPath && Info.Segments.size() == 3 && (Info.SegmentEquals(2, "curations") || Info.SegmentEquals(2, "curation_sets"));
+     Info.IsCurationsChild = Info.IsCollectionPath && Info.Segments.size() >= 4 && (Info.SegmentEquals(2, "curations") || Info.SegmentEquals(2, "curation_sets"));
      Info.IsVectorSearchAlias = Info.IsCollectionPath && Info.Segments.size() == 3 && Info.SegmentEquals(2, "search");
 
      return Info;
+}
+
+static const std::unordered_map<std::string_view, RouteAction> &GetExactGetRoutes()
+{
+     static const std::unordered_map<std::string_view, RouteAction> Routes = {
+          {"/", RouteAction::Status},
+          {"/admin/storage_status", RouteAction::StorageStatus},
+          {"/aliases", RouteAction::ListAliases},
+          {"/boot-status", RouteAction::Startup},
+          {"/cache", RouteAction::Cache},
+          {"/collections", RouteAction::ListCollections},
+          {"/collections/distributed", RouteAction::ListCollectionsDistributed},
+          {"/connections", RouteAction::Connections},
+          {"/consistency", RouteAction::Integrity},
+          {"/debug/counters", RouteAction::DebugCounters},
+          {"/doctotal", RouteAction::DocTotal},
+          {"/etc", RouteAction::Etc},
+          {"/health", RouteAction::Health},
+          {"/integrity", RouteAction::Integrity},
+          {"/keys", RouteAction::ListKeys},
+          {"/links", RouteAction::LinksList},
+          {"/links/ping", RouteAction::LinksPing},
+          {"/metrics", RouteAction::Metrics},
+          {"/metrics-history", RouteAction::MetricsHistory},
+          {"/metrics.json", RouteAction::Metrics},
+          {"/metrics/history", RouteAction::MetricsHistory},
+          {"/modules", RouteAction::ListModules},
+          {"/multi_search", RouteAction::MultiSearch},
+          {"/ping", RouteAction::Ping},
+          {"/presets", RouteAction::ListPresets},
+          {"/query", RouteAction::Status},
+          {"/ready", RouteAction::Ready},
+          {"/repair", RouteAction::Repair},
+          {"/rocksdb", RouteAction::RocksDB},
+          {"/search", RouteAction::GlobalSearch},
+          {"/search-config", RouteAction::SearchConfig},
+          {"/self-check", RouteAction::SelfCheck},
+          {"/sql", RouteAction::DocumentSearch},
+          {"/startup", RouteAction::Startup},
+          {"/stats", RouteAction::Stats},
+          {"/status", RouteAction::Status},
+          {"/stopwords", RouteAction::ListAllStopwords},
+          {"/stopwords/global", RouteAction::ListGlobalStopwords},
+          {"/stopword_sets", RouteAction::ListAllStopwords},
+          {"/stopword_sets/global", RouteAction::ListGlobalStopwords},
+          {"/synonyms", RouteAction::ListAllSynonyms},
+          {"/synonyms/global", RouteAction::ListGlobalSynonyms},
+          {"/synonym_sets", RouteAction::ListAllSynonyms},
+          {"/synonym_sets/global", RouteAction::ListGlobalSynonyms},
+          {"/update-counters", RouteAction::UpdateCounters},
+          {"/users", RouteAction::ListUsers},
+          {"/_rocksdb", RouteAction::RocksDB},
+     };
+
+     return Routes;
+}
+
+static const std::unordered_map<std::string_view, RouteAction> &GetExactPostRoutes()
+{
+     static const std::unordered_map<std::string_view, RouteAction> Routes = {
+          {"/analytics/click", RouteAction::AnalyticsClick},
+          {"/collections", RouteAction::CreateCollection},
+          {"/flush", RouteAction::Flush},
+          {"/keys", RouteAction::CreateKey},
+          {"/links/connect", RouteAction::LinksConnect},
+          {"/links/disconnect", RouteAction::LinksDisconnect},
+          {"/loadmodule", RouteAction::ModuleLoad},
+          {"/multi_search", RouteAction::MultiSearch},
+          {"/repair", RouteAction::Repair},
+          {"/search", RouteAction::GlobalSearch},
+          {"/sql", RouteAction::DocumentSearch},
+          {"/stopword_sets/global", RouteAction::CreateGlobalStopword},
+          {"/stopwords/global", RouteAction::CreateGlobalStopword},
+          {"/unloadmodule", RouteAction::ModuleUnload},
+          {"/update-counters", RouteAction::UpdateCounters},
+          {"/users", RouteAction::CreateUser},
+     };
+
+     return Routes;
+}
+
+static RouteAction ResolveExactRoute(std::string_view Path, const std::string &Method)
+{
+     const std::unordered_map<std::string_view, RouteAction> *Routes = nullptr;
+
+     if (Method == "GET")
+     {
+          Routes = &GetExactGetRoutes();
+     }
+     else if (Method == "POST")
+     {
+          Routes = &GetExactPostRoutes();
+     }
+     else
+     {
+          return RouteAction::NotFound;
+     }
+
+     const auto RouteIt = Routes->find(Path);
+     if (RouteIt == Routes->end())
+     {
+          return RouteAction::NotFound;
+     }
+
+     return RouteIt->second;
 }
 
 RouteAction ResolveHttpRoute(const HttpRequest &Request)
@@ -185,329 +301,119 @@ RouteAction ResolveHttpRoute(const HttpRequest &Request)
      try
      {
           const std::string NormalizedPath = NormalizeRoutePath(Request.Path);
-
-          if ((NormalizedPath == "/etc" || Request.Path == "/etc") && Request.Method == "GET")
-          {
-               if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
-               {
-                    Instance->Logs->Debug("http_routes", "MATCHED /etc route - returning protocol codes.");
-               }
-
-               return RouteAction::Etc;
-          }
-
-          if ((NormalizedPath == "/flush" || Request.Path == "/flush") && Request.Method == "POST")
-          {
-               if (Instance && Instance->Logs)
-               {
-                    Instance->Logs->Normal("http_routes", "MATCHED /flush route EARLY - normalized_path='" + NormalizedPath + "' path='" + Request.Path + "' method='" + Request.Method + "'.");
-               }
-
-               return RouteAction::Flush;
-          }
-
-          if (NormalizedPath == "/sam/rebuild" && Request.Method == "POST")
-          {
-               return RouteAction::SamRebuild;
-          }
-
-          if (NormalizedPath == "/sam/search" && Request.Method == "GET")
-          {
-               return RouteAction::SamSearch;
-          }
-
-          if (NormalizedPath == "/sam/status" && Request.Method == "GET")
-          {
-               return RouteAction::SamStatus;
-          }
-
-          if (NormalizedPath == "/sam/debug" && Request.Method == "GET")
-          {
-               return RouteAction::SamDebug;
-          }
-
-          if (NormalizedPath == "/sam/history" && Request.Method == "GET")
-          {
-               return RouteAction::SamHistory;
-          }
-
-          if (NormalizedPath == "/sam/pause" && Request.Method == "POST")
-          {
-               return RouteAction::SamPause;
-          }
-
-          if (NormalizedPath == "/sam/improve" && Request.Method == "POST")
-          {
-               return RouteAction::SamImprove;
-          }
-
-          if (NormalizedPath == "/sam/flush_actor_metadata" && Request.Method == "POST")
-          {
-               return RouteAction::SamFlushActorMetadata;
-          }
-
-          if (NormalizedPath == "/sam/documents" && Request.Method == "GET")
-          {
-               return RouteAction::SamListDocuments;
-          }
-
-          if (NormalizedPath.rfind("/sam/label/add/", 0) == 0 &&
-              NormalizedPath.size() > std::string("/sam/label/add/").size() &&
-              Request.Method == "POST")
-          {
-               return RouteAction::SamAddDocumentLabel;
-          }
-
-          if (NormalizedPath.rfind("/sam/documents/", 0) == 0 &&
-              NormalizedPath.size() > std::string("/sam/documents/").size() &&
-              Request.Method == "GET")
-          {
-               return RouteAction::SamGetDocument;
-          }
-
-          const CollectionRouteInfo RouteInfo = BuildCollectionRouteInfo(NormalizedPath);
-
           const std::string &Method = Request.Method;
-
           const std::string &Path = NormalizedPath;
 
-          if (ExactRoute(Path, Method, {"/status", "/query"}, {"GET"}))
+          const RouteAction ExactAction = ResolveExactRoute(Path, Method);
+          if (ExactAction != RouteAction::NotFound)
           {
-               return RouteAction::Status;
+               return ExactAction;
           }
 
-          if (ExactRoute(Path, Method, {"/sql"}, {"GET", "POST"}))
+          if (PrefixRoute(Path, Method, "/loadmodule/", {"POST"}))
           {
-               return RouteAction::DocumentSearch;
+               return RouteAction::ModuleLoad;
           }
 
-          if (ExactRoute(Path, Method, {"/search-config"}, {"GET"}))
+          if (PrefixRoute(Path, Method, "/unloadmodule/", {"POST"}))
           {
-               return RouteAction::SearchConfig;
+               return RouteAction::ModuleUnload;
           }
 
-          if (ExactRoute(Path, Method, {"/links"}, {"GET"}))
-          {
-               return RouteAction::LinksList;
-          }
-
-          if (ExactRoute(Path, Method, {"/links/ping"}, {"GET"}))
-          {
-               return RouteAction::LinksPing;
-          }
-
-          if (ExactRoute(Path, Method, {"/links/connect"}, {"POST"}))
-          {
-               return RouteAction::LinksConnect;
-          }
-
-          if (ExactRoute(Path, Method, {"/links/disconnect"}, {"POST"}))
-          {
-               return RouteAction::LinksDisconnect;
-          }
-
-          if (ExactRoute(Path, Method, {"/analytics/click"}, {"POST"}))
-          {
-               return RouteAction::AnalyticsClick;
-          }
-
-          if (ExactRoute(Path, Method, {"/modules"}, {"GET"}))
-          {
-               return RouteAction::ListModules;
-          }
-
-          if (ExactRoute(Path, Method, {"/loadmodule", "/unloadmodule"}, {"POST"}))
-          {
-               return RouteAction::ModuleAPI;
-          }
-
-          if (PrefixRoute(Path, Method, "/loadmodule/", {"POST"}) ||
-              PrefixRoute(Path, Method, "/unloadmodule/", {"POST"}))
-          {
-               return RouteAction::ModuleAPI;
-          }
-
-          if (PrefixRoute(Path, Method, "/modules/", {"GET", "POST", "PUT", "DELETE"}))
+          if (PrefixRoute(Path, Method, "/modules/", {"GET", "POST", "PUT", "DELETE", "PATCH"}))
           {
                if (Path.rfind("/syntax") == Path.size() - 7 && Method == "GET")
                {
                     return RouteAction::GetModuleSyntax;
                }
 
+               if (PrefixRoute(Path, Method, "/modules/load/", {"POST"}))
+               {
+                    return RouteAction::ModuleLoad;
+               }
+
+               if (PrefixRoute(Path, Method, "/modules/unload/", {"POST"}))
+               {
+                    return RouteAction::ModuleUnload;
+               }
+
                return RouteAction::ModuleAPI;
           }
 
-          if (ExactRoute(Path, Method, {"/startup", "/boot-status"}, {"GET"}))
-          {
-               return RouteAction::Startup;
-          }
-
-          if (ExactRoute(Path, Method, {"/llm"}, {"GET"}))
-          {
-               return RouteAction::LLM;
-          }
-
-          if (ExactRoute(Path, Method, {"/integrity", "/consistency"}, {"GET"}))
-          {
-               return RouteAction::Integrity;
-          }
-
-          if (ExactRoute(Path, Method, {"/self-check"}, {"GET"}))
-          {
-               return RouteAction::SelfCheck;
-          }
-
-          if (ExactRoute(Path, Method, {"/admin/storage_status"}, {"GET"}))
-          {
-               return RouteAction::StorageStatus;
-          }
-
-          if (ExactRoute(Path, Method, {"/synonyms/global"}, {"GET"}))
-          {
-               return RouteAction::ListGlobalSynonyms;
-          }
-
-          if (PrefixRoute(Path, Method, "/synonyms/global/", {"POST", "PUT"}))
+          if (SingleChildRoute(Path, Method, "/synonyms/global/", {"POST", "PUT"}))
           {
                return RouteAction::UpsertGlobalSynonym;
           }
 
-          if (PrefixRoute(Path, Method, "/synonyms/global/", {"GET"}))
+          if (SingleChildRoute(Path, Method, "/synonym_sets/global/", {"POST", "PUT"}))
+          {
+               return RouteAction::UpsertGlobalSynonym;
+          }
+
+          if (PrefixRoute(Path, Method, "/synonym_sets/global/items/", {"POST", "PUT"}) &&
+              SplitRouteSegments(Path).size() == 4)
+          {
+               return RouteAction::UpsertGlobalSynonym;
+          }
+
+          if (SingleChildRoute(Path, Method, "/synonyms/global/", {"GET"}))
           {
                return RouteAction::GetGlobalSynonym;
           }
 
-          if (PrefixRoute(Path, Method, "/synonyms/global/", {"DELETE"}))
+          if (SingleChildRoute(Path, Method, "/synonym_sets/global/", {"GET"}))
+          {
+               return RouteAction::GetGlobalSynonym;
+          }
+
+          if (PrefixRoute(Path, Method, "/synonym_sets/global/items/", {"GET"}) &&
+              SplitRouteSegments(Path).size() == 4)
+          {
+               return RouteAction::GetGlobalSynonym;
+          }
+
+          if (SingleChildRoute(Path, Method, "/synonyms/global/", {"DELETE"}))
           {
                return RouteAction::DeleteGlobalSynonym;
           }
 
-          if (ExactRoute(Path, Method, {"/synonyms"}, {"GET"}))
+          if (SingleChildRoute(Path, Method, "/synonym_sets/global/", {"DELETE"}))
           {
-               return RouteAction::ListAllSynonyms;
+               return RouteAction::DeleteGlobalSynonym;
           }
 
-          if (NormalizedPath == "/health")
+          if (PrefixRoute(Path, Method, "/synonym_sets/global/items/", {"DELETE"}) &&
+              SplitRouteSegments(Path).size() == 4)
           {
-               return RouteAction::Health;
+               return RouteAction::DeleteGlobalSynonym;
           }
 
-          if (NormalizedPath == "/ready" && Method == "GET")
-          {
-               return RouteAction::Ready;
-          }
-
-          if (NormalizedPath == "/ping" && Method == "GET")
-          {
-               if (Instance && Instance->Logs)
-               {
-                    Instance->Logs->Normal("http_routes", "MATCHED /ping route - normalized_path='" + NormalizedPath + "' method='" + Method + "' path='" + Request.Path + "'.");
-               }
-
-               return RouteAction::Ping;
-          }
-
-          if (ExactRoute(Path, Method, {"/rocksdb", "/_rocksdb"}, {"GET"}))
-          {
-               if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
-               {
-                    Instance->Logs->Debug("http_routes", "MATCHED RocksDB route! normalized_path=" + NormalizedPath + ".");
-               }
-
-               return RouteAction::RocksDB;
-          }
-
-          if (ExactRoute(Path, Method, {"/stats"}, {"GET"}))
-          {
-               return RouteAction::Stats;
-          }
-
-          if (ExactRoute(Path, Method, {"/metrics", "/metrics.json"}, {"GET"}))
-          {
-               return RouteAction::Metrics;
-          }
-
-          if (ExactRoute(Path, Method, {"/metrics/history", "/metrics-history"}, {"GET"}))
-          {
-               return RouteAction::MetricsHistory;
-          }
-
-          if (ExactRoute(Path, Method, {"/connections"}, {"GET"}))
-          {
-               return RouteAction::Connections;
-          }
-
-          if (ExactRoute(Path, Method, {"/doctotal"}, {"GET"}))
-          {
-               return RouteAction::DocTotal;
-          }
-
-          if (NormalizedPath == "/flush" && Method == "POST")
-          {
-               if (Instance && Instance->Logs)
-               {
-                    Instance->Logs->Normal("http_routes", "MATCHED /flush route - normalized_path='" + NormalizedPath + "' path='" + Path + "' method='" + Method + "'.");
-               }
-
-               return RouteAction::Flush;
-          }
-
-          if (ExactRoute(Path, Method, {"/update-counters"}, {"GET", "POST"}))
-          {
-               return RouteAction::UpdateCounters;
-          }
-
-          if (ExactRoute(Path, Method, {"/debug/counters"}, {"GET"}))
-          {
-               return RouteAction::DebugCounters;
-          }
-
-          if (ExactRoute(Path, Method, {"/repair"}, {"GET", "POST"}))
-          {
-               return RouteAction::Repair;
-          }
-
-          if (ExactRoute(Path, Method, {"/stopwords"}, {"GET"}))
-          {
-               return RouteAction::ListAllStopwords;
-          }
-
-          if (ExactRoute(Path, Method, {"/stopwords/global"}, {"GET"}))
-          {
-               return RouteAction::ListGlobalStopwords;
-          }
-
-          if (ExactRoute(Path, Method, {"/stopwords/global"}, {"POST"}))
-          {
-               return RouteAction::CreateGlobalStopword;
-          }
-
-          if (PrefixRoute(Path, Method, "/stopwords/global/", {"DELETE"}))
+          if (SingleChildRoute(Path, Method, "/stopwords/global/", {"DELETE"}))
           {
                return RouteAction::DeleteGlobalStopword;
           }
 
-          if (ExactRoute(Path, Method, {"/collections/distributed"}, {"GET"}))
+          if (SingleChildRoute(Path, Method, "/stopword_sets/global/", {"DELETE"}))
           {
-               return RouteAction::ListCollectionsDistributed;
+               return RouteAction::DeleteGlobalStopword;
           }
 
-          if (ExactRoute(Path, Method, {"/collections"}, {"GET"}))
+          if (PrefixRoute(Path, Method, "/stopword_sets/global/items/", {"DELETE"}) &&
+              SplitRouteSegments(Path).size() == 4)
           {
-               return RouteAction::ListCollections;
+               return RouteAction::DeleteGlobalStopword;
           }
 
-          if (ExactRoute(Path, Method, {"/collections"}, {"POST"}))
-          {
-               return RouteAction::CreateCollection;
-          }
+          const CollectionRouteInfo RouteInfo = BuildCollectionRouteInfo(NormalizedPath);
 
           if (RouteInfo.IsCollectionPath && RouteInfo.Segments.size() == 3 && RouteInfo.SegmentEquals(2, "aliases") && Method == "GET")
           {
                return RouteAction::ListAliases;
           }
 
-          if (RouteInfo.IsCollectionPath && (RouteInfo.SegmentEquals(2, "vector_search") || RouteInfo.IsVectorSearchAlias) && (Method == "GET" || Method == "POST"))
+          if (RouteInfo.IsCollectionPath && RouteInfo.Segments.size() == 3 &&
+              (RouteInfo.SegmentEquals(2, "vector_search") || RouteInfo.IsVectorSearchAlias) &&
+              (Method == "GET" || Method == "POST"))
           {
                return RouteAction::VectorSearch;
           }
@@ -567,7 +473,8 @@ RouteAction ResolveHttpRoute(const HttpRequest &Request)
                return RouteAction::GetDocumentContext;
           }
 
-          if (RouteInfo.IsDocumentsChild && RouteInfo.Segments.size() == 4 && !RouteInfo.IsDocumentsSearch && !RouteInfo.IsDocumentsMaybe && Method == "GET")
+          if (RouteInfo.IsDocumentsChild && RouteInfo.Segments.size() == 4 &&
+              !RouteInfo.IsReservedDocumentOperation() && Method == "GET")
           {
                return RouteAction::GetDocument;
           }
@@ -582,12 +489,14 @@ RouteAction ResolveHttpRoute(const HttpRequest &Request)
                return RouteAction::AddDocument;
           }
 
-          if (RouteInfo.IsDocumentsChild && RouteInfo.Segments.size() == 4 && !RouteInfo.IsDocumentsSearch && !RouteInfo.IsDocumentsMaybe && Method == "PUT")
+          if (RouteInfo.IsDocumentsChild && RouteInfo.Segments.size() == 4 &&
+              !RouteInfo.IsReservedDocumentOperation() && Method == "PUT")
           {
                return RouteAction::UpdateDocument;
           }
 
-          if (RouteInfo.IsDocumentsChild && RouteInfo.Segments.size() == 4 && !RouteInfo.IsDocumentsSearch && !RouteInfo.IsDocumentsMaybe && Method == "DELETE")
+          if (RouteInfo.IsDocumentsChild && RouteInfo.Segments.size() == 4 &&
+              !RouteInfo.IsReservedDocumentOperation() && Method == "DELETE")
           {
                return RouteAction::DeleteDocument;
           }
@@ -622,26 +531,6 @@ RouteAction ResolveHttpRoute(const HttpRequest &Request)
                return RouteAction::MaybeSuggest;
           }
 
-          if (RouteInfo.IsSynonymsRoot && Method == "GET")
-          {
-               return RouteAction::ListSynonyms;
-          }
-
-          if (RouteInfo.IsSynonymsChild && RouteInfo.Segments.size() == 4 && (Method == "POST" || Method == "PUT"))
-          {
-               return RouteAction::UpsertSynonym;
-          }
-
-          if (RouteInfo.IsSynonymsChild && RouteInfo.Segments.size() == 4 && Method == "GET")
-          {
-               return RouteAction::GetSynonym;
-          }
-
-          if (RouteInfo.IsSynonymsChild && RouteInfo.Segments.size() == 4 && Method == "DELETE")
-          {
-               return RouteAction::DeleteSynonym;
-          }
-
           if (RouteInfo.IsStopwordsRoot && Method == "GET")
           {
                return RouteAction::ListStopwords;
@@ -657,109 +546,84 @@ RouteAction ResolveHttpRoute(const HttpRequest &Request)
                return RouteAction::DeleteStopword;
           }
 
-          if (RouteInfo.IsOverridesRoot && Method == "GET")
+          if ((RouteInfo.IsOverridesRoot || RouteInfo.IsCurationsRoot) && Method == "GET")
           {
                return RouteAction::ListOverrides;
           }
 
-          if (RouteInfo.IsOverridesChild && RouteInfo.Segments.size() == 4 && (Method == "POST" || Method == "PUT"))
+          if ((RouteInfo.IsOverridesChild || RouteInfo.IsCurationsChild) && RouteInfo.Segments.size() == 4 && (Method == "POST" || Method == "PUT"))
           {
                return RouteAction::UpsertOverride;
           }
 
-          if (RouteInfo.IsOverridesChild && RouteInfo.Segments.size() == 4 && Method == "GET")
+          if ((RouteInfo.IsOverridesChild || RouteInfo.IsCurationsChild) && RouteInfo.Segments.size() == 4 && Method == "GET")
           {
                return RouteAction::GetOverride;
           }
 
-          if (RouteInfo.IsOverridesChild && RouteInfo.Segments.size() == 4 && Method == "DELETE")
+          if ((RouteInfo.IsOverridesChild || RouteInfo.IsCurationsChild) && RouteInfo.Segments.size() == 4 && Method == "DELETE")
           {
                return RouteAction::DeleteOverride;
           }
 
-          if (ExactRoute(Path, Method, {"/aliases"}, {"GET"}))
-          {
-               return RouteAction::ListAliases;
-          }
-
-          if (PrefixRoute(Path, Method, "/aliases/", {"POST", "PUT"}))
+          if (SingleChildRoute(Path, Method, "/aliases/", {"POST", "PUT"}))
           {
                return RouteAction::UpsertAlias;
           }
 
-          if (PrefixRoute(Path, Method, "/aliases/", {"GET"}))
+          if (SingleChildRoute(Path, Method, "/aliases/", {"GET"}))
           {
                return RouteAction::GetAlias;
           }
 
-          if (PrefixRoute(Path, Method, "/aliases/", {"DELETE"}))
+          if (SingleChildRoute(Path, Method, "/aliases/", {"DELETE"}))
           {
                return RouteAction::DeleteAlias;
           }
 
-          if (ExactRoute(Path, Method, {"/multi_search"}, {"GET", "POST"}))
-          {
-               return RouteAction::MultiSearch;
-          }
-
-          if (ExactRoute(Path, Method, {"/search"}, {"GET", "POST"}))
-          {
-               return RouteAction::GlobalSearch;
-          }
-
-          if (ExactRoute(Path, Method, {"/users"}, {"GET"}))
-          {
-               return RouteAction::ListUsers;
-          }
-
-          if (ExactRoute(Path, Method, {"/users"}, {"POST"}))
-          {
-               return RouteAction::CreateUser;
-          }
-
-          if (PrefixRoute(Path, Method, "/users/", {"GET"}))
+          if (SingleChildRoute(Path, Method, "/users/", {"GET"}))
           {
                return RouteAction::GetUser;
           }
 
-          if (PrefixRoute(Path, Method, "/users/", {"DELETE"}))
+          if (SingleChildRoute(Path, Method, "/users/", {"DELETE"}))
           {
                return RouteAction::DeleteUser;
           }
 
-          if (PrefixRoute(Path, Method, "/users/", {"PUT"}))
+          if (SingleChildRoute(Path, Method, "/users/", {"PUT"}))
           {
                return RouteAction::UpdateUser;
           }
 
-          if (ExactRoute(Path, Method, {"/keys"}, {"GET"}))
-          {
-               return RouteAction::ListKeys;
-          }
-
-          if (ExactRoute(Path, Method, {"/keys"}, {"POST"}))
-          {
-               return RouteAction::CreateKey;
-          }
-
-          if (PrefixRoute(Path, Method, "/keys/", {"GET"}))
+          if (SingleChildRoute(Path, Method, "/keys/", {"GET"}))
           {
                return RouteAction::GetKey;
           }
 
-          if (PrefixRoute(Path, Method, "/keys/", {"DELETE"}))
+          if (SingleChildRoute(Path, Method, "/keys/", {"DELETE"}))
           {
                return RouteAction::DeleteKey;
           }
 
-          if (PrefixRoute(Path, Method, "/keys/", {"PUT"}))
+          if (SingleChildRoute(Path, Method, "/keys/", {"PUT"}))
           {
                return RouteAction::UpdateKey;
           }
 
-          if (ExactRoute(Path, Method, {"/"}, {"GET"}))
+          if (SingleChildRoute(Path, Method, "/presets/", {"POST", "PUT"}))
           {
-               return RouteAction::Status;
+               return RouteAction::UpsertPreset;
+          }
+
+          if (SingleChildRoute(Path, Method, "/presets/", {"GET"}))
+          {
+               return RouteAction::GetPreset;
+          }
+
+          if (SingleChildRoute(Path, Method, "/presets/", {"DELETE"}))
+          {
+               return RouteAction::DeletePreset;
           }
 
           if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
@@ -809,6 +673,8 @@ const char *RouteActionName(RouteAction ActionVal)
                return "Metrics";
           case RouteAction::MetricsHistory:
                return "MetricsHistory";
+          case RouteAction::Cache:
+               return "Cache";
           case RouteAction::Connections:
                return "Connections";
           case RouteAction::RocksDB:
@@ -825,8 +691,6 @@ const char *RouteActionName(RouteAction ActionVal)
                return "Repair";
           case RouteAction::Startup:
                return "Startup";
-          case RouteAction::LLM:
-               return "LLM";
           case RouteAction::Integrity:
                return "Integrity";
           case RouteAction::SelfCheck:
@@ -865,28 +729,6 @@ const char *RouteActionName(RouteAction ActionVal)
                return "GetDocument";
           case RouteAction::GetDocumentContext:
                return "GetDocumentContext";
-          case RouteAction::SamRebuild:
-               return "SamRebuild";
-          case RouteAction::SamSearch:
-               return "SamSearch";
-          case RouteAction::SamStatus:
-               return "SamStatus";
-          case RouteAction::SamDebug:
-               return "SamDebug";
-          case RouteAction::SamHistory:
-               return "SamHistory";
-          case RouteAction::SamPause:
-               return "SamPause";
-          case RouteAction::SamImprove:
-               return "SamImprove";
-          case RouteAction::SamFlushActorMetadata:
-               return "SamFlushActorMetadata";
-          case RouteAction::SamListDocuments:
-               return "SamListDocuments";
-          case RouteAction::SamGetDocument:
-               return "SamGetDocument";
-          case RouteAction::SamAddDocumentLabel:
-               return "SamAddDocumentLabel";
           case RouteAction::AddDocument:
                return "AddDocument";
           case RouteAction::BulkImportDocuments:
@@ -983,12 +825,24 @@ const char *RouteActionName(RouteAction ActionVal)
                return "UpdateKey";
           case RouteAction::DeleteKey:
                return "DeleteKey";
+          case RouteAction::ListPresets:
+               return "ListPresets";
+          case RouteAction::UpsertPreset:
+               return "UpsertPreset";
+          case RouteAction::GetPreset:
+               return "GetPreset";
+          case RouteAction::DeletePreset:
+               return "DeletePreset";
           case RouteAction::AnalyticsClick:
                return "AnalyticsClick";
           case RouteAction::ListModules:
                return "ListModules";
           case RouteAction::GetModuleSyntax:
                return "GetModuleSyntax";
+          case RouteAction::ModuleLoad:
+               return "ModuleLoad";
+          case RouteAction::ModuleUnload:
+               return "ModuleUnload";
           case RouteAction::ModuleAPI:
                return "ModuleAPI";
           case RouteAction::NotFound:

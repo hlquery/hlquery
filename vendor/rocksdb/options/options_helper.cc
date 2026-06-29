@@ -75,6 +75,7 @@ void BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
   options.track_and_verify_wals = immutable_db_options.track_and_verify_wals;
   options.verify_sst_unique_id_in_manifest =
       immutable_db_options.verify_sst_unique_id_in_manifest;
+  options.fast_sst_open = mutable_db_options.fast_sst_open;
   options.env = immutable_db_options.env;
   options.rate_limiter = immutable_db_options.rate_limiter;
   options.sst_file_manager = immutable_db_options.sst_file_manager;
@@ -100,6 +101,7 @@ void BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
   options.log_file_time_to_roll = immutable_db_options.log_file_time_to_roll;
   options.keep_log_file_num = immutable_db_options.keep_log_file_num;
   options.recycle_log_file_num = immutable_db_options.recycle_log_file_num;
+  options.async_wal_precreate = immutable_db_options.async_wal_precreate;
   options.max_manifest_file_size = mutable_db_options.max_manifest_file_size;
   options.max_manifest_space_amp_pct =
       mutable_db_options.max_manifest_space_amp_pct;
@@ -172,6 +174,7 @@ void BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
       immutable_db_options.avoid_unnecessary_blocking_io;
   options.write_dbid_to_manifest = immutable_db_options.write_dbid_to_manifest;
   options.write_identity_file = immutable_db_options.write_identity_file;
+  options.reuse_manifest_on_open = immutable_db_options.reuse_manifest_on_open;
   options.prefix_seek_opt_in_only =
       immutable_db_options.prefix_seek_opt_in_only;
   options.log_readahead_size = immutable_db_options.log_readahead_size;
@@ -191,6 +194,8 @@ void BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
       immutable_db_options.enforce_single_del_contracts;
   options.verify_manifest_content_on_close =
       mutable_db_options.verify_manifest_content_on_close;
+  options.optimize_manifest_for_recovery =
+      mutable_db_options.optimize_manifest_for_recovery;
   options.daily_offpeak_time_utc = mutable_db_options.daily_offpeak_time_utc;
   options.max_compaction_trigger_wakeup_seconds =
       mutable_db_options.max_compaction_trigger_wakeup_seconds;
@@ -288,6 +293,7 @@ void UpdateColumnFamilyOptions(const MutableCFOptions& moptions,
   cf_opts->min_blob_size = moptions.min_blob_size;
   cf_opts->blob_file_size = moptions.blob_file_size;
   cf_opts->blob_compression_type = moptions.blob_compression_type;
+  cf_opts->blob_compression_opts = moptions.blob_compression_opts;
   cf_opts->enable_blob_garbage_collection =
       moptions.enable_blob_garbage_collection;
   cf_opts->blob_garbage_collection_age_cutoff =
@@ -319,6 +325,8 @@ void UpdateColumnFamilyOptions(const MutableCFOptions& moptions,
       moptions.memtable_op_scan_flush_trigger;
   cf_opts->memtable_avg_op_scan_flush_trigger =
       moptions.memtable_avg_op_scan_flush_trigger;
+  cf_opts->min_tombstones_for_range_conversion =
+      moptions.min_tombstones_for_range_conversion;
 }
 
 void UpdateColumnFamilyOptions(const ImmutableCFOptions& ioptions,
@@ -351,6 +359,10 @@ void UpdateColumnFamilyOptions(const ImmutableCFOptions& ioptions,
   cf_opts->compaction_thread_limiter = ioptions.compaction_thread_limiter;
   cf_opts->sst_partitioner_factory = ioptions.sst_partitioner_factory;
   cf_opts->blob_cache = ioptions.blob_cache;
+  cf_opts->enable_blob_direct_write = ioptions.enable_blob_direct_write;
+  cf_opts->blob_direct_write_partitions = ioptions.blob_direct_write_partitions;
+  cf_opts->blob_direct_write_partition_strategy =
+      ioptions.blob_direct_write_partition_strategy;
   cf_opts->persist_user_defined_timestamps =
       ioptions.persist_user_defined_timestamps;
   cf_opts->default_temperature = ioptions.default_temperature;

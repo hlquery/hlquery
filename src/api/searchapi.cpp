@@ -43,7 +43,6 @@
 #include "runtime/threadlimit.h"
 #include "search/rfusion.h"
 #include "search/cstore.h"
-#include "sam/sam.h"
 #include "search/storageengine.h"
 #include "search/lindex.h"
 #include "utils/consolewriter.h"
@@ -51,8 +50,6 @@
 #include "utils/wildcard.h"
 #include "vendor/json/json.hpp"
 
-namespace
-{
 static constexpr const char *kReplicationOutboxPrefix = "replication_outbox:";
 static constexpr const char *kReplicationAppliedPrefix = "replication_applied:";
 static constexpr const char *kReplicationResyncStateKey = "replication_resync:active";
@@ -422,67 +419,6 @@ static void ClearReplicationResyncCollections(const std::string &SessionID)
      (void)Instance->Database->Del(BuildReplicationResyncCollectionsKey(SessionID));
 }
 
-static void QueueSAMResyncReconciliation(const std::vector<std::string> &Collections,
-                                         const std::string &SessionID)
-{
-     if (!Instance || !Instance->Sam || !Instance->Sam->IsOpen())
-     {
-          return;
-     }
-
-     for (const auto &Collection : Collections)
-     {
-          if (Collection.empty() || !HybridStorageManagerInstance().CollectionExists(Collection))
-          {
-               continue;
-          }
-
-          bool AlreadyRunning = false;
-          std::string ErrorMessage;
-
-          if (!Instance->Sam->StartRecreateCollectionAsync(Collection, &AlreadyRunning, &ErrorMessage))
-          {
-               if (Instance->Logs && !ErrorMessage.empty())
-               {
-                    Instance->Logs->Normal("sam",
-                                           "Failed to queue SAM replication reconciliation for collection '" +
-                                                Collection + "' after resync session '" + SessionID +
-                                                "': " + ErrorMessage + ".");
-               }
-
-               continue;
-          }
-
-          if (Instance->Logs)
-          {
-               Instance->Logs->Debug("sam",
-                                     AlreadyRunning
-                                          ? "SAM replication reconciliation already running for collection '" +
-                                               Collection + "' after resync session '" + SessionID + "'."
-                                          : "Queued SAM replication reconciliation for collection '" +
-                                               Collection + "' after resync session '" + SessionID + "'.");
-          }
-     }
-}
-
-static const char *kSAMGlobalLexicalScope = "__global__";
-
-static std::vector<std::string> BuildSAMLexicalSyncTargets(const std::string &Collection,
-                                                           bool GlobalScope)
-{
-     if (GlobalScope)
-     {
-          return HybridStorageManagerInstance().ListCollections();
-     }
-
-     if (Collection.empty())
-     {
-          return {};
-     }
-
-     return {Collection};
-}
-
 static std::string GetReplicationOperationHeader(const HttpRequest &Request)
 {
      return TrimHeaderValue(GetHeaderValueInsensitive(Request.Headers, "X-HLQ-Replication-Op"));
@@ -502,7 +438,6 @@ static bool CrashPointMatches(const std::string &ConfiguredPoints, const std::st
      }
 
      return false;
-}
 }
 
 SearchAPI &SearchAPI::GetInstance()
@@ -973,9 +908,7 @@ void SearchAPI::FinalizeReplicationResyncRequest(const HttpRequest &Request,
           return;
      }
 
-     const std::vector<std::string> ResyncedCollections = LoadReplicationResyncCollections(SessionID);
-     QueueSAMResyncReconciliation(ResyncedCollections, SessionID);
-     ClearReplicationResyncCollections(SessionID);
+     const std::vector<std::string> ResyncedCollections = LoadReplicationResyncCollections(SessionID);     ClearReplicationResyncCollections(SessionID);
      Instance->Database->Del(kReplicationResyncStateKey);
      Instance->Database->SyncWAL();
 }
@@ -1116,20 +1049,6 @@ uint64_t SearchAPI::BumpCollectionMutationVersion(const std::string &Collection)
           CollectionMutationVersions[Collection] = next_version;
      }
 
-     if (Collection != "*" && Instance && Instance->Sam && Instance->Sam->IsOpen())
-     {
-          std::string SamError;
-
-          if (!Instance->Sam->NotifyCollectionChanged(Collection, next_version, &SamError) &&
-              Instance->Logs)
-          {
-               Instance->Logs->Normal("sam",
-                                      "Failed to mark collection '" + Collection +
-                                           "' dirty for automatic SAM rebuild: " +
-                                           (SamError.empty() ? std::string("unknown error") : SamError) + ".");
-          }
-     }
-
      return next_version;
 }
 
@@ -1137,63 +1056,6 @@ void SearchAPI::ResetCollectionMutationVersions()
 {
      std::lock_guard<std::mutex> lock(CollectionMutationMutex);
      CollectionMutationVersions.clear();
-}
-
-void SearchAPI::SyncSAMLexicalChange(const std::string& Collection, bool GlobalScope)
-{
-     if (!Instance || !Instance->Sam || !Instance->Sam->IsOpen())
-     {
-          return;
-     }
-
-     const std::string Scope = GlobalScope ? std::string(kSAMGlobalLexicalScope) : Collection;
-
-     if (Scope.empty())
-     {
-          return;
-     }
-
-     bool Updated = false;
-     std::string ErrorMessage;
-
-     if (!Instance->Sam->SyncLexicalResources(Scope, &Updated, &ErrorMessage))
-     {
-          if (Instance->Logs && !ErrorMessage.empty())
-          {
-               Instance->Logs->Normal("search_api",
-                                      "Failed to sync SAM lexical resources for '" + Scope +
-                                           "': " + ErrorMessage + ".");
-          }
-
-          return;
-     }
-
-     if (Instance->Logs && Updated)
-     {
-          Instance->Logs->Debug("search_api",
-                                "Synced SAM lexical resources for '" + Scope + "'.");
-     }
-
-     for (const auto &Target : BuildSAMLexicalSyncTargets(Collection, GlobalScope))
-     {
-          if (Target.empty())
-          {
-               continue;
-          }
-
-          bool AlreadyRunning = false;
-          ErrorMessage.clear();
-
-          if (!Instance->Sam->StartRecreateCollectionAsync(Target, &AlreadyRunning, &ErrorMessage))
-          {
-               if (Instance->Logs && !ErrorMessage.empty())
-               {
-                    Instance->Logs->Normal("search_api",
-                                           "Failed to queue SAM lexical refresh for collection '" +
-                                                Target + "': " + ErrorMessage + ".");
-               }
-          }
-     }
 }
 
 ReplicationStatusSnapshot SearchAPI::GetReplicationStatusSnapshot() const
@@ -1416,6 +1278,13 @@ std::string SearchAPI::ExtractSynonymIdFromPath(const std::string &Path)
           return Match[1].str();
      }
 
+     std::regex GlobalSynonymSetRegex(R"(/synonym_sets/global/(?:items/)?([^/]+))");
+
+     if (std::regex_search(Path, Match, GlobalSynonymSetRegex))
+     {
+          return Match[1].str();
+     }
+
      return "";
 }
 
@@ -1441,6 +1310,12 @@ std::string SearchAPI::ExtractStopwordFromPath(const std::string &Path)
           return Match[1].str();
      }
 
+     std::regex GlobalStopwordSetRegex(R"(/stopword_sets/global/(?:items/)?([^/]+))");
+     if (std::regex_search(Path, Match, GlobalStopwordSetRegex))
+     {
+          return Match[1].str();
+     }
+
      return "";
 }
 
@@ -1450,7 +1325,7 @@ std::string SearchAPI::ExtractOverrideIdFromPath(const std::string &Path)
 {
      /* Extract override ID from paths like /collections/{name}/overrides/{id}. */
 
-     std::regex OverrideRegex(R"(/collections/[^/]+/overrides/([^/]+))");
+     std::regex OverrideRegex(R"(/collections/[^/]+/(?:overrides|curations|curation_sets)/([^/]+))");
      std::smatch Match;
 
      if (std::regex_search(Path, Match, OverrideRegex))
@@ -2280,6 +2155,16 @@ bool SearchAPI::ParseCollectionConfigFromJSON(const std::string &Json, Collectio
                }
           }
 
+          if (Parsed.contains("default_sorting_field") && Parsed["default_sorting_field"].is_string())
+          {
+               const std::string DefaultSortingField = Parsed["default_sorting_field"].get<std::string>();
+
+               if (!DefaultSortingField.empty())
+               {
+                    Config.Metadata["_default_sorting_field"] = DefaultSortingField;
+               }
+          }
+
           if (Parsed.contains("language") && Parsed["language"].is_string())
           {
                const std::string Language = Parsed["language"].get<std::string>();
@@ -2364,10 +2249,12 @@ bool SearchAPI::ValidateCollectionSchema(const CollectionConfig &Config, std::st
      static const std::unordered_set<std::string> AllowedTypes = {
           "string",
           "string[]",
+          "keyword",
           "int",
           "int32",
           "int64",
           "float",
+          "float[]",
           "double",
           "bool",
           "boolean",
@@ -2604,87 +2491,19 @@ std::string SearchAPI::GetCurrentTimestamp()
 
 std::string SearchAPI::GetCollectionCreatedAt(const std::string &CollectionName)
 {
-     std::string ColDir = std::string(HLQUERY_DATA_DIR) + "/collections/" + CollectionName;
-     std::string MarkerFile = ColDir + "/.collection";
+     const time_t TimeVal = HybridStorageManagerInstance().GetCollectionCreatedAt(CollectionName);
 
-     if (std::filesystem::exists(MarkerFile))
+     if (TimeVal > 0)
      {
-          std::ifstream Marker(MarkerFile);
+          struct tm TMBuf;
+          struct tm *TM = gmtime_r(&TimeVal, &TMBuf);
 
-          if (Marker.is_open())
+          if (TM)
           {
-               std::string Line;
-
-               std::getline(Marker, Line);
-
-               if (std::getline(Marker, Line))
-               {
-                    if (Line.find("created_at:") == 0)
-                    {
-                         std::string TimestampStr = Line.substr(11);
-
-                         try
-                         {
-                              long long TimestampSeconds = std::stoll(TimestampStr);
-                              time_t TimeVal = static_cast<time_t>(TimestampSeconds);
-
-                              struct tm TMBuf;
-                              struct tm *TM = gmtime_r(&TimeVal, &TMBuf);
-
-                              if (TM)
-                              {
-                                   std::ostringstream OSS;
-
-                                   OSS << std::put_time(TM, "%Y-%m-%dT%H:%M:%S");
-                                   OSS << ".000Z";
-
-                                   return OSS.str();
-                              }
-                         }
-                         catch (...)
-                         {
-                         }
-                    }
-               }
-          }
-     }
-
-     std::string MetaKey = "collection_meta:" + CollectionName;
-     std::string MetaValue = HybridStorageManagerInstance().Get(MetaKey);
-
-     if (!MetaValue.empty())
-     {
-          size_t ColonPos = MetaValue.find(':');
-
-          if (ColonPos != std::string::npos && ColonPos + 1 < MetaValue.size())
-          {
-               std::string TimestampStr = MetaValue.substr(ColonPos + 1);
-
-               try
-               {
-                    long long TimestampSeconds = std::stoll(TimestampStr);
-
-                    if (TimestampSeconds > 0)
-                    {
-                         time_t TimeVal = static_cast<time_t>(TimestampSeconds);
-
-                         struct tm TMBuf;
-                         struct tm *TM = gmtime_r(&TimeVal, &TMBuf);
-
-                         if (TM)
-                         {
-                              std::ostringstream OSS;
-
-                              OSS << std::put_time(TM, "%Y-%m-%dT%H:%M:%S");
-                              OSS << ".000Z";
-
-                              return OSS.str();
-                         }
-                    }
-               }
-               catch (...)
-               {
-               }
+               std::ostringstream OSS;
+               OSS << std::put_time(TM, "%Y-%m-%dT%H:%M:%S");
+               OSS << ".000Z";
+               return OSS.str();
           }
      }
 

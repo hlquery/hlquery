@@ -27,11 +27,7 @@
 #include <sys/stat.h>
 #include <unordered_map>
 
-#if __has_include("core/hlcore.h")
-#include "core/hlcore.h"
-#else
 #include "core/hlquery.h"
-#endif
 #include "utils/tools.h"
 
 /*
@@ -41,7 +37,6 @@
 std::unordered_map<std::string, Tools::RateLimitEntry> &Tools::GetRateLimits()
 {
      static std::unordered_map<std::string, RateLimitEntry> RateLimits;
-
      return RateLimits;
 }
 
@@ -58,9 +53,7 @@ std::chrono::seconds Tools::GetBackoffDelay(int RetryCount, int BaseDelaySeconds
      /* Add jitter (±JitterPercent%). */
 
      int JitterAmount = (Delay * JitterPercent) / 100;
-
      std::uniform_int_distribution<> JitterDist(-JitterAmount, JitterAmount);
-
      Delay += JitterDist(GetRNG());
 
      return std::chrono::seconds(std::max(Delay, 30));
@@ -73,7 +66,6 @@ std::chrono::seconds Tools::GetBackoffDelay(int RetryCount, int BaseDelaySeconds
 int Tools::RandomInt(int Min, int Max)
 {
      std::uniform_int_distribution<> Dist(Min, Max);
-
      return Dist(GetRNG());
 }
 
@@ -84,7 +76,6 @@ int Tools::RandomInt(int Min, int Max)
 double Tools::RandomDouble(double Min, double Max)
 {
      std::uniform_real_distribution<> Dist(Min, Max);
-
      return Dist(GetRNG());
 }
 
@@ -97,9 +88,7 @@ std::string Tools::RandomString(size_t Length, bool IncludeSymbols)
      const std::string Chars = IncludeSymbols ? "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()_+-=[]{}|;:,.<>?" : "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
 
      std::string Result;
-
      Result.reserve(Length);
-
      std::uniform_int_distribution<> Dist(0, Chars.length() - 1);
 
      for (size_t i = 0; i < Length; ++i)
@@ -119,9 +108,7 @@ std::string Tools::RandomHex(size_t Length)
      const std::string HexChars = "0123456789ABCDEF";
 
      std::string Result;
-
      Result.reserve(Length);
-
      std::uniform_int_distribution<> Dist(0, 15);
 
      for (size_t i = 0; i < Length; ++i)
@@ -139,7 +126,6 @@ std::string Tools::RandomHex(size_t Length)
 std::vector<uint8_t> Tools::RandomBytes(size_t Count)
 {
      std::vector<uint8_t> Result(Count);
-
      std::uniform_int_distribution<uint8_t> Dist(0, 255);
 
      for (size_t i = 0; i < Count; ++i)
@@ -157,7 +143,6 @@ std::vector<uint8_t> Tools::RandomBytes(size_t Count)
 std::string Tools::ToLower(const std::string &Str)
 {
      std::string Result = Str;
-
      std::transform(Result.begin(), Result.end(), Result.begin(), ::tolower);
 
      return Result;
@@ -170,7 +155,6 @@ std::string Tools::ToLower(const std::string &Str)
 std::string Tools::ToUpper(const std::string &Str)
 {
      std::string Result = Str;
-
      std::transform(Result.begin(), Result.end(), Result.begin(), ::toupper);
 
      return Result;
@@ -202,8 +186,13 @@ std::vector<std::string> Tools::Split(const std::string &Str, const std::string 
 {
      std::vector<std::string> Result;
 
-     size_t Start = 0;
+     if (Delimiter.empty())
+     {
+          Result.push_back(Str);
+          return Result;
+     }
 
+     size_t Start = 0;
      size_t End = Str.find(Delimiter);
 
      while (End != std::string::npos)
@@ -264,6 +253,11 @@ bool Tools::EndsWith(const std::string &Str, const std::string &Suffix)
 
 std::string Tools::ReplaceAll(const std::string &Str, const std::string &From, const std::string &To)
 {
+     if (From.empty())
+     {
+          return Str;
+     }
+
      std::string Result = Str;
 
      size_t Pos = 0;

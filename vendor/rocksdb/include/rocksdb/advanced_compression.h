@@ -151,6 +151,13 @@ class Compressor {
     return CompressionType::kDisableCompressionOption;
   }
 
+  // Returns a recommended number of parallel compression threads for SST
+  // file building, or 0 to defer to CompressionOptions::parallel_threads.
+  // Built-in compressors return the parallel_threads from their
+  // CompressionOptions, enabling CompressionManager to override this by
+  // customizing the options passed to GetCompressor().
+  virtual uint32_t GetRecommendedParallelThreads() const { return 0; }
+
   // Return a distinct but functionally equivalent Compressor. This is often
   // needed to implement MaybeCloneSpecialized() in wrapper compressors.
   virtual std::unique_ptr<Compressor> Clone() const = 0;
@@ -449,6 +456,13 @@ class CompressionManager
   // supported)
   virtual bool SupportsCompressionType(CompressionType type) const = 0;
 
+  // Return a human-readable name for the given compression type within this
+  // CompressionManager's schema. The default implementation returns the
+  // generic built-in name such as "Snappy", "ZSTD", "Reserved4F", or
+  // "Custom8A". Override to provide more specific names for custom
+  // compression types.
+  virtual std::string CompressionTypeToString(CompressionType type) const;
+
   // TODO: function to check compatibility with or sanitize CompressionOptions
 
   // ************************* Compressor creation *********************** //
@@ -526,6 +540,10 @@ class CompressorWrapper : public Compressor {
 
   CompressionType GetPreferredCompressionType() const override {
     return wrapped_->GetPreferredCompressionType();
+  }
+
+  uint32_t GetRecommendedParallelThreads() const override {
+    return wrapped_->GetRecommendedParallelThreads();
   }
 
   // NOTE: Clone() not implemented here because it needs to be in the derived
@@ -643,6 +661,10 @@ class CompressionManagerWrapper : public CompressionManager {
 
   bool SupportsCompressionType(CompressionType type) const override {
     return wrapped_->SupportsCompressionType(type);
+  }
+
+  std::string CompressionTypeToString(CompressionType type) const override {
+    return wrapped_->CompressionTypeToString(type);
   }
 
   std::unique_ptr<Compressor> GetCompressorForSST(

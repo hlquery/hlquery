@@ -89,6 +89,10 @@ class InvertedIndex
 
      std::unordered_map<std::string, double> AvgDocLengths;
 
+     /* CollectionTotalLengths stores summed document lengths per collection for O(1) stats updates. */
+
+     std::unordered_map<std::string, size_t> CollectionTotalLengths;
+
      /* DocCounts stores document count per collection. */
 
      std::unordered_map<std::string, size_t> DocCounts;
@@ -129,6 +133,14 @@ class InvertedIndex
 
      void RemoveDocumentFromIndex(const std::string& Collection, const std::string& DocID);
 
+     /* EnsureCollectionTotalLengthLocked initializes total length while IndexMutex is held. */
+
+     size_t EnsureCollectionTotalLengthLocked(const std::string& Collection);
+
+     /* RefreshCollectionStatsFromTotalLocked refreshes derived stats while IndexMutex is held. */
+
+     void RefreshCollectionStatsFromTotalLocked(const std::string& Collection);
+
      /* CalculateBM25PlusScore computes BM25+ score. */
 
      double CalculateBM25PlusScore(double TermFreq, double DocFreq, double DocLength, double AvgDocLength, double CollectionSize, double K1 = 1.2, double B = 0.75, double Delta = 1.0) const;
@@ -136,6 +148,10 @@ class InvertedIndex
      /* CalculateBM25LScore computes BM25L score. */
 
      double CalculateBM25LScore(double TermFreq, double DocFreq, double DocLength, double AvgDocLength, double CollectionSize, double K1 = 1.2, double B = 0.75, double Delta = 0.5) const;
+
+     /* CalculateTFIDFScore computes TF-IDF with optional length normalization. */
+
+     double CalculateTFIDFScore(double TermFreq, double DocFreq, double DocLength, double CollectionSize, double IdfSmooth = 1.0, bool Normalize = true) const;
 
      /* CalculatePivotNormScore computes pivoted normalization score. */
 

@@ -27,8 +27,11 @@
 #include <vector>
 
 #include "common/actionlist.h"
+#include "core/config.h"
 #include "core/hlquery.h"
+#include "core/logmanager.h"
 #include "core/socketengine.h"
+#include "runtime/timers.h"
 #include "search/storageengine.h"
 
 /* HLQuery ae.c inspired - clean and simple poll backend */
@@ -98,7 +101,7 @@ static int GetTimedWorkWakeupMs()
           }
      }
 
-     return 1000;
+     return SOCKET_ENGINE_TIMED_WORK_FALLBACK_MS;
 }
 
 /* Initializes the socket engine */
@@ -404,18 +407,20 @@ void SocketEngine::DelFD(EventHandler *EH)
 
 int SocketEngine::DispatchEvents()
 {
+     const bool ShutdownRequested = hlquery::ShouldShutdown() || hlquery::ShouldForceExit();
+
      /* Always log entry to DispatchEvents for troubleshooting */
 
      if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
      {
-          Instance->Logs->Debug("socketengine", "DispatchEvents: ENTRY (PollFDs.size()=" + std::to_string(PollFDs.size()) + ", ShuttingDown=" + std::to_string(ShuttingDown) + ", ForceExit=" + std::to_string(ForceExit) + ").");
+          Instance->Logs->Debug("socketengine", "DispatchEvents: ENTRY (PollFDs.size()=" + std::to_string(PollFDs.size()) + ", ShuttingDown=" + std::to_string(hlquery::GetSignalShutdownState()) + ", ForceExit=" + std::to_string(hlquery::GetForceExitState()) + ").");
      }
 
      if (PollFDs.empty())
      {
           /* No file descriptors to monitor - check shutdown first */
 
-          if (ShuttingDown || ForceExit)
+          if (ShutdownRequested)
           {
                return 0; /* Don't sleep during shutdown */
           }
@@ -441,7 +446,7 @@ int SocketEngine::DispatchEvents()
      * to the main loop.
      */
 
-     if (ShuttingDown || ForceExit)
+     if (ShutdownRequested)
      {
           return 0; /* Don't call poll during shutdown */
      }
@@ -453,11 +458,12 @@ int SocketEngine::DispatchEvents()
      * and poll(-1) blocks, the CPU-only work stalls because no I/O events
      * wake up the poll.
      *
-     * Solution: If there's pending work, use timeout = 0 (non-blocking) to
-     * immediately return to the main loop to process the pending work.
+     * Solution: If there's pending work, use a short timeout instead of a
+     * permanent non-blocking poll. This keeps CPU-only work responsive without
+     * letting stale pending-work state spin the server or starve socket events.
      */
 
-     /* Match epoll behavior for performance - use 0ms (non-blocking) when busy */
+     /* Match epoll behavior: use a short wait while busy to avoid stale-work spins. */
      /* When idle, use -1 (block indefinitely) like epoll to avoid CPU waste */
 
      int timeout_ms = -1; /* Default to infinite blocking when idle (like epoll) */
@@ -466,17 +472,14 @@ int SocketEngine::DispatchEvents()
 
      if (HasPendingWork())
      {
-          /* CRITICAL FIX: Use 0ms (non-blocking) when we have pending work - same as epoll */
-          /* This is essential for benchmark performance - don't block at all when busy */
-
-          timeout_ms = 0; /* Non-blocking - process pending work immediately */
+          timeout_ms = SOCKET_ENGINE_PENDING_WORK_TIMEOUT_MS;
 
           /*
          * Reset timeout immediately when pending work detected
          * This ensures high throughput mode is active from the start of new activity
          */
 
-          CurrentTimeoutMS.store(0, std::memory_order_relaxed);
+          CurrentTimeoutMS.store(timeout_ms, std::memory_order_relaxed);
      }
      else
      {
@@ -527,7 +530,7 @@ int SocketEngine::DispatchEvents()
      /* Re-check shutdown flags right before blocking call */
      /* Another thread could have set shutdown between the check above and this call */
 
-     if (ShuttingDown || ForceExit)
+     if (hlquery::ShouldShutdown() || hlquery::ShouldForceExit())
      {
           return 0; /* Don't block during shutdown */
      }
@@ -558,7 +561,7 @@ int SocketEngine::DispatchEvents()
           {
                /* Signal interrupted poll - check shutdown flags and retry if needed */
 
-               if (ShuttingDown || ForceExit)
+               if (hlquery::ShouldShutdown() || hlquery::ShouldForceExit())
                {
                     return 0; /* Shutdown requested, don't retry */
                }
@@ -1096,21 +1099,21 @@ void SocketEngine::AdaptTimeout()
      uint64_t CurrentConnectionsValue = ActiveConnections.load();
      int NewTimeoutValue = -1;
 
-     if (CurrentConnectionsValue > 10000)
+     if (CurrentConnectionsValue > SOCKET_ENGINE_ULTRA_HIGH_LOAD_CONNECTIONS)
      {
-          NewTimeoutValue = 0;
+          NewTimeoutValue = SOCKET_ENGINE_ULTRA_HIGH_LOAD_TIMEOUT_MS;
      }
-     else if (CurrentConnectionsValue > 5000)
+     else if (CurrentConnectionsValue > SOCKET_ENGINE_HIGH_LOAD_CONNECTIONS)
      {
-          NewTimeoutValue = 1;
+          NewTimeoutValue = SOCKET_ENGINE_HIGH_LOAD_TIMEOUT_MS;
      }
-     else if (CurrentConnectionsValue > 1000)
+     else if (CurrentConnectionsValue > SOCKET_ENGINE_MEDIUM_LOAD_CONNECTIONS)
      {
-          NewTimeoutValue = 5;
+          NewTimeoutValue = SOCKET_ENGINE_MEDIUM_LOAD_TIMEOUT_MS;
      }
-     else if (CurrentConnectionsValue > 100)
+     else if (CurrentConnectionsValue > SOCKET_ENGINE_LOW_MEDIUM_LOAD_CONNECTIONS)
      {
-          NewTimeoutValue = 10;
+          NewTimeoutValue = SOCKET_ENGINE_LOW_MEDIUM_LOAD_TIMEOUT_MS;
      }
 
      CurrentTimeoutMS.store(NewTimeoutValue);

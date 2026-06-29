@@ -3,17 +3,29 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
+#include <algorithm>
 #include <array>
+#include <set>
 #include <sstream>
 #include <string>
 
 #include "cache/compressed_secondary_cache.h"
+#include "db/blob/blob_file_partition_manager.h"
 #include "db/blob/blob_index.h"
 #include "db/blob/blob_log_format.h"
+#include "db/blob/blob_log_sequential_reader.h"
+#include "db/column_family.h"
 #include "db/db_test_util.h"
 #include "db/db_with_timestamp_test_util.h"
+#include "file/filename.h"
+#include "file/random_access_file_reader.h"
 #include "port/stack_trace.h"
+#include "rocksdb/convenience.h"
+#include "rocksdb/trace_reader_writer.h"
+#include "rocksdb/trace_record.h"
+#include "rocksdb/utilities/replayer.h"
 #include "test_util/sync_point.h"
+#include "util/compression.h"
 #include "utilities/fault_injection_env.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -1603,6 +1615,47 @@ TEST_P(DBBlobBasicIOErrorTest, GetBlob_IOError) {
   PinnableSlice result;
   ASSERT_TRUE(db_->Get(ReadOptions(), db_->DefaultColumnFamily(), key, &result)
                   .IsIOError());
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
+TEST_P(DBBlobBasicIOErrorTest, GetEntityMergeWithBlobBaseIOError) {
+  // Goal: verify GetEntity preserves injected blob-read IOErrors when merge
+  // reads a blob-backed base value, instead of laundering them into Corruption.
+  // The test writes a blob-backed base value plus a merge operand, then injects
+  // an IOError at blob read time and checks both GetEntity and Get see it.
+  Options options;
+  options.env = fault_injection_env_.get();
+  options.enable_blob_files = true;
+  options.min_blob_size = 0;
+  options.merge_operator = MergeOperators::CreateStringAppendOperator();
+
+  Reopen(options);
+
+  constexpr char key[] = "key";
+  constexpr char base_value[] = "base_value";
+
+  ASSERT_OK(Put(key, base_value));
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(Merge(key, "merge_operand"));
+  ASSERT_OK(Flush());
+
+  SyncPoint::GetInstance()->SetCallBack(sync_point_, [this](void* /* arg */) {
+    fault_injection_env_->SetFilesystemActive(false,
+                                              Status::IOError(sync_point_));
+  });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  PinnableWideColumns entity_result;
+  Status s = db_->GetEntity(ReadOptions(), db_->DefaultColumnFamily(), key,
+                            &entity_result);
+  ASSERT_TRUE(s.IsIOError()) << "Expected IOError but got: " << s.ToString();
+
+  PinnableSlice get_result;
+  s = db_->Get(ReadOptions(), db_->DefaultColumnFamily(), key, &get_result);
+  ASSERT_TRUE(s.IsIOError()) << "Expected IOError but got: " << s.ToString();
 
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();

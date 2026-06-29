@@ -30,8 +30,6 @@
 #include "runtime/clock.h"
 #include "utils/consolewriter.h"
 
-namespace
-{
 std::string Pluralize(long long value, const char *singular, const char *plural)
 {
      return std::to_string(value) + " " + (value == 1 ? singular : plural);
@@ -57,7 +55,6 @@ std::string FormatUptimeSeconds(long long uptime_seconds, bool detailed_format)
      summary << "Server up for " << Pluralize(days, "day", "days")
              << ", " << hours << "h " << minutes << "m " << seconds << "s";
      return summary.str();
-}
 }
 /* Shows server status. */
 

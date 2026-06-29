@@ -34,6 +34,7 @@
 #include "common/searchpool.h"
 #include "runtime/serverconfig.h"
 #include "core/socketengine.h"
+#include "vendor/json/json.hpp"
 
 /* HTTP Request structure. */
 
@@ -85,6 +86,24 @@ struct HttpResponse
      }
 };
 
+inline HttpResponse BuildRouteNotFoundResponse(const std::string& Path, const std::string& Method = std::string())
+{
+     HttpResponse Response(404, "Not Found", "application/json");
+
+     nlohmann::json Body;
+     Body["error"] = "Route not found";
+     Body["path"] = Path;
+
+     if (!Method.empty())
+     {
+          Body["method"] = Method;
+     }
+
+     Response.Body = Body.dump();
+
+     return Response;
+}
+
 /* Route actions returned by HTTP route resolution. */
 
 enum class RouteAction
@@ -97,6 +116,7 @@ enum class RouteAction
      Stats,
      Metrics,
      MetricsHistory,
+     Cache,
      Connections,
      RocksDB,
      DocTotal,
@@ -105,7 +125,6 @@ enum class RouteAction
      DebugCounters,
      Repair,
      Startup,
-     LLM,
      Integrity,
      SelfCheck,
      StorageStatus,
@@ -125,17 +144,6 @@ enum class RouteAction
      ListDocuments,
      GetDocument,
      GetDocumentContext,
-     SamRebuild,
-     SamSearch,
-     SamStatus,
-     SamDebug,
-     SamHistory,
-     SamPause,
-     SamImprove,
-     SamFlushActorMetadata,
-     SamListDocuments,
-     SamGetDocument,
-     SamAddDocumentLabel,
      AddDocument,
      BulkImportDocuments,
      UpdateDocument,
@@ -184,9 +192,15 @@ enum class RouteAction
      GetKey,
      UpdateKey,
      DeleteKey,
+     ListPresets,
+     UpsertPreset,
+     GetPreset,
+     DeletePreset,
      AnalyticsClick,
      ListModules,
      GetModuleSyntax,
+     ModuleLoad,
+     ModuleUnload,
      ModuleAPI,
      NotFound
 };
@@ -462,6 +476,7 @@ class HttpServer : public EventHandler
 
      void OnEventHandlerWrite() override
      {
+
      }
 
      /* Handle listener socket errors reported by the event engine. */
@@ -517,7 +532,7 @@ bool ValidateSSLConfig(const BindConfig& ConfigVal, std::string* ErrorMsg = null
 
 /* Initialize and start the HTTP server. */
 
-bool InitializeHttpServer(const BindConfig& ConfigVal, HttpServer*& HttpServerPtr, LogManager* Logs);
+bool InitializeHttpServer(const BindConfig& ConfigVal, HttpServer*& HttpServerPtr);
 
 /* Stop and destroy the HTTP server. */
 

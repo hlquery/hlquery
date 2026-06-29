@@ -12,10 +12,9 @@
 
 #pragma once
 
+#include <iostream>
 #include <string>
 #include <vector>
-
-class ServerConfig;
 
 class CoreHelpers
 {
@@ -37,10 +36,17 @@ class CoreHelpers
 
      /* Preflight SSL bind configuration before daemonization. */
 
-     static bool PreflightSSLConfig(ServerConfig *ConfigPtr);
+     static bool PreflightSSLConfig();
 
      /* Prints a startup section with one module name per line. */
 
      static void PrintStartupModuleList(const std::string &Heading, const std::vector<std::string> &ModuleNames);
 
 };
+
+/* Writes one newline without forcing an output flush. */
+
+inline void newline(std::ostream &Out = std::cout)
+{
+     Out.put('\n');
+}

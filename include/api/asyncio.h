@@ -381,6 +381,7 @@ class UltraAsyncIO
           auto Request = std::make_unique<IORequest>(FDVal, IOOperation::READ, BufferVal, SizeVal, CallbackVal);
 
           Request->RequestID = NextRequestID++;
+          const uint64_t RequestID = Request->RequestID;
 
           std::lock_guard<std::mutex> Lock(QueueMutex);
 
@@ -390,7 +391,7 @@ class UltraAsyncIO
 
           eventfd_write(EventFD, 1);
 
-          return Request->RequestID;
+          return RequestID;
      }
 
      uint64_t AsyncWrite(int FDVal, const void* BufferVal, size_t SizeVal, IOCompletionCallback CallbackVal)
@@ -398,6 +399,7 @@ class UltraAsyncIO
           auto Request = std::make_unique<IORequest>(FDVal, IOOperation::WRITE, const_cast<void*>(BufferVal), SizeVal, CallbackVal);
 
           Request->RequestID = NextRequestID++;
+          const uint64_t RequestID = Request->RequestID;
 
           std::lock_guard<std::mutex> Lock(QueueMutex);
 
@@ -407,7 +409,7 @@ class UltraAsyncIO
 
           eventfd_write(EventFD, 1);
 
-          return Request->RequestID;
+          return RequestID;
      }
 
      uint64_t AsyncReadHighPriority(int FDVal, void* BufferVal, size_t SizeVal, IOCompletionCallback CallbackVal)
@@ -416,6 +418,7 @@ class UltraAsyncIO
 
           Request->RequestID = NextRequestID++;
           Request->HighPriority = true;
+          const uint64_t RequestID = Request->RequestID;
 
           std::lock_guard<std::mutex> Lock(QueueMutex);
 
@@ -425,7 +428,7 @@ class UltraAsyncIO
 
           eventfd_write(EventFD, 1);
 
-          return Request->RequestID;
+          return RequestID;
      }
 
      /* Memory-mapped I/O. */
@@ -548,41 +551,48 @@ class UltraAsyncIO
 
      void ProcessSocketEvent(int FDVal, uint32_t EventsVal)
      {
-          std::lock_guard<std::mutex> Lock(ConnectionsMutex);
-
-          auto It = Connections.find(FDVal);
-
-          if (It == Connections.end())
+          if (EventsVal & (EPOLLERR | EPOLLHUP))
           {
+               /* RemoveConnection acquires ConnectionsMutex and invalidates the state pointer. */
+
+               RemoveConnection(FDVal);
                return;
           }
 
-          ConnectionState* Conn = It->second.get();
+          {
+               std::lock_guard<std::mutex> Lock(ConnectionsMutex);
+
+               auto It = Connections.find(FDVal);
+
+               if (It == Connections.end())
+               {
+                    return;
+               }
+
+               ConnectionState* Conn = It->second.get();
+
+               if (EventsVal & EPOLLIN)
+               {
+                    Conn->Reading = true;
+               }
+
+               if (EventsVal & EPOLLOUT)
+               {
+                    Conn->Writing = true;
+               }
+
+               Conn->LastActivity = std::chrono::duration_cast<std::chrono::milliseconds>(Now().time_since_epoch()).count();
+          }
 
           if (EventsVal & EPOLLIN)
           {
-               /* Data available for reading. */
-
-               Conn->Reading = true;
                ProcessReadEvent(FDVal);
           }
 
           if (EventsVal & EPOLLOUT)
           {
-               /* Socket ready for writing. */
-
-               Conn->Writing = true;
                ProcessWriteEvent(FDVal);
           }
-
-          if (EventsVal & (EPOLLERR | EPOLLHUP))
-          {
-               /* Connection error or hangup. */
-
-               RemoveConnection(FDVal);
-          }
-
-          Conn->LastActivity = std::chrono::duration_cast<std::chrono::milliseconds>(Now().time_since_epoch()).count();
      }
 
      void ProcessReadEvent(int FDVal)
@@ -820,12 +830,17 @@ class UltraAsyncIO
      {
           return false;
      }
+
      void Shutdown()
      {
+
      }
+
      void SubmitRequest(const IORequest&)
      {
+
      }
+
      AsyncIOStats GetStats() const
      {
           return AsyncIOStats();
@@ -836,7 +851,9 @@ inline std::unique_ptr<UltraAsyncIO> GAsyncIO;
 
 inline void InitializeAsyncIO()
 {
+
 }
+
 inline void CleanupAsyncIO()
 {
 }

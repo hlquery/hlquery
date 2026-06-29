@@ -16,16 +16,11 @@
 ServerStats::ServerStats()
 {
      RestartCount = 0;
-
      LastRestartTimestamp = 0;
-
      HealthDegraded.store(false);
-
      HealthDegradedReason = "";
-
      DirtyShutdownDetected = false;
-
-     StartupTime = 0;
+     StartupTime.store(0, std::memory_order_relaxed);
 }
 
 /* Initiates the statistics tracking subsystem and records the primary startup state */
@@ -34,7 +29,7 @@ void ServerStats::Start()
 {
      if (Instance)
      {
-          StartupTime = Instance->Time();
+          StartupTime.store(Instance->Time(), std::memory_order_release);
 
           StartupState InitialState;
 
@@ -51,7 +46,7 @@ void ServerStats::Start()
      }
      else
      {
-          StartupTime = time(nullptr);
+          StartupTime.store(time(nullptr), std::memory_order_release);
      }
 }
 
@@ -90,9 +85,9 @@ void ServerStats::SetHealthDegraded(bool DegradedFlag, const std::string &Reason
 {
      std::lock_guard<std::mutex> Lock(HealthDegradedMutex);
 
-     HealthDegraded.store(DegradedFlag, std::memory_order_release);
-
      HealthDegradedReason = ReasonStr;
+
+     HealthDegraded.store(DegradedFlag, std::memory_order_release);
 }
 
 /* Evaluates whether the server health is currently considered degraded */
@@ -100,6 +95,13 @@ void ServerStats::SetHealthDegraded(bool DegradedFlag, const std::string &Reason
 bool ServerStats::IsHealthDegraded() const
 {
      return HealthDegraded.load(std::memory_order_acquire);
+}
+
+ServerStats::HealthStatus ServerStats::GetHealthStatus() const
+{
+     std::lock_guard<std::mutex> Lock(HealthDegradedMutex);
+
+     return {HealthDegraded.load(std::memory_order_relaxed), HealthDegradedReason};
 }
 
 /* Returns the human-readable reason associated with the current health degradation */
@@ -116,7 +118,6 @@ std::string ServerStats::GetHealthDegradedReason() const
 bool ServerStats::IsDirtyShutdown() const
 {
      std::lock_guard<std::mutex> Lock(DirtyShutdownMutex);
-
      return DirtyShutdownDetected;
 }
 
@@ -133,14 +134,14 @@ void ServerStats::SetDirtyShutdown(bool IsDirtyFlag)
 
 time_t ServerStats::GetStartupTime() const
 {
-     return StartupTime;
+     return StartupTime.load(std::memory_order_acquire);
 }
 
 /* Sets the primary startup timestamp for the current execution cycle */
 
 void ServerStats::SetStartupTime(time_t StartupTimestamp)
 {
-     StartupTime = StartupTimestamp;
+     StartupTime.store(StartupTimestamp, std::memory_order_release);
 }
 
 /* Returns the current startup state snapshot */

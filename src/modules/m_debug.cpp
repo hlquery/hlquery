@@ -22,8 +22,6 @@
 #include "utils/jsonbuilder.h"
 #include "vendor/json/json.hpp"
 
-namespace
-{
 std::string DescribeActor(const std::string &RequesterIP, const std::string &RequesterUser, bool Authenticated)
 {
      std::ostringstream out;
@@ -57,7 +55,6 @@ std::string JoinWords(const std::vector<std::string> &Words)
 void Trace(const std::string &Message)
 {
      ConsoleWriter::WriteInfo("[m_debug] " + Message);
-}
 }
 
 /* Runtime module used to print extensive debug information for module callbacks. */
@@ -163,6 +160,27 @@ class DebugRuntimeModule final : public AutoRuntimeModule<DebugRuntimeModule>
      {
           Trace("authenticated request: action=" + std::string(RouteActionName(ActionVal)) +
                 ", method=" + Request.Method +
+                ", path=" + Request.Path +
+                ", api_key=" + (Request.APIKeyID.empty() ? "-" : Request.APIKeyID));
+     }
+
+     void OnStatsRequest(const HttpRequest &Request) override
+     {
+          Trace("stats request: method=" + Request.Method +
+                ", path=" + Request.Path +
+                ", api_key=" + (Request.APIKeyID.empty() ? "-" : Request.APIKeyID));
+     }
+
+     void OnMetricsRequest(const HttpRequest &Request) override
+     {
+          Trace("metrics request: method=" + Request.Method +
+                ", path=" + Request.Path +
+                ", api_key=" + (Request.APIKeyID.empty() ? "-" : Request.APIKeyID));
+     }
+
+     void OnCacheRequest(const HttpRequest &Request) override
+     {
+          Trace("cache request: method=" + Request.Method +
                 ", path=" + Request.Path +
                 ", api_key=" + (Request.APIKeyID.empty() ? "-" : Request.APIKeyID));
      }

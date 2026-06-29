@@ -21,6 +21,20 @@
 
 namespace SearchResponseCache
 {
+     struct Stats
+     {
+          uint64_t Hits = 0;
+          uint64_t Misses = 0;
+          uint64_t Expired = 0;
+          uint64_t Evictions = 0;
+          size_t Entries = 0;
+          size_t SizeBytes = 0;
+     };
+
+     void Configure(uint64_t TTLMS, size_t MaxSizeBytes);
+     Stats GetStats();
+     uint64_t GetGeneration(const std::string& Collection);
+
      bool Get(const std::string& Namespace,
               const HttpRequest& Request,
               const std::string& Collection,
@@ -29,7 +43,10 @@ namespace SearchResponseCache
      void Put(const std::string& Namespace,
               const HttpRequest& Request,
               const std::string& Collection,
-              const HttpResponse& Response);
+              const HttpResponse& Response,
+              uint64_t ExpectedGeneration = 0);
+
+     /* Removes cached search and collection responses associated with one collection. */
 
      void InvalidateCollection(const std::string& Collection);
 

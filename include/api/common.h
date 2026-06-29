@@ -54,15 +54,13 @@
 
 inline HttpResponse BuildErrorResponse(int HttpStatus, int ProtocolCode, const std::string &Error, const std::string &Message = "")
 {
-     (void)Error;
-
      HttpResponse Response(HttpStatus, StatusText(HttpStatus), "application/json");
 
      nlohmann::json ErrorJSON;
 
-     /* Use code_text as the error field to avoid duplication - code_text is the canonical error name. */
+     const std::string CodeTextVal = CodeText(ProtocolCode);
 
-     ErrorJSON["error"] = CodeText(ProtocolCode);
+     ErrorJSON["error"] = Error.empty() ? CodeTextVal : Error;
 
      if (!Message.empty())
      {
@@ -71,7 +69,7 @@ inline HttpResponse BuildErrorResponse(int HttpStatus, int ProtocolCode, const s
 
      ErrorJSON["code"] = ProtocolCode;
 
-     ErrorJSON["code_text"] = CodeText(ProtocolCode);
+     ErrorJSON["code_text"] = CodeTextVal;
 
      Response.Body = ErrorJSON.dump();
 
@@ -104,8 +102,8 @@ inline bool ParseSharedNodeEndpoint(const std::string &Raw,
                                     const NodeEndpointParseOptions &Options = NodeEndpointParseOptions())
 {
      std::string Node = TrimNodeEndpointValue(Raw);
-     if (Node.empty())
 
+     if (Node.empty())
      {
           return false;
      }
@@ -164,10 +162,12 @@ inline bool ParseSharedNodeEndpoint(const std::string &Raw,
                {
                     int ParsedPort = 0;
                     auto [Ptr, EC] = std::from_chars(PortStr.data(), PortStr.data() + PortStr.size(), ParsedPort);
+
                     if (EC != std::errc() || Ptr != PortStr.data() + PortStr.size())
                     {
                          return false;
                     }
+
                     Port = ParsedPort;
                }
           }
@@ -182,6 +182,7 @@ inline bool ParseSharedNodeEndpoint(const std::string &Raw,
           {
                Host = Node.substr(0, ColonPos);
                std::string PortStr = Node.substr(ColonPos + 1);
+           
                if (PortStr.empty())
                {
                     if (!Options.AllowEmptyPort)
@@ -193,10 +194,12 @@ inline bool ParseSharedNodeEndpoint(const std::string &Raw,
                {
                     int ParsedPort = 0;
                     auto [Ptr, EC] = std::from_chars(PortStr.data(), PortStr.data() + PortStr.size(), ParsedPort);
+                
                     if (EC != std::errc() || Ptr != PortStr.data() + PortStr.size())
                     {
                          return false;
                     }
+                
                     Port = ParsedPort;
                }
           }

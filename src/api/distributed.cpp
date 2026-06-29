@@ -46,8 +46,6 @@
 #include "utils/protocol.h"
 #include "vendor/json/json.hpp"
 
-namespace
-{
 static std::string ToLowerCopy(const std::string &Value)
 {
      std::string Out = Value;
@@ -62,6 +60,7 @@ static std::string ToLowerCopy(const std::string &Value)
 static std::string GetHeaderValueInsensitive(const std::map<std::string, std::string> &Headers, const std::string &Name)
 {
      auto It = Headers.find(Name);
+
      if (It != Headers.end())
      {
           return It->second;
@@ -88,10 +87,12 @@ static std::string DurationToMillisecondsString(const std::chrono::steady_clock:
 static std::string TrimCopy(const std::string &Value)
 {
      size_t Start = Value.find_first_not_of(" \t\r\n");
+
      if (Start == std::string::npos)
      {
           return "";
      }
+
      size_t End = Value.find_last_not_of(" \t\r\n");
      return Value.substr(Start, End - Start + 1);
 }
@@ -313,6 +314,7 @@ static bool BuildConfiguredEndpoints(const std::vector<std::string> &ConfiguredN
           }
 
           bool Local = false;
+
           for (int BindPort : LocalPorts)
           {
                if (Port == BindPort)
@@ -778,12 +780,15 @@ static bool SendHttpRequest(const std::string &Host,
           {
                return;
           }
+
           std::lock_guard<std::mutex> Guard(PoolEntry->Mutex);
           PoolEntry->ConsecutiveFailures++;
+
           if (ReconnectMS > 0)
           {
                PoolEntry->NextReconnectAt = ::Now() + std::chrono::milliseconds(ReconnectMS);
           }
+
           ClosePersistentPeerSocket(*PoolEntry);
           PoolEntry->InUse = false;
           PoolEntry.reset();
@@ -797,6 +802,7 @@ static bool SendHttpRequest(const std::string &Host,
                return;
           }
           std::lock_guard<std::mutex> Guard(PoolEntry->Mutex);
+
           if (!KeepAlive)
           {
                ClosePersistentPeerSocket(*PoolEntry);
@@ -818,6 +824,7 @@ static bool SendHttpRequest(const std::string &Host,
           {
                PersistentBurst = 1;
           }
+
           if (PoolEntry->RequestsServed >= PersistentBurst)
           {
                ClosePersistentPeerSocket(*PoolEntry);
@@ -836,6 +843,7 @@ static bool SendHttpRequest(const std::string &Host,
                SSL_free(ActiveSSLObj);
                ActiveSSLObj = nullptr;
           }
+
           if (UseSSL && ActiveSSLCtx)
           {
                SSL_CTX_free(ActiveSSLCtx);
@@ -859,6 +867,7 @@ static bool SendHttpRequest(const std::string &Host,
      {
           int Attempts = (AutoReconnect ? 2 : 1);
           bool Connected = false;
+
           for (int Attempt = 0; Attempt < Attempts; ++Attempt)
           {
                if (OpenSocket(&Sock))
@@ -1326,6 +1335,7 @@ static void AppendHitsFromJSON(const nlohmann::json &JSONObj,
           }
 
           SearchHit Hit;
+
           if (HitVal.contains("document") && HitVal["document"].is_object())
           {
                for (auto DocIt = HitVal["document"].begin(); DocIt != HitVal["document"].end(); ++DocIt)
@@ -1372,7 +1382,6 @@ static void AppendHitsFromJSON(const nlohmann::json &JSONObj,
 
           OutHits.push_back(std::move(Hit));
      }
-}
 }
 bool SearchAPI::IsStrictDistributedMode() const
 {
@@ -1674,15 +1683,21 @@ bool SearchAPI::TryDistributedSearch(const HttpRequest &Request,
      const int PerPage = Query.PerPage < 1 ? 100 : Query.PerPage;
      const std::size_t PageSize = static_cast<std::size_t>(Page);
      const std::size_t PerPageSize = static_cast<std::size_t>(PerPage);
-     const std::size_t FanoutPerPageSize = (PageSize > (std::numeric_limits<std::size_t>::max() / PerPageSize))
+     const std::size_t RequestedStart = Query.Offset > 0
+                                            ? static_cast<std::size_t>(Query.Offset)
+                                            : ((PageSize - 1) > (std::numeric_limits<std::size_t>::max() / PerPageSize)
+                                                   ? std::numeric_limits<std::size_t>::max()
+                                                   : (PageSize - 1) * PerPageSize);
+     const std::size_t FanoutPerPageSize = RequestedStart > (std::numeric_limits<std::size_t>::max() - PerPageSize)
                                                ? std::numeric_limits<std::size_t>::max()
-                                               : std::max(PerPageSize, PageSize * PerPageSize);
+                                               : std::max(PerPageSize, RequestedStart + PerPageSize);
      const int FanoutPerPage = (FanoutPerPageSize > static_cast<std::size_t>(std::numeric_limits<int>::max()))
                                    ? std::numeric_limits<int>::max()
                                    : static_cast<int>(FanoutPerPageSize);
      ComprehensiveSearchQuery FanoutQuery = Query;
      FanoutQuery.Page = 1;
      FanoutQuery.PerPage = FanoutPerPage;
+     FanoutQuery.Offset = 0;
 
      std::vector<SearchHit> AggregatedHits;
      std::map<std::string, std::map<std::string, int>> FacetCounts;
@@ -1763,8 +1778,34 @@ bool SearchAPI::TryDistributedSearch(const HttpRequest &Request,
 
           const auto RequestStart = ::Now();
           HttpRequest FanoutRequest = Request;
+          FanoutRequest.QueryParams.erase("offset");
+          FanoutRequest.QueryParams.erase("from");
+          FanoutRequest.QueryParams.erase("limit");
+          FanoutRequest.QueryParams.erase("size");
           FanoutRequest.QueryParams["page"] = "1";
           FanoutRequest.QueryParams["per_page"] = std::to_string(FanoutPerPage);
+
+          if (FanoutRequest.Method == "POST" && !FanoutRequest.Body.empty())
+          {
+               try
+               {
+                    nlohmann::json FanoutBody = nlohmann::json::parse(FanoutRequest.Body);
+                    if (FanoutBody.is_object())
+                    {
+                         FanoutBody.erase("offset");
+                         FanoutBody.erase("from");
+                         FanoutBody.erase("limit");
+                         FanoutBody.erase("size");
+                         FanoutBody["page"] = 1;
+                         FanoutBody["per_page"] = FanoutPerPage;
+                         FanoutRequest.Body = FanoutBody.dump();
+                    }
+               }
+               catch (...)
+               {
+                    /* The caller already validated the body; keep it unchanged on failure. */
+               }
+          }
 
           PeerRequestResult PeerResult;
           if (!ExecutePeerRequestWithFallback(Node.Host, Node.Port, Node.Endpoint, Node.UseSSL, FanoutRequest, TimeoutMS, UsePersistentTransport, PersistentBurst, AutoReconnect, ReconnectMS, PeerTokenSource::Cluster, &PeerResult))
@@ -2012,18 +2053,13 @@ bool SearchAPI::TryDistributedSearch(const HttpRequest &Request,
      }
 
      OutResult->Hits.clear();
-     const std::size_t PageIndex = static_cast<std::size_t>(Page - 1);
-     if (PageIndex <= (std::numeric_limits<std::size_t>::max() / PerPageSize))
+     const std::size_t Start = RequestedStart;
+     if (Start < AggregatedHits.size())
      {
-          const std::size_t Start = PageIndex * PerPageSize;
-
-          if (Start < AggregatedHits.size())
-          {
-               const std::size_t End = std::min(AggregatedHits.size(), Start + PerPageSize);
-               OutResult->Hits.insert(OutResult->Hits.end(),
-                                      AggregatedHits.begin() + static_cast<std::vector<SearchHit>::difference_type>(Start),
-                                      AggregatedHits.begin() + static_cast<std::vector<SearchHit>::difference_type>(End));
-          }
+          const std::size_t End = std::min(AggregatedHits.size(), Start + PerPageSize);
+          OutResult->Hits.insert(OutResult->Hits.end(),
+                                 AggregatedHits.begin() + static_cast<std::vector<SearchHit>::difference_type>(Start),
+                                 AggregatedHits.begin() + static_cast<std::vector<SearchHit>::difference_type>(End));
      }
 
      OutResult->Found = FoundTotal;
@@ -2336,12 +2372,9 @@ bool SearchAPI::ShouldAttemptReplication(const HttpRequest &Request) const
      return true;
 }
 
-namespace
-{
 static std::string BuildReplicationSlaveStateKey(const std::string &Endpoint)
 {
      return "replication_slave_state:" + Endpoint;
-}
 }
 
 void SearchAPI::PersistReplicationSlaveState(const std::string &Endpoint) const
@@ -2811,7 +2844,6 @@ bool SearchAPI::ReplicateWriteRequest(const HttpRequest &Request,
                               ReplicaFlushSynced =
                                    ReplicaBody.value("success", false) &&
                                    ReplicaBody.value("database_synced", false) &&
-                                   ReplicaBody.value("sam_synced", false) &&
                                    ReplicaBody.value("replica_flush_synced", false);
                          }
                          catch (...)
@@ -2824,7 +2856,7 @@ bool SearchAPI::ReplicateWriteRequest(const HttpRequest &Request,
                               MarkSlaveDirty(Node.Endpoint);
                               std::string QueueError;
                               const bool Queued = QueuePendingReplication(Node.Endpoint, ReplicationRequest, false, &QueueError);
-                              Errors.push_back(Node.Endpoint + ": flush applied but replica did not confirm durable database/SAM sync" +
+                              Errors.push_back(Node.Endpoint + ": flush applied but replica did not confirm durable database sync" +
                                                (Queued ? std::string("") : "; " + QueueError));
                               continue;
                          }

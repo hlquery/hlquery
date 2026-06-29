@@ -43,8 +43,6 @@
 #include "modules/extra/m_analytics/analyticsmanager.h"
 #include "vendor/json/json.hpp"
 
-namespace
-{
 constexpr const char *kSystemCollection = "*";
 constexpr const char *kOverflowCollection = "__other__";
 
@@ -161,7 +159,6 @@ std::string StripQueryString(const std::string &PathValue)
      }
 
      return PathValue.substr(0, QueryPos);
-}
 }
 
 /* Initialize the analytics manager runtime state. */

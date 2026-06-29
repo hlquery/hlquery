@@ -31,14 +31,16 @@ It exposes a REST API for indexing, querying, and administration, and includes c
 
 hlquery is built for teams that want strong search capabilities without taking on the operational weight of a larger search stack. It combines fast indexing, low-latency queries, and a simple HTTP/JSON surface area with features that are usually expected from more complex systems.
 
-You can use hlquery for classic full-text search, hybrid retrieval, vector similarity, and AI-assisted search workflows while keeping deployment and integration straightforward. Its optional SAM+ layer can add adaptive, assistant-driven search behavior when you need it. The project also ships with official client libraries, command-line tools, and modular runtime extensions, which makes it practical both for local development and production services.
+You can use hlquery for classic full-text search, hybrid retrieval, vector similarity, and AI-assisted search workflows while keeping deployment and integration straightforward. The project also ships with official client libraries, command-line tools, and modular runtime extensions, which makes it practical both for local development and production services.
 
 ### Prerequisites
 
 **Debian/Ubuntu:**
 ```bash
-$ sudo apt-get install build-essential cmake libssl-dev
+$ sudo apt-get install build-essential cmake libssl-dev liburing-dev
 ```
+
+If CMake prints a `uring` lookup warning during the RocksDB build, it usually means the `liburing` development package is missing. Installing `liburing-dev` on Debian/Ubuntu provides the package metadata CMake is looking for and clears the warning.
 
 **RedHat/CentOS:**
 ```bash
@@ -174,6 +176,10 @@ $schema = [
 
         ['name' => 'content', 'type' => 'string'],
 
+        /* Keep product identifiers as exact, non-fuzzy values. */
+
+        ['name' => 'sku', 'type' => 'keyword'],
+
         /* Save a numeric price for filters and sorts. */
 
         ['name' => 'price', 'type' => 'float'],
@@ -275,26 +281,6 @@ $ ./run/hlquery cli search products "!apple"
 # Combined queries
 $ ./run/hlquery cli search products "title:laptop AND price:[100 TO 500]"
 ```
-
-### SAM+ (optional): Search that gets smarter over time
-
-hlquery includes **SAM+**, the **Secondary Assistant Manager**, as a 100% optional feature. SAM+ adds a second retrieval layer for natural-language intent, search assistance, and learned query behavior, but hlquery can run normally without it.
-
-To use SAM+, enable it in [run/conf/sam.conf](run/conf/sam.conf) and point it at a local Qwen model. The main [run/conf/hlquery.conf](run/conf/hlquery.conf) includes `sam.conf` during startup:
-
-```xml
-<sam enabled="true"
-     models_dir="run/models"
-     model_name="qwen_1_5">
-```
-
-Download the matching model with the bundled helper:
-
-```bash
-$ ./tools/download --model qwen_1_5
-```
-
-`tools/download` stores model files under `run/models` by default. The shipped Qwen presets include `qwen_0_5`, `qwen_1_5`, `qwen_3`, `qwen_14`, and `qwen_coder_1_5`; the `model_name` in `sam.conf` should match the preset you download.
 
 ---
 

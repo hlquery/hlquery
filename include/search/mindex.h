@@ -77,6 +77,8 @@ class MMapIndex
 
      size_t TermsSize = 0;
 
+     size_t TermsMappedSize = 0;
+
      /* TermMapMMap stores the term map mmap buffer. */
 
      void* TermMapMMap = nullptr;
@@ -84,6 +86,8 @@ class MMapIndex
      /* TermMapSize stores the term map mmap size. */
 
      size_t TermMapSize = 0;
+
+     size_t TermMapMappedSize = 0;
 
      /* TermIndexMMap stores the term index mmap buffer. */
 
@@ -93,6 +97,8 @@ class MMapIndex
 
      size_t TermIndexSize = 0;
 
+     size_t TermIndexMappedSize = 0;
+
      /* PostingsMMap stores the postings mmap buffer. */
 
      void* PostingsMMap = nullptr;
@@ -100,6 +106,8 @@ class MMapIndex
      /* PostingsSize stores the postings mmap size. */
 
      size_t PostingsSize = 0;
+
+     size_t PostingsMappedSize = 0;
 
      /* TermCount stores the number of terms in the index. */
 

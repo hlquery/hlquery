@@ -51,16 +51,46 @@ class DumpModule final : public AutoRuntimeModule<DumpModule>
                return Response;
           }
 
-          auto parseInteger = [](const std::string &Value, long long DefaultValue) -> long long
+          auto BuildError = [](signed int StatusCode, const std::string &Message) -> ModuleCommandResponse
           {
+               ModuleCommandResponse ErrorResponse;
+
+               ErrorResponse.Success = false;
+               ErrorResponse.StatusCode = StatusCode;
+               ErrorResponse.ContentType = "text/plain";
+               ErrorResponse.Message = Message;
+               ErrorResponse.Body = Message;
+
+               return ErrorResponse;
+          };
+
+          auto ParseInteger = [](const std::string &Name, const std::string &Value, long long &Out, std::string &Error) -> bool
+          {
+               if (Value.empty())
+               {
+                    Error = "Parameter '" + Name + "' must not be empty.";
+                    return false;
+               }
+
+               size_t Parsed = 0;
+
                try
                {
-                    return std::stoll(Value);
+                    Out = std::stoll(Value, &Parsed, 10);
                }
-               catch (...)
+               catch (const std::exception &)
                {
-                    return DefaultValue;
+                    Error = "Parameter '" + Name + "' must be an integer.";
+                    return false;
                }
+
+               if (Parsed != Value.size())
+               {
+                    Error = "Parameter '" + Name + "' must be an integer.";
+                    return false;
+               }
+
+               return true;
           };
 
           std::string pattern = "*";
@@ -76,22 +106,37 @@ class DumpModule final : public AutoRuntimeModule<DumpModule>
           long long cursor = 0;
           if (auto it = Request.NamedParameters.find("cursor"); it != Request.NamedParameters.end())
           {
-               cursor = parseInteger(it->second, 0);
+               std::string Error;
+
+               if (!ParseInteger("cursor", it->second, cursor, Error) || cursor < 0)
+               {
+                    return BuildError(400, Error.empty() ? "Parameter 'cursor' must be greater than or equal to 0." : Error);
+               }
           }
 
           long long limit = 0;
           if (auto it = Request.NamedParameters.find("limit"); it != Request.NamedParameters.end())
           {
-               limit = parseInteger(it->second, limit);
+               std::string Error;
+
+               if (!ParseInteger("limit", it->second, limit, Error) || limit < 0)
+               {
+                    return BuildError(400, Error.empty() ? "Parameter 'limit' must be greater than or equal to 0." : Error);
+               }
           }
           if (auto it = Request.NamedParameters.find("count"); it != Request.NamedParameters.end())
           {
-               limit = parseInteger(it->second, limit);
+               std::string Error;
+
+               if (!ParseInteger("count", it->second, limit, Error) || limit < 0)
+               {
+                    return BuildError(400, Error.empty() ? "Parameter 'count' must be greater than or equal to 0." : Error);
+               }
           }
 
-          if (limit < 0)
+          if (Request.IsCancelled && Request.IsCancelled())
           {
-               limit = 0;
+               return BuildError(499, "Dump cancelled before it started.");
           }
 
           std::ostringstream BodyStream;
@@ -101,9 +146,17 @@ class DumpModule final : public AutoRuntimeModule<DumpModule>
           long long next_cursor = cursor;
           bool dumped_any = false;
           bool has_more_entries = false;
+          bool cancelled = false;
 
           while (true)
           {
+               if (Request.IsCancelled && Request.IsCancelled())
+               {
+                    cancelled = true;
+                    has_more_entries = true;
+                    break;
+               }
+
                long long fetch_count = chunk_size;
                if (limit > 0)
                {
@@ -129,8 +182,17 @@ class DumpModule final : public AutoRuntimeModule<DumpModule>
                     continue;
                }
 
+               const long long processed_before_chunk = processed;
+
                for (const auto &Key : chunk.keys)
                {
+                    if (Request.IsCancelled && Request.IsCancelled())
+                    {
+                         cancelled = true;
+                         has_more_entries = true;
+                         break;
+                    }
+
                     const std::string Value = Instance->Database->Get(Key);
                     if (processed > 0 || dumped_any)
                     {
@@ -144,10 +206,15 @@ class DumpModule final : public AutoRuntimeModule<DumpModule>
                     BodyStream << Value << "\n";
                     ++processed;
                }
-               dumped_any = true;
+               dumped_any = dumped_any || processed > processed_before_chunk;
 
                has_more_entries = chunk.has_more;
                next_cursor = chunk.cursor;
+
+               if (cancelled)
+               {
+                    break;
+               }
 
                if (!chunk.has_more)
                {
@@ -161,9 +228,30 @@ class DumpModule final : public AutoRuntimeModule<DumpModule>
                }
            }
 
-          if (!dumped_any)
+          if (cancelled)
           {
-               BodyStream << "No keys matched pattern '" << pattern << "'.";
+               Response.Success = false;
+               Response.StatusCode = 499;
+               Response.Message = "Dump cancelled.";
+
+               if (dumped_any)
+               {
+                    BodyStream << "Dumped " << processed << " entries";
+                    if (has_more_entries)
+                    {
+                         BodyStream << " (next cursor: " << next_cursor << ")";
+                    }
+                    BodyStream << "\nCancelled before the full dump completed.";
+               }
+               else
+               {
+                    BodyStream << "Dump cancelled.";
+               }
+          }
+          else if (!dumped_any)
+          {
+               BodyStream << "No keys matched pattern '" << pattern << "'.\n";
+               BodyStream << "Scanned cursor from " << cursor << " to " << next_cursor << ".";
           }
           else
           {
@@ -191,7 +279,7 @@ class DumpModule final : public AutoRuntimeModule<DumpModule>
           command.Route = "dump";
           command.Summary = "Print storage key/value pairs.";
           command.Syntax = "dump [pattern=<pattern>] [prefix=<prefix>] [limit=<count>] [cursor=<offset>]";
-          command.MaxParameters = 4;
+          command.MaxParameters = 5;
 
           ModuleCommandParameterSpec pattern_param;
           pattern_param.Name = "pattern";
@@ -208,12 +296,17 @@ class DumpModule final : public AutoRuntimeModule<DumpModule>
           limit_param.Type = "int";
           limit_param.Description = "Maximum number of entries to print (0=all, default 0).";
 
+          ModuleCommandParameterSpec count_param;
+          count_param.Name = "count";
+          count_param.Type = "int";
+          count_param.Description = "Alias for limit.";
+
           ModuleCommandParameterSpec cursor_param;
           cursor_param.Name = "cursor";
           cursor_param.Type = "int";
           cursor_param.Description = "Cursor offset for pagination.";
 
-          command.Parameters = {pattern_param, prefix_param, limit_param, cursor_param};
+          command.Parameters = {pattern_param, prefix_param, limit_param, count_param, cursor_param};
 
           return {command};
      }

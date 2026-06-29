@@ -171,45 +171,6 @@ class HLQueryCLI
      /* Shows contextual lookup phrases for one document. */
 
      void ShowDocumentContext(const std::string &collection_name, const std::string &document_id, bool json_output = false);
-
-     /* Rebuilds SAM entries for one collection. */
-
-     void RebuildSAMCollection(const std::string &collection_name, bool json_output = false);
-
-     /* Searches one collection's SAM index. */
-
-     bool SearchSAM(const std::string &collection_name,
-                    const std::string &query,
-                    int limit = 20,
-                    bool json_output = false,
-                    bool all_collections = false,
-                    const std::vector<std::string> &collections = {},
-                    const std::string &distributed = "",
-                    const std::string &route = "",
-                    bool skip_record = false);
-
-     /* Shows SAM indexing status for one collection. */
-
-     void ShowSAMStatus(const std::string &collection_name, bool json_output = false);
-
-     /* Shows recently recorded SAM search history entries. */
-
-     void ShowSAMHistory(const std::string &collection_name,
-                         int limit = 100,
-                         bool json_output = false,
-                         bool interactions_only = false);
-
-     /* Lists SAM-indexed documents for one collection. */
-
-     void ListSAMDocuments(const std::string &collection_name, int offset = 0, int limit = 20, bool json_output = false);
-
-     /* Opens one SAM document entry. */
-
-     void OpenSAMDocument(const std::string &collection_name,
-                          const std::string &document_id,
-                          bool json_output = false,
-                          const std::string &interaction_query = "");
-
      /* Searches across multiple collections via the global search endpoint. */
 
      void SearchAcrossCollections(const std::string &query, const std::vector<std::string> &collections, int limit = 10000, int offset = 0, const std::string &sort = "", bool exact_match = false, bool highlight = false, const std::string &highlight_fields = "", const std::string &distributed = "", const std::string &route = "", bool distributed_collections = false, int maybe_min = -1, int maybe_limit = -1, bool json_output = false);
@@ -335,10 +296,6 @@ class HLQueryCLI
      /* Unloads one runtime module through the shared module API. */
 
      void UnloadModule(const std::string &module_name);
-
-     /* Shows active LLM runtime information. */
-
-     void ShowLLMInfo();
 
      /* Checks whether one collection exists. */
 

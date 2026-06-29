@@ -29,7 +29,6 @@
 
 #define HLQUERY_CONFIG_DIR "${HLQUERY_CONFIG_DIR}"
 #define HLQUERY_DATA_DIR "${HLQUERY_DATA_DIR}"
-#define HLQUERY_SAM_DATA_DIR "${HLQUERY_SAM_DATA_DIR}"
 #define HLQUERY_LOG_DIR "${HLQUERY_LOG_DIR}"
 #define HLQUERY_ADMIN_DIR "${HLQUERY_ADMIN_DIR}"
 #define HLQUERY_PID_DIR "${HLQUERY_PID_DIR}"
@@ -127,7 +126,7 @@ ${HLQUERY_SSL_DEFINES}
 /* HTTP Server Configuration */
 /* Maximum requests per HTTP connection (keep-alive limit) */
 
-#define HTTP_MAX_REQUESTS_PER_CONNECTION 100
+#define HTTP_MAX_REQUESTS_PER_CONNECTION 10000
 
 /* HTTP keep-alive timeout in seconds */
 
@@ -392,9 +391,61 @@ ${HLQUERY_SSL_DEFINES}
 
 #define EPOLL_BATCH_SIZE 64
 
+/* Number of reusable zero-copy buffers maintained by the epoll backend */
+
+#define EPOLL_ZERO_COPY_BUFFER_COUNT 16
+
+/* Size and alignment of each epoll zero-copy buffer */
+
+#define EPOLL_ZERO_COPY_BUFFER_SIZE (64 * 1024)
+#define EPOLL_ZERO_COPY_BUFFER_ALIGNMENT 4096
+
+/* Maximum file descriptor accepted while validating epoll events */
+
+#define EPOLL_MAX_REASONABLE_FD 1000000
+
+/* Initial capacity of the epoll pending-write lookup set */
+
+#define EPOLL_PENDING_WRITES_RESERVE 1024
+
+/* Bounds for draining events after epoll fills its event buffer */
+
+#define EPOLL_MAX_DRAIN_LOOPS 10
+#define EPOLL_MAX_DRAIN_EVENTS_MULTIPLIER 20
+
 /* Poll batch size */
 
 #define POLL_BATCH_SIZE 1
+
+/* Kqueue batch size for high-speed writes */
+
+#define KQUEUE_BATCH_SIZE 256
+
+/* Kqueue remains non-blocking while CPU-side work is pending */
+
+#define KQUEUE_PENDING_WORK_TIMEOUT_MS 0
+
+/* Event-loop timeout used while CPU-side work is pending */
+
+#define SOCKET_ENGINE_PENDING_WORK_TIMEOUT_MS 1
+
+/* Fallback wakeup when no scheduled timer provides an earlier deadline */
+
+#define SOCKET_ENGINE_TIMED_WORK_FALLBACK_MS 1000
+
+/* Connection thresholds used by adaptive event-loop timeout selection */
+
+#define SOCKET_ENGINE_ULTRA_HIGH_LOAD_CONNECTIONS 10000
+#define SOCKET_ENGINE_HIGH_LOAD_CONNECTIONS 5000
+#define SOCKET_ENGINE_MEDIUM_LOAD_CONNECTIONS 1000
+#define SOCKET_ENGINE_LOW_MEDIUM_LOAD_CONNECTIONS 100
+
+/* Adaptive event-loop timeouts for each active-load tier */
+
+#define SOCKET_ENGINE_ULTRA_HIGH_LOAD_TIMEOUT_MS 0
+#define SOCKET_ENGINE_HIGH_LOAD_TIMEOUT_MS 1
+#define SOCKET_ENGINE_MEDIUM_LOAD_TIMEOUT_MS 5
+#define SOCKET_ENGINE_LOW_MEDIUM_LOAD_TIMEOUT_MS 10
 
 /* HTTP Server Buffer Configuration Constants */
 /* HTTP read buffer size in bytes (increased from 4096) */

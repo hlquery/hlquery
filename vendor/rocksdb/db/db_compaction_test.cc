@@ -11833,7 +11833,7 @@ TEST_F(DBCompactionTest, RoundRobinCleanCutWithSharedBoundary) {
 // 2. A post-verification step fails (injected here via sync point), setting
 //    compact_->status to error while each subcompaction's status stays OK.
 // 3. SubcompactionState::Cleanup checks individual status (OK) and skips
-//    ReleaseObsolete — the cache entries leak.
+//    ReleaseObsolete -- the cache entries leak.
 // 4. FaultInjectionTestFS injects metadata read errors, causing GetChildren
 //    to fail in FindObsoleteFiles.
 // 5. Close()'s FindObsoleteFiles also fails to find the orphan for the same
@@ -11864,7 +11864,7 @@ TEST_F(DBCompactionTest, LeakedTableCacheEntryOnCompactionFailure) {
   // fail while individual subcompaction statuses stay OK (so Cleanup skips
   // ReleaseObsolete). The filesystem deactivation makes GetChildren fail
   // in FindObsoleteFiles, preventing the backstop from evicting the leaked
-  // cache entries — matching the crash test's metadata read fault injection.
+  // cache entries -- matching the crash test's metadata read fault injection.
   std::atomic<bool> inject_error{true};
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "CompactionJob::Run():AfterVerifyOutputFiles", [&](void* arg) {
@@ -11876,7 +11876,7 @@ TEST_F(DBCompactionTest, LeakedTableCacheEntryOnCompactionFailure) {
   // Enable metadata read fault injection on the bg compaction thread after
   // the compaction job finishes but before FindObsoleteFiles runs. This
   // makes GetChildren fail (metadata read), matching crash test's
-  // --open_metadata_read_fault_one_in=8. Only metadata reads fail —
+  // --open_metadata_read_fault_one_in=8. Only metadata reads fail --
   // logging and other IO operations continue normally.
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "BackgroundCallCompaction:1", [&](void*) {
@@ -11889,7 +11889,7 @@ TEST_F(DBCompactionTest, LeakedTableCacheEntryOnCompactionFailure) {
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
-  // Trigger compaction — fails after VerifyOutputFiles.
+  // Trigger compaction -- fails after VerifyOutputFiles.
   Status s = dbfull()->TEST_CompactRange(0, nullptr, nullptr);
   ASSERT_NOK(s);
 
@@ -11908,6 +11908,226 @@ TEST_F(DBCompactionTest, LeakedTableCacheEntryOnCompactionFailure) {
   s = db_->Close();
   ASSERT_OK(s);
   // Release DB before fault_env goes out of scope to avoid use-after-free.
+  db_ = nullptr;
+}
+
+// Regression test for table cache leak when InstallCompactionResults fails.
+// Similar to LeakedTableCacheEntryOnCompactionFailure but the failure occurs
+// during Install() (MANIFEST write) rather than during Run().
+// 1. Compaction Run() succeeds: all subcompactions OK, VerifyOutputFiles
+//    inserts output files into the table cache, compact_->status = OK.
+// 2. Install() calls InstallCompactionResults() -> LogAndApply(), which
+//    fails (injected MANIFEST write error).
+// 3. Install()'s local status captures the error, but compact_->status
+//    was never updated (THE BUG). CleanupCompaction passes compact_->status
+//    (OK) to Cleanup(), which skips ReleaseObsolete.
+// 4. FaultInjection prevents FindObsoleteFiles backstop from working.
+// 5. Close()'s TEST_VerifyNoObsoleteFilesCached finds the leaked entry.
+TEST_F(DBCompactionTest, LeakedTableCacheEntryOnInstallFailure) {
+  auto fault_fs = std::make_shared<FaultInjectionTestFS>(env_->GetFileSystem());
+  std::unique_ptr<Env> fault_env(NewCompositeEnv(fault_fs));
+
+  Options options = CurrentOptions();
+  options.env = fault_env.get();
+  options.paranoid_file_checks = true;
+  options.level0_file_num_compaction_trigger = 2;
+  options.disable_auto_compactions = true;
+  options.num_levels = 3;
+  DestroyAndReopen(options);
+
+  // Write overlapping data to force a real (non-trivial) compaction.
+  ASSERT_OK(Put("a", std::string(1024, 'x')));
+  ASSERT_OK(Put("z", std::string(1024, 'x')));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put("a", std::string(1024, 'y')));
+  ASSERT_OK(Put("z", std::string(1024, 'y')));
+  ASSERT_OK(Flush());
+  ASSERT_EQ(NumTableFilesAtLevel(0), 2);
+
+  // After VerifyOutputFiles succeeds (cache entries created) and Run()
+  // completes successfully, inject an error into InstallCompactionResults()
+  // so that Install() fails while compact_->status remains OK.
+  // Also enable metadata read faults to prevent the FindObsoleteFiles
+  // backstop from evicting the leaked cache entries.
+  std::atomic<bool> inject_error{true};
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "CompactionJob::InstallCompactionResults:BeforeLogAndApply",
+      [&](void* arg) {
+        if (inject_error.exchange(false)) {
+          *static_cast<Status*>(arg) = Status::IOError("injected");
+        }
+      });
+
+  // After the compaction job finishes (including Install), enable metadata
+  // read faults so FindObsoleteFiles backstop cannot scan the directory.
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "BackgroundCallCompaction:1", [&](void*) {
+        fault_fs->SetThreadLocalErrorContext(
+            FaultInjectionIOType::kMetadataRead, /*seed=*/0, /*one_in=*/1,
+            /*retryable=*/false, /*has_data_loss=*/false);
+        fault_fs->EnableThreadLocalErrorInjection(
+            FaultInjectionIOType::kMetadataRead);
+      });
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  // Trigger compaction -- Run() succeeds but Install() fails.
+  Status s = dbfull()->TEST_CompactRange(0, nullptr, nullptr);
+  ASSERT_NOK(s);
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  // Enable metadata read fault injection on the main thread too, so
+  // Close()'s FindObsoleteFiles also fails to find the orphan file.
+  fault_fs->SetThreadLocalErrorContext(
+      FaultInjectionIOType::kMetadataRead, /*seed=*/0, /*one_in=*/1,
+      /*retryable=*/false, /*has_data_loss=*/false);
+  fault_fs->EnableThreadLocalErrorInjection(
+      FaultInjectionIOType::kMetadataRead);
+
+  // TEST_VerifyNoObsoleteFilesCached asserted within Close on ASAN builds
+  s = db_->Close();
+  ASSERT_OK(s);
+  // Release DB before fault_env goes out of scope to avoid use-after-free.
+  db_ = nullptr;
+}
+
+// Regression test for ReleaseObsolete failing to erase table cache entries
+// when concurrent readers hold references.
+// 1. Flush creates an L0 SST file with an entry in the table cache.
+// 2. A concurrent reader acquires a cache reference on the file (simulated
+//    with a direct cache Lookup).
+// 3. ReleaseObsolete is called (simulating what PurgeObsoleteFiles does when
+//    the file becomes obsolete). With the old code, this calls
+//    ReleaseAndEraseIfLastRef which fails because of the concurrent ref.
+// 4. The concurrent reader releases its reference.
+// 5. Without the fix, the entry remains in the cache (leak). With the fix,
+//    ReleaseObsolete's Erase() marked the entry Invisible, so it was cleaned
+//    up when the concurrent ref was released.
+TEST_F(DBCompactionTest, ObsoleteFileTableCacheEntryWithConcurrentRef) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  DestroyAndReopen(options);
+
+  // Create an L0 file.
+  ASSERT_OK(Put("a", std::string(1024, 'x')));
+  ASSERT_OK(Put("z", std::string(1024, 'x')));
+  ASSERT_OK(Flush());
+  ASSERT_EQ(NumTableFilesAtLevel(0), 1);
+
+  // Get the file number of the L0 file.
+  std::vector<LiveFileMetaData> files;
+  dbfull()->GetLiveFilesMetaData(&files);
+  ASSERT_EQ(files.size(), 1);
+  uint64_t target_file_number = files[0].file_number;
+
+  // Ensure the file is in the table cache by reading from it.
+  ASSERT_EQ(Get("a"), std::string(1024, 'x'));
+
+  Cache* table_cache = dbfull()->TEST_table_cache();
+
+  // Simulate a concurrent reader acquiring a cache reference.
+  Cache::Handle* concurrent_handle =
+      TableCache::Lookup(table_cache, target_file_number);
+  ASSERT_NE(concurrent_handle, nullptr);
+
+  // Call ReleaseObsolete directly -- this is what PurgeObsoleteFiles calls
+  // when a file becomes obsolete. Pass nullptr for the handle to make
+  // ReleaseObsolete do its own Lookup internally.
+  TableCache::ReleaseObsolete(table_cache, target_file_number,
+                              /*handle=*/nullptr,
+                              /*uncache_aggressiveness=*/0);
+
+  // The concurrent reader releases its reference.
+  table_cache->Release(concurrent_handle);
+
+  // With the fix, the entry should be gone: ReleaseObsolete called Erase()
+  // which marked it Invisible, so it was freed when the concurrent ref was
+  // released. Without the fix, the entry leaks here.
+  Cache::Handle* leaked = TableCache::Lookup(table_cache, target_file_number);
+  ASSERT_EQ(leaked, nullptr);
+}
+
+// Regression test for the atomic flush path leaking table cache entries when
+// InstallMemtableAtomicFlushResults (MANIFEST write) fails.
+// 1. atomic_flush is enabled with two column families.
+// 2. Both CFs have data, a flush is triggered.
+// 3. FlushJob::Run() succeeds for both (files are added to table cache by
+//    BuildTable), but write_manifest=false so no install happens in Run().
+// 4. The combined MANIFEST write (InstallMemtableAtomicFlushResults) fails
+//    due to injected I/O error.
+// 5. Without the fix, the files remain in the table cache but are not in
+//    any Version, causing TEST_VerifyNoObsoleteFilesCached to fire during
+//    Close() (especially when metadata_read_fault_one_in disables the
+//    FindObsoleteFiles backstop).
+TEST_F(DBCompactionTest, LeakedTableCacheEntryOnAtomicFlushInstallFailure) {
+  auto fault_fs = std::make_shared<FaultInjectionTestFS>(env_->GetFileSystem());
+  std::unique_ptr<Env> fault_env(NewCompositeEnv(fault_fs));
+
+  Options options = CurrentOptions();
+  options.env = fault_env.get();
+  options.atomic_flush = true;
+  options.create_if_missing = true;
+  options.disable_auto_compactions = true;
+  // Enough buffer so auto-flush doesn't trigger prematurely.
+  options.write_buffer_size = 64 << 20;
+  DestroyAndReopen(options);
+
+  // Create a second column family.
+  CreateAndReopenWithCF({"pikachu"}, options);
+  ASSERT_EQ(2, handles_.size());
+
+  // Write data to both CFs.
+  ASSERT_OK(Put(0, "key0", std::string(1024, 'a')));
+  ASSERT_OK(Put(1, "key1", std::string(1024, 'b')));
+
+  // Inject a write error during the combined MANIFEST write that happens
+  // inside InstallMemtableAtomicFlushResults (via LogAndApply).
+  std::atomic<bool> inject_error{true};
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "VersionSet::LogAndApply:WriteManifest", [&](void*) {
+        if (inject_error.exchange(false)) {
+          fault_fs->SetThreadLocalErrorContext(
+              FaultInjectionIOType::kWrite, /*seed=*/0, /*one_in=*/1,
+              /*retryable=*/false, /*has_data_loss=*/false);
+          fault_fs->EnableThreadLocalErrorInjection(
+              FaultInjectionIOType::kWrite);
+        }
+      });
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  // Trigger atomic flush - Run() succeeds but MANIFEST write fails.
+  FlushOptions flush_opts;
+  flush_opts.wait = true;
+  Status s = db_->Flush(flush_opts, handles_);
+  ASSERT_NOK(s);
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  // Disable the write fault so Close() can proceed.
+  fault_fs->DisableThreadLocalErrorInjection(FaultInjectionIOType::kWrite);
+
+  // Enable metadata read fault injection on the main thread so that
+  // Close()'s FindObsoleteFiles full-scan backstop cannot find the orphan
+  // files (simulating metadata_read_fault_one_in from the stress test).
+  fault_fs->SetThreadLocalErrorContext(
+      FaultInjectionIOType::kMetadataRead, /*seed=*/0, /*one_in=*/1,
+      /*retryable=*/false, /*has_data_loss=*/false);
+  fault_fs->EnableThreadLocalErrorInjection(
+      FaultInjectionIOType::kMetadataRead);
+
+  // Destroy column family handles before closing.
+  for (auto h : handles_) {
+    ASSERT_OK(db_->DestroyColumnFamilyHandle(h));
+  }
+  handles_.clear();
+
+  // Close the DB. Without the fix, TEST_VerifyNoObsoleteFilesCached fires.
+  s = db_->Close();
+  ASSERT_OK(s);
   db_ = nullptr;
 }
 
@@ -12037,6 +12257,56 @@ TEST_F(DBCompactionTest, VerifyAllOutputFlagsWithoutParanoidFileChecks) {
     }
     ASSERT_EQ(Get(Key(i)), expected);
   }
+}
+
+// Requires ~8GB+ RAM because the compaction filter internally creates a ~4GB
+// value via std::string::assign().
+TEST_F(DBCompactionTest, CompactionFilterLargeValueRejected) {
+  if (!test::HasBigMem()) {
+    ROCKSDB_GTEST_BYPASS("insufficient memory for reliable continuous testing");
+    return;
+  }
+
+  // A compaction filter that inflates every value to a configurable size
+  class InflatingFilter : public CompactionFilter {
+   public:
+    std::atomic<size_t> target_size{0};
+    Decision FilterV2(int /*level*/, const Slice& /*key*/,
+                      ValueType /*value_type*/, const Slice& /*existing_value*/,
+                      std::string* new_value,
+                      std::string* /*skip_until*/) const override {
+      new_value->assign(target_size.load(), 'X');
+      return Decision::kChangeValue;
+    }
+    const char* Name() const override { return "InflatingFilter"; }
+  };
+
+  InflatingFilter inflating_filter;
+  Options options = CurrentOptions();
+  options.compaction_filter = &inflating_filter;
+  options.disable_auto_compactions = true;
+  DestroyAndReopen(options);
+
+  // Control: value at exactly 4GB - 1 should be accepted
+  inflating_filter.target_size = size_t{std::numeric_limits<uint32_t>::max()};
+  ASSERT_OK(Put("key", "small_value"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put("key", "small_value2"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+
+  // Now test rejection: value at 4GB should be rejected
+  inflating_filter.target_size =
+      size_t{std::numeric_limits<uint32_t>::max()} + 1;
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("key", "small_value"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put("key", "small_value2"));
+  ASSERT_OK(Flush());
+
+  Status s = db_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+  ASSERT_TRUE(s.IsCorruption()) << s.ToString();
+  ASSERT_TRUE(s.ToString().find("4GB") != std::string::npos) << s.ToString();
 }
 
 }  // namespace ROCKSDB_NAMESPACE

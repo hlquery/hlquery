@@ -55,8 +55,6 @@ static SearchEvent BuildSearchEvent(const std::string &Query,
      return Event;
 }
 
-namespace
-{
 enum class VectorMetric
 {
      Cosine,
@@ -952,7 +950,6 @@ static float ComputeDistanceByMetric(const VectorPayload &QueryVector,
      float Similarity = ComputeSimilarityByMetric(QueryVector, DocVector, VectorMetric::Cosine);
      return 1.0f - Similarity;
 }
-}
 /* HandleVectorSearch top-level vector search handler. */
 
 /*
@@ -971,6 +968,15 @@ HttpResponse SearchAPI::HandleVectorSearch(const HttpRequest &Request)
      if (CollectionName.empty())
      {
           return BuildErrorResponse(Status::BAD_REQUEST, Code::COLLECTION_INVALID_NAME, "Invalid collection name.");
+     }
+
+     CollectionName = ResolveCollectionName(CollectionName);
+     if (CollectionName.empty() || !HybridStorageManagerInstance().CollectionExists(CollectionName))
+     {
+          return BuildErrorResponse(Status::NOT_FOUND,
+                                    Code::COLLECTION_NOT_FOUND,
+                                    "Collection not found.",
+                                    "The specified collection does not exist.");
      }
 
      ComprehensiveSearchQuery SearchQueryObj;

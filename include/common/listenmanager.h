@@ -18,7 +18,6 @@
 #include <vector>
 
 #include "core/socketengine.h"
-#include "runtime/serverconfig.h"
 
 /* 
  * Manages one listening socket for incoming client connections.
@@ -54,13 +53,14 @@ class ListenManager : public EventHandler
 
      /* Build listen managers for non-HTTP bind entries in the server config. */
 
-     static std::vector<std::unique_ptr<ListenManager>> CreateCustomProtocolListeners(const ServerConfig& Config);
+     static std::vector<std::unique_ptr<ListenManager>> CreateCustomProtocolListeners();
 
      /* Bind the socket and start listening for incoming connections. */
 
      bool BindAndListen();
 
-     /* Handle a readable event on the listening socket.
+     /* 
+      * Handle a readable event on the listening socket.
       * This is triggered when new client connections are ready to accept.
       */
 

@@ -209,7 +209,7 @@ class ModuleManager
      void DispatchEvent(ModuleHook Hook, const char* EventName, const std::function<void(RuntimeModule&)> &Invoke);
 
      /*
-      *  Dispatches an event callback to the modules contained in a snapshot.
+      * Dispatches an event callback to the modules contained in a snapshot.
       * Snapshot dispatch isolates iteration from concurrent registry updates.
       */
 
@@ -315,13 +315,12 @@ class ModuleManager
       * This is the top-level entry point used during server startup.
       */
 
-     bool LoadModules(const ServerConfig& Config, LogManager* Logger, std::string& ErrorMessage);
+     bool LoadModules(const ServerConfig& Config, std::string& ErrorMessage);
 
      /* Loads one runtime module into the active registry without replacing the rest. */
 
      bool LoadModule(const ServerConfig& Config,
                      const std::string& ModuleName,
-                     LogManager* Logger,
                      std::string& ErrorMessage,
                      const std::string& ExplicitPath = "");
 
@@ -330,14 +329,14 @@ class ModuleManager
       * This performs the actual configuration-driven module load pass.
       */
 
-     bool LoadConfiguredModules(const ServerConfig& Config, LogManager* Logger, std::string& ErrorMessage);
+     bool LoadConfiguredModules(const ServerConfig& Config, std::string& ErrorMessage);
 
      /* 
       * Unloads every currently loaded module.
       * Active registries are cleared before native handles are retired.
       */
 
-     void UnloadAll(LogManager* Logger);
+     void UnloadAll();
 
      /* 
       * Finds a loaded module by name.
@@ -410,7 +409,7 @@ class ModuleManager
 
      /* Unloads one named runtime module from the active registry. */
 
-     bool UnloadModule(const std::string& ModuleName, LogManager* Logger, std::string& ErrorMessage);
+     bool UnloadModule(const std::string& ModuleName, std::string& ErrorMessage);
 
      /*  
       * Computes a module-adjusted multiplier for a search hit score.

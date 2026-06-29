@@ -76,6 +76,7 @@ namespace
               : Original(original),
                 Active(true)
           {
+ 
           }
 
           RawModeGuard(const RawModeGuard &) = delete;

@@ -30,11 +30,15 @@
 #include <sstream>
 #include <thread>
 #include <unistd.h>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
 #include "api/searchapi.h"
+#include "api/lexicalcache.h"
+#include "api/searchcache.h"
 #include "api/common.h"
+#include "api/lexicalsort.h"
 #include "core/config.h"
 #include "core/hlquery.h"
 #include "core/socketengine.h"
@@ -51,12 +55,15 @@ static const char *kGlobalSynonymsCollection = "__global__";
 
 static bool IsGlobalSynonymsPath(const std::string &Path)
 {
-     return Path == "/synonyms/global" || Path.find("/synonyms/global/") == 0;
+     return Path == "/synonyms/global" ||
+            Path.find("/synonyms/global/") == 0 ||
+            Path == "/synonym_sets/global" ||
+            Path.find("/synonym_sets/global/") == 0;
 }
 
 static std::string ExtractGlobalSynonymId(const std::string &Path)
 {
-     std::regex GlobalSynonymRegex(R"(^/synonyms/global/([^/?]+))");
+     std::regex GlobalSynonymRegex(R"(^/(?:synonyms|synonym_sets)/global/(?:items/)?([^/?]+))");
      std::smatch Match;
 
      if (std::regex_search(Path, Match, GlobalSynonymRegex))
@@ -127,6 +134,7 @@ static std::string NormalizeSynonymTerm(const std::string &Value)
 static std::string TrimSynonymTerm(const std::string &Value)
 {
      const size_t Start = Value.find_first_not_of(" \t\r\n");
+
      if (Start == std::string::npos)
      {
           return "";
@@ -134,6 +142,28 @@ static std::string TrimSynonymTerm(const std::string &Value)
 
      const size_t End = Value.find_last_not_of(" \t\r\n");
      return Value.substr(Start, End - Start + 1);
+}
+
+static std::string GetSynonymSortValue(const nlohmann::json &Synonym, const std::string &SortBy)
+{
+     if (!Synonym.is_object() || !Synonym.contains(SortBy) || !Synonym[SortBy].is_string())
+     {
+          return "";
+     }
+
+     return NormalizeSynonymTerm(TrimSynonymTerm(Synonym[SortBy].get<std::string>()));
+}
+
+static std::string GetSynonymSortTieBreaker(const nlohmann::json &Synonym)
+{
+     if (!Synonym.is_object())
+     {
+          return Synonym.dump();
+     }
+
+     return GetSynonymSortValue(Synonym, "id") + "\n" +
+            GetSynonymSortValue(Synonym, "root") + "\n" +
+            Synonym.dump();
 }
 
 /* List all synonyms for a collection. */
@@ -151,6 +181,7 @@ HttpResponse SearchAPI::HandleListSynonyms(const HttpRequest &Request)
 
      std::string CollectionName;
      bool IsGlobalScope = false;
+
      if (!ResolveSynonymScope(Request.Path, ExtractCollectionFromPath(Request.Path), &CollectionName, &IsGlobalScope))
      {
           return HttpResponse(Status::BAD_REQUEST, StatusText(Status::BAD_REQUEST), "application/json");
@@ -218,6 +249,25 @@ HttpResponse SearchAPI::HandleListSynonyms(const HttpRequest &Request)
           }
      }
 
+     LexicalSortOptions SortOptions;
+     std::string SortError;
+
+     if (!ResolveLexicalSortOptions(Request.QueryParams, "root", {"root", "id"}, &SortOptions, &SortError))
+     {
+          return BuildErrorResponse(Status::BAD_REQUEST, Code::SEARCH_INVALID_PARAMETER, "Invalid sort parameter.", SortError);
+     }
+
+     std::sort(SynonymsArray.begin(), SynonymsArray.end(), [&SortOptions](const nlohmann::json &Left, const nlohmann::json &Right)
+     {
+          return CompareLexicalSortValues(GetSynonymSortValue(Left, SortOptions.SortBy),
+                                          GetSynonymSortValue(Right, SortOptions.SortBy),
+                                          GetSynonymSortTieBreaker(Left),
+                                          GetSynonymSortTieBreaker(Right),
+                                          SortOptions.SortOrder);
+     });
+
+     Result["sort_by"] = SortOptions.SortBy;
+     Result["sort_order"] = SortOptions.SortOrder;
      Result["synonyms"] = SynonymsArray;
 
      Response.Body = Result.dump(2);
@@ -250,7 +300,6 @@ HttpResponse SearchAPI::HandleListAllSynonyms(const HttpRequest &Request)
      for (const auto &CollectionName : Collections)
      {
           std::string SynonymsKey = "synonyms:" + CollectionName;
-
           std::string SynonymsJSON = HybridStorageManagerInstance().Get(SynonymsKey);
 
           nlohmann::json Entry;
@@ -275,6 +324,7 @@ HttpResponse SearchAPI::HandleListAllSynonyms(const HttpRequest &Request)
                }
                catch (const std::exception &)
                {
+               
                }
           }
 
@@ -313,7 +363,6 @@ HttpResponse SearchAPI::HandleListAllSynonyms(const HttpRequest &Request)
      }
 
      nlohmann::json Result;
-
      Result["collections"] = CollectionsJSON;
 
      HttpResponse Response(Status::OK, StatusText(Status::OK), "application/json");
@@ -439,13 +488,15 @@ HttpResponse SearchAPI::HandleCreateOrUpdateSynonym(const HttpRequest &Request)
 
           SynonymData["root"] = RootTerm;
           SynonymData["synonyms"] = SanitizedSynonyms;
+          const std::string Source =
+               SynonymData.contains("source") && SynonymData["source"].is_string()
+                    ? TrimSynonymTerm(SynonymData["source"].get<std::string>())
+                    : "";
 
           /* Get existing synonyms for this collection. */
 
           std::string SynonymsKey = "synonyms:" + CollectionName;
-
           std::string SynonymsJSON = HybridStorageManagerInstance().Get(SynonymsKey);
-
           nlohmann::json RootObj;
 
           if (!SynonymsJSON.empty())
@@ -493,6 +544,23 @@ HttpResponse SearchAPI::HandleCreateOrUpdateSynonym(const HttpRequest &Request)
                     Syn["root"] = SynonymData["root"];
                     Syn["synonyms"] = SynonymData["synonyms"];
                     Syn["updated_at"] = GetCurrentTimestamp();
+                
+                    if (!Source.empty())
+                    {
+                         Syn["source"] = Source;
+                    }
+                    else
+                    {
+                         Syn.erase("source");
+                    }
+                    if (SynonymData.contains("confidence") && SynonymData["confidence"].is_number())
+                    {
+                         Syn["confidence"] = SynonymData["confidence"];
+                    }
+                    else
+                    {
+                         Syn.erase("confidence");
+                    }
 
                     FoundVal = true;
                     break;
@@ -508,6 +576,16 @@ HttpResponse SearchAPI::HandleCreateOrUpdateSynonym(const HttpRequest &Request)
                NewSynonym["synonyms"] = SynonymData["synonyms"];
                NewSynonym["created_at"] = GetCurrentTimestamp();
                NewSynonym["updated_at"] = GetCurrentTimestamp();
+               
+               if (!Source.empty())
+               {
+                    NewSynonym["source"] = Source;
+               }
+               
+               if (SynonymData.contains("confidence") && SynonymData["confidence"].is_number())
+               {
+                    NewSynonym["confidence"] = SynonymData["confidence"];
+               }
 
                SynonymsArray.push_back(NewSynonym);
           }
@@ -530,25 +608,67 @@ HttpResponse SearchAPI::HandleCreateOrUpdateSynonym(const HttpRequest &Request)
                Instance->Logs->Debug("search_api", "Saving synonym to LSM - key: " + SynonymsKey + ", data: " + UpdatedJSON.substr(0, 200) + ".");
           }
 
+          std::string ReplicationOutboxID;
+          std::string ReplicationJournalError;
+
+          if (!PrepareReplicationOutboxRecord(Request, "upsert_synonym", &ReplicationOutboxID, &ReplicationJournalError))
+          {
+               return BuildErrorResponse(Status::SERVICE_UNAVAILABLE,
+                                         Code::SEARCH_INVALID_PARAMETER,
+                                         "Replication journal unavailable.",
+                                         ReplicationJournalError.empty() ? "Failed to persist replication intent before local write." : ReplicationJournalError);
+          }
+
           if (!Instance || !Instance->Database || !Instance->Database->Set(SynonymsKey, UpdatedJSON))
           {
+               ClearReplicationOutboxRecord(ReplicationOutboxID);
                return HttpResponse(Status::INTERNAL_SERVER_ERROR, StatusText(Status::INTERNAL_SERVER_ERROR), "application/json");
           }
 
-          SyncSAMLexicalChange(CollectionName, IsGlobalScope);
+          MaybeTriggerCrashInjection("replication_after_local_write");
+
+          if (!MarkReplicationOutboxCommitted(ReplicationOutboxID, Request, "upsert_synonym", &ReplicationJournalError))
+          {
+               return BuildErrorResponse(Status::SERVICE_UNAVAILABLE,
+                                         Code::SEARCH_INVALID_PARAMETER,
+                                         "Replication journal incomplete.",
+                                         ReplicationJournalError.empty() ? "Synonym was written locally but replication state was not committed durably." : ReplicationJournalError);
+          }
+
           BumpCollectionMutationVersion(IsGlobalScope ? "*" : CollectionName);
+
+          if (IsGlobalScope)
+          {
+               LexicalQueryCache::InvalidateAll();
+               SearchResponseCache::InvalidateAll();
+          }
+          else
+          {
+               LexicalQueryCache::InvalidateCollection(CollectionName);
+               SearchResponseCache::InvalidateCollection(CollectionName);
+          }
 
           HttpResponse Response(Status::OK, StatusText(Status::OK), "application/json");
 
           Response.Body = "{\"message\":\"Synonym created/updated\",\"id\":\"" + EscapeJSONString(SynonymID) + "\",\"collection\":\"" + EscapeJSONString(CollectionName) + "\",\"scope\":\"" + (IsGlobalScope ? "global" : "collection") + "\"}";
           FOREACH_MOD(OnUpsertSynonym, CollectionName, SynonymID, IsGlobalScope, Request.RemoteAddress, Request.APIKeyID, !Request.APIKeyID.empty());
 
+          std::string ReplicationError;
+
+          if (!ReplicateWriteRequest(Request, "upsert_synonym", &ReplicationError))
+          {
+               return BuildErrorResponse(Status::SERVICE_UNAVAILABLE,
+                                         Code::SEARCH_INVALID_PARAMETER,
+                                         "Replication incomplete.",
+                                         ReplicationError.empty() ? "Synonym was written locally but replica acknowledgement failed." : ReplicationError);
+          }
+
+          ClearReplicationOutboxRecord(ReplicationOutboxID);
           return Response;
      }
      catch (const nlohmann::json::parse_error &e)
      {
           HttpResponse Response(Status::BAD_REQUEST, StatusText(Status::BAD_REQUEST), "application/json");
-
           Response.Body = "{\"error\":\"Invalid JSON\",\"message\":\"Failed to parse JSON: " + EscapeJSONString(e.what()) + "\"}";
 
           return Response;
@@ -670,7 +790,6 @@ HttpResponse SearchAPI::HandleGetSynonym(const HttpRequest &Request)
                if (Syn.contains("id") && Syn["id"] == SynonymID)
                {
                     HttpResponse Response(Status::OK, StatusText(Status::OK), "application/json");
-
                     Response.Body = Syn.dump();
 
                     return Response;
@@ -843,19 +962,58 @@ HttpResponse SearchAPI::HandleDeleteSynonym(const HttpRequest &Request)
                return HttpResponse(Status::INTERNAL_SERVER_ERROR, StatusText(Status::INTERNAL_SERVER_ERROR), "application/json");
           }
 
+          std::string ReplicationOutboxID;
+          std::string ReplicationJournalError;
+          if (!PrepareReplicationOutboxRecord(Request, "delete_synonym", &ReplicationOutboxID, &ReplicationJournalError))
+          {
+               return BuildErrorResponse(Status::SERVICE_UNAVAILABLE,
+                                         Code::SEARCH_INVALID_PARAMETER,
+                                         "Replication journal unavailable.",
+                                         ReplicationJournalError.empty() ? "Failed to persist replication intent before local write." : ReplicationJournalError);
+          }
+
           if (!Instance->Database->Set(SynonymsKey, UpdatedJSON))
           {
+               ClearReplicationOutboxRecord(ReplicationOutboxID);
                return HttpResponse(Status::INTERNAL_SERVER_ERROR, StatusText(Status::INTERNAL_SERVER_ERROR), "application/json");
           }
 
-          SyncSAMLexicalChange(CollectionName, IsGlobalScope);
+          MaybeTriggerCrashInjection("replication_after_local_write");
+
+          if (!MarkReplicationOutboxCommitted(ReplicationOutboxID, Request, "delete_synonym", &ReplicationJournalError))
+          {
+               return BuildErrorResponse(Status::SERVICE_UNAVAILABLE,
+                                         Code::SEARCH_INVALID_PARAMETER,
+                                         "Replication journal incomplete.",
+                                         ReplicationJournalError.empty() ? "Synonym was deleted locally but replication state was not committed durably." : ReplicationJournalError);
+          }
           BumpCollectionMutationVersion(IsGlobalScope ? "*" : CollectionName);
+          if (IsGlobalScope)
+          {
+               LexicalQueryCache::InvalidateAll();
+               SearchResponseCache::InvalidateAll();
+          }
+          else
+          {
+               LexicalQueryCache::InvalidateCollection(CollectionName);
+               SearchResponseCache::InvalidateCollection(CollectionName);
+          }
 
           HttpResponse Response(Status::OK, StatusText(Status::OK), "application/json");
 
           Response.Body = "{\"message\":\"Synonym deleted\",\"id\":\"" + EscapeJSONString(SynonymID) + "\",\"collection\":\"" + EscapeJSONString(CollectionName) + "\",\"scope\":\"" + (IsGlobalScope ? "global" : "collection") + "\"}";
           FOREACH_MOD(OnDeleteSynonym, CollectionName, SynonymID, IsGlobalScope, Request.RemoteAddress, Request.APIKeyID, !Request.APIKeyID.empty());
 
+          std::string ReplicationError;
+          if (!ReplicateWriteRequest(Request, "delete_synonym", &ReplicationError))
+          {
+               return BuildErrorResponse(Status::SERVICE_UNAVAILABLE,
+                                         Code::SEARCH_INVALID_PARAMETER,
+                                         "Replication incomplete.",
+                                         ReplicationError.empty() ? "Synonym was deleted locally but replica acknowledgement failed." : ReplicationError);
+          }
+
+          ClearReplicationOutboxRecord(ReplicationOutboxID);
           return Response;
      }
      catch (const std::exception &)

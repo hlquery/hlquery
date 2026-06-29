@@ -17,6 +17,8 @@
 #include "common/health.h"
 #include "common/searchpool.h"
 #include "core/hlquery.h"
+#include "core/logmanager.h"
+#include "core/modulemanager.h"
 
 void EmitDaemonHealthSnapshot(time_t NowTimeVal)
 {
@@ -81,8 +83,8 @@ void EmitDaemonHealthSnapshot(time_t NowTimeVal)
           " mgmt_active=" + std::to_string(PoolStats.ManagementPool.ActiveThreads) +
           " modules_loaded=" + std::to_string(LoadedModules) +
           " shutdown_in_progress=" + std::string(Instance->IsShuttingDown() ? "yes" : "no") +
-          " signal_shutdown=" + std::to_string(static_cast<int>(ShuttingDown)) +
-          " force_exit=" + std::to_string(static_cast<int>(ForceExit)) +
+          " signal_shutdown=" + std::to_string(static_cast<int>(hlquery::GetSignalShutdownState())) +
+          " force_exit=" + std::to_string(static_cast<int>(hlquery::GetForceExitState())) +
           " unhealthy_streak=" + std::to_string(ConsecutiveUnhealthy);
 
      if (Instance->Logs)

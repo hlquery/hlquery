@@ -732,7 +732,7 @@ sub stop_server {
     my $timeout = 10;
     my $count = 0;
     while ($count < $timeout && is_running()) {
-        if ($count == 3) {
+        if ($count == 8) {
             print_info("Still waiting for shutdown. Slow stops usually mean background writes, flushes, or open requests are finishing.");
             print_info("Escalating to SIGINT to request a faster shutdown path...");
             kill('INT', $pid);

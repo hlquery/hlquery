@@ -108,6 +108,7 @@ sub calculate_dependencies {
             print $out " $include_path";
             next;
         }
+
         my $build_inc_path = catfile($build_include_dir, $include);
         if (-f $build_inc_path) {
             print $out " $build_inc_path";
@@ -118,9 +119,11 @@ sub calculate_dependencies {
     print $out "\n";
 
     # Print dependency info
+
     if (%includes) {
         print "  Local includes: " . join(', ', keys %includes) . "\n";
     }
+    
     if (%system_includes) {
         print "  System includes: " . join(', ', keys %system_includes) . "\n";
     }

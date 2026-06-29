@@ -136,6 +136,8 @@ VENDOR_CXX_WARNING_FLAGS = -Wall -Wextra \
                            -Wformat=2 -Wformat-security \
                            -Wno-unused-parameter -Wno-missing-field-initializers \
                            -Wno-pedantic -Wno-strict-overflow
+CLD2_CXX_WARNING_FLAGS = $(VENDOR_CXX_WARNING_FLAGS) \
+                         -Wno-non-c-typedef-for-linkage
 
 # Clang warns about infinity/NaN when -ffast-math is enabled.
 # This is expected for vendored json code and creates excessive noise.
@@ -332,7 +334,6 @@ SRCS_TOP += $(API_SRCS)
 
 # Search storage source files
 SEARCH_SRCS := $(filter-out $(SRC_DIR)/search/context.cpp,$(wildcard $(SRC_DIR)/search/*.cpp))
-SEARCH_SRCS += $(wildcard $(SRC_DIR)/sam/*.cpp)
 SRCS_TOP += $(SEARCH_SRCS)
 
 SQL_SRCS := $(wildcard $(SRC_DIR)/sql/*.cpp)
@@ -502,6 +503,7 @@ $(ROCKSDB_LIB):
 		      -DFAIL_ON_WARNINGS=OFF \
 		      -DWITH_GFLAGS=OFF \
 		      -DWITH_JEMALLOC=OFF \
+		      -DWITH_LIBURING=OFF \
 		      -DWITH_TBB=OFF \
 		      -DWITH_SNAPPY=OFF \
 		      -DWITH_LZ4=OFF \
@@ -548,7 +550,7 @@ $(OBJ_DIR)/vendor/cld2/internal/%.o: $(VENDOR_DIR)/cld2/internal/%.cc | $(OBJ_DI
 	@mkdir -p $(dir $@)
 	@chmod -R u+w $(dir $@) $(OBJ_DIR) 2>/dev/null || true
 	@([ "$$(id -u)" != "0" ] && chown -R $$(id -u):$$(id -g) $(dir $@) 2>/dev/null || true) || true
-	$(CXX) $(BASE_CXXFLAGS) $(OPT_FLAGS) $(VENDOR_CXX_WARNING_FLAGS) -Wno-old-style-cast -Wno-cast-qual -Wno-narrowing -Wno-implicit-fallthrough -Wno-sign-compare -Wno-ignored-qualifiers -Wno-unused-variable -Wno-unused-but-set-variable -Wno-char-subscripts $(LTO_CXXFLAGS) -MMD -MP -c $< -o $@
+	$(CXX) $(BASE_CXXFLAGS) $(OPT_FLAGS) $(CLD2_CXX_WARNING_FLAGS) -Wno-old-style-cast -Wno-cast-qual -Wno-narrowing -Wno-implicit-fallthrough -Wno-sign-compare -Wno-ignored-qualifiers -Wno-unused-variable -Wno-unused-but-set-variable -Wno-char-subscripts $(LTO_CXXFLAGS) -MMD -MP -c $< -o $@
 
 # Universal pattern rule for source compilation with auto-deps
 # Use order-only prerequisite (|) for directory creation to avoid race conditions in parallel builds
@@ -671,7 +673,6 @@ clean:
 	@find $(VENDOR_DIR) -name "*.d" -exec chmod u+w {} \; -delete 2>/dev/null || true
 	@find $(VENDOR_DIR) -name "CMakeCache.txt" -exec chmod u+w {} \; -delete 2>/dev/null || true
 	@find $(VENDOR_DIR) -name "CMakeFiles" -type d -exec sh -c 'chmod -R u+w "{}" 2>/dev/null || true; chown -R $$(id -u):$$(id -g) "{}" 2>/dev/null || true; rm -rf "{}"' \; 2>/dev/null || true
-	@find $(VENDOR_DIR) -name "Makefile" -not -path "*/\.*" -exec chmod u+w {} \; -delete 2>/dev/null || true
 	@rm -f ./Makefile 2>/dev/null || true
 
 clean-all: clean
@@ -920,7 +921,7 @@ help:
 	@echo "  make                      - Build everything (release mode)"
 	@echo "  make clean                 - Remove build artifacts"
 	@echo "  make clean-all            - Remove all generated files"
-	@echo "  make install              - Install binaries to run/bin/"
+	@echo "  make install              - Build LLM runtime tools and install binaries to run/bin/"
 	@echo "  make package              - Build Debian/RPM packages via etc/package/build.sh"
 	@echo "  make uninstall          - Remove installed binaries"
 	@echo "  make build-info            - Show build configuration"

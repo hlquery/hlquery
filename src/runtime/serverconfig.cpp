@@ -24,13 +24,7 @@
 #include "core/config.h"
 #include "runtime/configreader.h"
 #include "runtime/exitmanager.h"
-
-#if __has_include("core/hlcore.h")
-#include "core/hlcore.h"
-#else
 #include "core/hlquery.h"
-#endif
-
 #include "core/logmanager.h"
 #include "core/modulemanager.h"
 #include "runtime/serverconfig.h"
@@ -314,9 +308,11 @@ void ServerConfig::ApplyConfiguration()
      }
 
      auto AITag = ConfigReaderValue.GetTag("ai");
-     auto LLMTag = ConfigReaderValue.GetTag("llm");
-     auto SAMTag = ConfigReaderValue.GetTag("sam");
-     bool ResolveLLMPathsRelativeToConfig = false;
+     bool ResolveAIPathsRelativeToConfig = false;
+     bool AutoFindModel = true;
+
+     AIModelName.clear();
+     AIModelPath.clear();
 
      std::string ModelPathOverride;
      std::string ModelFileOverride;
@@ -339,22 +335,6 @@ void ServerConfig::ApplyConfiguration()
           return Tag->GetString("model", Fallback);
      };
 
-     auto HasLLMAttributes = [](const std::shared_ptr<ConfigTag> &Tag) -> bool
-     {
-          if (!Tag)
-          {
-               return false;
-          }
-
-          return Tag->HasAttribute("models_dir") ||
-                 Tag->HasAttribute("model_name") ||
-                 Tag->HasAttribute("model") ||
-                 Tag->HasAttribute("model_path") ||
-                 Tag->HasAttribute("model_file") ||
-                 Tag->HasAttribute("inference_command") ||
-                 Tag->HasAttribute("relative");
-     };
-
      if (AITag)
      {
           AIEnabled = AITag->GetBool("enabled", AIEnabled);
@@ -362,183 +342,9 @@ void ServerConfig::ApplyConfiguration()
           AIModelName = ReadModelName(AITag, AIModelName);
           ModelPathOverride = AITag->GetString("model_path", "");
           ModelFileOverride = AITag->GetString("model_file", ModelFileOverride);
-          AIInferenceCommand = AITag->GetString("inference_command", AIInferenceCommand);
-          SamEnabled = AITag->GetBool("sam_enabled", SamEnabled);
-          ResolveLLMPathsRelativeToConfig = AITag->GetBool("relative", ResolveLLMPathsRelativeToConfig);
+          AutoFindModel = AITag->GetBool("auto_find", AutoFindModel);
+          ResolveAIPathsRelativeToConfig = AITag->GetBool("relative", ResolveAIPathsRelativeToConfig);
      }
-
-     if (LLMTag)
-     {
-          AIEnabled = LLMTag->GetBool("enabled", AIEnabled);
-          AIModelsDirectory = LLMTag->GetString("models_dir", AIModelsDirectory);
-          AIModelName = ReadModelName(LLMTag, AIModelName);
-
-          if (ModelPathOverride.empty())
-          {
-               ModelPathOverride = LLMTag->GetString("model_path", "");
-          }
-
-          if (ModelFileOverride.empty())
-          {
-               ModelFileOverride = LLMTag->GetString("model_file", "");
-          }
-
-          AIInferenceCommand = LLMTag->GetString("inference_command", AIInferenceCommand);
-          ResolveLLMPathsRelativeToConfig = LLMTag->GetBool("relative", ResolveLLMPathsRelativeToConfig);
-     }
-
-     if (SAMTag)
-     {
-          SamEnabled = SAMTag->GetBool("enabled", SamEnabled);
-
-          if (HasLLMAttributes(SAMTag))
-          {
-               AIEnabled = SamEnabled;
-               AIModelsDirectory = SAMTag->GetString("models_dir", AIModelsDirectory);
-               AIModelName = ReadModelName(SAMTag, AIModelName);
-
-               if (ModelPathOverride.empty())
-               {
-                    ModelPathOverride = SAMTag->GetString("model_path", "");
-               }
-
-               if (ModelFileOverride.empty())
-               {
-                    ModelFileOverride = SAMTag->GetString("model_file", "");
-               }
-
-               AIInferenceCommand = SAMTag->GetString("inference_command", AIInferenceCommand);
-               ResolveLLMPathsRelativeToConfig = SAMTag->GetBool("relative", ResolveLLMPathsRelativeToConfig);
-          }
-
-          SamDataDirectory = SAMTag->GetString("data_dir", SamDataDirectory);
-          SamSearchIdeasCollection = SAMTag->GetString("sam_search_ideas", SamSearchIdeasCollection);
-          SamRecordSearchIdeas = SAMTag->GetBool("record_search_ideas", SamRecordSearchIdeas);
-          SamRecordInteractions = SAMTag->GetBool("record_interactions", SamRecordInteractions);
-          SamSearchIdeaDedupeWindowMs =
-               SAMTag->GetIntRange("search_idea_dedupe_window_ms",
-                                    SamSearchIdeaDedupeWindowMs,
-                                    0,
-                                    7 * 24 * 60 * 60 * 1000);
-          SamInteractionDedupeWindowMs =
-               SAMTag->GetIntRange("interaction_dedupe_window_ms",
-                                    SamInteractionDedupeWindowMs,
-                                    0,
-                                    7 * 24 * 60 * 60 * 1000);
-          SamActorMetadataRetentionDays =
-               SAMTag->GetIntRange("actor_metadata_retention_days",
-                                    SamActorMetadataRetentionDays,
-                                    0,
-                                    3650);
-          SamInteractionMaxPerMinute =
-               SAMTag->GetIntRange("interaction_max_per_minute",
-                                    SamInteractionMaxPerMinute,
-                                    0,
-                                    1000000);
-          SamInteractionMaxPerHour =
-               SAMTag->GetIntRange("interaction_max_per_hour",
-                                    SamInteractionMaxPerHour,
-                                    0,
-                                    10000000);
-          SamInteractionMaxPerDocQueryPerHour =
-               SAMTag->GetIntRange("interaction_max_per_doc_query_per_hour",
-                                    SamInteractionMaxPerDocQueryPerHour,
-                                    0,
-                                    10000000);
-          SamIndexAll = SAMTag->GetBool("index_all", SamIndexAll);
-          SamAutoDetectCollectionLanguage =
-               SAMTag->GetBool("auto_detect_collection_language",
-                                SAMTag->GetBool("auto_language_detection",
-                                                SamAutoDetectCollectionLanguage));
-          SamSmartBackground = SAMTag->GetBool("background_improvements",
-                                               SAMTag->GetBool("smart_sam", SamSmartBackground));
-          SamBackgroundImprovementIntervalMs =
-               SAMTag->GetIntRange("background_improvement_interval_ms",
-                                    SamBackgroundImprovementIntervalMs,
-                                    5000,
-                                    3600000);
-          SamBackgroundImprovementPollMs =
-               SAMTag->GetIntRange("background_improvement_poll_ms",
-                                    SamBackgroundImprovementPollMs,
-                                    1000,
-                                    300000);
-          Sam25DynamicQueryWeight = SAMTag->GetBool("sam25_dynamic_query_weight", Sam25DynamicQueryWeight);
-          Sam25ShortQueryPhraseBoost = SAMTag->GetDoubleRange("sam25_short_query_phrase_boost", Sam25ShortQueryPhraseBoost, 0.1, 5.0);
-          Sam25LongQueryPhraseBoost = SAMTag->GetDoubleRange("sam25_long_query_phrase_boost", Sam25LongQueryPhraseBoost, 0.1, 5.0);
-          Sam25SourcePhraseBoostTitle = SAMTag->GetDoubleRange("sam25_source_phrase_boost_title", Sam25SourcePhraseBoostTitle, 0.1, 5.0);
-          Sam25SourcePhraseBoostLabelPair = SAMTag->GetDoubleRange("sam25_source_phrase_boost_label_pair", Sam25SourcePhraseBoostLabelPair, 0.1, 5.0);
-          Sam25SourcePhraseBoostLabel = SAMTag->GetDoubleRange("sam25_source_phrase_boost_label", Sam25SourcePhraseBoostLabel, 0.1, 5.0);
-          Sam25SourcePhraseBoostLlm = SAMTag->GetDoubleRange("sam25_source_phrase_boost_llm", Sam25SourcePhraseBoostLlm, 0.1, 5.0);
-          SamLLMMaxIdeas = SAMTag->GetIntRange("sam_llm_max_ideas", SamLLMMaxIdeas, 1, 64);
-          SamContextMaxIdeas = SAMTag->GetIntRange("sam_context_max_ideas", SamContextMaxIdeas, 4, 128);
-          SamLogContext = SAMTag->GetBool("sam_log_context", SamLogContext);
-          SamLLMTimeoutMs = SAMTag->GetIntRange("sam_llm_timeout_ms", SamLLMTimeoutMs, 1000, 300000);
-          SamLLMCreativityMode = SAMTag->GetString("sam_llm_creativity_mode", SamLLMCreativityMode);
-          SamLLMCreativityMode.erase(0, SamLLMCreativityMode.find_first_not_of(" \t\r\n"));
-          SamLLMCreativityMode.erase(SamLLMCreativityMode.find_last_not_of(" \t\r\n") == std::string::npos
-               ? 0
-               : SamLLMCreativityMode.find_last_not_of(" \t\r\n") + 1);
-          std::transform(SamLLMCreativityMode.begin(), SamLLMCreativityMode.end(), SamLLMCreativityMode.begin(),
-                         [](unsigned char C)
-                         {
-                              return static_cast<char>(std::tolower(C));
-                         });
-          if (SamLLMCreativityMode != "conservative" &&
-              SamLLMCreativityMode != "balanced" &&
-              SamLLMCreativityMode != "creative")
-          {
-               SamLLMCreativityMode = "balanced";
-          }
-          Sam25EnableIdf = SAMTag->GetBool("sam25_enable_idf", Sam25EnableIdf);
-          Sam25IdfFloor = SAMTag->GetDoubleRange("sam25_idf_floor", Sam25IdfFloor, 0.0, 10.0);
-          Sam25IdfCeiling = SAMTag->GetDoubleRange("sam25_idf_ceiling", Sam25IdfCeiling, 0.0, 10.0);
-          Sam25EnableDocPrior = SAMTag->GetBool("sam25_enable_doc_prior", Sam25EnableDocPrior);
-          Sam25DocPriorField = SAMTag->GetString("sam25_doc_prior_field", Sam25DocPriorField);
-          Sam25DocPriorWeight = SAMTag->GetDoubleRange("sam25_doc_prior_weight", Sam25DocPriorWeight, 0.0, 1.0);
-          Sam25OrderedSlop = SAMTag->GetIntRange("sam25_ordered_slop", Sam25OrderedSlop, 0, 32);
-          Sam25UnorderedWindowSlop = SAMTag->GetIntRange("sam25_unordered_window_slop", Sam25UnorderedWindowSlop, 0, 32);
-          Sam25ExactPhraseRequiresStopwords = SAMTag->GetBool("sam25_exact_phrase_requires_stopwords", Sam25ExactPhraseRequiresStopwords);
-          Sam25ExactPhraseIgnoreOuterStopwords = SAMTag->GetBool("sam25_exact_phrase_ignore_outer_stopwords", Sam25ExactPhraseIgnoreOuterStopwords);
-          Sam25EnableSynonymExpansion = SAMTag->GetBool("sam25_enable_synonym_expansion", Sam25EnableSynonymExpansion);
-          Sam25SynonymBoost = SAMTag->GetDoubleRange("sam25_synonym_boost", Sam25SynonymBoost, 0.0, 5.0);
-          Sam25MaxSynonymsPerToken = SAMTag->GetIntRange("sam25_max_synonyms_per_token", Sam25MaxSynonymsPerToken, 0, 16);
-          Sam25EnableNoisePenalty = SAMTag->GetBool("sam25_enable_noise_penalty", Sam25EnableNoisePenalty);
-          Sam25NoisePenalty = SAMTag->GetDoubleRange("sam25_noise_penalty", Sam25NoisePenalty, 0.0, 1.0);
-          Sam25NoisePenaltyLlmExtra = SAMTag->GetDoubleRange("sam25_noise_penalty_llm_extra", Sam25NoisePenaltyLlmExtra, 0.0, 1.0);
-          Sam25MinCoverage = SAMTag->GetDoubleRange("sam25_min_coverage", Sam25MinCoverage, 0.0, 1.0);
-          Sam25MinOrderedBoostForPhrase = SAMTag->GetDoubleRange("sam25_min_ordered_boost_for_phrase",
-               Sam25MinOrderedBoostForPhrase, 0.0, 1.0);
-          Sam25MinFinalScore = SAMTag->GetDoubleRange("sam25_min_final_score", Sam25MinFinalScore, 0.0, 1.0);
-          Sam25IntentDocMatchMinScore = SAMTag->GetDoubleRange("sam25_intent_doc_match_min_score", Sam25IntentDocMatchMinScore, 0.0, 1.0);
-          Sam25EnableSourceDocMerge = SAMTag->GetBool("sam25_enable_source_doc_merge", Sam25EnableSourceDocMerge);
-          Sam25SourceDocWeight = SAMTag->GetDoubleRange("sam25_source_doc_weight", Sam25SourceDocWeight, 0.0, 5.0);
-          Sam25SourceDocTitleWeight = SAMTag->GetDoubleRange("sam25_source_doc_title_weight", Sam25SourceDocTitleWeight, 0.0, 5.0);
-          Sam25SourceDocDescriptionWeight = SAMTag->GetDoubleRange("sam25_source_doc_description_weight",
-               Sam25SourceDocDescriptionWeight, 0.0, 5.0);
-          Sam25SourceDocLabelsWeight = SAMTag->GetDoubleRange("sam25_source_doc_labels_weight", Sam25SourceDocLabelsWeight, 0.0, 5.0);
-          Sam25SourceDocContentWeight = SAMTag->GetDoubleRange("sam25_source_doc_content_weight", Sam25SourceDocContentWeight, 0.0, 5.0);
-          Sam25SourceDocMinScore = SAMTag->GetDoubleRange("sam25_source_doc_min_score", Sam25SourceDocMinScore, 0.0, 1.0);
-          Sam25SourceDocMergeBonus = SAMTag->GetDoubleRange("sam25_source_doc_merge_bonus", Sam25SourceDocMergeBonus, 0.0, 1.0);
-          Sam25DebugExplain = SAMTag->GetBool("sam25_debug_explain", Sam25DebugExplain);
-          Sam25DebugLogTopK = SAMTag->GetIntRange("sam25_debug_log_top_k", Sam25DebugLogTopK, 0, 1000);
-          Sam25DebugIncludeComponents = SAMTag->GetBool("sam25_debug_include_components", Sam25DebugIncludeComponents);
-
-          if (SAMTag->HasAttribute("sam_data_dir"))
-          {
-               SamDataDirectory = SAMTag->GetString("sam_data_dir", SamDataDirectory);
-          }
-
-          if (!SAMTag->HasAttribute("sam_search_ideas") && SAMTag->HasAttribute("SAMID"))
-          {
-               SamSearchIdeasCollection = SAMTag->GetString("SAMID", SamSearchIdeasCollection);
-          }
-     }
-
-     if (SamEnabled)
-     {
-          AddModuleIfMissing("core_sam");
-     }
-
      AIModelCatalog.clear();
 
      auto ModelTags = ConfigReaderValue.GetTags("model");
@@ -617,7 +423,7 @@ void ServerConfig::ApplyConfiguration()
                    return ConfigCandidate;
               }
 
-              if (!ResolveLLMPathsRelativeToConfig && !RepoRootDir.empty())
+              if (!ResolveAIPathsRelativeToConfig && !RepoRootDir.empty())
               {
                    std::error_code RepoRootEC;
                    const std::filesystem::path NormalizedRaw = RawPath.lexically_normal();
@@ -693,46 +499,54 @@ void ServerConfig::ApplyConfiguration()
          return ResolveRelativePath(Candidate).string();
     };
 
-    auto ResolveBundledInferenceCommand = [&]() -> std::string
+    auto FindFirstModel = [&]() -> std::string
     {
-         if (ConfigDirectory.empty())
+         if (AIModelsDirectory.empty())
          {
               return "";
          }
 
+         const std::filesystem::path ModelsDirectory =
+              ResolveRelativePath(std::filesystem::path(AIModelsDirectory));
          std::error_code Ec;
-         std::filesystem::path Base = std::filesystem::path(ConfigDirectory);
 
-         if (Base.filename() == "conf")
+         if (!std::filesystem::exists(ModelsDirectory, Ec) ||
+             !std::filesystem::is_directory(ModelsDirectory, Ec))
          {
-              Base = Base.parent_path();
+              return "";
          }
 
-         if (Base.filename() == "run")
+         std::vector<std::filesystem::path> Candidates;
+
+         for (std::filesystem::directory_iterator It(ModelsDirectory, Ec), End;
+              !Ec && It != End;
+              It.increment(Ec))
          {
-              std::filesystem::path RepoRoot = Base.parent_path();
-
-              if (!RepoRoot.empty())
+              if (!It->is_regular_file(Ec))
               {
-                   const std::filesystem::path LocalBundledCommand = RepoRoot / "tools" / "hlquery-llm-infer";
-                   const std::filesystem::path ParentBundledCommand = RepoRoot.parent_path() / "tools" / "hlquery-llm-infer";
-
-                   if (!std::filesystem::exists(LocalBundledCommand) &&
-                       std::filesystem::exists(ParentBundledCommand))
-                   {
-                        RepoRoot = RepoRoot.parent_path();
-                   }
+                   continue;
               }
 
-              const std::filesystem::path Candidate = std::filesystem::absolute(RepoRoot / "tools" / "hlquery-llm-infer", Ec);
+              std::string Extension = It->path().extension().string();
+              std::transform(Extension.begin(), Extension.end(), Extension.begin(),
+                             [](unsigned char C)
+                             {
+                                  return static_cast<char>(std::tolower(C));
+                             });
 
-              if (!Ec && std::filesystem::exists(Candidate))
+              if (Extension == ".gguf")
               {
-                   return Candidate.string();
+                   Candidates.push_back(It->path());
               }
          }
 
-         return "";
+         if (Ec || Candidates.empty())
+         {
+              return "";
+         }
+
+         std::sort(Candidates.begin(), Candidates.end());
+         return Candidates.front().string();
     };
 
     auto PickDefaultModel = [&]() -> std::string
@@ -756,6 +570,16 @@ void ServerConfig::ApplyConfiguration()
          return AIModelCatalog.front().Name;
     };
 
+    std::string AutoFoundModelPath;
+
+    if (AutoFindModel &&
+        ModelFileOverride.empty() &&
+        ModelPathOverride.empty() &&
+        AIModelName.empty())
+    {
+         AutoFoundModelPath = FindFirstModel();
+    }
+
     if (!ModelFileOverride.empty())
     {
          std::filesystem::path FilePath(ModelFileOverride);
@@ -777,6 +601,11 @@ void ServerConfig::ApplyConfiguration()
          }
 
          AIModelPath = ResolveRelativePath(OverridePath).string();
+    }
+    else if (!AutoFoundModelPath.empty())
+    {
+         AIModelPath = AutoFoundModelPath;
+         AIModelName = std::filesystem::path(AIModelPath).filename().string();
     }
     else if (!AIModelCatalog.empty())
     {
@@ -804,121 +633,23 @@ void ServerConfig::ApplyConfiguration()
     {
          AIModelPath.clear();
     }
+    const bool HasExplicitAIConfig = (AITag != nullptr);
 
-    if (AIEnabled && !AIInferenceCommand.empty())
-    {
-         AIInferenceCommand = ResolveRelativePath(std::filesystem::path(AIInferenceCommand)).string();
-
-         std::error_code CommandEC;
-
-         if ((!std::filesystem::exists(AIInferenceCommand, CommandEC) ||
-              std::filesystem::is_directory(AIInferenceCommand, CommandEC)) &&
-             std::filesystem::path(AIInferenceCommand).filename() == "hlquery-llm-infer")
-         {
-              const std::string BundledCommand = ResolveBundledInferenceCommand();
-
-              if (!BundledCommand.empty())
-              {
-                   AIInferenceCommand = BundledCommand;
-              }
-         }
-    }
-    else if (AIEnabled)
-    {
-         const std::string BundledCommand = ResolveBundledInferenceCommand();
-
-         if (!BundledCommand.empty())
-         {
-              AIInferenceCommand = BundledCommand;
-         }
-    }
-    else
-    {
-         AIInferenceCommand.clear();
-    }
-
-    if (!SamDataDirectory.empty())
-    {
-         std::filesystem::path SamPath(SamDataDirectory);
-
-         if (!SamPath.empty() && !SamPath.is_absolute())
-         {
-              const auto SamIt = SamPath.begin();
-              const bool HasFirstComponent = (SamIt != SamPath.end());
-              const std::string FirstComponent = HasFirstComponent ? SamIt->generic_string() : "";
-              const bool LooksConfigRelative = (FirstComponent == "." || FirstComponent == ".." || FirstComponent == "run");
-
-              if (!LooksConfigRelative)
-              {
-                   const std::filesystem::path RuntimeDataDir = RuntimePaths::ResolveRuntimeDataDir(this);
-
-                   if (!RuntimeDataDir.empty())
-                   {
-                        /* Accept both "sam" and "data/sam" as runtime-relative inputs.
-                         * The config ships with "data/sam", which should resolve to
-                         * <runtime>/data/sam instead of <runtime>/data/data/sam. */
-                        std::filesystem::path RelativeSamPath = SamPath;
-
-                        if (HasFirstComponent && FirstComponent == "data")
-                        {
-                             RelativeSamPath.clear();
-
-                             for (auto It = std::next(SamIt); It != SamPath.end(); ++It)
-                             {
-                                  RelativeSamPath /= *It;
-                             }
-                        }
-
-                        if (RelativeSamPath.empty())
-                        {
-                             RelativeSamPath = "sam";
-                        }
-
-                        SamDataDirectory = std::filesystem::absolute(RuntimeDataDir / RelativeSamPath).string();
-                   }
-                   else
-                   {
-                        SamDataDirectory = ResolveRelativePath(SamPath).string();
-                   }
-              }
-              else
-              {
-                   SamDataDirectory = ResolveRelativePath(SamPath).string();
-              }
-         }
-         else
-         {
-              SamDataDirectory = ResolveRelativePath(SamPath).string();
-         }
-    }
-
-    const bool HasExplicitLLMConfig = (AITag != nullptr) || (LLMTag != nullptr) || HasLLMAttributes(SAMTag);
-
-    if (HasExplicitLLMConfig && AIEnabled)
+    if (HasExplicitAIConfig && AIEnabled)
     {
          if (AIModelPath.empty())
          {
-              throw std::runtime_error("LLM is configured but no model path could be resolved.");
+              throw std::runtime_error("AI model is configured but no model path could be resolved.");
          }
 
          std::error_code ModelEC;
 
          if (!std::filesystem::exists(AIModelPath, ModelEC) || std::filesystem::is_directory(AIModelPath, ModelEC))
          {
-              throw std::runtime_error("Configured LLM model file does not exist: " + AIModelPath);
+              throw std::runtime_error("Configured AI model file does not exist: " + AIModelPath);
          }
 
-         if (!AIInferenceCommand.empty())
-         {
-              std::error_code CommandEC;
-
-              if (!std::filesystem::exists(AIInferenceCommand, CommandEC) ||
-                  std::filesystem::is_directory(AIInferenceCommand, CommandEC))
-              {
-                   throw std::runtime_error("Configured LLM inference command does not exist: " + AIInferenceCommand);
-              }
-         }
-    }
+     }
 
      /* Handle network binding configurations for multiple listeners */
 
@@ -959,6 +690,13 @@ void ServerConfig::ApplyConfiguration()
                NewBindInstance.address = BindTagEntry->GetString("address", "0.0.0.0");
 
                NewBindInstance.port = BindTagEntry->GetInt("port", 9200);
+
+               if (NewBindInstance.port < 1 || NewBindInstance.port > 65535)
+               {
+                    throw std::runtime_error("Invalid bind port '" + std::to_string(NewBindInstance.port) +
+                                             "' for address '" + NewBindInstance.address +
+                                             "'. Valid TCP ports are 1-65535.");
+               }
 
                NewBindInstance.type = BindTagEntry->GetString("type", "clients");
                std::transform(NewBindInstance.type.begin(), NewBindInstance.type.end(), NewBindInstance.type.begin(),
@@ -1259,6 +997,32 @@ void ServerConfig::ApplyConfiguration()
 
           MaxEditDistance = SearchSettingsTag->GetInt("max_edit_distance", MaxEditDistance);
 
+          {
+               std::string MatchModeValue = SearchSettingsTag->GetString("match_mode", SearchMatchMode);
+               std::transform(MatchModeValue.begin(), MatchModeValue.end(), MatchModeValue.begin(),
+                              [](unsigned char C)
+                              {
+                                   return static_cast<char>(std::tolower(C));
+                              });
+
+               if (MatchModeValue == "and" || MatchModeValue == "or" || MatchModeValue == "min_should_match")
+               {
+                    SearchMatchMode = MatchModeValue;
+               }
+               else if (!MatchModeValue.empty())
+               {
+                    ConsoleWriter::WriteError("Invalid search match_mode specified: '" + MatchModeValue + "'.");
+
+                    ConsoleWriter::WriteError("Valid match modes are: and, or, min_should_match.");
+
+                    ExitManager::Exit(1);
+               }
+          }
+
+          SearchMinShouldMatch = SearchSettingsTag->GetIntRange("min_should_match", SearchMinShouldMatch, 1, 1000);
+
+          SearchCandidatePruneMultiplier = SearchSettingsTag->GetIntRange("candidate_prune_multiplier", SearchCandidatePruneMultiplier, 0, 1000);
+
           HighlightStart = SearchSettingsTag->GetString("highlight_start", HighlightStart);
 
           HighlightEnd = SearchSettingsTag->GetString("highlight_end", HighlightEnd);
@@ -1300,6 +1064,8 @@ void ServerConfig::ApplyConfiguration()
 
           RankingIdfClampNegative = RankingParamsTag->GetBool("idf_clamp_negative", RankingIdfClampNegative);
 
+          RankingIdfFloorFactor = RankingParamsTag->GetDoubleRange("idf_floor_factor", RankingIdfFloorFactor, 0.0, 1.0);
+
           RankingBM25Weight = RankingParamsTag->GetDoubleRange("bm25_weight", RankingBM25Weight, 0.0, 1.0);
 
           RankingTFIDFWeight = RankingParamsTag->GetDoubleRange("tfidf_weight", RankingTFIDFWeight, 0.0, 1.0);
@@ -1322,7 +1088,7 @@ void ServerConfig::ApplyConfiguration()
 
           if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
           {
-               Instance->Logs->Debug("serverconfig", "Loaded ranking parameters: k1=" + std::to_string(RankingK1) + ", b=" + std::to_string(RankingB) + ", delta=" + std::to_string(RankingDelta) + ", idf_smooth=" + std::to_string(RankingIDFSmooth) + ", idf_mode=" + RankingIdfMode + ", idf_clamp_negative=" + std::string(RankingIdfClampNegative ? "true" : "false") + ", normalize=" + std::string(RankingNormalize ? "true" : "false") + ", bm25_weight=" + std::to_string(RankingBM25Weight) + ", tfidf_weight=" + std::to_string(RankingTFIDFWeight) + ", url_token_boost=" + std::to_string(UrlTokenBoost) + ", url_tld_weight=" + std::to_string(UrlTldWeight) + ", title_like_boost=" + std::to_string(TitleLikeBoost) + ", tag_like_boost=" + std::to_string(TagLikeBoost) + ", exact_match_boost=" + std::to_string(ExactMatchBoost) + ", title_exact_boost=" + std::to_string(TitleExactBoost) + ", proximity_boost_scale=" + std::to_string(ProximityBoostScale) + ", proximity_boost_max=" + std::to_string(ProximityBoostMax) + ".");
+               Instance->Logs->Debug("serverconfig", "Loaded ranking parameters: k1=" + std::to_string(RankingK1) + ", b=" + std::to_string(RankingB) + ", delta=" + std::to_string(RankingDelta) + ", idf_smooth=" + std::to_string(RankingIDFSmooth) + ", idf_mode=" + RankingIdfMode + ", idf_clamp_negative=" + std::string(RankingIdfClampNegative ? "true" : "false") + ", idf_floor_factor=" + std::to_string(RankingIdfFloorFactor) + ", normalize=" + std::string(RankingNormalize ? "true" : "false") + ", bm25_weight=" + std::to_string(RankingBM25Weight) + ", tfidf_weight=" + std::to_string(RankingTFIDFWeight) + ", url_token_boost=" + std::to_string(UrlTokenBoost) + ", url_tld_weight=" + std::to_string(UrlTldWeight) + ", title_like_boost=" + std::to_string(TitleLikeBoost) + ", tag_like_boost=" + std::to_string(TagLikeBoost) + ", exact_match_boost=" + std::to_string(ExactMatchBoost) + ", title_exact_boost=" + std::to_string(TitleExactBoost) + ", proximity_boost_scale=" + std::to_string(ProximityBoostScale) + ", proximity_boost_max=" + std::to_string(ProximityBoostMax) + ".");
           }
      }
 
@@ -1427,9 +1193,13 @@ void ServerConfig::ApplyConfiguration()
 
           QuerySettingsEnableSynonyms = QuerySettingsTag->GetBool("enable_synonyms", QuerySettingsEnableSynonyms);
 
+          QuerySettingsEnableStopwords = QuerySettingsTag->GetBool("enable_stopwords", QuerySettingsEnableStopwords);
+
           QuerySettingsEnableFuzzy = QuerySettingsTag->GetBool("enable_fuzzy", QuerySettingsEnableFuzzy);
 
           QuerySettingsFuzzyMaxDistance = QuerySettingsTag->GetIntRange("fuzzy_max_distance", QuerySettingsFuzzyMaxDistance, 1, 5);
+
+          QuerySettingsRequireExactIdentifierTokens = QuerySettingsTag->GetBool("require_exact_identifier_tokens", QuerySettingsRequireExactIdentifierTokens);
      }
 
      /* Configure score normalization and precision settings */
@@ -2336,6 +2106,7 @@ static std::string ClusterTrimCopy(const std::string &Value)
 static std::string NormalizeClusterEndpoint(const std::string &Raw, std::string *OutError)
 {
      std::string Node = ClusterTrimCopy(Raw);
+
      if (Node.empty())
      {
           if (OutError)
@@ -2346,6 +2117,7 @@ static std::string NormalizeClusterEndpoint(const std::string &Raw, std::string 
      }
 
      std::string Scheme;
+
      if (Node.rfind("http://", 0) == 0)
      {
           Scheme = "http";
@@ -2358,6 +2130,7 @@ static std::string NormalizeClusterEndpoint(const std::string &Raw, std::string 
      }
 
      size_t SlashPos = Node.find('/');
+
      if (SlashPos != std::string::npos)
      {
           Node = Node.substr(0, SlashPos);
@@ -2591,16 +2364,19 @@ bool ServerConfig::GetSlavePeerTokens(const std::string &Endpoint,
 {
      std::lock_guard<std::mutex> Lock(ClusterNodesMutex);
      auto It = SlavePeerTokens.find(Endpoint);
+
      if (It == SlavePeerTokens.end())
      {
           if (OutPrimaryToken)
           {
                OutPrimaryToken->clear();
           }
+
           if (OutSecondaryToken)
           {
                OutSecondaryToken->clear();
           }
+          
           return false;
      }
 

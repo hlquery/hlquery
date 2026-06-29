@@ -22,8 +22,6 @@
 #include "runtime/clock.h"
 #include "vendor/json/json.hpp"
 
-namespace
-{
 enum class LoadedModuleFilter
 {
      All,
@@ -571,7 +569,6 @@ bool TryPrintCompletedLlamaJob(HLQueryCLI &CLI, const std::string &Body, bool js
           return false;
      }
 }
-}
 void HLQueryCLI::ListModules(const std::string &filter)
 {
      bool valid_filter = false;
@@ -643,51 +640,6 @@ void HLQueryCLI::ShowModuleSyntax(const std::string &module_name)
      }
 
      PrintModuleResponse(*this, module_name, response.Body);
-}
-
-void HLQueryCLI::ShowLLMInfo()
-{
-     HTTPResponse response = MakeRequest("GET", "/llm");
-
-     if (CheckRequestFailed(response, false, "/llm"))
-     {
-          return;
-     }
-
-     try
-     {
-          const nlohmann::json root = nlohmann::json::parse(response.Body);
-          std::vector<std::vector<std::string>> rows;
-
-          rows.push_back({"Enabled", root.value("enabled", false) ? "yes" : "no"});
-          rows.push_back({"Configured", root.value("configured", false) ? "yes" : "no"});
-          rows.push_back({"Model Name", root.value("model_name", std::string("")).empty() ? "-" : root.value("model_name", std::string(""))});
-          rows.push_back({"Model Path", root.value("model_path", std::string("")).empty() ? "-" : root.value("model_path", std::string(""))});
-          rows.push_back({"Models Dir", root.value("models_dir", std::string("")).empty() ? "-" : root.value("models_dir", std::string(""))});
-          rows.push_back({"Inference Cmd", root.value("inference_command", std::string("")).empty() ? "-" : root.value("inference_command", std::string(""))});
-          rows.push_back({"Pending Context Jobs", std::to_string(root.value("pending_context_jobs", 0))});
-
-          if (root.contains("loaded_modules") && root["loaded_modules"].is_array())
-          {
-               std::vector<std::string> module_names;
-
-               for (const auto &ModuleValue : root["loaded_modules"])
-               {
-                    if (ModuleValue.is_string())
-                    {
-                         module_names.push_back(ModuleValue.get<std::string>());
-                    }
-               }
-
-               rows.push_back({"Loaded Modules", module_names.empty() ? "-" : JoinStrings(module_names, ", ")});
-          }
-
-          PrintTable({"LLM", "Value"}, rows);
-     }
-     catch (...)
-     {
-          PrintError("Failed to parse /llm response", "");
-     }
 }
 
 void HLQueryCLI::RunModuleCommand(const std::string &module_name, const std::string &route, const std::vector<std::string> &args)

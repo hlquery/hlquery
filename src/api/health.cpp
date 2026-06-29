@@ -38,13 +38,17 @@
 
 #include "api/httpserver.h"
 #include "api/searchapi.h"
+#include "api/lexicalcache.h"
+#include "api/searchcache.h"
 #include "api/common.h"
 #include "api/userauth.h"
 #include "core/config.h"
 #include "core/hlquery.h"
+#include "core/metrics.h"
+#include "core/modulemanager.h"
+#include "core/modules.h"
 #include "core/socketengine.h"
 #include "runtime/threadlimit.h"
-#include "sam/sam.h"
 #include "search/rfusion.h"
 #include "search/cstore.h"
 #include "search/lindex.h"
@@ -53,8 +57,6 @@
 #include "utils/wildcard.h"
 #include "vendor/json/json.hpp"
 
-namespace
-{
 struct LinkEndpointInfo
 {
      std::string RawEndpoint;
@@ -226,38 +228,6 @@ static std::vector<std::string> HealthGetLocalLoadedModules();
 
 static bool HealthValidateRemoteModules(const std::string &ResponseBody, std::string *OutError);
 
-static bool HealthRemoteHasSAMEnabled(const nlohmann::json &Root, const std::vector<std::string> &RemoteModules)
-{
-     bool HasExplicitSAMState = false;
-     bool ExplicitSAMEnabled = false;
-
-     auto ReadSAMBool = [&](const nlohmann::json &Value)
-     {
-          if (Value.is_boolean())
-          {
-               HasExplicitSAMState = true;
-               ExplicitSAMEnabled = ExplicitSAMEnabled || Value.get<bool>();
-          }
-     };
-
-     if (Root.contains("sam_enabled"))
-     {
-          ReadSAMBool(Root["sam_enabled"]);
-     }
-
-     if (Root.contains("sam") && Root["sam"].is_object() && Root["sam"].contains("enabled"))
-     {
-          ReadSAMBool(Root["sam"]["enabled"]);
-     }
-
-     if (HasExplicitSAMState)
-     {
-          return ExplicitSAMEnabled;
-     }
-
-     return std::binary_search(RemoteModules.begin(), RemoteModules.end(), "core_sam");
-}
-
 static void HealthProbeEndpoint(LinkEndpointInfo &Info, bool PingNode)
 {
      if (!Info.IsValid || !PingNode)
@@ -343,6 +313,96 @@ static nlohmann::json BuildSocketIOStatsJSON()
      IOJSON["active_connections"] = IOStatsVal.ActiveConnections;
 
      return IOJSON;
+}
+
+static uint64_t HealthReadCPUUsagePercent()
+{
+     std::ifstream StatFileStream("/proc/stat");
+     std::string LineContent;
+
+     if (!std::getline(StatFileStream, LineContent))
+     {
+          return 0;
+     }
+
+     std::istringstream Iss(LineContent);
+     std::string CPULabel;
+     uint64_t UserVal = 0;
+     uint64_t NiceVal = 0;
+     uint64_t SystemVal = 0;
+     uint64_t IdleVal = 0;
+     uint64_t IOWaitVal = 0;
+     uint64_t IRQVal = 0;
+     uint64_t SoftIRQVal = 0;
+     uint64_t StealVal = 0;
+
+     Iss >> CPULabel >> UserVal >> NiceVal >> SystemVal >> IdleVal >> IOWaitVal >> IRQVal >> SoftIRQVal >> StealVal;
+
+     if (CPULabel != "cpu")
+     {
+          return 0;
+     }
+
+     const uint64_t TotalIdleTime = IdleVal + IOWaitVal;
+     const uint64_t TotalNonIdleTime = UserVal + NiceVal + SystemVal + IRQVal + SoftIRQVal + StealVal;
+     const uint64_t TotalTime = TotalIdleTime + TotalNonIdleTime;
+
+     static uint64_t PrevTotalTime = 0;
+     static uint64_t PrevIdleTime = 0;
+     static uint64_t LastCPUPercent = 0;
+
+     if (PrevTotalTime > 0 && TotalTime > PrevTotalTime)
+     {
+          const uint64_t TotalDelta = TotalTime - PrevTotalTime;
+          const uint64_t IdleDelta = TotalIdleTime - PrevIdleTime;
+
+          if (TotalDelta > 0)
+          {
+               LastCPUPercent = 100 - (IdleDelta * 100 / TotalDelta);
+          }
+     }
+
+     PrevTotalTime = TotalTime;
+     PrevIdleTime = TotalIdleTime;
+
+     return LastCPUPercent;
+}
+
+static uint64_t HealthReadMemoryUsageBytes()
+{
+     std::ifstream MemInfoFileStream("/proc/meminfo");
+     std::string LineContent;
+     uint64_t TotalMemoryValue = 0;
+     uint64_t AvailableMemoryValue = 0;
+
+     while (std::getline(MemInfoFileStream, LineContent))
+     {
+          if (LineContent.find("MemTotal:") == 0)
+          {
+               std::istringstream Iss(LineContent);
+               std::string LabelStr;
+               std::string UnitStr;
+               uint64_t Value = 0;
+               Iss >> LabelStr >> Value >> UnitStr;
+               TotalMemoryValue = Value * 1024;
+          }
+          else if (LineContent.find("MemAvailable:") == 0)
+          {
+               std::istringstream Iss(LineContent);
+               std::string LabelStr;
+               std::string UnitStr;
+               uint64_t Value = 0;
+               Iss >> LabelStr >> Value >> UnitStr;
+               AvailableMemoryValue = Value * 1024;
+          }
+     }
+
+     if (TotalMemoryValue == 0 || AvailableMemoryValue > TotalMemoryValue)
+     {
+          return 0;
+     }
+
+     return TotalMemoryValue - AvailableMemoryValue;
 }
 
 static bool HealthNormalizeEndpointValue(std::string &Endpoint, std::string &OutError)
@@ -722,16 +782,6 @@ static bool HealthValidateRemoteModules(const std::string &ResponseBody, std::st
           std::sort(RemoteModules.begin(), RemoteModules.end());
           RemoteModules.erase(std::unique(RemoteModules.begin(), RemoteModules.end()), RemoteModules.end());
 
-          const bool LocalSAMEnabled = Instance && Instance->Config && Instance->Config->GetSamEnabled();
-          if (LocalSAMEnabled && !HealthRemoteHasSAMEnabled(Root, RemoteModules))
-          {
-               if (OutError)
-               {
-                    *OutError = "Remote server has SAM disabled; linked child servers must enable SAM when the master has SAM enabled";
-               }
-               return false;
-          }
-
           if (RemoteModules == LocalModules)
           {
                return true;
@@ -803,7 +853,6 @@ static bool HealthValidateRemoteModules(const std::string &ResponseBody, std::st
           return false;
      }
 }
-} // namespace
 /* HandlePing responds to ping request. */
 
 HttpResponse SearchAPI::HandlePing(const HttpRequest &Request)
@@ -893,11 +942,9 @@ HttpResponse SearchAPI::HandleHealth(const HttpRequest &Request)
 
      if (Instance)
      {
-          HealthDegraded = Instance->StatsVal.IsHealthDegraded();
-          if (HealthDegraded)
-          {
-               HealthReason = Instance->StatsVal.GetHealthDegradedReason();
-          }
+          const auto HealthStatus = Instance->StatsVal.GetHealthStatus();
+          HealthDegraded = HealthStatus.Degraded;
+          HealthReason = HealthStatus.Reason;
           if (Instance->Users)
           {
                AuthEnabled = Instance->Users->IsAuthEnabled();
@@ -924,13 +971,6 @@ HttpResponse SearchAPI::HandleHealth(const HttpRequest &Request)
      {
           HealthJSON["demo_message"] = DemoMessage;
      }
-     const bool SamEnabled = Instance && Instance->Config && Instance->Config->GetSamEnabled();
-     const bool SamAvailable = SamEnabled && Instance && Instance->Sam && Instance->Sam->IsOpen();
-     HealthJSON["sam_enabled"] = SamEnabled;
-     HealthJSON["sam_available"] = SamAvailable;
-     HealthJSON["sam"] = {
-          {"enabled", SamEnabled},
-          {"available", SamAvailable}};
      HealthJSON["loaded_modules"] = nlohmann::json::array();
      if (Modules)
      {
@@ -960,7 +1000,6 @@ HttpResponse SearchAPI::HandleReady(const HttpRequest &Request)
      bool IsReady = IsInitialized();
      bool IsLoading = false;
      bool SyncInProgress = false;
-
      if (Instance)
      {
           SyncInProgress = Instance->IsSyncInProgress();
@@ -982,6 +1021,10 @@ HttpResponse SearchAPI::HandleReady(const HttpRequest &Request)
           ReadyJSON["initialized"] = IsReady;
           ReadyJSON["loading"] = IsLoading;
           ReadyJSON["sync_in_progress"] = SyncInProgress;
+          ReadyJSON["listeners_configured"] = Instance ? Instance->GetConfiguredListenerCount() : 0;
+          ReadyJSON["listeners_started"] = Instance ? Instance->GetStartedListenerCount() : 0;
+          ReadyJSON["listeners_skipped"] = Instance ? Instance->GetSkippedListenerCount() : 0;
+          ReadyJSON["listener_last_error"] = Instance ? Instance->GetLastListenerError() : std::string();
 
           HttpResponse Response(Status::SERVICE_UNAVAILABLE, StatusText(Status::SERVICE_UNAVAILABLE), "application/json");
           Response.Body = ReadyJSON.dump();
@@ -991,6 +1034,10 @@ HttpResponse SearchAPI::HandleReady(const HttpRequest &Request)
      ReadyJSON["initialized"] = true;
      ReadyJSON["loading"] = false;
      ReadyJSON["sync_in_progress"] = false;
+     ReadyJSON["listeners_configured"] = Instance ? Instance->GetConfiguredListenerCount() : 0;
+     ReadyJSON["listeners_started"] = Instance ? Instance->GetStartedListenerCount() : 0;
+     ReadyJSON["listeners_skipped"] = Instance ? Instance->GetSkippedListenerCount() : 0;
+     ReadyJSON["listener_last_error"] = Instance ? Instance->GetLastListenerError() : std::string();
 
      HttpResponse Response(Status::OK, StatusText(Status::OK), "application/json");
      Response.Body = ReadyJSON.dump();
@@ -1007,6 +1054,20 @@ HttpResponse SearchAPI::HandleMetrics(const HttpRequest &Request)
 
      MetricsJSON["status"] = "ok";
 
+     const auto ResponseCacheStats = SearchResponseCache::GetStats();
+     const auto LexicalCacheStats = LexicalQueryCache::GetStats();
+     MetricsJSON["cache"] = {
+          {"response_hits", ResponseCacheStats.Hits},
+          {"response_misses", ResponseCacheStats.Misses},
+          {"response_expired", ResponseCacheStats.Expired},
+          {"response_evictions", ResponseCacheStats.Evictions},
+          {"response_entries", ResponseCacheStats.Entries},
+          {"response_size_bytes", ResponseCacheStats.SizeBytes},
+          {"lexical_resource_hits", LexicalCacheStats.ResourceHits},
+          {"lexical_resource_misses", LexicalCacheStats.ResourceMisses},
+          {"lexical_expansion_hits", LexicalCacheStats.ExpansionHits},
+          {"lexical_expansion_misses", LexicalCacheStats.ExpansionMisses}};
+
      if (Instance)
      {
           auto State = Instance->StatsVal.GetStartupState();
@@ -1019,6 +1080,8 @@ HttpResponse SearchAPI::HandleMetrics(const HttpRequest &Request)
      HttpResponse Response(Status::OK, StatusText(Status::OK), "application/json");
 
      Response.Body = MetricsJSON.dump();
+
+     FOREACH_MOD(OnMetricsRequest, Request);
 
      return Response;
 }
@@ -1033,6 +1096,112 @@ HttpResponse SearchAPI::HandleEtc(const HttpRequest &Request)
 
      ProtocolCodes["protocol_name"] = "hlquery";
      ProtocolCodes["version"] = 1;
+     ProtocolCodes["routes"] = {
+          {"etc", {{"method", "GET"}, {"path", "/etc"}}},
+          {"health", {{"method", "GET"}, {"path", "/health"}}},
+          {"info", {{"method", "GET"}, {"path", "/"}}},
+          {"ping", {{"method", "GET"}, {"path", "/ping"}}},
+          {"ready", {{"method", "GET"}, {"path", "/ready"}}},
+          {"status", {{"method", "GET"}, {"paths", {"/status", "/query"}}}},
+          {"stats", {{"method", "GET"}, {"path", "/stats"}}},
+          {"flush", {{"method", "POST"}, {"path", "/flush"}}}
+     };
+
+     ProtocolCodes["http_status_codes"] = {
+          {"OK", Status::OK},
+          {"CREATED", Status::CREATED},
+          {"ACCEPTED", Status::ACCEPTED},
+          {"NO_CONTENT", Status::NO_CONTENT},
+          {"MULTI_STATUS", Status::MULTI_STATUS},
+          {"MOVED_PERMANENTLY", Status::MOVED_PERMANENTLY},
+          {"FOUND", Status::FOUND},
+          {"NOT_MODIFIED", Status::NOT_MODIFIED},
+          {"BAD_REQUEST", Status::BAD_REQUEST},
+          {"UNAUTHORIZED", Status::UNAUTHORIZED},
+          {"FORBIDDEN", Status::FORBIDDEN},
+          {"NOT_FOUND", Status::NOT_FOUND},
+          {"METHOD_NOT_ALLOWED", Status::METHOD_NOT_ALLOWED},
+          {"CONFLICT", Status::CONFLICT},
+          {"PAYLOAD_TOO_LARGE", Status::PAYLOAD_TOO_LARGE},
+          {"UNPROCESSABLE_ENTITY", Status::UNPROCESSABLE_ENTITY},
+          {"TOO_MANY_REQUESTS", Status::TOO_MANY_REQUESTS},
+          {"INTERNAL_SERVER_ERROR", Status::INTERNAL_SERVER_ERROR},
+          {"NOT_IMPLEMENTED", Status::NOT_IMPLEMENTED},
+          {"BAD_GATEWAY", Status::BAD_GATEWAY},
+          {"SERVICE_UNAVAILABLE", Status::SERVICE_UNAVAILABLE},
+          {"GATEWAY_TIMEOUT", Status::GATEWAY_TIMEOUT}
+     };
+
+     ProtocolCodes["protocol_codes"] = {
+          {"SUCCESS", Code::SUCCESS},
+          {"OPERATION_COMPLETE", Code::OPERATION_COMPLETE},
+          {"COLLECTION_NOT_FOUND", Code::COLLECTION_NOT_FOUND},
+          {"COLLECTION_EMPTY", Code::COLLECTION_EMPTY},
+          {"COLLECTION_EXISTS", Code::COLLECTION_EXISTS},
+          {"COLLECTION_INVALID_NAME", Code::COLLECTION_INVALID_NAME},
+          {"COLLECTION_INVALID_SCHEMA", Code::COLLECTION_INVALID_SCHEMA},
+          {"COLLECTION_CREATED", Code::COLLECTION_CREATED},
+          {"COLLECTION_UPDATED", Code::COLLECTION_UPDATED},
+          {"COLLECTION_DELETED", Code::COLLECTION_DELETED},
+          {"DOCUMENT_NOT_FOUND", Code::DOCUMENT_NOT_FOUND},
+          {"DOCUMENT_INVALID_ID", Code::DOCUMENT_INVALID_ID},
+          {"DOCUMENT_INVALID_FORMAT", Code::DOCUMENT_INVALID_FORMAT},
+          {"DOCUMENT_CREATED", Code::DOCUMENT_CREATED},
+          {"DOCUMENT_UPDATED", Code::DOCUMENT_UPDATED},
+          {"DOCUMENT_DELETED", Code::DOCUMENT_DELETED},
+          {"DOCUMENT_BULK_IMPORTED", Code::DOCUMENT_BULK_IMPORTED},
+          {"SEARCH_INVALID_QUERY", Code::SEARCH_INVALID_QUERY},
+          {"SEARCH_INVALID_PARAMETER", Code::SEARCH_INVALID_PARAMETER},
+          {"SEARCH_NO_RESULTS", Code::SEARCH_NO_RESULTS},
+          {"SEARCH_SUCCESS", Code::SEARCH_SUCCESS},
+          {"SEARCH_EMPTY_QUERY", Code::SEARCH_EMPTY_QUERY},
+          {"SEARCH_INVALID_FIELD", Code::SEARCH_INVALID_FIELD},
+          {"VALIDATION_FAILED", Code::VALIDATION_FAILED},
+          {"VALIDATION_INVALID_JSON", Code::VALIDATION_INVALID_JSON},
+          {"VALIDATION_MISSING_FIELD", Code::VALIDATION_MISSING_FIELD},
+          {"VALIDATION_INVALID_TYPE", Code::VALIDATION_INVALID_TYPE},
+          {"VALIDATION_INVALID_VALUE", Code::VALIDATION_INVALID_VALUE},
+          {"AUTH_REQUIRED", Code::AUTH_REQUIRED},
+          {"AUTH_INVALID", Code::AUTH_INVALID},
+          {"AUTH_EXPIRED", Code::AUTH_EXPIRED},
+          {"AUTH_FORBIDDEN", Code::AUTH_FORBIDDEN},
+          {"SYSTEM_ERROR", Code::SYSTEM_ERROR},
+          {"SYSTEM_UNAVAILABLE", Code::SYSTEM_UNAVAILABLE},
+          {"SYSTEM_SYNCING", Code::SYSTEM_SYNCING},
+          {"SYSTEM_SHUTTING_DOWN", Code::SYSTEM_SHUTTING_DOWN},
+          {"SYSTEM_MAINTENANCE", Code::SYSTEM_MAINTENANCE},
+          {"STORAGE_ERROR", Code::STORAGE_ERROR},
+          {"STORAGE_FULL", Code::STORAGE_FULL},
+          {"STORAGE_IO_ERROR", Code::STORAGE_IO_ERROR},
+          {"STORAGE_LOCKED", Code::STORAGE_LOCKED},
+          {"SYNONYM_NOT_FOUND", Code::SYNONYM_NOT_FOUND},
+          {"SYNONYM_EXISTS", Code::SYNONYM_EXISTS},
+          {"SYNONYM_INVALID", Code::SYNONYM_INVALID},
+          {"SYNONYM_CREATED", Code::SYNONYM_CREATED},
+          {"SYNONYM_UPDATED", Code::SYNONYM_UPDATED},
+          {"SYNONYM_DELETED", Code::SYNONYM_DELETED},
+          {"STOPWORD_NOT_FOUND", Code::STOPWORD_NOT_FOUND},
+          {"STOPWORD_EXISTS", Code::STOPWORD_EXISTS},
+          {"STOPWORD_INVALID", Code::STOPWORD_INVALID},
+          {"STOPWORD_CREATED", Code::STOPWORD_CREATED},
+          {"STOPWORD_DELETED", Code::STOPWORD_DELETED},
+          {"OVERRIDE_NOT_FOUND", Code::OVERRIDE_NOT_FOUND},
+          {"OVERRIDE_EXISTS", Code::OVERRIDE_EXISTS},
+          {"OVERRIDE_INVALID", Code::OVERRIDE_INVALID},
+          {"OVERRIDE_CREATED", Code::OVERRIDE_CREATED},
+          {"OVERRIDE_UPDATED", Code::OVERRIDE_UPDATED},
+          {"OVERRIDE_DELETED", Code::OVERRIDE_DELETED},
+          {"ALIAS_NOT_FOUND", Code::ALIAS_NOT_FOUND},
+          {"ALIAS_EXISTS", Code::ALIAS_EXISTS},
+          {"ALIAS_INVALID", Code::ALIAS_INVALID},
+          {"ALIAS_CREATED", Code::ALIAS_CREATED},
+          {"ALIAS_UPDATED", Code::ALIAS_UPDATED},
+          {"ALIAS_DELETED", Code::ALIAS_DELETED},
+          {"MODULE_NOT_FOUND", Code::MODULE_NOT_FOUND},
+          {"MODULE_ROUTE_NOT_FOUND", Code::MODULE_ROUTE_NOT_FOUND},
+          {"MODULE_UNAVAILABLE", Code::MODULE_UNAVAILABLE},
+          {"RATE_LIMIT_EXCEEDED", Code::RATE_LIMIT_EXCEEDED}
+     };
 
      HttpResponse Response(Status::OK, StatusText(Status::OK), "application/json");
 
@@ -1079,18 +1248,6 @@ HttpResponse SearchAPI::HandleStats(const HttpRequest &Request)
           StatsJSON["demo_mode"] = DemoMode;
           StatsJSON["readonly_mode"] = DemoMode;
           StatsJSON["io"] = BuildSocketIOStatsJSON();
-          const bool SamEnabled = Instance->Config && Instance->Config->GetSamEnabled();
-          const bool SamAvailable = SamEnabled && Instance->Sam && Instance->Sam->IsOpen();
-          StatsJSON["sam_enabled"] = SamEnabled;
-          StatsJSON["sam_available"] = SamAvailable;
-          StatsJSON["sam"] = {
-               {"enabled", SamEnabled},
-               {"available", SamAvailable},
-               {"smart_background", Instance->Config ? Instance->Config->GetSamSmartBackground() : true},
-               {"background_improvement_interval_ms",
-                Instance->Config ? Instance->Config->GetSamBackgroundImprovementIntervalMs() : 60000},
-               {"background_improvement_poll_ms",
-                Instance->Config ? Instance->Config->GetSamBackgroundImprovementPollMs() : 15000}};
           if (!DemoMessage.empty())
           {
                StatsJSON["demo_message"] = DemoMessage;
@@ -1102,6 +1259,8 @@ HttpResponse SearchAPI::HandleStats(const HttpRequest &Request)
                ServerJSON["name"] = Instance->Config->GetServerName();
                ServerJSON["id"] = Instance->Config->GetServerId();
                ServerJSON["uptime_seconds"] = UptimeVal;
+               ServerJSON["cpu_usage_percent"] = HealthReadCPUUsagePercent();
+               ServerJSON["memory_usage_bytes"] = HealthReadMemoryUsageBytes();
                StatsJSON["server"] = ServerJSON;
           }
 
@@ -1230,6 +1389,8 @@ HttpResponse SearchAPI::HandleStats(const HttpRequest &Request)
 
      Response.Body = StatsJSON.dump();
 
+     FOREACH_MOD(OnStatsRequest, Request);
+
      return Response;
 }
 
@@ -1275,7 +1436,24 @@ HttpResponse SearchAPI::HandleCache(const HttpRequest &Request)
 
      HttpResponse Response(Status::OK, StatusText(Status::OK), "application/json");
 
-     Response.Body = "{\"status\":\"ok\"}";
+     const auto ResponseStats = SearchResponseCache::GetStats();
+     const auto LexicalStats = LexicalQueryCache::GetStats();
+     nlohmann::json Result;
+     Result["response_cache"] = {
+          {"hits", ResponseStats.Hits},
+          {"misses", ResponseStats.Misses},
+          {"expired", ResponseStats.Expired},
+          {"evictions", ResponseStats.Evictions},
+          {"entries", ResponseStats.Entries},
+          {"size_bytes", ResponseStats.SizeBytes}};
+     Result["lexical_cache"] = {
+          {"resource_hits", LexicalStats.ResourceHits},
+          {"resource_misses", LexicalStats.ResourceMisses},
+          {"expansion_hits", LexicalStats.ExpansionHits},
+          {"expansion_misses", LexicalStats.ExpansionMisses}};
+     Response.Body = Result.dump();
+
+     FOREACH_MOD(OnCacheRequest, Request);
 
      return Response;
 }
@@ -1391,16 +1569,22 @@ HttpResponse SearchAPI::HandleSearchConfig(const HttpRequest &Request)
      nlohmann::json ConfigJSON;
      ConfigJSON["algorithm"] = Config->GetSearchAlgorithm();
      ConfigJSON["default_ranking"] = Config->GetDefaultRanking();
+     ConfigJSON["match_mode"] = Config->GetSearchMatchMode();
+     ConfigJSON["min_should_match"] = Config->GetSearchMinShouldMatch();
+     ConfigJSON["candidate_prune_multiplier"] = Config->GetSearchCandidatePruneMultiplier();
      ConfigJSON["k1"] = Config->GetRankingK1();
      ConfigJSON["b"] = Config->GetRankingB();
      ConfigJSON["delta"] = Config->GetRankingDelta();
+     ConfigJSON["idf_floor_factor"] = Config->GetRankingIdfFloorFactor();
      ConfigJSON["max_query_length"] = Config->GetQuerySettingsMaxQueryLength();
      ConfigJSON["max_query_terms"] = Config->GetQuerySettingsMaxQueryTerms();
      ConfigJSON["min_query_length"] = Config->GetQuerySettingsMinQueryLength();
      ConfigJSON["enable_stemming"] = Config->GetQuerySettingsEnableStemming();
      ConfigJSON["enable_synonyms"] = Config->GetQuerySettingsEnableSynonyms();
+     ConfigJSON["enable_stopwords"] = Config->GetQuerySettingsEnableStopwords();
      ConfigJSON["enable_fuzzy"] = Config->GetQuerySettingsEnableFuzzy();
      ConfigJSON["fuzzy_max_distance"] = Config->GetQuerySettingsFuzzyMaxDistance();
+     ConfigJSON["require_exact_identifier_tokens"] = Config->GetQuerySettingsRequireExactIdentifierTokens();
      ConfigJSON["default_limit"] = Config->GetLimitsDefaultLimit();
      ConfigJSON["max_limit"] = Config->GetLimitsMaxLimit();
      ConfigJSON["min_limit"] = Config->GetLimitsMinLimit();
@@ -1577,6 +1761,10 @@ HttpResponse SearchAPI::HandleStartup(const HttpRequest &Request)
 
           StartupJSON["collections_loaded"] = State.CollectionsLoadedCount;
           StartupJSON["sync_complete"] = State.SyncComplete;
+          StartupJSON["listeners_configured"] = Instance->GetConfiguredListenerCount();
+          StartupJSON["listeners_started"] = Instance->GetStartedListenerCount();
+          StartupJSON["listeners_skipped"] = Instance->GetSkippedListenerCount();
+          StartupJSON["listener_last_error"] = Instance->GetLastListenerError();
 
           if (Instance->Modules)
           {
@@ -1588,60 +1776,6 @@ HttpResponse SearchAPI::HandleStartup(const HttpRequest &Request)
 
      Response.Body = StartupJSON.dump();
 
-     return Response;
-}
-
-HttpResponse SearchAPI::HandleLLM(const HttpRequest &Request)
-{
-     (void)Request;
-
-     nlohmann::json LLMJSON;
-     LLMJSON["status"] = "ok";
-     LLMJSON["enabled"] = false;
-     LLMJSON["configured"] = false;
-     LLMJSON["models_dir"] = "";
-     LLMJSON["model_name"] = "";
-     LLMJSON["model_path"] = "";
-     LLMJSON["inference_command"] = "";
-     LLMJSON["pending_context_jobs"] = 0;
-     LLMJSON["loaded_modules"] = nlohmann::json::array();
-     LLMJSON["model_catalog"] = nlohmann::json::array();
-
-     if (Instance)
-     {
-          if (Instance->Modules)
-          {
-               const std::vector<std::string> LoadedModules = Instance->Modules->GetLoadedModuleNames();
-               LLMJSON["loaded_modules"] = LoadedModules;
-          }
-
-          if (Instance->LLM)
-          {
-               LLMJSON["enabled"] = Instance->LLM->IsEnabled();
-               LLMJSON["configured"] = Instance->LLM->Configured();
-               LLMJSON["models_dir"] = Instance->LLM->GetModelsDirectory();
-               LLMJSON["model_name"] = Instance->LLM->GetModelName();
-               LLMJSON["model_path"] = Instance->LLM->GetModelPath();
-               LLMJSON["inference_command"] = Instance->LLM->GetInferenceCommand();
-               LLMJSON["pending_context_jobs"] =
-                    static_cast<unsigned long long>(Instance->LLM->GetPendingContextJobs());
-          }
-
-          if (Instance->Config)
-          {
-               for (const auto &Entry : Instance->Config->GetAIModelCatalog())
-               {
-                    nlohmann::json Item;
-                    Item["name"] = Entry.Name;
-                    Item["file"] = Entry.File;
-                    Item["default"] = Entry.IsDefault;
-                    LLMJSON["model_catalog"].push_back(std::move(Item));
-               }
-          }
-     }
-
-     HttpResponse Response(Status::OK, StatusText(Status::OK), "application/json");
-     Response.Body = LLMJSON.dump();
      return Response;
 }
 
@@ -1766,14 +1900,15 @@ HttpResponse SearchAPI::HandleUpdateCounters(const HttpRequest &Request)
 
      HttpResponse Response(Status::OK, StatusText(Status::OK), "application/json");
 
+     nlohmann::json ResponseJSON;
+     ResponseJSON["status"] = "ok";
+
      if (!prefix_filter.empty())
      {
-          Response.Body = "{\"status\":\"ok\",\"prefix\":\"" + prefix_filter + "\"}";
+          ResponseJSON["prefix"] = prefix_filter;
      }
-     else
-     {
-          Response.Body = "{\"status\":\"ok\"}";
-     }
+
+     Response.Body = ResponseJSON.dump();
 
      return Response;
 }

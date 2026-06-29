@@ -17,13 +17,14 @@
 #include <cstdint>
 #include <ctime>
 #include <mutex>
+#include <new>
 #include <string>
 #include <vector>
 
 #include "core/hlquery.h"
 #include "core/modules.h"
 #include "runtime/timers.h"
-#include "sam/lang.h"
+#include "search/lang.h"
 #include "search/cstore.h"
 #include "vendor/json/json.hpp"
 
@@ -58,6 +59,7 @@ class LangUpdaterRuntimeModule final : public AutoRuntimeModule<LangUpdaterRunti
      uint64_t LastStartedAt = 0;
      uint64_t LastCompletedAt = 0;
      uint64_t LastDurationMS = 0;
+     uint64_t LastScheduledDelayMS = 0;
      size_t LastCollectionsInsertedPerDay = 0;
      size_t LastCollectionsScanned = 0;
      size_t LastCollectionsUpdated = 0;
@@ -190,6 +192,11 @@ class LangUpdaterRuntimeModule final : public AutoRuntimeModule<LangUpdaterRunti
 
           const uint64_t Generation = TimerGeneration.load(std::memory_order_acquire);
 
+          {
+               std::lock_guard<std::mutex> Lock(StateMutex);
+               LastScheduledDelayMS = DelayMS;
+          }
+
           Instance->Timers->Add(
                [this, Generation]()
                {
@@ -205,11 +212,17 @@ class LangUpdaterRuntimeModule final : public AutoRuntimeModule<LangUpdaterRunti
                false);
      }
 
-     void RunUpdatePass(bool ScheduleAfter)
+     uint64_t GetCurrentIntervalMS() const
      {
-          if (!Enabled || Stopping.load(std::memory_order_acquire))
+          std::lock_guard<std::mutex> Lock(StateMutex);
+          return CurrentIntervalMS;
+     }
+
+     bool RunUpdatePass(bool ScheduleAfter, bool Force = false)
+     {
+          if ((!Enabled && !Force) || Stopping.load(std::memory_order_acquire))
           {
-               return;
+               return false;
           }
 
           bool Expected = false;
@@ -218,10 +231,10 @@ class LangUpdaterRuntimeModule final : public AutoRuntimeModule<LangUpdaterRunti
           {
                if (ScheduleAfter)
                {
-                    ScheduleNext(CurrentIntervalMS);
+                    ScheduleNext(GetCurrentIntervalMS());
                }
 
-               return;
+               return false;
           }
 
           const uint64_t StartedAt = NowMS();
@@ -230,6 +243,16 @@ class LangUpdaterRuntimeModule final : public AutoRuntimeModule<LangUpdaterRunti
           size_t CollectionsUpdated = 0;
           size_t CollectionsSkipped = 0;
           std::string Error;
+
+          struct RunningGuard
+          {
+               std::atomic<bool> &Flag;
+
+               ~RunningGuard()
+               {
+                    Flag.store(false, std::memory_order_release);
+               }
+          } Guard{Running};
 
           try
           {
@@ -260,7 +283,7 @@ class LangUpdaterRuntimeModule final : public AutoRuntimeModule<LangUpdaterRunti
                     const std::string ExistingLanguage =
                          LangIt == Config.Metadata.end() ? "" : NormalizeLanguageValue(LangIt->second);
                     const std::string DetectedLanguage =
-                         NormalizeLanguageValue(sam::lang::DetectCollectionLanguage(Collection, MaxDocumentsPerCollection));
+                         NormalizeLanguageValue(lang::DetectCollectionLanguage(Collection, MaxDocumentsPerCollection));
 
                     ++CollectionsScanned;
 
@@ -284,6 +307,10 @@ class LangUpdaterRuntimeModule final : public AutoRuntimeModule<LangUpdaterRunti
                          ++CollectionsSkipped;
                     }
                }
+          }
+          catch (const std::bad_alloc&)
+          {
+               Error = "out of memory";
           }
           catch (const std::exception& Exception)
           {
@@ -327,12 +354,12 @@ class LangUpdaterRuntimeModule final : public AutoRuntimeModule<LangUpdaterRunti
                }
           }
 
-          Running.store(false, std::memory_order_release);
-
           if (ScheduleAfter)
           {
                ScheduleNext(NextIntervalMS);
           }
+
+          return Error.empty();
      }
 
      nlohmann::json BuildStatusJSON() const
@@ -343,6 +370,8 @@ class LangUpdaterRuntimeModule final : public AutoRuntimeModule<LangUpdaterRunti
                {"enabled", Enabled},
                {"running", Running.load(std::memory_order_acquire)},
                {"interval_ms", CurrentIntervalMS},
+               {"interval_seconds", CurrentIntervalMS / 1000ULL},
+               {"last_scheduled_delay_ms", LastScheduledDelayMS},
                {"last_started_at_ms", LastStartedAt},
                {"last_completed_at_ms", LastCompletedAt},
                {"last_duration_ms", LastDurationMS},
@@ -425,7 +454,14 @@ class LangUpdaterRuntimeModule final : public AutoRuntimeModule<LangUpdaterRunti
           Run.MinParameters = 0;
           Run.MaxParameters = 0;
 
-          return {Status, Run};
+          ModuleCommandSpec Interval;
+          Interval.Route = "interval";
+          Interval.Summary = "Show the next refresh interval decision.";
+          Interval.Syntax = "hlquery-cli module lang_updater interval";
+          Interval.MinParameters = 0;
+          Interval.MaxParameters = 0;
+
+          return {Status, Run, Interval};
      }
 
      ModuleCommandResponse HandleCommand(const ModuleCommandRequest& Request) override
@@ -444,10 +480,19 @@ class LangUpdaterRuntimeModule final : public AutoRuntimeModule<LangUpdaterRunti
 
           if (Request.Route == "run")
           {
-               RunUpdatePass(false);
+               const bool Completed = RunUpdatePass(false, true);
+               Response.Success = Completed;
+               Response.StatusCode = Completed ? 200 : 409;
+               Response.Message = Completed ? "Language update pass completed." : "Language update pass did not complete.";
+               Response.Body = BuildStatusJSON().dump();
+               return Response;
+          }
+
+          if (Request.Route == "interval")
+          {
                Response.Success = true;
                Response.StatusCode = 200;
-               Response.Message = "Language update pass completed.";
+               Response.Message = "OK";
                Response.Body = BuildStatusJSON().dump();
                return Response;
           }

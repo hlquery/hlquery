@@ -21,6 +21,8 @@
 // different behavior. See comment of the flag for details.
 
 #ifdef GFLAGS
+#include <iostream>
+
 #include "db_stress_tool/db_stress_common.h"
 #include "db_stress_tool/db_stress_driver.h"
 #include "db_stress_tool/db_stress_shared_state.h"
@@ -31,11 +33,16 @@
 namespace ROCKSDB_NAMESPACE {
 namespace {
 static std::shared_ptr<ROCKSDB_NAMESPACE::Env> env_guard;
-static std::shared_ptr<ROCKSDB_NAMESPACE::Env> env_wrapper_guard;
 static std::shared_ptr<ROCKSDB_NAMESPACE::Env> legacy_env_wrapper_guard;
-static std::shared_ptr<ROCKSDB_NAMESPACE::CompositeEnvWrapper>
-    dbsl_env_wrapper_guard;
-static std::shared_ptr<CompositeEnvWrapper> fault_env_guard;
+// Raw pointer for signal-safe crash callback. Signal handlers can only access
+// file-static/global variables -- they can't capture StressTest instance.
+static ROCKSDB_NAMESPACE::FaultInjectionTestFS* fault_fs_for_crash_report =
+    nullptr;
+
+int ReturnFlagValidationError(const char* message) {
+  std::cerr << "Error: " << message << '\n';
+  return 1;
+}
 }  // namespace
 
 KeyGenContext key_gen_ctx;
@@ -43,6 +50,7 @@ KeyGenContext key_gen_ctx;
 int db_stress_tool(int argc, char** argv) {
   SetUsageMessage(std::string("\nUSAGE:\n") + std::string(argv[0]) +
                   " [OPTIONS]...");
+  RegisterDbStressBdwFlagValidators();
   ParseCommandLineFlags(&argc, &argv, true);
 
   SanitizeDoubleParam(&FLAGS_bloom_bits);
@@ -59,8 +67,6 @@ int db_stress_tool(int argc, char** argv) {
       StringToCompressionType(FLAGS_bottommost_compression_type.c_str());
   checksum_type_e = StringToChecksumType(FLAGS_checksum_type.c_str());
 
-  Env* raw_env;
-
   int env_opts = !FLAGS_env_uri.empty() + !FLAGS_fs_uri.empty();
   if (env_opts > 1) {
     fprintf(stderr, "Error: --env_uri and --fs_uri are mutually exclusive\n");
@@ -74,41 +80,6 @@ int db_stress_tool(int argc, char** argv) {
             s.ToString().c_str());
     exit(1);
   }
-  dbsl_env_wrapper_guard = std::make_shared<CompositeEnvWrapper>(raw_env);
-  db_stress_listener_env = dbsl_env_wrapper_guard.get();
-
-  if (FLAGS_open_metadata_read_fault_one_in ||
-      FLAGS_open_metadata_write_fault_one_in || FLAGS_open_read_fault_one_in ||
-      FLAGS_open_write_fault_one_in || FLAGS_metadata_read_fault_one_in ||
-      FLAGS_metadata_write_fault_one_in || FLAGS_read_fault_one_in ||
-      FLAGS_write_fault_one_in || FLAGS_sync_fault_injection) {
-    FaultInjectionTestFS* fs =
-        new FaultInjectionTestFS(raw_env->GetFileSystem());
-    fault_fs_guard.reset(fs);
-    // Set it to direct writable here to initially bypass any fault injection
-    // during DB open This will correspondingly be overwritten in
-    // StressTest::Open() for open fault injection and in RunStressTestImpl()
-    // for proper fault injection setup.
-    fault_fs_guard->SetFilesystemDirectWritable(true);
-    fault_env_guard =
-        std::make_shared<CompositeEnvWrapper>(raw_env, fault_fs_guard);
-    raw_env = fault_env_guard.get();
-
-    // Register a crash callback so that recently injected errors are
-    // printed to stderr when the process crashes (SIGABRT, SIGSEGV, etc.).
-    // This helps diagnose stress test failures caused by fault injection.
-    port::RegisterCrashCallback([]() {
-      if (fault_fs_guard) {
-        fault_fs_guard->PrintRecentInjectedErrors();
-      }
-    });
-  }
-
-  auto db_stress_fs =
-      std::make_shared<DbStressFSWrapper>(raw_env->GetFileSystem());
-  env_wrapper_guard =
-      std::make_shared<CompositeEnvWrapper>(raw_env, db_stress_fs);
-  db_stress_env = env_wrapper_guard.get();
 
   // Handle --destroy_db_and_exit early, before other option validation
   if (FLAGS_destroy_db_and_exit) {
@@ -141,10 +112,10 @@ int db_stress_tool(int argc, char** argv) {
 
   // The number of background threads should be at least as much the
   // max number of concurrent compactions.
-  db_stress_env->SetBackgroundThreads(FLAGS_max_background_compactions,
-                                      ROCKSDB_NAMESPACE::Env::Priority::LOW);
-  db_stress_env->SetBackgroundThreads(FLAGS_num_bottom_pri_threads,
-                                      ROCKSDB_NAMESPACE::Env::Priority::BOTTOM);
+  raw_env->SetBackgroundThreads(FLAGS_max_background_compactions,
+                                ROCKSDB_NAMESPACE::Env::Priority::LOW);
+  raw_env->SetBackgroundThreads(FLAGS_num_bottom_pri_threads,
+                                ROCKSDB_NAMESPACE::Env::Priority::BOTTOM);
   if (FLAGS_prefixpercent > 0 && FLAGS_prefix_size < 0) {
     fprintf(stderr,
             "Error: prefixpercent is non-zero while prefix_size is "
@@ -213,6 +184,85 @@ int db_stress_tool(int argc, char** argv) {
         "Error: nooverwritepercent must not be 100 when using merge operands");
     exit(1);
   }
+  if (FLAGS_enable_blob_direct_write) {
+    // Blob direct write is intentionally validated as a reduced-scope stress
+    // feature. We allow the WAL-disabled crash-test profile, including
+    // wide-column PutEntity/GetEntity coverage, but reject best-efforts
+    // recovery, parallel memtable/write-queue variants, transactions, remote
+    // compaction, and APIs/features that depend on active-file snapshotting or
+    // unsupported blob option transitions.
+    if (!FLAGS_enable_blob_files) {
+      return ReturnFlagValidationError(
+          "enable_blob_direct_write requires enable_blob_files");
+    }
+    if (FLAGS_allow_concurrent_memtable_write) {
+      return ReturnFlagValidationError(
+          "blob direct write stress requires "
+          "allow_concurrent_memtable_write=0");
+    }
+    if (FLAGS_enable_pipelined_write) {
+      return ReturnFlagValidationError(
+          "blob direct write stress does not support "
+          "enable_pipelined_write");
+    }
+    if (FLAGS_unordered_write) {
+      return ReturnFlagValidationError(
+          "blob direct write stress does not support unordered_write");
+    }
+    if (FLAGS_two_write_queues) {
+      return ReturnFlagValidationError(
+          "blob direct write stress does not support two_write_queues");
+    }
+    if (FLAGS_use_blob_db) {
+      return ReturnFlagValidationError(
+          "blob direct write is only supported with integrated BlobDB");
+    }
+    if (FLAGS_use_merge || FLAGS_use_full_merge_v1) {
+      return ReturnFlagValidationError(
+          "blob direct write stress does not support merge");
+    }
+    if (FLAGS_experimental_mempurge_threshold > 0.0) {
+      return ReturnFlagValidationError(
+          "blob direct write stress does not support MemPurge");
+    }
+    if (FLAGS_user_timestamp_size > 0) {
+      return ReturnFlagValidationError(
+          "blob direct write stress does not support user-defined timestamps");
+    }
+    if (FLAGS_allow_setting_blob_options_dynamically ||
+        FLAGS_enable_blob_garbage_collection) {
+      return ReturnFlagValidationError(
+          "blob direct write stress does not support dynamic blob options or "
+          "blob GC");
+    }
+    if (FLAGS_best_efforts_recovery) {
+      return ReturnFlagValidationError(
+          "blob direct write stress supports disable_wal-based crash "
+          "testing, not best-efforts recovery");
+    }
+    if (FLAGS_remote_compaction_worker_threads > 0) {
+      return ReturnFlagValidationError(
+          "blob direct write stress does not support remote compaction");
+    }
+    if (FLAGS_use_txn || FLAGS_txn_write_policy != 0 ||
+        FLAGS_use_optimistic_txn || FLAGS_test_multi_ops_txns ||
+        FLAGS_commit_bypass_memtable_one_in > 0) {
+      return ReturnFlagValidationError(
+          "blob direct write stress does not support TransactionDB modes");
+    }
+    if (FLAGS_test_secondary || FLAGS_backup_one_in > 0 ||
+        FLAGS_checkpoint_one_in > 0 || FLAGS_get_live_files_apis_one_in > 0 ||
+        FLAGS_ingest_external_file_one_in > 0) {
+      return ReturnFlagValidationError(
+          "blob direct write stress does not support secondary, backup, "
+          "checkpoint, get_live_files, or ingest_external_file modes");
+    }
+    if (FLAGS_ingest_wbwi_one_in > 0) {
+      return ReturnFlagValidationError(
+          "blob direct write stress does not support "
+          "IngestWriteBatchWithIndex");
+    }
+  }
   if (FLAGS_ingest_external_file_one_in > 0 &&
       FLAGS_nooverwritepercent == 100) {
     fprintf(
@@ -227,12 +277,6 @@ int db_stress_tool(int argc, char** argv) {
   }
   if (FLAGS_test_cf_consistency && FLAGS_disable_wal) {
     FLAGS_atomic_flush = true;
-  }
-
-  // Trie UDI supports Seek, Next, and SeekToFirst, but not SeekToLast,
-  // SeekForPrev, or Prev. Disable backward scan testing.
-  if (FLAGS_use_trie_index) {
-    FLAGS_test_backward_scan = false;
   }
 
   // Trie UDI uses zero-copy pointers into block data, which is
@@ -271,36 +315,17 @@ int db_stress_tool(int argc, char** argv) {
   // Choose a location for the test database if none given with --db=<path>
   if (FLAGS_db.empty()) {
     std::string default_db_path;
-    db_stress_env->GetTestDirectory(&default_db_path);
+    raw_env->GetTestDirectory(&default_db_path);
     default_db_path += "/dbstress";
     FLAGS_db = default_db_path;
-  }
-
-  // Now that FLAGS_db is resolved, set the fault injection log file path
-  // so that PrintAll() writes to a file instead of stderr (signal-safe).
-  // Store the log in TEST_TMPDIR (outside the DB directory) so it survives
-  // DB reopen (which cleans untracked files) and gets included in the
-  // sandcastle db.tar.gz artifact for post-failure analysis.
-  if (fault_fs_guard) {
-    std::string log_dir;
-    const char* test_tmpdir = getenv("TEST_TMPDIR");
-    if (test_tmpdir && test_tmpdir[0] != '\0') {
-      log_dir = test_tmpdir;
-    } else {
-      log_dir = "/tmp";
-    }
-    std::string log_path = log_dir + "/fault_injection_" +
-                           std::to_string(getpid()) + "_" +
-                           std::to_string(time(nullptr)) + ".log";
-    fault_fs_guard->SetInjectedErrorLogPath(log_path);
   }
 
   if ((FLAGS_test_secondary || FLAGS_continuous_verification_interval > 0) &&
       FLAGS_secondaries_base.empty()) {
     std::string default_secondaries_path;
-    db_stress_env->GetTestDirectory(&default_secondaries_path);
+    raw_env->GetTestDirectory(&default_secondaries_path);
     default_secondaries_path += "/dbstress_secondaries";
-    s = db_stress_env->CreateDirIfMissing(default_secondaries_path);
+    s = raw_env->CreateDirIfMissing(default_secondaries_path);
     if (!s.ok()) {
       fprintf(stderr, "Failed to create directory %s: %s\n",
               default_secondaries_path.c_str(), s.ToString().c_str());
@@ -439,11 +464,23 @@ int db_stress_tool(int argc, char** argv) {
   }
   // Initialize the Zipfian pre-calculated array
   InitializeHotKeyGenerator(FLAGS_hot_key_alpha);
-  shared.reset(new SharedState(db_stress_env, stress.get()));
+
+  // Register a crash callback so that recently injected errors are printed
+  // to stderr when the process crashes (SIGABRT, SIGSEGV, etc.). This helps
+  // diagnose stress test failures caused by fault injection.
+  fault_fs_for_crash_report = stress->GetDbFaultInjectionFs().get();
+  port::RegisterCrashCallback([]() {
+    if (fault_fs_for_crash_report) {
+      fault_fs_for_crash_report->PrintRecentInjectedErrors();
+    }
+  });
+
+  shared.reset(new SharedState(raw_env, stress.get()));
   bool run_stress_test = RunStressTest(shared.get());
   // Close DB in CleanUp() before destructor to prevent race between destructor
   // and operations in listener callbacks (e.g. MultiOpsTxnsStressListener).
   stress->CleanUp();
+  fault_fs_for_crash_report = nullptr;
   return run_stress_test ? 0 : 1;
 }
 

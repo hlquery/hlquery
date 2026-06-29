@@ -46,8 +46,6 @@
 #include "runtime/exitmanager.h"
 
 #ifndef HLQUERY_HAS_OPENSSL
-namespace
-{
 HTTPResponse MakeSSLMissingResponse()
 {
      HTTPResponse response;
@@ -55,14 +53,13 @@ HTTPResponse MakeSSLMissingResponse()
      response.ErrorMessage = "HTTPS support is unavailable in this build because OpenSSL support was not enabled.";
      return response;
 }
-}
 #endif
 
 /* Global stats forward declarations. */
 
 extern std::atomic<int> collections_created;
 
-extern std::atomic<int> documents_inserted;
+extern std::atomic<int64_t> documents_inserted;
 
 extern std::atomic<int> collections_skipped;
 
@@ -1069,7 +1066,7 @@ static void AddBenchmarkDocumentIdField(nlohmann::json &fields)
           }
      }
 
-     fields.insert(fields.begin(), {{"name", "document_id"}, {"type", "string"}});
+     fields.insert(fields.begin(), nlohmann::json{{"name", "document_id"}, {"type", "string"}});
 }
 
 static void AddBenchmarkDocumentIdValue(nlohmann::json &doc)
@@ -1937,7 +1934,14 @@ int BenchmarkClient::InsertDocumentsBulkRequest(const std::string &collection, c
 
                if (result.contains("imported"))
                {
-                    return result["imported"].get<int>();
+                    int imported = result["imported"].get<int>();
+
+                    if (imported < 0)
+                    {
+                         return 0;
+                    }
+
+                    return std::min(imported, static_cast<int>(docs.size()));
                }
           }
           catch (...)
@@ -2345,11 +2349,6 @@ HTTPResponse BenchmarkClient::FlushSync()
      }
 
      return UpdateCounters("");
-}
-
-HTTPResponse BenchmarkClient::PauseSAM(uint64_t pause_until_ms)
-{
-     return MakeRequest("POST", "/sam/pause?pause=" + std::to_string(pause_until_ms));
 }
 
 /* Encodes a string for use in a URL. */

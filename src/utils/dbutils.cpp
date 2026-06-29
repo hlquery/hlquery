@@ -55,7 +55,6 @@ bool ConsistencyChecker::CheckConsistency(int DbID)
      if (Instance && Instance->Database)
      {
           Consistent &= CheckMemoryConsistency(DbID);
-
           auto Keys = Instance->Database->Keys("*");
 
           for (const auto &Key : Keys)
@@ -120,7 +119,6 @@ bool ConsistencyChecker::CheckKeyConsistency(int /* DbID */, const std::string &
      /* Placeholder implementation. */
 
      (void)Key;
-
      return true;
 }
 
@@ -160,7 +158,6 @@ PerformanceMonitor::~PerformanceMonitor()
 void PerformanceMonitor::StartOperation(const std::string &Operation)
 {
      std::lock_guard<std::mutex> Lock(Mutex);
-
      ActiveOperations[Operation] = std::chrono::high_resolution_clock::now();
 }
 
@@ -177,11 +174,8 @@ void PerformanceMonitor::EndOperation(const std::string &Operation, bool Success
      if (It != ActiveOperations.end())
      {
           auto EndTime = std::chrono::high_resolution_clock::now();
-
           auto Duration = std::chrono::duration<double, std::milli>(EndTime - It->second).count();
-
           auto &Stats = OperationStatsMap[Operation];
-
           Stats.Count++;
 
           if (Success)

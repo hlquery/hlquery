@@ -483,6 +483,10 @@ class SearchAPI
 
      std::vector<SearchHit> ApplySorting(const std::vector<SearchHit>& Hits, const std::vector<std::string>& SortBy);
 
+     /* ResolveDefaultCollectionSortBy returns collection-level default sort fields. */
+
+     std::vector<std::string> ResolveDefaultCollectionSortBy(const std::string& Collection);
+
      /* ApplyModuleWeights lets runtime modules adjust hit weights before final ranking. */
 
      void ApplyModuleWeights(std::vector<SearchHit>& Hits, const std::string& Collection, const ComprehensiveSearchQuery& Query, const std::string& RankingMode);
@@ -844,51 +848,6 @@ class SearchAPI
      /* HandleGetDocumentContext returns alternate contextual phrases for one document. */
 
      HttpResponse HandleGetDocumentContext(const HttpRequest& Request);
-
-     /* HandleSAMRebuild rebuilds SAM entries for one collection. */
-
-     HttpResponse HandleSAMRebuild(const HttpRequest& Request);
-
-     /* HandleSAMSearch searches one collection's SAM index. */
-
-     HttpResponse HandleSAMSearch(const HttpRequest& Request);
-
-     /* HandleSAMStatus returns SAM indexing status for one collection. */
-
-     HttpResponse HandleSAMStatus(const HttpRequest& Request);
-
-     /* HandleSAMDebug returns recent SAM debug events. */
-
-     HttpResponse HandleSAMDebug(const HttpRequest& Request);
-
-     /* HandleSAMHistory returns recently recorded SAM search history entries. */
-
-     HttpResponse HandleSAMHistory(const HttpRequest& Request);
-
-     /* HandleSAMPause pauses automatic SAM background indexing (auto-index). */
-
-     HttpResponse HandleSAMPause(const HttpRequest& Request);
-
-     /* HandleSAMImprove runs low-priority SAM improvement for idle collections. */
-
-     HttpResponse HandleSAMImprove(const HttpRequest& Request);
-
-     /* HandleSAMFlushActorMetadata clears in-memory SAM actor metadata caches (IP/API key associations). */
-
-     HttpResponse HandleSAMFlushActorMetadata(const HttpRequest& Request);
-
-     /* HandleSAMListDocuments lists SAM-indexed documents for one collection. */
-
-     HttpResponse HandleSAMListDocuments(const HttpRequest& Request);
-
-     /* HandleSAMGetDocument fetches one SAM document entry by collection and ID. */
-
-     HttpResponse HandleSAMGetDocument(const HttpRequest& Request);
-
-     /* HandleSAMAddDocumentLabel appends a manual label to a stored document and SAM index. */
-
-     HttpResponse HandleSAMAddDocumentLabel(const HttpRequest& Request);
-
      /* HandleBulkImportDocuments handles bulk document imports. */
 
      HttpResponse HandleBulkImportDocuments(const HttpRequest& Request);
@@ -980,6 +939,22 @@ class SearchAPI
      /* HandleUpdateKey handles API key update requests. */
 
      HttpResponse HandleUpdateKey(const HttpRequest& Request);
+
+     /* HandleListPresets handles search preset listing requests. */
+
+     HttpResponse HandleListPresets(const HttpRequest& Request);
+
+     /* HandleCreateOrUpdatePreset handles search preset upserts. */
+
+     HttpResponse HandleCreateOrUpdatePreset(const HttpRequest& Request);
+
+     /* HandleGetPreset handles search preset retrieval requests. */
+
+     HttpResponse HandleGetPreset(const HttpRequest& Request);
+
+     /* HandleDeletePreset handles search preset deletion requests. */
+
+     HttpResponse HandleDeletePreset(const HttpRequest& Request);
 
      /* HandleAnalyticsClick handles click analytics requests. */
 
@@ -1176,10 +1151,6 @@ class SearchAPI
 
      HttpResponse HandleStartup(const HttpRequest& Request);
 
-     /* HandleLLM returns active LLM runtime information. */
-
-     HttpResponse HandleLLM(const HttpRequest& Request);
-
      /* HandleDocTotal handles total document count requests. */
 
      HttpResponse HandleDocTotal(const HttpRequest& Request);
@@ -1224,9 +1195,6 @@ class SearchAPI
 
      void ResetCollectionMutationVersions();
 
-     /* Propagate synonym or stopword changes into SAM and queue affected collection rebuilds. */
-
-     void SyncSAMLexicalChange(const std::string& Collection, bool GlobalScope);
 
      ReplicationStatusSnapshot GetReplicationStatusSnapshot() const;
 

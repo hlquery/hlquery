@@ -16,7 +16,7 @@
 #include <sys/ioctl.h>
 #include <unistd.h>
 
-#include "core/typedefs.h"
+#include "core/helpers.h"
 #include "utils/consolewriter.h"
 
 /* ANSI color codes. */

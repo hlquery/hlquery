@@ -15,6 +15,9 @@
 #include <chrono>
 #include <iostream>
 #include <map>
+#include <memory>
+#include <mutex>
+#include <deque>
 #include <set>
 #include <sstream>
 #include <string>
@@ -24,6 +27,7 @@
 #include <vector>
 
 #include "api/searchapi.h"
+#include "api/lexicalcache.h"
 #include "core/hlquery.h"
 #include "utils/wildcard.h"
 #include "vendor/json/json.hpp"
@@ -158,6 +162,20 @@ static std::string NormalizeTermSimple(const std::string &term, bool case_sensit
      }
 
      return normalized;
+}
+
+static bool IsIdentifierLikeTermSimple(const std::string &term)
+{
+     bool has_alpha = false;
+     bool has_digit = false;
+
+     for (const unsigned char character : term)
+     {
+          has_alpha = has_alpha || std::isalpha(character);
+          has_digit = has_digit || std::isdigit(character);
+     }
+
+     return has_alpha && has_digit;
 }
 
 /*
@@ -1013,7 +1031,105 @@ static void LoadStopwordsForCollection(const std::string &Collection, std::unord
      load_scope("stopwords:__global__");
 }
 
-static std::vector<std::string> BuildExpandedQueriesFromSynonyms(const std::string &QueryText, const std::string &Collection)
+struct LexicalResourceSnapshot
+{
+     std::unordered_map<std::string, std::vector<std::string>> SynonymGraph;
+     std::unordered_set<std::string> Stopwords;
+     uint64_t CollectionGeneration = 0;
+     uint64_t GlobalGeneration = 0;
+};
+
+struct ExpansionCacheEntry
+{
+     std::string Collection;
+     std::vector<std::string> Variants;
+};
+
+static std::mutex LexicalCacheMutex;
+static std::unordered_map<std::string, std::shared_ptr<const LexicalResourceSnapshot>> LexicalResourceEntries;
+static std::unordered_map<std::string, ExpansionCacheEntry> ExpansionEntries;
+static std::deque<std::string> ExpansionOrder;
+static std::unordered_map<std::string, uint64_t> CollectionGenerations;
+static uint64_t GlobalLexicalGeneration = 1;
+static std::atomic<uint64_t> ResourceCacheHits{0};
+static std::atomic<uint64_t> ResourceCacheMisses{0};
+static std::atomic<uint64_t> ExpansionCacheHits{0};
+static std::atomic<uint64_t> ExpansionCacheMisses{0};
+static constexpr size_t MaxExpansionCacheEntries = 4096;
+
+static std::pair<uint64_t, uint64_t> GetLexicalGenerationsLocked(const std::string &Collection)
+{
+     const auto It = CollectionGenerations.find(Collection);
+     return {It == CollectionGenerations.end() ? 0 : It->second, GlobalLexicalGeneration};
+}
+
+static std::shared_ptr<const LexicalResourceSnapshot> GetLexicalResourceSnapshot(const std::string &Collection)
+{
+     uint64_t CollectionGeneration = 0;
+     uint64_t GlobalGeneration = 0;
+     {
+          std::lock_guard<std::mutex> Lock(LexicalCacheMutex);
+          const auto Generations = GetLexicalGenerationsLocked(Collection);
+          CollectionGeneration = Generations.first;
+          GlobalGeneration = Generations.second;
+          const auto It = LexicalResourceEntries.find(Collection);
+          if (It != LexicalResourceEntries.end() &&
+              It->second->CollectionGeneration == CollectionGeneration &&
+              It->second->GlobalGeneration == GlobalGeneration)
+          {
+               ResourceCacheHits.fetch_add(1, std::memory_order_relaxed);
+               return It->second;
+          }
+     }
+
+     ResourceCacheMisses.fetch_add(1, std::memory_order_relaxed);
+     auto Snapshot = std::make_shared<LexicalResourceSnapshot>();
+     Snapshot->CollectionGeneration = CollectionGeneration;
+     Snapshot->GlobalGeneration = GlobalGeneration;
+     LoadSynonymGraphForCollection(Collection, Snapshot->SynonymGraph);
+     LoadStopwordsForCollection(Collection, Snapshot->Stopwords);
+
+     std::unique_lock<std::mutex> Lock(LexicalCacheMutex);
+     const auto CurrentGenerations = GetLexicalGenerationsLocked(Collection);
+     if (CurrentGenerations.first != CollectionGeneration || CurrentGenerations.second != GlobalGeneration)
+     {
+          Lock.unlock();
+          return GetLexicalResourceSnapshot(Collection);
+     }
+     LexicalResourceEntries[Collection] = Snapshot;
+     return Snapshot;
+}
+
+static std::string BuildExpansionCacheKey(const std::string &Collection,
+                                          const std::string &QueryText,
+                                          bool EnableSynonyms,
+                                          bool EnableStopwords,
+                                          uint64_t CollectionGeneration,
+                                          uint64_t GlobalGeneration)
+{
+     return Collection + "\n" + QueryText + "\n" +
+            (EnableSynonyms ? "1" : "0") + (EnableStopwords ? "1" : "0") + "\n" +
+            std::to_string(CollectionGeneration) + "\n" + std::to_string(GlobalGeneration);
+}
+
+static void PutExpansionCache(const std::string &Key,
+                              const std::string &Collection,
+                              const std::vector<std::string> &Variants)
+{
+     std::lock_guard<std::mutex> Lock(LexicalCacheMutex);
+     ExpansionEntries[Key] = {Collection, Variants};
+     ExpansionOrder.push_back(Key);
+     while (ExpansionEntries.size() > MaxExpansionCacheEntries && !ExpansionOrder.empty())
+     {
+          ExpansionEntries.erase(ExpansionOrder.front());
+          ExpansionOrder.pop_front();
+     }
+}
+
+static std::vector<std::string> BuildExpandedQueriesFromSynonyms(const std::string &QueryText,
+                                                                 const std::string &Collection,
+                                                                 bool EnableSynonyms,
+                                                                 bool EnableStopwords)
 {
      std::vector<std::string> Variants;
 
@@ -1023,8 +1139,20 @@ static std::vector<std::string> BuildExpandedQueriesFromSynonyms(const std::stri
           return Variants;
      }
 
-     std::unordered_map<std::string, std::vector<std::string>> SynonymGraph;
-     LoadSynonymGraphForCollection(Collection, SynonymGraph);
+     const auto Snapshot = GetLexicalResourceSnapshot(Collection);
+     const std::string CacheKey = BuildExpansionCacheKey(Collection, QueryText, EnableSynonyms, EnableStopwords,
+                                                         Snapshot->CollectionGeneration, Snapshot->GlobalGeneration);
+     {
+          std::lock_guard<std::mutex> Lock(LexicalCacheMutex);
+          const auto It = ExpansionEntries.find(CacheKey);
+          if (It != ExpansionEntries.end())
+          {
+               ExpansionCacheHits.fetch_add(1, std::memory_order_relaxed);
+               return It->second.Variants;
+          }
+     }
+     ExpansionCacheMisses.fetch_add(1, std::memory_order_relaxed);
+
      std::vector<std::string> Tokens;
      std::stringstream SS(QueryText);
      std::string Token;
@@ -1033,9 +1161,7 @@ static std::vector<std::string> BuildExpandedQueriesFromSynonyms(const std::stri
           Tokens.push_back(Token);
      }
 
-     std::unordered_set<std::string> Stopwords;
-     LoadStopwordsForCollection(Collection, Stopwords);
-     if (!Stopwords.empty())
+     if (EnableStopwords && !Snapshot->Stopwords.empty())
      {
           std::vector<std::string> Filtered;
           Filtered.reserve(Tokens.size());
@@ -1047,7 +1173,7 @@ static std::vector<std::string> BuildExpandedQueriesFromSynonyms(const std::stri
                {
                     continue;
                }
-               if (Stopwords.find(Normalized) != Stopwords.end())
+               if (Snapshot->Stopwords.find(Normalized) != Snapshot->Stopwords.end())
                {
                     continue;
                }
@@ -1059,6 +1185,7 @@ static std::vector<std::string> BuildExpandedQueriesFromSynonyms(const std::stri
 
      if (Tokens.empty())
      {
+          PutExpansionCache(CacheKey, Collection, Variants);
           return Variants;
      }
 
@@ -1073,8 +1200,9 @@ static std::vector<std::string> BuildExpandedQueriesFromSynonyms(const std::stri
      }
      Variants.push_back(BaseBuilder.str());
 
-     if (SynonymGraph.empty())
+     if (!EnableSynonyms || Snapshot->SynonymGraph.empty())
      {
+          PutExpansionCache(CacheKey, Collection, Variants);
           return Variants;
      }
 
@@ -1084,8 +1212,8 @@ static std::vector<std::string> BuildExpandedQueriesFromSynonyms(const std::stri
      for (size_t I = 0; I < Tokens.size() && Variants.size() < MaxVariants; ++I)
      {
           std::string Normalized = NormalizeTermSimple(Tokens[I]);
-          auto SynIt = SynonymGraph.find(Normalized);
-          if (Normalized.empty() || SynIt == SynonymGraph.end())
+          auto SynIt = Snapshot->SynonymGraph.find(Normalized);
+          if (Normalized.empty() || SynIt == Snapshot->SynonymGraph.end())
           {
                continue;
           }
@@ -1122,7 +1250,45 @@ static std::vector<std::string> BuildExpandedQueriesFromSynonyms(const std::stri
 
      std::sort(Variants.begin(), Variants.end());
      Variants.erase(std::unique(Variants.begin(), Variants.end()), Variants.end());
+     PutExpansionCache(CacheKey, Collection, Variants);
      return Variants;
+}
+
+void LexicalQueryCache::InvalidateCollection(const std::string &Collection)
+{
+     std::lock_guard<std::mutex> Lock(LexicalCacheMutex);
+     ++CollectionGenerations[Collection];
+     LexicalResourceEntries.erase(Collection);
+     for (auto It = ExpansionEntries.begin(); It != ExpansionEntries.end();)
+     {
+          if (It->second.Collection == Collection)
+          {
+               It = ExpansionEntries.erase(It);
+          }
+          else
+          {
+               ++It;
+          }
+     }
+}
+
+void LexicalQueryCache::InvalidateAll()
+{
+     std::lock_guard<std::mutex> Lock(LexicalCacheMutex);
+     ++GlobalLexicalGeneration;
+     LexicalResourceEntries.clear();
+     ExpansionEntries.clear();
+     ExpansionOrder.clear();
+}
+
+LexicalQueryCache::Stats LexicalQueryCache::GetStats()
+{
+     Stats Result;
+     Result.ResourceHits = ResourceCacheHits.load(std::memory_order_relaxed);
+     Result.ResourceMisses = ResourceCacheMisses.load(std::memory_order_relaxed);
+     Result.ExpansionHits = ExpansionCacheHits.load(std::memory_order_relaxed);
+     Result.ExpansionMisses = ExpansionCacheMisses.load(std::memory_order_relaxed);
+     return Result;
 }
 
 /*
@@ -1188,6 +1354,46 @@ static bool HasRequestedQueryFields(const std::vector<std::string> &query_by)
      return !query_by.empty();
 }
 
+static bool QueriesOnlyKeywordFields(const CollectionConfig &config,
+                                     const std::vector<std::string> &query_by)
+{
+     if (query_by.empty())
+     {
+          return false;
+     }
+
+     for (const auto &field_name : query_by)
+     {
+          if (field_name == "id")
+          {
+               continue;
+          }
+
+          const auto field_it = config.Fields.find(field_name);
+          if (field_it == config.Fields.end() || ToLowerCopy(field_it->second) != "keyword")
+          {
+               return false;
+          }
+     }
+
+     return true;
+}
+
+static bool KeywordFieldMatchesExact(const std::vector<std::pair<std::string, std::string>> &field_values,
+                                     const std::string &query,
+                                     bool case_sensitive)
+{
+     std::string normalized_query = TrimWhitespace(StripQuotes(query));
+     if (!case_sensitive)
+     {
+          normalized_query = ToLowerCopy(normalized_query);
+     }
+
+     return !normalized_query.empty() &&
+            std::any_of(field_values.begin(), field_values.end(), [&](const auto &field_value)
+                        { return TrimWhitespace(field_value.second) == normalized_query; });
+}
+
 static void AppendRequestedFieldValues(const Document &doc,
                                        const std::vector<std::string> &query_by,
                                        std::vector<std::pair<std::string, std::string>> &field_values,
@@ -1220,6 +1426,15 @@ static void AppendRequestedFieldValues(const Document &doc,
 
      for (const auto &field_name : query_by)
      {
+          if (field_name == "id")
+          {
+               if (!doc.ID.empty())
+               {
+                    field_values.push_back({"id", case_sensitive ? doc.ID : ToLowerCopy(doc.ID)});
+               }
+               continue;
+          }
+
           if (field_name == "title")
           {
                if (!doc.Title.empty())
@@ -1479,6 +1694,16 @@ std::vector<SearchHit> SearchAPI::ProcessLexicalSearch(const std::string &Collec
                }
           }
 
+          const bool NeedsFullPostProcessing = !Query.SortBy.empty() || !Query.FilterBy.empty() ||
+                                               !Query.FacetBy.empty() || !Query.GroupBy.empty() ||
+                                               !Query.Aggregations.empty();
+          if (NeedsFullPostProcessing)
+          {
+               const size_t CollectionDocumentCount = HybridStorageManager::GetInstance().GetCollectionDocumentCount(Collection);
+               const int PostProcessingLimit = static_cast<int>(std::min<size_t>(CollectionDocumentCount, 10000));
+               RequestedLimit = std::max(RequestedLimit, PostProcessingLimit);
+          }
+
           auto AllDocuments = HybridStorageManager::GetInstance().ListDocuments(Collection, RequestedLimit);
 
           for (const auto &DocObj : AllDocuments)
@@ -1531,6 +1756,13 @@ std::vector<SearchHit> SearchAPI::ProcessLexicalSearch(const std::string &Collec
      }
 
      auto &storage = HybridStorageManager::GetInstance();
+
+     CollectionConfig collection_config;
+     const bool exact_keyword_query =
+          !ParsedExpression.UsesStructuredSemantics &&
+          !Query.InlineFuzzy &&
+          storage.GetCollectionConfig(Collection, collection_config) &&
+          QueriesOnlyKeywordFields(collection_config, Query.QueryBy);
 
      storage.LazyLoadCollectionIndex(Collection);
 
@@ -1585,9 +1817,70 @@ std::vector<SearchHit> SearchAPI::ProcessLexicalSearch(const std::string &Collec
           collection_index_complete = storage.IsCollectionIndexComplete(Collection, collection_docs);
      }
 
+     if (ParsedExpression.UsesStructuredSemantics &&
+         BuildCandidateQueriesFromParsedExpression(ParsedExpression).empty())
+     {
+          const bool restrict_to_query_fields = HasRequestedQueryFields(Query.QueryBy);
+          const bool allow_prefix_match = Query.Prefix && !exact_keyword_query;
+          const int requested_limit = Query.PerPage > 0 ? std::min(Query.PerPage, 1000) : 100;
+          const int scan_batch = 200;
+          int offset = 0;
+
+          while (static_cast<int>(Hits.size()) < requested_limit)
+          {
+               auto docs = storage.ListDocuments(Collection, scan_batch, offset);
+               if (docs.empty())
+               {
+                    break;
+               }
+
+               for (const auto &doc : docs)
+               {
+                    if (static_cast<int>(Hits.size()) >= requested_limit)
+                    {
+                         break;
+                    }
+
+                    if (!EvaluateParsedQueryExpression(doc,
+                                                       ParsedExpression,
+                                                       restrict_to_query_fields ? Query.QueryBy : std::vector<std::string>{},
+                                                       allow_prefix_match,
+                                                       0,
+                                                       Query.CaseSensitive))
+                    {
+                         continue;
+                    }
+
+                    SearchHit HitObj;
+                    HitObj.Document["id"] = doc.ID;
+                    HitObj.Document["title"] = doc.Title;
+                    HitObj.Document["content"] = doc.Content;
+                    HitObj.Document["score"] = std::to_string(doc.Score);
+                    HitObj.Document["timestamp"] = std::to_string(doc.Timestamp);
+
+                    for (const auto &Field : doc.Fields)
+                    {
+                         HitObj.Document[Field.first] = Field.second;
+                    }
+
+                    HitObj.TextMatch = 1.0F;
+                    HitObj.Weight = CalculateWeight(HitObj);
+                    Hits.push_back(std::move(HitObj));
+               }
+
+               offset += scan_batch;
+          }
+
+          return Hits;
+     }
+
      std::vector<std::string> QueryVariants;
      const bool restrict_to_query_fields = HasRequestedQueryFields(Query.QueryBy);
-     if (ParsedExpression.UsesStructuredSemantics)
+     if (exact_keyword_query)
+     {
+          QueryVariants.push_back(SearchQueryVal);
+     }
+     else if (ParsedExpression.UsesStructuredSemantics)
      {
           QueryVariants = BuildCandidateQueriesFromParsedExpression(ParsedExpression);
      }
@@ -1602,7 +1895,7 @@ std::vector<SearchHit> SearchAPI::ProcessLexicalSearch(const std::string &Collec
                }
                else
                {
-                    auto ExpandedVariants = BuildExpandedQueriesFromSynonyms(VariantSeed, Collection);
+                    auto ExpandedVariants = BuildExpandedQueriesFromSynonyms(VariantSeed, Collection, Query.EnableSynonyms, Query.EnableStopwords);
                     QueryVariants.insert(QueryVariants.end(), ExpandedVariants.begin(), ExpandedVariants.end());
                }
           }
@@ -1615,7 +1908,7 @@ std::vector<SearchHit> SearchAPI::ProcessLexicalSearch(const std::string &Collec
      for (const auto &Variant : QueryVariants)
      {
           auto VariantPostings = Instance->SearchIndex->Search(Collection,
-                                                               BuildIndexQueryForSearch(Variant, Query.Prefix),
+                                                               BuildIndexQueryForSearch(Variant, Query.Prefix && !exact_keyword_query),
                                                                SearchLimit,
                                                                restrict_to_query_fields ? Query.QueryBy : std::vector<std::string>{});
           for (const auto &Posting : VariantPostings)
@@ -1654,6 +1947,10 @@ std::vector<SearchHit> SearchAPI::ProcessLexicalSearch(const std::string &Collec
      }
      std::vector<std::string> highlight_terms = BuildHighlightTermsForSearch(SearchQueryVal, Query.CaseSensitive);
      const std::vector<std::string> base_query_terms = ExtractTermsSimple(SearchQueryVal, Query.CaseSensitive);
+     const bool require_exact_identifier_tokens =
+          !Instance || !Instance->Config || Instance->Config->GetQuerySettingsRequireExactIdentifierTokens();
+     const bool has_identifier_like_term =
+          std::any_of(base_query_terms.begin(), base_query_terms.end(), IsIdentifierLikeTermSimple);
      std::vector<std::vector<std::string>> query_variant_terms_list;
      query_variant_terms_list.reserve(QueryVariants.size());
      for (const auto &Variant : QueryVariants)
@@ -1664,12 +1961,17 @@ std::vector<SearchHit> SearchAPI::ProcessLexicalSearch(const std::string &Collec
                query_variant_terms_list.push_back(std::move(VariantTerms));
           }
      }
-     if (query_variant_terms_list.empty() && !base_query_terms.empty())
+     /* An empty variant list after stopword processing means every query term
+      * was intentionally removed. Do not restore the unfiltered terms for the
+      * storage-scan fallback, or stopwords would only work on indexed reads. */
+     if (query_variant_terms_list.empty() && !base_query_terms.empty() &&
+         !(Query.EnableStopwords && QueryVariants.empty()))
      {
           query_variant_terms_list.push_back(base_query_terms);
      }
      const int effective_max_typos =
-          (Query.NumTypos > 0 && !base_query_terms.empty() &&
+          (!exact_keyword_query && Query.NumTypos > 0 && !base_query_terms.empty() &&
+           (!require_exact_identifier_tokens || Query.NumTyposExplicit || !has_identifier_like_term) &&
            static_cast<int>(base_query_terms.size()) <= Query.TypoTokensThreshold)
                ? Query.NumTypos
                : 0;
@@ -1690,7 +1992,7 @@ std::vector<SearchHit> SearchAPI::ProcessLexicalSearch(const std::string &Collec
          (Postings.empty() || prefer_storage_scan_while_indexing || force_structured_scan || needs_typo_scan_fallback) &&
          (!has_in_memory_index || needs_zero_hit_storage_fallback || prefer_storage_scan_while_indexing || force_structured_scan || needs_typo_scan_fallback))
      {
-          const bool allow_prefix_match = Query.Prefix;
+          const bool allow_prefix_match = Query.Prefix && !exact_keyword_query;
 
           if (!query_variant_terms_list.empty())
           {
@@ -1738,7 +2040,7 @@ std::vector<SearchHit> SearchAPI::ProcessLexicalSearch(const std::string &Collec
                          scanned++;
 
                          std::vector<std::pair<std::string, std::string>> fields;
-                         AppendRequestedFieldValues(doc, restrict_to_query_fields ? Query.QueryBy : std::vector<std::string>{}, fields, Query.CaseSensitive);
+                         AppendRequestedFieldValues(doc, restrict_to_query_fields ? Query.QueryBy : std::vector<std::string>{}, fields, Query.CaseSensitive || exact_keyword_query);
 
                          int matched_terms = 0;
                          bool query_matches = true;
@@ -1754,12 +2056,14 @@ std::vector<SearchHit> SearchAPI::ProcessLexicalSearch(const std::string &Collec
                          }
                          else
                          {
-                              query_matches = MatchesAnyQueryVariant(fields,
-                                                                    query_variant_terms_list,
-                                                                    allow_prefix_match,
-                                                                    effective_max_typos,
-                                                                    Query.CaseSensitive,
-                                                                    &matched_terms);
+                              query_matches = exact_keyword_query
+                                                   ? KeywordFieldMatchesExact(fields, SearchQueryVal, true)
+                                                   : MatchesAnyQueryVariant(fields,
+                                                                            query_variant_terms_list,
+                                                                            allow_prefix_match,
+                                                                            effective_max_typos,
+                                                                            Query.CaseSensitive,
+                                                                            &matched_terms);
                           }
 
                          if (!query_matches)
@@ -1861,7 +2165,7 @@ std::vector<SearchHit> SearchAPI::ProcessLexicalSearch(const std::string &Collec
           if (!StorageDoc.ID.empty())
           {
                std::vector<std::pair<std::string, std::string>> selected_fields;
-               AppendRequestedFieldValues(StorageDoc, restrict_to_query_fields ? Query.QueryBy : std::vector<std::string>{}, selected_fields, Query.CaseSensitive);
+               AppendRequestedFieldValues(StorageDoc, restrict_to_query_fields ? Query.QueryBy : std::vector<std::string>{}, selected_fields, Query.CaseSensitive || exact_keyword_query);
 
                if (ParsedExpression.UsesStructuredSemantics)
                {
@@ -1875,7 +2179,12 @@ std::vector<SearchHit> SearchAPI::ProcessLexicalSearch(const std::string &Collec
                          continue;
                     }
                }
-               else if (!query_variant_terms_list.empty() &&
+               else if (exact_keyword_query &&
+                        !KeywordFieldMatchesExact(selected_fields, SearchQueryVal, true))
+               {
+                    continue;
+               }
+               else if (!exact_keyword_query && !query_variant_terms_list.empty() &&
                         !MatchesAnyQueryVariant(selected_fields, query_variant_terms_list, Query.Prefix, effective_max_typos, Query.CaseSensitive, nullptr))
                {
                     continue;
@@ -1936,7 +2245,7 @@ std::vector<SearchHit> SearchAPI::ProcessLexicalSearch(const std::string &Collec
 
      if (Hits.empty() && Query.AllowScanFallback && collection_docs > 0 && !query_variant_terms_list.empty())
      {
-          const bool allow_prefix_match = Query.Prefix;
+          const bool allow_prefix_match = Query.Prefix && !exact_keyword_query;
           const int scan_batch = 200;
           size_t scanned = 0;
           int offset = 0;
@@ -1966,7 +2275,7 @@ std::vector<SearchHit> SearchAPI::ProcessLexicalSearch(const std::string &Collec
                     scanned++;
 
                     std::vector<std::pair<std::string, std::string>> fields;
-                    AppendRequestedFieldValues(doc, restrict_to_query_fields ? Query.QueryBy : std::vector<std::string>{}, fields, Query.CaseSensitive);
+                    AppendRequestedFieldValues(doc, restrict_to_query_fields ? Query.QueryBy : std::vector<std::string>{}, fields, Query.CaseSensitive || exact_keyword_query);
 
                     int matched_terms = 0;
                     bool query_matches = ParsedExpression.UsesStructuredSemantics
@@ -1976,12 +2285,14 @@ std::vector<SearchHit> SearchAPI::ProcessLexicalSearch(const std::string &Collec
                                                                              allow_prefix_match,
                                                                              effective_max_typos,
                                                                              Query.CaseSensitive)
-                                             : MatchesAnyQueryVariant(fields,
-                                                                      query_variant_terms_list,
-                                                                      allow_prefix_match,
-                                                                      effective_max_typos,
-                                                                      Query.CaseSensitive,
-                                                                      &matched_terms);
+                                             : exact_keyword_query
+                                                  ? KeywordFieldMatchesExact(fields, SearchQueryVal, true)
+                                                  : MatchesAnyQueryVariant(fields,
+                                                                           query_variant_terms_list,
+                                                                           allow_prefix_match,
+                                                                           effective_max_typos,
+                                                                           Query.CaseSensitive,
+                                                                           &matched_terms);
 
                     if (!query_matches)
                     {

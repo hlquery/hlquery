@@ -334,11 +334,11 @@ enum class ModuleHook : size_t
      OnAuthenticatedRequest,
      OnPingRequest,
      OnDBRequest,
+     OnStatsRequest,
+     OnMetricsRequest,
+     OnCacheRequest,
      OnSearchCollection,
      OnSearchDocument,
-     OnSamSearch,
-     OnSamIndexing,
-     OnSamInteraction,
      ComputeSearchWeightMultiplier,
      OnPreCreateCollection,
      OnPreUpdateCollection,
@@ -453,16 +453,16 @@ class RuntimeModule
                !std::is_same_v<decltype(&Derived::OnPingRequest), decltype(&RuntimeModule::OnPingRequest)>;
           Hooks[static_cast<size_t>(ModuleHook::OnDBRequest)] =
                !std::is_same_v<decltype(&Derived::OnDBRequest), decltype(&RuntimeModule::OnDBRequest)>;
+          Hooks[static_cast<size_t>(ModuleHook::OnStatsRequest)] =
+               !std::is_same_v<decltype(&Derived::OnStatsRequest), decltype(&RuntimeModule::OnStatsRequest)>;
+          Hooks[static_cast<size_t>(ModuleHook::OnMetricsRequest)] =
+               !std::is_same_v<decltype(&Derived::OnMetricsRequest), decltype(&RuntimeModule::OnMetricsRequest)>;
+          Hooks[static_cast<size_t>(ModuleHook::OnCacheRequest)] =
+               !std::is_same_v<decltype(&Derived::OnCacheRequest), decltype(&RuntimeModule::OnCacheRequest)>;
           Hooks[static_cast<size_t>(ModuleHook::OnSearchCollection)] =
                !std::is_same_v<decltype(&Derived::OnSearchCollection), decltype(&RuntimeModule::OnSearchCollection)>;
           Hooks[static_cast<size_t>(ModuleHook::OnSearchDocument)] =
                !std::is_same_v<decltype(&Derived::OnSearchDocument), decltype(&RuntimeModule::OnSearchDocument)>;
-          Hooks[static_cast<size_t>(ModuleHook::OnSamSearch)] =
-               !std::is_same_v<decltype(&Derived::OnSamSearch), decltype(&RuntimeModule::OnSamSearch)>;
-          Hooks[static_cast<size_t>(ModuleHook::OnSamIndexing)] =
-               !std::is_same_v<decltype(&Derived::OnSamIndexing), decltype(&RuntimeModule::OnSamIndexing)>;
-          Hooks[static_cast<size_t>(ModuleHook::OnSamInteraction)] =
-               !std::is_same_v<decltype(&Derived::OnSamInteraction), decltype(&RuntimeModule::OnSamInteraction)>;
           Hooks[static_cast<size_t>(ModuleHook::ComputeSearchWeightMultiplier)] =
                !std::is_same_v<decltype(&Derived::ComputeSearchWeightMultiplier), decltype(&RuntimeModule::ComputeSearchWeightMultiplier)>;
           Hooks[static_cast<size_t>(ModuleHook::OnPreCreateCollection)] =
@@ -746,6 +746,27 @@ class RuntimeModule
 
      }
 
+     /* Called after a stats request has been handled successfully. */
+
+     virtual void OnStatsRequest(const HttpRequest&)
+     {
+
+     }
+
+     /* Called after a metrics request has been handled successfully. */
+
+     virtual void OnMetricsRequest(const HttpRequest&)
+     {
+
+     }
+
+     /* Called after a cache-inspection request has been handled successfully. */
+
+     virtual void OnCacheRequest(const HttpRequest&)
+     {
+
+     }
+
      /* Search observation hooks begin here. */
 
      /* Called after a collection-level search has completed successfully. */
@@ -760,59 +781,6 @@ class RuntimeModule
      virtual void OnSearchDocument(const SearchEvent& Event)
      {
           (void)Event;
-     }
-
-     /* SAM hooks begin here. */
-
-     /* Called after hlquery records one search idea into SAM. */
-
-     virtual void OnSamSearch(const std::string& Collection,
-                              const std::string& Query,
-                              uint64_t DocumentCount,
-                              const std::string& RequesterIP,
-                              const std::string& RequesterUser,
-                              bool Authenticated)
-     {
-          (void)Collection;
-          (void)Query;
-          (void)DocumentCount;
-          (void)RequesterIP;
-          (void)RequesterUser;
-          (void)Authenticated;
-     }
-
-     /* Called after hlquery starts or resumes SAM indexing work for one collection. */
-
-     virtual void OnSamIndexing(const std::string& Collection,
-                                const std::string& Operation,
-                                bool AlreadyRunning,
-                                const std::string& RequesterIP,
-                                const std::string& RequesterUser,
-                                bool Authenticated)
-     {
-          (void)Collection;
-          (void)Operation;
-          (void)AlreadyRunning;
-          (void)RequesterIP;
-          (void)RequesterUser;
-          (void)Authenticated;
-     }
-
-     /* Called after hlquery records one explicit SAM search interaction signal. */
-
-     virtual void OnSamInteraction(const std::string& Collection,
-                                   const std::string& Query,
-                                   const std::string& DocumentID,
-                                   const std::string& RequesterIP,
-                                   const std::string& RequesterUser,
-                                   bool Authenticated)
-     {
-          (void)Collection;
-          (void)Query;
-          (void)DocumentID;
-          (void)RequesterIP;
-          (void)RequesterUser;
-          (void)Authenticated;
      }
 
      /* Returns a multiplier used to adjust one hit after retrieval and before final ranking. */

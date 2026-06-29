@@ -701,8 +701,6 @@ void HLQueryCLI::ShowHelp()
      std::cout << "          Run vector similarity search against one collection (default field: embedding).\n";
      std::cout << "    maybe <query> [collection] [limit] [min_results] [--json].\n";
      std::cout << "          Return up to 5 suggestions similar to your wording; if no local hits, it checks two other collections as best-guess fallback.\n";
-     std::cout << "    sam search <col> <query> [limit] [--all] [--collections=col1,col2] [--distributed=on|off] [--route=local|host[:port]] [--skip] [--json].\n";
-     std::cout << "          Use --skip to avoid recording the query in SAM history and feedback-based reranking.\n";
      std::cout << "    colsearch <query> [limit] [offset] [sort] [--all] [--maybe=min,limit] [--json].\n";
      std::cout << "          Without --all, colsearch stays local to the selected server.\n";
      std::cout << "          Search collection names by exact name, or use * / ? wildcard patterns when enabled in config.\n";

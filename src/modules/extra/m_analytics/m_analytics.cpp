@@ -202,56 +202,6 @@ class AnalyticsRuntimeModule final : public AutoRuntimeModule<AnalyticsRuntimeMo
           }
      }
 
-     void OnSamSearch(const std::string &Collection,
-                      const std::string &Query,
-                      uint64_t DocumentCount,
-                      const std::string &RequesterIP,
-                      const std::string &RequesterUser,
-                      bool Authenticated) override
-     {
-          EnsureStarted();
-
-          if (manager && !Query.empty())
-          {
-               AnalyticsQueryEvent QueryEvent;
-               QueryEvent.Action = "SamSearch";
-               QueryEvent.Collection = Collection;
-               QueryEvent.Query = Query;
-               QueryEvent.DocumentCount = DocumentCount;
-               QueryEvent.RequesterIP = RequesterIP;
-               QueryEvent.RequesterUser = RequesterUser;
-               QueryEvent.Authenticated = Authenticated;
-               manager->RecordQueryEvent(QueryEvent);
-
-               manager->RecordCountedEvent("SamSearch", Collection, 1, RequesterIP, RequesterUser, Authenticated);
-          }
-     }
-
-     void OnSamInteraction(const std::string &Collection,
-                           const std::string &Query,
-                           const std::string &DocumentID,
-                           const std::string &RequesterIP,
-                           const std::string &RequesterUser,
-                           bool Authenticated) override
-     {
-          EnsureStarted();
-
-          if (manager && !Query.empty())
-          {
-               AnalyticsQueryEvent QueryEvent;
-               QueryEvent.Action = "SamInteraction";
-               QueryEvent.Collection = Collection;
-               QueryEvent.Query = Query;
-               QueryEvent.DocumentID = DocumentID;
-               QueryEvent.RequesterIP = RequesterIP;
-               QueryEvent.RequesterUser = RequesterUser;
-               QueryEvent.Authenticated = Authenticated;
-               manager->RecordQueryEvent(QueryEvent);
-
-               manager->RecordCountedEvent("SamInteraction", Collection, 1, RequesterIP, RequesterUser, Authenticated);
-          }
-     }
-
      /* Record one collection-creation event. */
 
      void OnCreateCollection(const std::string &Collection, const std::string &RequesterIP, const std::string &RequesterUser, bool Authenticated) override

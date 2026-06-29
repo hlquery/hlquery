@@ -8,12 +8,16 @@ cmake-build-*/
 out/
 bin/
 lib/
+!vendor/rocksdb/utilities/transactions/lock/range/range_tree/lib/
+!vendor/rocksdb/utilities/transactions/lock/range/range_tree/lib/**
 !etc/api/node/lib/
 !etc/api/node/lib/*.js
 !etc/api/python/lib/
 !etc/api/python/lib/*.py
 !etc/api/php/lib/
 !etc/api/php/lib/*.php
+!etc/api/ruby/lib/
+!etc/api/ruby/lib/**/*.rb
 !etc/api/perl/lib/
 !etc/api/perl/lib/**/*.pm
 obj/
@@ -55,6 +59,7 @@ ad.json
 
 # Vendored dependencies and large third-party sources
 vendor/**/node_modules/
+vendor/llama.cpp/
 
 # Generated docs/web dependencies
 node_modules/

@@ -14,32 +14,25 @@
 
 #include <atomic>
 #include <csignal>
-#include <cstdint>
-#include <functional>
-#include <iostream>
+#include <cstddef>
 #include <memory>
 #include <mutex>
 #include <string>
 #include <thread>
-#include <unordered_map>
 #include <vector>
 
 #include "common/listenmanager.h"
 #include "common/searchpool.h"
 #include "runtime/clock.h"
 #include "runtime/serverconfig.h"
-#include "runtime/startup.h"
-#include "runtime/threadlimit.h"
 #include "runtime/timers.h"
 #include "core/config.h"
 #include "core/forwards.h"
-#include "core/llm.h"
 #include "core/logmanager.h"
 #include "core/metrics.h"
 #include "core/modulemanager.h"
 #include "core/stats.h"
 #include "sql/sql.h"
-#include "utils/tools.h"
 
 /* Global hlquery engine instance exported. */
 
@@ -57,7 +50,7 @@ class CoreExport hlquery
 
      /* Internal initialization function */
 
-     bool InitializeServer();
+     bool StartServer();
 
      /* Check if another hlquery process is already running (internal) */
 
@@ -65,7 +58,19 @@ class CoreExport hlquery
 
      /* Initialize core server subsystems */
 
-     bool InitializeCoreSystems();
+     bool InitializeCore();
+
+     /* Initialize optional runtime services after core startup. */
+
+     bool InitializeOptionalServices();
+
+     /* Verify critical startup subsystems before serving traffic. */
+
+     bool ValidateInitializedSubsystems() const;
+
+     /* Create and start custom protocol listeners. */
+
+     void InitializeNetworkListeners();
 
      /* Display server binding information */
 
@@ -77,7 +82,7 @@ class CoreExport hlquery
 
      /* Print startup banner and module list */
 
-     void WriteStartupBanner();
+     void StartupBanner();
 
      /* Initialize server in no-fork mode */
 
@@ -114,6 +119,23 @@ class CoreExport hlquery
      /* Mutex guarding BackgroundThreads. */
 
      std::mutex BackgroundThreadsMutex;
+
+     /* Listener startup diagnostics. */
+
+     size_t ConfiguredListenerCount = 0;
+     
+     size_t StartedListenerCount = 0;
+     
+     size_t SkippedListenerCount = 0;
+     
+     std::string LastListenerError;
+
+     /* Process signal state owned by the hlquery lifecycle manager. */
+
+     static volatile sig_atomic_t ShuttingDown;
+     static volatile sig_atomic_t ForceExit;
+     static volatile sig_atomic_t InSignalHandler;
+     static volatile sig_atomic_t PendingShutdownSignal;
 
    public:
      /* Constructor */
@@ -170,21 +192,21 @@ class CoreExport hlquery
 
      /* Returns the current time using system clock */
 
-     time_t Time() const
+     [[nodiscard]] time_t Time() const
      {
           return ::Time();
      }
 
      /* Returns milliseconds since epoch */
 
-     long long NowMs() const
+     [[nodiscard]] long long NowMs() const
      {
           return ::NowMs();
      }
 
      /* Returns current time point from steady clock */
 
-     std::chrono::steady_clock::time_point Now() const
+     [[nodiscard]] std::chrono::steady_clock::time_point Now() const
      {
           return ::Now();
      }
@@ -211,11 +233,11 @@ class CoreExport hlquery
 
      /* Check if the server should begin graceful shutdown */
 
-     static bool ShouldShutdown();
+     [[nodiscard]] static bool ShouldShutdown();
 
      /* Check if the server should exit immediately without cleanup */
 
-     static bool ShouldForceExit();
+     [[nodiscard]] static bool ShouldForceExit();
 
      /* Reset all signal counters to initial state */
 
@@ -229,9 +251,57 @@ class CoreExport hlquery
 
      static void ProcessDeferredSignals();
 
+     /* Return the raw signal shutdown flag for diagnostics. */
+
+     [[nodiscard]] static sig_atomic_t GetSignalShutdownState();
+
+     /* Return the raw force-exit flag for diagnostics. */
+
+     [[nodiscard]] static sig_atomic_t GetForceExitState();
+
      /* Parse command line arguments */
 
      void ParseArgs();
+
+     [[nodiscard]] bool HasConfig() const
+     {
+          return Config != nullptr;
+     }
+
+     [[nodiscard]] ServerConfig &GetConfig()
+     {
+          return *Config;
+     }
+
+     [[nodiscard]] const ServerConfig &GetConfig() const
+     {
+          return *Config;
+     }
+
+     [[nodiscard]] bool HasLogs() const
+     {
+          return Logs != nullptr;
+     }
+
+     [[nodiscard]] size_t GetConfiguredListenerCount() const
+     {
+          return ConfiguredListenerCount;
+     }
+
+     [[nodiscard]] size_t GetStartedListenerCount() const
+     {
+          return StartedListenerCount;
+     }
+
+     [[nodiscard]] size_t GetSkippedListenerCount() const
+     {
+          return SkippedListenerCount;
+     }
+
+     [[nodiscard]] const std::string &GetLastListenerError() const
+     {
+          return LastListenerError;
+     }
 
      /* Network listener managers */
 
@@ -293,21 +363,13 @@ class CoreExport hlquery
 
      std::unique_ptr<ServerConfig> Config;
 
-     /* Resolved local LLM runtime configuration */
-
-     std::unique_ptr<llm> LLM;
-
-     /* Secondary Assistant Manager */
-
-     std::unique_ptr<SAM> Sam;
-
      /* Server statistics */
 
      ServerStats StatsVal;
 
      /* Sync lock mechanism */
 
-     bool IsSyncInProgress() const
+     [[nodiscard]] bool IsSyncInProgress() const
      {
           return SyncInProgress.load(std::memory_order_acquire);
      }
@@ -328,7 +390,7 @@ class CoreExport hlquery
 
      /* Check if shutdown is in progress */
 
-     bool IsShuttingDown() const
+     [[nodiscard]] bool IsShuttingDown() const
      {
           return ShutdownInProgress.load(std::memory_order_acquire) || ShouldShutdown();
      }
@@ -342,23 +404,3 @@ class CoreExport hlquery
 };
 
 int main(int argc, char **argv);
-
-/* Flag indicating the server should begin graceful shutdown */
-
-extern volatile sig_atomic_t ShuttingDown;
-
-/* Count of SIGINT signals received */
-
-extern volatile sig_atomic_t SigintCount;
-
-/* Flag indicating the server should exit immediately without cleanup */
-
-extern volatile sig_atomic_t ForceExit;
-
-/* Flag indicating signal handler is currently executing */
-
-extern volatile sig_atomic_t InSignalHandler;
-
-/* Pending shutdown signal to be processed in main loop */
-
-extern volatile sig_atomic_t PendingShutdownSignal;

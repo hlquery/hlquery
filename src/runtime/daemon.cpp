@@ -33,36 +33,25 @@
 #include "common/actionlist.h"
 #include "common/searchpool.h"
 #include "core/config.h"
+#include "core/helpers.h"
+#include "core/modulemanager.h"
 #include "runtime/daemon.h"
 #include "runtime/exitmanager.h"
+#include "runtime/timers.h"
+#include "common/listenmanager.h"
 #include "core/hlquery.h"
 #include "core/socketengine.h"
-#include "core/typedefs.h"
 #include "search/cstore.h"
-#include "sam/sam.h"
 #include "search/storageengine.h"
 #include "utils/consolewriter.h"
 #include "utils/infos.h"
 
-/* Indicates a graceful shutdown was requested. */
+/* Signal state owned by the hlquery lifecycle manager. */
 
-volatile sig_atomic_t ShuttingDown = 0;
-
-/* Tracks total SIGINT count for escalation policies. */
-
-volatile sig_atomic_t SigintCount = 0;
-
-/* Indicates a forced exit was requested. */
-
-volatile sig_atomic_t ForceExit = 0;
-
-/* Guards against re-entrant signal handling. */
-
-volatile sig_atomic_t InSignalHandler = 0;
-
-/* Holds a pending shutdown signal to be processed on the main loop. */
-
-volatile sig_atomic_t PendingShutdownSignal = 0;
+volatile sig_atomic_t hlquery::ShuttingDown = 0;
+volatile sig_atomic_t hlquery::ForceExit = 0;
+volatile sig_atomic_t hlquery::InSignalHandler = 0;
+volatile sig_atomic_t hlquery::PendingShutdownSignal = 0;
 
 /* Set while cleanup is running; escalation signals can then exit immediately. */
 
@@ -230,14 +219,14 @@ static bool ConfigurePipeFD(int FDValue)
 {
      int Flags = fcntl(FDValue, F_GETFL, 0);
 
-     if (Flags >= 0 && fcntl(FDValue, F_SETFL, Flags | O_NONBLOCK) < 0)
+     if (Flags < 0 || fcntl(FDValue, F_SETFL, Flags | O_NONBLOCK) < 0)
      {
           return false;
      }
 
      int FDFlags = fcntl(FDValue, F_GETFD, 0);
 
-     if (FDFlags >= 0 && fcntl(FDValue, F_SETFD, FDFlags | FD_CLOEXEC) < 0)
+     if (FDFlags < 0 || fcntl(FDValue, F_SETFD, FDFlags | FD_CLOEXEC) < 0)
      {
           return false;
      }
@@ -418,11 +407,8 @@ void DaemonHandler::ProcessSocketEngineOptimization()
      if (HasPendingWork)
      {
           AdaptiveSleepMS.store(0, std::memory_order_relaxed);
-
           HighThroughputModeValue.store(1, std::memory_order_relaxed);
-
           ConsecutiveIdleIterations.store(0, std::memory_order_relaxed);
-
           ConsecutiveBusyIterations.fetch_add(1, std::memory_order_relaxed);
 
           return;
@@ -430,18 +416,15 @@ void DaemonHandler::ProcessSocketEngineOptimization()
 
      /* Track activity levels based on socket event deltas */
 
-     int CurrentEventCount = SocketEngine::GetEventCount();
-
-     int LastCount = LastEventCount.load(std::memory_order_relaxed);
-
-     int EventsDelta = CurrentEventCount - LastCount;
+     int CurrentEventCount  =  SocketEngine::GetEventCount();
+     int LastCount          =  LastEventCount.load(std::memory_order_relaxed);
+     int EventsDelta        =  CurrentEventCount - LastCount;
 
      /* Any positive delta means the engine is still actively consuming socket work. */
 
      if (EventsDelta > 0)
      {
           int BusyCount = ConsecutiveBusyIterations.fetch_add(1, std::memory_order_relaxed);
-
           ConsecutiveIdleIterations.store(0, std::memory_order_relaxed);
 
           /*
@@ -451,7 +434,6 @@ void DaemonHandler::ProcessSocketEngineOptimization()
            */
 
           AdaptiveSleepMS.store(0, std::memory_order_relaxed);
-
           HighThroughputModeValue.store(1, std::memory_order_relaxed);
 
           if (BusyCount > 100)
@@ -477,9 +459,7 @@ void DaemonHandler::ProcessSocketEngineOptimization()
                /* Increment sleep time gradually up to a 1ms maximum cap */
 
                int NewSleep = std::min(CurrentSleep + 1, 1);
-
                AdaptiveSleepMS.store(NewSleep, std::memory_order_relaxed);
-
                HighThroughputModeValue.store(0, std::memory_order_relaxed);
 
                ConsecutiveIdleIterations.store(0, std::memory_order_relaxed);
@@ -494,7 +474,6 @@ void DaemonHandler::ProcessSocketEngineOptimization()
       */
 
      (void)HighThroughputModeValue.load(std::memory_order_relaxed);
-
      (void)AdaptiveSleepMS.load(std::memory_order_relaxed);
 }
 
@@ -509,7 +488,6 @@ void DaemonHandler::ProcessLazyOperations()
      if (Counter >= UINT64_MAX - 10000)
      {
           LazyProcessingCounter.store(0, std::memory_order_relaxed);
-
           Counter = 0;
      }
 
@@ -784,6 +762,18 @@ void hlquery::SetSignal(int SignalNum)
 
           return;
      }
+     else if (SignalNum == SIGHUP)
+     {
+          /* A daemon can receive SIGHUP as its launching terminal/session changes.
+           * Do not treat it as a shutdown request.
+           */
+
+          PendingShutdownSignal = SignalNum;
+          NotifySignalWakeup();
+          InSignalHandler = 0;
+
+          return;
+     }
      else
      {
           /* All other managed signals still wake the main loop for centralized handling. */
@@ -903,9 +893,7 @@ void hlquery::ProcessDeferredSignals()
 
      if (Instance && Instance->Logs)
      {
-          Instance->Logs->Normal("daemon",
-                                 "Processing shutdown signal " + std::to_string(SignalNum) +
-                                      " (cleanup deferred to main shutdown path).");
+          Instance->Logs->Normal("daemon", "Processing shutdown signal " + std::to_string(SignalNum) + " (cleanup deferred to main shutdown path).");
      }
 }
 
@@ -923,11 +911,24 @@ bool hlquery::ShouldForceExit()
      return ForceExit != 0;
 }
 
+/* Returns raw shutdown signal state for diagnostics. */
+
+sig_atomic_t hlquery::GetSignalShutdownState()
+{
+     return ShuttingDown;
+}
+
+/* Returns raw force-exit signal state for diagnostics. */
+
+sig_atomic_t hlquery::GetForceExitState()
+{
+     return ForceExit;
+}
+
 /* Reset all signals and shutdown counters to their default state. */
 
 void hlquery::ResetSignalCounters()
 {
-     SigintCount 		= 0;
      ShuttingDown 		= 0;
      ForceExit 			= 0;
      PendingShutdownSignal 	= 0;
@@ -975,7 +976,6 @@ bool hlquery::CheckExistingProcess()
           struct FdGuard
           {
                int FDValue;
-
                bool Released;
 
                FdGuard(int fd) : FDValue(fd), Released(false)
@@ -1016,7 +1016,7 @@ bool hlquery::CheckExistingProcess()
                if (PIDFileLock.l_pid > 1 && !IsHLQueryProcess(PIDFileLock.l_pid))
                {
                     unlink(PIDFilePath.c_str());
-
+   
                     return false;
                }
 
@@ -1038,26 +1038,20 @@ bool hlquery::CheckExistingProcess()
           if (lseek(PIDFdGuard.get(), 0, SEEK_SET) < 0)
           {
                PIDReadLock.l_type = F_UNLCK;
-
                fcntl(PIDFdGuard.get(), F_SETLK, &PIDReadLock);
-
                unlink(PIDFilePath.c_str());
 
                return false;
           }
 
           char PIDBuffer[32] = {0};
-
           ssize_t BytesReadCount = read(PIDFdGuard.get(), PIDBuffer, sizeof(PIDBuffer) - 1);
-
           PIDReadLock.l_type = F_UNLCK;
-
           fcntl(PIDFdGuard.get(), F_SETLK, &PIDReadLock);
 
           if (BytesReadCount <= 0)
           {
                unlink(PIDFilePath.c_str());
-
                return false;
           }
 
@@ -1087,11 +1081,8 @@ bool hlquery::CheckExistingProcess()
                          if (IsZombieProcess(ExistingPIDValue) || !IsHLQueryProcess(ExistingPIDValue))
                          {
                               unlink(PIDFilePath.c_str());
-
                               return false;
                          }
-
-                         PIDFdGuard.release();
 
                          return true;
                     }
@@ -1105,11 +1096,8 @@ bool hlquery::CheckExistingProcess()
                          if (IsZombieProcess(ExistingPIDValue))
                          {
                               unlink(PIDFilePath.c_str());
-
                               return false;
                          }
-
-                         PIDFdGuard.release();
 
                          return true;
                     }
@@ -1119,7 +1107,6 @@ bool hlquery::CheckExistingProcess()
                else
                {
                     unlink(PIDFilePath.c_str());
-
                     return false;
                }
           }
@@ -1148,7 +1135,6 @@ bool hlquery::WritePID()
      if (PIDFileFD >= 0)
      {
           close(PIDFileFD);
-
           PIDFileFD = -1;
      }
 
@@ -1171,7 +1157,6 @@ bool hlquery::WritePID()
           }
 
           std::string PIDFilePath = ResolvePIDFilePath();
-
           int PIDFileHandle = open(PIDFilePath.c_str(), O_CREAT | O_WRONLY, 0644);
 
           if (PIDFileHandle < 0)
@@ -1192,6 +1177,7 @@ bool hlquery::WritePID()
 
                FdGuard(int fd) : FDValue(fd), Released(false), LockAcquired(false)
                {
+               
                }
 
                ~FdGuard()
@@ -1341,16 +1327,13 @@ void hlquery::ForceStop()
      if (lseek(PIDFileHandle, 0, SEEK_SET) < 0)
      {
           close(PIDFileHandle);
-
           ConsoleWriter::WriteError("hlquery forcestop: Error seeking PID file: " + std::string(strerror(errno)) + ".", true);
           ExitManager::Exit(1);
      }
 
      char PIDBuffer[32] = {0};
-
      ssize_t BytesReadCount = read(PIDFileHandle, PIDBuffer, sizeof(PIDBuffer) - 1);
      close(PIDFileHandle);
-
      PIDBuffer[sizeof(PIDBuffer) - 1] = '\0';
 
      if (BytesReadCount <= 0)
@@ -1378,7 +1361,6 @@ void hlquery::ForceStop()
      if (TargetPIDValue <= 1 || TargetPIDValue > 4194304)
      {
           ConsoleWriter::WriteError("hlquery forcestop: Invalid PID value: " + std::to_string(TargetPIDValue) + ".", true);
-
           RemovePIDFileIfUnlocked(PIDFilePath);
 
           std::cout << "hlquery forcestop: Removed corrupted PID file." << std::endl;
@@ -1480,10 +1462,10 @@ void hlquery::ForceStop()
                     std::cout << "hlquery forcestop: Process exited gracefully." << std::endl;
 
                     RemovePIDFileIfUnlocked(PIDFilePath);
-
                     std::cout << "hlquery forcestop: Removed PID file." << std::endl;
                     std::cout << "hlquery forcestop: SUCCESS - Daemon stopped." << std::endl;
                     ProcessHasExited = true;
+                    
                     break;
                }
                else if (errno == EPERM)
@@ -1498,13 +1480,9 @@ void hlquery::ForceStop()
           }
 
           struct timespec SleepTimeSpec;
-
           SleepTimeSpec.tv_sec = 0;
-
           SleepTimeSpec.tv_nsec = PollIntervalMS * 1000000;
-
           nanosleep(&SleepTimeSpec, nullptr);
-
           WaitedMSCount += PollIntervalMS;
      }
 
@@ -1594,7 +1572,6 @@ void hlquery::CompleteDaemonSetup()
           if (DaemonSyncPipe[1] >= 0)
           {
                fflush(stdout);
-
                fflush(stderr);
                std::cout.flush();
                std::cerr.flush();
@@ -1639,6 +1616,7 @@ bool hlquery::Daemonize()
           {
                DaemonSyncPipe[0] = -1;
                DaemonSyncPipe[1] = -1;
+
                return false;
           }
 
@@ -1670,12 +1648,10 @@ bool hlquery::Daemonize()
 
                close(DaemonSyncPipe[0]);
                DaemonSyncPipe[0] = -1;
-
                print_ok("Now detaching.");
-
                newline();
-
                fflush(stdout);
+
                ExitManager::EmergencyExit(0);
           }
 
@@ -1688,11 +1664,8 @@ bool hlquery::Daemonize()
                if (DaemonSyncPipe[1] >= 0)
                {
                     ssize_t ErrorWriteResult = write(DaemonSyncPipe[1], "E", 1);
-
                     (void)ErrorWriteResult;
-
                     close(DaemonSyncPipe[1]);
-
                     DaemonSyncPipe[1] = -1;
                }
 
@@ -1708,11 +1681,8 @@ bool hlquery::Daemonize()
                if (DaemonSyncPipe[1] >= 0)
                {
                     ssize_t ErrorWriteResultFinal = write(DaemonSyncPipe[1], "E", 1);
-
                     (void)ErrorWriteResultFinal;
-
                     close(DaemonSyncPipe[1]);
-
                     DaemonSyncPipe[1] = -1;
                }
 
@@ -1728,7 +1698,6 @@ bool hlquery::Daemonize()
           /* The daemon should not pin the caller's working directory after detach. */
 
           (void)ChdirResultValueVal;
-
           return true;
      }
      catch (const std::exception &)
@@ -1736,7 +1705,6 @@ bool hlquery::Daemonize()
           if (DaemonSyncPipe[1] >= 0)
           {
                close(DaemonSyncPipe[1]);
-
                DaemonSyncPipe[1] = -1;
           }
 
@@ -1832,7 +1800,7 @@ void hlquery::Cleanup()
                try
                {
                     Instance->Modules->OnUnloadModules();
-                    Instance->Modules->UnloadAll(Instance->Logs.get());
+                    Instance->Modules->UnloadAll();
                }
                catch (...)
                {
@@ -1853,7 +1821,7 @@ void hlquery::Cleanup()
 
      if (Instance)
      {
-          LogCleanupStage("stopping http servers");
+          LogCleanupStage("Stopping http servers");
 
           for (auto *server : Instance->HTTPServers)
           {
@@ -1877,14 +1845,6 @@ void hlquery::Cleanup()
           LogCleanupStage("stopping singleton api");
           SearchAPI::GetInstance().Shutdown();
           LogCleanupStage("singleton api stopped");
-     }
-
-     if (Instance && Instance->Sam)
-     {
-          LogCleanupStage("stopping sam");
-          Instance->Sam->Shutdown();
-          Instance->Sam.reset();
-          LogCleanupStage("sam stopped");
      }
 
      LogCleanupStage("stopping storage");
@@ -1955,11 +1915,15 @@ void hlquery::Cleanup()
                          Instance->Logs->Normal("shutdown", "Cleanup: Attempting database flush.");
                     }
 
-                    Instance->Database->Flush();
+                    const bool Flushed = Instance->Database->Flush();
 
-                    if (Instance && Instance->Logs)
+                    if (Flushed && Instance && Instance->Logs)
                     {
                          Instance->Logs->Normal("shutdown", "Cleanup: Database flush completed successfully.");
+                    }
+                    else if (Instance && Instance->Logs)
+                    {
+                         Instance->Logs->Normal("shutdown", "Cleanup: Database flush failed.");
                     }
                }
                catch (const std::exception &e)

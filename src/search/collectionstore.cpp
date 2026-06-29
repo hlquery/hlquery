@@ -10,6 +10,7 @@
  * For more details, please visit: https://docs.hlquery.com
  */
 
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <cstdlib>
@@ -18,6 +19,7 @@
 #include <set>
 #include <sstream>
 #include <thread>
+#include <unordered_map>
 #include <vendor/json/json.hpp>
 
 #include "api/searchcache.h"
@@ -27,8 +29,7 @@
 #include "search/storageengine.h"
 #include "search/cstore.h"
 #include "search/lindex.h"
-#include "sam/sam.h"
-#include "sam/lang.h"
+#include "search/lang.h"
 #include "search/writeaheadlogvalidator.h"
 #include "utils/consolewriter.h"
 
@@ -36,19 +37,19 @@
 
 static std::vector<std::thread> IndexingThreads;
 static std::mutex IndexingThreadsMutex;
+static constexpr size_t MaxCachedCollectionNames = 1000000;
+
+/* GetCollectionConfigKey - Returns the storage key for a collection configuration. */
 
 static std::string GetCollectionConfigKey(const std::string &Name)
 {
      return "collection_config:" + Name;
 }
 
+/* CollectionNeedsLanguageDetection - Checks whether a collection needs language detection. */
+
 static bool CollectionNeedsLanguageDetection(const std::string &Name)
 {
-     if (Instance && Instance->Config && !Instance->Config->GetSamAutoDetectCollectionLanguage())
-     {
-          return false;
-     }
-
      CollectionConfig config;
 
      if (!HybridStorageManagerInstance().GetCollectionConfig(Name, config))
@@ -67,24 +68,7 @@ static bool CollectionNeedsLanguageDetection(const std::string &Name)
      return value.empty() || value == "auto" || value == "und";
 }
 
-static void NotifySAMCollectionChanged(const std::string &Collection)
-{
-     if (!Instance || !Instance->Sam || !Instance->Sam->IsOpen())
-     {
-          return;
-     }
-
-     std::string SamError;
-
-     if (!Instance->Sam->NotifyCollectionChanged(Collection, 0, &SamError) &&
-         Instance->Logs)
-     {
-          Instance->Logs->Normal("sam",
-                                 "Failed to mark collection '" + Collection +
-                                      "' dirty for automatic SAM rebuild: " +
-                                      (SamError.empty() ? std::string("unknown error") : SamError) + ".");
-     }
-}
+/* RefreshCollectionLanguageIfNeeded - Refreshes collection language metadata when detection is needed. */
 
 static void RefreshCollectionLanguageIfNeeded(const std::string &Collection,
                                               const Document *SeedDocument = nullptr)
@@ -98,12 +82,12 @@ static void RefreshCollectionLanguageIfNeeded(const std::string &Collection,
 
      if (SeedDocument)
      {
-          language = sam::lang::DetectDocumentLanguage(Collection, *SeedDocument);
+          language = lang::DetectDocumentLanguage(Collection, *SeedDocument);
      }
 
      if (language.empty() || language == "und")
      {
-          language = sam::lang::DetectCollectionLanguage(Collection, 128);
+          language = lang::DetectCollectionLanguage(Collection, 128);
      }
 
      if (!language.empty() && language != "und")
@@ -111,6 +95,8 @@ static void RefreshCollectionLanguageIfNeeded(const std::string &Collection,
           HybridStorageManagerInstance().UpdateCollectionMetadata(Collection, "_lang", language);
      }
 }
+
+/* SerializeCollectionConfig - Serializes a collection configuration. */
 
 static std::string SerializeCollectionConfig(const CollectionConfig &Config)
 {
@@ -122,6 +108,8 @@ static std::string SerializeCollectionConfig(const CollectionConfig &Config)
 
      return config_json.dump();
 }
+
+/* ParseCollectionMetaValue - Parses a collection metadata value. */
 
 static bool ParseCollectionMetaValue(const std::string &MetaValue, size_t *OutCount, time_t *OutTimestamp)
 {
@@ -172,10 +160,14 @@ static bool ParseCollectionMetaValue(const std::string &MetaValue, size_t *OutCo
      }
 }
 
+/* BuildCollectionMetaValue - Builds a collection metadata value. */
+
 static std::string BuildCollectionMetaValue(size_t Count, time_t Timestamp)
 {
      return std::to_string(Count) + ":" + std::to_string(Timestamp);
 }
+
+/* SerializeDocumentData - Serializes document data for storage. */
 
 static std::string SerializeDocumentData(const Document &Doc, uint64_t Timestamp)
 {
@@ -196,6 +188,8 @@ static std::string SerializeDocumentData(const Document &Doc, uint64_t Timestamp
 
      return Root.dump();
 }
+
+/* DeserializeDocumentJSON - Deserializes document JSON data. */
 
 static bool DeserializeDocumentJSON(const std::string &Data, Document &Doc)
 {
@@ -236,6 +230,8 @@ static bool DeserializeDocumentJSON(const std::string &Data, Document &Doc)
      return !Doc.ID.empty();
 }
 
+/* ExtractDocumentIDFromKey - Extracts a document ID from a storage key. */
+
 static std::string ExtractDocumentIDFromKey(const std::string &DocKey)
 {
      const size_t last_colon = DocKey.find_last_of(':');
@@ -247,6 +243,8 @@ static std::string ExtractDocumentIDFromKey(const std::string &DocKey)
 
      return DocKey.substr(last_colon + 1);
 }
+
+/* DeserializeCollectionConfig - Deserializes a collection configuration. */
 
 static bool DeserializeCollectionConfig(const std::string &Value, CollectionConfig &Config)
 {
@@ -306,6 +304,30 @@ static bool DeserializeCollectionConfig(const std::string &Value, CollectionConf
      }
 }
 
+/* LoadCollectionConfigFromDatabase - Loads a collection configuration from the database. */
+
+static CollectionConfig LoadCollectionConfigFromDatabase(const std::string &Name)
+{
+     CollectionConfig config;
+     config.Name = Name;
+
+     if (!Instance || !Instance->Database)
+     {
+          return config;
+     }
+
+     const std::string raw_config = Instance->Database->Get(GetCollectionConfigKey(Name));
+
+     if (!raw_config.empty() && !DeserializeCollectionConfig(raw_config, config))
+     {
+          config.Name = Name;
+     }
+
+     return config;
+}
+
+/* ResolveStorageRootDir - Resolves the storage root directory. */
+
 static std::string ResolveStorageRootDir()
 {
      std::string base_DataDirValue = std::string(HLQUERY_DATA_DIR);
@@ -352,10 +374,14 @@ static std::string ResolveStorageRootDir()
      return storage_root;
 }
 
+/* HybridStorageManager::ResolveIndexDir - Resolves the index directory. */
+
 std::string HybridStorageManager::ResolveIndexDir() const
 {
      return ResolveStorageRootDir() + "/indices";
 }
+
+/* HybridStorageManager::FlushIndexesToDisk - Flushes indexes to disk storage. */
 
 size_t HybridStorageManager::FlushIndexesToDisk(uint64_t min_dirty_age_seconds, size_t max_collections)
 {
@@ -366,6 +392,8 @@ size_t HybridStorageManager::FlushIndexesToDisk(uint64_t min_dirty_age_seconds, 
 
      return 0;
 }
+
+/* HybridStorageManager::PersistStorageState - Persists counters, indexes, and database state. */
 
 void HybridStorageManager::PersistStorageState(bool update_counters, bool sync_database, bool log_flush_errors)
 {
@@ -682,27 +710,7 @@ void HybridStorageManager::UpdateCollectionCounters(bool force)
 
           time_t timestamp = time(nullptr);
 
-          /* Parse existing metadata if present */
-
-          if (!meta_value.empty())
-          {
-               size_t colon_pos = meta_value.find(':');
-
-               if (colon_pos != std::string::npos)
-               {
-                    stored_count = std::stoull(meta_value.substr(0, colon_pos));
-
-                    if (colon_pos + 1 < meta_value.size())
-                    {
-                         time_t parsed_ts = std::stoull(meta_value.substr(colon_pos + 1));
-
-                         if (parsed_ts > 0)
-                         {
-                              timestamp = parsed_ts;
-                         }
-                    }
-               }
-          }
+          ParseCollectionMetaValue(meta_value, &stored_count, &timestamp);
 
           /* Update metadata only if count changed or if it was missing */
 
@@ -716,6 +724,16 @@ void HybridStorageManager::UpdateCollectionCounters(bool force)
                {
                     Instance->Logs->Normal("hybrid_storage", "UpdateCollectionCounters: Updated '" + collection + "' count from " + std::to_string(stored_count) + " to " + std::to_string(actual_count) + ".");
                }
+          }
+
+          {
+               std::lock_guard<std::mutex> lock(CollectionsMutex);
+               UpdateCollectionMetadataCacheLocked(collection, actual_count, timestamp);
+          }
+
+          if (actual_count != stored_count)
+          {
+               SearchResponseCache::InvalidateCollection(collection);
           }
      }
 
@@ -746,6 +764,8 @@ void HybridStorageManager::UpdateCollectionCounters(bool force)
           Instance->Logs->Normal("hybrid_storage", "UpdateCollectionCounters: Completed.");
      }
 }
+
+/* HybridStorageManager::UpdateCollectionCountersPrefix - Updates counters for collections matching a prefix. */
 
 void HybridStorageManager::UpdateCollectionCountersPrefix(const std::string &prefix, bool force)
 {
@@ -792,25 +812,7 @@ void HybridStorageManager::UpdateCollectionCountersPrefix(const std::string &pre
 
           time_t timestamp = time(nullptr);
 
-          if (!meta_value.empty())
-          {
-               size_t colon_pos = meta_value.find(':');
-
-               if (colon_pos != std::string::npos)
-               {
-                    stored_count = std::stoull(meta_value.substr(0, colon_pos));
-
-                    if (colon_pos + 1 < meta_value.size())
-                    {
-                         time_t parsed_ts = std::stoull(meta_value.substr(colon_pos + 1));
-
-                         if (parsed_ts > 0)
-                         {
-                              timestamp = parsed_ts;
-                         }
-                    }
-               }
-          }
+          ParseCollectionMetaValue(meta_value, &stored_count, &timestamp);
 
           if (actual_count != stored_count || meta_value.empty())
           {
@@ -822,6 +824,16 @@ void HybridStorageManager::UpdateCollectionCountersPrefix(const std::string &pre
                {
                     Instance->Logs->Normal("hybrid_storage", "UpdateCollectionCountersPrefix: Updated '" + collection + "' count from " + std::to_string(stored_count) + " to " + std::to_string(actual_count) + ".");
                }
+          }
+
+          {
+               std::lock_guard<std::mutex> lock(CollectionsMutex);
+               UpdateCollectionMetadataCacheLocked(collection, actual_count, timestamp);
+          }
+
+          if (actual_count != stored_count)
+          {
+               SearchResponseCache::InvalidateCollection(collection);
           }
      }
 
@@ -981,10 +993,10 @@ bool HybridStorageManager::CreateCollection(const std::string &name, const Colle
           }
 
           /*
-                * Final verification - ensure collection is in map before returning.
-                * This guarantees ListCollections() will see it immediately.
-                * Double-check that collection is definitely in the map.
-                */
+           * Final verification - ensure collection is in map before returning.
+           * This guarantees ListCollections() will see it immediately.
+           * Double-check that collection is definitely in the map.
+           */
 
           auto final_check = Collections.find(name);
 
@@ -1006,14 +1018,15 @@ bool HybridStorageManager::CreateCollection(const std::string &name, const Colle
                     {
                          Instance->Logs->Critical("hybrid_storage", "[COLLECTION_CREATE_ERROR] Collection name mismatch in map: expected '" + name + "', found '" + final_check->first + "'.");
                     }
+          
                     Collections[name] = config;
                }
           }
 
           /*
-                * Final log to confirm collection is in map.
-                * Use NORMAL log level so it's always visible (not just in debug mode).
-                */
+           * Final log to confirm collection is in map.
+           * Use NORMAL log level so it's always visible (not just in debug mode).
+           */
 
           if (Instance && Instance->Logs)
           {
@@ -1021,10 +1034,10 @@ bool HybridStorageManager::CreateCollection(const std::string &name, const Colle
           }
 
           /*
-                * Double-check collection is actually in the map by iterating.
-                * This ensures it's not just a map entry issue.
-                * We still hold the lock, so this is safe.
-                */
+           * Double-check collection is actually in the map by iterating.
+           * This ensures it's not just a map entry issue.
+           * We still hold the lock, so this is safe.
+           */
 
           bool found_in_iteration = false;
 
@@ -1038,6 +1051,7 @@ bool HybridStorageManager::CreateCollection(const std::string &name, const Colle
                     {
                          Instance->Logs->Debug("hybrid_storage", "[COLLECTION_VERIFY] Collection '" + name + "' confirmed in map iteration.");
                     }
+           
                     break;
                }
           }
@@ -1097,7 +1111,10 @@ bool HybridStorageManager::CreateCollection(const std::string &name, const Colle
                Instance->Logs->Normal("hybrid_storage", "[COLLECTION_FINAL] Collection '" + name + "' confirmed in map (size: " + std::to_string(Collections.size()) + ") - releasing lock.");
           }
 
+          UpdateCollectionMetadataCacheLocked(name, 0, now);
+          RefreshCollectionListCacheLocked();
           SearchResponseCache::InvalidateCollection(name);
+
           return true;
      }
 
@@ -1135,6 +1152,7 @@ bool HybridStorageManager::CreateCollection(const std::string &name, const Colle
           }
      }
 
+     RefreshCollectionListCacheLocked();
      SearchResponseCache::InvalidateCollection(name);
      return true;
 }
@@ -1143,19 +1161,6 @@ bool HybridStorageManager::CreateCollection(const std::string &name, const Colle
 
 bool HybridStorageManager::DeleteCollection(const std::string &name)
 {
-     if (Instance && Instance->Sam && Instance->Sam->IsOpen())
-     {
-          std::string SAMCancelError;
-
-          if (!Instance->Sam->CancelCollectionWork(name, &SAMCancelError) &&
-              Instance->Logs && !SAMCancelError.empty())
-          {
-               Instance->Logs->Normal("hybrid_storage",
-                                      "DeleteCollection: Failed to cancel SAM work for '" + name +
-                                           "': " + SAMCancelError + ".");
-          }
-     }
-
      /*
       * Check if collection exists first (before acquiring lock to avoid deadlock).
       * Use a non-locking check by directly checking the in-memory map.
@@ -1581,23 +1586,11 @@ bool HybridStorageManager::DeleteCollection(const std::string &name)
           }
      }
 
-     if (Instance && Instance->Sam && Instance->Sam->IsOpen())
-     {
-          std::string SAMDeleteError;
-
-          if (!Instance->Sam->DeleteCollection(name, &SAMDeleteError) &&
-              Instance->Logs)
-          {
-               Instance->Logs->Normal("hybrid_storage",
-                                      "DeleteCollection: Failed to purge SAM state for '" + name +
-                                           "': " +
-                                           (SAMDeleteError.empty() ? std::string("unknown error") : SAMDeleteError) + ".");
-          }
-     }
-
      /* Remove from in-memory map */
 
      Collections.erase(name);
+     CollectionMetadataCache.erase(name);
+     RefreshCollectionListCacheLocked();
 
      {
           std::lock_guard<std::mutex> indexing_lock(IndexingMutex);
@@ -1610,6 +1603,58 @@ bool HybridStorageManager::DeleteCollection(const std::string &name)
 }
 
 /* CollectionExists - Checks whether a collection exists. */
+
+void HybridStorageManager::RefreshCollectionListCacheLocked()
+{
+     if (Collections.size() > MaxCachedCollectionNames)
+     {
+          CollectionListCache.clear();
+          CollectionMetadataCache.clear();
+          CollectionListCacheValid = false;
+          return;
+     }
+
+     CollectionListCache.clear();
+     CollectionListCache.reserve(Collections.size());
+
+     for (const auto &pair : Collections)
+     {
+          CollectionListCache.push_back(pair.first);
+     }
+
+     std::sort(CollectionListCache.begin(), CollectionListCache.end());
+
+     for (auto it = CollectionMetadataCache.begin(); it != CollectionMetadataCache.end();)
+     {
+          if (Collections.find(it->first) == Collections.end())
+          {
+               it = CollectionMetadataCache.erase(it);
+          }
+          else
+          {
+               ++it;
+          }
+     }
+
+     CollectionListCacheValid = true;
+}
+
+/* HybridStorageManager::UpdateCollectionMetadataCacheLocked - Updates cached collection metadata while the caller holds the lock. */
+
+void HybridStorageManager::UpdateCollectionMetadataCacheLocked(const std::string &name,
+                                                               size_t document_count,
+                                                               time_t created_at)
+{
+     if (Collections.size() > MaxCachedCollectionNames)
+     {
+          CollectionMetadataCache.clear();
+          return;
+     }
+
+     CollectionMetadataCache[name] = {document_count, created_at};
+}
+
+/* HybridStorageManager::CollectionExists - Checks whether a collection exists. */
 
 bool HybridStorageManager::CollectionExists(const std::string &name)
 {
@@ -1636,14 +1681,13 @@ bool HybridStorageManager::CollectionExists(const std::string &name)
           {
                /* Found in RocksDB - add to in-memory map */
 
+               CollectionConfig config = LoadCollectionConfigFromDatabase(name);
                std::lock_guard<std::mutex> lock(CollectionsMutex);
 
                if (Collections.find(name) == Collections.end())
                {
-                    CollectionConfig config;
-
-                    config.Name = name;
-                    Collections[name] = config;
+                    Collections[name] = std::move(config);
+                    RefreshCollectionListCacheLocked();
                }
                return true;
           }
@@ -1656,19 +1700,28 @@ bool HybridStorageManager::CollectionExists(const std::string &name)
 
 std::vector<std::string> HybridStorageManager::ListCollections()
 {
+     {
+          std::lock_guard<std::mutex> lock(CollectionsMutex);
+
+          if (CollectionListCacheValid)
+          {
+               return CollectionListCache;
+          }
+     }
+
      /*
-           * CRITICAL FIX: Check in-memory map FIRST to catch newly created collections
-           * that might not be visible in RocksDB iterator yet (even after flush).
-           * Then merge with RocksDB results to ensure consistency.
-           */
+      * CRITICAL FIX: Check in-memory map FIRST to catch newly created collections
+      * that might not be visible in RocksDB iterator yet (even after flush).
+      * Then merge with RocksDB results to ensure consistency.
+      */
 
      std::set<std::string> collection_set;
 
      /*
-           * First, get collections from in-memory map (includes newly created ones).
-           * This MUST be done first to ensure newly created collections are visible.
-           * The in-memory map is the source of truth for recently created collections.
-           */
+      * First, get collections from in-memory map (includes newly created ones).
+      * This MUST be done first to ensure newly created collections are visible.
+      * The in-memory map is the source of truth for recently created collections.
+      */
 
      {
           std::lock_guard<std::mutex> lock(CollectionsMutex);
@@ -1722,6 +1775,8 @@ std::vector<std::string> HybridStorageManager::ListCollections()
 
           /* Update in-memory map to keep it in sync with RocksDB */
 
+          std::vector<std::pair<std::string, CollectionConfig>> missing_configs;
+
           {
                std::lock_guard<std::mutex> lock(CollectionsMutex);
 
@@ -1729,15 +1784,31 @@ std::vector<std::string> HybridStorageManager::ListCollections()
                {
                     if (Collections.find(name) == Collections.end())
                     {
-                         /* Create a basic collection config for collections found in RocksDB */
-
-                         CollectionConfig config;
-
-                         config.Name = name;
-                         Collections[name] = config;
+                         missing_configs.push_back({name, CollectionConfig{}});
                     }
                }
           }
+
+          for (auto &[name, config] : missing_configs)
+          {
+               config = LoadCollectionConfigFromDatabase(name);
+          }
+
+          {
+               std::lock_guard<std::mutex> lock(CollectionsMutex);
+
+               for (auto &[name, config] : missing_configs)
+               {
+                    Collections.emplace(name, std::move(config));
+               }
+
+               RefreshCollectionListCacheLocked();
+          }
+     }
+     else
+     {
+          std::lock_guard<std::mutex> lock(CollectionsMutex);
+          RefreshCollectionListCacheLocked();
      }
 
      /* Return collections from set */
@@ -1753,6 +1824,8 @@ std::vector<std::string> HybridStorageManager::ListCollections()
 
      return result;
 }
+
+/* HybridStorageManager::GetCollectionConfig - Returns a collection configuration. */
 
 bool HybridStorageManager::GetCollectionConfig(const std::string &name, CollectionConfig &config)
 {
@@ -1773,18 +1846,7 @@ bool HybridStorageManager::GetCollectionConfig(const std::string &name, Collecti
           return false;
      }
 
-     CollectionConfig loaded_config;
-     loaded_config.Name = name;
-
-     std::string raw_config = Instance->Database->Get(GetCollectionConfigKey(name));
-
-     if (!raw_config.empty())
-     {
-          if (!DeserializeCollectionConfig(raw_config, loaded_config))
-          {
-               loaded_config.Name = name;
-          }
-     }
+     CollectionConfig loaded_config = LoadCollectionConfigFromDatabase(name);
 
      {
           std::lock_guard<std::mutex> lock(CollectionsMutex);
@@ -1803,6 +1865,8 @@ bool HybridStorageManager::GetCollectionConfig(const std::string &name, Collecti
 
      return true;
 }
+
+/* HybridStorageManager::UpdateCollectionMetadata - Updates metadata for a collection. */
 
 bool HybridStorageManager::UpdateCollectionMetadata(const std::string &name, const std::string &key, const std::string &value)
 {
@@ -1829,9 +1893,12 @@ bool HybridStorageManager::UpdateCollectionMetadata(const std::string &name, con
           }
      }
 
-     std::lock_guard<std::mutex> lock(CollectionsMutex);
-     Collections[name] = config;
+     {
+          std::lock_guard<std::mutex> lock(CollectionsMutex);
+          Collections[name] = config;
+     }
 
+     SearchResponseCache::InvalidateCollection(name);
      return true;
 }
 
@@ -1947,27 +2014,7 @@ bool HybridStorageManager::AddDocument(const std::string &collection, const Docu
 
           time_t timestamp = time(nullptr);
 
-          /* Parse existing metadata if present */
-
-          if (!meta_value.empty())
-          {
-               size_t colon_pos = meta_value.find(':');
-
-               if (colon_pos != std::string::npos)
-               {
-                    current_count = std::stoull(meta_value.substr(0, colon_pos));
-
-                    if (colon_pos + 1 < meta_value.size())
-                    {
-                         time_t parsed_ts = std::stoull(meta_value.substr(colon_pos + 1));
-
-                         if (parsed_ts > 0)
-                         {
-                              timestamp = parsed_ts;
-                         }
-                    }
-               }
-          }
+          ParseCollectionMetaValue(meta_value, &current_count, &timestamp);
 
           /* Increment count for new documents (upsert: overwrites don't change count) */
 
@@ -1978,6 +2025,7 @@ bool HybridStorageManager::AddDocument(const std::string &collection, const Docu
           std::string new_meta_value = std::to_string(current_count) + ":" + std::to_string(timestamp);
 
           Instance->Database->Set(meta_key, new_meta_value);
+          UpdateCollectionMetadataCacheLocked(collection, current_count, timestamp);
      }
 
      /* If document existed, count stays the same (overwrite, not new document) */
@@ -1988,13 +2036,13 @@ bool HybridStorageManager::AddDocument(const std::string &collection, const Docu
           SearchResponseCache::InvalidateCollection(collection);
 
           /*
-                * Index new document immediately so it's searchable right away.
-                * This ensures synonyms work with newly added documents.
-                * OPTIMIZATION: Skip immediate indexing for bulk operations - use lazy indexing instead.
-                * Documents are stored and will be indexed on-demand via LazyLoadCollectionIndex.
-                * This prevents blocking HTTP responses during bulk document insertion.
-                * For single document inserts, immediate indexing is fast enough.
-                */
+           * Index new document immediately so it's searchable right away.
+           * This ensures synonyms work with newly added documents.
+           * OPTIMIZATION: Skip immediate indexing for bulk operations - use lazy indexing instead.
+           * Documents are stored and will be indexed on-demand via LazyLoadCollectionIndex.
+           * This prevents blocking HTTP responses during bulk document insertion.
+           * For single document inserts, immediate indexing is fast enough.
+           */
 
           try
           {
@@ -2033,9 +2081,6 @@ bool HybridStorageManager::AddDocument(const std::string &collection, const Docu
                     Instance->Logs->Debug("hybrid_storage", "AddDocument: Failed to index document '" + doc.ID + "': " + e.what() + ".");
                }
           }
-
-          NotifySAMCollectionChanged(collection);
-
           RefreshCollectionLanguageIfNeeded(collection, &doc);
      }
 
@@ -2063,8 +2108,10 @@ size_t HybridStorageManager::AddDocumentsBatch(const std::string &collection, co
      /* Prepare all documents for batch write (upsert: includes both new and existing) */
 
      std::vector<std::pair<std::string, std::string>> batch_data;
+     std::unordered_map<std::string, size_t> batch_key_index;
 
      batch_data.reserve(documents.size());
+     batch_key_index.reserve(documents.size());
 
      for (const auto &doc : documents)
      {
@@ -2100,7 +2147,17 @@ size_t HybridStorageManager::AddDocumentsBatch(const std::string &collection, co
 
           std::string doc_data = SerializeDocumentData(doc, timestamp_to_store);
 
-          batch_data.push_back({doc_key, doc_data});
+          const auto ExistingIt = batch_key_index.find(doc_key);
+
+          if (ExistingIt != batch_key_index.end())
+          {
+               batch_data[ExistingIt->second].second = std::move(doc_data);
+          }
+          else
+          {
+               batch_key_index.emplace(doc_key, batch_data.size());
+               batch_data.push_back({doc_key, std::move(doc_data)});
+          }
      }
 
      if (batch_data.empty())
@@ -2152,14 +2209,9 @@ size_t HybridStorageManager::AddDocumentsBatch(const std::string &collection, co
           }
           else
           {
-               for (const auto &doc : documents)
+               for (const auto &[doc_key, doc_data] : batch_data)
                {
-                    if (doc.ID.empty())
-                    {
-                         continue;
-                    }
-
-                    const std::string doc_key = "doc:" + collection + ":" + doc.ID;
+                    (void)doc_data;
 
                     if (!Instance->Database->Exists(doc_key))
                     {
@@ -2196,6 +2248,11 @@ size_t HybridStorageManager::AddDocumentsBatch(const std::string &collection, co
                     count = 0;
                }
           }
+
+          if (count == document_write_count)
+          {
+               UpdateCollectionMetadataCacheLocked(collection, new_count, timestamp);
+          }
      }
 
      if (count > 0)
@@ -2205,9 +2262,7 @@ size_t HybridStorageManager::AddDocumentsBatch(const std::string &collection, co
      }
 
      if (count > 0)
-     {
-          NotifySAMCollectionChanged(collection);
-     }
+     {     }
 
      if (count > 0)
      {
@@ -2221,7 +2276,7 @@ size_t HybridStorageManager::AddDocumentsBatch(const std::string &collection, co
      return count;
 }
 
-/* GetDocument - Retrieves a document by collection and id. */
+/* GetDocument - Retrieves a document by collection and ID. */
 
 Document HybridStorageManager::GetDocument(const std::string &collection, const std::string &document_id)
 {
@@ -2636,27 +2691,6 @@ bool HybridStorageManager::DeleteDocument(const std::string &collection, const s
 
                partial_cleanup_failed = true;
           }
-
-          if (Instance && Instance->Sam && Instance->Sam->IsOpen())
-          {
-               std::string sam_error;
-
-               if (!Instance->Sam->DeleteDocument(collection, document_id, &sam_error))
-               {
-                    if (Instance->Logs)
-                    {
-                         Instance->Logs->Normal("sam",
-                                                "Failed to remove SAM terms for '" + collection + "/" +
-                                                     document_id + "': " +
-                                                     (sam_error.empty() ? std::string("unknown error") : sam_error) + ".");
-                    }
-
-                    partial_cleanup_failed = true;
-               }
-          }
-
-          NotifySAMCollectionChanged(collection);
-
           /*
                 * Update collection metadata counter after delete to ensure accuracy.
                 * Use collection mutex to prevent race conditions.
@@ -2674,25 +2708,7 @@ bool HybridStorageManager::DeleteDocument(const std::string &collection, const s
 
                time_t timestamp = time(nullptr);
 
-               if (!meta_value.empty())
-               {
-                    size_t colon_pos = meta_value.find(':');
-
-                    if (colon_pos != std::string::npos)
-                    {
-                         current_count = std::stoull(meta_value.substr(0, colon_pos));
-
-                         if (colon_pos + 1 < meta_value.size())
-                         {
-                              time_t parsed_ts = std::stoull(meta_value.substr(colon_pos + 1));
-
-                              if (parsed_ts > 0)
-                              {
-                                   timestamp = parsed_ts;
-                              }
-                         }
-                    }
-               }
+               ParseCollectionMetaValue(meta_value, &current_count, &timestamp);
 
                if (current_count > 0)
                {
@@ -2701,6 +2717,7 @@ bool HybridStorageManager::DeleteDocument(const std::string &collection, const s
                     std::string new_meta_value = std::to_string(current_count) + ":" + std::to_string(timestamp);
 
                     Instance->Database->Set(meta_key, new_meta_value);
+                    UpdateCollectionMetadataCacheLocked(collection, current_count, timestamp);
                }
           }
 
@@ -2858,9 +2875,7 @@ bool HybridStorageManager::UpdateDocument(const std::string &collection, const D
      }
 
      if (index_success)
-     {
-          NotifySAMCollectionChanged(collection);
-     }
+     {     }
 
      /*
            * Invalidate cache after successful update.
@@ -2896,6 +2911,16 @@ size_t HybridStorageManager::GetCollectionDocumentCount(const std::string &colle
           return 0;
      }
 
+     {
+          std::lock_guard<std::mutex> lock(CollectionsMutex);
+          const auto it = CollectionMetadataCache.find(collection);
+
+          if (it != CollectionMetadataCache.end())
+          {
+               return it->second.DocumentCount;
+          }
+     }
+
      /* Get count from metadata */
 
      std::string meta_key = "collection_meta:" + collection;
@@ -2903,15 +2928,13 @@ size_t HybridStorageManager::GetCollectionDocumentCount(const std::string &colle
      std::string meta_value = Instance->Database->Get(meta_key);
 
      size_t metadata_count = 0;
+     time_t timestamp = time(nullptr);
 
-     if (!meta_value.empty())
+     ParseCollectionMetaValue(meta_value, &metadata_count, &timestamp);
+
      {
-          size_t colon_pos = meta_value.find(':');
-
-          if (colon_pos != std::string::npos)
-          {
-               metadata_count = std::stoull(meta_value.substr(0, colon_pos));
-          }
+          std::lock_guard<std::mutex> lock(CollectionsMutex);
+          UpdateCollectionMetadataCacheLocked(collection, metadata_count, timestamp);
      }
 
      /*
@@ -2923,6 +2946,41 @@ size_t HybridStorageManager::GetCollectionDocumentCount(const std::string &colle
      return metadata_count;
 }
 
+/* HybridStorageManager::GetCollectionCreatedAt - Returns the collection creation time. */
+
+time_t HybridStorageManager::GetCollectionCreatedAt(const std::string &collection)
+{
+     if (!Instance || !Instance->Database)
+     {
+          return 0;
+     }
+
+     {
+          std::lock_guard<std::mutex> lock(CollectionsMutex);
+          const auto it = CollectionMetadataCache.find(collection);
+
+          if (it != CollectionMetadataCache.end())
+          {
+               return it->second.CreatedAt;
+          }
+     }
+
+     size_t document_count = 0;
+     time_t timestamp = 0;
+     ParseCollectionMetaValue(Instance->Database->Get("collection_meta:" + collection),
+                              &document_count,
+                              &timestamp);
+
+     {
+          std::lock_guard<std::mutex> lock(CollectionsMutex);
+          UpdateCollectionMetadataCacheLocked(collection, document_count, timestamp);
+     }
+
+     return timestamp;
+}
+
+/* HybridStorageManager::CountStoredDocuments - Counts stored documents for a collection. */
+
 size_t HybridStorageManager::CountStoredDocuments(const std::string &collection)
 {
      if (!Instance || !Instance->Database)
@@ -2932,6 +2990,8 @@ size_t HybridStorageManager::CountStoredDocuments(const std::string &collection)
 
      return Instance->Database->CountKeys("doc:" + collection + ":");
 }
+
+/* HybridStorageManager::CheckCollectionIntegrity - Checks integrity for one collection. */
 
 CollectionIntegrityStatus HybridStorageManager::CheckCollectionIntegrity(const std::string &collection)
 {
@@ -2975,6 +3035,8 @@ CollectionIntegrityStatus HybridStorageManager::CheckCollectionIntegrity(const s
      return status;
 }
 
+/* HybridStorageManager::CheckIntegrity - Checks collection integrity and builds a report. */
+
 IntegrityReport HybridStorageManager::CheckIntegrity(const std::string &collection)
 {
      IntegrityReport report;
@@ -3014,6 +3076,8 @@ IntegrityReport HybridStorageManager::CheckIntegrity(const std::string &collecti
      report.CollectionsScanned = report.Collections.size();
      return report;
 }
+
+/* HybridStorageManager::RebuildCollectionIndex - Rebuilds the index for a collection. */
 
 bool HybridStorageManager::RebuildCollectionIndex(const std::string &collection, size_t *reindexed_documents, std::string *error_message)
 {
@@ -3138,6 +3202,8 @@ bool HybridStorageManager::RebuildCollectionIndex(const std::string &collection,
      return true;
 }
 
+/* HybridStorageManager::RepairCollection - Repairs one collection. */
+
 CollectionIntegrityStatus HybridStorageManager::RepairCollection(const std::string &collection, bool rebuild_index)
 {
      CollectionIntegrityStatus status = CheckCollectionIntegrity(collection);
@@ -3153,7 +3219,10 @@ CollectionIntegrityStatus HybridStorageManager::RepairCollection(const std::stri
           time_t timestamp = time(nullptr);
           ParseCollectionMetaValue(Instance->Database->Get("collection_meta:" + collection), nullptr, &timestamp);
           Instance->Database->Set("collection_meta:" + collection, BuildCollectionMetaValue(status.ActualCount, timestamp));
+          UpdateCollectionMetadataCacheLocked(collection, status.ActualCount, timestamp);
      }
+
+     SearchResponseCache::InvalidateCollection(collection);
 
      status.MetadataCount = status.ActualCount;
      status.MetadataMatch = true;
@@ -3177,6 +3246,8 @@ CollectionIntegrityStatus HybridStorageManager::RepairCollection(const std::stri
 
      return status;
 }
+
+/* HybridStorageManager::RepairIntegrity - Repairs collection integrity and builds a report. */
 
 IntegrityReport HybridStorageManager::RepairIntegrity(const std::string &collection, bool rebuild_index)
 {
@@ -3380,6 +3451,8 @@ bool HybridStorageManager::LoadCollectionsFromRocksDB()
 
      {
           std::lock_guard<std::mutex> lock(CollectionsMutex);
+          Collections.clear();
+          CollectionMetadataCache.clear();
 
           for (const auto &key : keys)
           {
@@ -3405,9 +3478,18 @@ bool HybridStorageManager::LoadCollectionsFromRocksDB()
                     }
 
                     Collections[collection_name] = config;
+
+                    size_t document_count = 0;
+                    time_t timestamp = time(nullptr);
+                    ParseCollectionMetaValue(Instance->Database->Get(key), &document_count, &timestamp);
+                    UpdateCollectionMetadataCacheLocked(collection_name, document_count, timestamp);
                }
           }
+
+          RefreshCollectionListCacheLocked();
      }
+
+     SearchResponseCache::InvalidateAll();
 
      if (Instance && Instance->Logs)
      {
@@ -3930,6 +4012,8 @@ bool HybridStorageManager::IsCollectionIndexing(const std::string &collection)
      return CollectionsBeingIndexed.find(collection) != CollectionsBeingIndexed.end();
 }
 
+/* HybridStorageManager::IsCollectionIndexComplete - Checks whether a collection index is complete. */
+
 bool HybridStorageManager::IsCollectionIndexComplete(const std::string &collection, size_t expected_count)
 {
      std::lock_guard<std::mutex> lock(IndexingMutex);
@@ -3950,6 +4034,8 @@ bool HybridStorageManager::IsCollectionIndexComplete(const std::string &collecti
 
      return expected_count == 0 || State.SourceCount >= expected_count;
 }
+
+/* HybridStorageManager::MarkCollectionIndexDirty - Marks a collection index as dirty. */
 
 void HybridStorageManager::MarkCollectionIndexDirty(const std::string &collection)
 {
@@ -4049,19 +4135,6 @@ bool HybridStorageManager::FlushAll()
           Instance->Logs->Normal("hybrid_storage", "FlushAll: Starting complete flush - removing all data, indexes, caches, and mmap files.");
      }
 
-     if (Instance->Sam && Instance->Sam->IsOpen())
-     {
-          std::string SAMCancelError;
-
-          if (!Instance->Sam->CancelAllWork(&SAMCancelError) &&
-              Instance->Logs && !SAMCancelError.empty())
-          {
-               Instance->Logs->Normal("hybrid_storage",
-                                      "FlushAll: Failed to cancel SAM work before destructive flush: " +
-                                           SAMCancelError + ".");
-          }
-     }
-
      /*
            * PERFORMANCE OPTIMIZATION: Use bulk deletion instead of deleting keys one by one.
            * This is MUCH faster - DeleteRange is optimized by RocksDB for bulk operations.
@@ -4115,6 +4188,7 @@ bool HybridStorageManager::FlushAll()
           collection_count = Collections.size();
 
           Collections.clear();
+          RefreshCollectionListCacheLocked();
      }
 
      /*
@@ -4164,16 +4238,38 @@ bool HybridStorageManager::FlushAll()
 
      try
      {
-          const std::vector<std::string> all_keys = Instance->Database->Keys("*");
+          size_t removed_keys = 0;
+          static constexpr size_t FlushAllResidualBatchSize = 1000;
 
-          for (const auto &key : all_keys)
+          while (true)
           {
-               Instance->Database->Del(key);
+               const std::vector<std::string> keys = Instance->Database->PrefixKeys("", 0, FlushAllResidualBatchSize);
+
+               if (keys.empty())
+               {
+                    break;
+               }
+
+               size_t removed_this_batch = 0;
+
+               for (const auto &key : keys)
+               {
+                    if (Instance->Database->Del(key) > 0)
+                    {
+                         removed_keys++;
+                         removed_this_batch++;
+                    }
+               }
+
+               if (removed_this_batch == 0)
+               {
+                    break;
+               }
           }
 
           if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
           {
-               Instance->Logs->Debug("hybrid_storage", "FlushAll: Final sweep removed " + std::to_string(all_keys.size()) + " residual key(s).");
+               Instance->Logs->Debug("hybrid_storage", "FlushAll: Final sweep removed " + std::to_string(removed_keys) + " residual key(s).");
           }
      }
      catch (const std::exception &e)

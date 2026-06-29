@@ -1791,6 +1791,204 @@ TEST_F(IODispatcherTest, CoalescedGroupsSplitByMemoryBudget) {
   }
 }
 
+// Regression tests for a bug where ReadIndex moved values out of
+// pinned_blocks_ via std::move, but neither ReleaseBlock() nor the destructor
+// released memory accounting because they checked pinned_blocks_.GetValue()
+// which was null after the move.
+// Tests run with both sync and async IO modes to cover Case 1 and Case 2
+// in ReadIndex().
+TEST_F(IODispatcherTest, MemoryReleasedAfterReadIndexThenReleaseBlock) {
+  for (bool async : {false, true}) {
+    // Skip async if io_uring not available
+    if (async && !kIOUringPresent) {
+      continue;
+    }
+    SCOPED_TRACE("async_io=" + std::to_string(async));
+
+    auto stats = CreateDBStatistics();
+    IODispatcherOptions opts;
+    opts.max_prefetch_memory_bytes = 100 * 1024;  // 100KB
+    opts.statistics = stats.get();
+    std::unique_ptr<IODispatcher> dispatcher(NewIODispatcher(opts));
+
+    std::unique_ptr<BlockBasedTable> table;
+    std::vector<BlockHandle> block_handles;
+    Status s = CreateAndOpenSST(20, &table, &block_handles);
+    ASSERT_OK(s);
+    ASSERT_GT(block_handles.size(), 0);
+
+    auto job = std::make_shared<IOJob>();
+    job->block_handles = block_handles;
+    job->table = table.get();
+    job->job_options.read_options.async_io = async;
+
+    std::shared_ptr<ReadSet> read_set;
+    s = dispatcher->SubmitJob(job, &read_set);
+    ASSERT_OK(s);
+    ASSERT_NE(read_set, nullptr);
+
+    // Some memory should have been granted for prefetch
+    ASSERT_GT(stats->getTickerCount(PREFETCH_MEMORY_BYTES_GRANTED), 0);
+
+    // Read all blocks -- ReadIndex moves values out of pinned_blocks_.
+    // This also triggers TryDispatchPendingPrefetches as memory is released,
+    // which acquires more memory for pending groups. So granted grows during
+    // this loop.
+    for (size_t i = 0; i < block_handles.size(); ++i) {
+      CachableEntry<Block> block;
+      ASSERT_OK(read_set->ReadIndex(i, &block));
+      ASSERT_NE(block.GetValue(), nullptr);
+    }
+
+    // Release all blocks -- should be a no-op for memory accounting since
+    // ReadIndex already released memory when moving values out
+    for (size_t i = 0; i < block_handles.size(); ++i) {
+      read_set->ReleaseBlock(i);
+    }
+
+    // Read both counters after all operations complete, since
+    // TryDispatchPendingPrefetches during ReadIndex may have granted additional
+    // memory for pending groups
+    uint64_t granted = stats->getTickerCount(PREFETCH_MEMORY_BYTES_GRANTED);
+    uint64_t released = stats->getTickerCount(PREFETCH_MEMORY_BYTES_RELEASED);
+    // With the bug, released < granted because ReleaseBlock skips
+    // ReleaseMemory when pinned_blocks_ value was already moved out
+    EXPECT_EQ(released, granted);
+  }
+}
+
+// Test that ReadSet destructor releases memory for blocks that were read
+// via ReadIndex but never explicitly released via ReleaseBlock.
+TEST_F(IODispatcherTest, DestructorReleasesMemoryAfterReadIndex) {
+  for (bool async : {false, true}) {
+    // Skip async if io_uring not available
+    if (async && !kIOUringPresent) {
+      continue;
+    }
+    SCOPED_TRACE("async_io=" + std::to_string(async));
+
+    auto stats = CreateDBStatistics();
+    IODispatcherOptions opts;
+    opts.max_prefetch_memory_bytes = 100 * 1024;  // 100KB
+    opts.statistics = stats.get();
+    std::unique_ptr<IODispatcher> dispatcher(NewIODispatcher(opts));
+
+    std::unique_ptr<BlockBasedTable> table;
+    std::vector<BlockHandle> block_handles;
+    Status s = CreateAndOpenSST(20, &table, &block_handles);
+    ASSERT_OK(s);
+    ASSERT_GT(block_handles.size(), 0);
+
+    {
+      auto job = std::make_shared<IOJob>();
+      job->block_handles = block_handles;
+      job->table = table.get();
+      job->job_options.read_options.async_io = async;
+
+      std::shared_ptr<ReadSet> read_set;
+      s = dispatcher->SubmitJob(job, &read_set);
+      ASSERT_OK(s);
+      ASSERT_NE(read_set, nullptr);
+
+      uint64_t granted = stats->getTickerCount(PREFETCH_MEMORY_BYTES_GRANTED);
+      ASSERT_GT(granted, 0);
+
+      // Read all blocks via ReadIndex (moves values out of pinned_blocks_)
+      // but do NOT call ReleaseBlock -- let the destructor handle cleanup
+      for (size_t i = 0; i < block_handles.size(); ++i) {
+        CachableEntry<Block> block;
+        ASSERT_OK(read_set->ReadIndex(i, &block));
+      }
+      // read_set goes out of scope -- destructor should release all memory
+    }
+
+    uint64_t granted = stats->getTickerCount(PREFETCH_MEMORY_BYTES_GRANTED);
+    uint64_t released = stats->getTickerCount(PREFETCH_MEMORY_BYTES_RELEASED);
+    // Destructor should release memory for all prefetched blocks,
+    // even those whose values were moved out by ReadIndex
+    EXPECT_EQ(released, granted);
+  }
+}
+
+// Regression test: when ReadAsync returns NotSupported (e.g., io_uring
+// unavailable at runtime due to seccomp), ExecuteAsyncIO must fall back to
+// sync IO during SubmitJob. Without the fix, no MultiRead is issued during
+// SubmitJob and ReadIndex later fetches each block individually via SyncRead.
+TEST_F(IODispatcherTest, AsyncNotSupportedFallsBackToSync) {
+  auto* sync_point = SyncPoint::GetInstance();
+  struct SyncPointGuard {
+    explicit SyncPointGuard(SyncPoint* sp) : sync_point(sp) {}
+    ~SyncPointGuard() {
+      sync_point->DisableProcessing();
+      sync_point->ClearAllCallBacks();
+    }
+
+    SyncPoint* sync_point;
+  } sync_point_guard(sync_point);
+
+  // Inject NotSupported into ReadAsync via SyncPoint
+  sync_point->SetCallBack(
+      "RandomAccessFileReader::ReadAsync:InjectStatus", [](void* arg) {
+        auto* s = static_cast<IOStatus*>(arg);
+        *s = IOStatus::NotSupported("simulated io_uring unavailability");
+      });
+  sync_point->EnableProcessing();
+
+  std::unique_ptr<BlockBasedTable> table;
+  std::vector<BlockHandle> block_handles;
+  Status s = CreateAndOpenSST(20, &table, &block_handles);
+  ASSERT_OK(s);
+  ASSERT_GT(block_handles.size(), 4);
+
+  tracking_fs_->ClearReadOps();
+
+  // Use only the first 4 adjacent blocks
+  std::vector<BlockHandle> test_handles(block_handles.begin(),
+                                        block_handles.begin() + 4);
+
+  std::unique_ptr<IODispatcher> dispatcher(NewIODispatcher());
+
+  auto job = std::make_shared<IOJob>();
+  job->block_handles = test_handles;
+  job->table = table.get();
+  job->job_options.read_options.async_io = true;         // Request async IO
+  job->job_options.io_coalesce_threshold = 1024 * 1024;  // Force coalescing
+
+  std::shared_ptr<ReadSet> read_set;
+  s = dispatcher->SubmitJob(job, &read_set);
+  ASSERT_OK(s);
+  ASSERT_NE(read_set, nullptr);
+
+  // The sync fallback should happen during SubmitJob, using one coalesced
+  // MultiRead for the adjacent blocks. Without the fix, no MultiRead happens
+  // here and num_sync_reads remains zero until ReadIndex() issues one SyncRead
+  // per block later.
+  auto read_ops = tracking_fs_->GetReadOps();
+  size_t multiread_count = 0;
+  size_t total_requests_in_multireads = 0;
+  for (const auto& op : read_ops) {
+    if (op.type == ReadOp::kMultiRead) {
+      multiread_count++;
+      total_requests_in_multireads += op.requests.size();
+    } else if (op.type == ReadOp::kReadAsync) {
+      FAIL() << "ReadAsync should not reach the filesystem when NotSupported "
+                "is injected";
+    }
+  }
+  ASSERT_EQ(read_set->GetNumSyncReads(), test_handles.size());
+  ASSERT_EQ(read_set->GetNumAsyncReads(), 0);
+  ASSERT_EQ(multiread_count, 1);
+  ASSERT_EQ(total_requests_in_multireads, 1);
+
+  // All blocks should then be readable from the prefetched sync fallback.
+  for (size_t i = 0; i < test_handles.size(); ++i) {
+    CachableEntry<Block> block;
+    ASSERT_OK(read_set->ReadIndex(i, &block));
+    ASSERT_NE(block.GetValue(), nullptr)
+        << "Block " << i << " should be readable after sync fallback";
+  }
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

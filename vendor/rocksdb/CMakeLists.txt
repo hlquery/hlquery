@@ -352,7 +352,7 @@ int main() {
 endif()
 
 if (WITH_LIBURING)
-  find_package(uring QUIET)
+  find_package(uring)
   if (uring_FOUND)
     add_definitions(-DROCKSDB_IOURING_PRESENT)
     list(APPEND THIRDPARTY_LIBS uring::uring)
@@ -654,6 +654,8 @@ if(USE_FOLLY)
     FMT_INST_PATH)
     exec_program(ls ARGS -d ${FOLLY_INST_PATH}/../gflags* OUTPUT_VARIABLE
     GFLAGS_INST_PATH)
+    exec_program(ls ARGS -d ${FOLLY_INST_PATH}/../glog* OUTPUT_VARIABLE
+    GLOG_INST_PATH)
     set(Boost_DIR ${BOOST_INST_PATH}/lib/cmake/Boost-1.83.0)
     if(EXISTS ${FMT_INST_PATH}/lib64)
       set(fmt_DIR ${FMT_INST_PATH}/lib64/cmake/fmt)
@@ -661,6 +663,42 @@ if(USE_FOLLY)
       set(fmt_DIR ${FMT_INST_PATH}/lib/cmake/fmt)
     endif()
     set(gflags_DIR ${GFLAGS_INST_PATH}/lib/cmake/gflags)
+    if(EXISTS ${GLOG_INST_PATH}/lib64/cmake/glog)
+      set(GLOG_CMAKE_DIR ${GLOG_INST_PATH}/lib64/cmake/glog)
+    elseif(EXISTS ${GLOG_INST_PATH}/lib/cmake/glog)
+      set(GLOG_CMAKE_DIR ${GLOG_INST_PATH}/lib/cmake/glog)
+    endif()
+    if(NOT GLOG_CMAKE_DIR)
+      find_library(GETDEPS_GLOG_LIBRARY NAMES glogd glog
+        PATHS ${GLOG_INST_PATH}/lib64 ${GLOG_INST_PATH}/lib
+        NO_DEFAULT_PATH)
+      if(NOT GETDEPS_GLOG_LIBRARY OR
+         NOT EXISTS ${GLOG_INST_PATH}/include/glog/logging.h)
+        message(FATAL_ERROR "Could not find getdeps glog under "
+          "${GLOG_INST_PATH}")
+      endif()
+      set(GLOG_CMAKE_DIR ${CMAKE_CURRENT_BINARY_DIR}/getdeps-glog-cmake)
+      file(MAKE_DIRECTORY ${GLOG_CMAKE_DIR})
+      file(WRITE ${GLOG_CMAKE_DIR}/glog-config.cmake
+        "if(NOT TARGET glog::glog)\n"
+        "  add_library(glog::glog UNKNOWN IMPORTED)\n"
+        "  set_target_properties(glog::glog PROPERTIES\n"
+        "    IMPORTED_LOCATION \"${GETDEPS_GLOG_LIBRARY}\"\n"
+        "    INTERFACE_INCLUDE_DIRECTORIES \"${GLOG_INST_PATH}/include\")\n"
+        "endif()\n"
+        "set(glog_FOUND TRUE)\n"
+        "set(Glog_FOUND TRUE)\n"
+        "set(GLOG_FOUND TRUE)\n"
+        "set(GLOG_LIBRARY \"${GETDEPS_GLOG_LIBRARY}\")\n"
+        "set(GLOG_LIBRARIES \"${GETDEPS_GLOG_LIBRARY}\")\n"
+        "set(GLOG_INCLUDE_DIR \"${GLOG_INST_PATH}/include\")\n")
+    endif()
+    set(glog_DIR ${GLOG_CMAKE_DIR})
+    set(Glog_DIR ${GLOG_CMAKE_DIR})
+    # Unlike gflags, glog may also be installed system-wide. Pre-resolve the
+    # getdeps copy so folly-config.cmake cannot fall back to another version.
+    find_package(glog CONFIG REQUIRED PATHS ${GLOG_CMAKE_DIR}
+                 NO_DEFAULT_PATH)
 
     exec_program(sed ARGS -i 's/gflags_shared//g'
     ${FOLLY_INST_PATH}/lib/cmake/folly/folly-targets.cmake)
@@ -672,6 +710,31 @@ if(USE_FOLLY)
       set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,-rpath=${GFLAGS_INST_PATH}/lib")
       set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${GFLAGS_INST_PATH}/lib/libgflags_debug.so.2.2")
     endif()
+  endif()
+
+  # Folly itself uses gflags transitively, but RocksDB tools and benchmarks
+  # also call gflags APIs directly, so they need an explicit link dependency.
+  if(WITH_GFLAGS)
+    if(NOT TARGET gflags::gflags AND NOT TARGET gflags_shared AND
+       NOT gflags_LIBRARIES)
+      find_package(gflags CONFIG QUIET)
+      if(NOT gflags_FOUND)
+        find_package(gflags REQUIRED)
+      endif()
+    endif()
+    if(TARGET gflags::gflags)
+      set(GFLAGS_LIB gflags::gflags)
+    elseif(TARGET gflags_shared)
+      set(GFLAGS_LIB gflags_shared)
+    elseif(DEFINED GFLAGS_TARGET AND TARGET ${GFLAGS_TARGET})
+      set(GFLAGS_LIB ${GFLAGS_TARGET})
+    elseif(gflags_LIBRARIES)
+      set(GFLAGS_LIB ${gflags_LIBRARIES})
+    else()
+      message(FATAL_ERROR
+        "WITH_GFLAGS is enabled, but no gflags library could be resolved")
+    endif()
+    list(APPEND THIRDPARTY_LIBS ${GFLAGS_LIB})
   endif()
 
   add_compile_definitions(USE_FOLLY FOLLY_NO_CONFIG HAVE_CXX11_ATOMIC)
@@ -707,6 +770,7 @@ set(SOURCES
         db/blob/blob_file_addition.cc
         db/blob/blob_file_builder.cc
         db/blob/blob_file_cache.cc
+        db/blob/blob_file_partition_manager.cc
         db/blob/blob_file_garbage.cc
         db/blob/blob_file_meta.cc
         db/blob/blob_file_reader.cc
@@ -715,6 +779,7 @@ set(SOURCES
         db/blob/blob_log_sequential_reader.cc
         db/blob/blob_log_writer.cc
         db/blob/blob_source.cc
+        db/blob/blob_write_batch_transformer.cc
         db/blob/prefetch_buffer_collection.cc
         db/builder.cc
         db/c.cc
@@ -786,6 +851,7 @@ set(SOURCES
         db/version_util.cc
         db/wal_edit.cc
         db/wal_manager.cc
+        db/wide/read_path_blob_resolver.cc
         db/wide/wide_column_serialization.cc
         db/wide/wide_columns.cc
         db/wide/wide_columns_helper.cc
@@ -967,6 +1033,7 @@ set(SOURCES
         utilities/cassandra/merge_operator.cc
         utilities/checkpoint/checkpoint_impl.cc
         utilities/compaction_filters.cc
+        utilities/sorted_run_builder/sorted_run_builder.cc
         utilities/compaction_filters/remove_emptyvalue_compactionfilter.cc
         utilities/counted_fs.cc
         utilities/debug.cc
@@ -1004,6 +1071,8 @@ set(SOURCES
         utilities/transactions/lock/lock_manager.cc
         utilities/transactions/lock/point/point_lock_tracker.cc
         utilities/transactions/lock/point/point_lock_manager.cc
+        utilities/transactions/lock/range/range_tree/range_tree_lock_manager.cc
+        utilities/transactions/lock/range/range_tree/range_tree_lock_tracker.cc
         utilities/transactions/optimistic_transaction_db_impl.cc
         utilities/transactions/optimistic_transaction.cc
         utilities/transactions/pessimistic_transaction.cc
@@ -1025,27 +1094,19 @@ set(SOURCES
         utilities/write_batch_with_index/write_batch_with_index.cc
         utilities/write_batch_with_index/write_batch_with_index_internal.cc)
 
-set(RANGE_TREE_ANCHOR
-  "${CMAKE_CURRENT_SOURCE_DIR}/utilities/transactions/lock/range/range_tree/lib/locktree/concurrent_tree.cc")
-if(EXISTS "${RANGE_TREE_ANCHOR}")
-  list(APPEND SOURCES
-    utilities/transactions/lock/range/range_tree/range_tree_lock_manager.cc
-    utilities/transactions/lock/range/range_tree/range_tree_lock_tracker.cc
-    utilities/transactions/lock/range/range_tree/lib/locktree/concurrent_tree.cc
-    utilities/transactions/lock/range/range_tree/lib/locktree/keyrange.cc
-    utilities/transactions/lock/range/range_tree/lib/locktree/lock_request.cc
-    utilities/transactions/lock/range/range_tree/lib/locktree/locktree.cc
-    utilities/transactions/lock/range/range_tree/lib/locktree/manager.cc
-    utilities/transactions/lock/range/range_tree/lib/locktree/range_buffer.cc
-    utilities/transactions/lock/range/range_tree/lib/locktree/treenode.cc
-    utilities/transactions/lock/range/range_tree/lib/locktree/txnid_set.cc
-    utilities/transactions/lock/range/range_tree/lib/locktree/wfg.cc
-    utilities/transactions/lock/range/range_tree/lib/standalone_port.cc
-    utilities/transactions/lock/range/range_tree/lib/util/dbt.cc
-    utilities/transactions/lock/range/range_tree/lib/util/memarena.cc)
-else()
-  message(STATUS "Range-tree lock manager sources missing; building without range-lock implementation")
-endif()
+list(APPEND SOURCES
+  utilities/transactions/lock/range/range_tree/lib/locktree/concurrent_tree.cc
+  utilities/transactions/lock/range/range_tree/lib/locktree/keyrange.cc
+  utilities/transactions/lock/range/range_tree/lib/locktree/lock_request.cc
+  utilities/transactions/lock/range/range_tree/lib/locktree/locktree.cc
+  utilities/transactions/lock/range/range_tree/lib/locktree/manager.cc
+  utilities/transactions/lock/range/range_tree/lib/locktree/range_buffer.cc
+  utilities/transactions/lock/range/range_tree/lib/locktree/treenode.cc
+  utilities/transactions/lock/range/range_tree/lib/locktree/txnid_set.cc
+  utilities/transactions/lock/range/range_tree/lib/locktree/wfg.cc
+  utilities/transactions/lock/range/range_tree/lib/standalone_port.cc
+  utilities/transactions/lock/range/range_tree/lib/util/dbt.cc
+  utilities/transactions/lock/range/range_tree/lib/util/memarena.cc)
 
 message(STATUS "ROCKSDB_PLUGINS: ${ROCKSDB_PLUGINS}")
 if ( ROCKSDB_PLUGINS )
@@ -1142,10 +1203,22 @@ if(USE_FOLLY_LITE)
   FMT_INCLUDE_DIR)
   include_directories(${FMT_INCLUDE_DIR})
 
+  exec_program(python3 ${PROJECT_SOURCE_DIR}/third-party/folly ARGS
+  build/fbcode_builder/getdeps.py show-inst-dir glog OUTPUT_VARIABLE
+  GLOG_INST_PATH)
+  if(EXISTS ${GLOG_INST_PATH}/lib64)
+    set(GLOG_LIB_DIR ${GLOG_INST_PATH}/lib64)
+  else()
+    set(GLOG_LIB_DIR ${GLOG_INST_PATH}/lib)
+  endif()
+
   add_definitions(-DUSE_FOLLY -DFOLLY_NO_CONFIG)
-  find_library(GLOG_LIBRARY glog)
+  find_library(GLOG_LIBRARY NAMES glog PATHS ${GLOG_LIB_DIR} NO_DEFAULT_PATH)
+  if(NOT GLOG_LIBRARY)
+    find_library(GLOG_LIBRARY NAMES glog)
+  endif()
   if(GLOG_LIBRARY)
-    list(APPEND THIRDPARTY_LIBS glog)
+    list(APPEND THIRDPARTY_LIBS ${GLOG_LIBRARY})
   endif()
 endif()
 
@@ -1215,21 +1288,32 @@ endif()
 string(REGEX REPLACE "[^0-9a-fA-F]+" "" GIT_SHA "${GIT_SHA}")
 string(REGEX REPLACE "[^0-9: /-]+" "" GIT_DATE "${GIT_DATE}")
 
-set(BUILD_VERSION_CC ${CMAKE_BINARY_DIR}/build_version.cc)
-configure_file(util/build_version.cc.in ${BUILD_VERSION_CC} @ONLY)
+	set(BUILD_VERSION_CC ${CMAKE_BINARY_DIR}/build_version.cc)
+	configure_file(util/build_version.cc.in ${BUILD_VERSION_CC} @ONLY)
 
-add_library(${ROCKSDB_STATIC_LIB} STATIC ${SOURCES} ${BUILD_VERSION_CC})
-target_include_directories(${ROCKSDB_STATIC_LIB} PUBLIC
-  $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>)
-target_link_libraries(${ROCKSDB_STATIC_LIB} PRIVATE
-  ${THIRDPARTY_LIBS} ${SYSTEM_LIBS})
+	# Defensive: some build environments may end up with an empty SOURCES list
+	# (e.g., due to aggressive source filtering in a parent project). CMake
+	# errors if add_library() is invoked with no source files at all, so ensure
+	# we always provide at least one translation unit.
+	set(ROCKSDB_ALL_SOURCES ${SOURCES} ${BUILD_VERSION_CC})
+	if(NOT ROCKSDB_ALL_SOURCES)
+	  set(BUILD_VERSION_CC ${CMAKE_BINARY_DIR}/rocksdb_build_version_fallback.cc)
+	  file(WRITE ${BUILD_VERSION_CC} "namespace rocksdb { const char* BuildVersion() { return \"unknown\"; } }\n")
+	  set(ROCKSDB_ALL_SOURCES ${BUILD_VERSION_CC})
+	endif()
 
-if(ROCKSDB_BUILD_SHARED)
-  add_library(${ROCKSDB_SHARED_LIB} SHARED ${SOURCES} ${BUILD_VERSION_CC})
-  target_include_directories(${ROCKSDB_SHARED_LIB} PUBLIC
-    $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>)
-  target_link_libraries(${ROCKSDB_SHARED_LIB} PRIVATE
-    ${THIRDPARTY_LIBS} ${SYSTEM_LIBS})
+	add_library(${ROCKSDB_STATIC_LIB} STATIC ${ROCKSDB_ALL_SOURCES})
+	target_include_directories(${ROCKSDB_STATIC_LIB} PUBLIC
+	  $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>)
+	target_link_libraries(${ROCKSDB_STATIC_LIB} PRIVATE
+	  ${THIRDPARTY_LIBS} ${SYSTEM_LIBS})
+
+	if(ROCKSDB_BUILD_SHARED)
+	  add_library(${ROCKSDB_SHARED_LIB} SHARED ${ROCKSDB_ALL_SOURCES})
+	  target_include_directories(${ROCKSDB_SHARED_LIB} PUBLIC
+	    $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>)
+	  target_link_libraries(${ROCKSDB_SHARED_LIB} PRIVATE
+	    ${THIRDPARTY_LIBS} ${SYSTEM_LIBS})
 
   if(WIN32)
     set_target_properties(${ROCKSDB_SHARED_LIB} PROPERTIES
@@ -1392,6 +1476,7 @@ if(WITH_TESTS)
         db/blob/blob_garbage_meter_test.cc
         db/blob/blob_source_test.cc
         db/blob/db_blob_basic_test.cc
+        db/blob/db_blob_direct_write_test.cc
         db/blob/db_blob_compaction_test.cc
         db/blob/db_blob_corruption_test.cc
         db/blob/db_blob_index_test.cc
@@ -1429,6 +1514,7 @@ if(WITH_TESTS)
         db/db_memtable_test.cc
         db/db_merge_operator_test.cc
         db/db_merge_operand_test.cc
+        db/db_open_with_config_test.cc
         db/db_options_test.cc
         db/db_properties_test.cc
         db/db_range_del_test.cc
@@ -1481,6 +1567,7 @@ if(WITH_TESTS)
         db/wal_manager_test.cc
         db/wal_edit_test.cc
         db/wide/db_wide_basic_test.cc
+        db/wide/db_wide_blob_direct_write_test.cc
         db/wide/wide_column_serialization_test.cc
         db/wide/wide_columns_helper_test.cc
         db/write_batch_test.cc
@@ -1561,6 +1648,7 @@ if(WITH_TESTS)
         utilities/cassandra/cassandra_row_merge_test.cc
         utilities/cassandra/cassandra_serialize_test.cc
         utilities/checkpoint/checkpoint_test.cc
+        utilities/sorted_run_builder/sorted_run_builder_test.cc
         utilities/env_timed_test.cc
         utilities/fault_injection_fs_test.cc
         utilities/memory/memory_test.cc

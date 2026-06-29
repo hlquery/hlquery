@@ -8,7 +8,9 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #include <cinttypes>
 #include <deque>
+#include <unordered_map>
 
+#include "db/blob/blob_file_partition_manager.h"
 #include "db/builder.h"
 #include "db/db_impl/db_impl.h"
 #include "db/error_handler.h"
@@ -215,7 +217,8 @@ Status DBImpl::FlushMemTableToOutputFile(
       &event_logger_, mutable_cf_options.report_bg_io_stats,
       true /* sync_output_directory */, true /* write_manifest */, thread_pri,
       io_tracer_, cfd->GetSuperVersion()->ShareSeqnoToTimeMapping(), db_id_,
-      db_session_id_, cfd->GetFullHistoryTsLow(), &blob_callback_);
+      db_session_id_, cfd->GetFullHistoryTsLow(), &blob_callback_,
+      mutable_db_options_.fast_sst_open);
   FileMetaData file_meta;
 
   Status s;
@@ -279,6 +282,8 @@ Status DBImpl::FlushMemTableToOutputFile(
                      flush_reason);
 
   bool switched_to_mempurge = false;
+  size_t prepared_blob_generations = 0;
+  std::vector<uint64_t> sealed_blob_numbers;
   // Within flush_job.Run, rocksdb may call event listener to notify
   // file creation and deletion.
   //
@@ -286,14 +291,72 @@ Status DBImpl::FlushMemTableToOutputFile(
   // and EventListener callback will be called when the db_mutex
   // is unlocked by the current thread.
   if (s.ok()) {
+    auto mgr_handle = cfd->blob_partition_manager_handle();
+    auto* mgr = mgr_handle.get();
+    if (mgr != nullptr) {
+      prepared_blob_generations = flush_job.GetMemTables().size();
+      std::vector<BlobFileAddition> write_path_additions;
+      std::vector<BlobFileGarbage> write_path_garbages;
+      std::vector<std::vector<uint64_t>> generation_blob_file_numbers;
+      mutex_.Unlock();
+      s = mgr->PrepareFlushAdditions(
+          write_options, prepared_blob_generations, &write_path_additions,
+          &write_path_garbages, &generation_blob_file_numbers);
+      mutex_.Lock();
+      if (!s.ok()) {
+        prepared_blob_generations = 0;
+      } else if (!write_path_additions.empty()) {
+        const auto& memtables = flush_job.GetMemTables();
+        assert(generation_blob_file_numbers.size() == memtables.size());
+        for (size_t i = 0; i < generation_blob_file_numbers.size(); ++i) {
+          // Old SuperVersions can keep these memtables alive after the flush
+          // commits, so keep their sealed direct-write blob files protected
+          // from obsolete-file purge until the memtable is finally released.
+          memtables[i]->ProtectSealedBlobFiles(mgr_handle,
+                                               generation_blob_file_numbers[i]);
+        }
+        for (const auto& addition : write_path_additions) {
+          sealed_blob_numbers.push_back(addition.GetBlobFileNumber());
+        }
+        flush_job.AddExternalBlobFileAdditions(std::move(write_path_additions));
+        flush_job.AddExternalBlobFileGarbages(std::move(write_path_garbages));
+      } else if (!write_path_garbages.empty()) {
+        flush_job.AddExternalBlobFileGarbages(std::move(write_path_garbages));
+      }
+    }
+  }
+  if (s.ok()) {
     s = flush_job.Run(&logs_with_prep_tracker_, &file_meta,
                       &switched_to_mempurge, &skip_set_bg_error,
                       &error_handler_);
     need_cancel = false;
   }
 
+  if (cfd->blob_partition_manager() != nullptr &&
+      prepared_blob_generations > 0) {
+    auto unconsumed_additions = flush_job.TakeExternalBlobFileAdditions();
+    auto unconsumed_garbages = flush_job.TakeExternalBlobFileGarbages();
+    if (!s.ok() || !unconsumed_additions.empty() ||
+        !unconsumed_garbages.empty()) {
+      // Skip committing this attempt, but keep the prepared generations queued
+      // in pending_generations_. The same immutable memtables still reference
+      // these sealed blob files, so a later flush retry must publish the exact
+      // same additions rather than abandoning them here.
+      prepared_blob_generations = 0;
+      sealed_blob_numbers.clear();
+    }
+  }
+
   if (!s.ok() && need_cancel) {
     flush_job.Cancel();
+  }
+
+  if (s.ok() && prepared_blob_generations > 0) {
+    auto* mgr = cfd->blob_partition_manager();
+    mgr->CommitPreparedGenerations(prepared_blob_generations);
+    if (!sealed_blob_numbers.empty()) {
+      mgr->RemoveFilePartitionMappings(sealed_blob_numbers);
+    }
   }
 
   if (s.ok()) {
@@ -486,7 +549,8 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
         false /* sync_output_directory */, false /* write_manifest */,
         thread_pri, io_tracer_,
         cfd->GetSuperVersion()->ShareSeqnoToTimeMapping(), db_id_,
-        db_session_id_, cfd->GetFullHistoryTsLow(), &blob_callback_));
+        db_session_id_, cfd->GetFullHistoryTsLow(), &blob_callback_,
+        mutable_db_options_.fast_sst_open));
   }
 
   std::vector<FileMetaData> file_meta(num_cfs);
@@ -535,11 +599,13 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
   // <bool /* executed */, Status /* status code */>
   autovector<std::pair<bool, Status>> exec_status;
   std::vector<bool> pick_status;
+  std::vector<size_t> prepared_blob_generations(num_cfs, 0);
   for (int i = 0; i != num_cfs; ++i) {
     // Initially all jobs are not executed, with status OK.
     exec_status.emplace_back(false, Status::OK());
     pick_status.push_back(false);
   }
+  std::unordered_map<int, std::vector<uint64_t>> sealed_blob_numbers_by_cf;
 
   bool flush_for_recovery =
       bg_flush_args[0].flush_reason_ == FlushReason::kErrorRecovery ||
@@ -560,6 +626,46 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
     for (int i = 0; i != num_cfs; ++i) {
       jobs[i]->PickMemTable();
       pick_status[i] = true;
+    }
+  }
+
+  if (s.ok()) {
+    for (int i = 0; i != num_cfs; ++i) {
+      auto mgr_handle = cfds[i]->blob_partition_manager_handle();
+      auto* mgr = mgr_handle.get();
+      if (mgr == nullptr) {
+        continue;
+      }
+
+      prepared_blob_generations[i] = jobs[i]->GetMemTables().size();
+      std::vector<BlobFileAddition> write_path_additions;
+      std::vector<BlobFileGarbage> write_path_garbages;
+      std::vector<std::vector<uint64_t>> generation_blob_file_numbers;
+      mutex_.Unlock();
+      s = mgr->PrepareFlushAdditions(
+          write_options, prepared_blob_generations[i], &write_path_additions,
+          &write_path_garbages, &generation_blob_file_numbers);
+      mutex_.Lock();
+      if (!s.ok()) {
+        prepared_blob_generations[i] = 0;
+        break;
+      }
+      if (!write_path_additions.empty()) {
+        const auto& memtables = jobs[i]->GetMemTables();
+        assert(generation_blob_file_numbers.size() == memtables.size());
+        for (size_t j = 0; j < generation_blob_file_numbers.size(); ++j) {
+          memtables[j]->ProtectSealedBlobFiles(mgr_handle,
+                                               generation_blob_file_numbers[j]);
+        }
+        auto& sealed_blob_numbers = sealed_blob_numbers_by_cf[i];
+        for (const auto& addition : write_path_additions) {
+          sealed_blob_numbers.push_back(addition.GetBlobFileNumber());
+        }
+        jobs[i]->AddExternalBlobFileAdditions(std::move(write_path_additions));
+      }
+      if (!write_path_garbages.empty()) {
+        jobs[i]->AddExternalBlobFileGarbages(std::move(write_path_garbages));
+      }
     }
   }
 
@@ -766,6 +872,48 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
         &logs_with_prep_tracker_, &mutex_, tmp_file_meta,
         committed_flush_jobs_info, &job_context->memtables_to_free,
         directories_.GetDbDir(), log_buffer);
+  }
+
+  if (!s.ok()) {
+    // If the atomic flush's combined MANIFEST write failed, the output files
+    // are cached in the table cache (added by BuildTable during FlushJob::Run)
+    // but never installed into any Version. Evict them now so that
+    // TEST_VerifyNoObsoleteFilesCached does not fire during Close() when the
+    // FindObsoleteFiles full-scan backstop is disabled by
+    // metadata_read_fault_one_in.
+    for (int i = 0; i != num_cfs; ++i) {
+      if (exec_status[i].first && exec_status[i].second.ok() &&
+          !switched_to_mempurge[i] && file_meta[i].fd.GetFileSize() > 0) {
+        TableCache::ReleaseObsolete(
+            cfds[i]->table_cache()->get_cache().get(),
+            file_meta[i].fd.GetNumber(), nullptr /*handle*/,
+            all_mutable_cf_options[i].uncache_aggressiveness);
+      }
+    }
+  }
+
+  for (int i = 0; i != num_cfs; ++i) {
+    auto* mgr = cfds[i]->blob_partition_manager();
+    if (mgr == nullptr || prepared_blob_generations[i] == 0) {
+      continue;
+    }
+
+    auto unconsumed_additions = jobs[i]->TakeExternalBlobFileAdditions();
+    auto unconsumed_garbages = jobs[i]->TakeExternalBlobFileGarbages();
+    if (!s.ok() || !unconsumed_additions.empty() ||
+        !unconsumed_garbages.empty()) {
+      // Same retry semantics as the single-CF flush path above: do not
+      // consume these prepared generations yet, because the rolled-back
+      // memtables still need to reuse the same sealed blob files on retry.
+      prepared_blob_generations[i] = 0;
+      continue;
+    }
+
+    mgr->CommitPreparedGenerations(prepared_blob_generations[i]);
+    auto it = sealed_blob_numbers_by_cf.find(i);
+    if (it != sealed_blob_numbers_by_cf.end() && !it->second.empty()) {
+      mgr->RemoveFilePartitionMappings(it->second);
+    }
   }
 
   if (s.ok()) {
@@ -1433,9 +1581,8 @@ Status DBImpl::CompactFiles(const CompactionOptions& compact_options,
   return s;
 }
 
-Status DBImpl::PerformTrivialMove(Compaction& c, LogBuffer* log_buffer,
-                                  bool& compaction_released,
-                                  size_t& moved_files, size_t& moved_bytes) {
+void DBImpl::PrepareTrivialMoveEdit(Compaction& c, LogBuffer* log_buffer,
+                                    size_t& moved_files, size_t& moved_bytes) {
   mutex_.AssertHeld();
 
   ROCKS_LOG_BUFFER(log_buffer, "[%s] Moving %d files to level-%d\n",
@@ -1468,6 +1615,10 @@ Status DBImpl::PerformTrivialMove(Compaction& c, LogBuffer* log_buffer,
     }
     moved_files += c.num_input_files(l);
   }
+}
+
+Status DBImpl::CommitTrivialMove(Compaction& c, bool& compaction_released) {
+  mutex_.AssertHeld();
 
   // Install the new version
   const ReadOptions read_options(Env::IOActivity::kCompaction);
@@ -1592,8 +1743,8 @@ Status DBImpl::CompactFilesImpl(
     bool compaction_released = false;
     size_t moved_files = 0;
     size_t moved_bytes = 0;
-    Status status = PerformTrivialMove(
-        *c.get(), log_buffer, compaction_released, moved_files, moved_bytes);
+    PrepareTrivialMoveEdit(*c.get(), log_buffer, moved_files, moved_bytes);
+    Status status = CommitTrivialMove(*c.get(), compaction_released);
 
     if (status.ok()) {
       InstallSuperVersionAndScheduleWork(
@@ -1859,6 +2010,46 @@ void DBImpl::NotifyOnCompactionCompleted(
   mutex_.Lock();
   // no need to signal bg_cv_ as it will be signaled at the end of the
   // flush process.
+}
+
+void DBImpl::NotifyOnCompactionPreCommit(
+    ColumnFamilyData* cfd, Compaction* c, const Status& st,
+    const CompactionJobStats& compaction_job_stats, const int job_id) {
+  if (immutable_db_options_.listeners.size() == 0U) {
+    return;
+  }
+  mutex_.AssertHeld();
+  if (shutting_down_.load(std::memory_order_acquire)) {
+    return;
+  }
+
+  // Only fire if OnCompactionBegin has fired for this compaction.
+  if (c->ShouldNotifyOnCompactionCompleted() == false) {
+    return;
+  }
+  // Idempotency: ensure listeners observe at most one
+  // OnCompactionPreCommit per compaction lifecycle, even though the
+  // notify helper is invoked at multiple potential ReleaseCompactionFiles()
+  // sites for safety.
+  if (c->WasNotifyOnCompactionPreCommitCalled()) {
+    return;
+  }
+  c->SetNotifyOnCompactionPreCommitCalled();
+
+  int num_l0_files = cfd->current()->storage_info()->NumLevelFiles(0);
+  // release lock while notifying events
+  mutex_.Unlock();
+  TEST_SYNC_POINT("DBImpl::NotifyOnCompactionPreCommit::UnlockMutex");
+  {
+    CompactionJobInfo info{};
+    info.num_l0_files = num_l0_files;
+    BuildCompactionJobInfo(cfd, c, st, compaction_job_stats, job_id, &info);
+    for (const auto& listener : immutable_db_options_.listeners) {
+      listener->OnCompactionPreCommit(this, info);
+    }
+    info.status.PermitUncheckedError();
+  }
+  mutex_.Lock();
 }
 
 // REQUIREMENT: block all background work by calling PauseBackgroundWork()
@@ -4107,6 +4298,8 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     for (const auto& f : *c->inputs(0)) {
       c->edit()->DeleteFile(c->level(), f->fd.GetNumber());
     }
+    NotifyOnCompactionPreCommit(c->column_family_data(), c.get(), status,
+                                compaction_job_stats, job_context->job_id);
     status = versions_->LogAndApply(
         c->column_family_data(), read_options, write_options, c->edit(),
         &mutex_, directories_.GetDbDir(),
@@ -4325,6 +4518,8 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
         ++out_file_metadata_it;
       }
 
+      NotifyOnCompactionPreCommit(c->column_family_data(), c.get(), status,
+                                  compaction_job_stats, job_context->job_id);
       status = versions_->LogAndApply(
           c->column_family_data(), read_options, write_options, c->edit(),
           &mutex_, directories_.GetDbDir(),
@@ -4401,8 +4596,12 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     // Perform the trivial move
     size_t moved_files = 0;
     size_t moved_bytes = 0;
-    status = PerformTrivialMove(*c.get(), log_buffer, compaction_released,
-                                moved_files, moved_bytes);
+    // Populate the edit first so that CompactionJobInfo has output file
+    // info when OnCompactionPreCommit fires.
+    PrepareTrivialMoveEdit(*c.get(), log_buffer, moved_files, moved_bytes);
+    NotifyOnCompactionPreCommit(c->column_family_data(), c.get(), status,
+                                compaction_job_stats, job_context->job_id);
+    status = CommitTrivialMove(*c.get(), compaction_released);
     io_s = versions_->io_status();
     InstallSuperVersionAndScheduleWork(
         c->column_family_data(), job_context->superversion_contexts.data());
@@ -4525,6 +4724,10 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
       ReleaseOptionsFileNumber(min_options_file_number_elem);
     }
 
+    // Fire OnCompactionPreCommit before compaction_job.Install runs
+    // ReleaseCompactionFiles in its manifest write callback.
+    NotifyOnCompactionPreCommit(c->column_family_data(), c.get(), status,
+                                compaction_job_stats, job_context->job_id);
     status = compaction_job.Install(&compaction_released);
     io_s = compaction_job.io_status();
     if (status.ok()) {
@@ -4544,6 +4747,14 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
 
   if (c != nullptr) {
     if (!compaction_released) {
+      // Safety net: if any of the paths above did not fire the
+      // OnCompactionPreCommit notification (e.g. status was not OK and
+      // an early-out skipped the LogAndApply / Install), still fire the
+      // notify here while files are about to be released. The notify is
+      // idempotent and is a no-op if it has already fired (or if Begin never
+      // fired).
+      NotifyOnCompactionPreCommit(c->column_family_data(), c.get(), status,
+                                  compaction_job_stats, job_context->job_id);
       c->ReleaseCompactionFiles(status);
     } else {
 #ifndef NDEBUG
@@ -4984,6 +5195,11 @@ void DBImpl::MarkAsGrabbedForPurge(uint64_t file_number) {
   files_grabbed_for_purge_.insert(file_number);
 }
 
+void DBImpl::EnableTrackPublishedSeqInSnapshotContext() {
+  InstrumentedMutexLock l(&mutex_);
+  track_published_seq_in_snapshot_context_ = true;
+}
+
 void DBImpl::SetSnapshotChecker(SnapshotChecker* snapshot_checker) {
   InstrumentedMutexLock l(&mutex_);
   // snapshot_checker_ should only set once. If we need to set it multiple
@@ -5017,6 +5233,19 @@ void DBImpl::InitSnapshotContext(JobContext* job_context) {
   SequenceNumber earliest_write_conflict_snapshot = kMaxSequenceNumber;
   std::vector<SequenceNumber> snapshot_seqs =
       snapshots_.GetAll(&earliest_write_conflict_snapshot);
+
+  // The SnapshotChecker path above already adds a managed snapshot to
+  // snapshot_seqs.
+  if (track_published_seq_in_snapshot_context_ && !snapshot_checker) {
+    // Pin the published-sequence boundary into snapshot_seqs without taking
+    // a real snapshot. This prevents flush/compaction from collapsing a version
+    // visible at the published boundary into a newer unpublished seqno.
+    const SequenceNumber published_seq = GetLastPublishedSequence();
+    if (snapshot_seqs.empty() || snapshot_seqs.back() < published_seq) {
+      snapshot_seqs.push_back(published_seq);
+    }
+  }
+  TEST_SYNC_POINT("DBImpl::InitSnapshotContext:BeforeInit");
   job_context->InitSnapshotContext(
       snapshot_checker, std::move(managed_snapshot),
       earliest_write_conflict_snapshot, std::move(snapshot_seqs));
@@ -5025,6 +5254,10 @@ void DBImpl::InitSnapshotContext(JobContext* job_context) {
 Status DBImpl::WaitForCompact(
     const WaitForCompactOptions& wait_for_compact_options) {
   InstrumentedMutexLock l(&mutex_);
+  // `close_db=true` needs the same direct-write cleanup guarantee as DB close:
+  // register live blob files before relying on the DB being reopenable.
+  const bool flush_for_blob_direct_write =
+      HasAnyBlobDirectWriteColumnFamilyWithLockHeld();
   if (wait_for_compact_options.flush) {
     Status s = DBImpl::FlushAllColumnFamilies(FlushOptions(),
                                               FlushReason::kManualFlush);
@@ -5032,8 +5265,9 @@ Status DBImpl::WaitForCompact(
       return s;
     }
   } else if (wait_for_compact_options.close_db &&
-             has_unpersisted_data_.load(std::memory_order_relaxed) &&
-             !mutable_db_options_.avoid_flush_during_shutdown) {
+             (flush_for_blob_direct_write ||
+              (has_unpersisted_data_.load(std::memory_order_relaxed) &&
+               !mutable_db_options_.avoid_flush_during_shutdown))) {
     Status s =
         DBImpl::FlushAllColumnFamilies(FlushOptions(), FlushReason::kShutDown);
     if (!s.ok()) {

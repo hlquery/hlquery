@@ -45,7 +45,7 @@ struct RocksDBOptions
 
      /* Single write buffer size in bytes. */
 
-     size_t WriteBufferSize = 64 * 1024 * 1024; /* 64MB */
+     size_t WriteBufferSize = ROCKSDB_DEFAULT_WRITE_BUFFER_SIZE;
 
      /* Maximum number of write buffers. */
 
@@ -539,11 +539,6 @@ class ServerConfig
          return AIModelName;
     }
 
-    const std::string& GetAIInferenceCommand() const
-    {
-         return AIInferenceCommand;
-    }
-
     bool GetAIEnabled() const
     {
          return AIEnabled;
@@ -558,302 +553,6 @@ class ServerConfig
     {
          return AIModelPath;
     }
-
-    bool GetSamEnabled() const
-    {
-         return SamEnabled;
-    }
-
-    const std::string& GetSamDataDirectory() const
-    {
-         return SamDataDirectory;
-    }
-
-    const std::string& GetSamSearchIdeasCollection() const
-    {
-         return SamSearchIdeasCollection;
-    }
-
-    bool GetSamRecordSearchIdeas() const
-    {
-         return SamRecordSearchIdeas;
-    }
-
-     bool GetSamRecordInteractions() const
-     {
-          return SamRecordInteractions;
-     }
-
-     int GetSamSearchIdeaDedupeWindowMs() const
-     {
-          return SamSearchIdeaDedupeWindowMs;
-     }
-
-     int GetSamInteractionDedupeWindowMs() const
-     {
-          return SamInteractionDedupeWindowMs;
-     }
-
-     int GetSamActorMetadataRetentionDays() const
-     {
-          return SamActorMetadataRetentionDays;
-     }
-
-     int GetSamInteractionMaxPerMinute() const
-     {
-          return SamInteractionMaxPerMinute;
-     }
-
-     int GetSamInteractionMaxPerHour() const
-     {
-          return SamInteractionMaxPerHour;
-     }
-
-     int GetSamInteractionMaxPerDocQueryPerHour() const
-     {
-          return SamInteractionMaxPerDocQueryPerHour;
-     }
-
-     bool GetSamIndexAll() const
-     {
-          return SamIndexAll;
-     }
-
-     bool GetSamAutoDetectCollectionLanguage() const
-     {
-          return SamAutoDetectCollectionLanguage;
-     }
-
-     bool GetSamSmartBackground() const
-     {
-          return SamSmartBackground;
-     }
-
-     int GetSamBackgroundImprovementIntervalMs() const
-     {
-          return SamBackgroundImprovementIntervalMs;
-     }
-
-     int GetSamBackgroundImprovementPollMs() const
-     {
-          return SamBackgroundImprovementPollMs;
-     }
-
-    bool GetSam25DynamicQueryWeight() const
-    {
-         return Sam25DynamicQueryWeight;
-    }
-
-    double GetSam25ShortQueryPhraseBoost() const
-    {
-         return Sam25ShortQueryPhraseBoost;
-    }
-
-    double GetSam25LongQueryPhraseBoost() const
-    {
-         return Sam25LongQueryPhraseBoost;
-    }
-
-    double GetSam25SourcePhraseBoostTitle() const
-    {
-         return Sam25SourcePhraseBoostTitle;
-    }
-
-    double GetSam25SourcePhraseBoostLabelPair() const
-    {
-         return Sam25SourcePhraseBoostLabelPair;
-    }
-
-    double GetSam25SourcePhraseBoostLabel() const
-    {
-         return Sam25SourcePhraseBoostLabel;
-    }
-
-    double GetSam25SourcePhraseBoostLlm() const
-    {
-         return Sam25SourcePhraseBoostLlm;
-    }
-
-     int GetSamLLMMaxIdeas() const
-     {
-          return SamLLMMaxIdeas;
-     }
-
-     int GetSamContextMaxIdeas() const
-     {
-          return SamContextMaxIdeas;
-     }
-
-     bool GetSamLogContext() const
-     {
-          return SamLogContext;
-     }
-
-     int GetSamLLMTimeoutMs() const
-     {
-          return SamLLMTimeoutMs;
-     }
-
-     const std::string& GetSamLLMCreativityMode() const
-     {
-          return SamLLMCreativityMode;
-     }
-
-    bool GetSam25EnableIdf() const
-    {
-         return Sam25EnableIdf;
-    }
-
-    double GetSam25IdfFloor() const
-    {
-         return Sam25IdfFloor;
-    }
-
-    double GetSam25IdfCeiling() const
-    {
-         return Sam25IdfCeiling;
-    }
-
-    bool GetSam25EnableDocPrior() const
-    {
-         return Sam25EnableDocPrior;
-    }
-
-    const std::string& GetSam25DocPriorField() const
-    {
-         return Sam25DocPriorField;
-    }
-
-    double GetSam25DocPriorWeight() const
-    {
-         return Sam25DocPriorWeight;
-    }
-
-    int GetSam25OrderedSlop() const
-    {
-         return Sam25OrderedSlop;
-    }
-
-    int GetSam25UnorderedWindowSlop() const
-    {
-         return Sam25UnorderedWindowSlop;
-    }
-
-    bool GetSam25ExactPhraseRequiresStopwords() const
-    {
-         return Sam25ExactPhraseRequiresStopwords;
-    }
-
-    bool GetSam25ExactPhraseIgnoreOuterStopwords() const
-    {
-         return Sam25ExactPhraseIgnoreOuterStopwords;
-    }
-
-    bool GetSam25EnableSynonymExpansion() const
-    {
-         return Sam25EnableSynonymExpansion;
-    }
-
-    double GetSam25SynonymBoost() const
-    {
-         return Sam25SynonymBoost;
-    }
-
-    int GetSam25MaxSynonymsPerToken() const
-    {
-         return Sam25MaxSynonymsPerToken;
-    }
-
-    bool GetSam25EnableNoisePenalty() const
-    {
-         return Sam25EnableNoisePenalty;
-    }
-
-    double GetSam25NoisePenalty() const
-    {
-         return Sam25NoisePenalty;
-    }
-
-    double GetSam25NoisePenaltyLlmExtra() const
-    {
-         return Sam25NoisePenaltyLlmExtra;
-    }
-
-    double GetSam25MinCoverage() const
-    {
-         return Sam25MinCoverage;
-    }
-
-    double GetSam25MinOrderedBoostForPhrase() const
-    {
-         return Sam25MinOrderedBoostForPhrase;
-    }
-
-    double GetSam25MinFinalScore() const
-    {
-         return Sam25MinFinalScore;
-    }
-
-    double GetSam25IntentDocMatchMinScore() const
-    {
-         return Sam25IntentDocMatchMinScore;
-    }
-
-    bool GetSam25EnableSourceDocMerge() const
-    {
-         return Sam25EnableSourceDocMerge;
-    }
-
-    double GetSam25SourceDocWeight() const
-    {
-         return Sam25SourceDocWeight;
-    }
-
-    double GetSam25SourceDocTitleWeight() const
-    {
-         return Sam25SourceDocTitleWeight;
-    }
-
-    double GetSam25SourceDocDescriptionWeight() const
-    {
-         return Sam25SourceDocDescriptionWeight;
-    }
-
-    double GetSam25SourceDocLabelsWeight() const
-    {
-         return Sam25SourceDocLabelsWeight;
-    }
-
-    double GetSam25SourceDocContentWeight() const
-    {
-         return Sam25SourceDocContentWeight;
-    }
-
-    double GetSam25SourceDocMinScore() const
-    {
-         return Sam25SourceDocMinScore;
-    }
-
-    double GetSam25SourceDocMergeBonus() const
-    {
-         return Sam25SourceDocMergeBonus;
-    }
-
-    bool GetSam25DebugExplain() const
-    {
-         return Sam25DebugExplain;
-    }
-
-    int GetSam25DebugLogTopK() const
-    {
-         return Sam25DebugLogTopK;
-    }
-
-    bool GetSam25DebugIncludeComponents() const
-    {
-         return Sam25DebugIncludeComponents;
-    }
-
      /* Search settings */
 
      /* Returns default ranking name. */
@@ -886,6 +585,27 @@ class ServerConfig
      int GetMaxEditDistance() const
      {
           return MaxEditDistance;
+     }
+
+     /* Returns lexical term match mode: and, or, or min_should_match. */
+
+     std::string GetSearchMatchMode() const
+     {
+          return SearchMatchMode;
+     }
+
+     /* Returns minimum matching terms when match mode is min_should_match. */
+
+     int GetSearchMinShouldMatch() const
+     {
+          return SearchMinShouldMatch;
+     }
+
+     /* Returns limit multiplier for cheap pre-score candidate pruning. */
+
+     int GetSearchCandidatePruneMultiplier() const
+     {
+          return SearchCandidatePruneMultiplier;
      }
 
      /* Returns highlight start marker. */
@@ -971,6 +691,13 @@ class ServerConfig
      bool GetRankingIdfClampNegative() const
      {
           return RankingIdfClampNegative;
+     }
+
+     /* Returns legacy BM25 IDF floor factor used when negative IDF is clamped. */
+
+     double GetRankingIdfFloorFactor() const
+     {
+          return RankingIdfFloorFactor;
      }
 
      /* Returns hybrid merge method: linear or rrf. */
@@ -1569,6 +1296,13 @@ class ServerConfig
           return QuerySettingsEnableSynonyms;
      }
 
+     /* Returns whether stopword filtering is enabled. */
+
+     bool GetQuerySettingsEnableStopwords() const
+     {
+          return QuerySettingsEnableStopwords;
+     }
+
      /* Returns whether fuzzy queries are enabled. */
 
      bool GetQuerySettingsEnableFuzzy() const
@@ -1581,6 +1315,13 @@ class ServerConfig
      int GetQuerySettingsFuzzyMaxDistance() const
      {
           return QuerySettingsFuzzyMaxDistance;
+     }
+
+     /* Returns whether mixed letter-digit query tokens require exact matching. */
+
+     bool GetQuerySettingsRequireExactIdentifierTokens() const
+     {
+          return QuerySettingsRequireExactIdentifierTokens;
      }
 
      /* Scoring settings */
@@ -2114,10 +1855,6 @@ class ServerConfig
 
      std::string AIModelPath;
 
-     /* Command used to run external AI inference. */
-
-     std::string AIInferenceCommand;
-
      /* Catalog of AI model presets available to the server. */
 
      std::vector<AIModelDescriptor> AIModelCatalog;
@@ -2125,243 +1862,6 @@ class ServerConfig
      /* Toggle AI-assisted runtime features. */
 
      bool AIEnabled = true;
-
-     /* Toggle SAM retrieval and learning features. */
-
-     bool SamEnabled = false;
-
-     /* Directory used for SAM persistent data. */
-
-     std::string SamDataDirectory = HLQUERY_SAM_DATA_DIR;
-
-     /* Collection used to store recorded SAM search ideas. */
-
-     std::string SamSearchIdeasCollection;
-
-     /* Toggle recording of SAM search ideas. */
-
-     bool SamRecordSearchIdeas = true;
-
-     /* Toggle recording of SAM document interactions. */
-
-     bool SamRecordInteractions = true;
-
-     /* Milliseconds used to deduplicate repeated SAM search ideas. */
-
-     int SamSearchIdeaDedupeWindowMs = 0;
-
-     /* Milliseconds used to deduplicate repeated SAM interactions. */
-
-     int SamInteractionDedupeWindowMs = 0;
-
-     /* Number of days to retain SAM actor metadata. */
-
-     int SamActorMetadataRetentionDays = 30;
-
-     /* Maximum SAM interactions accepted per actor each minute. */
-
-     int SamInteractionMaxPerMinute = 0;
-
-     /* Maximum SAM interactions accepted per actor each hour. */
-
-     int SamInteractionMaxPerHour = 0;
-
-     /* Maximum SAM interactions accepted for one document and query each hour. */
-
-     int SamInteractionMaxPerDocQueryPerHour = 0;
-
-     /* Toggle SAM indexing for all collections. */
-
-     bool SamIndexAll = false;
-
-     /* Toggle automatic collection language metadata detection. */
-
-     bool SamAutoDetectCollectionLanguage = true;
-
-     /* Toggle SAM background improvement scheduling. */
-
-     bool SamSmartBackground = true;
-
-     /* Milliseconds between SAM background improvement passes. */
-
-     int SamBackgroundImprovementIntervalMs = 60000;
-
-     /* Milliseconds between SAM background polling checks. */
-
-     int SamBackgroundImprovementPollMs = 15000;
-
-     /* Toggle dynamic SAM 2.5 query weighting. */
-
-     bool Sam25DynamicQueryWeight = true;
-
-     /* Phrase boost used for short SAM 2.5 queries. */
-
-     double Sam25ShortQueryPhraseBoost = 1.20;
-
-     /* Phrase boost used for long SAM 2.5 queries. */
-
-     double Sam25LongQueryPhraseBoost = 0.85;
-
-     /* Source phrase boost for title-derived SAM 2.5 ideas. */
-
-     double Sam25SourcePhraseBoostTitle = 1.25;
-
-     /* Source phrase boost for paired label-derived SAM 2.5 ideas. */
-
-     double Sam25SourcePhraseBoostLabelPair = 1.15;
-
-     /* Source phrase boost for label-derived SAM 2.5 ideas. */
-
-     double Sam25SourcePhraseBoostLabel = 1.00;
-
-     /* Source phrase boost for LLM-derived SAM 2.5 ideas. */
-
-     double Sam25SourcePhraseBoostLlm = 0.85;
-
-     /* Maximum number of ideas requested from SAM LLM expansion. */
-
-     int SamLLMMaxIdeas = 6;
-
-     /* Maximum number of contextual ideas retained for SAM processing. */
-
-     int SamContextMaxIdeas = 20;
-
-     /* Toggle SAM context logging. */
-
-     bool SamLogContext = false;
-
-     /* Timeout in milliseconds for SAM LLM calls. */
-
-     int SamLLMTimeoutMs = 20000;
-
-     /* Creativity mode used for SAM LLM prompt generation. */
-
-     std::string SamLLMCreativityMode = "balanced";
-
-     /* Toggle inverse document frequency weighting in SAM 2.5. */
-
-     bool Sam25EnableIdf = true;
-
-     /* Minimum inverse document frequency multiplier for SAM 2.5. */
-
-     double Sam25IdfFloor = 0.10;
-
-     /* Maximum inverse document frequency multiplier for SAM 2.5. */
-
-     double Sam25IdfCeiling = 2.50;
-
-     /* Toggle document prior scoring in SAM 2.5. */
-
-     bool Sam25EnableDocPrior = false;
-
-     /* Field used as the SAM 2.5 document prior source. */
-
-     std::string Sam25DocPriorField = "popularity_score";
-
-     /* Weight applied to the SAM 2.5 document prior. */
-
-     double Sam25DocPriorWeight = 0.08;
-
-     /* Ordered token slop allowed for SAM 2.5 phrase matching. */
-
-     int Sam25OrderedSlop = 2;
-
-     /* Unordered token window slop allowed for SAM 2.5 matching. */
-
-     int Sam25UnorderedWindowSlop = 3;
-
-     /* Toggle stopword requirements for exact SAM 2.5 phrases. */
-
-     bool Sam25ExactPhraseRequiresStopwords = true;
-
-     /* Toggle trimming outer stopwords for exact SAM 2.5 phrases. */
-
-     bool Sam25ExactPhraseIgnoreOuterStopwords = true;
-
-     /* Toggle synonym expansion in SAM 2.5 scoring. */
-
-     bool Sam25EnableSynonymExpansion = true;
-
-     /* Boost applied to SAM 2.5 synonym matches. */
-
-     double Sam25SynonymBoost = 0.72;
-
-     /* Maximum number of synonyms expanded per SAM 2.5 token. */
-
-     int Sam25MaxSynonymsPerToken = 4;
-
-     /* Toggle noise penalty scoring in SAM 2.5. */
-
-     bool Sam25EnableNoisePenalty = true;
-
-     /* Base noise penalty applied in SAM 2.5 scoring. */
-
-     double Sam25NoisePenalty = 0.18;
-
-     /* Extra noise penalty applied to LLM-derived SAM 2.5 ideas. */
-
-     double Sam25NoisePenaltyLlmExtra = 0.10;
-
-     /* Minimum query coverage required for SAM 2.5 matches. */
-
-     double Sam25MinCoverage = 0.50;
-
-     /* Minimum ordered boost required for SAM 2.5 phrase scoring. */
-
-     double Sam25MinOrderedBoostForPhrase = 0.20;
-
-     /* Minimum final SAM 2.5 score required for a candidate. */
-
-     double Sam25MinFinalScore = 0.35;
-
-     /* Minimum score required when matching SAM intent ideas to documents. */
-
-     double Sam25IntentDocMatchMinScore = 0.65;
-
-     /* Toggle source document merge scoring in SAM 2.5. */
-
-     bool Sam25EnableSourceDocMerge = true;
-
-     /* Base weight for SAM 2.5 source document scores. */
-
-     double Sam25SourceDocWeight = 0.90;
-
-     /* Title weight for SAM 2.5 source document scoring. */
-
-     double Sam25SourceDocTitleWeight = 1.20;
-
-     /* Description weight for SAM 2.5 source document scoring. */
-
-     double Sam25SourceDocDescriptionWeight = 1.08;
-
-     /* Labels weight for SAM 2.5 source document scoring. */
-
-     double Sam25SourceDocLabelsWeight = 1.10;
-
-     /* Content weight for SAM 2.5 source document scoring. */
-
-     double Sam25SourceDocContentWeight = 0.92;
-
-     /* Minimum SAM 2.5 source document score required for merging. */
-
-     double Sam25SourceDocMinScore = 0.32;
-
-     /* Bonus applied when SAM 2.5 merges source document evidence. */
-
-     double Sam25SourceDocMergeBonus = 0.10;
-
-     /* Toggle detailed SAM 2.5 score explanations. */
-
-     bool Sam25DebugExplain = false;
-
-     /* Number of top SAM 2.5 candidates included in debug logs. */
-
-     int Sam25DebugLogTopK = 10;
-
-     /* Toggle component-level details in SAM 2.5 debug output. */
-
-     bool Sam25DebugIncludeComponents = true;
-
      /* Default ranking name. */
 
      std::string DefaultRanking = "bm25+";
@@ -2377,6 +1877,18 @@ class ServerConfig
      /* Max edit distance for fuzzy matching. */
 
      int MaxEditDistance = 2;
+
+     /* Lexical term match mode. */
+
+     std::string SearchMatchMode = "and";
+
+     /* Minimum matching terms for min_should_match mode. */
+
+     int SearchMinShouldMatch = 1;
+
+     /* Candidate prune multiplier before full ranking. */
+
+     int SearchCandidatePruneMultiplier = 25;
 
      /* Highlight start marker. */
 
@@ -2419,6 +1931,10 @@ class ServerConfig
      /* Clamp negative BM25 IDF values to 0. */
 
      bool RankingIdfClampNegative = true;
+
+     /* Legacy BM25 IDF floor factor when clamping negative IDF. */
+
+     double RankingIdfFloorFactor = 0.05;
 
      /* Hybrid parameters */
 
@@ -2746,6 +2262,10 @@ class ServerConfig
 
      bool QuerySettingsEnableSynonyms = true;
 
+     /* Enable stopword filtering. */
+
+     bool QuerySettingsEnableStopwords = true;
+
      /* Enable fuzzy queries. */
 
      bool QuerySettingsEnableFuzzy = false;
@@ -2753,6 +2273,10 @@ class ServerConfig
      /* Max fuzzy distance. */
 
      int QuerySettingsFuzzyMaxDistance = 2;
+
+     /* Require exact matching for mixed letter-digit query tokens unless fuzzy matching is explicit. */
+
+     bool QuerySettingsRequireExactIdentifierTokens = true;
 
      /* Scoring settings */
 

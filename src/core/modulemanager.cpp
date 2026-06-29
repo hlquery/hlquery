@@ -122,7 +122,7 @@ void ModuleManager::SetDemoModeState(bool Active, const std::string &Message)
 ModuleManager::~ModuleManager()
 {
      OnUnloadModules();
-     UnloadAll(nullptr);
+     UnloadAll();
 }
 
 bool ModuleManager::IsValidModuleName(const std::string &Name)
@@ -147,7 +147,7 @@ bool ModuleManager::IsValidModuleName(const std::string &Name)
 
 /* Waits for shared storage before starting any runtime module. */
 
-bool ModuleManager::LoadModules(const ServerConfig &Config, LogManager *Logger, std::string &ErrorMessage)
+bool ModuleManager::LoadModules(const ServerConfig &Config, std::string &ErrorMessage)
 {
      const auto Deadline = Now() + std::chrono::seconds(5);
 
@@ -156,19 +156,17 @@ bool ModuleManager::LoadModules(const ServerConfig &Config, LogManager *Logger, 
           if (Now() >= Deadline)
           {
                ErrorMessage = "Hybrid storage manager did not finish initializing before modules were loaded.";
-
                return false;
           }
 
           std::this_thread::sleep_for(std::chrono::milliseconds(100));
      }
 
-     return LoadConfiguredModules(Config, Logger, ErrorMessage);
+     return LoadConfiguredModules(Config, ErrorMessage);
 }
 
 bool ModuleManager::LoadModule(const ServerConfig &Config,
                                const std::string &ModuleName,
-                               LogManager *Logger,
                                std::string &ErrorMessage,
                                const std::string &ExplicitPath)
 {
@@ -221,10 +219,10 @@ bool ModuleManager::LoadModule(const ServerConfig &Config,
           return false;
      }
 
-     if (Logger)
+     if (Instance && Instance->Logs)
      {
           const std::string ModuleType = IsCoreModule ? "core module" : "module";
-          Logger->Normal("modules", "Loading " + ModuleType + " '" + ModuleName + "' from " + ModulePath + ".");
+          Instance->Logs->Normal("modules", "Loading " + ModuleType + " '" + ModuleName + "' from " + ModulePath + ".");
      }
 
      void *Handle = dlopen(ModulePath.c_str(), RTLD_NOW | RTLD_LOCAL);
@@ -291,6 +289,7 @@ bool ModuleManager::LoadModule(const ServerConfig &Config,
           }
           catch (...)
           {
+
           }
 
           Module.reset();
@@ -321,6 +320,7 @@ bool ModuleManager::LoadModule(const ServerConfig &Config,
                }
                catch (...)
                {
+
                }
 
                Loaded.Instance.reset();
@@ -334,9 +334,9 @@ bool ModuleManager::LoadModule(const ServerConfig &Config,
      RebuildHookRegistriesLocked();
      Lock.unlock();
 
-     if (Logger)
+     if (Instance && Instance->Logs)
      {
-          Logger->Normal("modules", "Loaded module '" + ModuleName + "' from " + ModulePath + ".");
+          Instance->Logs->Normal("modules", "Loaded module '" + ModuleName + "' from " + ModulePath + ".");
      }
 
      return true;
@@ -346,7 +346,6 @@ bool ModuleManager::LoadModule(const ServerConfig &Config,
 
 void ModuleManager::ReapRetiredModules()
 {
-     LogManager *Logger = (Instance ? Instance->Logs.get() : nullptr);
      auto It = RetiredModules.begin();
 
      while (It != RetiredModules.end())
@@ -362,9 +361,9 @@ void ModuleManager::ReapRetiredModules()
                It->Instance.reset();
           }
 
-          if (Logger)
+          if (Instance && Instance->Logs)
           {
-               Logger->Normal("modules", "Finalized retired module '" + It->Name + "'.");
+               Instance->Logs->Normal("modules", "Finalized retired module '" + It->Name + "'.");
           }
 
           if (It->Handle)
@@ -589,7 +588,7 @@ std::string ModuleManager::ResolveModulePath(const ServerConfig &Config, const S
 
 /* Loads the configured module set atomically so partial reloads do not leak into the active registry. */
 
-bool ModuleManager::LoadConfiguredModules(const ServerConfig &Config, LogManager *Logger, std::string &ErrorMessage)
+bool ModuleManager::LoadConfiguredModules(const ServerConfig &Config, std::string &ErrorMessage)
 {
      std::vector<LoadedModule> StagedModules;
      bool PreviousDemoModeActive = false;
@@ -622,6 +621,7 @@ bool ModuleManager::LoadConfiguredModules(const ServerConfig &Config, LogManager
                     }
                     catch (...)
                     {
+             
                     }
 
                     It->Instance.reset();
@@ -688,10 +688,10 @@ bool ModuleManager::LoadConfiguredModules(const ServerConfig &Config, LogManager
 
           void *Handle = dlopen(ModulePath.c_str(), RTLD_NOW | RTLD_LOCAL);
 
-          if (Logger)
+          if (Instance && Instance->Logs)
           {
                const std::string module_type = (IsCoreModule ? "core module" : "module");
-               Logger->Normal("modules", "Loading " + module_type + " '" + ModuleName + "' from " + ModulePath + ".");
+               Instance->Logs->Normal("modules", "Loading " + module_type + " '" + ModuleName + "' from " + ModulePath + ".");
           }
 
           if (!Handle)
@@ -754,10 +754,10 @@ bool ModuleManager::LoadConfiguredModules(const ServerConfig &Config, LogManager
 
          if (!Started)
          {
-               if (Logger)
+               if (Instance && Instance->Logs)
                {
                     const std::string StartMessage = StartError.empty() ? "unknown failure" : StartError;
-                    Logger->Normal("modules", "Module '" + ModuleName + "' Start() failed: " + StartMessage);
+                    Instance->Logs->Normal("modules", "Module '" + ModuleName + "' Start() failed: " + StartMessage);
                }
                try
                {
@@ -776,9 +776,9 @@ bool ModuleManager::LoadConfiguredModules(const ServerConfig &Config, LogManager
                return false;
          }
 
-         if (Logger)
+         if (Instance && Instance->Logs)
          {
-              Logger->Normal("modules", "Loaded module '" + ModuleName + "' from " + ModulePath + ".");
+              Instance->Logs->Normal("modules", "Loaded module '" + ModuleName + "' from " + ModulePath + ".");
          }
 
          LoadedModule Loaded;
@@ -900,7 +900,7 @@ void ModuleManager::OnUnloadModules()
 
 /* Removes the active module set and rebuilds empty hook registries before teardown. */
 
-void ModuleManager::UnloadAll(LogManager *Logger)
+void ModuleManager::UnloadAll()
 {
      std::vector<LoadedModule> ModulesToUnload;
 
@@ -915,7 +915,7 @@ void ModuleManager::UnloadAll(LogManager *Logger)
      UnloadModuleList(std::move(ModulesToUnload));
 }
 
-bool ModuleManager::UnloadModule(const std::string &ModuleName, LogManager *Logger, std::string &ErrorMessage)
+bool ModuleManager::UnloadModule(const std::string &ModuleName, std::string &ErrorMessage)
 {
      if (ModuleName.empty())
      {
@@ -928,11 +928,10 @@ bool ModuleManager::UnloadModule(const std::string &ModuleName, LogManager *Logg
      {
           std::unique_lock<std::shared_mutex> Lock(ModulesMutex);
 
-          auto It = std::find_if(Modules.begin(), Modules.end(),
-                                 [&](const LoadedModule &Loaded)
-                                 {
-                                      return Loaded.Name == ModuleName;
-                                 });
+          auto It = std::find_if(Modules.begin(), Modules.end(), [&](const LoadedModule &Loaded)
+          {
+                return Loaded.Name == ModuleName;
+          });
 
           if (It == Modules.end())
           {
@@ -954,7 +953,6 @@ bool ModuleManager::UnloadModule(const std::string &ModuleName, LogManager *Logg
 
 void ModuleManager::UnloadModuleList(std::vector<LoadedModule> ModulesToUnload)
 {
-     LogManager *Logger = (Instance ? Instance->Logs.get() : nullptr);
      for (auto It = ModulesToUnload.rbegin(); It != ModulesToUnload.rend(); ++It)
      {
           ModuleReference ModuleRef{It->Instance, It->ExecutionState};
@@ -986,14 +984,15 @@ void ModuleManager::UnloadModuleList(std::vector<LoadedModule> ModulesToUnload)
                }
                catch (...)
                {
+      
                }
 
                if (It->Instance.use_count() > 1)
                {
-                    if (Logger)
+                    if (Instance && Instance->Logs)
                     {
-                         Logger->Normal("modules",
-                                        "Module '" + It->Name + "' still has external references during unload; deferring final destruction and dlclose() until those references are released.");
+                         Instance->Logs->Normal("modules",
+                                                "Module '" + It->Name + "' still has external references during unload; deferring final destruction and dlclose() until those references are released.");
                     }
 
                     std::unique_lock<std::shared_mutex> Lock(ModulesMutex);
@@ -1004,9 +1003,9 @@ void ModuleManager::UnloadModuleList(std::vector<LoadedModule> ModulesToUnload)
                It->Instance.reset();
           }
 
-          if (Logger)
+          if (Instance && Instance->Logs)
           {
-               Logger->Normal("modules", "Unloaded module '" + It->Name + "'.");
+               Instance->Logs->Normal("modules", "Unloaded module '" + It->Name + "'.");
           }
 
           if (It->Handle)

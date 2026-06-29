@@ -54,9 +54,9 @@ void InsertDocumentsThread(const std::string &base_url, const std::string &auth_
 
 void InsertAdditionalDocumentsThread(const std::string &base_url, const std::string &auth_token, int num_collections, int start_doc_idx, int additional_docs, int thread_id, int thread_count, int batch_size, bool collect_metrics, int total_documents, const std::string &run_id, bool reuse_collections);
 
-void GetFinalCounts(BenchmarkClient &client, AdvancedMetrics &metrics, bool verbose);
+void GetFinalCounts(BenchmarkClient &client, AdvancedMetrics &metrics, bool verbose, int num_collections = -1);
 
-void CheckConsistency(BenchmarkClient &client, bool verbose);
+void CheckConsistency(BenchmarkClient &client, bool verbose, int num_collections = -1);
 
 std::vector<int64_t> CalculatePercentiles(const std::vector<int64_t> &timings);
 
@@ -106,6 +106,14 @@ struct UniversityBenchmarkSeed
      const char *Type;
 };
 
+struct PersonBenchmarkSeed
+{
+     std::string FirstName;
+     std::string MiddleName;
+     std::string LastName;
+     std::string Biography;
+};
+
 struct FakeSynonymSeed
 {
      std::string Root;
@@ -141,6 +149,42 @@ static std::string RemoveCommas(const std::string &input)
      }
 
      return result;
+}
+
+static std::string HumanizeIdentifier(const std::string &input)
+{
+     std::string result = input;
+
+     std::replace(result.begin(), result.end(), '_', ' ');
+
+     return result;
+}
+
+static void AddUniqueText(std::vector<std::string> &values, std::unordered_set<std::string> &seen, const std::string &value)
+{
+     const std::string trimmed = TrimWhitespace(value);
+     if (trimmed.empty() || seen.find(trimmed) != seen.end())
+     {
+          return;
+     }
+
+     seen.insert(trimmed);
+     values.push_back(trimmed);
+}
+
+static std::string JoinTextValues(const std::vector<std::string> &values, const std::string &separator)
+{
+     std::string joined;
+     for (const std::string &value : values)
+     {
+          if (!joined.empty())
+          {
+               joined += separator;
+          }
+          joined += value;
+     }
+
+     return joined;
 }
 
 static const std::vector<UniversityBenchmarkSeed> &GetUniversityBenchmarkSeeds()
@@ -243,11 +287,122 @@ static const std::vector<UniversityBenchmarkSeed> &GetUniversityBenchmarkSeeds()
           {"Auburn University", "Alabama", "Auburn", "public_research"},
           {"Clemson University", "South Carolina", "Clemson", "public_research"},
           {"Colorado State University", "Colorado", "Fort Collins", "public_research"},
-          {"Washington State University", "Washington", "Pullman", "public_research"},
+          {"Washington State University", "Washington", "Palouse", "public_research"},
           {"University of Nevada Reno", "Nevada", "Reno", "public_research"},
           {"Brigham Young University", "Utah", "Provo", "private_research"}};
 
      return seeds;
+}
+
+static std::vector<std::string> BuildUniversityLocationAliases(const UniversityBenchmarkSeed &seed)
+{
+     std::vector<std::string> aliases;
+     std::unordered_set<std::string> seen;
+     const std::string name = seed.Name;
+     const std::string state = seed.State;
+     const std::string city = seed.City;
+
+     AddUniqueText(aliases, seen, city);
+     AddUniqueText(aliases, seen, state);
+     AddUniqueText(aliases, seen, city + " campus");
+     AddUniqueText(aliases, seen, state + " university");
+
+     if (state == "Massachusetts")
+     {
+          AddUniqueText(aliases, seen, "New England");
+          AddUniqueText(aliases, seen, "Massachusetts college");
+     }
+
+     if (city == "Cambridge")
+     {
+          AddUniqueText(aliases, seen, "Boston");
+          AddUniqueText(aliases, seen, "Greater Boston");
+          AddUniqueText(aliases, seen, "Boston area");
+          AddUniqueText(aliases, seen, "Massachusetts Bay");
+     }
+
+     if (city == "Boston" || city == "Medford")
+     {
+          AddUniqueText(aliases, seen, "Cambridge");
+          AddUniqueText(aliases, seen, "Greater Boston");
+          AddUniqueText(aliases, seen, "Boston area");
+     }
+
+     if (name.find("Harvard") != std::string::npos)
+     {
+          AddUniqueText(aliases, seen, "Harvard Square");
+          AddUniqueText(aliases, seen, "Cambridge Massachusetts");
+     }
+
+     if (name.find("Massachusetts Institute of Technology") != std::string::npos)
+     {
+          AddUniqueText(aliases, seen, "MIT");
+          AddUniqueText(aliases, seen, "Kendall Square");
+          AddUniqueText(aliases, seen, "Cambridge Massachusetts");
+     }
+
+     if (city == "Stanford" || city == "Berkeley" || city == "San Francisco")
+     {
+          AddUniqueText(aliases, seen, "Bay Area");
+          AddUniqueText(aliases, seen, "San Francisco Bay Area");
+     }
+
+     if (city == "Stanford")
+     {
+          AddUniqueText(aliases, seen, "Silicon Valley");
+          AddUniqueText(aliases, seen, "Palo Alto");
+     }
+
+     if (city == "Berkeley")
+     {
+          AddUniqueText(aliases, seen, "East Bay");
+          AddUniqueText(aliases, seen, "Oakland");
+     }
+
+     if (city == "La Jolla")
+     {
+          AddUniqueText(aliases, seen, "San Diego");
+          AddUniqueText(aliases, seen, "San Diego area");
+     }
+
+     if (city == "New York")
+     {
+          AddUniqueText(aliases, seen, "NYC");
+          AddUniqueText(aliases, seen, "Manhattan");
+     }
+
+     if (city == "Washington")
+     {
+          AddUniqueText(aliases, seen, "Washington DC");
+          AddUniqueText(aliases, seen, "DC");
+     }
+
+     if (city == "Minneapolis")
+     {
+          AddUniqueText(aliases, seen, "Twin Cities");
+          AddUniqueText(aliases, seen, "St Paul");
+     }
+
+     if (city == "University Park")
+     {
+          AddUniqueText(aliases, seen, "State College");
+          AddUniqueText(aliases, seen, "central Pennsylvania");
+     }
+
+     if (city == "Urbana Champaign")
+     {
+          AddUniqueText(aliases, seen, "Champaign Urbana");
+          AddUniqueText(aliases, seen, "Urbana");
+          AddUniqueText(aliases, seen, "Champaign");
+     }
+
+     if (city == "Amherst")
+     {
+          AddUniqueText(aliases, seen, "Pioneer Valley");
+          AddUniqueText(aliases, seen, "western Massachusetts");
+     }
+
+     return aliases;
 }
 
 static std::string BuildUniversityBenchmarkContent(const UniversityBenchmarkSeed &seed, size_t index)
@@ -264,10 +419,48 @@ static std::string BuildUniversityBenchmarkContent(const UniversityBenchmarkSeed
      const std::string &term_a = campus_terms[index % campus_terms.size()];
      const std::string &term_b = campus_terms[(index + 5U) % campus_terms.size()];
 
-     return std::string(seed.Name) + " is a " + seed.Type + " institution in " + seed.City + ", " + seed.State +
-            " represented in this benchmark university ranking corpus. The profile covers " + program_a + ", " +
+     return std::string(seed.Name) + " is a " + HumanizeIdentifier(seed.Type) + " institution in " + seed.City + ", " + seed.State +
+            ". The profile highlights " + program_a + ", " +
             program_b + ", " + term_a + ", " + term_b +
-            ", enrollment context, research visibility, and campus discovery signals for relevance tests.";
+            ", student body context, research visibility, and the surrounding campus community.";
+}
+
+static PersonBenchmarkSeed BuildPersonBenchmarkSeed(size_t index)
+{
+     static const std::vector<std::string> first_names = {
+          "Adrian", "Bianca", "Caleb", "Diana", "Elias", "Farah", "Gabriel", "Helena", "Isaac", "Julia"};
+     static const std::vector<std::string> middle_names = {
+          "Alexis", "Brooke", "Cameron", "Drew", "Emery", "Francis", "Gray", "Harper", "Indigo", "Jordan"};
+     static const std::vector<std::string> last_names = {
+          "Anderson", "Bennett", "Castillo", "Donovan", "Ellis", "Foster", "Garcia", "Hughes", "Ibrahim", "Jensen"};
+     static const std::vector<std::string> occupations = {
+          "community librarian", "software engineer", "urban planner", "science teacher", "museum curator",
+          "small business owner", "public health analyst", "civil engineer", "documentary editor", "food writer"};
+     static const std::vector<std::string> locations = {
+          "Portland", "Austin", "Chicago", "Atlanta", "Seattle",
+          "Denver", "Boston", "Phoenix", "Minneapolis", "San Diego"};
+     static const std::vector<std::string> interests = {
+          "local history and neighborhood archives", "accessible technology and mentoring",
+          "public transit and walkable streets", "hands-on science education and astronomy",
+          "independent art spaces and oral histories", "regional markets and practical entrepreneurship",
+          "community wellness and data literacy", "sustainable buildings and resilient infrastructure",
+          "visual storytelling and public media", "seasonal cooking and family recipes"};
+
+     const std::string &first_name = first_names[index % first_names.size()];
+     const std::string &middle_name = middle_names[(index / first_names.size()) % middle_names.size()];
+     const std::string &last_name = last_names[(index * 3U + index / first_names.size()) % last_names.size()];
+     const std::string &occupation = occupations[(index * 7U) % occupations.size()];
+     const std::string &location = locations[(index * 3U + 2U) % locations.size()];
+     const std::string &interest = interests[(index * 9U + 1U) % interests.size()];
+     const std::string full_name = first_name + " " + middle_name + " " + last_name;
+
+     return {
+          first_name,
+          middle_name,
+          last_name,
+          full_name + " is a fictional " + occupation + " based in " + location +
+               ". This synthetic benchmark profile describes work involving " + interest +
+               ". The biography is intentionally fictional and exists only for search testing."};
 }
 
 static std::string Slugify(const std::string &input)
@@ -567,6 +760,12 @@ static const std::unordered_map<std::string, std::vector<FakeSynonymSeed>> kFake
            {"director", {"filmmaker", "producer", "editor", "screenwriter"}},
            {"scene", {"sequence", "shot", "frame", "cut"}},
       }},
+     {"people",
+      {
+           {"person", {"individual", "profile", "contact", "name"}},
+           {"biography", {"bio", "profile", "background", "summary"}},
+           {"occupation", {"profession", "career", "role", "work"}},
+      }},
      {"music",
       {
            {"music", {"song", "melody", "track", "tune"}},
@@ -608,6 +807,8 @@ static const std::unordered_map<std::string, std::vector<FakeSynonymSeed>> kFake
            {"university", {"campus", "college", "institution", "school"}},
            {"research", {"faculty", "program", "department", "lab"}},
            {"student", {"admission", "alumni", "degree", "cohort"}},
+           {"city", {"location", "metro", "region", "area"}},
+           {"cambridge", {"boston", "greater boston", "massachusetts", "kendall square"}},
       }},
 };
 
@@ -619,6 +820,7 @@ static const std::unordered_map<std::string, std::vector<std::string>> kFakeColl
      {"math", {"math", "proof", "equation", "theorem"}},
      {"stocks", {"stock", "session", "portfolio", "watchlist"}},
      {"movies", {"film", "scene", "director", "cinema"}},
+     {"people", {"person", "profile", "biography", "name"}},
      {"music", {"music", "song", "album", "artist"}},
      {"science", {"study", "lab", "data", "theory"}},
      {"sports", {"team", "match", "season", "league"}},
@@ -757,7 +959,7 @@ bool CreateFakeCollections(const std::string &base_url, const std::string &auth_
                 {"University of Washington Seattle",
                  "Washington public research university noted for medicine, computer science, public health, and close ties to regional technology and life-science employers."},
                 {"University of Florida",
-                 "Florida public flagship in Gainesville with nationally visible programs in engineering, business, agriculture, health, and a large in-state enrollment base."},
+                 "Florida public flagship in Gainesville with nationally visible programs in engineering, business, agriculture, health, and a large in-state student base."},
                 {"University of Illinois Urbana Champaign",
                  "Illinois public research university with standout engineering, computing, physics, and data-intensive research culture tied to both academia and industry."},
                 {"Georgia Institute of Technology",
@@ -795,6 +997,7 @@ bool CreateFakeCollections(const std::string &base_url, const std::string &auth_
      std::vector<FakeCollectionSpec> specs = {
           {"music", {"album", "artist", "live", "studio", "playlist", "symphony", "jazz", "rock", "pop", "indie"}},
           {"movies", {"film", "cinema", "director", "cast", "thriller", "drama", "comedy", "action", "classic", "sequel"}},
+          {"people", {"person", "profile", "biography", "name", "occupation", "career", "contact", "fictional", "community", "background"}},
           {"art", {"painting", "sculpture", "gallery", "modern", "abstract", "portrait", "canvas", "exhibit", "mural", "installation"}},
           {"books", {"novel", "fiction", "nonfiction", "author", "series", "paperback", "hardcover", "fantasy", "mystery", "classic"}},
           {"travel", {"destination", "itinerary", "guide", "adventure", "beach", "mountain", "city", "budget", "luxury", "culture"}},
@@ -819,6 +1022,11 @@ bool CreateFakeCollections(const std::string &base_url, const std::string &auth_
 
      for (const auto &spec : specs)
      {
+          if (g_benchmark_should_stop.load())
+          {
+               return false;
+          }
+
           const std::string collection_name = spec.Name;
 
           if (verbose)
@@ -848,6 +1056,9 @@ bool CreateFakeCollections(const std::string &base_url, const std::string &auth_
                university_fields.push_back({{"name", "labels"}, {"type", "string"}});
                university_fields.push_back({{"name", "state"}, {"type", "string"}});
                university_fields.push_back({{"name", "city"}, {"type", "string"}});
+               university_fields.push_back({{"name", "city_aliases"}, {"type", "string"}});
+               university_fields.push_back({{"name", "location_labels"}, {"type", "string"}});
+               university_fields.push_back({{"name", "search_aliases"}, {"type", "string"}});
                university_fields.push_back({{"name", "institution_type"}, {"type", "string"}});
                university_fields.push_back({{"name", "rank"}, {"type", "int32"}});
                university_fields.push_back({{"name", "rank_signal"}, {"type", "float"}});
@@ -861,19 +1072,35 @@ bool CreateFakeCollections(const std::string &base_url, const std::string &auth_
                university_fields.push_back({{"name", "webometrics_excellence_rank"}, {"type", "int32"}});
 
                nlohmann::json university_metadata = {
-                    {"_rank_field", "rank"},
+                    {"_default_sorting_field", "webometrics_world_rank"},
+                    {"_default_sorting_order", "asc"},
+                    {"_rank_field", "webometrics_world_rank"},
                     {"_rank_order", "asc"},
-                    {"_rank_source", "benchmark_university_rank"},
+                    {"_rank_source", "webometrics_world_rank"},
                     {"_rank_scope", "benchmark"},
                     {"_rank_edition", "January 2026"},
                     {"_rank_algorithm", "linear_algebra"},
                     {"_rank_alpha", "0.85"},
                     {"_rank_beta", "4.0"},
                     {"_rank_weight", "0.75"},
-                    {"_rank_tiebreak", "rank_signal_desc_rank_asc"},
-                    {"_rank_methodology", "deterministic_benchmark_rank_1_to_100"}};
+                    {"_rank_tiebreak", "rank_signal_desc_webometrics_world_rank_asc"},
+                    {"_rank_methodology", "deterministic_benchmark_webometrics_world_rank_1_to_100"}};
 
-               collection_created = client.CreateCollectionWithSchemaLocal(collection_name, university_fields, "rank", university_metadata);
+               collection_created = client.CreateCollectionWithSchemaLocal(collection_name, university_fields, "webometrics_world_rank", university_metadata);
+          }
+          else if (spec.Name == "people")
+          {
+               nlohmann::json people_fields = nlohmann::json::array();
+               people_fields.push_back({{"name", "title"}, {"type", "string"}});
+               people_fields.push_back({{"name", "content"}, {"type", "string"}});
+               people_fields.push_back({{"name", "description"}, {"type", "string"}});
+               people_fields.push_back({{"name", "labels"}, {"type", "string"}});
+               people_fields.push_back({{"name", "first_name"}, {"type", "string"}});
+               people_fields.push_back({{"name", "middle_name"}, {"type", "string"}});
+               people_fields.push_back({{"name", "last_name"}, {"type", "string"}});
+               people_fields.push_back({{"name", "full_name"}, {"type", "string"}});
+               people_fields.push_back({{"name", "biography"}, {"type", "string"}});
+               collection_created = client.CreateCollectionWithSchemaLocal(collection_name, people_fields, "");
           }
           else if (spec.Name == "math")
           {
@@ -920,7 +1147,7 @@ bool CreateFakeCollections(const std::string &base_url, const std::string &auth_
                LogOutput("  ↳ Collection '" + collection_name + "' is ready; importing fake documents...\n");
           }
 
-          const size_t docs_to_create = spec.Name == "universities" ? GetUniversityBenchmarkSeeds().size() : 10U;
+          const size_t docs_to_create = spec.Name == "universities" ? GetUniversityBenchmarkSeeds().size() : (spec.Name == "people" ? 100U : 10U);
           std::vector<std::tuple<std::string, std::string, std::string>> docs;
           docs.reserve(docs_to_create);
           std::vector<nlohmann::json> enriched_docs;
@@ -1208,6 +1435,12 @@ bool CreateFakeCollections(const std::string &base_url, const std::string &auth_
                     title = university_seed.Name;
                     content = BuildUniversityBenchmarkContent(university_seed, i);
                }
+               else if (spec.Name == "people")
+               {
+                    PersonBenchmarkSeed person = BuildPersonBenchmarkSeed(i);
+                    title = person.FirstName + " " + person.MiddleName + " " + person.LastName;
+                    content = person.Biography;
+               }
                else if (SeedIt != RealSeeds.end() && i < SeedIt->second.size())
                {
                     title = SeedIt->second[i].Title;
@@ -1219,7 +1452,10 @@ bool CreateFakeCollections(const std::string &base_url, const std::string &auth_
                     content = BuildRealisticContent(spec.Name, tag, static_cast<int>(i));
                }
 
-               content += BuildCollectionSynonymDocHint(spec.Name, static_cast<int>(i));
+               if (spec.Name != "universities")
+               {
+                    content += BuildCollectionSynonymDocHint(spec.Name, static_cast<int>(i));
+               }
 
                std::string doc_id = MakeMeaningfulDocId(collection_name, title, content, static_cast<int>(i), used_ids);
                std::string safe_title = RemoveCommas(title);
@@ -1247,10 +1483,20 @@ bool CreateFakeCollections(const std::string &base_url, const std::string &auth_
           size_t inserted = 0;
           for (const auto &doc : enriched_docs)
           {
+               if (g_benchmark_should_stop.load())
+               {
+                    return false;
+               }
+
                if (client.UpsertDocumentWithFieldsLocal(collection_name, doc))
                {
                     inserted++;
                }
+          }
+
+          if (g_benchmark_should_stop.load())
+          {
+               return false;
           }
 
           size_t enriched_updated = inserted;
@@ -1310,17 +1556,23 @@ bool CreateFakeCollections(const std::string &base_url, const std::string &auth_
                     const auto &doc_tuple = docs[i];
                     const auto &profile = university_profiles[i];
                     const int rank = static_cast<int>(i + 1U);
+                    const std::vector<std::string> location_aliases = BuildUniversityLocationAliases(profile);
+                    const std::string location_alias_text = JoinTextValues(location_aliases, " | ");
 
                     nlohmann::json university_doc = enriched_docs[i];
                     university_doc["id"] = std::get<0>(doc_tuple);
                     university_doc["title"] = std::get<1>(doc_tuple);
                     university_doc["content"] = std::get<2>(doc_tuple);
+                    university_doc["description"] = university_doc.value<std::string>("description", "");
                     university_doc["state"] = profile.State;
                     university_doc["city"] = profile.City;
+                    university_doc["city_aliases"] = location_alias_text;
+                    university_doc["location_labels"] = location_alias_text;
+                    university_doc["search_aliases"] = std::string(profile.Name) + " | " + profile.City + " | " + profile.State + " | " + location_alias_text;
                     university_doc["institution_type"] = profile.Type;
                     university_doc["rank"] = rank;
                     university_doc["rank_signal"] = static_cast<double>(university_profiles.size() - i) / static_cast<double>(university_profiles.size());
-                    university_doc["rank_source"] = "benchmark_university_rank";
+                    university_doc["rank_source"] = "webometrics_world_rank";
                     university_doc["rank_scope"] = "benchmark";
                     university_doc["rank_edition"] = "January 2026";
                     university_doc["webometrics_country_rank"] = rank;
@@ -1328,6 +1580,27 @@ bool CreateFakeCollections(const std::string &base_url, const std::string &auth_
                     university_doc["webometrics_impact_rank"] = 1 + static_cast<int>((i * 37U) % 100U);
                     university_doc["webometrics_openness_rank"] = 1 + static_cast<int>((i * 53U) % 100U);
                     university_doc["webometrics_excellence_rank"] = 1 + static_cast<int>((i * 71U) % 100U);
+
+                    nlohmann::json label_list = nlohmann::json::array();
+                    std::unordered_set<std::string> seen_labels;
+                    for (const auto &label : BuildBenchmarkLabels(spec.Name, profile.State, std::get<1>(doc_tuple), std::get<2>(doc_tuple)))
+                    {
+                         const std::string normalized = Slugify(label);
+                         if (!normalized.empty() && seen_labels.insert(normalized).second)
+                         {
+                              label_list.push_back(normalized);
+                         }
+                    }
+
+                    for (const auto &alias : location_aliases)
+                    {
+                         const std::string normalized = Slugify(alias);
+                         if (!normalized.empty() && seen_labels.insert(normalized).second)
+                         {
+                              label_list.push_back(normalized);
+                         }
+                    }
+                    university_doc["labels"] = label_list.dump();
 
                     if (client.UpsertDocumentWithFieldsLocal(collection_name, university_doc))
                     {
@@ -1338,6 +1611,35 @@ bool CreateFakeCollections(const std::string &base_url, const std::string &auth_
                if (verbose)
                {
                     LogOutput("  ↳ Added campus and benchmark ranking metadata to " + std::to_string(universities_updated) + " university documents.\n");
+               }
+          }
+          else if (spec.Name == "people")
+          {
+               size_t people_updated = 0;
+
+               for (size_t i = 0; i < docs.size(); ++i)
+               {
+                    const PersonBenchmarkSeed person = BuildPersonBenchmarkSeed(i);
+                    const std::string full_name = person.FirstName + " " + person.MiddleName + " " + person.LastName;
+                    nlohmann::json person_doc = enriched_docs[i];
+                    person_doc["id"] = std::get<0>(docs[i]);
+                    person_doc["title"] = full_name;
+                    person_doc["content"] = RemoveCommas(person.Biography);
+                    person_doc["first_name"] = person.FirstName;
+                    person_doc["middle_name"] = person.MiddleName;
+                    person_doc["last_name"] = person.LastName;
+                    person_doc["full_name"] = full_name;
+                    person_doc["biography"] = RemoveCommas(person.Biography);
+
+                    if (client.UpsertDocumentWithFieldsLocal(collection_name, person_doc))
+                    {
+                         people_updated++;
+                    }
+               }
+
+               if (verbose)
+               {
+                    LogOutput("  ↳ Added first, middle, and last names with biographies to " + std::to_string(people_updated) + " people documents.\n");
                }
           }
           else if (spec.Name == "math")
@@ -1431,10 +1733,21 @@ bool CreateFakeCollections(const std::string &base_url, const std::string &auth_
           const std::vector<FakeSynonymSeed> &collection_synonyms = GetFakeCollectionSynonyms(spec.Name);
           for (size_t local_index = 0; local_index < collection_synonyms.size(); ++local_index)
           {
+               if (g_benchmark_should_stop.load())
+               {
+                    return false;
+               }
+
                const FakeSynonymSeed &seed = collection_synonyms[local_index];
                const std::string synonym_id = "fake_syn_" + spec.Name + "_" + std::to_string(local_index + 1);
+               const bool synonym_added = client.AddSynonym(collection_name, synonym_id, seed.Root, seed.Synonyms);
 
-               if (client.AddSynonym(collection_name, synonym_id, seed.Root, seed.Synonyms))
+               if (g_benchmark_should_stop.load())
+               {
+                    return false;
+               }
+
+               if (synonym_added)
                {
                     collection_synonyms_added++;
                }
@@ -1448,7 +1761,19 @@ bool CreateFakeCollections(const std::string &base_url, const std::string &auth_
           const std::vector<std::string> collection_stopwords = GetFakeCollectionStopwords(spec.Name);
           for (const auto &word : collection_stopwords)
           {
-               if (client.AddStopword(collection_name, word))
+               if (g_benchmark_should_stop.load())
+               {
+                    return false;
+               }
+
+               const bool stopword_added = client.AddStopword(collection_name, word);
+
+               if (g_benchmark_should_stop.load())
+               {
+                    return false;
+               }
+
+               if (stopword_added)
                {
                     collection_stopwords_added++;
                }
@@ -1470,10 +1795,21 @@ bool CreateFakeCollections(const std::string &base_url, const std::string &auth_
      const size_t alias_limit = std::min<size_t>(3, inserted_fake_collections.size());
      for (size_t i = 0; i < alias_limit; ++i)
      {
+          if (g_benchmark_should_stop.load())
+          {
+               return false;
+          }
+
           const std::string &target_collection = inserted_fake_collections[i];
           const std::string alias_name = "fake_alias_" + std::to_string(i + 1);
+          const bool alias_created = client.CreateAlias(alias_name, target_collection);
 
-          if (client.CreateAlias(alias_name, target_collection))
+          if (g_benchmark_should_stop.load())
+          {
+               return false;
+          }
+
+          if (alias_created)
           {
                aliases_added++;
           }
@@ -1567,15 +1903,17 @@ bool LoadDurabilityConfig(const std::string &path, DurabilityConfig &config)
      return true;
 }
 
-int CountBenchmarkDocuments(const AdvancedMetrics &metrics)
+int64_t CountBenchmarkDocuments(const AdvancedMetrics &metrics, int num_collections)
 {
-     int total = 0;
+     int64_t total = 0;
 
-     for (const auto &entry : metrics.FinalPerCollectionCounts)
+     for (int i = 0; i < num_collections; i++)
      {
-          if (entry.first.rfind(g_collection_prefix, 0) == 0)
+          const auto it = metrics.FinalPerCollectionCounts.find(MakeBenchmarkCollectionName(i));
+
+          if (it != metrics.FinalPerCollectionCounts.end())
           {
-               total += entry.second;
+               total += it->second;
           }
      }
 
@@ -1646,12 +1984,12 @@ static void PrintBenchmarkHelp(const char *program_name)
                << "                    and functionalities (includes --advanced)\n"
                << "  --Search           Run search benchmark on previously inserted data\n"
                << "  --dump             Dump all collections and their documents\n"
-               << "  --fake             Insert realistic sample data (food, stocks, music, science, etc.) for testing\n"
+               << "  --fake             Insert realistic sample data (people, food, stocks, music, science, etc.) for testing\n"
                << "  --flood            Flood server with continuous random data generation for stress testing\n"
                << "                    (runs until stopped with Ctrl+C, randomly creates collections and documents)\n"
                << "  --id ID            Run UUID/ID for correlation (default: auto-generated)\n"
                << "  --seed SEED        Seed for deterministic runs\n"
-               << "  --no-fake-collections  Disable fake helper collections (food, stocks, music, sports, etc.)\n"
+               << "  --no-fake-collections  Disable fake helper collections (people, food, stocks, music, sports, etc.)\n"
                << "  --verify-after-restart   Verify counts after server restart\n"
                << "  --check-consistency      Check consistency of /status, /stats, /metrics, /doctotal\n"
                << "  --dry-run          Generate collections/docs in memory but don't send to server\n"
@@ -1659,8 +1997,6 @@ static void PrintBenchmarkHelp(const char *program_name)
                << "  --prefix PREFIX    Custom prefix for benchmark collections (default: bench_{runid}_)\n"
                << "  --durability-config PATH  Load durability settings from config (e.g., run/conf/database.conf)\n"
                << "  --reuse-collections Reuse existing collections instead of deleting/recreating them\n"
-               << "  --pause-sam         Pause SAM auto-index during benchmark (default)\n"
-               << "  --no-pause-sam      Do not pause SAM auto-index during benchmark\n"
                << "  --skip-auth-check  Skip authentication requirement check (useful when auth is disabled)\n"
                << "  --unorganized      Create an 'unorganized' collection with non-standard schema for testing\n"
                << "  --log-file FILE    Structured log file (JSON lines format)\n"
@@ -1728,8 +2064,6 @@ int main(int argc, char *argv[])
 
           bool cleanup_benchmark_val = false;
           bool reuse_collections = false;
-          bool pause_sam = true;
-
           std::string log_file_val = "";
 
           bool skip_auth_check = false;
@@ -1876,16 +2210,7 @@ int main(int argc, char *argv[])
                else if (arg == "--reuse-collections")
                {
                     reuse_collections = true;
-               }
-               else if (arg == "--pause-sam")
-               {
-                    pause_sam = true;
-               }
-               else if (arg == "--no-pause-sam")
-               {
-                    pause_sam = false;
-               }
-               else if (arg == "--log-file")
+               }               else if (arg == "--log-file")
                {
                     log_file_val = RequireNextValue(i, arg);
                }
@@ -2399,55 +2724,6 @@ int main(int argc, char *argv[])
           auto start_time_val = Now();
 
           BenchmarkClient control_client(base_url, auth_token);
-
-          uint64_t sam_pause_until_ms = 0;
-
-          if (pause_sam)
-          {
-               const uint64_t now_ms = static_cast<uint64_t>(NowMs());
-               sam_pause_until_ms = now_ms + (5ULL * 60ULL * 1000ULL);
-
-               const HTTPResponse pause_response = control_client.PauseSAM(sam_pause_until_ms);
-               bool sam_pause_applied = false;
-
-               if (pause_response.StatusCode == 200)
-               {
-                    try
-                    {
-                         const nlohmann::json root = nlohmann::json::parse(pause_response.Body);
-                         sam_pause_applied = root.value("paused", false);
-                         sam_pause_until_ms = root.value("pause_until_ms", sam_pause_until_ms);
-                    }
-                    catch (const std::exception&)
-                    {
-                         sam_pause_applied = false;
-                    }
-               }
-
-               if (sam_pause_applied)
-               {
-                    std::cout << "SAM auto-index pause: enabled until " << sam_pause_until_ms
-                              << " ms (expires automatically).\n";
-               }
-               else
-               {
-                    std::cout << "SAM auto-index pause: failed";
-                    if (pause_response.StatusCode != -1)
-                    {
-                         std::cout << " (HTTP " << pause_response.StatusCode << ")";
-                    }
-                    if (!pause_response.ErrorMessage.empty())
-                    {
-                         std::cout << " - " << pause_response.ErrorMessage;
-                    }
-                    std::cout << ".\n";
-               }
-          }
-          else
-          {
-               std::cout << "SAM auto-index pause: disabled by --no-pause-sam.\n";
-          }
-
           if (advanced_mode)
           {
                advanced_metrics.RunID = run_id_val;
@@ -2530,7 +2806,7 @@ int main(int argc, char *argv[])
 
                     for (const auto &col : existing_set_val)
                     {
-                         if (col.find(g_collection_prefix) == 0 || col.find("random_") == 0)
+                         if (IsBenchmarkCollectionNameForCurrentPrefix(col) || col.find("random_") == 0)
                          {
                               bench_collections_val.insert(col);
                          }
@@ -2975,7 +3251,7 @@ int main(int argc, char *argv[])
 
           if (enable_sanity_search && num_collections > 0)
           {
-               std::string sanity_collection = g_collection_prefix + "0";
+               std::string sanity_collection = MakeBenchmarkCollectionName(0);
                BenchmarkClient sanity_client(base_url, auth_token);
 
                if (verbose_mode)
@@ -3021,15 +3297,38 @@ int main(int argc, char *argv[])
                }
           }
 
+          BenchmarkClient count_client_val(base_url, auth_token);
+
+          GetFinalCounts(count_client_val, advanced_metrics, verbose_mode, num_collections);
+
+          if (advanced_metrics.FinalDocumentsCount > 0 && advanced_metrics.FinalDocumentsCount < documents_inserted.load())
+          {
+               std::cerr << "\nERROR: Server reports " << advanced_metrics.FinalDocumentsCount << " documents but benchmark inserted " << documents_inserted.load() << ".\n";
+               std::cerr << "  This may indicate data loss or counting issues!.\n";
+
+               return 1;
+          }
+
+          int64_t expected_docs_val = static_cast<int64_t>(num_documents) + static_cast<int64_t>(total_additional_docs_val);
+          int64_t benchmark_docs_val = CountBenchmarkDocuments(advanced_metrics, num_collections);
+
+          if (benchmark_docs_val != expected_docs_val)
+          {
+               std::cerr << "\nERROR: Benchmark collections report " << benchmark_docs_val << " documents, expected " << expected_docs_val << ".\n";
+               std::cerr << "  This indicates missing or extra documents in benchmark collections.\n";
+
+               return 1;
+          }
+
           std::cout << "\n";
           std::cout << "Benchmark Complete!.\n";
           std::cout << "\n";
           std::cout << "Collections created: " << collections_created.load() << ".\n";
           std::cout << "Collections skipped: " << collections_skipped.load() << ".\n";
           std::cout << "Target documents: " << num_documents << " base + " << total_additional_docs_val << " additional.\n";
-          int total_inserted = documents_inserted.load();
-          int additional_inserted = additional_documents_inserted.load();
-          int base_inserted = total_inserted - additional_inserted;
+          int64_t total_inserted = documents_inserted.load();
+          int64_t additional_inserted = additional_documents_inserted.load();
+          int64_t base_inserted = total_inserted - additional_inserted;
           std::cout << "Documents inserted: " << total_inserted << " (base: " << base_inserted << ", additional: " << additional_inserted << ").\n";
           std::cout << "Documents skipped: " << documents_skipped.load() << ".\n";
           std::cout << "Ingest time: " << ingest_duration_ms << " ms.\n";
@@ -3076,7 +3375,7 @@ int main(int argc, char *argv[])
 
                BenchmarkClient before_client(base_url, auth_token);
 
-               GetFinalCounts(before_client, before_metrics_val, verbose_mode);
+               GetFinalCounts(before_client, before_metrics_val, verbose_mode, num_collections);
 
                if (verbose_mode)
                {
@@ -3085,34 +3384,11 @@ int main(int argc, char *argv[])
                }
           }
 
-          BenchmarkClient count_client_val(base_url, auth_token);
-
-          GetFinalCounts(count_client_val, advanced_metrics, verbose_mode);
-
-          if (advanced_metrics.FinalDocumentsCount > 0 && static_cast<int>(advanced_metrics.FinalDocumentsCount) < documents_inserted.load())
-          {
-               std::cerr << "\nERROR: Server reports " << advanced_metrics.FinalDocumentsCount << " documents but benchmark inserted " << documents_inserted.load() << ".\n";
-               std::cerr << "  This may indicate data loss or counting issues!.\n";
-
-               return 1;
-          }
-
-          int expected_docs_val = num_documents + total_additional_docs_val;
-          int benchmark_docs_val = CountBenchmarkDocuments(advanced_metrics);
-
-          if (benchmark_docs_val != expected_docs_val)
-          {
-               std::cerr << "\nERROR: Benchmark collections report " << benchmark_docs_val << " documents, expected " << expected_docs_val << ".\n";
-               std::cerr << "  This indicates missing or extra documents in benchmark collections.\n";
-
-               return 1;
-          }
-
           if (enable_sanity_search && num_collections > 0)
           {
                if (!sanity_search_ran)
                {
-                    std::string sanity_collection = g_collection_prefix + "0";
+                    std::string sanity_collection = MakeBenchmarkCollectionName(0);
                     sanity_search_ok = RunSanitySearch(count_client_val, sanity_collection, "Lorem", verbose_mode);
                     sanity_search_ok2 = RunSanitySearch(count_client_val, sanity_collection, "Topic", verbose_mode);
                     sanity_search_ran = true;
@@ -3120,7 +3396,7 @@ int main(int argc, char *argv[])
 
                if (!sanity_search_ok || !sanity_search_ok2)
                {
-                    std::string sanity_collection = g_collection_prefix + "0";
+                    std::string sanity_collection = MakeBenchmarkCollectionName(0);
                     std::cerr << "\nERROR: Sanity search verification failed (collection: " << sanity_collection << ").\n";
                     std::cerr << "  This indicates documents are not searchable after commit.\n";
 
@@ -3152,7 +3428,7 @@ int main(int argc, char *argv[])
 
           if (check_consistency_val)
           {
-               CheckConsistency(count_client_val, verbose_mode);
+               CheckConsistency(count_client_val, verbose_mode, num_collections);
           }
 
           if (verify_after_restart)
@@ -3180,7 +3456,7 @@ int main(int argc, char *argv[])
 
                std::this_thread::sleep_for(std::chrono::milliseconds(500));
 
-               GetFinalCounts(restart_client, after_metrics_val, verbose_mode);
+               GetFinalCounts(restart_client, after_metrics_val, verbose_mode, num_collections);
 
                std::cout << "\n=== RESTART VERIFICATION RESULTS ===\n";
                std::cout << "Before restart:.\n";
@@ -3224,7 +3500,7 @@ int main(int argc, char *argv[])
                {
                     std::cout << "\nChecking consistency after restart...\n";
 
-                    CheckConsistency(restart_client, verbose_mode);
+                    CheckConsistency(restart_client, verbose_mode, num_collections);
                }
           }
 

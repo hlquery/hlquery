@@ -10,6 +10,7 @@
  * For more details, please visit: https://docs.hlquery.com
  */
 
+#include <algorithm>
 #include <ctime>
 #include <string>
 
@@ -32,9 +33,7 @@ namespace
           }
 
           std::tm LocalTime{};
-
           localtime_r(&Timestamp, &LocalTime);
-
           char Buffer[64] = {};
 
           if (std::strftime(Buffer, sizeof(Buffer), "%Y-%m-%d %H:%M:%S", &LocalTime) == 0)
@@ -96,17 +95,12 @@ class CoreTimersModule final : public AutoRuntimeModule<CoreTimersModule>
      {
           if (Instance && Instance->Config && Instance->Config->GetNoForkMode())
           {
-               ConsoleWriter::WriteStartup("threadpool ready!", true, false);
+               ConsoleWriter::WriteStartup("Threadpool ready!", true, false);
           }
      }
 
      void OnEveryOneMinute() override
      {
-          if (Instance && Instance->LLM)
-          {
-               Instance->LLM->ProcessPendingContextJobs(1);
-          }
-
           if (Instance)
           {
                const time_t NowTime = Instance->Time();
@@ -122,7 +116,7 @@ class CoreTimersModule final : public AutoRuntimeModule<CoreTimersModule>
 
                     if (Instance->Logs)
                     {
-                         Instance->Logs->Debug("core_timers", "Search/SAM response cache flushed by hourly timer.");
+                         Instance->Logs->Debug("core_timers", "Search response cache flushed by hourly timer.");
                     }
                }
                else if (NowTime > 0)

@@ -12,12 +12,15 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cctype>
 #include <chrono>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
 #include <map>
 #include <mutex>
+#include <set>
+#include <sstream>
 #include <string>
 #include <unistd.h>
 #include <vector>
@@ -33,7 +36,42 @@ std::atomic<bool> g_benchmark_should_stop{false};
 
 std::atomic<bool> g_flood_should_stop{false};
 
-std::string g_collection_prefix = "bench_collection_";
+std::string g_collection_prefix = "bench_";
+
+std::string MakeBenchmarkCollectionName(int collection_index)
+{
+     if (g_collection_prefix != "bench_")
+     {
+          return g_collection_prefix + std::to_string(collection_index + 1);
+     }
+
+     std::ostringstream name;
+     name << g_collection_prefix << std::setfill('0') << std::setw(3) << (collection_index + 1);
+     return name.str();
+}
+
+bool IsBenchmarkCollectionNameForCurrentPrefix(const std::string &collection_name)
+{
+     if (g_collection_prefix != "bench_")
+     {
+          return collection_name.rfind(g_collection_prefix, 0) == 0;
+     }
+
+     if (collection_name.rfind("bench_", 0) != 0 || collection_name.size() <= 6)
+     {
+          return false;
+     }
+
+     for (size_t i = 6; i < collection_name.size(); i++)
+     {
+          if (!std::isdigit(static_cast<unsigned char>(collection_name[i])))
+          {
+               return false;
+          }
+     }
+
+     return true;
+}
 
 bool verbose_mode = false;
 
@@ -51,9 +89,9 @@ std::mutex log_mutex;
 
 std::atomic<int> collections_created{0};
 
-std::atomic<int> documents_inserted{0};
+std::atomic<int64_t> documents_inserted{0};
 
-std::atomic<int> additional_documents_inserted{0};
+std::atomic<int64_t> additional_documents_inserted{0};
 
 std::atomic<int> collections_skipped{0};
 
@@ -211,11 +249,19 @@ void PrintSpinner(const std::string &label, int attempt, int total_attempts, boo
      progress_bar_mutex.unlock();
 }
 
-void GetFinalCounts(BenchmarkClient &client, AdvancedMetrics &metrics, bool verbose)
+void GetFinalCounts(BenchmarkClient &client, AdvancedMetrics &metrics, bool verbose, int num_collections)
 {
      if (verbose)
      {
           std::cout << "\nFetching final counts from server...\n";
+     }
+
+     const bool exact_benchmark_counts = num_collections > 0;
+     std::set<std::string> exact_collection_names;
+
+     for (int i = 0; i < num_collections; i++)
+     {
+          exact_collection_names.insert(MakeBenchmarkCollectionName(i));
      }
 
      HTTPResponse update_resp = client.UpdateCounters(g_collection_prefix);
@@ -225,42 +271,52 @@ void GetFinalCounts(BenchmarkClient &client, AdvancedMetrics &metrics, bool verb
           std::cerr << "  Warning: update-counters returned status " << update_resp.StatusCode << ".\n";
      }
 
-     HTTPResponse doctotal_resp = client.GetDocTotal(g_collection_prefix);
-
-     if (doctotal_resp.StatusCode == 200)
+     if (!exact_benchmark_counts)
      {
-          try
-          {
-               nlohmann::json result = nlohmann::json::parse(doctotal_resp.Body);
+          HTTPResponse doctotal_resp = client.GetDocTotal(g_collection_prefix);
 
-               if (result.contains("doctotal"))
-               {
-                    metrics.FinalDocumentsCount = result["doctotal"].get<int>();
-               }
-
-               if (result.contains("coltotal"))
-               {
-                    metrics.FinalCollectionsCount = result["coltotal"].get<int>();
-               }
-          }
-          catch (...)
+          if (doctotal_resp.StatusCode == 200)
           {
-               if (verbose)
+               try
                {
-                    std::cerr << "  Warning: Could not parse doctotal response.\n";
+                    nlohmann::json result = nlohmann::json::parse(doctotal_resp.Body);
+
+                    if (result.contains("doctotal"))
+                    {
+                         metrics.FinalDocumentsCount = result["doctotal"].get<int64_t>();
+                    }
+
+                    if (result.contains("coltotal"))
+                    {
+                         metrics.FinalCollectionsCount = result["coltotal"].get<int64_t>();
+                    }
+               }
+               catch (...)
+               {
+                    if (verbose)
+                    {
+                         std::cerr << "  Warning: Could not parse doctotal response.\n";
+                    }
                }
           }
      }
 
      std::vector<std::string> collections = client.ListCollections();
 
-     metrics.FinalCollectionsCount = collections.size();
-     metrics.FinalCollectionNames = collections;
+     metrics.FinalCollectionNames.clear();
+     metrics.FinalPerCollectionCounts.clear();
 
-     int total_docs_val = 0;
+     int64_t total_docs_val = 0;
 
      for (const auto &col_name : collections)
      {
+          if (exact_benchmark_counts && exact_collection_names.find(col_name) == exact_collection_names.end())
+          {
+               continue;
+          }
+
+          metrics.FinalCollectionNames.push_back(col_name);
+
           HTTPResponse col_resp = client.GetCollection(col_name);
 
           if (col_resp.StatusCode == 200)
@@ -269,15 +325,15 @@ void GetFinalCounts(BenchmarkClient &client, AdvancedMetrics &metrics, bool verb
                {
                     nlohmann::json col_json = nlohmann::json::parse(col_resp.Body);
 
-                    int doc_count = 0;
+                    int64_t doc_count = 0;
 
                     if (col_json.contains("num_documents"))
                     {
-                         doc_count = col_json["num_documents"].get<int>();
+                         doc_count = col_json["num_documents"].get<int64_t>();
                     }
                     else if (col_json.contains("document_count"))
                     {
-                         doc_count = col_json["document_count"].get<int>();
+                         doc_count = col_json["document_count"].get<int64_t>();
                     }
 
                     metrics.FinalPerCollectionCounts[col_name] = doc_count;
@@ -291,7 +347,9 @@ void GetFinalCounts(BenchmarkClient &client, AdvancedMetrics &metrics, bool verb
           }
      }
 
-     if (metrics.FinalDocumentsCount == 0 && total_docs_val > 0)
+     metrics.FinalCollectionsCount = static_cast<int64_t>(metrics.FinalCollectionNames.size());
+
+     if (exact_benchmark_counts || metrics.FinalDocumentsCount == 0)
      {
           metrics.FinalDocumentsCount = total_docs_val;
      }
@@ -690,7 +748,7 @@ void WriteAdvancedJSON(const std::string &filename, const AdvancedMetrics &metri
      }
 }
 
-void CheckConsistency(BenchmarkClient &client, bool verbose)
+void CheckConsistency(BenchmarkClient &client, bool verbose, int num_collections)
 {
      if (verbose)
      {
@@ -865,7 +923,7 @@ void CleanupBenchmarkCollections(BenchmarkClient &client, bool verbose)
 
      for (const auto &col_name : collections)
      {
-          if (col_name.find(g_collection_prefix) == 0 || col_name.find("random_") == 0)
+          if (IsBenchmarkCollectionNameForCurrentPrefix(col_name) || col_name.find("random_") == 0)
           {
                if (client.DeleteCollection(col_name))
                {
