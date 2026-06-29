@@ -19,6 +19,7 @@
 #include "core/hlquery.h"
 #include "core/logmanager.h"
 #include "core/modulemanager.h"
+#include "runtime/daemon.h"
 
 void EmitDaemonHealthSnapshot(time_t NowTimeVal)
 {
@@ -61,6 +62,7 @@ void EmitDaemonHealthSnapshot(time_t NowTimeVal)
      const bool QueuePressure = PendingActions > MaxPendingActions ||
                                 (PoolInitialized && PoolStats.HTTPPool.QueueSize > MaxHTTPQueue) ||
                                 (PoolInitialized && PoolStats.SearchPool.QueueSize > MaxSearchQueue);
+     const auto DaemonStats = DaemonHandler::GetOptimizationStats();
 
      if (QueuePressure)
      {
@@ -82,6 +84,11 @@ void EmitDaemonHealthSnapshot(time_t NowTimeVal)
           " write_active=" + std::to_string(PoolStats.WritePool.ActiveThreads) +
           " mgmt_active=" + std::to_string(PoolStats.ManagementPool.ActiveThreads) +
           " modules_loaded=" + std::to_string(LoadedModules) +
+          " daemon_pressure=" + std::to_string(DaemonStats.pressure_score) +
+          " daemon_admission=" + std::string(DaemonStats.admission_open ? "open" : "deferred") +
+          " daemon_lazy_interval=" + std::to_string(DaemonStats.lazy_interval) +
+          " daemon_maintenance_runs=" + std::to_string(DaemonStats.maintenance_runs) +
+          " daemon_maintenance_deferrals=" + std::to_string(DaemonStats.maintenance_deferrals) +
           " shutdown_in_progress=" + std::string(Instance->IsShuttingDown() ? "yes" : "no") +
           " signal_shutdown=" + std::to_string(static_cast<int>(hlquery::GetSignalShutdownState())) +
           " force_exit=" + std::to_string(static_cast<int>(hlquery::GetForceExitState())) +

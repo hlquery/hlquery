@@ -11,6 +11,7 @@
  */
 
 #include <atomic>
+#include <algorithm>
 #include <cerrno>
 #include <chrono>
 #include <csignal>
@@ -390,10 +391,131 @@ std::atomic<uint64_t> DaemonHandler::LazyProcessingCounter(0);
 
 std::atomic<int> DaemonHandler::BatchSize(10000);
 
+std::atomic<int> DaemonHandler::LazyInterval(10000);
+
+std::atomic<int> DaemonHandler::PressureScore(0);
+
+std::atomic<int> DaemonHandler::AdmissionOpenValue(1);
+
+std::atomic<uint64_t> DaemonHandler::MaintenanceRuns(0);
+
+std::atomic<uint64_t> DaemonHandler::MaintenanceDeferrals(0);
+
+decltype(DaemonHandler::StageRuns) DaemonHandler::StageRuns{};
+
+decltype(DaemonHandler::StageDeferrals) DaemonHandler::StageDeferrals{};
+
+decltype(DaemonHandler::StageLastRuntimeUS) DaemonHandler::StageLastRuntimeUS{};
+
+struct DaemonPressureSnapshot
+{
+     size_t PendingActions = 0;
+     size_t HTTPQueue = 0;
+     size_t SearchQueue = 0;
+     size_t WriteQueue = 0;
+     size_t ManagementQueue = 0;
+     bool PoolsInitialized = false;
+     bool HasPendingSocketWork = false;
+     int PressureScoreValue = 0;
+};
+
+static const char *GetDaemonStageName(std::size_t StageValue)
+{
+     switch (StageValue)
+     {
+          case DaemonHandler::StageSocketPacing:
+               return "socket_pacing";
+          case DaemonHandler::StageLazyMaintenance:
+               return "lazy_maintenance";
+          case DaemonHandler::StageStorageHealth:
+               return "storage_health";
+          case DaemonHandler::StageQueryPressure:
+               return "query_pressure";
+          case DaemonHandler::StageCompactionPressure:
+               return "compaction_pressure";
+          default:
+               return "unknown";
+     }
+}
+
+static int ScoreRatio(size_t Value, size_t SoftLimit, int Weight)
+{
+     if (SoftLimit == 0 || Value == 0)
+     {
+          return 0;
+     }
+
+     const size_t Capped = std::min(Value, SoftLimit * 2);
+     return static_cast<int>((static_cast<double>(Capped) / static_cast<double>(SoftLimit * 2)) * Weight);
+}
+
+static DaemonPressureSnapshot BuildDaemonPressureSnapshot(bool HasPendingSocketWork)
+{
+     DaemonPressureSnapshot Snapshot;
+     Snapshot.HasPendingSocketWork = HasPendingSocketWork;
+     Snapshot.PendingActions = ActionList::GetActionCount();
+     Snapshot.PoolsInitialized = ThreadPoolManager::GetInstance().IsInitialized();
+
+     if (Snapshot.PoolsInitialized)
+     {
+          ThreadPoolManager::GlobalStats PoolStats = ThreadPoolManager::GetInstance().GetGlobalStats();
+          Snapshot.HTTPQueue = PoolStats.HTTPPool.QueueSize;
+          Snapshot.SearchQueue = PoolStats.SearchPool.QueueSize;
+          Snapshot.WriteQueue = PoolStats.WritePool.QueueSize;
+          Snapshot.ManagementQueue = PoolStats.ManagementPool.QueueSize;
+     }
+
+     int Score = 0;
+     Score += HasPendingSocketWork ? 25 : 0;
+     Score += ScoreRatio(Snapshot.PendingActions, 2000, 20);
+     Score += ScoreRatio(Snapshot.HTTPQueue, 8000, 20);
+     Score += ScoreRatio(Snapshot.SearchQueue, 4000, 25);
+     Score += ScoreRatio(Snapshot.WriteQueue, 2000, 15);
+     Score += ScoreRatio(Snapshot.ManagementQueue, 1000, 10);
+
+     Snapshot.PressureScoreValue = std::min(100, Score);
+
+     return Snapshot;
+}
+
+static int SelectLazyIntervalForPressure(int PressureScoreValue)
+{
+     if (PressureScoreValue >= 80)
+     {
+          return 50000;
+     }
+
+     if (PressureScoreValue >= 60)
+     {
+          return 25000;
+     }
+
+     if (PressureScoreValue >= 35)
+     {
+          return 10000;
+     }
+
+     if (PressureScoreValue <= 10)
+     {
+          return 2500;
+     }
+
+     return 5000;
+}
+
+static int RuntimeUSSince(const std::chrono::steady_clock::time_point &StartedAt)
+{
+     auto Duration = std::chrono::steady_clock::now() - StartedAt;
+     return static_cast<int>(std::chrono::duration_cast<std::chrono::microseconds>(Duration).count());
+}
+
 /* Handles HLQuery-style adaptive sleep and high-throughput optimization logic */
 
 void DaemonHandler::ProcessSocketEngineOptimization()
 {
+     const auto StageStartedAt = std::chrono::steady_clock::now();
+     StageRuns[StageSocketPacing].fetch_add(1, std::memory_order_relaxed);
+
      /*
       * Check for pending network work FIRST before executing any sleep logic.
       * If there is any pending work, immediately disable adaptive sleep and enable
@@ -401,6 +523,11 @@ void DaemonHandler::ProcessSocketEngineOptimization()
       */
 
      bool HasPendingWork = SocketEngine::HasPendingWork();
+     DaemonPressureSnapshot PressureSnapshot = BuildDaemonPressureSnapshot(HasPendingWork);
+     StageRuns[StageQueryPressure].fetch_add(1, std::memory_order_relaxed);
+     PressureScore.store(PressureSnapshot.PressureScoreValue, std::memory_order_relaxed);
+     LazyInterval.store(SelectLazyIntervalForPressure(PressureSnapshot.PressureScoreValue), std::memory_order_relaxed);
+     AdmissionOpenValue.store(PressureSnapshot.PressureScoreValue < 70 ? 1 : 0, std::memory_order_relaxed);
 
      /* Pending work means the loop should stay in an aggressively responsive mode. */
 
@@ -410,6 +537,7 @@ void DaemonHandler::ProcessSocketEngineOptimization()
           HighThroughputModeValue.store(1, std::memory_order_relaxed);
           ConsecutiveIdleIterations.store(0, std::memory_order_relaxed);
           ConsecutiveBusyIterations.fetch_add(1, std::memory_order_relaxed);
+          StageLastRuntimeUS[StageSocketPacing].store(RuntimeUSSince(StageStartedAt), std::memory_order_relaxed);
 
           return;
      }
@@ -475,12 +603,16 @@ void DaemonHandler::ProcessSocketEngineOptimization()
 
      (void)HighThroughputModeValue.load(std::memory_order_relaxed);
      (void)AdaptiveSleepMS.load(std::memory_order_relaxed);
+     StageLastRuntimeUS[StageSocketPacing].store(RuntimeUSSince(StageStartedAt), std::memory_order_relaxed);
 }
 
 /* Manages ultra-lazy processing tasks for deferred or expensive operations */
 
 void DaemonHandler::ProcessLazyOperations()
 {
+     const auto StageStartedAt = std::chrono::steady_clock::now();
+     StageRuns[StageLazyMaintenance].fetch_add(1, std::memory_order_relaxed);
+
      uint64_t Counter = LazyProcessingCounter.fetch_add(1, std::memory_order_relaxed);
 
      /* Protect against counter overflow by resetting when approaching limits */
@@ -491,10 +623,35 @@ void DaemonHandler::ProcessLazyOperations()
           Counter = 0;
      }
 
-     /* Trigger background database maintenance tasks at configured intervals */
+     const bool HasPendingSocketWork = SocketEngine::HasPendingWork();
+     DaemonPressureSnapshot PressureSnapshot = BuildDaemonPressureSnapshot(HasPendingSocketWork);
+     StageRuns[StageQueryPressure].fetch_add(1, std::memory_order_relaxed);
+     PressureScore.store(PressureSnapshot.PressureScoreValue, std::memory_order_relaxed);
 
-     if (Instance && Instance->Database && (Counter % BatchSize.load(std::memory_order_relaxed) == 0))
+     const int CurrentInterval = SelectLazyIntervalForPressure(PressureSnapshot.PressureScoreValue);
+     LazyInterval.store(CurrentInterval, std::memory_order_relaxed);
+
+     const bool AdmitOptionalWork = PressureSnapshot.PressureScoreValue < 70;
+     AdmissionOpenValue.store(AdmitOptionalWork ? 1 : 0, std::memory_order_relaxed);
+
+     if (!AdmitOptionalWork)
      {
+          MaintenanceDeferrals.fetch_add(1, std::memory_order_relaxed);
+          StageDeferrals[StageLazyMaintenance].fetch_add(1, std::memory_order_relaxed);
+          StageDeferrals[StageStorageHealth].fetch_add(1, std::memory_order_relaxed);
+          StageDeferrals[StageCompactionPressure].fetch_add(1, std::memory_order_relaxed);
+          StageLastRuntimeUS[StageLazyMaintenance].store(RuntimeUSSince(StageStartedAt), std::memory_order_relaxed);
+          return;
+     }
+
+     /* Trigger background database maintenance tasks at adaptive intervals. */
+
+     if (Instance && Instance->Database && CurrentInterval > 0 && (Counter % static_cast<uint64_t>(CurrentInterval) == 0))
+     {
+          MaintenanceRuns.fetch_add(1, std::memory_order_relaxed);
+          StageRuns[StageStorageHealth].fetch_add(1, std::memory_order_relaxed);
+          StageRuns[StageCompactionPressure].fetch_add(1, std::memory_order_relaxed);
+
           /* Sampling time here preserves the historical hook without forcing extra work. */
 
           (void)time(nullptr);
@@ -504,6 +661,8 @@ void DaemonHandler::ProcessLazyOperations()
            * automatically by the underlying LSM storage engine.
            */
      }
+
+     StageLastRuntimeUS[StageLazyMaintenance].store(RuntimeUSSince(StageStartedAt), std::memory_order_relaxed);
 }
 
 /* Resets all internal optimization counters and state flags */
@@ -516,6 +675,18 @@ void DaemonHandler::ResetOptimizationState()
      HighThroughputModeValue.store(0, std::memory_order_relaxed);
      LastEventCount.store(0, std::memory_order_relaxed);
      LazyProcessingCounter.store(0, std::memory_order_relaxed);
+     LazyInterval.store(10000, std::memory_order_relaxed);
+     PressureScore.store(0, std::memory_order_relaxed);
+     AdmissionOpenValue.store(1, std::memory_order_relaxed);
+     MaintenanceRuns.store(0, std::memory_order_relaxed);
+     MaintenanceDeferrals.store(0, std::memory_order_relaxed);
+
+     for (std::size_t Index = 0; Index < StageCount; ++Index)
+     {
+          StageRuns[Index].store(0, std::memory_order_relaxed);
+          StageDeferrals[Index].store(0, std::memory_order_relaxed);
+          StageLastRuntimeUS[Index].store(0, std::memory_order_relaxed);
+     }
 }
 
 /* Retrieves current snapshots of optimization and performance statistics */
@@ -532,6 +703,26 @@ DaemonHandler::OptimizationStats DaemonHandler::GetOptimizationStats()
      Stats.events_delta = Stats.current_event_count - Stats.last_event_count;
      Stats.lazy_processing_counter = LazyProcessingCounter.load(std::memory_order_relaxed);
      Stats.batch_size = BatchSize.load(std::memory_order_relaxed);
+     Stats.lazy_interval = LazyInterval.load(std::memory_order_relaxed);
+     Stats.pressure_score = PressureScore.load(std::memory_order_relaxed);
+     Stats.admission_open = AdmissionOpenValue.load(std::memory_order_relaxed);
+     Stats.maintenance_runs = MaintenanceRuns.load(std::memory_order_relaxed);
+     Stats.maintenance_deferrals = MaintenanceDeferrals.load(std::memory_order_relaxed);
+
+     DaemonPressureSnapshot PressureSnapshot = BuildDaemonPressureSnapshot(SocketEngine::HasPendingWork());
+     Stats.pending_actions = PressureSnapshot.PendingActions;
+     Stats.http_queue = PressureSnapshot.HTTPQueue;
+     Stats.search_queue = PressureSnapshot.SearchQueue;
+     Stats.write_queue = PressureSnapshot.WriteQueue;
+     Stats.management_queue = PressureSnapshot.ManagementQueue;
+
+     for (std::size_t Index = 0; Index < StageCount; ++Index)
+     {
+          Stats.stages[Index].name = GetDaemonStageName(Index);
+          Stats.stages[Index].runs = StageRuns[Index].load(std::memory_order_relaxed);
+          Stats.stages[Index].deferrals = StageDeferrals[Index].load(std::memory_order_relaxed);
+          Stats.stages[Index].last_runtime_us = StageLastRuntimeUS[Index].load(std::memory_order_relaxed);
+     }
 
      return Stats;
 }
