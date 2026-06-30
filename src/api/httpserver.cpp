@@ -4724,54 +4724,15 @@ void HttpServer::AcceptConnection()
           AcceptSliceLimitReached = true;
      }
 
-     /*
-      * Edge-triggered epoll requires draining the accept queue to EAGAIN. If we stop
-      * early because of the per-tick slice limit, probe once more and explicitly rearm
-      * the listener when the backlog is still non-empty. Without this, the listener can
-      * go permanently quiet while the kernel still completes TCP handshakes.
-      */
-
      if (AcceptSliceLimitReached)
      {
-          ClientLen = sizeof(ClientAddr);
-          int ProbeFD = accept(GetFD(), reinterpret_cast<struct sockaddr *>(&ClientAddr), &ClientLen);
-
-          if (ProbeFD < 0)
+          if (Instance && Instance->Logs)
           {
-               const int SavedErrno = errno;
-
-#if EAGAIN == EWOULDBLOCK
-
-               if (SavedErrno == EAGAIN)
-               {
-#else
-
-               if (SavedErrno == EAGAIN || SavedErrno == EWOULDBLOCK)
-               {
-
-#endif
-                    if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
-                    {
-                         Instance->Logs->Debug("http_server", "[AcceptConnection] Accept slice limit reached but backlog was fully drained.");
-                    }
-               }
-               else if (Instance && Instance->Logs)
-               {
-                    Instance->Logs->Normal("http_server", "[AcceptConnection] Listener backlog probe failed after slice limit: " + std::string(strerror(SavedErrno)) + ".");
-               }
+               Instance->Logs->Normal("http_server", "[AcceptConnection] Accepted " + std::to_string(HTTP_MAX_ACCEPTS_PER_TICK) + " connections; rearming HTTP listener.");
           }
-          else
-          {
-               close(ProbeFD);
 
-               if (Instance && Instance->Logs)
-               {
-                    Instance->Logs->Normal("http_server", "[AcceptConnection] Listener backlog still pending after " + std::to_string(HTTP_MAX_ACCEPTS_PER_TICK) + " accepts; rearming HTTP listener.");
-               }
-
-               SocketEngine::DelFD(this);
-               SocketEngine::AddFD(this, EPOLLIN);
-          }
+          SocketEngine::DelFD(this);
+          SocketEngine::AddFD(this, EPOLLIN);
      }
 
      /*

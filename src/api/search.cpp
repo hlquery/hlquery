@@ -2641,7 +2641,7 @@ ComprehensiveSearchResult SearchAPI::PerformComprehensiveSearch(const std::strin
 
      if (!Query.VectorQueryStr.empty() || !Query.Embedding.empty())
      {
-          if (Query.HybridAlpha > 0.0f && Query.HybridAlpha < 1.0f)
+          if (!Query.Q.empty() && Query.Q != "*" && Query.HybridAlpha > 0.0f && Query.HybridAlpha < 1.0f)
           {
                Hits = ProcessHybridSearch(Collection, Query);
                RankingMode = "hybrid";
