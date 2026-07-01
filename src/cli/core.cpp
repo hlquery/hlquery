@@ -248,7 +248,37 @@ bool HLQueryCLI::CheckRequestFailed(const HTTPResponse &response, bool silent_on
 
      if (response.StatusCode == 401 || response.StatusCode == 403)
      {
-          std::string error_msg = "Unauthorized";
+          std::string error_msg = response.StatusCode == 401 ? "Unauthorized" : "Forbidden";
+          std::string error_details = response.StatusCode == 401 ? "Check authentication token" : "Insufficient permissions";
+
+          if (!response.Body.empty())
+          {
+               try
+               {
+                    nlohmann::json error_json = nlohmann::json::parse(response.Body);
+
+                    if (error_json.contains("error") && error_json["error"].is_string())
+                    {
+                         error_msg = error_json["error"].get<std::string>();
+                    }
+
+                    if (error_json.contains("message") && error_json["message"].is_string())
+                    {
+                         error_details = error_json["message"].get<std::string>();
+                    }
+               }
+               catch (...)
+               {
+                    if (response.Body.length() > 200)
+                    {
+                         error_details = response.Body.substr(0, 200) + "...";
+                    }
+                    else
+                    {
+                         error_details = response.Body;
+                    }
+               }
+          }
 
           if (!endpoint.empty())
           {
@@ -257,7 +287,7 @@ bool HLQueryCLI::CheckRequestFailed(const HTTPResponse &response, bool silent_on
 
           error_msg += " (HTTP " + std::to_string(response.StatusCode) + ")";
 
-          PrintError(error_msg, "Check authentication token - maybe server still booting?");
+          PrintError(error_msg, error_details);
 
           SetExitCode(2);
 
