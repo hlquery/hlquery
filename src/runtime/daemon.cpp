@@ -46,6 +46,7 @@
 #include "search/storageengine.h"
 #include "utils/consolewriter.h"
 #include "utils/infos.h"
+#include "utils/tools.h"
 
 /* Signal state owned by the hlquery lifecycle manager. */
 
@@ -157,6 +158,64 @@ static bool RemovePIDFileIfUnlocked(const std::string &PIDFilePath)
      close(LockFileHandle);
 
      return Removed;
+}
+
+/* Records a successful graceful shutdown for the next startup's dirty-shutdown check. */
+
+static void WriteCleanShutdownMarker()
+{
+     if (!Instance || ExitManager::GetExitStatus() != 0 || hlquery::ShouldForceExit())
+     {
+          return;
+     }
+
+     try
+     {
+          const std::filesystem::path RuntimeDir = RuntimePaths::ResolveRuntimeDataDir(Instance->Config.get());
+          const std::filesystem::path ShutdownMarker = RuntimeDir / ".clean_shutdown";
+          std::error_code EC;
+
+          std::filesystem::create_directories(RuntimeDir, EC);
+
+          if (EC)
+          {
+               if (Instance->Logs)
+               {
+                    Instance->Logs->Normal("shutdown", "Cleanup: Failed to create clean shutdown marker directory: " + EC.message() + ".");
+               }
+
+               return;
+          }
+
+          std::ofstream MarkerStream(ShutdownMarker, std::ios::out | std::ios::trunc);
+
+          if (!MarkerStream.is_open())
+          {
+               if (Instance->Logs)
+               {
+                    Instance->Logs->Normal("shutdown", "Cleanup: Failed to open clean shutdown marker: " + ShutdownMarker.string() + ".");
+               }
+
+               return;
+          }
+
+          MarkerStream << "clean\n";
+          MarkerStream.close();
+     }
+     catch (const std::exception &Ex)
+     {
+          if (Instance && Instance->Logs)
+          {
+               Instance->Logs->Normal("shutdown", "Cleanup: Failed to write clean shutdown marker: " + std::string(Ex.what()) + ".");
+          }
+     }
+     catch (...)
+     {
+          if (Instance && Instance->Logs)
+          {
+               Instance->Logs->Normal("shutdown", "Cleanup: Failed to write clean shutdown marker: unknown error.");
+          }
+     }
 }
 
 /* Releases the active PID lock and removes the corresponding PID file. */
@@ -1980,6 +2039,25 @@ void hlquery::Cleanup()
 
      LogCleanupStage("begin");
 
+     std::vector<std::thread> ThreadsToJoin;
+
+     if (Instance)
+     {
+          ThreadsToJoin = Instance->TakeBackgroundThreads();
+     }
+
+     /* Join startup workers while HTTP servers, storage, and logs are still alive. */
+
+     for (auto &ThreadPtr : ThreadsToJoin)
+     {
+          if (ThreadPtr.joinable())
+          {
+               ThreadPtr.join();
+          }
+     }
+
+     LogCleanupStage("background threads stopped");
+
      /* Stop modules before tearing down shared executors they may depend on. */
 
      if (Instance)
@@ -2056,25 +2134,6 @@ void hlquery::Cleanup()
           LogCleanupStage("singleton thread pools stopped");
      }
 
-     std::vector<std::thread> ThreadsToJoin;
-
-     if (Instance)
-     {
-          ThreadsToJoin = Instance->TakeBackgroundThreads();
-     }
-
-     /* Joining outside the mutex prevents long shutdown stalls from blocking other owners. */
-
-     for (auto &ThreadPtr : ThreadsToJoin)
-     {
-          if (ThreadPtr.joinable())
-          {
-               ThreadPtr.join();
-          }
-     }
-
-     LogCleanupStage("background threads stopped");
-
      try
      {
           const char *TerminationMsg = "hlquery shutting down...\n";
@@ -2132,6 +2191,8 @@ void hlquery::Cleanup()
                     }
                }
           }
+
+          WriteCleanShutdownMarker();
 
           std::string PIDFilePathCleanup = ResolvePIDFilePath();
 

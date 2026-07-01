@@ -46,10 +46,16 @@ bool ExitManager::IsShuttingDown()
      return ShuttingDownValue.load();
 }
 
+int ExitManager::GetExitStatus()
+{
+     return ExitStatusValue.load();
+}
+
 /* Initiates a graceful shutdown sequence with the specified exit status */
 
 void ExitManager::Exit(int ExitStatus)
 {
+     ExitStatusValue.store(ExitStatus);
      ShuttingDownValue.store(true);
      RunCleanups();
      std::exit(ExitStatus);
@@ -59,6 +65,7 @@ void ExitManager::Exit(int ExitStatus)
 
 void ExitManager::QuickExit(int ExitStatus)
 {
+     ExitStatusValue.store(ExitStatus);
      ShuttingDownValue.store(true);
      RunCleanups();
      std::quick_exit(ExitStatus);

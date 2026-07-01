@@ -1012,6 +1012,8 @@ void ModuleManager::UnloadModuleList(std::vector<LoadedModule> ModulesToUnload)
      {
           ModuleReference ModuleRef{It->Instance, It->ExecutionState};
           QuiesceModuleCallbacks(ModuleRef);
+          ModuleRef.Instance.reset();
+          ModuleRef.ExecutionState.reset();
 
           if (It->Instance && !It->UnloadNotified)
           {

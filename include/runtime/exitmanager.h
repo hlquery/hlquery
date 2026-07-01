@@ -27,6 +27,7 @@ class CoreExport ExitManager
      inline static std::vector<void (*)()> CleanupFuncs;
      inline static std::mutex CleanupMutex;
      inline static std::atomic<bool> ShuttingDownValue{false};
+     inline static std::atomic<int> ExitStatusValue{0};
 
    public:
 
@@ -41,6 +42,10 @@ class CoreExport ExitManager
      /* Returns true if shutdown is in progress */
 
      static bool IsShuttingDown();
+
+     /* Returns the status requested through Exit/QuickExit. */
+
+     static int GetExitStatus();
 
      /* Request graceful shutdown with status code */
 
