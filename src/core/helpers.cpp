@@ -26,6 +26,31 @@
 #include "utils/tools.h"
 #include "search/storageengine.h"
 
+namespace
+{
+
+/* Records a periodic task failure only when the logging subsystem is ready. */
+
+void LogPeriodicTaskFailure(const std::string &Message)
+{
+     if (Instance && Instance->Logs)
+     {
+          Instance->Logs->Debug("hlquery", Message);
+     }
+}
+
+void LogPeriodicTaskFailure(const std::string &TaskName, const std::exception &Error)
+{
+     LogPeriodicTaskFailure(TaskName + " failed: " + Error.what() + ".");
+}
+
+void LogUnknownPeriodicTaskFailure(const std::string &TaskName)
+{
+     LogPeriodicTaskFailure(TaskName + " failed with unknown exception.");
+}
+
+} // namespace
+
 /* Returns true when either process termination state has been requested. */
 
 bool CoreHelpers::ShouldExitLoop()
@@ -78,21 +103,11 @@ void CoreHelpers::SafePeriodicFlush()
      }
      catch (const std::exception &e)
      {
-          /* Include the storage exception when logging is available. */
-
-          if (Instance->Logs)
-          {
-               Instance->Logs->Debug("hlquery", "Periodic flush failed: " + std::string(e.what()) + ".");
-          }
+          LogPeriodicTaskFailure("Periodic flush", e);
      }
      catch (...)
      {
-          /* Preserve loop execution when an unknown exception escapes storage. */
-
-          if (Instance->Logs)
-          {
-               Instance->Logs->Debug("hlquery", "Periodic flush failed with unknown exception.");
-          }
+          LogUnknownPeriodicTaskFailure("Periodic flush");
      }
 }
 
@@ -108,21 +123,11 @@ void CoreHelpers::ProcessPeriodicTasks()
      }
      catch (const std::exception &e)
      {
-          /* Record the failure without terminating the periodic task loop. */
-
-          if (Instance && Instance->Logs)
-          {
-               Instance->Logs->Debug("hlquery", "Lazy operations failed: " + std::string(e.what()) + ".");
-          }
+          LogPeriodicTaskFailure("Lazy operations", e);
      }
      catch (...)
      {
-          /* Handle non-standard failures through the same diagnostic channel. */
-
-          if (Instance && Instance->Logs)
-          {
-               Instance->Logs->Debug("hlquery", "Lazy operations failed with unknown exception.");
-          }
+          LogUnknownPeriodicTaskFailure("Lazy operations");
      }
 
      /* Advance timers only after the timer manager becomes available. */
@@ -135,21 +140,11 @@ void CoreHelpers::ProcessPeriodicTasks()
           }
           catch (const std::exception &e)
           {
-               /* Keep later periodic iterations available after a timer failure. */
-
-               if (Instance->Logs)
-               {
-                    Instance->Logs->Debug("hlquery", "Timer tick failed: " + std::string(e.what()) + ".");
-               }
+               LogPeriodicTaskFailure("Timer tick", e);
           }
           catch (...)
           {
-               /* Report unknown timer failures when logging remains available. */
-
-               if (Instance->Logs)
-               {
-                    Instance->Logs->Debug("hlquery", "Timer tick failed with unknown exception.");
-               }
+               LogUnknownPeriodicTaskFailure("Timer tick");
           }
      }
 }
