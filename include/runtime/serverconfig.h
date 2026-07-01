@@ -1303,6 +1303,13 @@ class ServerConfig
           return QuerySettingsEnableStopwords;
      }
 
+     /* Returns how global and collection lexical resources are combined. */
+
+     const std::string& GetQuerySettingsLexicalScopePreference() const
+     {
+          return QuerySettingsLexicalScopePreference;
+     }
+
      /* Returns whether fuzzy queries are enabled. */
 
      bool GetQuerySettingsEnableFuzzy() const
@@ -2265,6 +2272,10 @@ class ServerConfig
      /* Enable stopword filtering. */
 
      bool QuerySettingsEnableStopwords = true;
+
+     /* Global/local synonym and stopword conflict handling: merge, local, or global. */
+
+     std::string QuerySettingsLexicalScopePreference = "merge";
 
      /* Enable fuzzy queries. */
 

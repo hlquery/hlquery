@@ -892,12 +892,15 @@ static std::vector<std::string> BuildCandidateQueriesFromParsedExpression(const 
 static void LoadSynonymGraphForCollection(const std::string &Collection,
                                           std::unordered_map<std::string, std::vector<std::string>> &SynonymGraph)
 {
-     auto load_scope = [&SynonymGraph](const std::string &ScopeKey)
+     const std::string ScopePreference =
+          (Instance && Instance->Config) ? Instance->Config->GetQuerySettingsLexicalScopePreference() : "merge";
+
+     auto load_scope = [&SynonymGraph](const std::string &ScopeKey, bool OverrideExisting) -> bool
      {
           std::string Raw = HybridStorageManager::GetInstance().Get(ScopeKey);
           if (Raw.empty())
           {
-               return;
+               return false;
           }
 
           try
@@ -912,6 +915,9 @@ static void LoadSynonymGraphForCollection(const std::string &Collection,
                {
                     Groups = Root;
                }
+
+               std::vector<std::vector<std::string>> ParsedGroups;
+               std::unordered_set<std::string> AffectedTerms;
 
                for (const auto &Group : Groups)
                {
@@ -947,6 +953,34 @@ static void LoadSynonymGraphForCollection(const std::string &Collection,
                     std::sort(Terms.begin(), Terms.end());
                     Terms.erase(std::unique(Terms.begin(), Terms.end()), Terms.end());
 
+                    if (Terms.size() < 2)
+                    {
+                         continue;
+                    }
+
+                    for (const auto &Term : Terms)
+                    {
+                         AffectedTerms.insert(Term);
+                    }
+
+                    ParsedGroups.push_back(Terms);
+               }
+
+               if (ParsedGroups.empty())
+               {
+                    return false;
+               }
+
+               if (OverrideExisting)
+               {
+                    for (const auto &Term : AffectedTerms)
+                    {
+                         SynonymGraph.erase(Term);
+                    }
+               }
+
+               for (const auto &Terms : ParsedGroups)
+               {
                     for (const auto &Term : Terms)
                     {
                          auto &Targets = SynonymGraph[Term];
@@ -962,24 +996,44 @@ static void LoadSynonymGraphForCollection(const std::string &Collection,
                          Targets.erase(std::unique(Targets.begin(), Targets.end()), Targets.end());
                     }
                }
+
+               return true;
           }
           catch (const std::exception &)
           {
           }
+
+          return false;
      };
 
-     load_scope("synonyms:" + Collection);
-     load_scope("synonyms:__global__");
+     if (ScopePreference == "local")
+     {
+          load_scope("synonyms:__global__", false);
+          load_scope("synonyms:" + Collection, true);
+     }
+     else if (ScopePreference == "global")
+     {
+          load_scope("synonyms:" + Collection, false);
+          load_scope("synonyms:__global__", true);
+     }
+     else
+     {
+          load_scope("synonyms:__global__", false);
+          load_scope("synonyms:" + Collection, false);
+     }
 }
 
 static void LoadStopwordsForCollection(const std::string &Collection, std::unordered_set<std::string> &Stopwords)
 {
-     auto load_scope = [&](const std::string &Key)
+     const std::string ScopePreference =
+          (Instance && Instance->Config) ? Instance->Config->GetQuerySettingsLexicalScopePreference() : "merge";
+
+     auto load_scope = [](const std::string &Key, std::unordered_set<std::string> &Target) -> bool
      {
           std::string StopwordsJSON = HybridStorageManagerInstance().Get(Key);
           if (StopwordsJSON.empty())
           {
-               return;
+               return false;
           }
 
           try
@@ -1018,17 +1072,48 @@ static void LoadStopwordsForCollection(const std::string &Collection, std::unord
                     Word = NormalizeTermSimple(Word);
                     if (!Word.empty())
                     {
-                         Stopwords.insert(Word);
+                         Target.insert(Word);
                     }
                }
+
+               return !Target.empty();
           }
           catch (const std::exception &)
           {
           }
+
+          return false;
      };
 
-     load_scope("stopwords:" + Collection);
-     load_scope("stopwords:__global__");
+     if (ScopePreference == "local")
+     {
+          std::unordered_set<std::string> LocalStopwords;
+          if (load_scope("stopwords:" + Collection, LocalStopwords))
+          {
+               Stopwords.swap(LocalStopwords);
+          }
+          else
+          {
+               load_scope("stopwords:__global__", Stopwords);
+          }
+     }
+     else if (ScopePreference == "global")
+     {
+          std::unordered_set<std::string> GlobalStopwords;
+          if (load_scope("stopwords:__global__", GlobalStopwords))
+          {
+               Stopwords.swap(GlobalStopwords);
+          }
+          else
+          {
+               load_scope("stopwords:" + Collection, Stopwords);
+          }
+     }
+     else
+     {
+          load_scope("stopwords:__global__", Stopwords);
+          load_scope("stopwords:" + Collection, Stopwords);
+     }
 }
 
 struct LexicalResourceSnapshot
@@ -1037,6 +1122,7 @@ struct LexicalResourceSnapshot
      std::unordered_set<std::string> Stopwords;
      uint64_t CollectionGeneration = 0;
      uint64_t GlobalGeneration = 0;
+     std::string ScopePreference = "merge";
 };
 
 struct ExpansionCacheEntry
@@ -1067,6 +1153,8 @@ static std::shared_ptr<const LexicalResourceSnapshot> GetLexicalResourceSnapshot
 {
      uint64_t CollectionGeneration = 0;
      uint64_t GlobalGeneration = 0;
+     const std::string ScopePreference =
+          (Instance && Instance->Config) ? Instance->Config->GetQuerySettingsLexicalScopePreference() : "merge";
      {
           std::lock_guard<std::mutex> Lock(LexicalCacheMutex);
           const auto Generations = GetLexicalGenerationsLocked(Collection);
@@ -1075,7 +1163,8 @@ static std::shared_ptr<const LexicalResourceSnapshot> GetLexicalResourceSnapshot
           const auto It = LexicalResourceEntries.find(Collection);
           if (It != LexicalResourceEntries.end() &&
               It->second->CollectionGeneration == CollectionGeneration &&
-              It->second->GlobalGeneration == GlobalGeneration)
+              It->second->GlobalGeneration == GlobalGeneration &&
+              It->second->ScopePreference == ScopePreference)
           {
                ResourceCacheHits.fetch_add(1, std::memory_order_relaxed);
                return It->second;
@@ -1086,12 +1175,17 @@ static std::shared_ptr<const LexicalResourceSnapshot> GetLexicalResourceSnapshot
      auto Snapshot = std::make_shared<LexicalResourceSnapshot>();
      Snapshot->CollectionGeneration = CollectionGeneration;
      Snapshot->GlobalGeneration = GlobalGeneration;
+     Snapshot->ScopePreference = ScopePreference;
      LoadSynonymGraphForCollection(Collection, Snapshot->SynonymGraph);
      LoadStopwordsForCollection(Collection, Snapshot->Stopwords);
 
      std::unique_lock<std::mutex> Lock(LexicalCacheMutex);
      const auto CurrentGenerations = GetLexicalGenerationsLocked(Collection);
-     if (CurrentGenerations.first != CollectionGeneration || CurrentGenerations.second != GlobalGeneration)
+     const std::string CurrentScopePreference =
+          (Instance && Instance->Config) ? Instance->Config->GetQuerySettingsLexicalScopePreference() : "merge";
+     if (CurrentGenerations.first != CollectionGeneration ||
+         CurrentGenerations.second != GlobalGeneration ||
+         CurrentScopePreference != ScopePreference)
      {
           Lock.unlock();
           return GetLexicalResourceSnapshot(Collection);
@@ -1105,11 +1199,13 @@ static std::string BuildExpansionCacheKey(const std::string &Collection,
                                           bool EnableSynonyms,
                                           bool EnableStopwords,
                                           uint64_t CollectionGeneration,
-                                          uint64_t GlobalGeneration)
+                                          uint64_t GlobalGeneration,
+                                          const std::string &ScopePreference)
 {
      return Collection + "\n" + QueryText + "\n" +
             (EnableSynonyms ? "1" : "0") + (EnableStopwords ? "1" : "0") + "\n" +
-            std::to_string(CollectionGeneration) + "\n" + std::to_string(GlobalGeneration);
+            std::to_string(CollectionGeneration) + "\n" + std::to_string(GlobalGeneration) + "\n" +
+            ScopePreference;
 }
 
 static void PutExpansionCache(const std::string &Key,
@@ -1141,7 +1237,8 @@ static std::vector<std::string> BuildExpandedQueriesFromSynonyms(const std::stri
 
      const auto Snapshot = GetLexicalResourceSnapshot(Collection);
      const std::string CacheKey = BuildExpansionCacheKey(Collection, QueryText, EnableSynonyms, EnableStopwords,
-                                                         Snapshot->CollectionGeneration, Snapshot->GlobalGeneration);
+                                                         Snapshot->CollectionGeneration, Snapshot->GlobalGeneration,
+                                                         Snapshot->ScopePreference);
      {
           std::lock_guard<std::mutex> Lock(LexicalCacheMutex);
           const auto It = ExpansionEntries.find(CacheKey);

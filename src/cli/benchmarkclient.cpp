@@ -1826,6 +1826,24 @@ bool BenchmarkClient::AddSynonym(const std::string &collection, const std::strin
      return response.StatusCode == 200 || response.StatusCode == 201;
 }
 
+/* Adds a global synonym. */
+
+bool BenchmarkClient::AddGlobalSynonym(const std::string &synonym_id, const std::string &root_term, const std::vector<std::string> &synonyms)
+{
+     nlohmann::json synonym_data;
+
+     synonym_data["root"] = root_term;
+     synonym_data["synonyms"] = synonyms;
+
+     std::string json_str = synonym_data.dump();
+
+     std::string encoded_id = UrlEncode(synonym_id);
+
+     HTTPResponse response = MakeRequest("POST", "/synonyms/global/" + encoded_id, json_str, 1, false, 5000);
+
+     return response.StatusCode == 200 || response.StatusCode == 201;
+}
+
 /* Creates or updates an alias. */
 
 bool BenchmarkClient::CreateAlias(const std::string &alias_name, const std::string &collection)
@@ -1857,6 +1875,21 @@ bool BenchmarkClient::AddStopword(const std::string &collection, const std::stri
      std::string encoded_collection = UrlEncode(collection);
 
      HTTPResponse response = MakeRequest("POST", "/collections/" + encoded_collection + "/stopwords", json_str, 1, false, 5000);
+
+     return response.StatusCode == 200 || response.StatusCode == 201;
+}
+
+/* Adds a global stopword. */
+
+bool BenchmarkClient::AddGlobalStopword(const std::string &word)
+{
+     nlohmann::json stopword_data;
+
+     stopword_data["word"] = word;
+
+     std::string json_str = stopword_data.dump();
+
+     HTTPResponse response = MakeRequest("POST", "/stopwords/global", json_str, 1, false, 5000);
 
      return response.StatusCode == 200 || response.StatusCode == 201;
 }

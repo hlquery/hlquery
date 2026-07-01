@@ -1627,6 +1627,7 @@ HttpResponse SearchAPI::HandleSearchConfig(const HttpRequest &Request)
      ConfigJSON["enable_stemming"] = Config->GetQuerySettingsEnableStemming();
      ConfigJSON["enable_synonyms"] = Config->GetQuerySettingsEnableSynonyms();
      ConfigJSON["enable_stopwords"] = Config->GetQuerySettingsEnableStopwords();
+     ConfigJSON["lexical_scope_preference"] = Config->GetQuerySettingsLexicalScopePreference();
      ConfigJSON["enable_fuzzy"] = Config->GetQuerySettingsEnableFuzzy();
      ConfigJSON["fuzzy_max_distance"] = Config->GetQuerySettingsFuzzyMaxDistance();
      ConfigJSON["require_exact_identifier_tokens"] = Config->GetQuerySettingsRequireExactIdentifierTokens();

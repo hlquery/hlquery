@@ -390,16 +390,28 @@ HttpResponse SearchAPI::HandleCreateStopword(const HttpRequest &Request)
                return true;
           };
 
+          const char *WordsArrayKey = nullptr;
           if (StopwordData.contains("words") && StopwordData["words"].is_array())
           {
-               for (const auto &WordVal : StopwordData["words"])
+               WordsArrayKey = "words";
+          }
+          else if (StopwordData.contains("stopwords") && StopwordData["stopwords"].is_array())
+          {
+               WordsArrayKey = "stopwords";
+          }
+
+          if (WordsArrayKey != nullptr)
+          {
+               for (const auto &WordVal : StopwordData[WordsArrayKey])
                {
-                    if (WordVal.is_string())
+                    if (!WordVal.is_string())
                     {
-                         if (!AppendWord(WordVal.get<std::string>()))
-                         {
-                              return HttpResponse(Status::BAD_REQUEST, StatusText(Status::BAD_REQUEST), "application/json");
-                         }
+                         return HttpResponse(Status::BAD_REQUEST, StatusText(Status::BAD_REQUEST), "application/json");
+                    }
+
+                    if (!AppendWord(WordVal.get<std::string>()))
+                    {
+                         return HttpResponse(Status::BAD_REQUEST, StatusText(Status::BAD_REQUEST), "application/json");
                     }
                }
           }

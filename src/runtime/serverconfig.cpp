@@ -1195,6 +1195,28 @@ void ServerConfig::ApplyConfiguration()
 
           QuerySettingsEnableStopwords = QuerySettingsTag->GetBool("enable_stopwords", QuerySettingsEnableStopwords);
 
+          {
+               std::string LexicalScopePreferenceValue = QuerySettingsTag->GetString("lexical_scope_preference", QuerySettingsLexicalScopePreference);
+               std::transform(LexicalScopePreferenceValue.begin(), LexicalScopePreferenceValue.end(), LexicalScopePreferenceValue.begin(),
+                              [](unsigned char C)
+                              {
+                                   return static_cast<char>(std::tolower(C));
+                              });
+
+               if (LexicalScopePreferenceValue == "merge" || LexicalScopePreferenceValue == "local" || LexicalScopePreferenceValue == "global")
+               {
+                    QuerySettingsLexicalScopePreference = LexicalScopePreferenceValue;
+               }
+               else if (!LexicalScopePreferenceValue.empty())
+               {
+                    ConsoleWriter::WriteError("Invalid query_settings lexical_scope_preference specified: '" + LexicalScopePreferenceValue + "'.");
+
+                    ConsoleWriter::WriteError("Valid lexical_scope_preference values are: merge, local, global.");
+
+                    ExitManager::Exit(1);
+               }
+          }
+
           QuerySettingsEnableFuzzy = QuerySettingsTag->GetBool("enable_fuzzy", QuerySettingsEnableFuzzy);
 
           QuerySettingsFuzzyMaxDistance = QuerySettingsTag->GetIntRange("fuzzy_max_distance", QuerySettingsFuzzyMaxDistance, 1, 5);
