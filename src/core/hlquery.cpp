@@ -376,7 +376,6 @@ void hlquery::Run()
           /* Dispatch network events via the socket engine */
 
           DaemonHandler::ProcessSocketEngineOptimization();
-
           SocketEngine::DispatchEvents();
 
           if (CoreHelpers::ShouldExitLoop())
@@ -422,7 +421,6 @@ void hlquery::Run()
           /* Process other recurring server tasks */
 
           CoreHelpers::ProcessPeriodicTasks();
-
           FOREACH_MOD(OnIdleTick, NowTimeVal);
 
           if (CoreHelpers::ShouldExitLoop())

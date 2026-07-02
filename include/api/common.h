@@ -57,9 +57,7 @@ inline HttpResponse BuildErrorResponse(int HttpStatus, int ProtocolCode, const s
      HttpResponse Response(HttpStatus, StatusText(HttpStatus), "application/json");
 
      nlohmann::json ErrorJSON;
-
      const std::string CodeTextVal = CodeText(ProtocolCode);
-
      ErrorJSON["error"] = Error.empty() ? CodeTextVal : Error;
 
      if (!Message.empty())
@@ -68,9 +66,7 @@ inline HttpResponse BuildErrorResponse(int HttpStatus, int ProtocolCode, const s
      }
 
      ErrorJSON["code"] = ProtocolCode;
-
      ErrorJSON["code_text"] = CodeTextVal;
-
      Response.Body = ErrorJSON.dump();
 
      return Response;

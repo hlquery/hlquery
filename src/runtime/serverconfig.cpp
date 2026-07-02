@@ -1012,19 +1012,15 @@ void ServerConfig::ApplyConfiguration()
                else if (!MatchModeValue.empty())
                {
                     ConsoleWriter::WriteError("Invalid search match_mode specified: '" + MatchModeValue + "'.");
-
                     ConsoleWriter::WriteError("Valid match modes are: and, or, min_should_match.");
-
+                    
                     ExitManager::Exit(1);
                }
           }
 
           SearchMinShouldMatch = SearchSettingsTag->GetIntRange("min_should_match", SearchMinShouldMatch, 1, 1000);
-
           SearchCandidatePruneMultiplier = SearchSettingsTag->GetIntRange("candidate_prune_multiplier", SearchCandidatePruneMultiplier, 0, 1000);
-
           HighlightStart = SearchSettingsTag->GetString("highlight_start", HighlightStart);
-
           HighlightEnd = SearchSettingsTag->GetString("highlight_end", HighlightEnd);
      }
 
@@ -1040,22 +1036,19 @@ void ServerConfig::ApplyConfiguration()
      if (RankingParamsTag)
      {
           RankingK1 = RankingParamsTag->GetDoubleRange("k1", RankingK1, 0.1, 10.0);
-
           RankingB = RankingParamsTag->GetDoubleRange("b", RankingB, 0.0, 1.0);
-
           RankingDelta = RankingParamsTag->GetDoubleRange("delta", RankingDelta, 0.0, 10.0);
-
           RankingIDFSmooth = RankingParamsTag->GetDouble("idf_smooth", RankingIDFSmooth);
-
           RankingNormalize = RankingParamsTag->GetBool("normalize", RankingNormalize);
 
           {
                std::string IdfModeValue = RankingParamsTag->GetString("idf_mode", RankingIdfMode);
                std::transform(IdfModeValue.begin(), IdfModeValue.end(), IdfModeValue.begin(),
-                              [](unsigned char C)
-                              {
-                                   return static_cast<char>(std::tolower(C));
-                              });
+               [](unsigned char C)
+               {
+                         return static_cast<char>(std::tolower(C));
+               });
+               
                if (IdfModeValue == "legacy" || IdfModeValue == "smooth")
                {
                     RankingIdfMode = IdfModeValue;
@@ -1063,27 +1056,16 @@ void ServerConfig::ApplyConfiguration()
           }
 
           RankingIdfClampNegative = RankingParamsTag->GetBool("idf_clamp_negative", RankingIdfClampNegative);
-
           RankingIdfFloorFactor = RankingParamsTag->GetDoubleRange("idf_floor_factor", RankingIdfFloorFactor, 0.0, 1.0);
-
           RankingBM25Weight = RankingParamsTag->GetDoubleRange("bm25_weight", RankingBM25Weight, 0.0, 1.0);
-
           RankingTFIDFWeight = RankingParamsTag->GetDoubleRange("tfidf_weight", RankingTFIDFWeight, 0.0, 1.0);
-
           UrlTokenBoost = RankingParamsTag->GetDoubleRange("url_token_boost", UrlTokenBoost, 0.5, 5.0);
-
           UrlTldWeight = RankingParamsTag->GetDoubleRange("url_tld_weight", UrlTldWeight, 0.0, 1.0);
-
           TitleLikeBoost = RankingParamsTag->GetDoubleRange("title_like_boost", TitleLikeBoost, 0.5, 5.0);
-
           TagLikeBoost = RankingParamsTag->GetDoubleRange("tag_like_boost", TagLikeBoost, 0.5, 3.0);
-
           ExactMatchBoost = RankingParamsTag->GetDoubleRange("exact_match_boost", ExactMatchBoost, 0.5, 5.0);
-
           TitleExactBoost = RankingParamsTag->GetDoubleRange("title_exact_boost", TitleExactBoost, 0.5, 10.0);
-
           ProximityBoostScale = RankingParamsTag->GetDoubleRange("proximity_boost_scale", ProximityBoostScale, 0.1, 5.0);
-
           ProximityBoostMax = RankingParamsTag->GetDoubleRange("proximity_boost_max", ProximityBoostMax, 1.0, 10.0);
 
           if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
@@ -1101,10 +1083,11 @@ void ServerConfig::ApplyConfiguration()
           {
                std::string MergeMethodValue = HybridMergeTag->GetString("method", HybridMergeMethod);
                std::transform(MergeMethodValue.begin(), MergeMethodValue.end(), MergeMethodValue.begin(),
-                              [](unsigned char C)
-                              {
-                                   return static_cast<char>(std::tolower(C));
-                              });
+               [](unsigned char C)
+               {
+                       return static_cast<char>(std::tolower(C));
+               });
+               
                if (MergeMethodValue == "linear" || MergeMethodValue == "rrf")
                {
                     HybridMergeMethod = MergeMethodValue;
@@ -2304,12 +2287,14 @@ bool ServerConfig::RemoveClusterNode(const std::string &Endpoint, std::string *O
 {
      std::string Error;
      std::string Normalized = NormalizeClusterEndpoint(Endpoint, &Error);
+
      if (Normalized.empty())
      {
           if (OutError)
           {
                *OutError = Error.empty() ? "Invalid endpoint" : Error;
           }
+          
           return false;
      }
 
@@ -2326,6 +2311,7 @@ bool ServerConfig::RemoveClusterNode(const std::string &Endpoint, std::string *O
                Removed = true;
                continue;
           }
+
           Remaining.push_back(Existing);
      }
 
@@ -2333,6 +2319,7 @@ bool ServerConfig::RemoveClusterNode(const std::string &Endpoint, std::string *O
      {
           ClusterNodes.swap(Remaining);
           ClusterPeerTokens.erase(Normalized);
+
           if (ClusterNodes.empty())
           {
                ClusterEnabled = false;
@@ -2373,10 +2360,12 @@ bool ServerConfig::GetClusterPeerTokens(const std::string &Endpoint,
      {
           *OutPrimaryToken = It->second.first;
      }
+
      if (OutSecondaryToken)
      {
           *OutSecondaryToken = It->second.second;
      }
+
      return true;
 }
 
