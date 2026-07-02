@@ -669,6 +669,16 @@ HttpResponse SearchAPI::HandleDeleteStopword(const HttpRequest &Request)
 
      WordStr = DecodedWord;
 
+     if (Instance && Instance->Modules)
+     {
+          ModulePreCheckResult PreCheck = RUN_MODULE_PRECHECK(OnPreDeleteStopword, CollectionName, WordStr, IsGlobalScope, Request.RemoteAddress, Request.APIKeyID, !Request.APIKeyID.empty());
+
+          if (PreCheck.Action == ModulePreCheckAction::Deny)
+          {
+               return BuildErrorResponse(PreCheck.HttpStatus, PreCheck.ProtocolCode, PreCheck.Message, PreCheck.Details);
+          }
+     }
+
      if (!IsGlobalScope)
      {
           std::vector<std::string> CollectionsList = HybridStorageManagerInstance().ListCollections();
@@ -695,16 +705,6 @@ HttpResponse SearchAPI::HandleDeleteStopword(const HttpRequest &Request)
 
      try
      {
-          if (Instance && Instance->Modules)
-          {
-               ModulePreCheckResult PreCheck = RUN_MODULE_PRECHECK(OnPreDeleteStopword, CollectionName, WordStr, IsGlobalScope, Request.RemoteAddress, Request.APIKeyID, !Request.APIKeyID.empty());
-
-               if (PreCheck.Action == ModulePreCheckAction::Deny)
-               {
-                    return BuildErrorResponse(PreCheck.HttpStatus, PreCheck.ProtocolCode, PreCheck.Message, PreCheck.Details);
-               }
-          }
-
           nlohmann::json RootObj = nlohmann::json::parse(StopwordsJSON);
 
           if (RootObj.is_array())
