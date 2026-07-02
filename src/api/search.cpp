@@ -2282,14 +2282,14 @@ HttpResponse SearchAPI::HandleGlobalSearch(const HttpRequest &Request)
 
           if (!Request.APIKeyID.empty())
           {
-               auto *KeyObj = APIKeyManager::Instance().GetKey(Request.APIKeyID);
-               if (KeyObj)
+               APIKey KeyObj;
+               if (APIKeyManager::Instance().GetKey(Request.APIKeyID, &KeyObj))
                {
-                    if (!KeyObj->CanAccessCollection(CollectionName) || !KeyObj->HasAction(CollectionName, APIKeyAction::SEARCH))
+                    if (!KeyObj.CanAccessCollection(CollectionName) || !KeyObj.HasAction(CollectionName, APIKeyAction::SEARCH))
                     {
                          continue;
                     }
-                    FiltersToApply = KeyObj->GetEmbeddedFilters(CollectionName);
+                    FiltersToApply = KeyObj.GetEmbeddedFilters(CollectionName);
                }
           }
 
@@ -2542,11 +2542,11 @@ HttpResponse SearchAPI::HandleMultiSearch(const HttpRequest &Request)
 
           if (!Request.APIKeyID.empty())
           {
-               auto *KeyObj = APIKeyManager::Instance().GetKey(Request.APIKeyID);
+               APIKey KeyObj;
 
-               if (KeyObj)
+               if (APIKeyManager::Instance().GetKey(Request.APIKeyID, &KeyObj))
                {
-                    if (!KeyObj->CanAccessCollection(Col) || !KeyObj->HasAction(Col, APIKeyAction::SEARCH))
+                    if (!KeyObj.CanAccessCollection(Col) || !KeyObj.HasAction(Col, APIKeyAction::SEARCH))
                     {
                          nlohmann::json err;
                          err["error"] = "Access to collection '" + Col + "' not allowed for this key";
@@ -2555,7 +2555,7 @@ HttpResponse SearchAPI::HandleMultiSearch(const HttpRequest &Request)
                          continue;
                     }
 
-                    FiltersToApply = KeyObj->GetEmbeddedFilters(Col);
+                    FiltersToApply = KeyObj.GetEmbeddedFilters(Col);
                }
                else
                {

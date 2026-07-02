@@ -701,7 +701,6 @@ void IPFilter::FlushDNSCache()
      if (HasDenyHostnames && !DeniedRegularHostnames.empty())
      {
           std::lock_guard<std::mutex> Lock(MutexValue);
-
           DeniedIPs = DeniedDirectIPs;
 
           for (const auto &Hostname : DeniedRegularHostnames)
@@ -1023,7 +1022,6 @@ std::string IPFilter::ReverseDNS(const std::string &IP) const
 
      {
           std::lock_guard<std::mutex> CacheLock(CacheMutex);
-
           auto It = ReverseDNSCache.find(IP);
 
           if (It != ReverseDNSCache.end())

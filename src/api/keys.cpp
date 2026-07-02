@@ -12,6 +12,7 @@
 
 #include <chrono>
 #include <regex>
+#include <stdexcept>
 
 #include "api/apikeys.h"
 #include "api/searchapi.h"
@@ -67,56 +68,87 @@ static std::string ActionToString(APIKeyAction Action)
 
 /* Helper to convert string to APIKeyAction. */
 
-static APIKeyAction StringToAction(const std::string &S)
+static bool StringToAction(const std::string &S, APIKeyAction &OutAction)
 {
      if (S == "search")
      {
-          return APIKeyAction::SEARCH;
+          OutAction = APIKeyAction::SEARCH;
+          return true;
      }
 
      if (S == "create")
      {
-          return APIKeyAction::CREATE;
+          OutAction = APIKeyAction::CREATE;
+          return true;
      }
 
      if (S == "update")
      {
-          return APIKeyAction::UPDATE;
+          OutAction = APIKeyAction::UPDATE;
+          return true;
      }
 
      if (S == "delete")
      {
-          return APIKeyAction::DELETE;
+          OutAction = APIKeyAction::DELETE;
+          return true;
      }
 
      if (S == "collections_list")
      {
-          return APIKeyAction::COLLECTIONS_LIST;
+          OutAction = APIKeyAction::COLLECTIONS_LIST;
+          return true;
      }
 
      if (S == "collections_create")
      {
-          return APIKeyAction::COLLECTIONS_CREATE;
+          OutAction = APIKeyAction::COLLECTIONS_CREATE;
+          return true;
      }
 
      if (S == "collections_delete")
      {
-          return APIKeyAction::COLLECTIONS_DELETE;
+          OutAction = APIKeyAction::COLLECTIONS_DELETE;
+          return true;
      }
 
      if (S == "import")
      {
-          return APIKeyAction::IMPORT;
+          OutAction = APIKeyAction::IMPORT;
+          return true;
      }
 
      if (S == "*" || S == "all")
      {
-          return APIKeyAction::ALL;
+          OutAction = APIKeyAction::ALL;
+          return true;
      }
 
-     /* Default action fallback. */
+     return false;
+}
 
-     return APIKeyAction::SEARCH;
+static APIKeyAction ParseActionOrThrow(const std::string &S)
+{
+     APIKeyAction Action;
+
+     if (!StringToAction(S, Action))
+     {
+          throw std::invalid_argument("Invalid API key action: " + S);
+     }
+
+     return Action;
+}
+
+static int ParseRateLimitOrThrow(const json &Body)
+{
+     int RateLimit = Body["rate_limit_per_minute"];
+
+     if (RateLimit <= 0)
+     {
+          throw std::invalid_argument("rate_limit_per_minute must be greater than 0");
+     }
+
+     return RateLimit;
 }
 
 /* HandleListKeys lists all API keys. */
@@ -193,7 +225,7 @@ HttpResponse SearchAPI::HandleCreateKey(const HttpRequest &Request)
 
           if (Body.contains("rate_limit_per_minute"))
           {
-               KeySpec.RateLimitPerMinute = Body["rate_limit_per_minute"];
+               KeySpec.RateLimitPerMinute = ParseRateLimitOrThrow(Body);
           }
 
           if (Body.contains("allow_hanalyzer"))
@@ -211,7 +243,7 @@ HttpResponse SearchAPI::HandleCreateKey(const HttpRequest &Request)
                     {
                          for (const auto &ActionStr : ScopeJSON["actions"])
                          {
-                              Scope.Actions.insert(StringToAction(ActionStr.get<std::string>()));
+                              Scope.Actions.insert(ParseActionOrThrow(ActionStr.get<std::string>()));
                          }
                     }
 
@@ -240,7 +272,7 @@ HttpResponse SearchAPI::HandleCreateKey(const HttpRequest &Request)
                {
                     for (const auto &ActionStr : Body["actions"])
                     {
-                         Actions.insert(StringToAction(ActionStr.get<std::string>()));
+                         Actions.insert(ParseActionOrThrow(ActionStr.get<std::string>()));
                     }
                }
 
@@ -251,6 +283,13 @@ HttpResponse SearchAPI::HandleCreateKey(const HttpRequest &Request)
           }
 
           std::string RawKey = APIKeyManager::Instance().CreateKey(KeySpec);
+
+          if (RawKey.empty())
+          {
+               HttpResponse Resp(500, "Internal Server Error", "application/json");
+               Resp.Body = GenerateErrorResponse("Failed to persist API key");
+               return Resp;
+          }
 
           json Response;
           Response["key"] = RawKey;
@@ -280,20 +319,20 @@ HttpResponse SearchAPI::HandleGetKey(const HttpRequest &Request)
 {
      std::string KeyID = ExtractKeyIDFromPath(Request.Path);
 
-     auto *Key = APIKeyManager::Instance().GetKey(KeyID);
+     APIKey Key;
 
-     if (!Key)
+     if (!APIKeyManager::Instance().GetKey(KeyID, &Key))
      {
           return HttpResponse(404, "Not Found", GenerateErrorResponse("Key not found"));
      }
 
      json KeyJSON;
-     KeyJSON["id"] = Key->ID;
-     KeyJSON["description"] = Key->Description;
+     KeyJSON["id"] = Key.ID;
+     KeyJSON["description"] = Key.Description;
 
      json Scopes = json::object();
 
-     for (const auto &ScopePair : Key->Scopes)
+     for (const auto &ScopePair : Key.Scopes)
      {
           json ScopeJSON;
           json Actions = json::array();
@@ -309,11 +348,11 @@ HttpResponse SearchAPI::HandleGetKey(const HttpRequest &Request)
      }
 
      KeyJSON["scopes"] = Scopes;
-     KeyJSON["rate_limit_per_minute"] = Key->RateLimitPerMinute;
-     KeyJSON["allow_hanalyzer"] = Key->AllowHanalyzer;
-     KeyJSON["use_count"] = Key->UseCount;
-     KeyJSON["last_used_at"] = std::chrono::system_clock::to_time_t(Key->LastUsedAt);
-     KeyJSON["created_at"] = std::chrono::system_clock::to_time_t(Key->CreatedAt);
+     KeyJSON["rate_limit_per_minute"] = Key.RateLimitPerMinute;
+     KeyJSON["allow_hanalyzer"] = Key.AllowHanalyzer;
+     KeyJSON["use_count"] = Key.UseCount;
+     KeyJSON["last_used_at"] = std::chrono::system_clock::to_time_t(Key.LastUsedAt);
+     KeyJSON["created_at"] = std::chrono::system_clock::to_time_t(Key.CreatedAt);
 
      HttpResponse Resp(200, "OK", "application/json");
      Resp.Body = KeyJSON.dump();
@@ -336,6 +375,15 @@ HttpResponse SearchAPI::HandleDeleteKey(const HttpRequest &Request)
           }
      }
 
+     APIKey Existing;
+
+     if (!APIKeyManager::Instance().GetKey(KeyID, &Existing))
+     {
+          HttpResponse Resp(404, "Not Found", "application/json");
+          Resp.Body = GenerateErrorResponse("Key not found");
+          return Resp;
+     }
+
      if (APIKeyManager::Instance().DeleteKey(KeyID))
      {
           json Response;
@@ -347,8 +395,8 @@ HttpResponse SearchAPI::HandleDeleteKey(const HttpRequest &Request)
           return Resp;
      }
 
-     HttpResponse Resp(404, "Not Found", "application/json");
-     Resp.Body = GenerateErrorResponse("Key not found");
+     HttpResponse Resp(500, "Internal Server Error", "application/json");
+     Resp.Body = GenerateErrorResponse("Failed to delete key");
      return Resp;
 }
 
@@ -372,14 +420,14 @@ HttpResponse SearchAPI::HandleUpdateKey(const HttpRequest &Request)
                }
           }
 
-          auto *Existing = APIKeyManager::Instance().GetKey(KeyID);
+          APIKey Existing;
 
-          if (!Existing)
+          if (!APIKeyManager::Instance().GetKey(KeyID, &Existing))
           {
                return HttpResponse(404, "Not Found", GenerateErrorResponse("Key not found"));
           }
 
-          APIKey KeySpec = *Existing;
+          APIKey KeySpec = Existing;
 
           if (Body.contains("description"))
           {
@@ -388,7 +436,7 @@ HttpResponse SearchAPI::HandleUpdateKey(const HttpRequest &Request)
 
           if (Body.contains("rate_limit_per_minute"))
           {
-               KeySpec.RateLimitPerMinute = Body["rate_limit_per_minute"];
+               KeySpec.RateLimitPerMinute = ParseRateLimitOrThrow(Body);
           }
 
           if (Body.contains("allow_hanalyzer"))
@@ -408,7 +456,7 @@ HttpResponse SearchAPI::HandleUpdateKey(const HttpRequest &Request)
                     {
                          for (const auto &ActionStr : ScopeJSON["actions"])
                          {
-                              Scope.Actions.insert(StringToAction(ActionStr.get<std::string>()));
+                              Scope.Actions.insert(ParseActionOrThrow(ActionStr.get<std::string>()));
                          }
                     }
 
@@ -432,7 +480,7 @@ HttpResponse SearchAPI::HandleUpdateKey(const HttpRequest &Request)
                {
                     for (const auto &ActionStr : Body["actions"])
                     {
-                         Actions.insert(StringToAction(ActionStr.get<std::string>()));
+                         Actions.insert(ParseActionOrThrow(ActionStr.get<std::string>()));
                     }
                     actions_provided = true;
                }

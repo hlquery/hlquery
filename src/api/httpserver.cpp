@@ -272,9 +272,9 @@ static bool AuthorizeHttpRequest(HttpRequest &Request, HttpResponse &Response)
           return false;
      }
 
-     auto *KeyObj = APIKeyManager::Instance().ValidateKey(AuthToken);
+     APIKey KeyObj;
 
-     if (!KeyObj)
+     if (!APIKeyManager::Instance().ValidateKey(AuthToken, &KeyObj))
      {
           AuthResult AuthResultVal = AuthManager.AuthenticateRequest(AuthHeader);
 
@@ -2296,11 +2296,11 @@ void HttpConnection::ProcessSingleRequest(const std::string &RequestStr)
           Instance->Logs->Debug("http_server", "ProcessSingleRequest: route_resolved=" + std::string(RouteActionName(ActionVal)) + ", method=" + Request.Method + ", path=" + Request.Path + ", version=" + Request.Version + ", requests_processed_total=" + std::to_string(RequestsProcessed) + ".");
      }
 
-     auto *KeyObj = APIKeyManager::Instance().ValidateKey(TokenVal);
+     APIKey KeyObj;
 
-     if (KeyObj)
+     if (APIKeyManager::Instance().ValidateKey(TokenVal, &KeyObj))
      {
-          if (!APIKeyManager::Instance().CheckRateLimit(KeyObj->ID))
+          if (!APIKeyManager::Instance().CheckRateLimit(KeyObj.ID))
           {
                Response = HttpResponse(429, "Too Many Requests", "application/json");
                Response.Body = "{\"error\":\"Rate limit exceeded\"}";
@@ -2323,20 +2323,20 @@ void HttpConnection::ProcessSingleRequest(const std::string &RequestStr)
                {
                     /* System-wide endpoint (e.g. /stats, /health, etc.) - check for wildcard scope. */
 
-                    if (!KeyObj->CanAccessCollection("*"))
+                    if (!KeyObj.CanAccessCollection("*"))
                     {
                          Response = HttpResponse(403, "Forbidden", "application/json");
                          Response.Body = "{\"error\":\"Access to system endpoints not allowed for this key\"}";
-                         LogAccessControl("Forbidden: key '" + KeyObj->ID + "' cannot access system endpoints", Request);
+                         LogAccessControl("Forbidden: key '" + KeyObj.ID + "' cannot access system endpoints", Request);
                          SendResponse(Response);
                          return;
                     }
 
-                    if (!KeyObj->HasAction("*", ReqAction))
+                    if (!KeyObj.HasAction("*", ReqAction))
                     {
                          Response = HttpResponse(403, "Forbidden", "application/json");
                          Response.Body = "{\"error\":\"Action not allowed for system endpoints with this key\"}";
-                         LogAccessControl("Forbidden: key '" + KeyObj->ID + "' action not allowed for system endpoints", Request);
+                         LogAccessControl("Forbidden: key '" + KeyObj.ID + "' action not allowed for system endpoints", Request);
                          SendResponse(Response);
                          return;
                     }
@@ -2346,7 +2346,7 @@ void HttpConnection::ProcessSingleRequest(const std::string &RequestStr)
           }
           else if (!Context.IsPublic)
           {
-               if (!KeyObj->CanAccessCollection(ColNameVal))
+               if (!KeyObj.CanAccessCollection(ColNameVal))
                {
                     Response = HttpResponse(403, "Forbidden", "application/json");
 
@@ -2355,24 +2355,24 @@ void HttpConnection::ProcessSingleRequest(const std::string &RequestStr)
                     ErrorJSON["collection"] = ColNameVal;
                     Response.Body = ErrorJSON.dump();
 
-                    LogAccessControl("Forbidden: key '" + KeyObj->ID + "' cannot access collection '" + ColNameVal + "'", Request);
+                    LogAccessControl("Forbidden: key '" + KeyObj.ID + "' cannot access collection '" + ColNameVal + "'", Request);
                     SendResponse(Response);
                     return;
                }
 
-               if (!KeyObj->HasAction(ColNameVal, ReqAction))
+               if (!KeyObj.HasAction(ColNameVal, ReqAction))
                {
                     Response = HttpResponse(403, "Forbidden", "application/json");
                     Response.Body = "{\"error\":\"Action not allowed for this collection with this key\"}";
-                    LogAccessControl("Forbidden: key '" + KeyObj->ID + "' action not allowed for collection '" + ColNameVal + "'", Request);
+                    LogAccessControl("Forbidden: key '" + KeyObj.ID + "' action not allowed for collection '" + ColNameVal + "'", Request);
                     SendResponse(Response);
                     return;
                }
           }
 
-          APIKeyManager::Instance().UpdateLastUsed(KeyObj->ID);
-          KeyIDVal = KeyObj->ID;
-          KeyEmbeddedFilters = KeyObj->GetEmbeddedFilters(ColNameVal);
+          APIKeyManager::Instance().UpdateLastUsed(KeyObj.ID);
+          KeyIDVal = KeyObj.ID;
+          KeyEmbeddedFilters = KeyObj.GetEmbeddedFilters(ColNameVal);
           IsAdminVal = false;
           AuthenticatedRequest = true;
      }
@@ -5107,11 +5107,11 @@ HttpResponse ProcessRequestWithAPI(SearchAPI &API, const HttpRequest &Request)
 
           if (!IsAdminVal && !Context.IsPublic)
           {
-               auto *KeyObj = APIKeyManager::Instance().ValidateKey(TokenVal);
+               APIKey KeyObj;
 
-               if (KeyObj)
+               if (APIKeyManager::Instance().ValidateKey(TokenVal, &KeyObj))
                {
-                    if (!APIKeyManager::Instance().CheckRateLimit(KeyObj->ID))
+                    if (!APIKeyManager::Instance().CheckRateLimit(KeyObj.ID))
                     {
                          return HttpResponse(429, "Too Many Requests", "{\"error\":\"Rate limit exceeded\"}");
                     }
@@ -5131,15 +5131,15 @@ HttpResponse ProcessRequestWithAPI(SearchAPI &API, const HttpRequest &Request)
                          {
                               /* System-wide endpoint (e.g. /stats, /health, etc.) - check for wildcard scope. */
 
-                              if (!KeyObj->CanAccessCollection("*"))
+                              if (!KeyObj.CanAccessCollection("*"))
                               {
-                                   LogAccessControl("Forbidden: key '" + KeyObj->ID + "' cannot access system endpoints", Request);
+                                   LogAccessControl("Forbidden: key '" + KeyObj.ID + "' cannot access system endpoints", Request);
                                    return HttpResponse(403, "Forbidden", "{\"error\":\"Access to system endpoints not allowed for this key\"}");
                               }
 
-                              if (!KeyObj->HasAction("*", ReqAction))
+                              if (!KeyObj.HasAction("*", ReqAction))
                               {
-                                   LogAccessControl("Forbidden: key '" + KeyObj->ID + "' action not allowed for system endpoints", Request);
+                                   LogAccessControl("Forbidden: key '" + KeyObj.ID + "' action not allowed for system endpoints", Request);
                                    return HttpResponse(403, "Forbidden", "{\"error\":\"Action not allowed for system endpoints with this key\"}");
                               }
 
@@ -5148,26 +5148,26 @@ HttpResponse ProcessRequestWithAPI(SearchAPI &API, const HttpRequest &Request)
                     }
                     else
                     {
-                         if (!KeyObj->CanAccessCollection(ColNameVal))
+                         if (!KeyObj.CanAccessCollection(ColNameVal))
                          {
-                              LogAccessControl("Forbidden: key '" + KeyObj->ID + "' cannot access collection '" + ColNameVal + "'", Request);
+                              LogAccessControl("Forbidden: key '" + KeyObj.ID + "' cannot access collection '" + ColNameVal + "'", Request);
                               return HttpResponse(403, "Forbidden", "{\"error\":\"Access to collection '" + ColNameVal + "' not allowed for this key\"}");
                          }
 
-                         if (!KeyObj->HasAction(ColNameVal, ReqAction))
+                         if (!KeyObj.HasAction(ColNameVal, ReqAction))
                          {
-                              LogAccessControl("Forbidden: key '" + KeyObj->ID + "' action not allowed for collection '" + ColNameVal + "'", Request);
+                              LogAccessControl("Forbidden: key '" + KeyObj.ID + "' action not allowed for collection '" + ColNameVal + "'", Request);
                               return HttpResponse(403, "Forbidden", "{\"error\":\"Action not allowed for this collection with this key\"}");
                          }
                     }
 
-                    APIKeyManager::Instance().UpdateLastUsed(KeyObj->ID);
+                    APIKeyManager::Instance().UpdateLastUsed(KeyObj.ID);
 
                     /* Scoped search: inject key metadata into request. */
 
                     HttpRequest &ModRequest = const_cast<HttpRequest &>(Request);
-                    ModRequest.APIKeyID = KeyObj->ID;
-                    ModRequest.EmbeddedFilters = KeyObj->GetEmbeddedFilters(ColNameVal);
+                    ModRequest.APIKeyID = KeyObj.ID;
+                    ModRequest.EmbeddedFilters = KeyObj.GetEmbeddedFilters(ColNameVal);
                }
                else if (Instance && Instance->Users && Instance->Users->IsAuthEnabled())
                {

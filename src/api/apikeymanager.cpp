@@ -158,14 +158,26 @@ std::string APIKeyManager::CreateKey(APIKey &KeySpec)
 
      Lock.unlock();
 
-     SaveKeysToEncryptedFile(KeysDat);
+     if (!SaveKeysToEncryptedFile(KeysDat))
+     {
+          std::unique_lock<std::shared_mutex> RollbackLock(MutexValue);
+          auto It = Keys.find(NewKey.ID);
+
+          if (It != Keys.end() && It->second.KeyHash == Hashed)
+          {
+               Keys.erase(It);
+               HashToID.erase(Hashed);
+          }
+
+          return "";
+     }
 
      return RawKey;
 }
 
 /* Get key by ID. */
 
-APIKey *APIKeyManager::GetKey(const std::string &KeyID)
+bool APIKeyManager::GetKey(const std::string &KeyID, APIKey *OutKey)
 {
      std::shared_lock<std::shared_mutex> Lock(MutexValue);
 
@@ -173,15 +185,20 @@ APIKey *APIKeyManager::GetKey(const std::string &KeyID)
 
      if (It != Keys.end())
      {
-          return &It->second;
+          if (OutKey)
+          {
+               *OutKey = It->second;
+          }
+
+          return true;
      }
 
-     return nullptr;
+     return false;
 }
 
 /* Validate a key string. */
 
-APIKey *APIKeyManager::ValidateKey(const std::string &KeyString)
+bool APIKeyManager::ValidateKey(const std::string &KeyString, APIKey *OutKey)
 {
      std::string Hashed = HashKey(KeyString);
 
@@ -195,22 +212,27 @@ APIKey *APIKeyManager::ValidateKey(const std::string &KeyString)
 
      if (ItHash == HashToID.end())
      {
-          return nullptr;
+          return false;
      }
 
      auto ItKey = Keys.find(ItHash->second);
 
      if (ItKey == Keys.end())
      {
-          return nullptr;
+          return false;
      }
 
      if (ItKey->second.IsExpired())
      {
-          return nullptr;
+          return false;
      }
 
-     return &ItKey->second;
+     if (OutKey)
+     {
+          *OutKey = ItKey->second;
+     }
+
+     return true;
 }
 
 /* List all keys. */
@@ -239,14 +261,23 @@ bool APIKeyManager::DeleteKey(const std::string &KeyID)
 
      if (It != Keys.end())
      {
-          HashToID.erase(It->second.KeyHash);
+          APIKey Previous = It->second;
+
+          HashToID.erase(Previous.KeyHash);
           Keys.erase(It);
 
           std::string KeysDat = std::string(HLQUERY_ADMIN_DIR) + "/keys.dat";
 
           Lock.unlock();
 
-          SaveKeysToEncryptedFile(KeysDat);
+          if (!SaveKeysToEncryptedFile(KeysDat))
+          {
+               std::unique_lock<std::shared_mutex> RollbackLock(MutexValue);
+               Keys[Previous.ID] = Previous;
+               HashToID[Previous.KeyHash] = Previous.ID;
+
+               return false;
+          }
 
           return true;
      }
@@ -267,6 +298,8 @@ bool APIKeyManager::UpdateKey(const std::string &KeyID, const APIKey &KeySpec)
           return false;
      }
 
+     APIKey Previous = It->second;
+
      /* Update allowed fields. */
 
      It->second.Description = KeySpec.Description;
@@ -280,7 +313,14 @@ bool APIKeyManager::UpdateKey(const std::string &KeyID, const APIKey &KeySpec)
 
      Lock.unlock();
 
-     SaveKeysToEncryptedFile(KeysDat);
+     if (!SaveKeysToEncryptedFile(KeysDat))
+     {
+          std::unique_lock<std::shared_mutex> RollbackLock(MutexValue);
+          Keys[KeyID] = Previous;
+          HashToID[Previous.KeyHash] = KeyID;
+
+          return false;
+     }
 
      return true;
 }
@@ -316,6 +356,11 @@ bool APIKeyManager::CheckRateLimit(const std::string &KeyID)
      }
 
      int Limit = ItKey->second.RateLimitPerMinute;
+
+     if (Limit <= 0)
+     {
+          Limit = 1000;
+     }
 
      Lock.unlock();
 
@@ -623,6 +668,11 @@ bool APIKeyManager::LoadKeysFromEncryptedFile(const std::string &FilePath)
           if (!ReadValue(KeyObj.RateLimitPerMinute))
           {
                return false;
+          }
+
+          if (KeyObj.RateLimitPerMinute <= 0)
+          {
+               KeyObj.RateLimitPerMinute = 1000;
           }
 
           if (!ReadValue(KeyObj.AllowHanalyzer))
