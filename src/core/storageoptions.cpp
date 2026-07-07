@@ -263,6 +263,7 @@ RocksDBOptions RocksDBOptions::LoadFromConfigReader(const ConfigReader &ReaderIn
      {
           OptionsResult.SegmentedStorageEnabled = StorageSettingsTag->GetBool("segmented", OptionsResult.SegmentedStorageEnabled);
           OptionsResult.SegmentMaxBytes = StorageSettingsTag->GetSize("segment_max_bytes", OptionsResult.SegmentMaxBytes);
+          OptionsResult.SegmentMaxBytes = StorageSettingsTag->GetSize("max_size", OptionsResult.SegmentMaxBytes);
           OptionsResult.SegmentMaxDocs = StorageSettingsTag->GetSize("segment_max_docs", OptionsResult.SegmentMaxDocs);
           OptionsResult.SegmentMergeEnabled = StorageSettingsTag->GetBool("segment_merge_enabled", OptionsResult.SegmentMergeEnabled);
           OptionsResult.SegmentMergeMinCount = StorageSettingsTag->GetSize("segment_merge_min_count", OptionsResult.SegmentMergeMinCount);

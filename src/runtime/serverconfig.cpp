@@ -1915,7 +1915,10 @@ void ServerConfig::ApplyConfiguration()
                     SlavePeerTokens[Normalized] = Tokens;
                }
           }
+     }
 
+     if (!SlaveNodes.empty())
+     {
           std::sort(SlaveNodes.begin(), SlaveNodes.end());
           SlaveNodes.erase(std::unique(SlaveNodes.begin(), SlaveNodes.end()), SlaveNodes.end());
      }
