@@ -2060,8 +2060,11 @@ const RocksDBOptions &ServerConfig::GetRocksDBOptions() const
                     if (Valid && ConfigReaderValue.IsValid())
                     {
                          auto LSMSettingsTag = ConfigReaderValue.GetTag("lsm");
+                         auto DatabaseSettingsTag = ConfigReaderValue.GetTag("database");
+                         auto RocksDBSettingsTag = ConfigReaderValue.GetTag("rocksdb");
+                         auto StorageSettingsTag = ConfigReaderValue.GetTag("storage");
 
-                         if (LSMSettingsTag)
+                         if (LSMSettingsTag || DatabaseSettingsTag || RocksDBSettingsTag || StorageSettingsTag)
                          {
                               RocksDBOptionsValue = std::make_unique<RocksDBOptions>(
                                    RocksDBOptions::LoadFromConfigReader(ConfigReaderValue));

@@ -760,7 +760,6 @@ void IPFilter::SetDNSCacheMaxSize(size_t MaxSize)
      }
 
      std::lock_guard<std::mutex> CacheLock(CacheMutex);
-
      DNSCacheMaxSize = MaxSize;
 
      if (DNSCache.size() > DNSCacheMaxSize)

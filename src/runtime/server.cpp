@@ -272,6 +272,7 @@ void DaemonHandler::ProcessLazyOperations()
      }
 
      const bool HasPendingSocketWork = SocketEngine::HasPendingWork();
+ 
      DaemonPressureSnapshot PressureSnapshot = BuildDaemonPressureSnapshot(HasPendingSocketWork);
      StageRuns[StageQueryPressure].fetch_add(1, std::memory_order_relaxed);
      PressureScore.store(PressureSnapshot.PressureScoreValue, std::memory_order_relaxed);
@@ -289,6 +290,7 @@ void DaemonHandler::ProcessLazyOperations()
           StageDeferrals[StageStorageHealth].fetch_add(1, std::memory_order_relaxed);
           StageDeferrals[StageCompactionPressure].fetch_add(1, std::memory_order_relaxed);
           StageLastRuntimeUS[StageLazyMaintenance].store(RuntimeUSSince(StageStartedAt), std::memory_order_relaxed);
+
           return;
      }
 

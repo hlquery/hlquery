@@ -18,7 +18,7 @@
 
 </div>
 
-> You can explore the live demo at [demo.hlquery.com](https://demo.hlquery.com/).
+> Our demo platform is powered by hlquery. You can explore the live demo at [demo.hlquery.com](https://demo.hlquery.com/).
 > Demo mode is powered by [m_demo.cpp](https://github.com/hlquery/hlquery/blob/unstable/src/modules/m_demo.cpp), so insert, delete, and update operations are disabled.
 > The demo UI is built with [hanalyzer](https://github.com/hlquery/hanalyzer).
 
@@ -217,10 +217,10 @@ const documents = client.documents(); // Use the documents service for document 
 /* Send POST /collections/products/documents with the product payload. */
 
 const response = await documents.add('products', {
-  id: 'prod_laptop_001', // Unique document id used by later reads and updates.
-  title: 'Laptop Computer', // Searchable title field.
-  content: 'High-performance laptop with 16GB RAM', // Main body text to index.
-  price: 1299.99 // Numeric field for filtering and sorting.
+  id: 'prod_laptop_001', 
+  title: 'Laptop Computer', 
+  content: 'High-performance laptop with 16GB RAM', 
+  price: 1299.99 
 }); 
 
 /* Inspect the JSON body returned by the API. */
@@ -281,6 +281,52 @@ $ ./run/hlquery cli search products "!apple"
 # Combined queries
 $ ./run/hlquery cli search products "title:laptop AND price:[100 TO 500]"
 ```
+
+### Links, Distributed Search, and Replication
+
+hlquery supports linking two or more servers together. Links are configured in `links.conf` with `<node ...>` entries and can be used for distributed queries, write replication, or both by listing the same remote endpoint with the role needed for each purpose.
+
+Distributed search fans a query out to linked search nodes and merges the results. Use `role="distributed"` for query peers and enable `<distributed_search ...>`:
+
+```text
+<node
+     host="127.0.0.1"
+     port="9201"
+     role="distributed"
+     passwd="shared-secret">
+
+<distributed_search
+     enabled="true"
+     mode="local_first"
+     prefer_local="true"
+     timeout_ms="250">
+```
+
+Then force distributed execution per request when needed:
+
+```bash
+curl "http://localhost:9200/collections/products/documents/search?q=laptop&distributed=on"
+curl -X POST "http://localhost:9200/multi_search?distributed=on" \
+  -H "Content-Type: application/json" \
+  -d '{"searches":[{"collection":"products","q":"laptop"}]}'
+```
+
+Replication ships writes from a primary server to replica nodes. Use `role="replica"` or `role="slave"` for replication targets, enable `<replication ...>` on the primary, and mark replica instances with `<replica enabled="true" allow_writes="false">` when they should reject normal client writes:
+
+```text
+<node
+     host="127.0.0.1"
+     port="9201"
+     role="replica"
+     passwd="shared-secret">
+
+<replication
+     enabled="true"
+     mode="sync_one"
+     timeout_ms="2000">
+```
+
+Operational link endpoints are exposed through `/links` and `/links/ping`, and runtime links can be added or removed with `/links/connect` and `/links/disconnect`.
 
 ---
 

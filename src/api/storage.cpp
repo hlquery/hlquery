@@ -138,11 +138,20 @@ HttpResponse SearchAPI::HandleStorageStatus(const HttpRequest &Request)
           }
 
           uint64_t memtable_size = 0;
+          DBManager::Stats db_stats;
 
           if (Instance && Instance->Database)
           {
-               auto db_stats = Instance->Database->GetRocksDBStats();
+               db_stats = Instance->Database->GetRocksDBStats();
                memtable_size = db_stats.memtable_size;
+               if (db_stats.num_sst_files > 0)
+               {
+                    SSTableCount = db_stats.num_sst_files;
+               }
+               if (db_stats.total_db_size > 0)
+               {
+                    SSTableSizeBytes = db_stats.total_db_size;
+               }
           }
 
           /* Build response. */
@@ -154,6 +163,20 @@ HttpResponse SearchAPI::HandleStorageStatus(const HttpRequest &Request)
           Response.Body += "\"memtable_size_bytes\":" + std::to_string(memtable_size) + ",";
           Response.Body += "\"sstable_count\":" + std::to_string(SSTableCount) + ",";
           Response.Body += "\"sstable_size_bytes\":" + std::to_string(SSTableSizeBytes) + ",";
+          Response.Body += "\"segmented_storage_enabled\":" + std::string(db_stats.segmented_storage_enabled ? "true" : "false") + ",";
+          if (!db_stats.active_segment_id.empty())
+          {
+               Response.Body += "\"active_segment_id\":\"" + EscapeJSONString(db_stats.active_segment_id) + "\",";
+          }
+          if (db_stats.segment_manifest_generation > 0)
+          {
+               Response.Body += "\"sealed_segment_count\":" + std::to_string(db_stats.sealed_segment_count) + ",";
+               Response.Body += "\"tombstone_count_estimate\":" + std::to_string(db_stats.tombstone_count_estimate) + ",";
+               Response.Body += "\"segment_manifest_generation\":" + std::to_string(db_stats.segment_manifest_generation) + ",";
+               Response.Body += "\"segment_max_bytes\":" + std::to_string(db_stats.segment_max_bytes) + ",";
+               Response.Body += "\"segment_total_bytes\":" + std::to_string(db_stats.segment_total_bytes) + ",";
+               Response.Body += "\"segment_total_sst_files\":" + std::to_string(db_stats.segment_total_sst_files) + ",";
+          }
           Response.Body += "\"total_collections\":" + std::to_string(DocStats.total_collections) + ",";
           Response.Body += "\"total_documents\":" + std::to_string(DocStats.total_documents);
           Response.Body += "}";

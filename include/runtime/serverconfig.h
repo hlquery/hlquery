@@ -223,6 +223,15 @@ struct RocksDBOptions
 
      size_t DeleteObsoleteFilesPeriodMicros = 21600000000ULL; /* 6 hours */
 
+     /* Segmented storage options */
+
+     bool SegmentedStorageEnabled = false;
+     size_t SegmentMaxBytes = 5ULL * 1024 * 1024 * 1024;
+     size_t SegmentMaxDocs = 5000000;
+     size_t SegmentMergeMinCount = 4;
+     size_t SegmentMergeMaxBytes = 20ULL * 1024 * 1024 * 1024;
+     bool SegmentMergeEnabled = true;
+
      /* Returns default RocksDB options */
 
      /* Returns default RocksDB options. */

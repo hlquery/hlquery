@@ -1331,6 +1331,22 @@ HttpResponse SearchAPI::HandleStats(const HttpRequest &Request)
                     LSMJSON["sstable_count"] = db_stats.num_sst_files;
                }
 
+               if (!db_stats.active_segment_id.empty())
+               {
+                    LSMJSON["active_segment_id"] = db_stats.active_segment_id;
+               }
+
+               if (db_stats.segment_manifest_generation > 0)
+               {
+                    LSMJSON["segment_manifest_generation"] = db_stats.segment_manifest_generation;
+                    LSMJSON["sealed_segment_count"] = db_stats.sealed_segment_count;
+                    LSMJSON["tombstone_count_estimate"] = db_stats.tombstone_count_estimate;
+                    LSMJSON["segmented_storage_enabled"] = db_stats.segmented_storage_enabled;
+                    LSMJSON["segment_max_bytes"] = db_stats.segment_max_bytes;
+                    LSMJSON["segment_total_bytes"] = db_stats.segment_total_bytes;
+                    LSMJSON["segment_total_sst_files"] = db_stats.segment_total_sst_files;
+               }
+
                if (!LSMJSON.empty())
                {
                     StatsJSON["lsm"] = LSMJSON;

@@ -250,6 +250,220 @@ void InvertedIndex::RefreshCollectionStatsFromTotalLocked(const std::string &Col
      AvgDocLengths[Collection] = static_cast<double>(TotalLength) / static_cast<double>(DocCountValue);
 }
 
+void InvertedIndex::TouchCollectionLocked(const std::string &Collection)
+{
+     if (!Collection.empty())
+     {
+          CollectionLastAccess[Collection] = std::chrono::steady_clock::now();
+     }
+}
+
+size_t InvertedIndex::EstimateCollectionMemoryLocked(const std::string &Collection) const
+{
+     size_t Bytes = 0;
+
+     auto IndexIt = Index.find(Collection);
+     if (IndexIt != Index.end())
+     {
+          Bytes += sizeof(IndexIt->second);
+
+          for (const auto &[Term, Postings] : IndexIt->second)
+          {
+               Bytes += sizeof(Term) + Term.capacity();
+               Bytes += sizeof(Postings) + (Postings.capacity() * sizeof(Posting));
+
+               for (const auto &Post : Postings)
+               {
+                    Bytes += Post.DocumentID.capacity();
+                    Bytes += Post.Collection.capacity();
+                    Bytes += Post.Positions.capacity() * sizeof(size_t);
+               }
+          }
+     }
+
+     auto TermsIt = DocumentTerms.find(Collection);
+     if (TermsIt != DocumentTerms.end())
+     {
+          Bytes += sizeof(TermsIt->second);
+
+          for (const auto &[DocID, Terms] : TermsIt->second)
+          {
+               Bytes += sizeof(DocID) + DocID.capacity();
+               Bytes += sizeof(Terms);
+
+               for (const auto &Term : Terms)
+               {
+                    Bytes += sizeof(Term) + Term.capacity();
+               }
+          }
+     }
+
+     auto LengthsIt = DocumentLengths.find(Collection);
+     if (LengthsIt != DocumentLengths.end())
+     {
+          Bytes += sizeof(LengthsIt->second) + (LengthsIt->second.size() * (sizeof(std::string) + sizeof(size_t) + 32));
+
+          for (const auto &[DocID, Length] : LengthsIt->second)
+          {
+               (void)Length;
+               Bytes += DocID.capacity();
+          }
+     }
+
+     auto MMapIt = MMapIndexes.find(Collection);
+     if (MMapIt != MMapIndexes.end() && MMapIt->second)
+     {
+          Bytes += sizeof(MMapIndex) + MMapIt->second->GetMappedSize();
+     }
+
+     return Bytes;
+}
+
+size_t InvertedIndex::EstimateLoadedMemoryLocked() const
+{
+     std::unordered_set<std::string> Collections;
+
+     for (const auto &[Collection, Terms] : Index)
+     {
+          (void)Terms;
+          Collections.insert(Collection);
+     }
+
+     for (const auto &[Collection, Terms] : DocumentTerms)
+     {
+          (void)Terms;
+          Collections.insert(Collection);
+     }
+
+     for (const auto &[Collection, Lengths] : DocumentLengths)
+     {
+          (void)Lengths;
+          Collections.insert(Collection);
+     }
+
+     for (const auto &[Collection, MMapIdx] : MMapIndexes)
+     {
+          (void)MMapIdx;
+          Collections.insert(Collection);
+     }
+
+     size_t Bytes = 0;
+
+     for (const auto &Collection : Collections)
+     {
+          Bytes += EstimateCollectionMemoryLocked(Collection);
+     }
+
+     return Bytes;
+}
+
+size_t InvertedIndex::EvictLoadedCollectionsLocked(size_t TargetBytes)
+{
+     if (TargetBytes == 0)
+     {
+          return 0;
+     }
+
+     size_t LoadedBytes = EstimateLoadedMemoryLocked();
+     if (LoadedBytes <= TargetBytes)
+     {
+          return 0;
+     }
+
+     struct EvictionCandidate
+     {
+          std::string Collection;
+          std::chrono::steady_clock::time_point LastAccess;
+          size_t Bytes = 0;
+     };
+
+     std::unordered_set<std::string> Collections;
+
+     for (const auto &[Collection, Terms] : Index)
+     {
+          (void)Terms;
+          Collections.insert(Collection);
+     }
+
+     for (const auto &[Collection, MMapIdx] : MMapIndexes)
+     {
+          (void)MMapIdx;
+          Collections.insert(Collection);
+     }
+
+     std::vector<EvictionCandidate> Candidates;
+     Candidates.reserve(Collections.size());
+
+     for (const auto &Collection : Collections)
+     {
+          if (DirtyCollections.find(Collection) != DirtyCollections.end())
+          {
+               continue;
+          }
+
+          const size_t Bytes = EstimateCollectionMemoryLocked(Collection);
+          if (Bytes == 0)
+          {
+               continue;
+          }
+
+          auto AccessIt = CollectionLastAccess.find(Collection);
+          const auto LastAccess = (AccessIt != CollectionLastAccess.end())
+               ? AccessIt->second
+               : std::chrono::steady_clock::time_point{};
+
+          Candidates.push_back({Collection, LastAccess, Bytes});
+     }
+
+     std::sort(Candidates.begin(), Candidates.end(), [](const EvictionCandidate &A, const EvictionCandidate &B)
+               {
+                    if (A.LastAccess != B.LastAccess)
+                    {
+                         return A.LastAccess < B.LastAccess;
+                    }
+
+                    return A.Collection < B.Collection;
+               });
+
+     size_t Evicted = 0;
+
+     for (const auto &Candidate : Candidates)
+     {
+          if (LoadedBytes <= TargetBytes)
+          {
+               break;
+          }
+
+          Index.erase(Candidate.Collection);
+          DocumentTerms.erase(Candidate.Collection);
+          DocumentLengths.erase(Candidate.Collection);
+          CollectionTotalLengths.erase(Candidate.Collection);
+          DocCounts.erase(Candidate.Collection);
+          AvgDocLengths.erase(Candidate.Collection);
+          MMapIndexes.erase(Candidate.Collection);
+          CollectionLastMutation.erase(Candidate.Collection);
+          CollectionLastFlush.erase(Candidate.Collection);
+          CollectionLastAccess.erase(Candidate.Collection);
+
+          LoadedBytes = (LoadedBytes > Candidate.Bytes) ? (LoadedBytes - Candidate.Bytes) : 0;
+          Evicted++;
+
+          if (Instance && Instance->Logs)
+          {
+               Instance->Logs->Normal("inverted_index", "Evicted clean loaded index for collection '" + Candidate.Collection + "' to reduce index memory.");
+          }
+     }
+
+     return Evicted;
+}
+
+size_t InvertedIndex::EvictLoadedCollectionsIfNeeded(size_t MaxBytes)
+{
+     std::lock_guard<std::mutex> Lock(IndexMutex);
+
+     return EvictLoadedCollectionsLocked(MaxBytes);
+}
+
 /* InvertedIndex::SelectFlushCollectionsLocked - Selects dirty collections to flush while the caller holds the lock. */
 
 std::vector<std::string> InvertedIndex::SelectFlushCollectionsLocked(uint64_t MinDirtyAgeSeconds, size_t MaxCollections) const
@@ -844,6 +1058,7 @@ void InvertedIndex::RemoveDocumentFromIndex(const std::string &Collection, const
 bool InvertedIndex::AddDocument(const std::string &Collection, const Document &Doc)
 {
      std::lock_guard<std::mutex> Lock(IndexMutex);
+     TouchCollectionLocked(Collection);
 
      if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
      {
@@ -1144,6 +1359,11 @@ bool InvertedIndex::AddDocument(const std::string &Collection, const Document &D
 
      MarkCollectionDirtyLocked(Collection);
 
+     if ((DocCounts[Collection] % INVERTED_INDEX_MEMORY_CHECK_INTERVAL) == 0)
+     {
+          EvictLoadedCollectionsLocked(INVERTED_INDEX_MAX_MEMORY_BYTES);
+     }
+
      return true;
 }
 
@@ -1154,6 +1374,7 @@ bool InvertedIndex::AddDocument(const std::string &Collection, const Document &D
 bool InvertedIndex::DeleteDocument(const std::string &Collection, const std::string &DocID)
 {
      std::lock_guard<std::mutex> Lock(IndexMutex);
+     TouchCollectionLocked(Collection);
 
      if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
      {
@@ -1163,6 +1384,7 @@ bool InvertedIndex::DeleteDocument(const std::string &Collection, const std::str
      RemoveDocumentFromIndex(Collection, DocID);
 
      MarkCollectionDirtyLocked(Collection);
+     EvictLoadedCollectionsLocked(INVERTED_INDEX_MAX_MEMORY_BYTES);
 
      return true;
 }
@@ -1174,6 +1396,7 @@ bool InvertedIndex::DeleteDocument(const std::string &Collection, const std::str
 bool InvertedIndex::UpdateDocument(const std::string &Collection, const Document &OldDoc, const Document &NewDoc)
 {
      std::lock_guard<std::mutex> Lock(IndexMutex);
+     TouchCollectionLocked(Collection);
 
      if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
      {
@@ -1374,6 +1597,7 @@ bool InvertedIndex::UpdateDocument(const std::string &Collection, const Document
      }
 
      MarkCollectionDirtyLocked(Collection);
+     EvictLoadedCollectionsLocked(INVERTED_INDEX_MAX_MEMORY_BYTES);
 
      return true;
 }
@@ -1388,6 +1612,7 @@ std::vector<Posting> InvertedIndex::SearchTerm(const std::string &Collection, co
      std::unordered_map<std::string, Posting> TermDocs;
 
      std::lock_guard<std::mutex> Lock(IndexMutex);
+     TouchCollectionLocked(Collection);
 
      auto MMapIt = MMapIndexes.find(Collection);
 
@@ -1518,6 +1743,7 @@ std::vector<Posting> InvertedIndex::Search(const std::string &Collection, const 
 
      {
           std::lock_guard<std::mutex> Lock(IndexMutex);
+          TouchCollectionLocked(Collection);
 
           auto MMapIt = MMapIndexes.find(Collection);
 
@@ -1574,6 +1800,7 @@ std::vector<Posting> InvertedIndex::Search(const std::string &Collection, const 
 
      {
           std::lock_guard<std::mutex> Lock(IndexMutex);
+          TouchCollectionLocked(Collection);
           auto CollectionIt = Index.find(Collection);
           auto MMapIt = MMapIndexes.find(Collection);
           const bool HasMMapIndex = MMapIt != MMapIndexes.end() &&
@@ -1814,7 +2041,7 @@ std::vector<Posting> InvertedIndex::Search(const std::string &Collection, const 
      std::string SearchAlgorithm = "bm25+";
 
      double IdfSmooth = 1.0;
-
+     
      bool NormalizeTFIDF = true;
 
      double BM25Weight = 0.7;
@@ -2228,8 +2455,8 @@ std::vector<Posting> InvertedIndex::Search(const std::string &Collection, const 
 }
 
 /*
-      * SearchPrefix - Searches for terms with a given prefix in the index.
-      */
+ * SearchPrefix - Searches for terms with a given prefix in the index.
+ */
 
 /* InvertedIndex::SearchPrefix - Searches prefix terms. */
 
@@ -2246,6 +2473,7 @@ std::vector<Posting> InvertedIndex::SearchPrefix(const std::string &Collection, 
      }
 
      std::lock_guard<std::mutex> Lock(IndexMutex);
+     TouchCollectionLocked(Collection);
 
      if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
      {
@@ -2349,6 +2577,8 @@ void InvertedIndex::DeleteCollection(const std::string &Collection)
 
      CollectionLastFlush.erase(Collection);
 
+     CollectionLastAccess.erase(Collection);
+
      if (Instance && Instance->Database)
      {
           Instance->Database->Del("flush_pending:" + Collection);
@@ -2389,6 +2619,8 @@ void InvertedIndex::Clear()
      CollectionLastMutation.clear();
 
      CollectionLastFlush.clear();
+
+     CollectionLastAccess.clear();
 }
 
 /*
@@ -2481,8 +2713,8 @@ size_t InvertedIndex::GetDocumentCount(const std::string &Collection) const
 }
 
 /*
-      * HasInMemoryIndex - Returns true if the collection has documents indexed in memory.
-      */
+ * HasInMemoryIndex - Returns true if the collection has documents indexed in memory.
+ */
 
 bool InvertedIndex::HasInMemoryIndex(const std::string &Collection) const
 {
@@ -2494,8 +2726,8 @@ bool InvertedIndex::HasInMemoryIndex(const std::string &Collection) const
 }
 
 /*
-      * GetIndexDir - Returns the directory where indexes are stored.
-      */
+ * GetIndexDir - Returns the directory where indexes are stored.
+ */
 
 /* InvertedIndex::GetIndexDir - Returns index directory path. */
 
@@ -2517,8 +2749,8 @@ std::string InvertedIndex::GetIndexDir() const
 }
 
 /*
-      * FlushToDisk - Flushes in-memory indexes to disk.
-      */
+ * FlushToDisk - Flushes in-memory indexes to disk.
+ */
 
 /* InvertedIndex::FlushToDisk - Writes index data to disk. */
 
@@ -2643,6 +2875,11 @@ size_t InvertedIndex::FlushToDisk(const std::string &IndexDir, uint64_t MinDirty
           Instance->Database->FlushAndSync();
      }
 
+     if (FlushedCollections > 0)
+     {
+          EvictLoadedCollectionsIfNeeded(INVERTED_INDEX_MAX_MEMORY_BYTES);
+     }
+
      return FlushedCollections;
 }
 
@@ -2712,6 +2949,7 @@ void InvertedIndex::LoadFromDisk(const std::string &IndexDir)
           if (MMapIdx && MMapIdx->IsValid())
           {
                MMapIndexes[Collection] = std::move(MMapIdx);
+               TouchCollectionLocked(Collection);
 
                if (Instance && Instance->Logs)
                {
@@ -2719,6 +2957,8 @@ void InvertedIndex::LoadFromDisk(const std::string &IndexDir)
                }
           }
      }
+
+     EvictLoadedCollectionsLocked(INVERTED_INDEX_MAX_MEMORY_BYTES);
 }
 
 /*
@@ -2920,8 +3160,8 @@ double InvertedIndex::CalculateBM25LScore(double TermFreq, double DocFreq, doubl
 }
 
 /*
-      * CalculatePivotNormScore - Calculates the score using pivot-based normalization.
-      */
+ * CalculatePivotNormScore - Calculates the score using pivot-based normalization.
+ */
 
 /* InvertedIndex::CalculatePivotNormScore - Computes pivot normalization score. */
 
@@ -2953,8 +3193,8 @@ double InvertedIndex::CalculatePivotNormScore(double TermFreq, double DocFreq, d
 }
 
 /*
-      * CalculateTermFrequency - Calculates the frequency of a term in a specific document.
-      */
+ * CalculateTermFrequency - Calculates the frequency of a term in a specific document.
+ */
 
 /* InvertedIndex::CalculateTermFrequency - Calculates term frequency in doc. */
 
@@ -3002,8 +3242,8 @@ size_t InvertedIndex::CalculateTermFrequency(const std::string &Collection, cons
 }
 
 /*
-      * CalculateDocumentFrequency - Calculates how many documents contain a specific term.
-      */
+ * CalculateDocumentFrequency - Calculates how many documents contain a specific term.
+ */
 
 /* InvertedIndex::CalculateDocumentFrequency - Calculates document frequency for term. */
 

@@ -506,7 +506,6 @@ void ListenManager::OnEventHandlerRead()
           }
 
           close(ClientFD);
-
           ConnectionsProcessed++;
      }
 }

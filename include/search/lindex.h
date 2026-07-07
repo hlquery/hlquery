@@ -113,6 +113,10 @@ class InvertedIndex
 
      std::unordered_map<std::string, std::chrono::steady_clock::time_point> CollectionLastFlush;
 
+     /* CollectionLastAccess tracks collection recency for clean-index eviction. */
+
+     std::unordered_map<std::string, std::chrono::steady_clock::time_point> CollectionLastAccess;
+
      /* IndexMutex guards index state. */
 
      mutable std::mutex IndexMutex;
@@ -140,6 +144,22 @@ class InvertedIndex
      /* RefreshCollectionStatsFromTotalLocked refreshes derived stats while IndexMutex is held. */
 
      void RefreshCollectionStatsFromTotalLocked(const std::string& Collection);
+
+     /* TouchCollectionLocked records collection use while IndexMutex is held. */
+
+     void TouchCollectionLocked(const std::string& Collection);
+
+     /* EstimateCollectionMemoryLocked returns approximate loaded bytes for one collection. */
+
+     size_t EstimateCollectionMemoryLocked(const std::string& Collection) const;
+
+     /* EstimateLoadedMemoryLocked returns approximate bytes held by loaded indexes. */
+
+     size_t EstimateLoadedMemoryLocked() const;
+
+     /* EvictLoadedCollectionsLocked unloads least-recently-used clean collection indexes. */
+
+     size_t EvictLoadedCollectionsLocked(size_t TargetBytes);
 
      /* CalculateBM25PlusScore computes BM25+ score. */
 
@@ -235,9 +255,13 @@ class InvertedIndex
 
     void LoadFromDisk(const std::string& IndexDir);
 
-     /* HasMMapIndex checks whether an mmap index exists. */
+    /* HasMMapIndex checks whether an mmap index exists. */
 
      bool HasMMapIndex(const std::string& Collection) const;
+
+     /* EvictLoadedCollectionsIfNeeded unloads clean LRU indexes above the memory cap. */
+
+     size_t EvictLoadedCollectionsIfNeeded(size_t MaxBytes);
 
      /* GetIndexDir returns the current index directory. */
 

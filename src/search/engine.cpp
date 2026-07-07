@@ -24,6 +24,7 @@
 
 #include "core/hlquery.h"
 #include "runtime/serverconfig.h"
+#include "search/segmentmanager.h"
 #include "search/storageengine.h"
 #include "search/writeaheadlogvalidator.h"
 #include "utils/consolewriter.h"
@@ -61,6 +62,32 @@ namespace
           DatabaseSyncGuard(const DatabaseSyncGuard &) = delete;
           DatabaseSyncGuard &operator=(const DatabaseSyncGuard &) = delete;
      };
+
+     bool LooksLikeRocksDBDirectory(const std::string &Path)
+     {
+          try
+          {
+               if (!std::filesystem::exists(Path) || !std::filesystem::is_directory(Path))
+               {
+                    return false;
+               }
+
+               for (const auto &Entry : std::filesystem::directory_iterator(Path))
+               {
+                    const std::string Name = Entry.path().filename().string();
+
+                    if (Name == "CURRENT" || Name.starts_with("MANIFEST-") || Name.starts_with("OPTIONS-"))
+                    {
+                         return true;
+                    }
+               }
+          }
+          catch (...)
+          {
+          }
+
+          return false;
+     }
 }
 
 /*
@@ -138,6 +165,8 @@ bool DBManager::Initialize()
      /* Get data directory from config, fallback to default */
 
      std::string base_DataDirValue = std::string(HLQUERY_DATA_DIR);
+     RocksDBOptions effective_rocksdb_opts = RocksDBOptions::Default();
+     bool segmented_requested = false;
      const char *EnvDataDir = std::getenv("HLQUERY_DATA_DIR");
      if (EnvDataDir && *EnvDataDir)
      {
@@ -151,6 +180,8 @@ bool DBManager::Initialize()
                if (Instance->Config->IsValid())
                {
                     const auto &rocksdb_opts = Instance->Config->GetRocksDBOptions();
+                    effective_rocksdb_opts = rocksdb_opts;
+                    segmented_requested = rocksdb_opts.SegmentedStorageEnabled;
 
                     Instance->Logs->Debug("rocksdb", "RocksDB options loaded - DataDir='" + rocksdb_opts.DataDir + "'.");
 
@@ -185,12 +216,26 @@ bool DBManager::Initialize()
      }
 
      DBPath = base_DataDirValue + "/storage";
+     SegmentedStorageEnabled = false;
 
      try
      {
           const std::string legacy_db_path = base_DataDirValue + "/rocksdb";
+          const std::string storage_path = base_DataDirValue + "/storage";
 
-          if (!std::filesystem::exists(DBPath) && std::filesystem::exists(legacy_db_path))
+          if (segmented_requested && LooksLikeRocksDBDirectory(storage_path))
+          {
+               DBPath = storage_path;
+               SegmentedStorageEnabled = false;
+               Instance->Logs->Normal("rocksdb", "storage.segmented requested, but existing direct RocksDB layout was detected at " + storage_path + "; opening old layout without migration.");
+          }
+          else if (segmented_requested)
+          {
+               DBPath = storage_path + "/system/rocksdb";
+               SegmentedStorageEnabled = true;
+               Instance->Logs->Normal("rocksdb", "Segmented storage enabled; system RocksDB path: " + DBPath + ".");
+          }
+          else if (!std::filesystem::exists(DBPath) && std::filesystem::exists(legacy_db_path))
           {
                DBPath = legacy_db_path;
 
@@ -212,6 +257,7 @@ bool DBManager::Initialize()
                if (Instance->Config->IsValid())
                {
                     const auto &rocksdb_opts = Instance->Config->GetRocksDBOptions();
+                    effective_rocksdb_opts = rocksdb_opts;
 
                     /* Write buffer settings */
 
@@ -426,6 +472,18 @@ bool DBManager::Initialize()
           return false;
      }
 
+     if (SegmentedStorageEnabled)
+     {
+          SegmentManagerValue = std::make_unique<SegmentManager>(base_DataDirValue, DBValue.get(), OptionsValue, GetWriteOptions(), effective_rocksdb_opts);
+
+          if (!SegmentManagerValue->Initialize())
+          {
+               Instance->Logs->Critical("rocksdb", "Failed to initialize segmented storage.");
+               SegmentManagerValue.reset();
+               return false;
+          }
+     }
+
      Instance->Logs->Normal("rocksdb", "RocksDB initialized successfully at " + DBPath + ".");
 
      return true;
@@ -438,6 +496,12 @@ bool DBManager::Initialize()
 void DBManager::Shutdown()
 {
      std::lock_guard<std::mutex> lock(DBValueMutex);
+
+     if (SegmentManagerValue)
+     {
+          SegmentManagerValue->Shutdown();
+          SegmentManagerValue.reset();
+     }
 
      if (DBValue)
      {
@@ -540,6 +604,11 @@ void DBManager::ClearLastSyncError()
      LastSyncErrorMessage.clear();
 }
 
+bool DBManager::IsDocumentKey(const std::string &key) const
+{
+     return key.starts_with("doc:");
+}
+
 /*
  * DBManager::Set - Validates write size limits and then writes a single key-value pair.
  */
@@ -560,6 +629,11 @@ bool DBManager::Set(const std::string &key, const std::string &value)
      }
 
      ClearLastWriteError();
+
+     if (SegmentedStorageEnabled && SegmentManagerValue && IsDocumentKey(key))
+     {
+          return SegmentManagerValue->SetDocument(key, value);
+     }
 
      rocksdb::Status status = DBValue->Put(GetWriteOptions(), key, value);
 
@@ -601,6 +675,16 @@ bool DBManager::SetIfNotExists(const std::string &key, const std::string &value)
      }
 
      ClearLastWriteError();
+
+     if (SegmentedStorageEnabled && SegmentManagerValue && IsDocumentKey(key))
+     {
+          if (SegmentManagerValue->ExistsDocument(key))
+          {
+               return false;
+          }
+
+          return SegmentManagerValue->SetDocument(key, value);
+     }
 
      std::string existing_value;
 
@@ -667,6 +751,48 @@ size_t DBManager::BatchSet(const std::vector<std::pair<std::string, std::string>
 
      ClearLastWriteError();
 
+     if (SegmentedStorageEnabled && SegmentManagerValue)
+     {
+          std::vector<std::pair<std::string, std::string>> doc_key_values;
+          std::vector<std::pair<std::string, std::string>> system_key_values;
+
+          for (const auto &kv : key_values)
+          {
+               if (IsDocumentKey(kv.first))
+               {
+                    doc_key_values.push_back(kv);
+               }
+               else
+               {
+                    system_key_values.push_back(kv);
+               }
+          }
+
+          if (!system_key_values.empty())
+          {
+               rocksdb::WriteBatch system_batch;
+
+               for (const auto &kv : system_key_values)
+               {
+                    system_batch.Put(kv.first, kv.second);
+               }
+
+               rocksdb::Status system_status = DBValue->Write(GetWriteOptions(), &system_batch);
+
+               if (!system_status.ok())
+               {
+                    return 0;
+               }
+          }
+
+          if (!doc_key_values.empty() && SegmentManagerValue->BatchSetDocuments(doc_key_values) != doc_key_values.size())
+          {
+               return 0;
+          }
+
+          return key_values.size();
+     }
+
      rocksdb::Status status = DBValue->Write(GetWriteOptions(), &batch);
 
      if (!status.ok())
@@ -696,6 +822,11 @@ std::string DBManager::Get(const std::string &key)
           return "";
      }
 
+     if (SegmentedStorageEnabled && SegmentManagerValue && IsDocumentKey(key))
+     {
+          return SegmentManagerValue->GetDocument(key);
+     }
+
      std::string value;
 
      rocksdb::Status status = DBValue->Get(rocksdb::ReadOptions(), key, &value);
@@ -712,6 +843,11 @@ int DBManager::Del(const std::string &key)
           return 0;
      }
 
+     if (SegmentedStorageEnabled && SegmentManagerValue && IsDocumentKey(key))
+     {
+          return SegmentManagerValue->DeleteDocument(key);
+     }
+
      rocksdb::Status status = DBValue->Delete(GetWriteOptions(), key);
 
      return status.ok() ? 1 : 0;
@@ -726,6 +862,11 @@ size_t DBManager::DeleteRange(const std::string &start_key, const std::string &e
           return 0;
      }
 
+     if (SegmentedStorageEnabled && SegmentManagerValue && IsDocumentKey(start_key))
+     {
+          return SegmentManagerValue->DeleteDocumentRange(start_key, end_key);
+     }
+
      rocksdb::Status status = DBValue->DeleteRange(GetWriteOptions(), DBValue->DefaultColumnFamily(), start_key, end_key);
 
      return status.ok() ? 1 : 0;
@@ -738,6 +879,11 @@ bool DBManager::Exists(const std::string &key)
      if (!DBValue)
      {
           return false;
+     }
+
+     if (SegmentedStorageEnabled && SegmentManagerValue && IsDocumentKey(key))
+     {
+          return SegmentManagerValue->ExistsDocument(key);
      }
 
      std::string value;
@@ -758,6 +904,11 @@ std::vector<std::string> DBManager::Keys(const std::string &pattern, bool force_
      if (!DBValue)
      {
           return result;
+     }
+
+     if (SegmentedStorageEnabled && SegmentManagerValue && pattern.starts_with("doc:"))
+     {
+          return SegmentManagerValue->Keys(pattern);
      }
 
      std::unique_ptr<rocksdb::Iterator> it(DBValue->NewIterator(rocksdb::ReadOptions()));
@@ -784,6 +935,11 @@ size_t DBManager::CountKeys(const std::string &prefix)
           return 0;
      }
 
+     if (SegmentedStorageEnabled && SegmentManagerValue && IsDocumentKey(prefix))
+     {
+          return SegmentManagerValue->CountKeys(prefix);
+     }
+
      size_t count = 0;
 
      std::unique_ptr<rocksdb::Iterator> it(DBValue->NewIterator(rocksdb::ReadOptions()));
@@ -805,6 +961,11 @@ std::vector<std::string> DBManager::PrefixKeys(const std::string &prefix, size_t
      if (!DBValue)
      {
           return keys;
+     }
+
+     if (SegmentedStorageEnabled && SegmentManagerValue && IsDocumentKey(prefix))
+     {
+          return SegmentManagerValue->PrefixKeys(prefix, offset, limit);
      }
 
      size_t skipped = 0;
@@ -836,6 +997,11 @@ bool DBManager::ForEachPrefixKeySnapshot(const std::string &prefix, size_t limit
      if (!DBValue || !callback)
      {
           return false;
+     }
+
+     if (SegmentedStorageEnabled && SegmentManagerValue && IsDocumentKey(prefix))
+     {
+          return SegmentManagerValue->ForEachPrefixKeySnapshot(prefix, limit, callback);
      }
 
      rocksdb::ReadOptions read_options;
@@ -888,6 +1054,11 @@ size_t DBManager::GetPrefixTotalSize(const std::string &prefix)
           return 0;
      }
 
+     if (SegmentedStorageEnabled && SegmentManagerValue && IsDocumentKey(prefix))
+     {
+          return SegmentManagerValue->GetPrefixTotalSize(prefix);
+     }
+
      size_t total_size = 0;
 
      std::unique_ptr<rocksdb::Iterator> it(DBValue->NewIterator(rocksdb::ReadOptions()));
@@ -926,6 +1097,11 @@ bool DBManager::Flush()
           return false;
      }
 
+     if (SegmentedStorageEnabled && SegmentManagerValue && !SegmentManagerValue->Flush())
+     {
+          return false;
+     }
+
      ClearLastSyncError();
      return true;
 }
@@ -961,6 +1137,11 @@ bool DBManager::FlushAndSync()
           return false;
      }
 
+     if (SegmentedStorageEnabled && SegmentManagerValue && !SegmentManagerValue->FlushAndSync())
+     {
+          return false;
+     }
+
      ClearLastSyncError();
      return true;
 }
@@ -986,6 +1167,11 @@ bool DBManager::SyncWAL()
           return false;
      }
 
+     if (SegmentedStorageEnabled && SegmentManagerValue && !SegmentManagerValue->SyncWAL())
+     {
+          return false;
+     }
+
      ClearLastSyncError();
      return true;
 }
@@ -997,6 +1183,11 @@ void DBManager::Compact()
      if (DBValue)
      {
           DBValue->CompactRange(rocksdb::CompactRangeOptions(), nullptr, nullptr);
+     }
+
+     if (SegmentedStorageEnabled && SegmentManagerValue)
+     {
+          SegmentManagerValue->Compact();
      }
 }
 
@@ -1079,6 +1270,23 @@ std::unordered_map<std::string, std::string> DBManager::Info()
      info["wal_oversized_rejections_total"] = std::to_string(RejectedWALEntriesTotal.load(std::memory_order_relaxed));
      info["wal_oversized_rejections_normal"] = std::to_string(RejectedWALEntriesNormal.load(std::memory_order_relaxed));
      info["wal_oversized_rejections_recovery"] = std::to_string(RejectedWALEntriesRecovery.load(std::memory_order_relaxed));
+
+     if (SegmentedStorageEnabled && SegmentManagerValue)
+     {
+          const auto segment_stats = SegmentManagerValue->GetStats();
+          info["segmented_storage_enabled"] = "true";
+          info["active_segment_id"] = segment_stats.ActiveSegmentId;
+          info["sealed_segment_count"] = std::to_string(segment_stats.SealedSegmentCount);
+          info["tombstone_count_estimate"] = std::to_string(segment_stats.TombstoneCountEstimate);
+          info["segment_manifest_generation"] = std::to_string(segment_stats.ManifestGeneration);
+          info["segment_max_bytes"] = std::to_string(Instance && Instance->Config ? Instance->Config->GetRocksDBOptions().SegmentMaxBytes : 0);
+          info["segment_total_bytes"] = std::to_string(segment_stats.TotalBytes);
+          info["segment_total_sst_files"] = std::to_string(segment_stats.NumSstFiles);
+     }
+     else
+     {
+          info["segmented_storage_enabled"] = "false";
+     }
 
      {
           std::lock_guard<std::mutex> lock(LastWriteErrorMutex);
@@ -1199,6 +1407,21 @@ DBManager::Stats DBManager::GetRocksDBStats() const
 
           stats.total_db_size = total_size_bytes;
           stats.num_sst_files = sstable_count;
+
+          if (SegmentedStorageEnabled && SegmentManagerValue)
+          {
+               const auto segment_stats = SegmentManagerValue->GetStats();
+               stats.segmented_storage_enabled = true;
+               stats.total_db_size += segment_stats.TotalBytes;
+               stats.num_sst_files += segment_stats.NumSstFiles;
+               stats.active_segment_id = segment_stats.ActiveSegmentId;
+               stats.sealed_segment_count = segment_stats.SealedSegmentCount;
+               stats.tombstone_count_estimate = segment_stats.TombstoneCountEstimate;
+               stats.segment_manifest_generation = segment_stats.ManifestGeneration;
+               stats.segment_max_bytes = Instance && Instance->Config ? Instance->Config->GetRocksDBOptions().SegmentMaxBytes : 0;
+               stats.segment_total_bytes = segment_stats.TotalBytes;
+               stats.segment_total_sst_files = segment_stats.NumSstFiles;
+          }
      }
      catch (...)
      {

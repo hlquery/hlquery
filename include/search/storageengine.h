@@ -35,6 +35,8 @@
 
 #include "search/writeaheadlogvalidator.h"
 
+class SegmentManager;
+
 /*
  * RocksDB wrapper for hlquery storage engine.
  * Provides high-performance key-value storage with RocksDB.
@@ -47,6 +49,14 @@ class DBManager
      /* DBValue holds the RocksDB instance. */
 
      std::unique_ptr<rocksdb::DB> DBValue;
+
+     /* SegmentManagerValue routes logical doc:* keys when segmented storage is enabled. */
+
+     std::unique_ptr<SegmentManager> SegmentManagerValue;
+
+     /* SegmentedStorageEnabled gates all segment routing. */
+
+     bool SegmentedStorageEnabled = false;
 
      /* DBValueMutex serializes DB handle flush/sync operations with shutdown. */
 
@@ -79,6 +89,10 @@ class DBManager
      /* MatchesPattern checks wildcard pattern matching. */
 
      bool MatchesPattern(const std::string& key, const std::string& pattern);
+
+     /* IsDocumentKey returns whether a logical key is a document payload key. */
+
+     bool IsDocumentKey(const std::string& key) const;
 
      /* GetWriteOptions returns write options based on WAL sync mode. */
 
@@ -258,6 +272,14 @@ class DBManager
           uint64_t total_db_size = 0;
           uint64_t memtable_size = 0;
           uint64_t num_sst_files = 0;
+          bool segmented_storage_enabled = false;
+          std::string active_segment_id;
+          uint64_t sealed_segment_count = 0;
+          uint64_t tombstone_count_estimate = 0;
+          uint64_t segment_manifest_generation = 0;
+          uint64_t segment_max_bytes = 0;
+          uint64_t segment_total_bytes = 0;
+          uint64_t segment_total_sst_files = 0;
      };
 
      /* GetRocksDBStats returns RocksDB statistics. */
