@@ -22,35 +22,22 @@
 /* ANSI color codes. */
 
 const std::string ConsoleWriter::ColorGreen = "\033[32m";
-
 const std::string ConsoleWriter::ColorRed = "\033[31m";
-
 const std::string ConsoleWriter::ColorYellow = "\033[33m";
-
 const std::string ConsoleWriter::ColorBlue = "\033[34m";
-
 const std::string ConsoleWriter::ColorCyan = "\033[36m";
-
 const std::string ConsoleWriter::ColorBlack = "\033[30m";
-
 const std::string ConsoleWriter::ColorWhite = "\033[37m";
-
 const std::string ConsoleWriter::ColorBold = "\033[1m";
-
 const std::string ConsoleWriter::ColorReset = "\033[0m";
 
 /* Bright variants for improved visibility. */
 
 const std::string ConsoleWriter::ColorBrightGreen = "\033[92m";
-
 const std::string ConsoleWriter::ColorBrightRed = "\033[91m";
-
 const std::string ConsoleWriter::ColorBrightYellow = "\033[93m";
-
 const std::string ConsoleWriter::ColorBrightBlue = "\033[94m";
-
 const std::string ConsoleWriter::ColorBrightCyan = "\033[96m";
-
 const std::string ConsoleWriter::ColorBrightMagenta = "\033[95m";
 
 /*
@@ -366,21 +353,13 @@ void ConsoleWriter::WriteInitSafe(int Fd, const char *Message, bool Dot)
      /* Async-signal-safe version using write() syscall. */
 
      const char *BracketOpen = "[";
-
      const char *Space = " ";
-
      const char *InitText = "INIT";
-
      const char *BracketClose = "]";
-
      const char *AnsiBlack = "\033[30m";
-
      const char *AnsiBrightBlue = "\033[94m";
-
      const char *AnsiReset = "\033[0m";
-
      const char *Newline = "\n";
-
      const char *Period = ".";
 
      /* Write [ INIT ] with black brackets and blue text. */
@@ -393,7 +372,6 @@ void ConsoleWriter::WriteInitSafe(int Fd, const char *Message, bool Dot)
      }
 
      ssize_t WriteResult __attribute__((unused)) = write(Fd, AnsiBlack, Len);
-
      Len = 0;
 
      while (BracketOpen[Len])
@@ -402,7 +380,6 @@ void ConsoleWriter::WriteInitSafe(int Fd, const char *Message, bool Dot)
      }
 
      WriteResult = write(Fd, BracketOpen, Len);
-
      Len = 0;
 
      while (AnsiReset[Len])
@@ -411,7 +388,6 @@ void ConsoleWriter::WriteInitSafe(int Fd, const char *Message, bool Dot)
      }
 
      WriteResult = write(Fd, AnsiReset, Len);
-
      Len = 0;
 
      while (Space[Len])
@@ -420,7 +396,6 @@ void ConsoleWriter::WriteInitSafe(int Fd, const char *Message, bool Dot)
      }
 
      WriteResult = write(Fd, Space, Len);
-
      Len = 0;
 
      while (AnsiBrightBlue[Len])
@@ -429,7 +404,6 @@ void ConsoleWriter::WriteInitSafe(int Fd, const char *Message, bool Dot)
      }
 
      WriteResult = write(Fd, AnsiBrightBlue, Len);
-
      Len = 0;
 
      while (InitText[Len])
@@ -438,7 +412,6 @@ void ConsoleWriter::WriteInitSafe(int Fd, const char *Message, bool Dot)
      }
 
      WriteResult = write(Fd, InitText, Len);
-
      Len = 0;
 
      while (AnsiReset[Len])
@@ -456,7 +429,6 @@ void ConsoleWriter::WriteInitSafe(int Fd, const char *Message, bool Dot)
      }
 
      WriteResult = write(Fd, Space, Len);
-
      Len = 0;
 
      while (AnsiBlack[Len])
@@ -465,7 +437,6 @@ void ConsoleWriter::WriteInitSafe(int Fd, const char *Message, bool Dot)
      }
 
      WriteResult = write(Fd, AnsiBlack, Len);
-
      Len = 0;
 
      while (BracketClose[Len])
@@ -474,7 +445,6 @@ void ConsoleWriter::WriteInitSafe(int Fd, const char *Message, bool Dot)
      }
 
      WriteResult = write(Fd, BracketClose, Len);
-
      Len = 0;
 
      while (AnsiReset[Len])
@@ -483,7 +453,6 @@ void ConsoleWriter::WriteInitSafe(int Fd, const char *Message, bool Dot)
      }
 
      WriteResult = write(Fd, AnsiReset, Len);
-
      Len = 0;
 
      while (Space[Len])
@@ -526,21 +495,13 @@ void ConsoleWriter::WriteStartupSafe(int Fd, const char *Message, bool Dot)
      /* Async-signal-safe version using write() syscall. */
 
      const char *BracketOpen = "[";
-
      const char *Space = " ";
-
      const char *OkText = "OK";
-
      const char *BracketClose = "]";
-
      const char *AnsiBlack = "\033[30m";
-
      const char *AnsiBrightGreen = "\033[92m";
-
      const char *AnsiReset = "\033[0m";
-
      const char *Newline = "\n";
-
      const char *Period = ".";
 
      /* Write [ OK ] with black brackets and green text. */
@@ -562,7 +523,6 @@ void ConsoleWriter::WriteStartupSafe(int Fd, const char *Message, bool Dot)
      }
 
      WriteResult = write(Fd, BracketOpen, Len);
-
      Len = 0;
 
      while (AnsiReset[Len])
@@ -580,7 +540,6 @@ void ConsoleWriter::WriteStartupSafe(int Fd, const char *Message, bool Dot)
      }
 
      WriteResult = write(Fd, Space, Len);
-
      Len = 0;
 
      while (AnsiBrightGreen[Len])
@@ -598,7 +557,6 @@ void ConsoleWriter::WriteStartupSafe(int Fd, const char *Message, bool Dot)
      }
 
      WriteResult = write(Fd, OkText, Len);
-
      Len = 0;
 
      while (AnsiReset[Len])
@@ -616,7 +574,6 @@ void ConsoleWriter::WriteStartupSafe(int Fd, const char *Message, bool Dot)
      }
 
      WriteResult = write(Fd, Space, Len);
-
      Len = 0;
 
      while (AnsiBlack[Len])
@@ -625,7 +582,6 @@ void ConsoleWriter::WriteStartupSafe(int Fd, const char *Message, bool Dot)
      }
 
      WriteResult = write(Fd, AnsiBlack, Len);
-
      Len = 0;
 
      while (BracketClose[Len])
@@ -634,7 +590,6 @@ void ConsoleWriter::WriteStartupSafe(int Fd, const char *Message, bool Dot)
      }
 
      WriteResult = write(Fd, BracketClose, Len);
-
      Len = 0;
 
      while (AnsiReset[Len])
@@ -686,9 +641,7 @@ void ConsoleWriter::WriteStartupPlainSafe(int Fd, const char *Message, bool Dot)
      /* Async-signal-safe plain output without status prefix. */
 
      const char *Newline = "\n";
-
      const char *Period = ".";
-
      size_t Len = 0;
 
      ssize_t WriteResult __attribute__((unused)) = 0;
@@ -720,27 +673,16 @@ void ConsoleWriter::WriteInitCriticalSafe(int Fd, const char *Message, bool Dot)
      /* Async-signal-safe version using write() syscall. */
 
      const char *BracketOpen = "[";
-
      const char *Space = " ";
-
      const char *InitText = "INIT";
-
      const char *BracketClose = "]";
-
      const char *CriticalTag = "";
-
      const char *AnsiBlack = "\033[30m";
-
      const char *AnsiBrightBlue = "\033[94m";
-
      const char *AnsiRed = "\033[31m";
-
      const char *AnsiReset = "\033[0m";
-
      const char *AnsiBold = "\033[1m";
-
      const char *Newline = "\n";
-
      const char *Period = ".";
 
      /* Write [ INIT ] with black brackets and blue text. */

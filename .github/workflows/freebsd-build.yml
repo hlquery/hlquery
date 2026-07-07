@@ -22,7 +22,7 @@ jobs:
           memory: 6G
           cpu_count: 3
           run: |
-            sudo pkg update
-            sudo pkg install -y cmake gmake perl5 pkgconf openssl
+            sudo env IGNORE_OSVERSION=yes ASSUME_ALWAYS_YES=yes pkg update -f
+            sudo env IGNORE_OSVERSION=yes ASSUME_ALWAYS_YES=yes pkg install -y cmake gmake perl5 pkgconf openssl
             ./configure --skip-tests
             gmake

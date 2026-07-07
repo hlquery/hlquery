@@ -162,7 +162,7 @@ $client = new Client('http://localhost:9200');
 
 /* Get the collections service from the client. */
 
-$collections = $client->collections();
+$collections = $client->collections;
 
 /* Build the schema payload sent to hlquery. */
 
@@ -189,7 +189,7 @@ $schema = [
 $response = $collections->create('products', $schema); 
 $body = $response->getBody(); 
 
-$client->documents()->add('products', [
+$client->documents->add('products', [
     'id' => 'prod_keyboard_001',
     'title' => 'Wireless Keyboard',
     'content' => 'Compact Bluetooth keyboard for daily work.',

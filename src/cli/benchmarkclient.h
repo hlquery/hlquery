@@ -91,6 +91,9 @@ class BenchmarkClient
      int InsertDocumentsBulkRequest(const std::string &collection, const std::vector<std::tuple<std::string, std::string, std::string>> &docs, HTTPResponse &response);
      bool IsRetryableBulkInsertResponse(const HTTPResponse &response) const;
      void SleepBeforeBulkRetry(int attempt, int split_depth) const;
+     HTTPResponse MakeWriteRequestWithRetry(const std::string &method, const std::string &path, const std::string &body, int max_retries, bool use_keep_alive, int timeout_ms);
+     bool IsRetryableWriteResponse(const HTTPResponse &response) const;
+     void SleepBeforeWriteRetry(int attempt) const;
 
    public:
 

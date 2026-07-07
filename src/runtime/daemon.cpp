@@ -497,9 +497,7 @@ void hlquery::ParseArgs()
           };
 
           optind = 1;
-
           optopt = 0;
-
           opterr = 0;
 
           /* getopt_long advances through both short and long options in a single loop. */
@@ -695,13 +693,11 @@ static void CrashSignalHandler(int SigNum)
      }
 
      InCrashHandler = 1;
-
      int CrashFd = open(HLQUERY_LOG_DIR "/hlquery_crash.log", O_WRONLY | O_CREAT | O_APPEND, 0644);
 
      if (CrashFd >= 0)
      {
           const char *CrashMsg = SigNum == SIGSEGV ? "[CRASH] SIGSEGV - Segmentation fault\n" : "[CRASH] SIGABRT - Abort signal\n";
-
           size_t MsgLen = 0;
 
           while (CrashMsg[MsgLen] != '\0')

@@ -14,10 +14,12 @@
  * hlquery talk - interactive command shell for lightweight server inspection.
  */
 
+#include <chrono>
 #include <cstdlib>
 #include <getopt.h>
 #include <iostream>
 #include <string>
+#include <unistd.h>
 
 #include "cli/app.h"
 #include "talk/linenoise.h"
@@ -158,6 +160,10 @@ int main(int argc, char **argv)
      HLQueryCLI cli(base_url, false, "", "talk");
 
      TalkState state;
+     state.SessionID = "talk-" + std::to_string(static_cast<long long>(getpid())) + "-" +
+                       std::to_string(std::chrono::duration_cast<std::chrono::milliseconds>(
+                                           std::chrono::system_clock::now().time_since_epoch())
+                                           .count());
 
      LoadTalkAliases(state);
 
