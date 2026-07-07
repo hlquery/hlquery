@@ -189,14 +189,23 @@ HLQueryMetrics::MetricWindowSummary HLQueryMetrics::MetricHistory::GetWindowSumm
           return Summary;
      }
 
+     const auto FirstPoint = std::lower_bound(Points.begin(), Points.end(), StartTime,
+          [](const MetricPoint &PointItem, const auto &Timestamp)
+          {
+               return PointItem.Timestamp < Timestamp;
+          });
+
+     const auto LastPoint = std::upper_bound(FirstPoint, Points.end(), EndTime,
+          [](const auto &Timestamp, const MetricPoint &PointItem)
+          {
+               return Timestamp < PointItem.Timestamp;
+          });
+
      double TotalValue = 0.0;
 
-     for (const auto &PointItem : Points)
+     for (auto PointIt = FirstPoint; PointIt != LastPoint; ++PointIt)
      {
-          if (PointItem.Timestamp < StartTime || PointItem.Timestamp > EndTime)
-          {
-               continue;
-          }
+          const auto &PointItem = *PointIt;
 
           if (!Summary.HasPoints)
           {
