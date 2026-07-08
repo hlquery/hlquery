@@ -55,6 +55,26 @@ class DemoRuntimeModule final : public AutoRuntimeModule<DemoRuntimeModule>
           return MakeDeniedResult(Operation, Message);
      }
 
+     /* Deny a mutating operation with a specific user-visible detail. */
+
+     ModulePreCheckResult BlockWithDetails(const std::string &Operation, const std::string &Details) const
+     {
+          if (Instance && Instance->Logs)
+          {
+               Instance->Logs->Normal("modules", "Demo module denied operation: " + Operation + ".");
+          }
+
+          ModulePreCheckResult Result;
+
+          Result.Action = ModulePreCheckAction::Deny;
+          Result.HttpStatus = Status::FORBIDDEN;
+          Result.ProtocolCode = Code::SYSTEM_MAINTENANCE;
+          Result.Message = "Demo mode is enabled";
+          Result.Details = Details;
+
+          return Result;
+     }
+
      /* Record a successful operation observed by the demo module. */
 
      void Observe(const std::string &Operation) const
@@ -219,7 +239,7 @@ class DemoRuntimeModule final : public AutoRuntimeModule<DemoRuntimeModule>
 
      ModulePreCheckResult OnPreDeleteSynonym(const std::string &, const std::string &, bool, const std::string &, const std::string &, bool) override
      {
-          return Block("Synonym deletion");
+          return BlockWithDetails("Synonym deletion", "Synonyms cannot be deleted in demo mode.");
      }
 
      /* Block stopword changes. */
@@ -233,7 +253,7 @@ class DemoRuntimeModule final : public AutoRuntimeModule<DemoRuntimeModule>
 
      ModulePreCheckResult OnPreDeleteStopword(const std::string &, const std::string &, bool, const std::string &, const std::string &, bool) override
      {
-          return Block("Stopword deletion");
+          return BlockWithDetails("Stopword deletion", "Stopwords cannot be deleted in demo mode.");
      }
 
      /* Block override changes. */

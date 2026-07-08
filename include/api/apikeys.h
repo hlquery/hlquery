@@ -200,11 +200,11 @@ class APIKeyManager
 
      /* Get key by ID. */
 
-     APIKey* GetKey(const std::string& KeyID);
+     bool GetKey(const std::string& KeyID, APIKey* OutKey);
 
      /* Validate key (returns nullptr if invalid/expired). */
 
-     APIKey* ValidateKey(const std::string& KeyString);
+     bool ValidateKey(const std::string& KeyString, APIKey* OutKey);
 
      /* List all keys. */
 

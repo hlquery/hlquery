@@ -390,16 +390,28 @@ HttpResponse SearchAPI::HandleCreateStopword(const HttpRequest &Request)
                return true;
           };
 
+          const char *WordsArrayKey = nullptr;
           if (StopwordData.contains("words") && StopwordData["words"].is_array())
           {
-               for (const auto &WordVal : StopwordData["words"])
+               WordsArrayKey = "words";
+          }
+          else if (StopwordData.contains("stopwords") && StopwordData["stopwords"].is_array())
+          {
+               WordsArrayKey = "stopwords";
+          }
+
+          if (WordsArrayKey != nullptr)
+          {
+               for (const auto &WordVal : StopwordData[WordsArrayKey])
                {
-                    if (WordVal.is_string())
+                    if (!WordVal.is_string())
                     {
-                         if (!AppendWord(WordVal.get<std::string>()))
-                         {
-                              return HttpResponse(Status::BAD_REQUEST, StatusText(Status::BAD_REQUEST), "application/json");
-                         }
+                         return HttpResponse(Status::BAD_REQUEST, StatusText(Status::BAD_REQUEST), "application/json");
+                    }
+
+                    if (!AppendWord(WordVal.get<std::string>()))
+                    {
+                         return HttpResponse(Status::BAD_REQUEST, StatusText(Status::BAD_REQUEST), "application/json");
                     }
                }
           }
@@ -657,6 +669,16 @@ HttpResponse SearchAPI::HandleDeleteStopword(const HttpRequest &Request)
 
      WordStr = DecodedWord;
 
+     if (Instance && Instance->Modules)
+     {
+          ModulePreCheckResult PreCheck = RUN_MODULE_PRECHECK(OnPreDeleteStopword, CollectionName, WordStr, IsGlobalScope, Request.RemoteAddress, Request.APIKeyID, !Request.APIKeyID.empty());
+
+          if (PreCheck.Action == ModulePreCheckAction::Deny)
+          {
+               return BuildErrorResponse(PreCheck.HttpStatus, PreCheck.ProtocolCode, PreCheck.Message, PreCheck.Details);
+          }
+     }
+
      if (!IsGlobalScope)
      {
           std::vector<std::string> CollectionsList = HybridStorageManagerInstance().ListCollections();
@@ -683,16 +705,6 @@ HttpResponse SearchAPI::HandleDeleteStopword(const HttpRequest &Request)
 
      try
      {
-          if (Instance && Instance->Modules)
-          {
-               ModulePreCheckResult PreCheck = RUN_MODULE_PRECHECK(OnPreDeleteStopword, CollectionName, WordStr, IsGlobalScope, Request.RemoteAddress, Request.APIKeyID, !Request.APIKeyID.empty());
-
-               if (PreCheck.Action == ModulePreCheckAction::Deny)
-               {
-                    return BuildErrorResponse(PreCheck.HttpStatus, PreCheck.ProtocolCode, PreCheck.Message, PreCheck.Details);
-               }
-          }
-
           nlohmann::json RootObj = nlohmann::json::parse(StopwordsJSON);
 
           if (RootObj.is_array())

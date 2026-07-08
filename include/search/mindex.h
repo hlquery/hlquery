@@ -174,6 +174,13 @@ class MMapIndex
 
      size_t GetDocumentCount() const;
 
+     /* GetMappedSize returns the total mapped file size. */
+
+     size_t GetMappedSize() const
+     {
+          return TermsMappedSize + TermMapMappedSize + TermIndexMappedSize + PostingsMappedSize;
+     }
+
      /* IsValid reports whether the index is valid. */
 
      bool IsValid() const

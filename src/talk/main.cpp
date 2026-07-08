@@ -2156,6 +2156,8 @@ void PrintHelp()
      std::cout << "  alias [NAME TARGET]  List aliases or point NAME to an existing command or collection\n";
      std::cout << "  uname [-a]  Show the server name and id\n";
      std::cout << "  id       Show the server id\n";
+     std::cout << "  server   Show the connected endpoint and server identity\n";
+     std::cout << "  me       Show the current talk session and client context\n";
      std::cout << "  use COL|#  Select a collection context\n";
      std::cout << "  use      Show the active collection\n";
      std::cout << "  lang [COL|#]  Print the detected language for a collection\n";
@@ -2301,6 +2303,8 @@ std::vector<std::string> GetTalkCommands()
          "aliases",
          "uname",
          "id",
+         "server",
+         "me",
          "help",
          "connect",
          "run",
@@ -2759,6 +2763,52 @@ bool ExecuteTalkCommand(const std::string &line,
           }
 
           std::cout << server_id << "\n";
+          return true;
+     }
+
+     if (command == "server")
+     {
+          if (parts.size() != 1)
+          {
+               TalkPrintError("Usage: server");
+               return true;
+          }
+
+          std::string server_name;
+          std::string server_id;
+          std::string error_message;
+
+          std::cout << "endpoint: " << host << ":" << port << "\n";
+          std::cout << "url: " << BuildBaseURL(host, port) << "\n";
+
+          if (!FetchServerIdentity(cli, server_name, server_id, error_message))
+          {
+               std::cout << "server_name: -\n";
+               std::cout << "server_id: -\n";
+               std::cout << "identity_error: " << error_message << "\n";
+               return true;
+          }
+
+          std::cout << "server_name: " << server_name << "\n";
+          std::cout << "server_id: " << server_id << "\n";
+          return true;
+     }
+
+     if (command == "me")
+     {
+          if (parts.size() != 1)
+          {
+               TalkPrintError("Usage: me");
+               return true;
+          }
+
+          std::cout << "session_id: " << (state.SessionID.empty() ? "-" : state.SessionID) << "\n";
+          std::cout << "connected_to: " << host << ":" << port << "\n";
+          std::cout << "url: " << BuildBaseURL(host, port) << "\n";
+          std::cout << "location: " << GetCurrentLocation(state) << "\n";
+          std::cout << "active_collection: " << (state.CurrentCollection.empty() ? "-" : state.CurrentCollection) << "\n";
+          std::cout << "cached_collections: " << state.LastListedCollections.size() << "\n";
+          std::cout << "cached_documents: " << state.LastListedDocumentIds.size() << "\n";
           return true;
      }
 

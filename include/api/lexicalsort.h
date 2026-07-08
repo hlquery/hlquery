@@ -24,6 +24,7 @@ struct LexicalSortOptions
 inline std::string NormalizeLexicalSortValue(const std::string &Value)
 {
      const size_t Start = Value.find_first_not_of(" \t\r\n");
+
      if (Start == std::string::npos)
      {
           return "";
@@ -32,10 +33,11 @@ inline std::string NormalizeLexicalSortValue(const std::string &Value)
      const size_t End = Value.find_last_not_of(" \t\r\n");
      std::string Result = Value.substr(Start, End - Start + 1);
      std::transform(Result.begin(), Result.end(), Result.begin(),
-                    [](unsigned char Ch)
-                    {
+     [](unsigned char Ch)
+     {
                          return static_cast<char>(std::tolower(Ch));
-                    });
+     });
+     
      return Result;
 }
 
@@ -70,6 +72,7 @@ inline bool ResolveLexicalSortOptions(const std::map<std::string, std::string> &
           {
                *OutError = "Parameter 'sort_order' must be 'asc' or 'desc'.";
           }
+
           return false;
      }
 

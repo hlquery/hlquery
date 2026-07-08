@@ -11,10 +11,35 @@
  */
 
 #include <algorithm>
+#include <exception>
+#include <limits>
 #include <mutex>
 
 #include "core/hlquery.h"
 #include "runtime/timers.h"
+
+namespace
+{
+     TimerManager::Clock::time_point GetTimerNow()
+     {
+          return Instance ? Instance->Now() : TimerManager::Clock::now();
+     }
+
+     int ClampTimerMilliseconds(long long Milliseconds)
+     {
+          if (Milliseconds <= 0)
+          {
+               return 0;
+          }
+
+          if (Milliseconds > static_cast<long long>(std::numeric_limits<int>::max()))
+          {
+               return std::numeric_limits<int>::max();
+          }
+
+          return static_cast<int>(Milliseconds);
+     }
+}
 
 Timer::Timer() : NextRun(Clock::time_point::max()), Interval(0), Repeating(false)
 {
@@ -88,7 +113,7 @@ void TimerManager::Add(std::function<void()> callback, std::chrono::milliseconds
 
      /* Current time */
 
-     const auto now = Instance ? Instance->Now() : TimerManager::Clock::now();
+     const auto now = GetTimerNow();
      Entries.push_back(Timer(std::move(callback), now + delay, delay, repeating));
      const size_t total_timers = Entries.size();
 
@@ -118,39 +143,58 @@ void TimerManager::Add(Timer entry)
 void TimerManager::Tick()
 {
      std::vector<Timer> DueTimers;
+     const auto now = GetTimerNow();
 
      {
           /* Protect the timer list */
 
           std::unique_lock<std::shared_mutex> lock(MutexValue);
 
-          /* Current time */
-
-          auto now = Instance->Now();
-
           for (auto &Entry : Entries)
           {
                if (Entry.IsDue(now))
                {
                     DueTimers.push_back(Entry);
-                    Entry.UpdateAfterRun(now);
                }
           }
 
-          /* Drop non-repeating timers that have fired */
+          /* Drop due timers before callbacks run; repeating timers are re-added after completion. */
 
           Entries.erase(
                std::remove_if(Entries.begin(), Entries.end(),
-                              [](const Timer &Entry)
+                              [now](const Timer &Entry)
                               {
-                                   return Entry.IsRetired();
+                                   return Entry.IsDue(now);
                               }),
                Entries.end());
      }
 
-     for (const auto &Entry : DueTimers)
+     std::exception_ptr FirstException;
+
+     for (auto &Entry : DueTimers)
      {
-          Entry.Execute();
+          try
+          {
+               Entry.Execute();
+          }
+          catch (...)
+          {
+               if (!FirstException)
+               {
+                    FirstException = std::current_exception();
+               }
+          }
+
+          if (Entry.IsRepeating())
+          {
+               Entry.UpdateAfterRun(GetTimerNow());
+               Add(std::move(Entry));
+          }
+     }
+
+     if (FirstException)
+     {
+          std::rethrow_exception(FirstException);
      }
 }
 
@@ -169,7 +213,7 @@ int TimerManager::GetTimeUntilNextMs()
 
      /* Current time */
 
-     auto now = Instance->Now();
+     auto now = GetTimerNow();
 
      /* Earliest pending timer */
 
@@ -189,7 +233,7 @@ int TimerManager::GetTimeUntilNextMs()
      }
 
      auto diff = std::chrono::duration_cast<std::chrono::milliseconds>(earliest - now).count();
-     return diff <= 0 ? 0 : static_cast<int>(diff);
+     return ClampTimerMilliseconds(diff);
 }
 
 /* Get number of active timers */

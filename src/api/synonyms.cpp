@@ -724,6 +724,17 @@ HttpResponse SearchAPI::HandleGetSynonym(const HttpRequest &Request)
           return HttpResponse(Status::BAD_REQUEST, StatusText(Status::BAD_REQUEST), "application/json");
      }
 
+     if (Instance && Instance->Modules)
+     {
+          HttpResponse PreCheckResponse = ApplySynonymPreCheck(
+               RUN_MODULE_PRECHECK(OnPreDeleteSynonym, CollectionName, SynonymID, IsGlobalScope, Request.RemoteAddress, Request.APIKeyID, !Request.APIKeyID.empty()));
+
+          if (HasModulePreCheckFailure(PreCheckResponse))
+          {
+               return PreCheckResponse;
+          }
+     }
+
      /* Check if collection exists. */
 
      if (!IsGlobalScope)
@@ -755,17 +766,6 @@ HttpResponse SearchAPI::HandleGetSynonym(const HttpRequest &Request)
 
      try
      {
-          if (Instance && Instance->Modules)
-          {
-               HttpResponse PreCheckResponse = ApplySynonymPreCheck(
-                    RUN_MODULE_PRECHECK(OnPreDeleteSynonym, CollectionName, SynonymID, IsGlobalScope, Request.RemoteAddress, Request.APIKeyID, !Request.APIKeyID.empty()));
-
-               if (HasModulePreCheckFailure(PreCheckResponse))
-               {
-                    return PreCheckResponse;
-               }
-          }
-
           nlohmann::json RootObj = nlohmann::json::parse(SynonymsJSON);
 
           nlohmann::json *SynonymsPtr = nullptr;

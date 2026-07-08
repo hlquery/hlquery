@@ -308,11 +308,11 @@ HLQUERY_WRAPPER_TEMPLATE = make/hlquery.tpl
 # SOURCE FILE DISCOVERY
 
 # Source files discovery with explicit exclusions
-SRCS_TOP := $(filter-out $(SRC_DIR)/test_server.cpp $(SRC_DIR)/test_config.cpp $(SRC_DIR)/hlquery_main.cpp $(SRC_DIR)/benchmarkmain.cpp $(SRC_DIR)/benchmark.cpp $(SRC_DIR)/compaction_manager.cpp $(SRC_DIR)/dynamic.cpp, $(wildcard $(SRC_DIR)/*.cpp))
+SRCS_TOP := $(wildcard $(SRC_DIR)/*.cpp)
 SRCS_TOP := $(filter-out %/, $(SRCS_TOP))
 
 # Common/shared source files
-COMMON_SRCS := $(filter-out $(SRC_DIR)/common/options.cpp $(SRC_DIR)/common/shim.cpp,$(wildcard $(SRC_DIR)/common/*.cpp))
+COMMON_SRCS := $(wildcard $(SRC_DIR)/common/*.cpp)
 SRCS_TOP += $(COMMON_SRCS)
 
 # Core source files
@@ -333,7 +333,7 @@ API_SRCS := $(filter-out $(SRC_DIR)/api/httpserver.cpp $(SRC_DIR)/api/searchapi.
 SRCS_TOP += $(API_SRCS)
 
 # Search storage source files
-SEARCH_SRCS := $(filter-out $(SRC_DIR)/search/context.cpp,$(wildcard $(SRC_DIR)/search/*.cpp))
+SEARCH_SRCS := $(wildcard $(SRC_DIR)/search/*.cpp)
 SRCS_TOP += $(SEARCH_SRCS)
 
 SQL_SRCS := $(wildcard $(SRC_DIR)/sql/*.cpp)

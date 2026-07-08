@@ -91,6 +91,9 @@ class BenchmarkClient
      int InsertDocumentsBulkRequest(const std::string &collection, const std::vector<std::tuple<std::string, std::string, std::string>> &docs, HTTPResponse &response);
      bool IsRetryableBulkInsertResponse(const HTTPResponse &response) const;
      void SleepBeforeBulkRetry(int attempt, int split_depth) const;
+     HTTPResponse MakeWriteRequestWithRetry(const std::string &method, const std::string &path, const std::string &body, int max_retries, bool use_keep_alive, int timeout_ms);
+     bool IsRetryableWriteResponse(const HTTPResponse &response) const;
+     void SleepBeforeWriteRetry(int attempt) const;
 
    public:
 
@@ -158,6 +161,10 @@ class BenchmarkClient
 
      bool AddSynonym(const std::string &collection, const std::string &synonym_id, const std::string &root_term, const std::vector<std::string> &synonyms);
 
+     /* Adds a global synonym. */
+
+     bool AddGlobalSynonym(const std::string &synonym_id, const std::string &root_term, const std::vector<std::string> &synonyms);
+
      /* Creates or updates an alias. */
 
      bool CreateAlias(const std::string &alias_name, const std::string &collection);
@@ -165,6 +172,10 @@ class BenchmarkClient
      /* Adds a stopword. */
 
      bool AddStopword(const std::string &collection, const std::string &word);
+
+     /* Adds a global stopword. */
+
+     bool AddGlobalStopword(const std::string &word);
 
      /* Inserts documents in bulk. */
 

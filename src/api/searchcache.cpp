@@ -30,15 +30,23 @@
           uint64_t CreatedMS = 0;
           uint64_t GlobalEpoch = 0;
           uint64_t CollectionGeneration = 0;
+          uint64_t OrderSequence = 0;
           size_t SizeBytes = 0;
+     };
+
+     struct CacheOrderEntry
+     {
+          std::string Key;
+          uint64_t Sequence = 0;
      };
 
      std::mutex CacheMutex;
      std::unordered_map<std::string, CacheEntry> Entries;
-     std::deque<std::string> EntryOrder;
+     std::deque<CacheOrderEntry> EntryOrder;
      std::unordered_map<std::string, std::unordered_set<std::string>> KeysByCollection;
      uint64_t GlobalEpoch = 1;
      uint64_t MutationClock = 1;
+     uint64_t OrderClock = 1;
      std::unordered_map<std::string, uint64_t> CollectionGenerations;
      uint64_t CacheTTLMS = kDefaultSearchCacheTTLMS;
      size_t CacheMaxSizeBytes = kDefaultSearchCacheMaxSize;
@@ -74,13 +82,30 @@
           return Result;
      }
 
+     std::string CanonicalBody(const std::string& Body)
+     {
+          if (Body.empty())
+          {
+               return Body;
+          }
+
+          try
+          {
+               return nlohmann::json::parse(Body).dump();
+          }
+          catch (...)
+          {
+               return Body;
+          }
+     }
+
      std::string BuildKey(const std::string& Namespace, const HttpRequest& Request)
      {
           return Namespace + "\n" +
                  Request.Method + "\n" +
                  Request.Path + "\n" +
                  CanonicalParams(Request.QueryParams) + "\n" +
-                 Request.Body + "\n" +
+                 CanonicalBody(Request.Body) + "\n" +
                  Request.EmbeddedFilters + "\n" +
                  Request.APIKeyID;
      }
@@ -112,13 +137,39 @@
      {
           while (CacheSizeBytes > CacheMaxSizeBytes && !EntryOrder.empty())
           {
-               if (Entries.find(EntryOrder.front()) != Entries.end())
-               {
-                    ++CacheEvictions;
-               }
-               RemoveKeyLocked(EntryOrder.front());
+               const CacheOrderEntry Candidate = EntryOrder.front();
                EntryOrder.pop_front();
+
+               const auto It = Entries.find(Candidate.Key);
+               if (It == Entries.end() || It->second.OrderSequence != Candidate.Sequence)
+               {
+                    continue;
+               }
+
+               ++CacheEvictions;
+               RemoveKeyLocked(Candidate.Key);
           }
+     }
+
+     void CompactOrderLocked()
+     {
+          if (EntryOrder.size() <= (Entries.size() * 2) + 1024)
+          {
+               return;
+          }
+
+          std::deque<CacheOrderEntry> Compacted;
+
+          for (const auto& Candidate : EntryOrder)
+          {
+               const auto It = Entries.find(Candidate.Key);
+               if (It != Entries.end() && It->second.OrderSequence == Candidate.Sequence)
+               {
+                    Compacted.push_back(Candidate);
+               }
+          }
+
+          EntryOrder.swap(Compacted);
      }
 
      size_t EstimateEntrySize(const std::string& Key, const HttpResponse& Response)
@@ -230,12 +281,14 @@ void SearchResponseCache::Put(const std::string& Namespace,
      }
      Entry.GlobalEpoch = GlobalEpoch;
      Entry.CollectionGeneration = CurrentGeneration;
+     Entry.OrderSequence = ++OrderClock;
      RemoveKeyLocked(Key);
      Entries[Key] = std::move(Entry);
      CacheSizeBytes += Entries[Key].SizeBytes;
      KeysByCollection[Collection].insert(Key);
-     EntryOrder.push_back(Key);
+     EntryOrder.push_back({Key, Entries[Key].OrderSequence});
      TrimLocked();
+     CompactOrderLocked();
 }
 
 void SearchResponseCache::InvalidateCollection(const std::string& Collection)

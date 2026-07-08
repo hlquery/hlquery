@@ -163,7 +163,6 @@ bool hlquery::StartServer()
                     if (PIDFileStream.is_open())
                     {
                          std::string PIDStrValue;
-
                          std::getline(PIDFileStream, PIDStrValue);
                          PIDFileStream.close();
 
@@ -364,7 +363,6 @@ bool hlquery::StartServer()
                     else
                     {
                          ValidationPassedFlag = false;
-
                          ValidationErrorsMsg += "Collections path is not a directory: " + CollectionsDirPath + "\n";
                     }
                }

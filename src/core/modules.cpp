@@ -286,9 +286,7 @@ HttpResponse RuntimeModule::HandleAPIRequest(const HttpRequest &Request, const s
      }
 
      ParseJSONBodyParameters(Request.Body, command_request);
-
      ModuleCommandResponse command_response = const_cast<RuntimeModule *>(this)->HandleCommand(command_request);
-
      HttpResponse response(command_response.StatusCode,
                            (command_response.StatusCode >= 200 && command_response.StatusCode < 300) ? "OK" : "Error",
                            command_response.ContentType.empty() ? "application/json" : command_response.ContentType);

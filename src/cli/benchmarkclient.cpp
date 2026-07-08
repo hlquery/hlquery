@@ -421,12 +421,6 @@ HTTPResponse BenchmarkClient::MakeRequest(const std::string &method, const std::
           request << "Accept: application/json\r\n";
           request << "Connection: " << (use_keep_alive ? "keep-alive" : "close") << "\r\n";
 
-          /* Benchmarks should not be blocked on replication acknowledgements. */
-          if (method == "POST" || method == "PUT" || method == "DELETE" || method == "PATCH")
-          {
-               request << "X-HLQ-Replication-Hop: 1\r\n";
-          }
-
           if (!AuthToken.empty())
           {
                request << "Authorization: Bearer " << AuthToken << "\r\n";
@@ -1051,6 +1045,58 @@ static std::string LowercaseCopy(std::string value)
      return value;
 }
 
+bool BenchmarkClient::IsRetryableWriteResponse(const HTTPResponse &response) const
+{
+     if (response.StatusCode == -1 || response.StatusCode == 408 || response.StatusCode == 425 ||
+         response.StatusCode == 429 || response.StatusCode == 500 || response.StatusCode == 502 ||
+         response.StatusCode == 503 || response.StatusCode == 504)
+     {
+          return true;
+     }
+
+     const std::string body = LowercaseCopy(response.Body);
+
+     return body.find("sync in progress") != std::string::npos ||
+            body.find("temporarily unavailable") != std::string::npos ||
+            body.find("try again") != std::string::npos ||
+            body.find("timed out") != std::string::npos ||
+            body.find("replication outbox") != std::string::npos ||
+            body.find("failed to persist replication outbox record") != std::string::npos;
+}
+
+void BenchmarkClient::SleepBeforeWriteRetry(int attempt) const
+{
+     const int capped_attempt = std::max(0, std::min(attempt, 6));
+     const int sleep_ms = 150 * (1 << capped_attempt);
+
+     std::this_thread::sleep_for(std::chrono::milliseconds(sleep_ms));
+}
+
+HTTPResponse BenchmarkClient::MakeWriteRequestWithRetry(const std::string &method,
+                                                        const std::string &path,
+                                                        const std::string &body,
+                                                        int max_retries,
+                                                        bool use_keep_alive,
+                                                        int timeout_ms)
+{
+     const int attempts = std::max(1, max_retries);
+     HTTPResponse response;
+
+     for (int attempt = 0; attempt < attempts; ++attempt)
+     {
+          response = MakeRequest(method, path, body, 1, use_keep_alive, timeout_ms);
+
+          if (!IsRetryableWriteResponse(response) || attempt + 1 >= attempts)
+          {
+               return response;
+          }
+
+          SleepBeforeWriteRetry(attempt);
+     }
+
+     return response;
+}
+
 static void AddBenchmarkDocumentIdField(nlohmann::json &fields)
 {
      if (!fields.is_array())
@@ -1526,7 +1572,7 @@ bool BenchmarkClient::UpsertDocumentWithFields(const std::string &collection, co
 
      std::string json_str = payload.dump();
 
-     HTTPResponse response = MakeRequest("POST", "/collections/" + collection + "/documents", json_str, 3, false);
+     HTTPResponse response = MakeWriteRequestWithRetry("POST", "/collections/" + collection + "/documents", json_str, 8, false, 10000);
 
      if (response.StatusCode == -1)
      {
@@ -1544,7 +1590,7 @@ bool BenchmarkClient::UpsertDocumentWithFields(const std::string &collection, co
 
           if (!doc_id.empty())
           {
-               response = MakeRequest("PUT", "/collections/" + collection + "/documents/" + doc_id, json_str, 3, false);
+               response = MakeWriteRequestWithRetry("PUT", "/collections/" + collection + "/documents/" + doc_id, json_str, 8, false, 10000);
           }
      }
 
@@ -1572,7 +1618,7 @@ bool BenchmarkClient::UpsertDocumentWithFieldsLocal(const std::string &collectio
 
      std::string json_str = payload.dump();
 
-     HTTPResponse response = MakeRequest("POST", AppendLocalOnlyQuery("/collections/" + collection + "/documents", true), json_str, 3, false);
+     HTTPResponse response = MakeWriteRequestWithRetry("POST", AppendLocalOnlyQuery("/collections/" + collection + "/documents", true), json_str, 8, false, 10000);
 
      if (response.StatusCode == -1)
      {
@@ -1590,7 +1636,7 @@ bool BenchmarkClient::UpsertDocumentWithFieldsLocal(const std::string &collectio
 
           if (!doc_id.empty())
           {
-               response = MakeRequest("PUT", AppendLocalOnlyQuery("/collections/" + collection + "/documents/" + doc_id, true), json_str, 3, false);
+               response = MakeWriteRequestWithRetry("PUT", AppendLocalOnlyQuery("/collections/" + collection + "/documents/" + doc_id, true), json_str, 8, false, 10000);
           }
      }
 
@@ -1821,7 +1867,25 @@ bool BenchmarkClient::AddSynonym(const std::string &collection, const std::strin
      std::string encoded_collection = UrlEncode(collection);
      std::string encoded_id = UrlEncode(synonym_id);
 
-     HTTPResponse response = MakeRequest("POST", "/collections/" + encoded_collection + "/synonyms/" + encoded_id, json_str, 1, false, 5000);
+     HTTPResponse response = MakeWriteRequestWithRetry("POST", "/collections/" + encoded_collection + "/synonyms/" + encoded_id, json_str, 8, false, 10000);
+
+     return response.StatusCode == 200 || response.StatusCode == 201;
+}
+
+/* Adds a global synonym. */
+
+bool BenchmarkClient::AddGlobalSynonym(const std::string &synonym_id, const std::string &root_term, const std::vector<std::string> &synonyms)
+{
+     nlohmann::json synonym_data;
+
+     synonym_data["root"] = root_term;
+     synonym_data["synonyms"] = synonyms;
+
+     std::string json_str = synonym_data.dump();
+
+     std::string encoded_id = UrlEncode(synonym_id);
+
+     HTTPResponse response = MakeWriteRequestWithRetry("POST", "/synonyms/global/" + encoded_id, json_str, 8, false, 10000);
 
      return response.StatusCode == 200 || response.StatusCode == 201;
 }
@@ -1839,7 +1903,7 @@ bool BenchmarkClient::CreateAlias(const std::string &alias_name, const std::stri
 
      std::string encoded_alias = UrlEncode(alias_name);
 
-     HTTPResponse response = MakeRequest("PUT", "/aliases/" + encoded_alias, json_str, 1, false, 5000);
+     HTTPResponse response = MakeWriteRequestWithRetry("PUT", "/aliases/" + encoded_alias, json_str, 8, false, 10000);
 
      return response.StatusCode == 200 || response.StatusCode == 201;
 }
@@ -1856,7 +1920,22 @@ bool BenchmarkClient::AddStopword(const std::string &collection, const std::stri
 
      std::string encoded_collection = UrlEncode(collection);
 
-     HTTPResponse response = MakeRequest("POST", "/collections/" + encoded_collection + "/stopwords", json_str, 1, false, 5000);
+     HTTPResponse response = MakeWriteRequestWithRetry("POST", "/collections/" + encoded_collection + "/stopwords", json_str, 8, false, 10000);
+
+     return response.StatusCode == 200 || response.StatusCode == 201;
+}
+
+/* Adds a global stopword. */
+
+bool BenchmarkClient::AddGlobalStopword(const std::string &word)
+{
+     nlohmann::json stopword_data;
+
+     stopword_data["word"] = word;
+
+     std::string json_str = stopword_data.dump();
+
+     HTTPResponse response = MakeWriteRequestWithRetry("POST", "/stopwords/global", json_str, 8, false, 10000);
 
      return response.StatusCode == 200 || response.StatusCode == 201;
 }

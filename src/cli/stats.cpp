@@ -1303,7 +1303,7 @@ void HLQueryCLI::ShowPing()
 
 void HLQueryCLI::ShowLinks(bool ping_all)
 {
-     const std::string endpoint = ping_all ? "/links/ping" : "/links";
+     const std::string endpoint = "/links/ping";
      if (ping_all)
      {
           std::cout << "Pinging configured links...\n";

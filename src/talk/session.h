@@ -25,6 +25,7 @@ class HLQueryCLI;
 
 struct TalkState
 {
+     std::string SessionID;
      std::string CurrentCollection;
      std::vector<std::string> CollectionHistory;
      std::vector<std::string> LastListedCollections;

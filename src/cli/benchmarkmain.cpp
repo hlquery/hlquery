@@ -723,6 +723,22 @@ static const std::vector<FakeSynonymSeed> kFakeBenchmarkSynonymSeeds = {
      {"science", {"physics", "biology", "chemistry", "experiment"}},
      {"cake", {"pastry", "dessert", "sweet", "bakery"}}};
 
+static const std::vector<FakeSynonymSeed> kFakeGlobalSynonymSeeds = {
+     {"global", {"sitewide", "federated", "shared"}},
+     {"demo", {"sample", "fixture", "synthetic"}},
+     {"popular", {"trending", "featured", "recommended"}},
+     {"guide", {"tutorial", "walkthrough", "reference"}},
+     {"profile", {"record", "entry", "document"}},
+};
+
+static const std::vector<std::string> kFakeGlobalStopwords = {
+     "benchmark",
+     "collection",
+     "document",
+     "content",
+     "inserted",
+};
+
 static const std::unordered_map<std::string, std::vector<FakeSynonymSeed>> kFakeCollectionSynonymProfiles = {
      {"art",
       {
@@ -1824,7 +1840,61 @@ bool CreateFakeCollections(const std::string &base_url, const std::string &auth_
           LogOutput("✓ Added " + std::to_string(aliases_added) + " fake aliases for inserted fake collections.\n");
      }
 
-     LogOutput("✓ Skipped global fake synonyms and stopwords to keep collection themes isolated.\n");
+     size_t global_synonyms_added = 0;
+     for (size_t i = 0; i < kFakeGlobalSynonymSeeds.size(); ++i)
+     {
+          if (g_benchmark_should_stop.load())
+          {
+               return false;
+          }
+
+          const FakeSynonymSeed &seed = kFakeGlobalSynonymSeeds[i];
+          const std::string synonym_id = "fake_global_syn_" + std::to_string(i + 1);
+          const bool synonym_added = client.AddGlobalSynonym(synonym_id, seed.Root, seed.Synonyms);
+
+          if (g_benchmark_should_stop.load())
+          {
+               return false;
+          }
+
+          if (synonym_added)
+          {
+               global_synonyms_added++;
+          }
+          else
+          {
+               std::cerr << "✗ Failed to add global fake synonym '" << synonym_id << "'.\n";
+          }
+     }
+
+     size_t global_stopwords_added = 0;
+     for (const std::string &word : kFakeGlobalStopwords)
+     {
+          if (g_benchmark_should_stop.load())
+          {
+               return false;
+          }
+
+          const bool stopword_added = client.AddGlobalStopword(word);
+
+          if (g_benchmark_should_stop.load())
+          {
+               return false;
+          }
+
+          if (stopword_added)
+          {
+               global_stopwords_added++;
+          }
+          else
+          {
+               std::cerr << "✗ Failed to add global fake stopword '" << word << "'.\n";
+          }
+     }
+
+     LogOutput("✓ Added " + std::to_string(global_synonyms_added) +
+               " global fake synonym group(s) and " + std::to_string(global_stopwords_added) +
+               " global fake stopword(s).\n");
 
      return true;
 }
@@ -1984,7 +2054,7 @@ static void PrintBenchmarkHelp(const char *program_name)
                << "                    and functionalities (includes --advanced)\n"
                << "  --Search           Run search benchmark on previously inserted data\n"
                << "  --dump             Dump all collections and their documents\n"
-               << "  --fake             Insert realistic sample data (people, food, stocks, music, science, etc.) for testing\n"
+               << "  --fake             Insert realistic sample data plus local/global synonyms and stopwords for testing\n"
                << "  --flood            Flood server with continuous random data generation for stress testing\n"
                << "                    (runs until stopped with Ctrl+C, randomly creates collections and documents)\n"
                << "  --id ID            Run UUID/ID for correlation (default: auto-generated)\n"

@@ -71,6 +71,97 @@ static SearchEvent BuildSearchEvent(const std::string &Query,
      return Event;
 }
 
+static void ReadCachedSearchCounts(const HttpResponse &Response,
+                                   uint64_t *Found,
+                                   uint64_t *Returned)
+{
+     if (Found)
+     {
+          *Found = 0;
+     }
+
+     if (Returned)
+     {
+          *Returned = 0;
+     }
+
+     try
+     {
+          const nlohmann::json Root = nlohmann::json::parse(Response.Body);
+
+          if (Found && Root.contains("found") && Root["found"].is_number_unsigned())
+          {
+               *Found = Root["found"].get<uint64_t>();
+          }
+          else if (Found && Root.contains("found") && Root["found"].is_number_integer())
+          {
+               const int64_t FoundValue = Root["found"].get<int64_t>();
+               *Found = FoundValue < 0 ? 0U : static_cast<uint64_t>(FoundValue);
+          }
+
+          if (Returned && Root.contains("hits") && Root["hits"].is_array())
+          {
+               *Returned = static_cast<uint64_t>(Root["hits"].size());
+          }
+     }
+     catch (...)
+     {
+     }
+}
+
+static std::string SearchHeaderValueInsensitive(const std::map<std::string, std::string> &Headers,
+                                                const std::string &Name)
+{
+     auto Lower = [](std::string Value)
+     {
+          std::transform(Value.begin(), Value.end(), Value.begin(),
+                         [](unsigned char Ch) { return static_cast<char>(std::tolower(Ch)); });
+          return Value;
+     };
+
+     const std::string LowerName = Lower(Name);
+
+     for (const auto &Header : Headers)
+     {
+          if (Lower(Header.first) == LowerName)
+          {
+               return Header.second;
+          }
+     }
+
+     return "";
+}
+
+static void EmitCachedSearchAnalytics(const ComprehensiveSearchQuery &Query,
+                                      const HttpRequest &Request,
+                                      const HttpResponse &Response,
+                                      const std::string &Collection,
+                                      bool Distributed)
+{
+     if (!Query.EnableAnalytics)
+     {
+          return;
+     }
+
+     uint64_t Found = 0;
+     uint64_t Returned = 0;
+     ReadCachedSearchCounts(Response, &Found, &Returned);
+
+     const SearchEvent DocumentEvent = BuildSearchEvent(
+          Query.Q,
+          Query.AnalyticsTag,
+          Collection.empty() ? "*" : Collection,
+          0,
+          Found,
+          Returned,
+          Request.RemoteAddress,
+          Request.APIKeyID,
+          !Request.APIKeyID.empty(),
+          Distributed);
+
+     FOREACH_MOD(OnSearchDocument, DocumentEvent);
+}
+
 /* Returns a normalized score for merged hit ordering across mixed search modes. */
 
 static float ScoreForMergedHit(const SearchHit &Hit)
@@ -1762,6 +1853,11 @@ HttpResponse SearchAPI::HandleSearch(const HttpRequest &Request)
      if (RequestCacheEnabled && !NeedsCustomSQLExecution &&
          SearchResponseCache::Get("search", Request, CollectionName, CachedResponse))
      {
+          EmitCachedSearchAnalytics(SearchQueryObj,
+                                    Request,
+                                    CachedResponse,
+                                    CollectionName,
+                                    SearchHeaderValueInsensitive(CachedResponse.Headers, "X-HLQ-Execution-Mode") == "distributed");
           return CachedResponse;
      }
 
@@ -2186,14 +2282,14 @@ HttpResponse SearchAPI::HandleGlobalSearch(const HttpRequest &Request)
 
           if (!Request.APIKeyID.empty())
           {
-               auto *KeyObj = APIKeyManager::Instance().GetKey(Request.APIKeyID);
-               if (KeyObj)
+               APIKey KeyObj;
+               if (APIKeyManager::Instance().GetKey(Request.APIKeyID, &KeyObj))
                {
-                    if (!KeyObj->CanAccessCollection(CollectionName) || !KeyObj->HasAction(CollectionName, APIKeyAction::SEARCH))
+                    if (!KeyObj.CanAccessCollection(CollectionName) || !KeyObj.HasAction(CollectionName, APIKeyAction::SEARCH))
                     {
                          continue;
                     }
-                    FiltersToApply = KeyObj->GetEmbeddedFilters(CollectionName);
+                    FiltersToApply = KeyObj.GetEmbeddedFilters(CollectionName);
                }
           }
 
@@ -2446,11 +2542,11 @@ HttpResponse SearchAPI::HandleMultiSearch(const HttpRequest &Request)
 
           if (!Request.APIKeyID.empty())
           {
-               auto *KeyObj = APIKeyManager::Instance().GetKey(Request.APIKeyID);
+               APIKey KeyObj;
 
-               if (KeyObj)
+               if (APIKeyManager::Instance().GetKey(Request.APIKeyID, &KeyObj))
                {
-                    if (!KeyObj->CanAccessCollection(Col) || !KeyObj->HasAction(Col, APIKeyAction::SEARCH))
+                    if (!KeyObj.CanAccessCollection(Col) || !KeyObj.HasAction(Col, APIKeyAction::SEARCH))
                     {
                          nlohmann::json err;
                          err["error"] = "Access to collection '" + Col + "' not allowed for this key";
@@ -2459,7 +2555,7 @@ HttpResponse SearchAPI::HandleMultiSearch(const HttpRequest &Request)
                          continue;
                     }
 
-                    FiltersToApply = KeyObj->GetEmbeddedFilters(Col);
+                    FiltersToApply = KeyObj.GetEmbeddedFilters(Col);
                }
                else
                {
@@ -2641,7 +2737,7 @@ ComprehensiveSearchResult SearchAPI::PerformComprehensiveSearch(const std::strin
 
      if (!Query.VectorQueryStr.empty() || !Query.Embedding.empty())
      {
-          if (Query.HybridAlpha > 0.0f && Query.HybridAlpha < 1.0f)
+          if (!Query.Q.empty() && Query.Q != "*" && Query.HybridAlpha > 0.0f && Query.HybridAlpha < 1.0f)
           {
                Hits = ProcessHybridSearch(Collection, Query);
                RankingMode = "hybrid";

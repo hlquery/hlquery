@@ -2639,13 +2639,23 @@ bool SearchAPI::QueuePendingReplication(const std::string &Endpoint,
                                         bool AllowOverflow,
                                         std::string *OutError) const
 {
+     const std::string QueueEndpoint = TrimCopy(Endpoint);
+     if (QueueEndpoint.empty())
+     {
+          if (OutError)
+          {
+               *OutError = "Pending replication queue requires a non-empty endpoint.";
+          }
+          return false;
+     }
+
      std::lock_guard<std::mutex> lock(PendingReplicationMutex);
-     auto &Queue = PendingReplicationRequests[Endpoint];
+     auto &Queue = PendingReplicationRequests[QueueEndpoint];
      if (!AllowOverflow && Queue.size() >= kMaxPendingReplicationRequests)
      {
           if (OutError)
           {
-               *OutError = "Pending replication queue is full for " + Endpoint + " (" + std::to_string(kMaxPendingReplicationRequests) + " requests queued).";
+               *OutError = "Pending replication queue is full for " + QueueEndpoint + " (" + std::to_string(kMaxPendingReplicationRequests) + " requests queued).";
           }
           return false;
      }
@@ -2656,8 +2666,14 @@ bool SearchAPI::QueuePendingReplication(const std::string &Endpoint,
 
 std::vector<HttpRequest> SearchAPI::TakePendingReplications(const std::string &Endpoint) const
 {
+     const std::string QueueEndpoint = TrimCopy(Endpoint);
+     if (QueueEndpoint.empty())
+     {
+          return {};
+     }
+
      std::lock_guard<std::mutex> lock(PendingReplicationMutex);
-     auto It = PendingReplicationRequests.find(Endpoint);
+     auto It = PendingReplicationRequests.find(QueueEndpoint);
      if (It == PendingReplicationRequests.end())
      {
           return {};
