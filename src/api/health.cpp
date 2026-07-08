@@ -449,7 +449,7 @@ static HttpResponse BuildLinksErrorResponse(Status StatusVal,
      return BuildJSONResponse(StatusVal, Body);
 }
 
-static nlohmann::json BuildLinksResponseBody(bool PingNodes)
+static nlohmann::json BuildLinksBaseResponse()
 {
      nlohmann::json LinksJSON;
      LinksJSON["status"] = "ok";
@@ -463,7 +463,17 @@ static nlohmann::json BuildLinksResponseBody(bool PingNodes)
           LinksJSON["replication_enabled"] = Instance->Config->GetReplicationEnabled();
           LinksJSON["replication_mode"] = Instance->Config->GetReplicationMode();
           LinksJSON["replication_timeout_ms"] = Instance->Config->GetReplicationTimeoutMS();
+     }
 
+     return LinksJSON;
+}
+
+static nlohmann::json BuildLinksResponseBody(bool PingNodes)
+{
+     nlohmann::json LinksJSON = BuildLinksBaseResponse();
+
+     if (Instance && Instance->Config)
+     {
           auto NodesArray = BuildLinksNodesJSON(Instance->Config->GetClusterNodes(), PingNodes);
           LinksJSON["nodes"] = NodesArray;
           LinksJSON["node_count"] = NodesArray.size();
@@ -472,6 +482,46 @@ static nlohmann::json BuildLinksResponseBody(bool PingNodes)
           LinksJSON["slaves"] = SlaveArray;
           LinksJSON["slave_count"] = SlaveArray.size();
      }
+
+     return LinksJSON;
+}
+
+static bool LinkEndpointListContains(const std::vector<std::string> &Endpoints, const std::string &Endpoint)
+{
+     return std::find(Endpoints.begin(), Endpoints.end(), Endpoint) != Endpoints.end();
+}
+
+static nlohmann::json BuildSingleLinkPingResponseBody(const std::string &Endpoint)
+{
+     nlohmann::json LinksJSON = BuildLinksBaseResponse();
+     nlohmann::json NodesArray = nlohmann::json::array();
+     nlohmann::json SlaveArray = nlohmann::json::array();
+
+     LinkEndpointInfo Info = HealthBuildEndpointInfo(Endpoint);
+     HealthProbeEndpoint(Info, true);
+     nlohmann::json EndpointJSON = HealthEndpointInfoToJSON(Info);
+
+     bool IsSlave = false;
+     bool IsCluster = true;
+     if (Instance && Instance->Config)
+     {
+          IsCluster = LinkEndpointListContains(Instance->Config->GetClusterNodes(), Info.NormalizedEndpoint);
+          IsSlave = LinkEndpointListContains(Instance->Config->GetSlaveNodes(), Info.NormalizedEndpoint);
+     }
+
+     if (IsCluster || !IsSlave)
+     {
+          NodesArray.push_back(EndpointJSON);
+     }
+     if (IsSlave)
+     {
+          SlaveArray.push_back(EndpointJSON);
+     }
+
+     LinksJSON["nodes"] = NodesArray;
+     LinksJSON["node_count"] = NodesArray.size();
+     LinksJSON["slaves"] = SlaveArray;
+     LinksJSON["slave_count"] = SlaveArray.size();
 
      return LinksJSON;
 }
@@ -1698,6 +1748,21 @@ HttpResponse SearchAPI::HandleLinksPing(const HttpRequest &Request)
      if (Instance && Instance->Logs)
      {
           Instance->Logs->Normal("links", "Received /links/ping request.");
+     }
+
+     const bool HasEndpointParam = Request.QueryParams.find("endpoint") != Request.QueryParams.end()
+                                   || Request.QueryParams.find("node") != Request.QueryParams.end()
+                                   || !Request.Body.empty();
+     if (HasEndpointParam)
+     {
+          std::string Endpoint;
+          std::string Error;
+          if (!ExtractLinkEndpoint(Request, Endpoint, Error))
+          {
+               return BuildLinksErrorResponse(Status::BAD_REQUEST, "Invalid request", Error);
+          }
+
+          return BuildJSONResponse(Status::OK, BuildSingleLinkPingResponseBody(Endpoint));
      }
 
      return BuildJSONResponse(Status::OK, BuildLinksResponseBody(true));
