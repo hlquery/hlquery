@@ -117,11 +117,11 @@ inline bool ParseSharedNodeEndpoint(const std::string &Raw,
           Node = Node.substr(8);
      }
 
-     size_t SlashPos = Node.find('/');
+     size_t SuffixPos = Node.find_first_of("/?#");
 
-     if (SlashPos != std::string::npos)
+     if (SuffixPos != std::string::npos)
      {
-          Node = Node.substr(0, SlashPos);
+          Node = Node.substr(0, SuffixPos);
      }
 
      std::string Host = Node;
@@ -146,7 +146,7 @@ inline bool ParseSharedNodeEndpoint(const std::string &Raw,
                     return false;
                }
 
-               std::string PortStr = Rest.substr(1);
+               std::string PortStr = TrimNodeEndpointValue(Rest.substr(1));
                if (PortStr.empty())
                {
                     if (!Options.AllowEmptyPort)
@@ -177,7 +177,7 @@ inline bool ParseSharedNodeEndpoint(const std::string &Raw,
           else
           {
                Host = Node.substr(0, ColonPos);
-               std::string PortStr = Node.substr(ColonPos + 1);
+               std::string PortStr = TrimNodeEndpointValue(Node.substr(ColonPos + 1));
            
                if (PortStr.empty())
                {
