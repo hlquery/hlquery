@@ -500,6 +500,7 @@ bool SearchAPI::Start()
      }
 
      EnsureReplicationMonitorStarted();
+     EnsureDistributedLinkMonitorStarted();
 
      /* Initialize User Authentication Manager. */
 
@@ -944,6 +945,14 @@ void SearchAPI::EnqueueAsyncReplicationTask(std::function<void()> Task) const
 
 void SearchAPI::Shutdown()
 {
+     DistributedLinkMonitorStop.store(true, std::memory_order_relaxed);
+     DistributedLinkMonitorCV.notify_all();
+
+     if (DistributedLinkMonitorThread.joinable())
+     {
+          DistributedLinkMonitorThread.join();
+     }
+
      ReplicationMonitorStop.store(true, std::memory_order_relaxed);
      ReplicationMonitorCV.notify_all();
 

@@ -251,12 +251,17 @@ static void HealthProbeEndpoint(LinkEndpointInfo &Info, bool PingNode)
           Info.Reachable = true;
           Info.StatusCode = 200;
           Info.LatencyMS = 0.0;
+          SearchAPI::GetInstance().ClearPeerReconnectDiagnostics(Info.NormalizedEndpoint);
           return;
      }
 
      const int TimeoutMS = (Instance && Instance->Config) ? Instance->Config->GetDistributedSearchTimeoutMS() : 0;
      bool Ok = HealthSendPingRequest(Info.Host, Info.Port, TimeoutMS, &Info.StatusCode, &Info.LatencyMS, &Info.Error);
      Info.Reachable = Ok && Info.StatusCode >= 200 && Info.StatusCode < 300;
+     if (Info.Reachable)
+     {
+          SearchAPI::GetInstance().ClearPeerReconnectDiagnostics(Info.NormalizedEndpoint);
+     }
 }
 
 static nlohmann::json HealthEndpointInfoToJSON(const LinkEndpointInfo &Info)
@@ -277,6 +282,21 @@ static nlohmann::json HealthEndpointInfoToJSON(const LinkEndpointInfo &Info)
      EndpointJSON["is_local"] = Info.IsLocal;
      EndpointJSON["status_code"] = Info.StatusCode;
      EndpointJSON["latency_ms"] = Info.LatencyMS;
+
+     PeerReconnectDiagnostics Reconnect = SearchAPI::GetInstance().GetPeerReconnectDiagnostics(Info.NormalizedEndpoint);
+     if (Reconnect.HasState)
+     {
+          nlohmann::json ReconnectJSON;
+          ReconnectJSON["consecutive_failures"] = Reconnect.ConsecutiveFailures;
+          ReconnectJSON["next_retry_ms"] = Reconnect.NextRetryMS;
+          ReconnectJSON["last_failure_ms"] = Reconnect.LastFailureMS;
+          ReconnectJSON["last_success_ms"] = Reconnect.LastSuccessMS;
+          if (!Reconnect.LastError.empty())
+          {
+               ReconnectJSON["last_error"] = Reconnect.LastError;
+          }
+          EndpointJSON["reconnect"] = ReconnectJSON;
+     }
 
      if (!Info.Error.empty())
      {

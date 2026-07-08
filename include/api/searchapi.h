@@ -14,6 +14,7 @@
 
 #include <atomic>
 #include <condition_variable>
+#include <cstdint>
 #include <future>
 #include <map>
 #include <mutex>
@@ -357,6 +358,16 @@ struct ReplicationStatusSnapshot
      uint64_t LastErrorTimestampMS = 0;
 };
 
+struct PeerReconnectDiagnostics
+{
+     bool HasState = false;
+     int ConsecutiveFailures = 0;
+     int64_t NextRetryMS = 0;
+     uint64_t LastFailureMS = 0;
+     uint64_t LastSuccessMS = 0;
+     std::string LastError;
+};
+
 /* Search API handler for HTTP server. */
 
 class SearchAPI
@@ -392,6 +403,11 @@ class SearchAPI
      mutable std::condition_variable ReplicationMonitorCV;
      mutable std::mutex ReplicationMonitorCVMutex;
      mutable std::thread ReplicationMonitorThread;
+     mutable std::atomic<bool> DistributedLinkMonitorRunning{false};
+     mutable std::atomic<bool> DistributedLinkMonitorStop{false};
+     mutable std::condition_variable DistributedLinkMonitorCV;
+     mutable std::mutex DistributedLinkMonitorCVMutex;
+     mutable std::thread DistributedLinkMonitorThread;
      mutable std::mutex AsyncReplicationTasksMutex;
      mutable std::vector<std::future<void>> AsyncReplicationTasks;
 
@@ -620,6 +636,10 @@ class SearchAPI
 
      void ReplicationMonitorLoop() const;
 
+     void EnsureDistributedLinkMonitorStarted() const;
+
+     void DistributedLinkMonitorLoop() const;
+
      void CleanupFinishedAsyncReplicationTasks() const;
 
      void EnqueueAsyncReplicationTask(std::function<void()> Task) const;
@@ -777,6 +797,10 @@ class SearchAPI
      /* IsInitialized reports whether the API is ready. */
 
      bool IsInitialized() const;
+
+     PeerReconnectDiagnostics GetPeerReconnectDiagnostics(const std::string& Endpoint) const;
+
+     void ClearPeerReconnectDiagnostics(const std::string& Endpoint) const;
 
      /*
      * HTTP route handlers.
