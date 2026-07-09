@@ -11,7 +11,6 @@
  */
 
 #include <unordered_map>
-
 #include "search/storagemaint.h"
 
 /*

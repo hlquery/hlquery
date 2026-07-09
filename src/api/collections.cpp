@@ -53,6 +53,8 @@
 #include "utils/wildcard.h"
 #include "vendor/json/json.hpp"
 
+/* Provides collection API handlers for creation, updates, inspection, and deletion. */
+
 struct CollectionMaybeSettings
 {
      bool Enabled = false;

@@ -33,6 +33,7 @@
 #include <sys/time.h>
 #include <thread>
 #include <unistd.h>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -57,6 +58,8 @@
 #include "utils/protocol.h"
 #include "utils/wildcard.h"
 #include "vendor/json/json.hpp"
+
+/* Provides health, diagnostics, and readiness API handlers. */
 
 struct LinkEndpointInfo
 {
@@ -467,6 +470,267 @@ static HttpResponse BuildLinksErrorResponse(Status StatusVal,
      }
 
      return BuildJSONResponse(StatusVal, Body);
+}
+
+static std::string ConfigFileTrim(const std::string &Value)
+{
+     size_t Start = 0;
+     while (Start < Value.size() && std::isspace(static_cast<unsigned char>(Value[Start])))
+     {
+          ++Start;
+     }
+
+     size_t End = Value.size();
+     while (End > Start && std::isspace(static_cast<unsigned char>(Value[End - 1])))
+     {
+          --End;
+     }
+
+     return Value.substr(Start, End - Start);
+}
+
+static bool ConfigFileIsSecretKey(const std::string &Key)
+{
+     std::string Normalized = Key;
+     std::transform(Normalized.begin(), Normalized.end(), Normalized.begin(), [](unsigned char Ch)
+     {
+          return static_cast<char>(std::tolower(Ch));
+     });
+
+     return Normalized.find("passwd") != std::string::npos ||
+            Normalized.find("password") != std::string::npos ||
+            Normalized.find("token") != std::string::npos ||
+            Normalized.find("secret") != std::string::npos ||
+            Normalized.find("api_key") != std::string::npos;
+}
+
+static std::string ConfigFileRedactLine(const std::string &Line)
+{
+     static const std::regex AttributePattern("([A-Za-z_][A-Za-z0-9_-]*)\\s*=\\s*\"([^\"]*)\"");
+
+     std::string Output;
+     std::sregex_iterator It(Line.begin(), Line.end(), AttributePattern);
+     std::sregex_iterator End;
+     size_t LastPos = 0;
+
+     for (; It != End; ++It)
+     {
+          const std::smatch &Match = *It;
+          Output.append(Line.substr(LastPos, static_cast<size_t>(Match.position()) - LastPos));
+
+          const std::string Key = Match[1].str();
+          if (ConfigFileIsSecretKey(Key))
+          {
+               Output.append(Key + "=\"[redacted]\"");
+          }
+          else
+          {
+               Output.append(Match.str());
+          }
+
+          LastPos = static_cast<size_t>(Match.position() + Match.length());
+     }
+
+     Output.append(Line.substr(LastPos));
+     return Output;
+}
+
+static nlohmann::json ConfigFileParseRows(const std::string &Content)
+{
+     static const std::regex TagPattern(R"(^<\s*([A-Za-z_][A-Za-z0-9_-]*)([^>]*)>)");
+     static const std::regex AttributePattern("([A-Za-z_][A-Za-z0-9_-]*)\\s*=\\s*\"([^\"]*)\"");
+
+     nlohmann::json Rows = nlohmann::json::array();
+     std::unordered_map<std::string, size_t> TagCounts;
+     std::istringstream Stream(Content);
+     std::string Line;
+     size_t LineNo = 0;
+
+     while (std::getline(Stream, Line))
+     {
+          ++LineNo;
+          const std::string Trimmed = ConfigFileTrim(Line);
+          if (Trimmed.empty() || Trimmed[0] == '#' || Trimmed.rfind("</", 0) == 0)
+          {
+               continue;
+          }
+
+          std::smatch TagMatch;
+          if (!std::regex_search(Trimmed, TagMatch, TagPattern))
+          {
+               continue;
+          }
+
+          const std::string Tag = TagMatch[1].str();
+          const std::string Attributes = TagMatch[2].str();
+          const size_t TagIndex = ++TagCounts[Tag];
+          bool HasAttributes = false;
+
+          std::sregex_iterator It(Attributes.begin(), Attributes.end(), AttributePattern);
+          std::sregex_iterator End;
+          for (; It != End; ++It)
+          {
+               HasAttributes = true;
+               const std::string Key = (*It)[1].str();
+               const std::string RawValue = (*It)[2].str();
+
+               nlohmann::json Row;
+               Row["key"] = Tag + "[" + std::to_string(TagIndex) + "]." + Key;
+               Row["value"] = ConfigFileIsSecretKey(Key) ? "[redacted]" : RawValue;
+               Row["line"] = LineNo;
+               Rows.push_back(Row);
+          }
+
+          if (!HasAttributes)
+          {
+               nlohmann::json Row;
+               Row["key"] = Tag + "[" + std::to_string(TagIndex) + "]";
+               Row["value"] = "";
+               Row["line"] = LineNo;
+               Rows.push_back(Row);
+          }
+     }
+
+     return Rows;
+}
+
+static bool ConfigFileIsUnderRoot(const std::filesystem::path &Path, const std::filesystem::path &Root)
+{
+     std::error_code Error;
+     const std::filesystem::path CanonicalPath = std::filesystem::weakly_canonical(Path, Error);
+     if (Error)
+     {
+          return false;
+     }
+
+     const std::filesystem::path CanonicalRoot = std::filesystem::weakly_canonical(Root, Error);
+     if (Error)
+     {
+          return false;
+     }
+
+     auto PathIt = CanonicalPath.begin();
+     auto RootIt = CanonicalRoot.begin();
+     for (; RootIt != CanonicalRoot.end(); ++RootIt, ++PathIt)
+     {
+          if (PathIt == CanonicalPath.end() || *PathIt != *RootIt)
+          {
+               return false;
+          }
+     }
+
+     return true;
+}
+
+static nlohmann::json ConfigFileReadOne(const std::filesystem::path &Path)
+{
+     constexpr size_t MaxConfigFileBytes = 512 * 1024;
+
+     nlohmann::json FileJSON;
+     FileJSON["name"] = Path.filename().string();
+     FileJSON["path"] = Path.string();
+     FileJSON["exists"] = false;
+     FileJSON["truncated"] = false;
+     FileJSON["content"] = "";
+     FileJSON["rows"] = nlohmann::json::array();
+
+     std::error_code Error;
+     if (!std::filesystem::exists(Path, Error) || Error)
+     {
+          FileJSON["error"] = "File not found";
+          return FileJSON;
+     }
+
+     const uintmax_t FileSize = std::filesystem::file_size(Path, Error);
+     if (!Error)
+     {
+          FileJSON["size_bytes"] = FileSize;
+     }
+
+     std::ifstream Input(Path, std::ios::binary);
+     if (!Input)
+     {
+          FileJSON["error"] = "Unable to read file";
+          return FileJSON;
+     }
+
+     std::ostringstream Buffer;
+     char Ch = '\0';
+     size_t BytesRead = 0;
+     while (BytesRead < MaxConfigFileBytes && Input.get(Ch))
+     {
+          Buffer << Ch;
+          ++BytesRead;
+     }
+
+     const bool Truncated = Input.good();
+     const std::string RawContent = Buffer.str();
+
+     std::istringstream RawStream(RawContent);
+     std::ostringstream RedactedStream;
+     std::string Line;
+     bool First = true;
+     while (std::getline(RawStream, Line))
+     {
+          if (!First)
+          {
+               RedactedStream << '\n';
+          }
+          First = false;
+          RedactedStream << ConfigFileRedactLine(Line);
+     }
+
+     const std::string RedactedContent = RedactedStream.str();
+     FileJSON["exists"] = true;
+     FileJSON["truncated"] = Truncated;
+     FileJSON["content"] = RedactedContent;
+     FileJSON["rows"] = ConfigFileParseRows(RedactedContent);
+
+     return FileJSON;
+}
+
+static void ConfigFileCollectIncludes(const std::filesystem::path &Path,
+                                      const std::filesystem::path &Root,
+                                      std::vector<std::filesystem::path> &Files,
+                                      std::unordered_set<std::string> &Seen)
+{
+     static const std::regex IncludePattern("<\\s*include\\s+[^>]*file\\s*=\\s*\"([^\"]+)\"", std::regex::icase);
+
+     std::ifstream Input(Path);
+     if (!Input)
+     {
+          return;
+     }
+
+     std::string Line;
+     while (std::getline(Input, Line))
+     {
+          std::smatch Match;
+          if (!std::regex_search(Line, Match, IncludePattern))
+          {
+               continue;
+          }
+
+          std::filesystem::path IncludePath = Match[1].str();
+          if (IncludePath.is_relative())
+          {
+               IncludePath = Path.parent_path() / IncludePath;
+          }
+
+          std::error_code Error;
+          IncludePath = std::filesystem::weakly_canonical(IncludePath, Error);
+          if (Error || !ConfigFileIsUnderRoot(IncludePath, Root))
+          {
+               continue;
+          }
+
+          const std::string Key = IncludePath.string();
+          if (Seen.insert(Key).second)
+          {
+               Files.push_back(IncludePath);
+               ConfigFileCollectIncludes(IncludePath, Root, Files, Seen);
+          }
+     }
 }
 
 static nlohmann::json BuildLinksBaseResponse()
@@ -1749,6 +2013,70 @@ HttpResponse SearchAPI::HandleSearchConfig(const HttpRequest &Request)
      HttpResponse Response(Status::OK, StatusText(Status::OK), "application/json");
      Response.Body = ConfigJSON.dump();
      return Response;
+}
+
+HttpResponse SearchAPI::HandleConfigFiles(const HttpRequest &Request)
+{
+     (void)Request;
+
+     if (!Instance || !Instance->Config)
+     {
+          nlohmann::json ErrorJSON;
+          ErrorJSON["error"] = "server_not_ready";
+          ErrorJSON["message"] = "Configuration files are not available yet.";
+
+          return BuildJSONResponse(Status::SERVICE_UNAVAILABLE, ErrorJSON);
+     }
+
+     std::filesystem::path MainConfig = Instance->Config->GetConfigFile();
+     if (MainConfig.empty())
+     {
+          MainConfig = std::filesystem::path(HLQUERY_CONFIG_DIR) / "hlquery.conf";
+     }
+
+     std::error_code Error;
+     MainConfig = std::filesystem::weakly_canonical(MainConfig, Error);
+     if (Error)
+     {
+          MainConfig = std::filesystem::path(Instance->Config->GetConfigFile());
+     }
+
+     const std::filesystem::path ConfigRoot = MainConfig.parent_path();
+
+     std::vector<std::filesystem::path> Files;
+     std::unordered_set<std::string> Seen;
+     Files.push_back(MainConfig);
+     Seen.insert(MainConfig.string());
+
+     ConfigFileCollectIncludes(MainConfig, ConfigRoot, Files, Seen);
+
+     for (const char *Name : {"search.conf", "modules.conf", "links.conf"})
+     {
+          std::filesystem::path Sibling = ConfigRoot / Name;
+          Sibling = std::filesystem::weakly_canonical(Sibling, Error);
+          if (Error || !ConfigFileIsUnderRoot(Sibling, ConfigRoot))
+          {
+               continue;
+          }
+
+          const std::string Key = Sibling.string();
+          if (Seen.insert(Key).second)
+          {
+               Files.push_back(Sibling);
+          }
+     }
+
+     nlohmann::json Body;
+     Body["root"] = ConfigRoot.string();
+     Body["main"] = MainConfig.filename().string();
+     Body["files"] = nlohmann::json::array();
+
+     for (const auto &FilePath : Files)
+     {
+          Body["files"].push_back(ConfigFileReadOne(FilePath));
+     }
+
+     return BuildJSONResponse(Status::OK, Body);
 }
 
 /* HandleLinksList returns configured cluster links. */

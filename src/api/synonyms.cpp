@@ -51,6 +51,8 @@
 #include "utils/wildcard.h"
 #include "vendor/json/json.hpp"
 
+/* Provides synonym API handlers for query expansion configuration. */
+
 static const char *kGlobalSynonymsCollection = "__global__";
 
 static bool IsGlobalSynonymsPath(const std::string &Path)

@@ -40,6 +40,8 @@
 #include "utils/jsonbuilder.h"
 #include "vendor/json/json.hpp"
 
+/* Implements HTTP request parsing, authorization, routing, and socket handling. */
+
 #define HTTP_MAX_HEADER_SIZE (64 * 1024)
 
 /* Maximum number of HTTP headers (1000) - Prevent DoS from too many headers. */
@@ -1452,7 +1454,7 @@ void HttpConnection::OnEventHandlerWrite()
           SocketEngine::RegisterPendingWrite(this);
      }
 
-     if (Instance && Instance->Logs)
+     if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
      {
           Instance->Logs->Normal("http_server", "[OnEventHandlerWrite] Response complete, unregistered write (fd=" + std::to_string(GetFD()) + ", keep_alive=" + std::string(KeepAlive ? "true" : "false") + ").");
      }
@@ -1462,7 +1464,7 @@ void HttpConnection::OnEventHandlerWrite()
 
      if (!KeepAlive)
      {
-          if (Instance && Instance->Logs)
+          if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
           {
                Instance->Logs->Normal("http_server", "[OnEventHandlerWrite] Closing connection (keep-alive=false, fd=" + std::to_string(GetFD()) + ").");
           }
@@ -1484,7 +1486,7 @@ void HttpConnection::OnEventHandlerWrite()
 
                SetFD(-1);
 
-               if (Instance && Instance->Logs)
+               if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
                {
                     Instance->Logs->Normal("http_server", "[OnEventHandlerWrite] Connection closed and fd set to -1.");
                }
@@ -1492,7 +1494,7 @@ void HttpConnection::OnEventHandlerWrite()
      }
      else
      {
-          if (Instance && Instance->Logs)
+          if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
           {
                Instance->Logs->Normal("http_server", "[OnEventHandlerWrite] Keeping connection alive (fd=" + std::to_string(GetFD()) + ").");
           }
@@ -2302,7 +2304,7 @@ void HttpConnection::ProcessSingleRequest(const std::string &RequestStr)
      {
           if (!APIKeyManager::Instance().CheckRateLimit(KeyObj.ID))
           {
-               Response = HttpResponse(429, "Too Many Requests", "application/json");
+               Response = HttpResponse(http_code::TOO_MANY_REQUESTS, StatusText(http_code::TOO_MANY_REQUESTS), "application/json");
                Response.Body = "{\"error\":\"Rate limit exceeded\"}";
                SendResponse(Response);
                return;
@@ -2325,7 +2327,7 @@ void HttpConnection::ProcessSingleRequest(const std::string &RequestStr)
 
                     if (!KeyObj.CanAccessCollection("*"))
                     {
-                         Response = HttpResponse(403, "Forbidden", "application/json");
+                         Response = HttpResponse(http_code::FORBIDDEN, StatusText(http_code::FORBIDDEN), "application/json");
                          Response.Body = "{\"error\":\"Access to system endpoints not allowed for this key\"}";
                          LogAccessControl("Forbidden: key '" + KeyObj.ID + "' cannot access system endpoints", Request);
                          SendResponse(Response);
@@ -2334,7 +2336,7 @@ void HttpConnection::ProcessSingleRequest(const std::string &RequestStr)
 
                     if (!KeyObj.HasAction("*", ReqAction))
                     {
-                         Response = HttpResponse(403, "Forbidden", "application/json");
+                         Response = HttpResponse(http_code::FORBIDDEN, StatusText(http_code::FORBIDDEN), "application/json");
                          Response.Body = "{\"error\":\"Action not allowed for system endpoints with this key\"}";
                          LogAccessControl("Forbidden: key '" + KeyObj.ID + "' action not allowed for system endpoints", Request);
                          SendResponse(Response);
@@ -2348,7 +2350,7 @@ void HttpConnection::ProcessSingleRequest(const std::string &RequestStr)
           {
                if (!KeyObj.CanAccessCollection(ColNameVal))
                {
-                    Response = HttpResponse(403, "Forbidden", "application/json");
+                    Response = HttpResponse(http_code::FORBIDDEN, StatusText(http_code::FORBIDDEN), "application/json");
 
                     nlohmann::json ErrorJSON;
                     ErrorJSON["error"] = "Access to collection not allowed for this key";
@@ -2362,7 +2364,7 @@ void HttpConnection::ProcessSingleRequest(const std::string &RequestStr)
 
                if (!KeyObj.HasAction(ColNameVal, ReqAction))
                {
-                    Response = HttpResponse(403, "Forbidden", "application/json");
+                    Response = HttpResponse(http_code::FORBIDDEN, StatusText(http_code::FORBIDDEN), "application/json");
                     Response.Body = "{\"error\":\"Action not allowed for this collection with this key\"}";
                     LogAccessControl("Forbidden: key '" + KeyObj.ID + "' action not allowed for collection '" + ColNameVal + "'", Request);
                     SendResponse(Response);
@@ -2399,7 +2401,7 @@ void HttpConnection::ProcessSingleRequest(const std::string &RequestStr)
      {
           if (!IsAdminVal)
           {
-               Response = HttpResponse(403, "Forbidden", "application/json");
+               Response = HttpResponse(http_code::FORBIDDEN, StatusText(http_code::FORBIDDEN), "application/json");
                Response.Body = "{\"error\":\"Only administrators can access this endpoint\"}";
                SendResponse(Response);
                return;
@@ -2408,7 +2410,7 @@ void HttpConnection::ProcessSingleRequest(const std::string &RequestStr)
 
      if (Context.IsModuleControl && !IsAdminVal)
      {
-          Response = HttpResponse(403, "Forbidden", "application/json");
+          Response = HttpResponse(http_code::FORBIDDEN, StatusText(http_code::FORBIDDEN), "application/json");
           Response.Body = "{\"error\":\"Only administrators can access this endpoint\"}";
           SendResponse(Response);
           return;
@@ -2817,6 +2819,10 @@ void HttpConnection::ProcessSingleRequest(const std::string &RequestStr)
      else if (Request.Path == "/search-config" && Request.Method == "GET")
      {
           Response = API.HandleSearchConfig(Request);
+     }
+     else if (Request.Path == "/config-files" && Request.Method == "GET")
+     {
+          Response = API.HandleConfigFiles(Request);
      }
      else if (Request.Path == "/synonyms" && Request.Method == "GET")
      {
@@ -4938,6 +4944,7 @@ static bool IsAdminOnlyRouteAction(RouteAction ActionVal)
              ActionVal == RouteAction::GetKey ||
              ActionVal == RouteAction::DeleteKey ||
              ActionVal == RouteAction::UpdateKey ||
+             ActionVal == RouteAction::ConfigFiles ||
              ActionVal == RouteAction::ListPresets ||
              ActionVal == RouteAction::UpsertPreset ||
              ActionVal == RouteAction::GetPreset ||
@@ -5095,14 +5102,14 @@ HttpResponse ProcessRequestWithAPI(SearchAPI &API, const HttpRequest &Request)
                if (!IsAdminVal)
                {
                     LogAccessControl("Forbidden: non-admin attempted admin-only operation", Request);
-                    return HttpResponse(403, "Forbidden", "{\"error\":\"Only administrators can access this endpoint\"}");
+                    return HttpResponse(http_code::FORBIDDEN, StatusText(http_code::FORBIDDEN), "{\"error\":\"Only administrators can access this endpoint\"}");
                }
           }
 
           if (Context.IsModuleControl && !IsAdminVal)
           {
                LogAccessControl("Forbidden: non-admin attempted module control operation", Request);
-               return HttpResponse(403, "Forbidden", "{\"error\":\"Only administrators can access this endpoint\"}");
+               return HttpResponse(http_code::FORBIDDEN, StatusText(http_code::FORBIDDEN), "{\"error\":\"Only administrators can access this endpoint\"}");
           }
 
           if (!IsAdminVal && !Context.IsPublic)
@@ -5113,7 +5120,7 @@ HttpResponse ProcessRequestWithAPI(SearchAPI &API, const HttpRequest &Request)
                {
                     if (!APIKeyManager::Instance().CheckRateLimit(KeyObj.ID))
                     {
-                         return HttpResponse(429, "Too Many Requests", "{\"error\":\"Rate limit exceeded\"}");
+                         return HttpResponse(http_code::TOO_MANY_REQUESTS, StatusText(http_code::TOO_MANY_REQUESTS), "{\"error\":\"Rate limit exceeded\"}");
                     }
 
                     APIKeyAction ReqAction = MapRouteToKeyAction(ActionVal);
@@ -5134,13 +5141,13 @@ HttpResponse ProcessRequestWithAPI(SearchAPI &API, const HttpRequest &Request)
                               if (!KeyObj.CanAccessCollection("*"))
                               {
                                    LogAccessControl("Forbidden: key '" + KeyObj.ID + "' cannot access system endpoints", Request);
-                                   return HttpResponse(403, "Forbidden", "{\"error\":\"Access to system endpoints not allowed for this key\"}");
+                                   return HttpResponse(http_code::FORBIDDEN, StatusText(http_code::FORBIDDEN), "{\"error\":\"Access to system endpoints not allowed for this key\"}");
                               }
 
                               if (!KeyObj.HasAction("*", ReqAction))
                               {
                                    LogAccessControl("Forbidden: key '" + KeyObj.ID + "' action not allowed for system endpoints", Request);
-                                   return HttpResponse(403, "Forbidden", "{\"error\":\"Action not allowed for system endpoints with this key\"}");
+                                   return HttpResponse(http_code::FORBIDDEN, StatusText(http_code::FORBIDDEN), "{\"error\":\"Action not allowed for system endpoints with this key\"}");
                               }
 
                               ColNameVal = "*";
@@ -5151,13 +5158,13 @@ HttpResponse ProcessRequestWithAPI(SearchAPI &API, const HttpRequest &Request)
                          if (!KeyObj.CanAccessCollection(ColNameVal))
                          {
                               LogAccessControl("Forbidden: key '" + KeyObj.ID + "' cannot access collection '" + ColNameVal + "'", Request);
-                              return HttpResponse(403, "Forbidden", "{\"error\":\"Access to collection '" + ColNameVal + "' not allowed for this key\"}");
+                              return HttpResponse(http_code::FORBIDDEN, StatusText(http_code::FORBIDDEN), "{\"error\":\"Access to collection '" + ColNameVal + "' not allowed for this key\"}");
                          }
 
                          if (!KeyObj.HasAction(ColNameVal, ReqAction))
                          {
                               LogAccessControl("Forbidden: key '" + KeyObj.ID + "' action not allowed for collection '" + ColNameVal + "'", Request);
-                              return HttpResponse(403, "Forbidden", "{\"error\":\"Action not allowed for this collection with this key\"}");
+                              return HttpResponse(http_code::FORBIDDEN, StatusText(http_code::FORBIDDEN), "{\"error\":\"Action not allowed for this collection with this key\"}");
                          }
                     }
 
@@ -5174,7 +5181,7 @@ HttpResponse ProcessRequestWithAPI(SearchAPI &API, const HttpRequest &Request)
                     if (!Instance->Users->IsUser(TokenVal))
                     {
                          LogAccessControl("Unauthorized: invalid token", Request);
-                         return HttpResponse(401, "Unauthorized", "{\"error\":\"Invalid token\"}");
+                         return HttpResponse(http_code::UNAUTHORIZED, StatusText(http_code::UNAUTHORIZED), "{\"error\":\"Invalid token\"}");
                     }
                }
           }
@@ -5258,6 +5265,9 @@ HttpResponse ProcessRequestWithAPI(SearchAPI &API, const HttpRequest &Request)
 
                case RouteAction::SearchConfig:
                     return API.HandleSearchConfig(Request);
+
+               case RouteAction::ConfigFiles:
+                    return API.HandleConfigFiles(Request);
 
                case RouteAction::LinksList:
                     return API.HandleLinksList(Request);

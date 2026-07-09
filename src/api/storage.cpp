@@ -47,6 +47,8 @@
 #include "utils/wildcard.h"
 #include "vendor/json/json.hpp"
 
+/* Provides storage API handlers for database and persistence operations. */
+
 /* HandleStorageStatus returns storage status and statistics. */
 
 /*

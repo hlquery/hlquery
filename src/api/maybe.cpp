@@ -24,6 +24,8 @@
 #include "api/common.h"
 #include "vendor/json/json.hpp"
 
+/* Provides fallback search helpers for maybe-style query expansion. */
+
 static std::string ToLowerCopy(const std::string &value)
 {
      std::string out = value;

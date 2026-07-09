@@ -21,6 +21,8 @@
 #include "utils/protocol.h"
 #include "vendor/json/json.hpp"
 
+/* Provides module control and inspection API handlers. */
+
 std::string NormalizeModulePath(const std::string &Path)
 {
      std::string normalized_path = Path;

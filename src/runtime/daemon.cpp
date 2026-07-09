@@ -1334,13 +1334,9 @@ void hlquery::ForceStop()
      }
 
      std::cout << "hlquery forcestop: Waiting for process to exit..." << std::endl;
-
      const int MaxWaitSeconds = 5;
-
      const int PollIntervalMS = 100;
-
      int WaitedMSCount = 0;
-
      bool ProcessHasExited = false;
 
      /* Poll briefly after SIGTERM so a healthy daemon can flush state and exit cleanly. */
@@ -1740,6 +1736,7 @@ void hlquery::Cleanup()
           {
                ShutdownHttpServer(server);
           }
+
           Instance->HTTPServers.clear();
           LogCleanupStage("http servers stopped");
      }
@@ -1781,7 +1778,6 @@ void hlquery::Cleanup()
      try
      {
           const char *TerminationMsg = "hlquery shutting down...\n";
-
           size_t MsgLenVal = 0;
 
           while (TerminationMsg[MsgLenVal] != '\0')
@@ -1790,7 +1786,6 @@ void hlquery::Cleanup()
           }
 
           ssize_t FinalWriteResult = write(STDOUT_FILENO, TerminationMsg, MsgLenVal);
-
           (void)FinalWriteResult;
      }
      catch (...)
@@ -1837,7 +1832,6 @@ void hlquery::Cleanup()
           }
 
           WriteCleanShutdownMarker();
-
           std::string PIDFilePathCleanup = ResolvePIDFilePath();
 
           /* Release the advisory lock before deleting the file so stale state is not left behind. */

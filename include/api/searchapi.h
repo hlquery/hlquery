@@ -105,23 +105,27 @@ class DocumentStorage
 
 struct GeoPoint
 {
-     double Latitude;
-     double Longitude;
+     double Latitude = 0.0;
+     double Longitude = 0.0;
 };
 
 struct GeoRadius
 {
-     double Lat;
-     double Lon;
-     double RadiusKM;
+     std::string Field;
+     double Lat = 0.0;
+     double Lon = 0.0;
+     double RadiusKM = 0.0;
+     bool Enabled = false;
 };
 
 struct GeoBox
 {
-     double TopLeftLat;
-     double TopLeftLon;
-     double BottomRightLat;
-     double BottomRightLon;
+     std::string Field;
+     double TopLeftLat = 0.0;
+     double TopLeftLon = 0.0;
+     double BottomRightLat = 0.0;
+     double BottomRightLon = 0.0;
+     bool Enabled = false;
 };
 
 struct FacetQuery
@@ -1154,6 +1158,10 @@ class SearchAPI
      /* HandleSearchConfig returns active search configuration values. */
 
      HttpResponse HandleSearchConfig(const HttpRequest& Request);
+
+     /* HandleConfigFiles returns active configuration files and included files. */
+
+     HttpResponse HandleConfigFiles(const HttpRequest& Request);
 
      /* HandleLinksList handles listing cluster links. */
 

@@ -46,6 +46,8 @@
 #include "utils/protocol.h"
 #include "vendor/json/json.hpp"
 
+/* Provides distributed search and replication API handlers. */
+
 static std::string ToLowerCopy(const std::string &Value)
 {
      std::string Out = Value;

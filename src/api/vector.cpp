@@ -30,6 +30,8 @@
 #include "search/rfusion.h"
 #include "vendor/json/json.hpp"
 
+/* Provides vector search API handlers and vector payload parsing. */
+
 static SearchEvent BuildSearchEvent(const std::string &Query,
                                     const std::string &AnalyticsTag,
                                     const std::string &Collection,
@@ -1105,6 +1107,54 @@ HttpResponse SearchAPI::HandleVectorSearch(const HttpRequest &Request)
                else if (JsonBodyObj.contains("filter") && JsonBodyObj["filter"].is_string())
                {
                     SearchQueryObj.FilterBy = JsonBodyObj["filter"].get<std::string>();
+               }
+
+               auto AppendFilter = [&SearchQueryObj](const std::string &Filter)
+               {
+                    if (Filter.empty())
+                    {
+                         return;
+                    }
+
+                    if (SearchQueryObj.FilterBy.empty())
+                    {
+                         SearchQueryObj.FilterBy = Filter;
+                    }
+                    else
+                    {
+                         SearchQueryObj.FilterBy = "(" + SearchQueryObj.FilterBy + ") && (" + Filter + ")";
+                    }
+               };
+
+               if (JsonBodyObj.contains("geo_radius") && JsonBodyObj["geo_radius"].is_string())
+               {
+                    AppendFilter("_geo_radius(" + JsonBodyObj["geo_radius"].get<std::string>() + ")");
+               }
+
+               if (JsonBodyObj.contains("geo_box") && JsonBodyObj["geo_box"].is_string())
+               {
+                    AppendFilter("_geo_box(" + JsonBodyObj["geo_box"].get<std::string>() + ")");
+               }
+
+               if (JsonBodyObj.contains("sort_by") && JsonBodyObj["sort_by"].is_string())
+               {
+                    SearchQueryObj.SortBy = ParseCommaSeparated(JsonBodyObj["sort_by"].get<std::string>());
+               }
+               else if (JsonBodyObj.contains("sortBy") && JsonBodyObj["sortBy"].is_string())
+               {
+                    SearchQueryObj.SortBy = ParseCommaSeparated(JsonBodyObj["sortBy"].get<std::string>());
+               }
+
+               if (JsonBodyObj.contains("geo_sort") && JsonBodyObj["geo_sort"].is_string())
+               {
+                    std::string GeoSort = JsonBodyObj["geo_sort"].get<std::string>();
+                    if (GeoSort.find("_geo_distance") != 0)
+                    {
+                         GeoSort = "_geo_distance(" + GeoSort + ")";
+                    }
+
+                    SearchQueryObj.GeoSortBy = GeoSort;
+                    SearchQueryObj.SortBy.insert(SearchQueryObj.SortBy.begin(), GeoSort);
                }
 
                if (JsonBodyObj.contains("hybrid_alpha") && JsonBodyObj["hybrid_alpha"].is_number())

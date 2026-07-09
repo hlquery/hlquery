@@ -23,6 +23,8 @@
 #include "core/hlquery.h"
 #include "vendor/json/json.hpp"
 
+/* Provides user management API handlers for administrative clients. */
+
 using json = nlohmann::json;
 
 static HttpResponse MakeJSONResponse(int Code, const std::string &Status, const std::string &Body)

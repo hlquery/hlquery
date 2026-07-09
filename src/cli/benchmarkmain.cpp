@@ -13,6 +13,7 @@
 #include <cctype>
 #include <chrono>
 #include <csignal>
+#include <cstdint>
 #include <fstream>
 #include <iostream>
 #include <random>
@@ -119,6 +120,110 @@ struct FakeSynonymSeed
      std::string Root;
      std::vector<std::string> Synonyms;
 };
+
+static void AddFakeBenchmarkSearchFields(nlohmann::json &fields)
+{
+     fields.push_back({{"name", "title"}, {"type", "string"}});
+     fields.push_back({{"name", "content"}, {"type", "string"}});
+     fields.push_back({{"name", "description"}, {"type", "string"}});
+     fields.push_back({{"name", "labels"}, {"type", "string"}});
+     fields.push_back({{"name", "embedding"}, {"type", "float[]"}});
+     fields.push_back({{"name", "location"}, {"type", "geo_point"}});
+     fields.push_back({{"name", "location_name"}, {"type", "string"}});
+}
+
+static uint64_t StableBenchmarkHash(const std::string &value)
+{
+     uint64_t hash = 1469598103934665603ULL;
+
+     for (unsigned char ch : value)
+     {
+          hash ^= ch;
+          hash *= 1099511628211ULL;
+     }
+
+     return hash;
+}
+
+static nlohmann::json BuildFakeBenchmarkEmbedding(const std::string &collection,
+                                                  const std::string &tag,
+                                                  size_t index)
+{
+     const uint64_t seed = StableBenchmarkHash(collection + ":" + tag + ":" + std::to_string(index));
+     nlohmann::json embedding = nlohmann::json::array();
+
+     for (int dim = 0; dim < 4; ++dim)
+     {
+          const uint64_t shifted = seed ^ (static_cast<uint64_t>(dim + 1) * 0x9e3779b97f4a7c15ULL) ^ (static_cast<uint64_t>(collection.size() + tag.size() + index) * 101ULL);
+          const double value = static_cast<double>(shifted % 2001U) / 1000.0 - 1.0;
+          embedding.push_back(value);
+     }
+
+     return embedding;
+}
+
+static std::pair<double, double> FakeBenchmarkCollectionCenter(const std::string &collection)
+{
+     static const std::unordered_map<std::string, std::pair<double, double>> centers = {
+          {"art", {40.7614, -73.9776}},
+          {"books", {42.3601, -71.0589}},
+          {"food", {40.7306, -73.9352}},
+          {"history", {38.8895, -77.0353}},
+          {"math", {42.3736, -71.1097}},
+          {"movies", {34.0522, -118.2437}},
+          {"music", {36.1627, -86.7816}},
+          {"people", {41.8781, -87.6298}},
+          {"science", {37.7749, -122.4194}},
+          {"sports", {39.9526, -75.1652}},
+          {"stocks", {40.7069, -74.0113}},
+          {"technology", {37.3861, -122.0839}},
+          {"travel", {47.6062, -122.3321}},
+          {"universities", {39.8283, -98.5795}}};
+
+     auto it = centers.find(collection);
+     if (it != centers.end())
+     {
+          return it->second;
+     }
+
+     return {40.7128, -74.0060};
+}
+
+static nlohmann::json BuildFakeBenchmarkLocation(const std::string &collection, size_t index)
+{
+     const auto center = FakeBenchmarkCollectionCenter(collection);
+     const int row = static_cast<int>(index % 5U) - 2;
+     const int col = static_cast<int>((index / 5U) % 5U) - 2;
+     const double lat = center.first + static_cast<double>(row) * 0.018;
+     const double lon = center.second + static_cast<double>(col) * 0.024;
+
+     nlohmann::json location = nlohmann::json::array();
+     location.push_back(lat);
+     location.push_back(lon);
+     return location;
+}
+
+static std::string BuildFakeBenchmarkLocationName(const std::string &collection)
+{
+     static const std::unordered_map<std::string, std::string> names = {
+          {"art", "New York gallery district"},
+          {"books", "Boston reading district"},
+          {"food", "New York restaurant district"},
+          {"history", "Washington monument district"},
+          {"math", "Cambridge academic district"},
+          {"movies", "Los Angeles studio district"},
+          {"music", "Nashville music district"},
+          {"people", "Chicago community district"},
+          {"science", "San Francisco research district"},
+          {"sports", "Philadelphia stadium district"},
+          {"stocks", "New York financial district"},
+          {"technology", "Mountain View technology district"},
+          {"travel", "Seattle travel hub"},
+          {"universities", "United States campus reference"}};
+
+     auto it = names.find(collection);
+     return it == names.end() ? "Benchmark geo district" : it->second;
+}
 
 static std::string Capitalize(const std::string &input)
 {
@@ -1054,10 +1159,7 @@ bool CreateFakeCollections(const std::string &base_url, const std::string &auth_
           if (spec.Name == "food")
           {
                nlohmann::json food_fields = nlohmann::json::array();
-               food_fields.push_back({{"name", "title"}, {"type", "string"}});
-               food_fields.push_back({{"name", "content"}, {"type", "string"}});
-               food_fields.push_back({{"name", "description"}, {"type", "string"}});
-               food_fields.push_back({{"name", "labels"}, {"type", "string"}});
+               AddFakeBenchmarkSearchFields(food_fields);
                food_fields.push_back({{"name", "ingredients"}, {"type", "string"}});
                food_fields.push_back({{"name", "cuisine"}, {"type", "string"}});
                food_fields.push_back({{"name", "dish"}, {"type", "string"}});
@@ -1066,10 +1168,7 @@ bool CreateFakeCollections(const std::string &base_url, const std::string &auth_
           else if (spec.Name == "universities")
           {
                nlohmann::json university_fields = nlohmann::json::array();
-               university_fields.push_back({{"name", "title"}, {"type", "string"}});
-               university_fields.push_back({{"name", "content"}, {"type", "string"}});
-               university_fields.push_back({{"name", "description"}, {"type", "string"}});
-               university_fields.push_back({{"name", "labels"}, {"type", "string"}});
+               AddFakeBenchmarkSearchFields(university_fields);
                university_fields.push_back({{"name", "state"}, {"type", "string"}});
                university_fields.push_back({{"name", "city"}, {"type", "string"}});
                university_fields.push_back({{"name", "city_aliases"}, {"type", "string"}});
@@ -1107,10 +1206,7 @@ bool CreateFakeCollections(const std::string &base_url, const std::string &auth_
           else if (spec.Name == "people")
           {
                nlohmann::json people_fields = nlohmann::json::array();
-               people_fields.push_back({{"name", "title"}, {"type", "string"}});
-               people_fields.push_back({{"name", "content"}, {"type", "string"}});
-               people_fields.push_back({{"name", "description"}, {"type", "string"}});
-               people_fields.push_back({{"name", "labels"}, {"type", "string"}});
+               AddFakeBenchmarkSearchFields(people_fields);
                people_fields.push_back({{"name", "first_name"}, {"type", "string"}});
                people_fields.push_back({{"name", "middle_name"}, {"type", "string"}});
                people_fields.push_back({{"name", "last_name"}, {"type", "string"}});
@@ -1121,10 +1217,7 @@ bool CreateFakeCollections(const std::string &base_url, const std::string &auth_
           else if (spec.Name == "math")
           {
                nlohmann::json math_fields = nlohmann::json::array();
-               math_fields.push_back({{"name", "title"}, {"type", "string"}});
-               math_fields.push_back({{"name", "content"}, {"type", "string"}});
-               math_fields.push_back({{"name", "description"}, {"type", "string"}});
-               math_fields.push_back({{"name", "labels"}, {"type", "string"}});
+               AddFakeBenchmarkSearchFields(math_fields);
                math_fields.push_back({{"name", "topic"}, {"type", "string"}});
                math_fields.push_back({{"name", "value"}, {"type", "float"}});
                math_fields.push_back({{"name", "value_b"}, {"type", "float"}});
@@ -1136,10 +1229,7 @@ bool CreateFakeCollections(const std::string &base_url, const std::string &auth_
           else if (spec.Name == "stocks")
           {
                nlohmann::json stock_fields = nlohmann::json::array();
-               stock_fields.push_back({{"name", "title"}, {"type", "string"}});
-               stock_fields.push_back({{"name", "content"}, {"type", "string"}});
-               stock_fields.push_back({{"name", "description"}, {"type", "string"}});
-               stock_fields.push_back({{"name", "labels"}, {"type", "string"}});
+               AddFakeBenchmarkSearchFields(stock_fields);
                stock_fields.push_back({{"name", "ticker"}, {"type", "string"}});
                stock_fields.push_back({{"name", "cashtag"}, {"type", "string"}});
                stock_fields.push_back({{"name", "asset_class"}, {"type", "string"}});
@@ -1149,7 +1239,9 @@ bool CreateFakeCollections(const std::string &base_url, const std::string &auth_
           }
           else
           {
-               collection_created = client.CreateCollectionLocal(collection_name);
+               nlohmann::json fake_fields = nlohmann::json::array();
+               AddFakeBenchmarkSearchFields(fake_fields);
+               collection_created = client.CreateCollectionWithSchemaLocal(collection_name, fake_fields, "");
           }
 
           if (!collection_created)
@@ -1493,6 +1585,9 @@ bool CreateFakeCollections(const std::string &base_url, const std::string &auth_
                enriched_doc["content"] = safe_content;
                enriched_doc["description"] = safe_description;
                enriched_doc["labels"] = label_list.dump();
+               enriched_doc["embedding"] = BuildFakeBenchmarkEmbedding(spec.Name, tag, i);
+               enriched_doc["location"] = BuildFakeBenchmarkLocation(spec.Name, i);
+               enriched_doc["location_name"] = BuildFakeBenchmarkLocationName(spec.Name);
                enriched_docs.push_back(std::move(enriched_doc));
           }
 

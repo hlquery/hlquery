@@ -32,6 +32,8 @@
 #include "utils/wildcard.h"
 #include "vendor/json/json.hpp"
 
+/* Provides lexical API handlers for token, term, and language inspection. */
+
 /*
  * ToLowerCopy implementation.
  */

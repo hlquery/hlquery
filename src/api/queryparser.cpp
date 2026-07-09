@@ -23,6 +23,8 @@
 #include "core/hlquery.h"
 #include "vendor/json/json.hpp"
 
+/* Parses API query input into structured search parameters. */
+
 static bool ParseSearchBool(const std::string &Value, bool DefaultValue = false)
 {
      if (Value.empty())
@@ -645,16 +647,14 @@ std::vector<std::string> SearchAPI::ParseCommaSeparated(const std::string &Input
           return ParseCommaSeparated(Truncated);
      }
 
-     std::stringstream SS(Input);
      std::string Item;
 
      const size_t MaxParts = 10000;
      size_t PartCount = 0;
+     int ParenDepth = 0;
 
-     while (std::getline(SS, Item, ',') && PartCount < MaxParts)
+     auto FlushItem = [&]()
      {
-          PartCount++;
-
           size_t FirstNonWS = Item.find_first_not_of(" \t\n\r\f\v");
 
           if (FirstNonWS != std::string::npos)
@@ -681,6 +681,39 @@ std::vector<std::string> SearchAPI::ParseCommaSeparated(const std::string &Input
           {
                Result.push_back(std::move(Item));
           }
+
+          Item.clear();
+     };
+
+     for (char C : Input)
+     {
+          if (C == '(')
+          {
+               ++ParenDepth;
+          }
+          else if (C == ')' && ParenDepth > 0)
+          {
+               --ParenDepth;
+          }
+
+          if (C == ',' && ParenDepth == 0)
+          {
+               if (PartCount >= MaxParts)
+               {
+                    break;
+               }
+
+               ++PartCount;
+               FlushItem();
+               continue;
+          }
+
+          Item.push_back(C);
+     }
+
+     if (!Item.empty() && PartCount < MaxParts)
+     {
+          FlushItem();
      }
 
      return Result;
@@ -730,6 +763,72 @@ std::vector<FilterCondition> SearchAPI::ParseFilters(const std::string &FilterSt
           if (Pos >= FilterString.size())
           {
                break;
+          }
+
+          if (FilterString.compare(Pos, 11, "_geo_radius") == 0 ||
+              FilterString.compare(Pos, 8, "_geo_box") == 0)
+          {
+               const bool IsRadius = FilterString.compare(Pos, 11, "_geo_radius") == 0;
+               Pos += IsRadius ? 11 : 8;
+               SkipWhitespace(Pos);
+
+               if (Pos >= FilterString.size() || FilterString[Pos] != '(')
+               {
+                    break;
+               }
+
+               ++Pos;
+               const std::size_t ArgsStart = Pos;
+               int Depth = 1;
+               while (Pos < FilterString.size() && Depth > 0)
+               {
+                    if (FilterString[Pos] == '(')
+                    {
+                         ++Depth;
+                    }
+                    else if (FilterString[Pos] == ')')
+                    {
+                         --Depth;
+                         if (Depth == 0)
+                         {
+                              break;
+                         }
+                    }
+
+                    ++Pos;
+               }
+
+               if (Pos >= FilterString.size() || FilterString[Pos] != ')')
+               {
+                    break;
+               }
+
+               FilterCondition Filter;
+               Filter.Field = IsRadius ? "_geo_radius" : "_geo_box";
+               Filter.Op = IsRadius ? "GEO_RADIUS" : "GEO_BOX";
+               Filter.Value = Trim(FilterString.substr(ArgsStart, Pos - ArgsStart));
+               Filter.LogicalConnector = NextConnector;
+               NextConnector.clear();
+               Filters.push_back(Filter);
+               ++Pos;
+
+               SkipWhitespace(Pos);
+               if (Pos + 1 < FilterString.size())
+               {
+                    const std::string Connector = FilterString.substr(Pos, 2);
+                    if (Connector == "&&")
+                    {
+                         NextConnector = "AND";
+                         Pos += 2;
+                    }
+                    else if (Connector == "||")
+                    {
+                         NextConnector = "OR";
+                         Pos += 2;
+                    }
+               }
+
+               continue;
           }
 
           const std::size_t FieldStart = Pos;
@@ -1048,6 +1147,33 @@ ComprehensiveSearchQuery SearchAPI::ParseComprehensiveSearchQuery(const std::uno
           QueryObj.FilterBy = Params.at("filter_by");
      }
 
+     auto AppendFilter = [&QueryObj](const std::string &Filter)
+     {
+          if (Filter.empty())
+          {
+               return;
+          }
+
+          if (QueryObj.FilterBy.empty())
+          {
+               QueryObj.FilterBy = Filter;
+          }
+          else
+          {
+               QueryObj.FilterBy = "(" + QueryObj.FilterBy + ") && (" + Filter + ")";
+          }
+     };
+
+     if (Params.count("geo_radius"))
+     {
+          AppendFilter("_geo_radius(" + Params.at("geo_radius") + ")");
+     }
+
+     if (Params.count("geo_box"))
+     {
+          AppendFilter("_geo_box(" + Params.at("geo_box") + ")");
+     }
+
      if (Params.count("facet_by"))
      {
           QueryObj.FacetBy = ParseCommaSeparated(Params.at("facet_by"));
@@ -1215,6 +1341,18 @@ ComprehensiveSearchQuery SearchAPI::ParseComprehensiveSearchQuery(const std::uno
      if (Params.count("sort_by"))
      {
           QueryObj.SortBy = ParseCommaSeparated(Params.at("sort_by"));
+     }
+
+     if (Params.count("geo_sort"))
+     {
+          std::string GeoSort = Params.at("geo_sort");
+          if (GeoSort.find("_geo_distance") != 0)
+          {
+               GeoSort = "_geo_distance(" + GeoSort + ")";
+          }
+
+          QueryObj.GeoSortBy = GeoSort;
+          QueryObj.SortBy.insert(QueryObj.SortBy.begin(), GeoSort);
      }
 
      if (Params.count("highlight"))

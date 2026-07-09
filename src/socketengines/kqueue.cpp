@@ -29,6 +29,7 @@
 #include "core/hlquery.h"
 #include "core/logmanager.h"
 #include "core/socketengine.h"
+#include "runtime/exitmanager.h"
 
 #if defined(__APPLE__) || defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__) || defined(__DragonFly__)
 #include <sys/event.h>
@@ -53,6 +54,7 @@ static std::unordered_map<int, EventHandler *> FDToHandler;
 static std::vector<EventHandler *> HandlerByFD;
 static std::unordered_map<EventHandler *, int> HandlerToFD;
 static std::unordered_map<int, KqueueState> FDStates;
+static std::mutex RegistryMutex;
 
 /* Define static members declared in socketengine.h */
 
@@ -138,7 +140,7 @@ void SocketEngine::Init()
                Instance->Logs->Critical("socketengine",
                                         "kqueue() failed: " + std::string(strerror(errno)) + ".");
           }
-          return;
+          ExitManager::Exit(1);
      }
 
      EpollFDValid.store(true, std::memory_order_relaxed);
@@ -219,6 +221,8 @@ bool SocketEngine::AddFD(EventHandler *EH, int EventsMask)
 
      int fd = EH->GetFD();
 
+     std::lock_guard<std::mutex> registry_lock(RegistryMutex);
+
      if (FDToHandler.find(fd) != FDToHandler.end())
      {
           if (Instance && Instance->Logs)
@@ -297,37 +301,43 @@ void SocketEngine::DelFD(EventHandler *EH)
      }
 
      int fd = EH->GetFD();
-     auto handler_it = FDToHandler.find(fd);
 
-     if (handler_it == FDToHandler.end())
      {
-          if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
+          std::lock_guard<std::mutex> registry_lock(RegistryMutex);
+
+          auto handler_it = FDToHandler.find(fd);
+
+          if (handler_it == FDToHandler.end())
           {
-               Instance->Logs->Debug("socketengine", "DelFD: FD " + std::to_string(fd) + " not registered.");
+               if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
+               {
+                    Instance->Logs->Debug("socketengine", "DelFD: FD " + std::to_string(fd) + " not registered.");
+               }
+               return;
           }
-          return;
+
+          auto state_it = FDStates.find(fd);
+          if (state_it != FDStates.end())
+          {
+               if (state_it->second.read_enabled)
+               {
+                    ApplyKevent(EpollFD, fd, EVFILT_READ, EV_DELETE);
+               }
+               if (state_it->second.write_enabled)
+               {
+                    ApplyKevent(EpollFD, fd, EVFILT_WRITE, EV_DELETE);
+               }
+          }
+
+          FDStates.erase(fd);
+          HandlerToFD.erase(EH);
+          FDToHandler.erase(handler_it);
+          if (fd >= 0 && fd < static_cast<int>(HandlerByFD.size()))
+          {
+               HandlerByFD[fd] = nullptr;
+          }
      }
 
-     auto state_it = FDStates.find(fd);
-     if (state_it != FDStates.end())
-     {
-          if (state_it->second.read_enabled)
-          {
-               ApplyKevent(EpollFD, fd, EVFILT_READ, EV_DELETE);
-          }
-          if (state_it->second.write_enabled)
-          {
-               ApplyKevent(EpollFD, fd, EVFILT_WRITE, EV_DELETE);
-          }
-     }
-
-     FDStates.erase(fd);
-     HandlerToFD.erase(EH);
-     FDToHandler.erase(handler_it);
-     if (fd >= 0 && fd < static_cast<int>(HandlerByFD.size()))
-     {
-          HandlerByFD[fd] = nullptr;
-     }
      UnregisterPendingWrite(EH);
 
      ActiveConnections.fetch_sub(1, std::memory_order_relaxed);
@@ -459,9 +469,28 @@ void SocketEngine::DispatchTrialWrites()
                return;
           }
 
-          WriteCandidates.swap(SocketEngine::PendingWrites);
-          PendingWritesSet.clear();
-          SocketEngine::PendingWritesCount.store(0, std::memory_order_relaxed);
+          SocketEngine::PendingWrites.erase(
+               std::remove_if(SocketEngine::PendingWrites.begin(), SocketEngine::PendingWrites.end(),
+                              [](EventHandler *EH)
+                              {
+                                   if (!EH || !EH->HasFD())
+                                   {
+                                        PendingWritesSet.erase(EH);
+                                        return true;
+                                   }
+
+                                   return false;
+                              }),
+               SocketEngine::PendingWrites.end());
+
+          SocketEngine::PendingWritesCount.store(SocketEngine::PendingWrites.size(), std::memory_order_relaxed);
+
+          if (SocketEngine::PendingWrites.empty())
+          {
+               return;
+          }
+
+          WriteCandidates = SocketEngine::PendingWrites;
      }
 
      const size_t BatchSize = KQUEUE_BATCH_SIZE;
@@ -502,12 +531,15 @@ void SocketEngine::RegisterPendingWrite(EventHandler *EH)
      SocketEngine::PendingWritesCount.fetch_add(1, std::memory_order_relaxed);
 
      int fd = EH->GetFD();
-     auto state_it = FDStates.find(fd);
-     if (state_it != FDStates.end() && !state_it->second.write_enabled)
      {
-          if (ApplyKevent(EpollFD, fd, EVFILT_WRITE, EV_ADD | EV_ENABLE))
+          std::lock_guard<std::mutex> registry_lock(RegistryMutex);
+          auto state_it = FDStates.find(fd);
+          if (state_it != FDStates.end() && !state_it->second.write_enabled)
           {
-               state_it->second.write_enabled = true;
+               if (ApplyKevent(EpollFD, fd, EVFILT_WRITE, EV_ADD | EV_ENABLE))
+               {
+                    state_it->second.write_enabled = true;
+               }
           }
      }
 }
@@ -542,12 +574,15 @@ void SocketEngine::UnregisterPendingWrite(EventHandler *EH)
      if (EH->HasFD())
      {
           int fd = EH->GetFD();
-          auto state_it = FDStates.find(fd);
-          if (state_it != FDStates.end() && state_it->second.write_enabled && !state_it->second.base_write)
           {
-               if (ApplyKevent(EpollFD, fd, EVFILT_WRITE, EV_DELETE))
+               std::lock_guard<std::mutex> registry_lock(RegistryMutex);
+               auto state_it = FDStates.find(fd);
+               if (state_it != FDStates.end() && state_it->second.write_enabled && !state_it->second.base_write)
                {
-                    state_it->second.write_enabled = false;
+                    if (ApplyKevent(EpollFD, fd, EVFILT_WRITE, EV_DELETE))
+                    {
+                         state_it->second.write_enabled = false;
+                    }
                }
           }
      }
@@ -709,7 +744,12 @@ void SocketEngine::IncrementPendingMessages()
 
 void SocketEngine::DecrementPendingMessages()
 {
-     SocketEngine::PendingMessageCount.fetch_sub(1, std::memory_order_relaxed);
+     int Current = SocketEngine::PendingMessageCount.load(std::memory_order_relaxed);
+
+     while (Current > 0 &&
+            !SocketEngine::PendingMessageCount.compare_exchange_weak(Current, Current - 1, std::memory_order_relaxed))
+     {
+     }
 }
 
 /* Returns the number of pending messages */

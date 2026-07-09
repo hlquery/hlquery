@@ -20,6 +20,8 @@
 #include <unordered_set>
 #include <vector>
 
+/* Implements search cache storage, lookup, and invalidation helpers. */
+
      constexpr uint64_t kDefaultSearchCacheTTLMS = 3600ULL * 1000ULL;
      constexpr size_t kDefaultSearchCacheMaxSize = 512ULL * 1024ULL * 1024ULL;
 

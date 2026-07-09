@@ -33,6 +33,7 @@
 
 #include "common/searchpool.h"
 #include "runtime/serverconfig.h"
+#include "core/httpcodes.h"
 #include "core/socketengine.h"
 #include "vendor/json/json.hpp"
 
@@ -78,7 +79,7 @@ struct HttpResponse
 
      /* Build an HTTP response with headers pre-populated for this server. */
 
-     HttpResponse(int Code = 200, const std::string& Text = "OK", const std::string& ContentType = "text/plain")
+     HttpResponse(int Code = HttpCodes::code::OK, const std::string& Text = HttpCodes::StatusText(HttpCodes::code::OK), const std::string& ContentType = "text/plain")
          : StatusCode(Code), StatusText(Text)
      {
           Headers["Content-Type"] = ContentType;
@@ -88,7 +89,7 @@ struct HttpResponse
 
 inline HttpResponse BuildRouteNotFoundResponse(const std::string& Path, const std::string& Method = std::string())
 {
-     HttpResponse Response(404, "Not Found", "application/json");
+     HttpResponse Response(HttpCodes::code::NOT_FOUND, StatusText(HttpCodes::code::NOT_FOUND), "application/json");
 
      nlohmann::json Body;
      Body["error"] = "Route not found";
@@ -110,6 +111,7 @@ enum class RouteAction
 {
      Status,
      SearchConfig,
+     ConfigFiles,
      Health,
      Ready,
      Ping,

@@ -20,6 +20,8 @@
 #include "core/hlquery.h"
 #include "vendor/json/json.hpp"
 
+/* Provides API key management endpoints for administrative clients. */
+
 using json = nlohmann::json;
 
 /* ExtractKeyIDFromPath extracts key ID from path like /keys/{id}. */

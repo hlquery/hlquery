@@ -50,6 +50,8 @@
 #include "utils/wildcard.h"
 #include "vendor/json/json.hpp"
 
+/* Provides stopword API handlers for per-collection text filtering. */
+
 static const char *kGlobalStopwordsCollection = "__global__";
 
 static std::string TrimStopwordValue(const std::string &Value)

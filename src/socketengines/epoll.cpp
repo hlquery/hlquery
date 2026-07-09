@@ -503,9 +503,7 @@ bool SocketEngine::AddFD(EventHandler *EH, int EventsMask)
      * Always subscribe to error/hangup notifications so we can detect peer disconnects immediately
      */
 
-     /* Enable edge-triggered mode */
-
-     ev.events = EventsMask | EPOLLHUP | EPOLLRDHUP | EPOLLERR | EPOLLET;
+     ev.events = EventsMask | EPOLLHUP | EPOLLRDHUP | EPOLLERR;
      ev.data.ptr = EH;
 
      int fd = EH->GetFD();
@@ -1199,85 +1197,6 @@ int SocketEngine::DispatchEvents()
      * Most event processing is normal and doesn't need logging
      */
 
-     /*
-     * IMPROVEMENT: Handle epoll event buffer overflow by processing in a loop until all
-     * pending events are handled
-     */
-
-     /* HLQuery-style: If we hit MAX_EVENTS, immediately check for more events */
-
-     if (nfds == MAX_EVENTS)
-     {
-          /* Process any remaining events immediately (non-blocking) in a loop */
-
-          int total_processed = nfds;
-          int more_events;
-          int loop_count = 0;
-
-          while (loop_count < EPOLL_MAX_DRAIN_LOOPS &&
-                 total_processed < MAX_EVENTS * EPOLL_MAX_DRAIN_EVENTS_MULTIPLIER)
-          {
-               /* Re-check EpollFD validity before each call */
-
-               if (EpollFD == -1 || !EpollFDValid.load())
-               {
-                    break; /* EpollFD became invalid */
-               }
-
-               more_events = epoll_wait(EpollFD, Events.data(), MAX_EVENTS, 0);
-
-               if (more_events <= 0)
-               {
-                    /* No more events or error */
-
-                    if (more_events < 0 && errno != EINTR)
-                    {
-                         /* Real error (not interrupted) */
-
-                         if (Instance && Instance->Logs)
-                         {
-                              Instance->Logs->Normal("socketengine", "epoll_wait error in overflow loop: " + std::string(strerror(errno)) + ".");
-                         }
-                    }
-
-                    break; /* No more events pending */
-               }
-
-               if (Instance && Instance->Logs)
-               {
-                    Instance->Logs->Debug("socketengine", "Found " + std::to_string(more_events) + " additional events after hitting limit (loop " + std::to_string(loop_count + 1) + ").");
-               }
-
-               /* Process these events (simplified - would need full processing) */
-
-               total_processed += more_events;
-               loop_count++;
-
-               if (more_events < MAX_EVENTS)
-               {
-                    break; /* No more events pending */
-               }
-          }
-
-          if (loop_count >= EPOLL_MAX_DRAIN_LOOPS)
-          {
-               if (Instance && Instance->Logs)
-               {
-                    Instance->Logs->Normal("socketengine", "Hit max loops processing overflow events - may have more pending.");
-               }
-          }
-
-          if (total_processed >= MAX_EVENTS * EPOLL_MAX_DRAIN_EVENTS_MULTIPLIER)
-          {
-               if (Instance && Instance->Logs)
-               {
-                    Instance->Logs->Normal("socketengine", "Hit max total events limit - throttling to prevent overload.");
-               }
-          }
-
-          return total_processed;
-     }
-
      return nfds;
 }
 
@@ -1322,26 +1241,29 @@ void SocketEngine::DispatchTrialWrites()
                return;
           }
 
-          WriteCandidates.swap(PendingWrites); /* O(1) swap, no copying */
-
-          PendingWritesSet.clear();
-          PendingWritesCount.store(0, std::memory_order_relaxed);
-     }
-
-     /* Remove invalid handlers from WriteCandidates in-place */
-
-     WriteCandidates.erase(
-          std::remove_if(WriteCandidates.begin(), WriteCandidates.end(),
-                         [](EventHandler *EH)
-                         {
-                              if (!EH || !EH->HasFD())
+          PendingWrites.erase(
+               std::remove_if(PendingWrites.begin(), PendingWrites.end(),
+                              [](EventHandler *EH)
                               {
-                                   return true; /* Remove invalid handlers */
-                              }
+                                   if (!EH || !EH->HasFD())
+                                   {
+                                        PendingWritesSet.erase(EH);
+                                        return true;
+                                   }
 
-                              return false;
-                         }),
-          WriteCandidates.end());
+                                   return false;
+                              }),
+               PendingWrites.end());
+
+          PendingWritesCount.store(PendingWrites.size(), std::memory_order_relaxed);
+
+          if (PendingWrites.empty())
+          {
+               return;
+          }
+
+          WriteCandidates = PendingWrites;
+     }
 
      /*
       * Intelligent Write Batching Algorithm
@@ -1443,7 +1365,7 @@ void SocketEngine::RegisterPendingWrite(EventHandler *EH)
      struct epoll_event ev;
 
      memset(&ev, 0, sizeof(ev));
-     ev.events = EPOLLIN | EPOLLOUT | EPOLLHUP | EPOLLRDHUP | EPOLLERR | EPOLLET;
+     ev.events = EPOLLIN | EPOLLOUT | EPOLLHUP | EPOLLRDHUP | EPOLLERR;
      ev.data.ptr = EH;
 
      /*
@@ -1630,7 +1552,12 @@ void SocketEngine::IncrementPendingMessages()
 
 void SocketEngine::DecrementPendingMessages()
 {
-     PendingMessageCount.fetch_sub(1, std::memory_order_relaxed);
+     int Current = PendingMessageCount.load(std::memory_order_relaxed);
+
+     while (Current > 0 &&
+            !PendingMessageCount.compare_exchange_weak(Current, Current - 1, std::memory_order_relaxed))
+     {
+     }
 }
 
 /* Returns the number of pending messages */

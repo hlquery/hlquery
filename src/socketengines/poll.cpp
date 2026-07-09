@@ -46,6 +46,8 @@ static std::vector<EventHandler *> HandlerByFD;
 
 static std::unordered_map<EventHandler *, size_t> HandlerToIndex;
 
+static std::mutex RegistryMutex;
+
 /* Define static members declared in socketengine.h */
 
 int SocketEngine::EpollFD = -1; /* Not used in poll, but must be defined */
@@ -205,6 +207,8 @@ bool SocketEngine::AddFD(EventHandler *EH, int EventsMask)
 
      int fd = EH->GetFD();
 
+     std::lock_guard<std::mutex> registry_lock(RegistryMutex);
+
      if (FDToHandler.find(fd) != FDToHandler.end())
      {
           if (Instance && Instance->Logs)
@@ -296,104 +300,80 @@ void SocketEngine::DelFD(EventHandler *EH)
 
      int fd = EH->GetFD();
 
-     /* DEBUG: Log when FD is being removed */
-
-     if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
      {
-          Instance->Logs->Debug("socketengine", "DelFD: Removing fd=" + std::to_string(fd) + " (PollFDs.size()=" + std::to_string(PollFDs.size()) + ").");
-     }
+          std::lock_guard<std::mutex> registry_lock(RegistryMutex);
 
-     auto handler_it = FDToHandler.find(fd);
-
-     if (handler_it == FDToHandler.end())
-     {
           if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
           {
-               Instance->Logs->Debug("socketengine", "DelFD: FD " + std::to_string(fd) + " not registered.");
+               Instance->Logs->Debug("socketengine", "DelFD: Removing fd=" + std::to_string(fd) + " (PollFDs.size()=" + std::to_string(PollFDs.size()) + ").");
           }
 
-          return; /* Not registered */
-     }
+          auto handler_it = FDToHandler.find(fd);
 
-     /* Validate that the handler matches what's in the map */
-
-     if (handler_it->second != EH)
-     {
-          /* Handler mismatch - this shouldn't happen but handle gracefully */
-
-          return;
-     }
-
-     /* OPTIMIZATION: O(1) removal using reverse index map */
-
-     auto index_it = HandlerToIndex.find(EH);
-
-     if (index_it != HandlerToIndex.end())
-     {
-          size_t index = index_it->second;
-
-          /* Validate index is within bounds */
-
-          if (index >= PollFDs.size())
+          if (handler_it == FDToHandler.end())
           {
-               /* Index is out of bounds - clear stale entry and continue */
-
-               HandlerToIndex.erase(index_it);
-          }
-          else
-          {
-               /* Swap with last element for O(1) removal */
-
-               if (index < PollFDs.size() - 1)
+               if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
                {
-                    /* Update the handler that's moving to our position */
-
-                    int swapped_fd = PollFDs.back().fd;
-                    EventHandler *swapped_handler = nullptr;
-
-                    if (swapped_fd >= 0 && swapped_fd < static_cast<int>(HandlerByFD.size()))
-                    {
-                         swapped_handler = HandlerByFD[swapped_fd];
-                    }
-
-                    if (swapped_handler)
-                    {
-                         HandlerToIndex[swapped_handler] = index;
-                    }
-
-                    std::swap(PollFDs[index], PollFDs.back());
+                    Instance->Logs->Debug("socketengine", "DelFD: FD " + std::to_string(fd) + " not registered.");
                }
 
-               PollFDs.pop_back();
-               HandlerToIndex.erase(index_it);
+               return;
           }
-     }
 
-     FDToHandler.erase(handler_it);
-
-     if (fd >= 0 && fd < static_cast<int>(HandlerByFD.size()))
-     {
-          HandlerByFD[fd] = nullptr;
-     }
-
-     UnregisterPendingWrite(EH);
-
-     /* Decrement active connections counter */
-
-     ActiveConnections.fetch_sub(1, std::memory_order_relaxed);
-
-     /* OPTIMIZATION: Only recalculate MaxFD if we removed the max */
-
-     if (fd == MaxFD)
-     {
-          MaxFD = -1;
-
-          /* Only scan if we have fds left */
-
-          if (!FDToHandler.empty())
+          if (handler_it->second != EH)
           {
+               return;
+          }
+
+          auto index_it = HandlerToIndex.find(EH);
+
+          if (index_it != HandlerToIndex.end())
+          {
+               size_t index = index_it->second;
+
+               if (index >= PollFDs.size())
+               {
+                    HandlerToIndex.erase(index_it);
+               }
+               else
+               {
+                    if (index < PollFDs.size() - 1)
+                    {
+                         int swapped_fd = PollFDs.back().fd;
+                         EventHandler *swapped_handler = nullptr;
+
+                         if (swapped_fd >= 0 && swapped_fd < static_cast<int>(HandlerByFD.size()))
+                         {
+                              swapped_handler = HandlerByFD[swapped_fd];
+                         }
+
+                         if (swapped_handler)
+                         {
+                              HandlerToIndex[swapped_handler] = index;
+                         }
+
+                         std::swap(PollFDs[index], PollFDs.back());
+                    }
+
+                    PollFDs.pop_back();
+                    HandlerToIndex.erase(index_it);
+               }
+          }
+
+          FDToHandler.erase(handler_it);
+
+          if (fd >= 0 && fd < static_cast<int>(HandlerByFD.size()))
+          {
+               HandlerByFD[fd] = nullptr;
+          }
+
+          if (fd == MaxFD)
+          {
+               MaxFD = -1;
+
                for (const auto &[fd_key, handler] : FDToHandler)
                {
+                    (void)handler;
                     if (fd_key > MaxFD)
                     {
                          MaxFD = fd_key;
@@ -401,6 +381,9 @@ void SocketEngine::DelFD(EventHandler *EH)
                }
           }
      }
+
+     UnregisterPendingWrite(EH);
+     ActiveConnections.fetch_sub(1, std::memory_order_relaxed);
 }
 
 /* Dispatches pending events */
@@ -913,10 +896,28 @@ void SocketEngine::DispatchTrialWrites()
                return;
           }
 
-          WriteCandidates.swap(SocketEngine::PendingWrites); /* O(1) swap, no copying */
+          SocketEngine::PendingWrites.erase(
+               std::remove_if(SocketEngine::PendingWrites.begin(), SocketEngine::PendingWrites.end(),
+                              [](EventHandler *EH)
+                              {
+                                   if (!EH || !EH->HasFD())
+                                   {
+                                        PendingWritesSet.erase(EH);
+                                        return true;
+                                   }
 
-          PendingWritesSet.clear();
-          SocketEngine::PendingWritesCount.store(0, std::memory_order_relaxed);
+                                   return false;
+                              }),
+               SocketEngine::PendingWrites.end());
+
+          SocketEngine::PendingWritesCount.store(SocketEngine::PendingWrites.size(), std::memory_order_relaxed);
+
+          if (SocketEngine::PendingWrites.empty())
+          {
+               return;
+          }
+
+          WriteCandidates = SocketEngine::PendingWrites;
      }
 
      /* Process writes immediately for publish messages */
@@ -980,27 +981,30 @@ void SocketEngine::RegisterPendingWrite(EventHandler *EH)
      /* Use HandlerToIndex for O(1) lookup instead of linear search */
 
      int fd = EH->GetFD();
-     auto index_it = HandlerToIndex.find(EH);
-
-     if (index_it != HandlerToIndex.end())
      {
-          size_t index = index_it->second;
+          std::lock_guard<std::mutex> registry_lock(RegistryMutex);
+          auto index_it = HandlerToIndex.find(EH);
 
-          if (index < PollFDs.size() && PollFDs[index].fd == fd)
+          if (index_it != HandlerToIndex.end())
           {
-               PollFDs[index].events |= POLLOUT;
-               return;
+               size_t index = index_it->second;
+
+               if (index < PollFDs.size() && PollFDs[index].fd == fd)
+               {
+                    PollFDs[index].events |= POLLOUT;
+                    return;
+               }
           }
-     }
 
-     /* Fallback: linear search if index map is stale */
+          /* Fallback: linear search if index map is stale */
 
-     for (auto &pfd : PollFDs)
-     {
-          if (pfd.fd == fd)
+          for (auto &pfd : PollFDs)
           {
-               pfd.events |= POLLOUT;
-               break;
+               if (pfd.fd == fd)
+               {
+                    pfd.events |= POLLOUT;
+                    break;
+               }
           }
      }
 }
@@ -1046,29 +1050,32 @@ void SocketEngine::UnregisterPendingWrite(EventHandler *EH)
      if (EH->HasFD())
      {
           int fd = EH->GetFD();
-          auto index_it = HandlerToIndex.find(EH);
-
-          if (index_it != HandlerToIndex.end())
           {
-               size_t index = index_it->second;
+               std::lock_guard<std::mutex> registry_lock(RegistryMutex);
+               auto index_it = HandlerToIndex.find(EH);
 
-               if (index < PollFDs.size() && PollFDs[index].fd == fd)
+               if (index_it != HandlerToIndex.end())
                {
-                    PollFDs[index].events &= ~POLLOUT;
-                    return;
+                    size_t index = index_it->second;
+
+                    if (index < PollFDs.size() && PollFDs[index].fd == fd)
+                    {
+                         PollFDs[index].events &= ~POLLOUT;
+                         return;
+                    }
                }
-          }
 
-          /* Fallback: linear search if index map is stale */
+               /* Fallback: linear search if index map is stale */
 
-          for (auto &pfd : PollFDs)
-          {
-               if (pfd.fd == fd)
+               for (auto &pfd : PollFDs)
                {
-                    /* Remove POLLOUT flag */
+                    if (pfd.fd == fd)
+                    {
+                         /* Remove POLLOUT flag */
 
-                    pfd.events &= ~POLLOUT;
-                    break;
+                         pfd.events &= ~POLLOUT;
+                         break;
+                    }
                }
           }
      }
@@ -1242,7 +1249,12 @@ void SocketEngine::IncrementPendingMessages()
 
 void SocketEngine::DecrementPendingMessages()
 {
-     SocketEngine::PendingMessageCount.fetch_sub(1, std::memory_order_relaxed);
+     int Current = SocketEngine::PendingMessageCount.load(std::memory_order_relaxed);
+
+     while (Current > 0 &&
+            !SocketEngine::PendingMessageCount.compare_exchange_weak(Current, Current - 1, std::memory_order_relaxed))
+     {
+     }
 }
 
 /* Returns the number of pending messages */

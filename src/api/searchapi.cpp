@@ -50,6 +50,8 @@
 #include "utils/wildcard.h"
 #include "vendor/json/json.hpp"
 
+/* Implements shared SearchAPI lifecycle and request helper behavior. */
+
 static constexpr const char *kReplicationOutboxPrefix = "replication_outbox:";
 static constexpr const char *kReplicationAppliedPrefix = "replication_applied:";
 static constexpr const char *kReplicationResyncStateKey = "replication_resync:active";
@@ -2267,6 +2269,10 @@ bool SearchAPI::ValidateCollectionSchema(const CollectionConfig &Config, std::st
           "double",
           "bool",
           "boolean",
+          "geo",
+          "geopoint",
+          "geo_point",
+          "latlon",
           "object",
           "json",
           "vector"

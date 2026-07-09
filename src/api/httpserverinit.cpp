@@ -19,6 +19,8 @@
 #include "core/logmanager.h"
 #include "utils/consolewriter.h"
 
+/* Initializes HTTP listener instances and validates TLS listener configuration. */
+
 #ifdef HLQUERY_HAS_OPENSSL
 void EnsureOpenSSLInitialized()
 {

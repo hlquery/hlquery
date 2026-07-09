@@ -29,6 +29,8 @@
 #include "utils/consolewriter.h"
 #include "utils/infos.h"
 
+/* Implements user authentication configuration and token validation. */
+
 constexpr size_t kMaxUserNameLen = 256;
 constexpr size_t kMaxUserTokenLen = 1024;
 constexpr size_t kMaxUserDescLen = 4096;

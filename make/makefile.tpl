@@ -94,6 +94,7 @@ AUTO_BUILD_JOBS ?= $(shell cpu="$(CPU_COUNT)"; mem="$(MEMORY_MB)"; [ "$$cpu" -gt
 BUILD_JOBS ?= $(AUTO_BUILD_JOBS)
 ROCKSDB_JOBS ?= $(AUTO_BUILD_JOBS)
 ROCKSDB_BUILD_PARALLEL := --parallel $(ROCKSDB_JOBS)
+ROCKSDB_CMAKE_LOG_LEVEL ?= VERBOSE
 ROCKSDB_INCLUDE = $(if $(wildcard $(ROCKSDB_DIR)/include),-I$(ROCKSDB_DIR)/include,)
 
 # Base compiler flags
@@ -360,8 +361,17 @@ HTTP_SRCS := $(SRC_DIR)/api/httpserver.cpp $(SRC_DIR)/api/searchapi.cpp $(filter
 
 # Socket engine sources
 SOCKETENGINE_FILE := ${SOCKETENGINE_FILE}
+UNAME_S := $(shell uname -s 2>/dev/null)
 ifeq ($(SOCKETENGINE_FILE),)
+ifeq ($(UNAME_S),Linux)
 SOCKETENGINE_FILE := epoll.cpp
+else ifeq ($(UNAME_S),Darwin)
+SOCKETENGINE_FILE := kqueue.cpp
+else ifneq (,$(filter $(UNAME_S),FreeBSD NetBSD OpenBSD DragonFly))
+SOCKETENGINE_FILE := kqueue.cpp
+else
+SOCKETENGINE_FILE := poll.cpp
+endif
 endif
 SOCKETENGINE_SRC := $(SRC_DIR)/socketengines/$(SOCKETENGINE_FILE)
 
@@ -492,9 +502,11 @@ $(ROCKSDB_LIB):
 				ROCKSDB_WARN_FLAGS="-Wno-uninitialized -Wno-unknown-warning-option -Wno-error=unknown-warning-option"; \
 			fi; \
 			echo "$(CYAN)RocksDB build jobs: $(ROCKSDB_JOBS) (detected $(MEMORY_MB) MB RAM, $(CPU_COUNT) CPU; override with ROCKSDB_JOBS=N)$(NC)"; \
-			cmake --log-level=NOTICE -S $(ROCKSDB_DIR) -B $(ROCKSDB_BUILD_DIR) -DCMAKE_BUILD_TYPE=Release \
-			      -DCMAKE_CXX_COMPILER="$(CXX)" \
-			      -DWITH_TESTS=OFF \
+			echo "$(CYAN)Configuring RocksDB with CMake (log level: $(ROCKSDB_CMAKE_LOG_LEVEL))$(NC)"; \
+			echo "+ cmake --log-level=$(ROCKSDB_CMAKE_LOG_LEVEL) -S $(ROCKSDB_DIR) -B $(ROCKSDB_BUILD_DIR) -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=\"$(CXX)\" -DWITH_TESTS=OFF -DWITH_TOOLS=OFF -DWITH_BENCHMARK_TOOLS=OFF -DROCKSDB_BUILD_SHARED=OFF -DPORTABLE=ON -DUSE_RTTI=ON -DFAIL_ON_WARNINGS=OFF -DWITH_GFLAGS=OFF -DWITH_JEMALLOC=OFF -DWITH_LIBURING=OFF -DWITH_TBB=OFF -DWITH_SNAPPY=OFF -DWITH_LZ4=OFF -DWITH_ZSTD=OFF -DWITH_BZ2=OFF -DCMAKE_CXX_FLAGS=\"-fPIC -Wno-error $$ROCKSDB_WARN_FLAGS\""; \
+			cmake --log-level=$(ROCKSDB_CMAKE_LOG_LEVEL) -S $(ROCKSDB_DIR) -B $(ROCKSDB_BUILD_DIR) -DCMAKE_BUILD_TYPE=Release \
+				      -DCMAKE_CXX_COMPILER="$(CXX)" \
+				      -DWITH_TESTS=OFF \
 		      -DWITH_TOOLS=OFF \
 		      -DWITH_BENCHMARK_TOOLS=OFF \
 		      -DROCKSDB_BUILD_SHARED=OFF \
@@ -916,6 +928,7 @@ help:
 	@echo "  make USE_PGO=1           - Enable Profile-Guided Optimization (generation)"
 	@echo "  make USE_PGO=2           - Use PGO profile data for optimization"
 	@echo "  make USE_CLANG_TIDY=1    - Enable clang-tidy static analysis"
+	@echo "  make ROCKSDB_CMAKE_LOG_LEVEL=STATUS - Override RocksDB CMake configure verbosity"
 	@echo ""
 	@echo "$(BOLD)Common Targets:$(NC)"
 	@echo "  make                      - Build everything (release mode)"
@@ -946,6 +959,7 @@ build-info:
 	@echo "  Memory:         $(MEMORY_MB) MB"
 	@echo "  Parallel Jobs:  $(BUILD_JOBS)"
 	@echo "  RocksDB Jobs:   $(ROCKSDB_JOBS)"
+	@echo "  RocksDB CMake:  $(ROCKSDB_CMAKE_LOG_LEVEL)"
 	@echo "  jemalloc:       $(if $(filter 1,$(WITH_JEMALLOC)),enabled,disabled)"
 	@echo "  tcmalloc:       $(if $(filter 1,$(WITH_TCMALLOC)),enabled,disabled)"
 	@echo "  PGO:            $(if $(USE_PGO),enabled ($(USE_PGO)),disabled)"

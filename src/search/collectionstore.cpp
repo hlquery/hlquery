@@ -688,9 +688,9 @@ void HybridStorageManager::UpdateCollectionCounters(bool force)
      }
 
      /*
-           * Update count for each collection.
-           * PERFORMANCE: Use CountKeys instead of Keys().size() to avoid loading all keys into memory.
-           */
+      * Update count for each collection.
+      * PERFORMANCE: Use CountKeys instead of Keys().size() to avoid loading all keys into memory.
+      */
 
      for (const auto &collection : collections)
      {
@@ -738,9 +738,9 @@ void HybridStorageManager::UpdateCollectionCounters(bool force)
      }
 
      /*
-           * Flush database only if we are forced or if it's necessary.
-           * PERFORMANCE: Avoid unnecessary FlushAndSync if no metadata was updated.
-           */
+      * Flush database only if we are forced or if it's necessary.
+      * PERFORMANCE: Avoid unnecessary FlushAndSync if no metadata was updated.
+      */
 
      if (force && Instance && Instance->Database)
      {
@@ -1227,9 +1227,7 @@ bool HybridStorageManager::DeleteCollection(const std::string &name)
      }
 
      /* Delete all documents in the collection before deleting metadata */
-
      /* This prevents document accumulation when collections are deleted and recreated */
-
      /* PERFORMANCE: Use DeleteRange for bulk deletion - much faster than Keys() + Del() loops */
 
      if (Instance && Instance->Database)
@@ -1237,7 +1235,6 @@ bool HybridStorageManager::DeleteCollection(const std::string &name)
           size_t deleted_count = 0;
 
           /* Use DeleteRange for efficient bulk deletion of documents */
-
           /* Range: "doc:name:" to "doc:name;" (semicolon is after colon in ASCII, covers all doc:name:* keys) */
 
           try
@@ -1248,9 +1245,9 @@ bool HybridStorageManager::DeleteCollection(const std::string &name)
                size_t delete_result = Instance->Database->DeleteRange(doc_start, doc_end);
 
                /*
-                     * DeleteRange returns 1 on success, not the actual count.
-                     * We can estimate count from metadata if needed, but deletion is what matters.
-                     */
+                * DeleteRange returns 1 on success, not the actual count.
+                * We can estimate count from metadata if needed, but deletion is what matters.
+                */
 
                if (Instance && Instance->Logs)
                {
@@ -1556,9 +1553,9 @@ bool HybridStorageManager::DeleteCollection(const std::string &name)
      }
 
      /*
-           * Remove mmap index files on disk for this collection to prevent stale indexes
-           * from being reused if the collection is recreated.
-           */
+      * Remove mmap index files on disk for this collection to prevent stale indexes
+      * from being reused if the collection is recreated.
+      */
 
      try
      {
@@ -4136,9 +4133,9 @@ bool HybridStorageManager::FlushAll()
      }
 
      /*
-           * PERFORMANCE OPTIMIZATION: Use bulk deletion instead of deleting keys one by one.
-           * This is MUCH faster - DeleteRange is optimized by RocksDB for bulk operations.
-           */
+      * PERFORMANCE OPTIMIZATION: Use bulk deletion instead of deleting keys one by one.
+      * This is MUCH faster - DeleteRange is optimized by RocksDB for bulk operations.
+      */
 
      /* Step 1: Clear inverted index completely (in-memory maps and mmap indexes) */
 

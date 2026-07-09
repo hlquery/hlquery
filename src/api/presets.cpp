@@ -15,6 +15,8 @@
 #include "core/hlquery.h"
 #include "vendor/json/json.hpp"
 
+/* Provides preset API handlers for reusable search configuration. */
+
 namespace
 {
      constexpr const char *kPresetsKey = "presets";

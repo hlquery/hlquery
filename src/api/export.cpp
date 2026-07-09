@@ -47,6 +47,8 @@
 #include "utils/wildcard.h"
 #include "vendor/json/json.hpp"
 
+/* Provides export API handlers for collection data and server state. */
+
 /* HandleExportDocuments exports documents from a collection. */
 
 /*

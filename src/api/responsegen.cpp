@@ -26,6 +26,8 @@
 #include "core/hlquery.h"
 #include "vendor/json/json.hpp"
 
+/* Builds normalized API responses and error payloads. */
+
 /* GenerateComprehensiveSearchResponse generates a JSON response for a search. */
 
 std::string SearchAPI::GenerateComprehensiveSearchResponse(const ComprehensiveSearchResult &Result, const ComprehensiveSearchQuery &Query)
@@ -63,17 +65,17 @@ std::string SearchAPI::GenerateComprehensiveSearchResponse(const ComprehensiveSe
                FirstField = false;
           }
 
-	     auto TimestampIt = HitObj.Document.find("timestamp");
-	     if (Query.IncludeCreatedAt && TimestampIt != HitObj.Document.end())
-	     {
-	          std::uint64_t TimestampVal = 0;
+          auto TimestampIt = HitObj.Document.find("timestamp");
+          if (Query.IncludeCreatedAt && TimestampIt != HitObj.Document.end())
+          {
+               std::uint64_t TimestampVal = 0;
 
                /* Parse timestamp value and ignore invalid inputs. */
 
-	          try
-	          {
-	               TimestampVal = std::stoull(TimestampIt->second);
-	          }
+               try
+               {
+                    TimestampVal = std::stoull(TimestampIt->second);
+               }
                catch (...)
                {
                     /* Invalid timestamp value. */
@@ -111,34 +113,34 @@ std::string SearchAPI::GenerateComprehensiveSearchResponse(const ComprehensiveSe
                }
           }
 
-	          JSON << "}";
+          JSON << "}";
 
-	          JSON << ",\"text_match\":" << HitObj.TextMatch;
+          JSON << ",\"text_match\":" << HitObj.TextMatch;
 
-	          JSON << ",\"_text_match\":" << HitObj.TextMatch;
+          JSON << ",\"_text_match\":" << HitObj.TextMatch;
 
-	          JSON << ",\"weight\":" << HitObj.Weight;
+          JSON << ",\"weight\":" << HitObj.Weight;
 
           const float weighted_score = (HitObj.HybridScore > 0.0f ? HitObj.HybridScore : (HitObj.VectorScore > 0.0f ? HitObj.VectorScore : HitObj.TextMatch)) *
                                        ((std::isfinite(HitObj.Weight) && HitObj.Weight > 0.0f) ? HitObj.Weight : 1.0f);
 
-	          JSON << ",\"score\":" << weighted_score;
+          JSON << ",\"score\":" << weighted_score;
 
-	          if (!Query.VectorQueryStr.empty() || !Query.Embedding.empty())
-	          {
-	               JSON << ",\"vector_score\":" << HitObj.VectorScore;
-	          }
+          if (!Query.VectorQueryStr.empty() || !Query.Embedding.empty())
+          {
+               JSON << ",\"vector_score\":" << HitObj.VectorScore;
+          }
 
-	          if (HitObj.HybridScore > 0)
-	          {
-	               JSON << ",\"hybrid_score\":" << HitObj.HybridScore;
-	          }
+          if (HitObj.HybridScore > 0)
+          {
+               JSON << ",\"hybrid_score\":" << HitObj.HybridScore;
+          }
 
-	          if (!HitObj.Highlights.empty())
-	          {
-	               JSON << ",\"highlights\":{";
+          if (!HitObj.Highlights.empty())
+          {
+               JSON << ",\"highlights\":{";
 
-	               bool FirstHighlight = true;
+               bool FirstHighlight = true;
 
                for (const auto &Highlight : HitObj.Highlights)
                {
@@ -154,11 +156,11 @@ std::string SearchAPI::GenerateComprehensiveSearchResponse(const ComprehensiveSe
                     FirstHighlight = false;
                }
 
-	               JSON << "}";
-	          }
+               JSON << "}";
+          }
 
-	          JSON << "}";
-	     }
+          JSON << "}";
+     }
 
      JSON << "],";
 

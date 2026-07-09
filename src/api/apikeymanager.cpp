@@ -26,6 +26,8 @@
 #include "core/hlquery.h"
 #include "utils/infos.h"
 
+/* Implements API key persistence, validation, and rate limit bookkeeping. */
+
 constexpr size_t kMaxKeysDatSize = 64 * 1024 * 1024;
 constexpr uint32_t kMaxKeyCount = 100000;
 constexpr uint32_t kMaxScopeCount = 10000;

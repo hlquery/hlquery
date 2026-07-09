@@ -47,6 +47,8 @@
 #include "utils/wildcard.h"
 #include "vendor/json/json.hpp"
 
+/* Provides override API handlers for search result adjustments. */
+
 /* HandleListOverrides lists all query overrides for a collection. */
 
 /*

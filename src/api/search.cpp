@@ -35,6 +35,8 @@
 #include "utils/protocol.h"
 #include "vendor/json/json.hpp"
 
+/* Provides search API handlers and request execution glue. */
+
 /* Stores the maybe-suggestion policy for a document search response. */
 
 struct DocumentMaybeSettings
@@ -2348,16 +2350,16 @@ HttpResponse SearchAPI::HandleGlobalSearch(const HttpRequest &Request)
 
           /* Stamp the source collection into each merged document before appending it. */
 
-	          if (AllHits.capacity() < AllHits.size() + CollectionResult.Hits.size())
-	          {
-	               AllHits.reserve(AllHits.size() + CollectionResult.Hits.size());
-	          }
+          if (AllHits.capacity() < AllHits.size() + CollectionResult.Hits.size())
+          {
+               AllHits.reserve(AllHits.size() + CollectionResult.Hits.size());
+          }
 
-	          for (auto Hit : CollectionResult.Hits)
-	          {
-	               Hit.Document["_collection"] = CollectionName;
-	               AllHits.push_back(std::move(Hit));
-	          }
+          for (auto Hit : CollectionResult.Hits)
+          {
+               Hit.Document["_collection"] = CollectionName;
+               AllHits.push_back(std::move(Hit));
+          }
 
           for (const auto &FacetPair : CollectionResult.Facets)
           {

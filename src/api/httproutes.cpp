@@ -18,6 +18,8 @@
 #include "core/hlquery.h"
 #include "utils/consolewriter.h"
 
+/* Defines HTTP route matching for API request dispatch. */
+
 static bool MatchesMethod(const std::string &Method, std::initializer_list<const char *> Candidates)
 {
      for (const char *Candidate : Candidates)
@@ -197,6 +199,7 @@ static const std::unordered_map<std::string_view, RouteAction> &GetExactGetRoute
           {"/collections", RouteAction::ListCollections},
           {"/collections/distributed", RouteAction::ListCollectionsDistributed},
           {"/connections", RouteAction::Connections},
+          {"/config-files", RouteAction::ConfigFiles},
           {"/consistency", RouteAction::Integrity},
           {"/debug/counters", RouteAction::DebugCounters},
           {"/doctotal", RouteAction::DocTotal},
@@ -661,6 +664,8 @@ const char *RouteActionName(RouteAction ActionVal)
                return "Status";
           case RouteAction::SearchConfig:
                return "SearchConfig";
+          case RouteAction::ConfigFiles:
+               return "ConfigFiles";
           case RouteAction::Health:
                return "Health";
           case RouteAction::Ready:

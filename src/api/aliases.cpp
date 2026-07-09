@@ -47,6 +47,8 @@
 #include "utils/wildcard.h"
 #include "vendor/json/json.hpp"
 
+/* Provides alias API handlers for collection alias lookup and mutation. */
+
 std::string ExtractAliasCollectionFromPath(const std::string &Path)
 {
      std::regex AliasCollectionRegex(R"(/collections/([^/]+)/aliases)");

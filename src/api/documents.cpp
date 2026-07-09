@@ -54,6 +54,8 @@
 #include "utils/wildcard.h"
 #include "vendor/json/json.hpp"
 
+/* Provides document API handlers for ingestion, retrieval, updates, and deletion. */
+
 static nlohmann::json BuildDocumentJSON(const Document &Doc)
 {
      nlohmann::json J;
