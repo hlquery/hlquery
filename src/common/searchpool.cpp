@@ -836,10 +836,10 @@ bool ThreadPoolManager::Initialize()
 
      if (Instance && Instance->Config)
      {
-          SearchThreads = static_cast<size_t>(Instance->Config->GetSearchPoolThreads());
-          HTTPThreads = static_cast<size_t>(Instance->Config->GetHTTPPoolThreads());
-          WriteThreads = static_cast<size_t>(Instance->Config->GetWritePoolThreads());
-          MgmtThreads = static_cast<size_t>(Instance->Config->GetManagementPoolThreads());
+          SearchThreads = static_cast<size_t>(Instance->Config->SearchPoolThreads);
+          HTTPThreads = static_cast<size_t>(Instance->Config->HTTPPoolThreads);
+          WriteThreads = static_cast<size_t>(Instance->Config->WritePoolThreads);
+          MgmtThreads = static_cast<size_t>(Instance->Config->ManagementPoolThreads);
      }
 
      /* If any pool is set to 0 (auto), calculate distribution */

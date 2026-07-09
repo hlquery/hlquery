@@ -3035,8 +3035,6 @@ size_t InvertedIndex::FlushToDisk(const std::string &IndexDir, uint64_t MinDirty
 
 void InvertedIndex::LoadFromDisk(const std::string &IndexDir)
 {
-     std::lock_guard<std::mutex> Lock(IndexMutex);
-
      if (Instance && Instance->Logs)
      {
           Instance->Logs->Normal("inverted_index", "LoadFromDisk: Loading indexes from disk.");
@@ -3051,6 +3049,8 @@ void InvertedIndex::LoadFromDisk(const std::string &IndexDir)
 
           return;
      }
+
+     std::vector<std::pair<std::string, std::unique_ptr<MMapIndex>>> LoadedIndexes;
 
      for (const auto &Entry : std::filesystem::directory_iterator(IndexDir))
      {
@@ -3092,13 +3092,23 @@ void InvertedIndex::LoadFromDisk(const std::string &IndexDir)
 
           if (MMapIdx && MMapIdx->IsValid())
           {
-               MMapIndexes[Collection] = std::move(MMapIdx);
-               TouchCollectionLocked(Collection);
+               LoadedIndexes.emplace_back(Collection, std::move(MMapIdx));
+          }
+     }
 
-               if (Instance && Instance->Logs)
-               {
-                    Instance->Logs->Normal("inverted_index", "LoadFromDisk: Loaded mmap index for collection '" + Collection + "' (" + std::to_string(MMapIndexes[Collection]->GetTermCount()) + " terms).");
-               }
+     std::lock_guard<std::mutex> Lock(IndexMutex);
+
+     for (auto &Entry : LoadedIndexes)
+     {
+          const std::string &Collection = Entry.first;
+          const size_t TermCount = Entry.second->GetTermCount();
+
+          MMapIndexes[Collection] = std::move(Entry.second);
+          TouchCollectionLocked(Collection);
+
+          if (Instance && Instance->Logs)
+          {
+               Instance->Logs->Normal("inverted_index", "LoadFromDisk: Loaded mmap index for collection '" + Collection + "' (" + std::to_string(TermCount) + " terms).");
           }
      }
 

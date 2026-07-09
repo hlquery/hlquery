@@ -475,44 +475,6 @@ class ServerConfig
           return MaxConnections;
      }
 
-     /* Thread pool settings */
-
-     /* Search pool thread count */
-
-     /* Returns search pool thread count. */
-
-     int GetSearchPoolThreads() const
-     {
-          return SearchPoolThreads;
-     }
-
-     /* HTTP pool thread count */
-
-     /* Returns HTTP pool thread count. */
-
-     int GetHTTPPoolThreads() const
-     {
-          return HTTPPoolThreads;
-     }
-
-     /* Write pool thread count */
-
-     /* Returns write pool thread count. */
-
-     int GetWritePoolThreads() const
-     {
-          return WritePoolThreads;
-     }
-
-     /* Management pool thread count */
-
-     /* Returns management pool thread count. */
-
-     int GetManagementPoolThreads() const
-     {
-          return ManagementPoolThreads;
-     }
-
     const std::vector<ModuleLoadEntry>& GetModuleLoads() const
     {
          return ModuleLoads;

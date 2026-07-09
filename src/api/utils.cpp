@@ -199,6 +199,13 @@ static bool TryParseGeoDistanceKM(const std::string &Value, double *OutKM)
      return true;
 }
 
+static bool IsValidGeoCoordinates(double Lat, double Lon)
+{
+     return std::isfinite(Lat) && std::isfinite(Lon) &&
+            Lat >= -90.0 && Lat <= 90.0 &&
+            Lon >= -180.0 && Lon <= 180.0;
+}
+
 static bool TryParseGeoPointValue(const std::string &Value, GeoPoint *OutPoint)
 {
      if (!OutPoint)
@@ -214,7 +221,7 @@ static bool TryParseGeoPointValue(const std::string &Value, GeoPoint *OutPoint)
 
      auto AssignIfValid = [OutPoint](double Lat, double Lon) -> bool
      {
-          if (!std::isfinite(Lat) || !std::isfinite(Lon) || Lat < -90.0 || Lat > 90.0 || Lon < -180.0 || Lon > 180.0)
+          if (!IsValidGeoCoordinates(Lat, Lon))
           {
                return false;
           }
@@ -920,9 +927,10 @@ double SearchAPI::CalculateGeoDistance(const GeoPoint &P1, const GeoPoint &P2)
      const double DeltaLat = ToRadians(P2.Latitude - P1.Latitude);
      const double DeltaLon = ToRadians(P2.Longitude - P1.Longitude);
 
-     const double A = std::sin(DeltaLat / 2.0) * std::sin(DeltaLat / 2.0) +
-                      std::cos(Lat1) * std::cos(Lat2) *
-                          std::sin(DeltaLon / 2.0) * std::sin(DeltaLon / 2.0);
+     const double RawA = std::sin(DeltaLat / 2.0) * std::sin(DeltaLat / 2.0) +
+                         std::cos(Lat1) * std::cos(Lat2) *
+                             std::sin(DeltaLon / 2.0) * std::sin(DeltaLon / 2.0);
+     const double A = std::clamp(RawA, 0.0, 1.0);
      const double C = 2.0 * std::atan2(std::sqrt(A), std::sqrt(1.0 - A));
 
      return EarthRadiusKM * C;
@@ -982,7 +990,7 @@ std::vector<SearchHit> SearchAPI::ApplyFilters(const std::vector<SearchHit> &Hit
           auto Conditions = ParseFilters(FilterBy);
           if (Conditions.empty())
           {
-               return Hits;
+               return FilterBy.empty() ? Hits : FilteredHits;
           }
 
           for (const auto &HitObj : Hits)
@@ -1090,6 +1098,11 @@ bool SearchAPI::EvaluateFilterCondition(const std::map<std::string, std::string>
                return false;
           }
 
+          if (!IsValidGeoCoordinates(Lat, Lon))
+          {
+               return false;
+          }
+
           GeoPoint Point;
           if (!TryGetGeoPointFromDocument(Document, Args[0], &Point))
           {
@@ -1120,6 +1133,12 @@ bool SearchAPI::EvaluateFilterCondition(const std::map<std::string, std::string>
               !TryParseDoubleValue(Args[2], &Box.TopLeftLon) ||
               !TryParseDoubleValue(Args[3], &Box.BottomRightLat) ||
               !TryParseDoubleValue(Args[4], &Box.BottomRightLon))
+          {
+               return false;
+          }
+
+          if (!IsValidGeoCoordinates(Box.TopLeftLat, Box.TopLeftLon) ||
+              !IsValidGeoCoordinates(Box.BottomRightLat, Box.BottomRightLon))
           {
                return false;
           }

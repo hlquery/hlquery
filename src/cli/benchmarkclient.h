@@ -236,7 +236,7 @@ class BenchmarkClient
      HTTPResponse UpdateCounters(const std::string &prefix = "");
      /* Flushes and syncs. */
 
-     HTTPResponse FlushSync();
+     HTTPResponse FlushSync(const std::string &prefix = "");
 
      /* Enables or disables global SSL dual-auth header mode for all benchmark clients. */
 

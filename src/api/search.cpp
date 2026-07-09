@@ -1842,6 +1842,19 @@ HttpResponse SearchAPI::HandleSearch(const HttpRequest &Request)
           }
      }
 
+     if (!SearchQueryObj.VectorQueryStr.empty() || !SearchQueryObj.Embedding.empty())
+     {
+          const std::string VectorPayload = !SearchQueryObj.VectorQueryStr.empty() ? SearchQueryObj.VectorQueryStr : SearchQueryObj.Embedding;
+          std::string VectorValidationError;
+          if (!ValidateVectorQueryPayload(VectorPayload, SearchQueryObj.PerPage, &VectorValidationError))
+          {
+               return BuildErrorResponse(Status::BAD_REQUEST,
+                                         Code::SEARCH_INVALID_PARAMETER,
+                                         "Invalid vector query.",
+                                         VectorValidationError);
+          }
+     }
+
      ComprehensiveSearchResult SearchResultObj;
      const DocumentMaybeSettings MaybeSettings = ParseDocumentMaybeSettings(Params);
      const auto DistributedOverrideIt = Request.QueryParams.find("distributed");

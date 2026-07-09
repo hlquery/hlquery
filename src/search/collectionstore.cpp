@@ -441,17 +441,10 @@ HybridStorageManager &HybridStorageManagerInstance()
 
 std::mutex &HybridStorageManager::GetKeyMutex(const std::string &key)
 {
-     static constexpr size_t NumMutexes = 256;
+     static constexpr size_t NumMutexes = 4096;
      static std::array<std::mutex, NumMutexes> key_mutex_pool;
 
-     size_t hash = 0;
-
-     for (char c : key)
-     {
-          hash = hash * 31 + static_cast<unsigned char>(c);
-     }
-
-     size_t mutex_index = hash % NumMutexes;
+     const size_t mutex_index = std::hash<std::string>{}(key) % NumMutexes;
 
      return key_mutex_pool[mutex_index];
 }
@@ -1936,10 +1929,6 @@ bool HybridStorageManager::AddDocument(const std::string &collection, const Docu
            * concurrent inserts of the same document. This eliminates global lock contention.
            */
 
-     std::mutex &key_mutex = GetKeyMutex(doc_key);
-
-     std::lock_guard<std::mutex> key_lock(key_mutex);
-
      /*
            * PERFORMANCE: Skip Exists() check - just call Set() directly (upsert behavior).
            * RocksDB Set() efficiently overwrites existing keys, so no need to check first.
@@ -1973,11 +1962,19 @@ bool HybridStorageManager::AddDocument(const std::string &collection, const Docu
 
      /* Check if document already exists to determine if this is a new document or update */
 
-     bool document_existed = Instance->Database->Exists(doc_key);
+     bool document_existed = false;
+     bool success = false;
 
-     /* Upsert: Set() will overwrite if exists, insert if new */
+     {
+          std::mutex &key_mutex = GetKeyMutex(doc_key);
+          std::lock_guard<std::mutex> key_lock(key_mutex);
 
-     bool success = Instance->Database->Set(doc_key, doc_data);
+          document_existed = Instance->Database->Exists(doc_key);
+
+          /* Upsert: Set() will overwrite if exists, insert if new */
+
+          success = Instance->Database->Set(doc_key, doc_data);
+     }
 
      if (!success)
      {
@@ -3118,9 +3115,12 @@ bool HybridStorageManager::RebuildCollectionIndex(const std::string &collection,
           return false;
      }
 
-     std::lock_guard<std::mutex> collection_lock(GetCollectionMutex(collection));
+     std::vector<std::string> doc_keys;
+     {
+          std::lock_guard<std::mutex> collection_lock(GetCollectionMutex(collection));
+          doc_keys = Instance->Database->Keys("doc:" + collection + ":*");
+     }
 
-     const std::vector<std::string> doc_keys = Instance->Database->Keys("doc:" + collection + ":*");
      size_t indexed_documents = 0;
 
      try

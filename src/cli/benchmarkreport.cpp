@@ -189,7 +189,7 @@ void PrintProgressBar(int current, int total, const std::string &label, int /* b
 
      if (current >= total || current_percent >= 100)
      {
-          len = snprintf(buffer, sizeof(buffer), "\r\033[2K%s DONE %d%% (%d/%d)", label.c_str(), current_percent, current, total);
+          len = snprintf(buffer, sizeof(buffer), "\r\033[2K  · %-23s %3d%% (%d/%d)", label.c_str(), current_percent, current, total);
      }
      else
      {
@@ -198,7 +198,7 @@ void PrintProgressBar(int current, int total, const std::string &label, int /* b
           static const char spinner_chars[] = {'|', '/', '-', '\\'};
           char spinner = spinner_chars[idx % 4];
 
-          len = snprintf(buffer, sizeof(buffer), "\r\033[2K%s %c %d%% (%d/%d)", label.c_str(), spinner, current_percent, current, total);
+          len = snprintf(buffer, sizeof(buffer), "\r\033[2K  · %-23s %c %3d%% (%d/%d)", label.c_str(), spinner, current_percent, current, total);
      }
 
      if (len > 0 && len < static_cast<int>(sizeof(buffer)))

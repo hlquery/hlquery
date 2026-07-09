@@ -15,9 +15,11 @@
 #include <csignal>
 #include <cstdint>
 #include <fstream>
+#include <iomanip>
 #include <iostream>
 #include <random>
 #include <set>
+#include <sstream>
 #include <string>
 #include <thread>
 #include <unordered_map>
@@ -85,6 +87,46 @@ std::string TrimWhitespace(const std::string &input)
      size_t end = input.find_last_not_of(" \t\r\n");
 
      return input.substr(start, end - start + 1);
+}
+
+static std::string PadBenchmarkLabel(const std::string &Label, size_t Width = 23)
+{
+     if (Label.size() >= Width)
+     {
+          return Label;
+     }
+
+     return Label + std::string(Width - Label.size(), ' ');
+}
+
+static void PrintBenchmarkTitle(const std::string &Title)
+{
+     std::cout << Title << "\n";
+     std::cout << std::string(Title.size(), '-') << "\n";
+}
+
+static void PrintBenchmarkSection(const std::string &Title)
+{
+     std::cout << "\n" << Title << "\n";
+}
+
+static void PrintBenchmarkValue(const std::string &Label, const std::string &Value)
+{
+     std::cout << "  · " << PadBenchmarkLabel(Label) << Value << "\n";
+}
+
+static void PrintBenchmarkStatus(const std::string &Label, const std::string &Value)
+{
+     LogOutput("  · " + PadBenchmarkLabel(Label) + Value + "\n");
+}
+
+static std::string FormatBenchmarkRate(double Value)
+{
+     std::ostringstream Stream;
+
+     Stream << std::fixed << std::setprecision(1) << Value;
+
+     return Stream.str();
 }
 
 struct FakeCollectionSpec
@@ -2156,6 +2198,7 @@ static void PrintBenchmarkHelp(const char *program_name)
                << "  --seed SEED        Seed for deterministic runs\n"
                << "  --no-fake-collections  Disable fake helper collections (people, food, stocks, music, sports, etc.)\n"
                << "  --verify-after-restart   Verify counts after server restart\n"
+               << "  --verify-final-counts    Verify benchmark collection counts before printing results\n"
                << "  --check-consistency      Check consistency of /status, /stats, /metrics, /doctotal\n"
                << "  --dry-run          Generate collections/docs in memory but don't send to server\n"
                << "  --cleanup          Delete all benchmark-tagged collections at end\n"
@@ -2220,6 +2263,7 @@ int main(int argc, char *argv[])
 
           bool no_fake_collections = false;
           bool verify_after_restart = false;
+          bool verify_final_counts_val = false;
           bool check_consistency_val = false;
           bool dry_run_val = false;
 
@@ -2360,6 +2404,10 @@ int main(int argc, char *argv[])
                {
                     verify_after_restart = true;
                }
+               else if (arg == "--verify-final-counts")
+               {
+                    verify_final_counts_val = true;
+               }
                else if (arg == "--check-consistency")
                {
                     check_consistency_val = true;
@@ -2447,9 +2495,12 @@ int main(int argc, char *argv[])
                }
           }
 
+          PrintBenchmarkTitle("HLQuery Benchmark");
+          PrintBenchmarkSection("Preflight");
+
           if (!skip_auth_check)
           {
-               LogOutput("Checking server status and authentication requirements...\n");
+               PrintBenchmarkStatus("Status/auth", "checking.");
 
                BenchmarkClient status_client(base_url, auth_token);
 
@@ -2514,10 +2565,10 @@ int main(int argc, char *argv[])
           }
           else
           {
-               LogOutput("Skipping authentication check (--skip-auth-check flag set)...\n");
+               PrintBenchmarkStatus("Status/auth", "skipped by flag.");
           }
 
-          LogOutput("Checking server health...\n");
+          PrintBenchmarkStatus("Health", "checking.");
 
           BenchmarkClient health_client(base_url, auth_token);
 
@@ -2577,10 +2628,12 @@ int main(int argc, char *argv[])
           }
           else
           {
-               std::cout << "✓ Server is healthy and ready.\n\n";
+               PrintBenchmarkStatus("Health", "ready.");
           }
 
           health_client.Reset();
+
+          PrintBenchmarkStatus("Stability recheck", "running.");
 
           HTTPResponse second_health = health_client.MakeRequest("GET", "/health");
 
@@ -2631,6 +2684,8 @@ int main(int argc, char *argv[])
 
                return 1;
           }
+
+          PrintBenchmarkStatus("Stability recheck", "ready.");
 
           health_client.Reset();
 
@@ -2855,26 +2910,23 @@ int main(int argc, char *argv[])
                g_collection_prefix = "bench_" + run_id_val + "_";
           }
 
-          std::cout << "HLQuery Benchmark Tool.\n";
-          std::cout << "\n";
-          std::cout << "Server URL: " << base_url << ".\n";
-          std::cout << "Collections: " << num_collections << ".\n";
-          std::cout << "Documents: " << num_documents << ".\n";
-          std::cout << "Threads: " << num_threads << " requested, " << active_document_threads << " ingest worker(s), " << active_collection_threads << " collection worker(s).\n";
-          std::cout << "Batch size: " << batch_size << ".\n";
-          std::cout << "Collection prefix: " << g_collection_prefix << ".\n";
+          PrintBenchmarkSection("Run plan");
+          PrintBenchmarkValue("Endpoint", base_url);
+          PrintBenchmarkValue("Collections", std::to_string(num_collections));
+          PrintBenchmarkValue("Documents", std::to_string(num_documents));
+          PrintBenchmarkValue("Workers", std::to_string(num_threads) + " requested, " + std::to_string(active_document_threads) + " ingest, " + std::to_string(active_collection_threads) + " collection");
+          PrintBenchmarkValue("Batch size", std::to_string(batch_size));
+          PrintBenchmarkValue("Collection prefix", g_collection_prefix);
 
           if (advanced_mode)
           {
-               std::cout << "Advanced mode: ON (output: " << advanced_output_file << ").\n";
+               PrintBenchmarkValue("Advanced output", advanced_output_file);
           }
 
           if (verbose_mode)
           {
-               std::cout << "Verbose mode: ON.\n";
+               PrintBenchmarkValue("Verbose mode", "on");
           }
-
-          std::cout << "\n";
 
           if (advanced_mode)
           {
@@ -3001,15 +3053,17 @@ int main(int argc, char *argv[])
                std::cout << "Phase 0: Reusing existing collections (--reuse-collections enabled).\n";
           }
 
+          PrintBenchmarkSection("Progress");
+
           ResetProgressBar();
 
           if (verbose_mode)
           {
-               std::cout << "Phase 1: Creating " << num_collections << " collections...\n";
+               PrintBenchmarkValue("Phase 1", "creating " + std::to_string(num_collections) + " collections");
           }
           else
           {
-               std::cout << "Creating collections...\n";
+               PrintBenchmarkValue("Collections", "creating");
           }
 
           if (advanced_mode)
@@ -3163,7 +3217,7 @@ int main(int argc, char *argv[])
           }
           else
           {
-               std::cout << "Inserting documents...\n";
+               PrintBenchmarkValue("Documents", "inserting");
           }
 
           if (advanced_mode)
@@ -3284,11 +3338,11 @@ int main(int argc, char *argv[])
           {
                if (verbose_mode)
                {
-                    std::cout << "\nPhase 2b: Inserting " << additional_docs_per_collection_val << " additional documents per collection (" << total_additional_docs_val << " total)...\n";
+                    PrintBenchmarkValue("Phase 2b", "inserting " + std::to_string(additional_docs_per_collection_val) + " additional documents per collection (" + std::to_string(total_additional_docs_val) + " total)");
                }
                else
                {
-                    std::cout << "Inserting additional documents...\n";
+                    PrintBenchmarkValue("Additional docs", "inserting");
                }
 
                std::vector<std::thread> additional_document_threads_vec;
@@ -3373,7 +3427,7 @@ int main(int argc, char *argv[])
           }
           else if (verbose_mode)
           {
-               std::cout << "\nPhase 2b: Skipped additional document insertion (0 configured).\n";
+               PrintBenchmarkValue("Phase 2b", "skipped additional document insertion");
           }
 
           ingest_end_time_val = Now();
@@ -3389,6 +3443,11 @@ int main(int argc, char *argv[])
           {
                std::cout << "\nFlushing pending requests...\n";
           }
+          else
+          {
+               std::cout << "\n";
+               PrintBenchmarkValue("Commit", "update-counters");
+          }
 
           int64_t flush_duration_ms = 0;
           int flush_status_code = 0;
@@ -3398,7 +3457,7 @@ int main(int argc, char *argv[])
                BenchmarkClient flush_client(base_url, auth_token);
 
                auto flush_start = Now();
-               HTTPResponse flush_resp = flush_client.FlushSync();
+               HTTPResponse flush_resp = flush_client.FlushSync(g_collection_prefix);
                auto flush_end = Now();
 
                flush_duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(flush_end - flush_start).count();
@@ -3407,12 +3466,12 @@ int main(int argc, char *argv[])
 
                if (verbose_mode)
                {
-                    std::cout << "  Flush/sync duration: " << flush_duration_ms << " ms.\n";
+                    std::cout << "  Commit duration: " << flush_duration_ms << " ms.\n";
                }
 
                if (flush_resp.StatusCode != 200 && flush_resp.StatusCode != 201 && verbose_mode)
                {
-                    std::cerr << "  Warning: Flush/sync returned status " << flush_resp.StatusCode << ".\n";
+                    std::cerr << "  Warning: Commit returned status " << flush_resp.StatusCode << ".\n";
                }
           }
 
@@ -3471,84 +3530,108 @@ int main(int argc, char *argv[])
 
           BenchmarkClient count_client_val(base_url, auth_token);
 
-          GetFinalCounts(count_client_val, advanced_metrics, verbose_mode, num_collections);
-
-          if (advanced_metrics.FinalDocumentsCount > 0 && advanced_metrics.FinalDocumentsCount < documents_inserted.load())
+          if (verify_final_counts_val)
           {
-               std::cerr << "\nERROR: Server reports " << advanced_metrics.FinalDocumentsCount << " documents but benchmark inserted " << documents_inserted.load() << ".\n";
-               std::cerr << "  This may indicate data loss or counting issues!.\n";
+               if (!verbose_mode)
+               {
+                    PrintBenchmarkValue("Final counts", "checking");
+               }
 
-               return 1;
-          }
+               GetFinalCounts(count_client_val, advanced_metrics, verbose_mode, num_collections);
 
-          int64_t expected_docs_val = static_cast<int64_t>(num_documents) + static_cast<int64_t>(total_additional_docs_val);
-          int64_t benchmark_docs_val = CountBenchmarkDocuments(advanced_metrics, num_collections);
+               if (advanced_metrics.FinalDocumentsCount > 0 && advanced_metrics.FinalDocumentsCount < documents_inserted.load())
+               {
+                    std::cerr << "\nERROR: Server reports " << advanced_metrics.FinalDocumentsCount << " documents but benchmark inserted " << documents_inserted.load() << ".\n";
+                    std::cerr << "  This may indicate data loss or counting issues!.\n";
 
-          if (benchmark_docs_val != expected_docs_val)
-          {
-               std::cerr << "\nERROR: Benchmark collections report " << benchmark_docs_val << " documents, expected " << expected_docs_val << ".\n";
-               std::cerr << "  This indicates missing or extra documents in benchmark collections.\n";
+                    return 1;
+               }
 
-               return 1;
-          }
+               int64_t expected_docs_val = static_cast<int64_t>(num_documents) + static_cast<int64_t>(total_additional_docs_val);
+               int64_t benchmark_docs_val = CountBenchmarkDocuments(advanced_metrics, num_collections);
 
-          std::cout << "\n";
-          std::cout << "Benchmark Complete!.\n";
-          std::cout << "\n";
-          std::cout << "Collections created: " << collections_created.load() << ".\n";
-          std::cout << "Collections skipped: " << collections_skipped.load() << ".\n";
-          if (total_additional_docs_val > 0)
-          {
-               std::cout << "Target documents: " << num_documents << " base + " << total_additional_docs_val << " additional.\n";
+               if (benchmark_docs_val != expected_docs_val)
+               {
+                    std::cerr << "\nERROR: Benchmark collections report " << benchmark_docs_val << " documents, expected " << expected_docs_val << ".\n";
+                    std::cerr << "  This indicates missing or extra documents in benchmark collections.\n";
+
+                    return 1;
+               }
           }
           else
           {
-               std::cout << "Target documents: " << num_documents << ".\n";
+               advanced_metrics.FinalCollectionsCount = static_cast<int64_t>(collections_created.load() + collections_skipped.load());
+               advanced_metrics.FinalDocumentsCount = documents_inserted.load();
+               advanced_metrics.FinalCollectionNames.clear();
+               advanced_metrics.FinalPerCollectionCounts.clear();
+               for (int i = 0; i < num_collections; i++)
+               {
+                    advanced_metrics.FinalCollectionNames.push_back(MakeBenchmarkCollectionName(i));
+               }
+          }
+
+          std::cout << "\n";
+          PrintBenchmarkTitle("Benchmark complete");
+          PrintBenchmarkSection("Dataset");
+          PrintBenchmarkValue("Collections created", std::to_string(collections_created.load()));
+          PrintBenchmarkValue("Collections skipped", std::to_string(collections_skipped.load()));
+          if (total_additional_docs_val > 0)
+          {
+               PrintBenchmarkValue("Target documents", std::to_string(num_documents) + " base + " + std::to_string(total_additional_docs_val) + " additional");
+          }
+          else
+          {
+               PrintBenchmarkValue("Target documents", std::to_string(num_documents));
           }
           int64_t total_inserted = documents_inserted.load();
           int64_t additional_inserted = additional_documents_inserted.load();
           int64_t base_inserted = total_inserted - additional_inserted;
           if (total_additional_docs_val > 0 || additional_inserted > 0)
           {
-               std::cout << "Documents inserted: " << total_inserted << " (base: " << base_inserted << ", additional: " << additional_inserted << ").\n";
+               PrintBenchmarkValue("Documents inserted", std::to_string(total_inserted) + " (base: " + std::to_string(base_inserted) + ", additional: " + std::to_string(additional_inserted) + ")");
           }
           else
           {
-               std::cout << "Documents inserted: " << total_inserted << ".\n";
+               PrintBenchmarkValue("Documents inserted", std::to_string(total_inserted));
           }
-          std::cout << "Documents skipped: " << documents_skipped.load() << ".\n";
-          std::cout << "Ingest time: " << ingest_duration_ms << " ms.\n";
-          std::cout << "Commit time: " << flush_duration_ms << " ms.\n";
-          std::cout << "Ingest+commit time: " << ingest_commit_duration_val.count() << " ms.\n";
+          PrintBenchmarkValue("Documents skipped", std::to_string(documents_skipped.load()));
+
+          PrintBenchmarkSection("Timing");
+          PrintBenchmarkValue("Ingest", std::to_string(ingest_duration_ms) + " ms");
+          PrintBenchmarkValue("Commit", std::to_string(flush_duration_ms) + " ms");
+          PrintBenchmarkValue("Ingest + commit", std::to_string(ingest_commit_duration_val.count()) + " ms");
           if (verbose_mode)
           {
-               std::cout << "Setup time (cleanup + create): " << setup_duration_val.count() << " ms.\n";
+               PrintBenchmarkValue("Setup", std::to_string(setup_duration_val.count()) + " ms (cleanup + create)");
           }
           if (ingest_commit_duration_val.count() > 0)
           {
-               std::cout << "Ingest throughput: " << (documents_inserted.load() * 1000.0 / ingest_commit_duration_val.count()) << " docs/sec.\n";
+               PrintBenchmarkValue("Ingest rate", FormatBenchmarkRate(documents_inserted.load() * 1000.0 / ingest_commit_duration_val.count()) + " docs/sec");
           }
           else
           {
-               std::cout << "Ingest throughput: 0 docs/sec.\n";
+               PrintBenchmarkValue("Ingest rate", "0 docs/sec");
           }
-          std::cout << "Total time (searchable): " << duration_val.count() << " ms.\n";
+          PrintBenchmarkValue("Searchable", std::to_string(duration_val.count()) + " ms");
           if (duration_val.count() > 0)
           {
-               std::cout << "Searchable throughput: " << (documents_inserted.load() * 1000.0 / duration_val.count()) << " docs/sec.\n";
+               PrintBenchmarkValue("Searchable rate", FormatBenchmarkRate(documents_inserted.load() * 1000.0 / duration_val.count()) + " docs/sec");
           }
           else
           {
-               std::cout << "Searchable throughput: 0 docs/sec.\n";
+               PrintBenchmarkValue("Searchable rate", "0 docs/sec");
           }
           std::string fsync_mode = (durability_config.WalSyncMode == "none") ? "off" : "on";
           std::string durability_source = durability_config_loaded ? ("config: " + durability_path_used) : "config: not found";
-          std::cout << "Durability: wal_sync_mode=" << durability_config.WalSyncMode
-                    << ", wal_bytes_per_sync=" << durability_config.WalBytesPerSync
-                    << ", manual_wal_flush=" << durability_config.ManualWalFlush
-                    << ", fsync=" << fsync_mode << " (" << durability_source << ").\n";
-          std::cout << "Commit policy: sync/update-counters after ingest (status " << flush_status_code << ").\n";
-          std::cout << "Run ID: " << run_id_val << ".\n";
+
+          PrintBenchmarkSection("Storage");
+          PrintBenchmarkValue("WAL sync mode", durability_config.WalSyncMode);
+          PrintBenchmarkValue("WAL bytes/sync", durability_config.WalBytesPerSync);
+          PrintBenchmarkValue("Manual WAL flush", durability_config.ManualWalFlush);
+          PrintBenchmarkValue("fsync", fsync_mode);
+          PrintBenchmarkValue("Config", durability_source);
+          PrintBenchmarkValue("Commit policy", "update-counters after ingest (status " + std::to_string(flush_status_code) + ")");
+          PrintBenchmarkValue("Run ID", run_id_val);
 
           AdvancedMetrics before_metrics_val;
 

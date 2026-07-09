@@ -27,7 +27,9 @@
 #include "core/modules.h"
 #include "api/searchapi.h"
 
-/* Records one module hook failure without assuming logging is always initialized. */
+/* Records one module hook failure
+ * without assuming logging is initialized.
+ */
 
 static void LogModuleDispatchFailure(const RuntimeModule *Module, const char *EventName, const std::string &ErrorMessage)
 {
@@ -43,7 +45,9 @@ static void LogModuleDispatchFailure(const RuntimeModule *Module, const char *Ev
      std::cerr << Message << std::endl;
 }
 
-/* Fallback wrapper used when a module throws a non-standard exception type. */
+/* Handles module dispatch failures
+ * that do not expose a standard exception message.
+ */
 
 static void LogUnknownModuleDispatchFailure(const RuntimeModule *Module, const char *EventName)
 {
@@ -60,7 +64,9 @@ void ModuleManager::LogUnknownDispatchFailure(const RuntimeModule *Module, const
      LogUnknownModuleDispatchFailure(Module, EventName);
 }
 
-/* Appends one candidate path only once after normalizing path syntax. */
+/* Appends one candidate path once
+ * after normalizing its filesystem syntax.
+ */
 
 static void PushUniquePath(std::vector<std::filesystem::path> &Paths, const std::filesystem::path &PathValue)
 {
@@ -77,7 +83,9 @@ static void PushUniquePath(std::vector<std::filesystem::path> &Paths, const std:
      }
 }
 
-/* Normalizes one path and resolves it against the current process directory when needed. */
+/* Normalizes one path and resolves it
+ * against the current process directory when needed.
+ */
 
 static std::filesystem::path MakeAbsolutePath(std::filesystem::path PathValue)
 {
@@ -91,7 +99,9 @@ static std::filesystem::path MakeAbsolutePath(std::filesystem::path PathValue)
      return PathValue;
 }
 
-/* Resolves one relative module path from the active configuration file directory. */
+/* Resolves one relative module path
+ * from the active configuration file directory.
+ */
 
 static std::filesystem::path ResolveRelativeToConfig(const ServerConfig &Config, const std::filesystem::path &RelativePath)
 {
@@ -110,7 +120,9 @@ static bool ModuleRuntimeNameMatchesRequest(const RuntimeModule &Module, const s
      return Module.GetName() == RequestedName;
 }
 
-/* Stores the process-wide demo mode status derived from loaded modules. */
+/* Stores process-wide demo mode state
+ * derived from the loaded module set.
+ */
 
 void ModuleManager::SetDemoModeState(bool Active, const std::string &Message)
 {
@@ -131,7 +143,9 @@ void ModuleManager::SetDemoModeState(bool Active, const std::string &Message)
      }
 }
 
-/* Ensures unload notifications and handle teardown happen during destruction. */
+/* Ensures unload notifications and handle teardown
+ * happen during manager destruction.
+ */
 
 ModuleManager::~ModuleManager()
 {
@@ -159,7 +173,9 @@ bool ModuleManager::IsValidModuleName(const std::string &Name)
      return true;
 }
 
-/* Waits for shared storage before starting any runtime module. */
+/* Waits for shared storage availability
+ * before starting any runtime module.
+ */
 
 bool ModuleManager::LoadModules(const ServerConfig &Config, std::string &ErrorMessage)
 {
@@ -373,7 +389,9 @@ bool ModuleManager::LoadModule(const ServerConfig &Config,
      return true;
 }
 
-/* Finalizes retired modules once no external shared_ptr references remain. */
+/* Finalizes retired modules
+ * once external shared references are gone.
+ */
 
 void ModuleManager::ReapRetiredModules()
 {
@@ -407,7 +425,9 @@ void ModuleManager::ReapRetiredModules()
      }
 }
 
-/* Builds a stable copy of hook subscribers so callbacks can run without holding the registry lock. */
+/* Builds a stable subscriber snapshot
+ * so callbacks can run without holding the registry lock.
+ */
 
 ModuleManager::ModuleSnapshot ModuleManager::GetHookSnapshot(ModuleHook Hook) const
 {

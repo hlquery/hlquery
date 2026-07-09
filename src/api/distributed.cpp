@@ -824,7 +824,7 @@ static bool SendHttpRequest(const std::string &Host,
 
      auto AcquirePoolSlot = [&]() -> PoolAcquireStatus
      {
-          if (!UsePersistentTransport)
+          if (!UsePersistentTransport && !AutoReconnect)
           {
                return PoolAcquireStatus::Busy;
           }
@@ -834,6 +834,19 @@ static bool SendHttpRequest(const std::string &Host,
           if (PoolEntry->InUse)
           {
                return PoolAcquireStatus::Busy;
+          }
+          /*
+           * Failed peer links are only reopened by health probes. Normal
+           * distributed writes/searches must not use a peer that the cluster
+           * currently knows as down, even after the retry timer has elapsed.
+           */
+          if (AutoReconnect && PoolEntry->ConsecutiveFailures > 0 && !IsReadinessProbe)
+          {
+               if (OutError)
+               {
+                    *OutError = "Peer link is down for " + PoolKey + "; waiting for health probe reconnect.";
+               }
+               return PoolAcquireStatus::Backoff;
           }
           if (AutoReconnect && PoolEntry->NextReconnectAt > Now && !IsReadinessProbe)
           {

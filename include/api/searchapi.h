@@ -476,6 +476,10 @@ class SearchAPI
 
      std::vector<SearchHit> ProcessVectorSearch(const std::string& Collection, const ComprehensiveSearchQuery& Query);
 
+     /* ValidateVectorQueryPayload validates vector JSON before execution. */
+
+     bool ValidateVectorQueryPayload(const std::string& Payload, int DefaultTopK, std::string* Error);
+
      /* ProcessHybridSearch merges lexical and vector results. */
 
      std::vector<SearchHit> ProcessHybridSearch(const std::string& Collection, const ComprehensiveSearchQuery& Query);

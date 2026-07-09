@@ -17,6 +17,7 @@
 #include <iostream>
 #include <limits>
 #include <map>
+#include <memory>
 #include <numeric>
 #include <string>
 #include <unordered_map>
@@ -124,6 +125,8 @@ struct ScoreStats
      bool HasValues = false;
 };
 
+static constexpr int MaxVectorRequestLimit = 10000;
+
 static std::string NormalizeLowerCopy(const std::string &Value)
 {
      std::string Lower = Value;
@@ -132,6 +135,37 @@ static std::string NormalizeLowerCopy(const std::string &Value)
                          return static_cast<char>(std::tolower(C));
                     });
      return Lower;
+}
+
+static int ClampVectorRequestLimit(int Value)
+{
+     return std::min(MaxVectorRequestLimit, std::max(1, Value));
+}
+
+static bool TryGetFiniteFloat(const nlohmann::json &Value, float *Out)
+{
+     if (!Out || !Value.is_number())
+     {
+          return false;
+     }
+
+     try
+     {
+          const double Parsed = Value.get<double>();
+          if (!std::isfinite(Parsed) ||
+              Parsed < -static_cast<double>(std::numeric_limits<float>::max()) ||
+              Parsed > static_cast<double>(std::numeric_limits<float>::max()))
+          {
+               return false;
+          }
+
+          *Out = static_cast<float>(Parsed);
+          return std::isfinite(*Out);
+     }
+     catch (...)
+     {
+          return false;
+     }
 }
 
 static ScoreStats CalculateScoreStats(const std::vector<float> &Values)
@@ -194,11 +228,21 @@ static float GetVectorValue(const VectorPayload &Payload, int Index)
      return 0.0f;
 }
 
-static bool ParseVectorPayloadFromJsonValue(const nlohmann::json &Value, VectorPayload *Out)
+static bool SetVectorParseError(std::string *Error, const std::string &Path, const std::string &Message)
+{
+     if (Error && Error->empty())
+     {
+          *Error = Path + ": " + Message;
+     }
+
+     return false;
+}
+
+static bool ParseVectorPayloadFromJsonValue(const nlohmann::json &Value, VectorPayload *Out, std::string *Error = nullptr, const std::string &Path = "vector")
 {
      if (!Out)
      {
-          return false;
+          return SetVectorParseError(Error, Path, "internal parser output is null.");
      }
 
      Out->Reset();
@@ -210,7 +254,7 @@ static bool ParseVectorPayloadFromJsonValue(const nlohmann::json &Value, VectorP
           {
                if (!It.value().is_number())
                {
-                    return false;
+                    return SetVectorParseError(Error, Path + "." + It.key(), "sparse vector value must be a finite number.");
                }
 
                int Index = -1;
@@ -220,27 +264,32 @@ static bool ParseVectorPayloadFromJsonValue(const nlohmann::json &Value, VectorP
                     Index = std::stoi(It.key(), &ParsedCount);
                     if (ParsedCount != It.key().size())
                     {
-                         return false;
+                         return SetVectorParseError(Error, Path + "." + It.key(), "sparse vector index must be an integer.");
                     }
                }
                catch (...)
                {
-                    return false;
+                    return SetVectorParseError(Error, Path + "." + It.key(), "sparse vector index must be an integer.");
                }
 
                if (Index < 0 || Index > 65535)
                {
-                    return false;
+                    return SetVectorParseError(Error, Path + "." + It.key(), "sparse vector index must be between 0 and 65535.");
                }
 
-               float ValueFloat = It.value().get<float>();
+               float ValueFloat = 0.0f;
+               if (!TryGetFiniteFloat(It.value(), &ValueFloat))
+               {
+                    return SetVectorParseError(Error, Path + "." + It.key(), "sparse vector value must be finite and fit in float32.");
+               }
+
                Out->Sparse[Index] = ValueFloat;
                MaxIndex = std::max(MaxIndex, Index);
           }
 
           if (Out->Sparse.empty())
           {
-               return false;
+               return SetVectorParseError(Error, Path, "sparse vector must not be empty.");
           }
 
           Out->MaxSparseIndex = MaxIndex;
@@ -252,25 +301,37 @@ static bool ParseVectorPayloadFromJsonValue(const nlohmann::json &Value, VectorP
           Out->Dense.reserve(Value.size());
           for (const auto &Elem : Value)
           {
+               const std::string ElemPath = Path + "[" + std::to_string(Out->Dense.size()) + "]";
                if (!Elem.is_number())
                {
-                    return false;
+                    return SetVectorParseError(Error, ElemPath, "dense vector value must be a finite number.");
                }
 
-               Out->Dense.push_back(Elem.get<float>());
+               float ValueFloat = 0.0f;
+               if (!TryGetFiniteFloat(Elem, &ValueFloat))
+               {
+                    return SetVectorParseError(Error, ElemPath, "dense vector value must be finite and fit in float32.");
+               }
+
+               Out->Dense.push_back(ValueFloat);
           }
 
-          return !Out->Dense.empty();
+          if (Out->Dense.empty())
+          {
+               return SetVectorParseError(Error, Path, "dense vector must not be empty.");
+          }
+
+          return true;
      }
 
-     return false;
+     return SetVectorParseError(Error, Path, "vector payload must be an array or sparse object.");
 }
 
-static bool ParseSingleVectorQuery(const nlohmann::json &Obj, ParsedVectorQuery *OutQuery)
+static bool ParseSingleVectorQuery(const nlohmann::json &Obj, ParsedVectorQuery *OutQuery, std::string *Error = nullptr, const std::string &Path = "vector_query")
 {
      if (!OutQuery || !Obj.is_object())
      {
-          return false;
+          return SetVectorParseError(Error, Path, "vector query must be an object.");
      }
 
      ParsedVectorQuery Query;
@@ -316,94 +377,102 @@ static bool ParseSingleVectorQuery(const nlohmann::json &Obj, ParsedVectorQuery 
 
      if (Obj.contains("weight") && Obj["weight"].is_number())
      {
-          Query.Weight = Obj["weight"].get<float>();
-          if (Query.Weight <= 0.0f)
+          float Weight = 0.0f;
+          if (TryGetFiniteFloat(Obj["weight"], &Weight) && Weight > 0.0f)
           {
-               Query.Weight = 1.0f;
+               Query.Weight = Weight;
           }
      }
 
      if (Obj.contains("threshold") && Obj["threshold"].is_number())
      {
-          Query.Threshold = Obj["threshold"].get<float>();
+          TryGetFiniteFloat(Obj["threshold"], &Query.Threshold);
      }
      else if (Obj.contains("score_threshold") && Obj["score_threshold"].is_number())
      {
-          Query.Threshold = Obj["score_threshold"].get<float>();
+          TryGetFiniteFloat(Obj["score_threshold"], &Query.Threshold);
      }
      else if (Obj.contains("min_score") && Obj["min_score"].is_number())
      {
-          Query.Threshold = Obj["min_score"].get<float>();
+          TryGetFiniteFloat(Obj["min_score"], &Query.Threshold);
      }
      else if (Obj.contains("scoreThreshold") && Obj["scoreThreshold"].is_number())
      {
-          Query.Threshold = Obj["scoreThreshold"].get<float>();
+          TryGetFiniteFloat(Obj["scoreThreshold"], &Query.Threshold);
      }
 
      if (Obj.contains("radius") && Obj["radius"].is_number())
      {
-          Query.MaxDistance = std::max(0.0f, Obj["radius"].get<float>());
-          Query.HasMaxDistance = true;
+          float Radius = 0.0f;
+          if (TryGetFiniteFloat(Obj["radius"], &Radius))
+          {
+               Query.MaxDistance = std::max(0.0f, Radius);
+               Query.HasMaxDistance = true;
+          }
      }
      else if (Obj.contains("max_distance") && Obj["max_distance"].is_number())
      {
-          Query.MaxDistance = std::max(0.0f, Obj["max_distance"].get<float>());
-          Query.HasMaxDistance = true;
+          float MaxDistance = 0.0f;
+          if (TryGetFiniteFloat(Obj["max_distance"], &MaxDistance))
+          {
+               Query.MaxDistance = std::max(0.0f, MaxDistance);
+               Query.HasMaxDistance = true;
+          }
      }
      else if (Obj.contains("maxDistance") && Obj["maxDistance"].is_number())
      {
-          Query.MaxDistance = std::max(0.0f, Obj["maxDistance"].get<float>());
-          Query.HasMaxDistance = true;
+          float MaxDistance = 0.0f;
+          if (TryGetFiniteFloat(Obj["maxDistance"], &MaxDistance))
+          {
+               Query.MaxDistance = std::max(0.0f, MaxDistance);
+               Query.HasMaxDistance = true;
+          }
      }
 
      if (Obj.contains("range_filter") && Obj["range_filter"].is_number())
      {
-          Query.MinDistance = Obj["range_filter"].get<float>();
-          Query.HasMinDistance = true;
+          Query.HasMinDistance = TryGetFiniteFloat(Obj["range_filter"], &Query.MinDistance);
      }
      else if (Obj.contains("min_distance") && Obj["min_distance"].is_number())
      {
-          Query.MinDistance = Obj["min_distance"].get<float>();
-          Query.HasMinDistance = true;
+          Query.HasMinDistance = TryGetFiniteFloat(Obj["min_distance"], &Query.MinDistance);
      }
      else if (Obj.contains("rangeFilter") && Obj["rangeFilter"].is_number())
      {
-          Query.MinDistance = Obj["rangeFilter"].get<float>();
-          Query.HasMinDistance = true;
+          Query.HasMinDistance = TryGetFiniteFloat(Obj["rangeFilter"], &Query.MinDistance);
      }
      else if (Obj.contains("minDistance") && Obj["minDistance"].is_number())
      {
-          Query.MinDistance = Obj["minDistance"].get<float>();
-          Query.HasMinDistance = true;
+          Query.HasMinDistance = TryGetFiniteFloat(Obj["minDistance"], &Query.MinDistance);
      }
 
      bool HasVector = false;
      if (Obj.contains("vector"))
      {
-          HasVector = ParseVectorPayloadFromJsonValue(Obj["vector"], &Query.Payload);
+          HasVector = ParseVectorPayloadFromJsonValue(Obj["vector"], &Query.Payload, Error, Path + ".vector");
      }
      else if (Obj.contains("vectorQuery"))
      {
-          HasVector = ParseVectorPayloadFromJsonValue(Obj["vectorQuery"], &Query.Payload);
+          HasVector = ParseVectorPayloadFromJsonValue(Obj["vectorQuery"], &Query.Payload, Error, Path + ".vectorQuery");
      }
      else if (Obj.contains("embedding"))
      {
-          HasVector = ParseVectorPayloadFromJsonValue(Obj["embedding"], &Query.Payload);
+          HasVector = ParseVectorPayloadFromJsonValue(Obj["embedding"], &Query.Payload, Error, Path + ".embedding");
      }
 
      if (!HasVector || Query.Payload.Empty())
      {
-          return false;
+          return SetVectorParseError(Error, Path, "vector query must include a valid non-empty vector, vectorQuery, or embedding.");
      }
 
      *OutQuery = std::move(Query);
      return true;
 }
 
-static ParsedVectorRequest ParseVectorRequest(const nlohmann::json &Root, int DefaultTopK)
+static ParsedVectorRequest ParseVectorRequest(const nlohmann::json &Root, int DefaultTopK, std::string *Error = nullptr)
 {
      ParsedVectorRequest Parsed;
-     Parsed.TopK = std::max(1, DefaultTopK);
+     Parsed.TopK = ClampVectorRequestLimit(DefaultTopK);
      bool HasGlobalRadius = false;
      bool HasGlobalRangeFilter = false;
      float GlobalRadius = std::numeric_limits<float>::infinity();
@@ -412,7 +481,7 @@ static ParsedVectorRequest ParseVectorRequest(const nlohmann::json &Root, int De
      if (Root.is_array())
      {
           ParsedVectorQuery Query;
-          if (ParseVectorPayloadFromJsonValue(Root, &Query.Payload))
+          if (ParseVectorPayloadFromJsonValue(Root, &Query.Payload, Error, "vector_query"))
           {
                Parsed.Queries.push_back(std::move(Query));
           }
@@ -433,24 +502,24 @@ static ParsedVectorRequest ParseVectorRequest(const nlohmann::json &Root, int De
 
           if (ParamsObj.contains("hnsw_ef_search") && ParamsObj["hnsw_ef_search"].is_number_integer())
           {
-               Parsed.HnswEfSearch = std::max(1, ParamsObj["hnsw_ef_search"].get<int>());
+               Parsed.HnswEfSearch = ClampVectorRequestLimit(ParamsObj["hnsw_ef_search"].get<int>());
           }
           else if (ParamsObj.contains("ef_search") && ParamsObj["ef_search"].is_number_integer())
           {
-               Parsed.HnswEfSearch = std::max(1, ParamsObj["ef_search"].get<int>());
+               Parsed.HnswEfSearch = ClampVectorRequestLimit(ParamsObj["ef_search"].get<int>());
           }
           else if (ParamsObj.contains("ef") && ParamsObj["ef"].is_number_integer())
           {
-               Parsed.HnswEfSearch = std::max(1, ParamsObj["ef"].get<int>());
+               Parsed.HnswEfSearch = ClampVectorRequestLimit(ParamsObj["ef"].get<int>());
           }
 
           if (ParamsObj.contains("ivf_nprobe") && ParamsObj["ivf_nprobe"].is_number_integer())
           {
-               Parsed.IvfNProbe = std::max(1, ParamsObj["ivf_nprobe"].get<int>());
+               Parsed.IvfNProbe = ClampVectorRequestLimit(ParamsObj["ivf_nprobe"].get<int>());
           }
           else if (ParamsObj.contains("nprobe") && ParamsObj["nprobe"].is_number_integer())
           {
-               Parsed.IvfNProbe = std::max(1, ParamsObj["nprobe"].get<int>());
+               Parsed.IvfNProbe = ClampVectorRequestLimit(ParamsObj["nprobe"].get<int>());
           }
 
           if (ParamsObj.contains("is_linear") && ParamsObj["is_linear"].is_boolean())
@@ -465,68 +534,74 @@ static ParsedVectorRequest ParseVectorRequest(const nlohmann::json &Root, int De
 
           if (ParamsObj.contains("radius") && ParamsObj["radius"].is_number())
           {
-               HasGlobalRadius = true;
-               GlobalRadius = std::max(0.0f, ParamsObj["radius"].get<float>());
+               float Radius = 0.0f;
+               if (TryGetFiniteFloat(ParamsObj["radius"], &Radius))
+               {
+                    HasGlobalRadius = true;
+                    GlobalRadius = std::max(0.0f, Radius);
+               }
           }
           else if (ParamsObj.contains("max_distance") && ParamsObj["max_distance"].is_number())
           {
-               HasGlobalRadius = true;
-               GlobalRadius = std::max(0.0f, ParamsObj["max_distance"].get<float>());
+               float MaxDistance = 0.0f;
+               if (TryGetFiniteFloat(ParamsObj["max_distance"], &MaxDistance))
+               {
+                    HasGlobalRadius = true;
+                    GlobalRadius = std::max(0.0f, MaxDistance);
+               }
           }
 
           if (ParamsObj.contains("range_filter") && ParamsObj["range_filter"].is_number())
           {
-               HasGlobalRangeFilter = true;
-               GlobalRangeFilter = ParamsObj["range_filter"].get<float>();
+               HasGlobalRangeFilter = TryGetFiniteFloat(ParamsObj["range_filter"], &GlobalRangeFilter);
           }
           else if (ParamsObj.contains("min_distance") && ParamsObj["min_distance"].is_number())
           {
-               HasGlobalRangeFilter = true;
-               GlobalRangeFilter = ParamsObj["min_distance"].get<float>();
+               HasGlobalRangeFilter = TryGetFiniteFloat(ParamsObj["min_distance"], &GlobalRangeFilter);
           }
      };
 
      if (Root.contains("topk") && Root["topk"].is_number_integer())
      {
-          Parsed.TopK = std::max(1, Root["topk"].get<int>());
+          Parsed.TopK = ClampVectorRequestLimit(Root["topk"].get<int>());
      }
      else if (Root.contains("topK") && Root["topK"].is_number_integer())
      {
-          Parsed.TopK = std::max(1, Root["topK"].get<int>());
+          Parsed.TopK = ClampVectorRequestLimit(Root["topK"].get<int>());
      }
      else if (Root.contains("top_k") && Root["top_k"].is_number_integer())
      {
-          Parsed.TopK = std::max(1, Root["top_k"].get<int>());
+          Parsed.TopK = ClampVectorRequestLimit(Root["top_k"].get<int>());
      }
      else if (Root.contains("k") && Root["k"].is_number_integer())
      {
-          Parsed.TopK = std::max(1, Root["k"].get<int>());
+          Parsed.TopK = ClampVectorRequestLimit(Root["k"].get<int>());
      }
      else if (Root.contains("limit") && Root["limit"].is_number_integer())
      {
-          Parsed.TopK = std::max(1, Root["limit"].get<int>());
+          Parsed.TopK = ClampVectorRequestLimit(Root["limit"].get<int>());
      }
 
      if (Root.contains("hnsw_ef_search") && Root["hnsw_ef_search"].is_number_integer())
      {
-          Parsed.HnswEfSearch = std::max(1, Root["hnsw_ef_search"].get<int>());
+          Parsed.HnswEfSearch = ClampVectorRequestLimit(Root["hnsw_ef_search"].get<int>());
      }
      else if (Root.contains("ef_search") && Root["ef_search"].is_number_integer())
      {
-          Parsed.HnswEfSearch = std::max(1, Root["ef_search"].get<int>());
+          Parsed.HnswEfSearch = ClampVectorRequestLimit(Root["ef_search"].get<int>());
      }
      else if (Root.contains("ef") && Root["ef"].is_number_integer())
      {
-          Parsed.HnswEfSearch = std::max(1, Root["ef"].get<int>());
+          Parsed.HnswEfSearch = ClampVectorRequestLimit(Root["ef"].get<int>());
      }
 
      if (Root.contains("ivf_nprobe") && Root["ivf_nprobe"].is_number_integer())
      {
-          Parsed.IvfNProbe = std::max(1, Root["ivf_nprobe"].get<int>());
+          Parsed.IvfNProbe = ClampVectorRequestLimit(Root["ivf_nprobe"].get<int>());
      }
      else if (Root.contains("nprobe") && Root["nprobe"].is_number_integer())
      {
-          Parsed.IvfNProbe = std::max(1, Root["nprobe"].get<int>());
+          Parsed.IvfNProbe = ClampVectorRequestLimit(Root["nprobe"].get<int>());
      }
 
      if (Root.contains("is_linear") && Root["is_linear"].is_boolean())
@@ -541,24 +616,30 @@ static ParsedVectorRequest ParseVectorRequest(const nlohmann::json &Root, int De
 
      if (Root.contains("radius") && Root["radius"].is_number())
      {
-          HasGlobalRadius = true;
-          GlobalRadius = std::max(0.0f, Root["radius"].get<float>());
+          float Radius = 0.0f;
+          if (TryGetFiniteFloat(Root["radius"], &Radius))
+          {
+               HasGlobalRadius = true;
+               GlobalRadius = std::max(0.0f, Radius);
+          }
      }
      else if (Root.contains("max_distance") && Root["max_distance"].is_number())
      {
-          HasGlobalRadius = true;
-          GlobalRadius = std::max(0.0f, Root["max_distance"].get<float>());
+          float MaxDistance = 0.0f;
+          if (TryGetFiniteFloat(Root["max_distance"], &MaxDistance))
+          {
+               HasGlobalRadius = true;
+               GlobalRadius = std::max(0.0f, MaxDistance);
+          }
      }
 
      if (Root.contains("range_filter") && Root["range_filter"].is_number())
      {
-          HasGlobalRangeFilter = true;
-          GlobalRangeFilter = Root["range_filter"].get<float>();
+          HasGlobalRangeFilter = TryGetFiniteFloat(Root["range_filter"], &GlobalRangeFilter);
      }
      else if (Root.contains("min_distance") && Root["min_distance"].is_number())
      {
-          HasGlobalRangeFilter = true;
-          GlobalRangeFilter = Root["min_distance"].get<float>();
+          HasGlobalRangeFilter = TryGetFiniteFloat(Root["min_distance"], &GlobalRangeFilter);
      }
 
      if (Root.contains("query_params"))
@@ -589,42 +670,51 @@ static ParsedVectorRequest ParseVectorRequest(const nlohmann::json &Root, int De
                }
                if (Fusion.contains("rrf_k") && Fusion["rrf_k"].is_number_integer())
                {
-                    Parsed.RrfK = std::max(1, Fusion["rrf_k"].get<int>());
+                    Parsed.RrfK = ClampVectorRequestLimit(Fusion["rrf_k"].get<int>());
                }
           }
      }
 
      if (Root.contains("vector_queries") && Root["vector_queries"].is_array())
      {
+          size_t Index = 0;
           for (const auto &Entry : Root["vector_queries"])
           {
                ParsedVectorQuery Query;
-               if (ParseSingleVectorQuery(Entry, &Query))
+               const std::string Path = "vector_queries[" + std::to_string(Index) + "]";
+               if (ParseSingleVectorQuery(Entry, &Query, Error, Path))
                {
                     Parsed.Queries.push_back(std::move(Query));
                }
+               ++Index;
           }
      }
      else if (Root.contains("vectorQueries") && Root["vectorQueries"].is_array())
      {
+          size_t Index = 0;
           for (const auto &Entry : Root["vectorQueries"])
           {
                ParsedVectorQuery Query;
-               if (ParseSingleVectorQuery(Entry, &Query))
+               const std::string Path = "vectorQueries[" + std::to_string(Index) + "]";
+               if (ParseSingleVectorQuery(Entry, &Query, Error, Path))
                {
                     Parsed.Queries.push_back(std::move(Query));
                }
+               ++Index;
           }
      }
      else if (Root.contains("vectors") && Root["vectors"].is_array())
      {
+          size_t Index = 0;
           for (const auto &Entry : Root["vectors"])
           {
                ParsedVectorQuery Query;
-               if (ParseSingleVectorQuery(Entry, &Query))
+               const std::string Path = "vectors[" + std::to_string(Index) + "]";
+               if (ParseSingleVectorQuery(Entry, &Query, Error, Path))
                {
                     Parsed.Queries.push_back(std::move(Query));
                }
+               ++Index;
           }
      }
      else if (Root.contains("vector_query"))
@@ -632,7 +722,7 @@ static ParsedVectorRequest ParseVectorRequest(const nlohmann::json &Root, int De
           if (Root["vector_query"].is_object())
           {
                ParsedVectorQuery Query;
-               if (ParseSingleVectorQuery(Root["vector_query"], &Query))
+               if (ParseSingleVectorQuery(Root["vector_query"], &Query, Error, "vector_query"))
                {
                     Parsed.Queries.push_back(std::move(Query));
                }
@@ -640,7 +730,7 @@ static ParsedVectorRequest ParseVectorRequest(const nlohmann::json &Root, int De
           else if (Root["vector_query"].is_array())
           {
                ParsedVectorQuery Query;
-               if (ParseVectorPayloadFromJsonValue(Root["vector_query"], &Query.Payload))
+               if (ParseVectorPayloadFromJsonValue(Root["vector_query"], &Query.Payload, Error, "vector_query"))
                {
                     Parsed.Queries.push_back(std::move(Query));
                }
@@ -651,7 +741,7 @@ static ParsedVectorRequest ParseVectorRequest(const nlohmann::json &Root, int De
           if (Root["vectorQuery"].is_object())
           {
                ParsedVectorQuery Query;
-               if (ParseSingleVectorQuery(Root["vectorQuery"], &Query))
+               if (ParseSingleVectorQuery(Root["vectorQuery"], &Query, Error, "vectorQuery"))
                {
                     Parsed.Queries.push_back(std::move(Query));
                }
@@ -659,7 +749,7 @@ static ParsedVectorRequest ParseVectorRequest(const nlohmann::json &Root, int De
           else if (Root["vectorQuery"].is_array())
           {
                ParsedVectorQuery Query;
-               if (ParseVectorPayloadFromJsonValue(Root["vectorQuery"], &Query.Payload))
+               if (ParseVectorPayloadFromJsonValue(Root["vectorQuery"], &Query.Payload, Error, "vectorQuery"))
                {
                     Parsed.Queries.push_back(std::move(Query));
                }
@@ -668,7 +758,7 @@ static ParsedVectorRequest ParseVectorRequest(const nlohmann::json &Root, int De
      else
      {
           ParsedVectorQuery Query;
-          if (ParseSingleVectorQuery(Root, &Query))
+          if (ParseSingleVectorQuery(Root, &Query, Error, "vector_query"))
           {
                Parsed.Queries.push_back(std::move(Query));
           }
@@ -692,6 +782,50 @@ static ParsedVectorRequest ParseVectorRequest(const nlohmann::json &Root, int De
      }
 
      return Parsed;
+}
+
+static bool ValidateParsedVectorRequest(const nlohmann::json &Root, int DefaultTopK, std::string *Error)
+{
+     std::string ParseError;
+     ParsedVectorRequest Parsed = ParseVectorRequest(Root, DefaultTopK, &ParseError);
+     if (Parsed.Queries.empty())
+     {
+          if (Error)
+          {
+               *Error = ParseError.empty()
+                            ? "Vector search requires at least one valid non-empty vector query."
+                            : ParseError;
+          }
+          return false;
+     }
+
+     return true;
+}
+
+bool SearchAPI::ValidateVectorQueryPayload(const std::string &Payload, int DefaultTopK, std::string *Error)
+{
+     if (Payload.empty())
+     {
+          if (Error)
+          {
+               *Error = "Vector query payload is empty.";
+          }
+          return false;
+     }
+
+     try
+     {
+          nlohmann::json Root = nlohmann::json::parse(Payload);
+          return ValidateParsedVectorRequest(Root, DefaultTopK, Error);
+     }
+     catch (...)
+     {
+          if (Error)
+          {
+               *Error = "Vector query payload must be valid JSON.";
+          }
+          return false;
+     }
 }
 
 static float NormalizeScore(float RawValue, const ScoreStats &StatsObj, const std::string &Method, bool Enabled)
@@ -858,6 +992,31 @@ static void VisitVectorDimensions(const VectorPayload &Query,
      }
 }
 
+static bool AreVectorDimensionsCompatible(const VectorPayload &Query, const VectorPayload &Doc)
+{
+     if (Query.Empty() || Doc.Empty())
+     {
+          return false;
+     }
+
+     if (!Query.Dense.empty() && !Doc.Dense.empty())
+     {
+          return Query.Dense.size() == Doc.Dense.size();
+     }
+
+     if (!Query.Dense.empty())
+     {
+          return Doc.MaxSparseIndex >= 0 && Doc.MaxSparseIndex < static_cast<int>(Query.Dense.size());
+     }
+
+     if (!Doc.Dense.empty())
+     {
+          return Query.MaxSparseIndex >= 0 && Query.MaxSparseIndex < static_cast<int>(Doc.Dense.size());
+     }
+
+     return true;
+}
+
 static float ComputeDotProduct(const VectorPayload &QueryVector, const VectorPayload &DocVector)
 {
      float Sum = 0.0f;
@@ -1017,6 +1176,15 @@ HttpResponse SearchAPI::HandleVectorSearch(const HttpRequest &Request)
 
           SearchQueryObj.VectorQueryStr = JsonBodyObj.dump();
 
+          std::string VectorValidationError;
+          if (!ValidateParsedVectorRequest(JsonBodyObj, SearchQueryObj.PerPage, &VectorValidationError))
+          {
+               return BuildErrorResponse(Status::BAD_REQUEST,
+                                         Code::SEARCH_INVALID_PARAMETER,
+                                         "Invalid vector query.",
+                                         VectorValidationError);
+          }
+
           if (JsonBodyObj.is_object())
           {
                if (JsonBodyObj.contains("q") && JsonBodyObj["q"].is_string())
@@ -1061,28 +1229,28 @@ HttpResponse SearchAPI::HandleVectorSearch(const HttpRequest &Request)
 
                if (JsonBodyObj.contains("topk") && JsonBodyObj["topk"].is_number_integer())
                {
-                    SearchQueryObj.PerPage = std::max(1, JsonBodyObj["topk"].get<int>());
+                    SearchQueryObj.PerPage = ClampVectorRequestLimit(JsonBodyObj["topk"].get<int>());
                }
                else if (JsonBodyObj.contains("topK") && JsonBodyObj["topK"].is_number_integer())
                {
-                    SearchQueryObj.PerPage = std::max(1, JsonBodyObj["topK"].get<int>());
+                    SearchQueryObj.PerPage = ClampVectorRequestLimit(JsonBodyObj["topK"].get<int>());
                }
                else if (JsonBodyObj.contains("top_k") && JsonBodyObj["top_k"].is_number_integer())
                {
-                    SearchQueryObj.PerPage = std::max(1, JsonBodyObj["top_k"].get<int>());
+                    SearchQueryObj.PerPage = ClampVectorRequestLimit(JsonBodyObj["top_k"].get<int>());
                }
                else if (JsonBodyObj.contains("k") && JsonBodyObj["k"].is_number_integer())
                {
-                    SearchQueryObj.PerPage = std::max(1, JsonBodyObj["k"].get<int>());
+                    SearchQueryObj.PerPage = ClampVectorRequestLimit(JsonBodyObj["k"].get<int>());
                }
                else if (JsonBodyObj.contains("limit") && JsonBodyObj["limit"].is_number_integer())
                {
-                    SearchQueryObj.PerPage = std::max(1, JsonBodyObj["limit"].get<int>());
+                    SearchQueryObj.PerPage = ClampVectorRequestLimit(JsonBodyObj["limit"].get<int>());
                }
 
-               if (JsonBodyObj.contains("per_page"))
+               if (JsonBodyObj.contains("per_page") && JsonBodyObj["per_page"].is_number_integer())
                {
-                    SearchQueryObj.PerPage = std::max(1, JsonBodyObj["per_page"].get<int>());
+                    SearchQueryObj.PerPage = ClampVectorRequestLimit(JsonBodyObj["per_page"].get<int>());
                }
 
                if (JsonBodyObj.contains("offset") && JsonBodyObj["offset"].is_number_integer())
@@ -1091,14 +1259,21 @@ HttpResponse SearchAPI::HandleVectorSearch(const HttpRequest &Request)
                     SearchQueryObj.Page = (Offset / std::max(1, SearchQueryObj.PerPage)) + 1;
                }
 
-               if (JsonBodyObj.contains("page"))
+               if (JsonBodyObj.contains("page") && JsonBodyObj["page"].is_number_integer())
                {
-                    SearchQueryObj.Page = JsonBodyObj["page"].get<int>();
+                    SearchQueryObj.Page = std::max(1, JsonBodyObj["page"].get<int>());
                }
 
-               if (JsonBodyObj.contains("filter_by"))
+               if (JsonBodyObj.contains("filter_by") && JsonBodyObj["filter_by"].is_string())
                {
                     SearchQueryObj.FilterBy = JsonBodyObj["filter_by"].get<std::string>();
+               }
+               else if (JsonBodyObj.contains("filter_by"))
+               {
+                    return BuildErrorResponse(Status::BAD_REQUEST,
+                                              Code::SEARCH_INVALID_PARAMETER,
+                                              "Invalid search parameter.",
+                                              "filter_by must be a string.");
                }
                else if (JsonBodyObj.contains("filterBy") && JsonBodyObj["filterBy"].is_string())
                {
@@ -1159,11 +1334,19 @@ HttpResponse SearchAPI::HandleVectorSearch(const HttpRequest &Request)
 
                if (JsonBodyObj.contains("hybrid_alpha") && JsonBodyObj["hybrid_alpha"].is_number())
                {
-                    SearchQueryObj.HybridAlpha = std::max(0.0f, std::min(1.0f, JsonBodyObj["hybrid_alpha"].get<float>()));
+                    float HybridAlpha = 0.0f;
+                    if (TryGetFiniteFloat(JsonBodyObj["hybrid_alpha"], &HybridAlpha))
+                    {
+                         SearchQueryObj.HybridAlpha = std::max(0.0f, std::min(1.0f, HybridAlpha));
+                    }
                }
                else if (JsonBodyObj.contains("hybridAlpha") && JsonBodyObj["hybridAlpha"].is_number())
                {
-                    SearchQueryObj.HybridAlpha = std::max(0.0f, std::min(1.0f, JsonBodyObj["hybridAlpha"].get<float>()));
+                    float HybridAlpha = 0.0f;
+                    if (TryGetFiniteFloat(JsonBodyObj["hybridAlpha"], &HybridAlpha))
+                    {
+                         SearchQueryObj.HybridAlpha = std::max(0.0f, std::min(1.0f, HybridAlpha));
+                    }
                }
 
                if (JsonBodyObj.contains("output_fields"))
@@ -1392,7 +1575,11 @@ float SearchAPI::CalculateVectorSimilarity(const Document &Doc, const VectorQuer
           {
                for (const auto &Val : EmbeddingJSON)
                {
-                    float FVal = Val.get<float>();
+                    float FVal = 0.0f;
+                    if (!TryGetFiniteFloat(Val, &FVal))
+                    {
+                         return 0.0f;
+                    }
 
                     DocVector.push_back(FVal);
                }
@@ -1414,6 +1601,11 @@ float SearchAPI::CalculateVectorSimilarity(const Document &Doc, const VectorQuer
 
      for (size_t I = 0; I < DocVector.size(); ++I)
      {
+          if (!std::isfinite(VectorQueryVal.Vector[I]) || !std::isfinite(DocVector[I]))
+          {
+               return 0.0f;
+          }
+
           DotProduct += VectorQueryVal.Vector[I] * DocVector[I];
           QueryNormSq += VectorQueryVal.Vector[I] * VectorQueryVal.Vector[I];
           DocNormSq += DocVector[I] * DocVector[I];
@@ -1428,6 +1620,51 @@ float SearchAPI::CalculateVectorSimilarity(const Document &Doc, const VectorQuer
      }
 
      return DotProduct / (QueryNorm * DocNorm);
+}
+
+class VectorIndex
+{
+  public:
+     virtual ~VectorIndex() = default;
+     virtual std::vector<Document> LoadCandidates(const std::string &Collection,
+                                                  const ParsedVectorRequest &Request,
+                                                  int CandidateLimit) = 0;
+     virtual const char *Name() const = 0;
+};
+
+class BruteForceVectorIndex : public VectorIndex
+{
+  public:
+     std::vector<Document> LoadCandidates(const std::string &Collection,
+                                          const ParsedVectorRequest &,
+                                          int CandidateLimit) override
+     {
+          size_t CollectionDocCount = HybridStorageManager::GetInstance().GetCollectionDocumentCount(Collection);
+          int DocumentScanLimit = CandidateLimit;
+
+          /*
+           * There is no ANN/vector index backing this path yet, so restricting the
+           * candidate set by storage order can silently miss the nearest neighbors.
+           * For correctness, score the full collection.
+           */
+          if (CollectionDocCount > 0)
+          {
+               const size_t MaxListLimit = static_cast<size_t>(std::numeric_limits<int>::max());
+               DocumentScanLimit = static_cast<int>(std::min(CollectionDocCount, MaxListLimit));
+          }
+
+          return HybridStorageManager::GetInstance().ListDocuments(Collection, DocumentScanLimit);
+     }
+
+     const char *Name() const override
+     {
+          return "brute_force";
+     }
+};
+
+static std::unique_ptr<VectorIndex> CreateVectorIndex(const ParsedVectorRequest &)
+{
+     return std::make_unique<BruteForceVectorIndex>();
 }
 
 /* ProcessVectorSearch performs a vector-based similarity search. */
@@ -1469,9 +1706,13 @@ std::vector<SearchHit> SearchAPI::ProcessVectorSearch(const std::string &Collect
           return Hits;
      }
 
-     int RequestedTopK = std::max(Query.PerPage, ParsedRequest.TopK);
+     int RequestedTopK = ClampVectorRequestLimit(std::max(Query.PerPage, ParsedRequest.TopK));
      CandidateLimit = std::max(CandidateLimit, RequestedTopK);
-     CandidateLimit = std::max(CandidateLimit, static_cast<int>(ParsedRequest.Queries.size() * RequestedTopK));
+     const long long QueryCount = static_cast<long long>(ParsedRequest.Queries.size());
+     const long long RequestedCandidates = std::min<long long>(
+          static_cast<long long>(MaxVectorRequestLimit),
+          QueryCount * static_cast<long long>(RequestedTopK));
+     CandidateLimit = std::max(CandidateLimit, static_cast<int>(RequestedCandidates));
 
      if (ParsedRequest.HnswEfSearch > 0)
      {
@@ -1480,29 +1721,22 @@ std::vector<SearchHit> SearchAPI::ProcessVectorSearch(const std::string &Collect
 
      if (ParsedRequest.IvfNProbe > 0)
      {
-          CandidateLimit = std::max(CandidateLimit, ParsedRequest.IvfNProbe * RequestedTopK);
+          const long long IvfCandidates = std::min<long long>(
+               static_cast<long long>(MaxVectorRequestLimit),
+               static_cast<long long>(ParsedRequest.IvfNProbe) * static_cast<long long>(RequestedTopK));
+          CandidateLimit = std::max(CandidateLimit, static_cast<int>(IvfCandidates));
      }
 
      if (ParsedRequest.IsUsingRefiner)
      {
-          CandidateLimit = std::max(CandidateLimit, RequestedTopK * 4);
+          const long long RefinerCandidates = std::min<long long>(
+               static_cast<long long>(MaxVectorRequestLimit),
+               static_cast<long long>(RequestedTopK) * 4LL);
+          CandidateLimit = std::max(CandidateLimit, static_cast<int>(RefinerCandidates));
      }
 
-     /*
-           * There is no ANN/vector index backing this path yet, so restricting the
-           * candidate set by storage order can silently miss the nearest neighbors.
-           * For correctness, score the full collection.
-           */
-     size_t CollectionDocCount = HybridStorageManager::GetInstance().GetCollectionDocumentCount(Collection);
-     int DocumentScanLimit = CandidateLimit;
-
-     if (CollectionDocCount > 0)
-     {
-          const size_t MaxListLimit = static_cast<size_t>(std::numeric_limits<int>::max());
-          DocumentScanLimit = static_cast<int>(std::min(CollectionDocCount, MaxListLimit));
-     }
-
-     std::vector<Document> AllDocuments = HybridStorageManager::GetInstance().ListDocuments(Collection, DocumentScanLimit);
+     std::unique_ptr<VectorIndex> Index = CreateVectorIndex(ParsedRequest);
+     std::vector<Document> AllDocuments = Index->LoadCandidates(Collection, ParsedRequest, CandidateLimit);
 
      std::unordered_map<std::string, Document> DocByID;
      std::vector<std::unordered_map<std::string, float>> QueryScores(ParsedRequest.Queries.size());
@@ -1561,6 +1795,11 @@ std::vector<SearchHit> SearchAPI::ProcessVectorSearch(const std::string &Collect
                if (QueryObj.Normalize)
                {
                     NormalizeVectorPayload(&DocVector);
+               }
+
+               if (!AreVectorDimensionsCompatible(PreparedQueryVectors[QI], DocVector))
+               {
+                    continue;
                }
 
                float Distance = ComputeDistanceByMetric(PreparedQueryVectors[QI], DocVector, QueryObj.Metric);

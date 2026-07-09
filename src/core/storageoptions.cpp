@@ -17,7 +17,9 @@
 #include "core/hlquery.h"
 #include "runtime/serverconfig.h"
 
-/* Loads RocksDB configuration options from the provided config reader instance */
+/* Loads RocksDB configuration options
+ * from the provided config reader instance.
+ */
 
 RocksDBOptions RocksDBOptions::LoadFromConfigReader(const ConfigReader &ReaderInstance)
 {
@@ -33,16 +35,22 @@ RocksDBOptions RocksDBOptions::LoadFromConfigReader(const ConfigReader &ReaderIn
 
      if (!RocksDBSettingsTag)
      {
-          /* No specific RocksDB configuration found; returning default options */
+          /* No RocksDB configuration tag was found.
+           * Keep the compiled default options.
+           */
 
           return OptionsResult;
      }
 
-     /* Configure directory paths for data persistence */
+     /* Configure the directory path
+      * used for database persistence.
+      */
 
      OptionsResult.DataDir = RocksDBSettingsTag->GetString("data_dir", OptionsResult.DataDir);
 
-     /* Configure write buffer and merging parameters */
+     /* Configure write buffer sizing
+      * and memtable merge behavior.
+      */
 
      OptionsResult.WriteBufferSize = RocksDBSettingsTag->GetSize("write_buffer_size", OptionsResult.WriteBufferSize);
 
@@ -50,7 +58,9 @@ RocksDBOptions RocksDBOptions::LoadFromConfigReader(const ConfigReader &ReaderIn
 
      OptionsResult.MinWriteBufferNumberToMerge = RocksDBSettingsTag->GetInt("min_write_buffer_number_to_merge", OptionsResult.MinWriteBufferNumberToMerge);
 
-     /* Configure background job threading, respecting global process limits */
+     /* Configure RocksDB background workers
+      * while respecting process thread limits.
+      */
 
      auto ParseRocksThreads = [&](const std::string &AttributeName, int DefaultVal) -> int
      {
@@ -85,7 +95,9 @@ RocksDBOptions RocksDBOptions::LoadFromConfigReader(const ConfigReader &ReaderIn
           ConfiguredMaxBackgroundCompactions = DefaultOptions.MaxBackgroundCompactions;
      }
 
-     /* Retrieve the global thread limit to perform automated resource scaling */
+     /* Retrieve the global thread limit
+      * used for automatic resource scaling.
+      */
 
      int GlobalMaxThreadsValue = 0;
 
@@ -94,7 +106,9 @@ RocksDBOptions RocksDBOptions::LoadFromConfigReader(const ConfigReader &ReaderIn
           GlobalMaxThreadsValue = Instance->Config->GetMaxThreads();
      }
 
-     /* Resolve 'max' placeholder values into actual thread counts */
+     /* Resolve max placeholder values
+      * into concrete RocksDB worker counts.
+      */
 
      if (GlobalMaxThreadsValue > 0)
      {
@@ -126,7 +140,9 @@ RocksDBOptions RocksDBOptions::LoadFromConfigReader(const ConfigReader &ReaderIn
                ConfiguredMaxBackgroundJobs - ConfiguredMaxBackgroundCompactions);
      }
 
-     /* Apply the validated background job configuration */
+     /* Apply the validated background job counts
+      * after limit and fallback handling.
+      */
 
      OptionsResult.MaxBackgroundJobs = ConfiguredMaxBackgroundJobs;
 
@@ -134,7 +150,9 @@ RocksDBOptions RocksDBOptions::LoadFromConfigReader(const ConfigReader &ReaderIn
 
      OptionsResult.MaxBackgroundCompactions = ConfiguredMaxBackgroundCompactions;
 
-     /* Configure level-based storage and compaction triggers */
+     /* Configure level-based storage
+      * and compaction trigger thresholds.
+      */
 
      OptionsResult.TargetFileSizeBase = RocksDBSettingsTag->GetSize("target_file_size_base", OptionsResult.TargetFileSizeBase);
 
@@ -146,7 +164,9 @@ RocksDBOptions RocksDBOptions::LoadFromConfigReader(const ConfigReader &ReaderIn
 
      OptionsResult.Level0StopWritesTrigger = RocksDBSettingsTag->GetInt("level0_stop_writes_trigger", OptionsResult.Level0StopWritesTrigger);
 
-     /* Configure data compression algorithms */
+     /* Configure the compression algorithm
+      * used for stored RocksDB data.
+      */
 
      std::string CompressionTypeStr = RocksDBSettingsTag->GetString("compression", OptionsResult.Compression);
 

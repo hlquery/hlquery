@@ -250,6 +250,7 @@ class APIKeyManager
      std::unordered_map<std::string, APIKey> Keys;
      std::unordered_map<std::string, std::string> HashToID; /* Hash -> ID lookup. */
      std::shared_mutex MutexValue;
+     std::mutex PersistenceMutex;
 
      /* Rate limiting tracking. */
 
@@ -269,4 +270,6 @@ class APIKeyManager
      /* Hash key for storage. */
 
      std::string HashKey(const std::string& Key);
+
+     bool SaveKeySnapshotToEncryptedFile(const std::string& FilePath, const std::vector<APIKey>& Snapshot);
 };

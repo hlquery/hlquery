@@ -2418,16 +2418,9 @@ HTTPResponse BenchmarkClient::UpdateCounters(const std::string &prefix)
 
 /* Triggers a flush and sync on the server. */
 
-HTTPResponse BenchmarkClient::FlushSync()
+HTTPResponse BenchmarkClient::FlushSync(const std::string &prefix)
 {
-     HTTPResponse response = MakeRequest("POST", "/sync");
-
-     if (response.StatusCode == 200 || response.StatusCode == 201)
-     {
-          return response;
-     }
-
-     return UpdateCounters("");
+     return UpdateCounters(prefix);
 }
 
 /* Encodes a string for use in a URL. */
