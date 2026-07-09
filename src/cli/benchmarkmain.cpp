@@ -157,6 +157,22 @@ struct PersonBenchmarkSeed
      std::string Biography;
 };
 
+struct AnomalyBenchmarkSeed
+{
+     std::string Id;
+     std::string Title;
+     std::string Content;
+     std::string Category;
+     std::string Summary;
+     std::string Source;
+     std::string Service;
+     std::string Region;
+     std::string ExpectedPattern;
+     std::string ObservedSignal;
+     std::string Severity;
+     std::string ExpectedLabel;
+};
+
 struct FakeSynonymSeed
 {
      std::string Root;
@@ -689,6 +705,99 @@ static std::string MakeMeaningfulDocId(const std::string &collection,
      }
 }
 
+static std::vector<nlohmann::json> BuildAnomalyBenchmarkDocuments()
+{
+     const std::vector<std::string> regions = {"us-east", "us-west", "eu-central", "sa-south"};
+     const std::vector<std::string> services = {"payments", "auth", "search", "billing", "ingest"};
+     std::vector<nlohmann::json> docs;
+     docs.reserve(100);
+
+     for (size_t i = 1; i <= 88; ++i)
+     {
+          const std::string &service = services[(i - 1U) % services.size()];
+          const std::string &region = regions[(i - 1U) % regions.size()];
+          const int latency = 110 + static_cast<int>((i * 7U) % 45U);
+          const double error_rate = 0.2 + static_cast<double>((i * 3U) % 9U) / 10.0;
+          const int requests = 930 + static_cast<int>((i * 17U) % 160U);
+          const std::string padded = std::string(i < 10 ? "00" : (i < 100 ? "0" : "")) + std::to_string(i);
+
+          std::ostringstream content;
+          content << service << " in " << region << " handled " << requests
+                  << " requests with p95 latency " << latency << " ms, error rate "
+                  << std::fixed << std::setprecision(1) << error_rate
+                  << " percent, stable retry volume, and normal customer behavior.";
+
+          std::ostringstream observed;
+          observed << "latency=" << latency << "ms error_rate=" << std::fixed << std::setprecision(1)
+                   << error_rate << "% requests=" << requests;
+
+          nlohmann::json doc;
+          doc["id"] = "anom_normal_" + padded;
+          doc["document_id"] = doc["id"];
+          doc["title"] = "Routine " + service + " telemetry window " + padded;
+          doc["content"] = content.str();
+          doc["description"] = "Baseline operational record with expected values";
+          doc["labels"] = "[\"normal\",\"telemetry\",\"baseline\"]";
+          doc["embedding"] = BuildFakeBenchmarkEmbedding("anomalies", service, i);
+          doc["location"] = BuildFakeBenchmarkLocation("technology", i);
+          doc["location_name"] = "Synthetic anomaly benchmark operations";
+          doc["category"] = "telemetry";
+          doc["summary"] = "Baseline operational record with expected values";
+          doc["source"] = "internal_observability";
+          doc["service"] = service;
+          doc["region"] = region;
+          doc["expected_pattern"] = "p95 latency 100-170 ms, error rate below 1.5 percent, requests near daily baseline";
+          doc["observed_signal"] = observed.str();
+          doc["severity"] = "normal";
+          doc["expected_label"] = "normal";
+          doc["timestamp"] = static_cast<int64_t>(1777495000000LL + static_cast<int64_t>(i * 60000U));
+          docs.push_back(std::move(doc));
+     }
+
+     const std::vector<AnomalyBenchmarkSeed> outliers = {
+          {"anom_outlier_001", "Payments success spike with revenue drop", "Payments reported 99.9 percent authorization success while captured revenue dropped 74 percent in the same window. The metrics conflict and suggest silent settlement failure.", "business_metric", "Success rate and revenue moved in opposite directions", "internal_finance", "payments", "us-east", "authorization success and captured revenue usually move together", "auth_success=99.9% revenue_delta=-74%", "critical", "anomaly"},
+          {"anom_outlier_002", "Auth login volume at impossible hour", "Auth saw 48200 successful logins from dormant accounts between 03:00 and 03:05 local time, but normal traffic for that segment is under 140 logins per five minutes.", "security", "Dormant accounts logged in far above baseline", "internal_security", "auth", "eu-central", "dormant account traffic under 140 logins per five minutes", "48200 logins in five minutes", "critical", "anomaly"},
+          {"anom_outlier_003", "Search latency normal but timeout complaints surge", "Search telemetry showed p95 latency of 132 ms, but support tickets mention timeouts, blank pages, and stalled results across mobile clients after a CDN rule change.", "user_experience", "Server latency looks healthy while users report failures", "support_and_observability", "search", "us-west", "low p95 latency should align with low timeout complaints", "p95=132ms complaints=surging mobile timeout reports", "high", "anomaly"},
+          {"anom_outlier_004", "Billing refunds exceed completed purchases", "Billing completed 912 purchases but generated 1844 refunds in the same six-hour window. Refund count should not exceed completed purchases without a backlog event.", "business_metric", "Refund count is greater than purchase count", "internal_finance", "billing", "sa-south", "refunds remain below same-window purchases unless backlog replay is declared", "purchases=912 refunds=1844 backlog_event=false", "high", "anomaly"},
+          {"anom_outlier_005", "Ingest queue drained while disk usage climbed", "Ingest reports the queue drained to zero, yet disk usage climbed from 61 percent to 96 percent and no compaction job was running.", "infrastructure", "Queue state and disk pressure conflict", "internal_observability", "ingest", "us-east", "empty ingest queue should reduce temporary disk pressure", "queue=0 disk=96% compaction=none", "high", "anomaly"},
+          {"anom_outlier_006", "Brave result conflicts with local incident status", "Local status says the public API is fully operational, but a simulated Brave web result reports a same-hour outage notice and customer reports from multiple regions.", "external_signal", "External web evidence contradicts local status", "brave_crawl_simulated", "public_api", "global", "external reports should agree with local incident status", "local_status=operational external_reports=outage", "medium", "anomaly"},
+          {"anom_outlier_007", "Release claims rollback while version advanced", "The release note says version 4.8.2 was rolled back, but production headers report 4.8.3 on 87 percent of requests five minutes later.", "deployment", "Rollback claim does not match observed version headers", "release_monitor", "gateway", "us-west", "rollback should reduce or remove newer version traffic", "rollback_claim=4.8.2 production_version=4.8.3 traffic_share=87%", "medium", "anomaly"},
+          {"anom_outlier_008", "Inventory sold negative units", "The catalog shows minus 37 units sold for a product that also reports 22 fulfilled shipments. Sales cannot be negative when shipments are positive.", "data_quality", "Negative sales with positive shipments", "warehouse_sync", "catalog", "eu-central", "sold units are zero or positive and align with fulfilled shipments", "sold_units=-37 fulfilled_shipments=22", "high", "anomaly"},
+          {"anom_outlier_009", "Cache hit rate perfect during origin outage", "Cache metrics show 100 percent hit rate while origin errors are 52 percent and cache misses are still being counted. These values cannot all be true.", "telemetry", "Cache and origin metrics are mutually inconsistent", "internal_observability", "cdn", "global", "perfect cache hit rate should not coexist with counted misses and origin error traffic", "cache_hit=100% origin_errors=52% misses=counted", "high", "anomaly"},
+          {"anom_outlier_010", "Fraud model confidence inverted", "The fraud model approved every transaction with risk score above 0.98 and rejected low-risk purchases below 0.05 after a feature flag change.", "ml_monitoring", "Decision direction appears inverted", "model_monitor", "risk", "us-east", "high risk scores should face stricter review than low risk scores", "approved_high_risk=true rejected_low_risk=true", "critical", "anomaly"},
+          {"anom_outlier_011", "Temperature sensor reports below physical site minimum", "A datacenter rack sensor reported -54 C while adjacent sensors stayed between 21 C and 24 C and no cooling alert fired.", "iot", "Single sensor value is physically implausible", "facility_telemetry", "datacenter", "sa-south", "rack temperature should remain near adjacent sensors unless a cooling incident is active", "rack_temp=-54C adjacent=21-24C cooling_alert=false", "medium", "anomaly"},
+          {"anom_outlier_012", "API token used before it was created", "Audit logs show token T-481 used at 10:14:03, but the key creation event is recorded at 10:18:44 with the same issuer.", "security", "Usage timestamp predates creation timestamp", "audit_log", "identity", "global", "token usage must occur after token creation", "used_at=10:14:03 created_at=10:18:44", "critical", "anomaly"},
+     };
+
+     for (size_t i = 0; i < outliers.size(); ++i)
+     {
+          const auto &seed = outliers[i];
+          nlohmann::json doc;
+          doc["id"] = seed.Id;
+          doc["document_id"] = seed.Id;
+          doc["title"] = seed.Title;
+          doc["content"] = seed.Content;
+          doc["description"] = seed.Summary;
+          doc["labels"] = "[\"anomaly\",\"outlier\",\"" + seed.Category + "\"]";
+          doc["embedding"] = BuildFakeBenchmarkEmbedding("anomalies", seed.Service, 88U + i);
+          doc["location"] = BuildFakeBenchmarkLocation("technology", 88U + i);
+          doc["location_name"] = "Synthetic anomaly benchmark operations";
+          doc["category"] = seed.Category;
+          doc["summary"] = seed.Summary;
+          doc["source"] = seed.Source;
+          doc["service"] = seed.Service;
+          doc["region"] = seed.Region;
+          doc["expected_pattern"] = seed.ExpectedPattern;
+          doc["observed_signal"] = seed.ObservedSignal;
+          doc["severity"] = seed.Severity;
+          doc["expected_label"] = seed.ExpectedLabel;
+          doc["timestamp"] = static_cast<int64_t>(1777501000000LL + static_cast<int64_t>((i + 1U) * 60000U));
+          docs.push_back(std::move(doc));
+     }
+
+     return docs;
+}
+
 static std::string BuildBenchmarkDescription(const std::string &collection,
                                              const std::string &tag,
                                              const std::string &content)
@@ -1171,7 +1280,8 @@ bool CreateFakeCollections(const std::string &base_url, const std::string &auth_
           {"technology", {"software", "hardware", "ai", "network", "security", "startup", "gadget", "cloud", "robotics", "mobile"}},
           {"math", {"algebra", "geometry", "calculus", "probability", "prime", "matrix", "vector", "theorem", "equation", "integral"}},
           {"stocks", {"spy", "qqq", "dia", "iwm", "tlt", "gld", "uso", "aapl", "msft", "nvda"}},
-          {"universities", {"california", "michigan", "ohio", "texas", "washington", "florida", "illinois", "georgia", "pennsylvania", "massachusetts"}}};
+          {"universities", {"california", "michigan", "ohio", "texas", "washington", "florida", "illinois", "georgia", "pennsylvania", "massachusetts"}},
+          {"anomalies", {"telemetry", "security", "business", "external", "brave", "rollback", "fraud", "audit", "outlier", "baseline"}}};
 
      BenchmarkClient client(base_url, auth_token, reuse_collections);
      std::vector<std::string> inserted_fake_collections;
@@ -1279,6 +1389,21 @@ bool CreateFakeCollections(const std::string &base_url, const std::string &auth_
                stock_fields.push_back({{"name", "source"}, {"type", "string"}});
                collection_created = client.CreateCollectionWithSchemaLocal(collection_name, stock_fields, "");
           }
+          else if (spec.Name == "anomalies")
+          {
+               nlohmann::json anomaly_fields = nlohmann::json::array();
+               AddFakeBenchmarkSearchFields(anomaly_fields);
+               anomaly_fields.push_back({{"name", "category"}, {"type", "string"}});
+               anomaly_fields.push_back({{"name", "summary"}, {"type", "string"}});
+               anomaly_fields.push_back({{"name", "source"}, {"type", "string"}});
+               anomaly_fields.push_back({{"name", "service"}, {"type", "string"}});
+               anomaly_fields.push_back({{"name", "region"}, {"type", "string"}});
+               anomaly_fields.push_back({{"name", "expected_pattern"}, {"type", "string"}});
+               anomaly_fields.push_back({{"name", "observed_signal"}, {"type", "string"}});
+               anomaly_fields.push_back({{"name", "severity"}, {"type", "string"}});
+               anomaly_fields.push_back({{"name", "expected_label"}, {"type", "string"}});
+               collection_created = client.CreateCollectionWithSchemaLocal(collection_name, anomaly_fields, "");
+          }
           else
           {
                nlohmann::json fake_fields = nlohmann::json::array();
@@ -1297,7 +1422,7 @@ bool CreateFakeCollections(const std::string &base_url, const std::string &auth_
                LogOutput("  ↳ Collection '" + collection_name + "' is ready; importing fake documents...\n");
           }
 
-          const size_t docs_to_create = spec.Name == "universities" ? GetUniversityBenchmarkSeeds().size() : (spec.Name == "people" ? 100U : 10U);
+          const size_t docs_to_create = spec.Name == "universities" ? GetUniversityBenchmarkSeeds().size() : ((spec.Name == "people" || spec.Name == "anomalies") ? 100U : 10U);
           std::vector<std::tuple<std::string, std::string, std::string>> docs;
           docs.reserve(docs_to_create);
           std::vector<nlohmann::json> enriched_docs;
@@ -1573,64 +1698,77 @@ bool CreateFakeCollections(const std::string &base_url, const std::string &auth_
                return Pick(generic_intros) + " Document index: " + std::to_string(index + 1) + ".";
           };
 
-          for (size_t i = 0; i < docs_to_create; i++)
+          if (spec.Name == "anomalies")
           {
-               const std::string &tag = spec.Tags[i % spec.Tags.size()];
-               std::string title;
-               std::string content;
-               auto SeedIt = RealSeeds.find(spec.Name);
-               if (spec.Name == "universities" && i < GetUniversityBenchmarkSeeds().size())
+               enriched_docs = BuildAnomalyBenchmarkDocuments();
+               for (const auto &doc : enriched_docs)
                {
-                    const UniversityBenchmarkSeed &university_seed = GetUniversityBenchmarkSeeds()[i];
-                    title = university_seed.Name;
-                    content = BuildUniversityBenchmarkContent(university_seed, i);
+                    docs.emplace_back(doc.value<std::string>("id", ""),
+                                      doc.value<std::string>("title", ""),
+                                      doc.value<std::string>("content", ""));
                }
-               else if (spec.Name == "people")
+          }
+          else
+          {
+               for (size_t i = 0; i < docs_to_create; i++)
                {
-                    PersonBenchmarkSeed person = BuildPersonBenchmarkSeed(i);
-                    title = person.FirstName + " " + person.MiddleName + " " + person.LastName;
-                    content = person.Biography;
-               }
-               else if (SeedIt != RealSeeds.end() && i < SeedIt->second.size())
-               {
-                    title = SeedIt->second[i].Title;
-                    content = SeedIt->second[i].Content;
-               }
-               else
-               {
-                    title = BuildRealisticTitle(spec.Name, tag, static_cast<int>(i));
-                    content = BuildRealisticContent(spec.Name, tag, static_cast<int>(i));
-               }
+                    const std::string &tag = spec.Tags[i % spec.Tags.size()];
+                    std::string title;
+                    std::string content;
+                    auto SeedIt = RealSeeds.find(spec.Name);
+                    if (spec.Name == "universities" && i < GetUniversityBenchmarkSeeds().size())
+                    {
+                         const UniversityBenchmarkSeed &university_seed = GetUniversityBenchmarkSeeds()[i];
+                         title = university_seed.Name;
+                         content = BuildUniversityBenchmarkContent(university_seed, i);
+                    }
+                    else if (spec.Name == "people")
+                    {
+                         PersonBenchmarkSeed person = BuildPersonBenchmarkSeed(i);
+                         title = person.FirstName + " " + person.MiddleName + " " + person.LastName;
+                         content = person.Biography;
+                    }
+                    else if (SeedIt != RealSeeds.end() && i < SeedIt->second.size())
+                    {
+                         title = SeedIt->second[i].Title;
+                         content = SeedIt->second[i].Content;
+                    }
+                    else
+                    {
+                         title = BuildRealisticTitle(spec.Name, tag, static_cast<int>(i));
+                         content = BuildRealisticContent(spec.Name, tag, static_cast<int>(i));
+                    }
 
-               if (spec.Name != "universities")
-               {
-                    content += BuildCollectionSynonymDocHint(spec.Name, static_cast<int>(i));
+                    if (spec.Name != "universities")
+                    {
+                         content += BuildCollectionSynonymDocHint(spec.Name, static_cast<int>(i));
+                    }
+
+                    std::string doc_id = MakeMeaningfulDocId(collection_name, title, content, static_cast<int>(i), used_ids);
+                    std::string safe_title = RemoveCommas(title);
+                    std::string safe_content = RemoveCommas(content);
+                    std::string description = BuildBenchmarkDescription(spec.Name, tag, content);
+                    std::string safe_description = RemoveCommas(description);
+                    nlohmann::json label_list = nlohmann::json::array();
+                    for (const auto &label : BuildBenchmarkLabels(spec.Name, tag, title, content))
+                    {
+                         label_list.push_back(label);
+                    }
+
+                    docs.emplace_back(doc_id, safe_title, safe_content);
+
+                    nlohmann::json enriched_doc;
+                    enriched_doc["id"] = doc_id;
+                    enriched_doc["document_id"] = doc_id;
+                    enriched_doc["title"] = safe_title;
+                    enriched_doc["content"] = safe_content;
+                    enriched_doc["description"] = safe_description;
+                    enriched_doc["labels"] = label_list.dump();
+                    enriched_doc["embedding"] = BuildFakeBenchmarkEmbedding(spec.Name, tag, i);
+                    enriched_doc["location"] = BuildFakeBenchmarkLocation(spec.Name, i);
+                    enriched_doc["location_name"] = BuildFakeBenchmarkLocationName(spec.Name);
+                    enriched_docs.push_back(std::move(enriched_doc));
                }
-
-               std::string doc_id = MakeMeaningfulDocId(collection_name, title, content, static_cast<int>(i), used_ids);
-               std::string safe_title = RemoveCommas(title);
-               std::string safe_content = RemoveCommas(content);
-               std::string description = BuildBenchmarkDescription(spec.Name, tag, content);
-               std::string safe_description = RemoveCommas(description);
-               nlohmann::json label_list = nlohmann::json::array();
-               for (const auto &label : BuildBenchmarkLabels(spec.Name, tag, title, content))
-               {
-                    label_list.push_back(label);
-               }
-
-               docs.emplace_back(doc_id, safe_title, safe_content);
-
-               nlohmann::json enriched_doc;
-               enriched_doc["id"] = doc_id;
-               enriched_doc["document_id"] = doc_id;
-               enriched_doc["title"] = safe_title;
-               enriched_doc["content"] = safe_content;
-               enriched_doc["description"] = safe_description;
-               enriched_doc["labels"] = label_list.dump();
-               enriched_doc["embedding"] = BuildFakeBenchmarkEmbedding(spec.Name, tag, i);
-               enriched_doc["location"] = BuildFakeBenchmarkLocation(spec.Name, i);
-               enriched_doc["location_name"] = BuildFakeBenchmarkLocationName(spec.Name);
-               enriched_docs.push_back(std::move(enriched_doc));
           }
 
           size_t inserted = 0;
