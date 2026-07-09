@@ -1734,6 +1734,52 @@ std::vector<Posting> InvertedIndex::Search(const std::string &Collection, const 
                          QueryTerms.end());
      }
 
+     {
+          std::unordered_set<std::string> SeenQueryTerms;
+          std::vector<std::string> UniqueQueryTerms;
+          UniqueQueryTerms.reserve(QueryTerms.size());
+
+          for (const auto &TermValue : QueryTerms)
+          {
+               if (TermValue.empty() || !SeenQueryTerms.insert(TermValue).second)
+               {
+                    continue;
+               }
+
+               UniqueQueryTerms.push_back(TermValue);
+          }
+
+          QueryTerms = std::move(UniqueQueryTerms);
+     }
+
+     if (!NegativeTerms.empty())
+     {
+          std::unordered_set<std::string> SeenNegativeTerms;
+          std::vector<std::string> UniqueNegativeTerms;
+          UniqueNegativeTerms.reserve(NegativeTerms.size());
+
+          for (const auto &TermValue : NegativeTerms)
+          {
+               if (TermValue.empty() || !SeenNegativeTerms.insert(TermValue).second)
+               {
+                    continue;
+               }
+
+               UniqueNegativeTerms.push_back(TermValue);
+          }
+
+          NegativeTerms = std::move(UniqueNegativeTerms);
+     }
+
+     if (Instance && Instance->Config && Instance->Config->GetQuerySettingsMaxQueryTerms() > 0)
+     {
+          const size_t MaxQueryTerms = static_cast<size_t>(Instance->Config->GetQuerySettingsMaxQueryTerms());
+          if (QueryTerms.size() > MaxQueryTerms)
+          {
+               QueryTerms.resize(MaxQueryTerms);
+          }
+     }
+
      if (QueryTerms.empty() && NegativeTerms.empty())
      {
           return {};
@@ -2058,31 +2104,93 @@ std::vector<Posting> InvertedIndex::Search(const std::string &Collection, const 
 
      int CandidatePruneMultiplier = 25;
 
-     K1 = Instance->Config->GetRankingK1();
+     if (Instance && Instance->Config)
+     {
+          K1 = Instance->Config->GetRankingK1();
 
-     B = Instance->Config->GetRankingB();
+          B = Instance->Config->GetRankingB();
 
-     Delta = Instance->Config->GetRankingDelta();
+          Delta = Instance->Config->GetRankingDelta();
 
-     SearchAlgorithm = Instance->Config->GetSearchAlgorithm();
+          SearchAlgorithm = Instance->Config->GetSearchAlgorithm();
 
-     IdfSmooth = Instance->Config->GetRankingIdfSmooth();
+          IdfSmooth = Instance->Config->GetRankingIdfSmooth();
+          
+          NormalizeTFIDF = Instance->Config->GetRankingNormalize();
 
-     NormalizeTFIDF = Instance->Config->GetRankingNormalize();
+          BM25Weight = Instance->Config->GetRankingBm25Weight();
 
-     BM25Weight = Instance->Config->GetRankingBm25Weight();
+          TFIDFWeight = Instance->Config->GetRankingTfidfWeight();
 
-     TFIDFWeight = Instance->Config->GetRankingTfidfWeight();
+          PivotEnabled = Instance->Config->GetPivotNormEnabled();
 
-     PivotEnabled = Instance->Config->GetPivotNormEnabled();
+          PivotValue = Instance->Config->GetPivotNormPivot();
 
-     PivotValue = Instance->Config->GetPivotNormPivot();
+          MatchMode = Instance->Config->GetSearchMatchMode();
 
-     MatchMode = Instance->Config->GetSearchMatchMode();
+          MinShouldMatch = Instance->Config->GetSearchMinShouldMatch();
 
-     MinShouldMatch = Instance->Config->GetSearchMinShouldMatch();
+          CandidatePruneMultiplier = Instance->Config->GetSearchCandidatePruneMultiplier();
+     }
 
-     CandidatePruneMultiplier = Instance->Config->GetSearchCandidatePruneMultiplier();
+     if (!std::isfinite(K1) || K1 < 0.0)
+     {
+          K1 = 1.2;
+     }
+
+     if (!std::isfinite(B))
+     {
+          B = 0.75;
+     }
+     B = std::clamp(B, 0.0, 1.0);
+
+     if (!std::isfinite(Delta) || Delta < 0.0)
+     {
+          Delta = 1.0;
+     }
+
+     if (!std::isfinite(IdfSmooth) || IdfSmooth < 0.0)
+     {
+          IdfSmooth = 1.0;
+     }
+
+     if (!std::isfinite(BM25Weight) || BM25Weight < 0.0)
+     {
+          BM25Weight = 0.7;
+     }
+
+     if (!std::isfinite(TFIDFWeight) || TFIDFWeight < 0.0)
+     {
+          TFIDFWeight = 0.3;
+     }
+
+     if (!std::isfinite(PivotValue))
+     {
+          PivotValue = 0.25;
+     }
+     PivotValue = std::clamp(PivotValue, 0.0, 1.0);
+
+     std::transform(SearchAlgorithm.begin(), SearchAlgorithm.end(), SearchAlgorithm.begin(), ToLowerAsciiSafe);
+     if (SearchAlgorithm != "bm25" && SearchAlgorithm != "bm25+" && SearchAlgorithm != "tfidf" && SearchAlgorithm != "hybrid")
+     {
+          SearchAlgorithm = "bm25+";
+     }
+
+     std::transform(MatchMode.begin(), MatchMode.end(), MatchMode.begin(), ToLowerAsciiSafe);
+     if (MatchMode != "and" && MatchMode != "or" && MatchMode != "min_should_match")
+     {
+          MatchMode = "and";
+     }
+
+     if (MinShouldMatch < 1)
+     {
+          MinShouldMatch = 1;
+     }
+
+     if (CandidatePruneMultiplier < 0)
+     {
+          CandidatePruneMultiplier = 0;
+     }
 
      size_t RequiredMatches = TermResults.size();
      if (MatchMode == "or")
@@ -2182,6 +2290,7 @@ std::vector<Posting> InvertedIndex::Search(const std::string &Collection, const 
                                    Intersection[SortedDocs[Pos1].first].Positions.push_back(PosVal);
                               }
 
+                              Intersection[SortedDocs[Pos1].first].Score += SortedCurrent[Pos2].second.Score;
                               IntersectionCounts[SortedDocs[Pos1].first] = DocMatchCounts[SortedDocs[Pos1].first] + 1;
 
                               Pos1++;
@@ -2211,6 +2320,7 @@ std::vector<Posting> InvertedIndex::Search(const std::string &Collection, const 
                                    Intersection[Pair.first].Positions.push_back(PosVal);
                               }
 
+                              Intersection[Pair.first].Score += Pair.second.Score;
                               IntersectionCounts[Pair.first] = DocMatchCounts[Pair.first] + 1;
                          }
                     }
@@ -2277,6 +2387,8 @@ std::vector<Posting> InvertedIndex::Search(const std::string &Collection, const 
           return {};
      }
 
+     CollectionSizeValue = std::max(CollectionSizeValue, DocScores.size());
+
      std::vector<Posting> Results;
 
      Results.reserve(DocScores.size());
@@ -2294,6 +2406,31 @@ std::vector<Posting> InvertedIndex::Search(const std::string &Collection, const 
      {
           std::lock_guard<std::mutex> Lock(IndexMutex);
           const auto CollectionLengthsIt = DocumentLengths.find(Collection);
+
+          if (CollectionLengthsIt != DocumentLengths.end() && !CollectionLengthsIt->second.empty())
+          {
+               CollectionSizeValue = std::max(CollectionSizeValue, CollectionLengthsIt->second.size());
+
+               if (!std::isfinite(AvgDocLengthValue) || AvgDocLengthValue <= 0.0)
+               {
+                    size_t TotalLength = 0;
+                    for (const auto &[LengthDocID, LengthValue] : CollectionLengthsIt->second)
+                    {
+                         (void)LengthDocID;
+                         TotalLength += LengthValue;
+                    }
+
+                    if (TotalLength > 0)
+                    {
+                         AvgDocLengthValue = static_cast<double>(TotalLength) / static_cast<double>(CollectionLengthsIt->second.size());
+                    }
+               }
+          }
+
+          if (!std::isfinite(AvgDocLengthValue) || AvgDocLengthValue <= 0.0)
+          {
+               AvgDocLengthValue = 1.0;
+          }
 
           for (auto &[DocID, Post] : DocScores)
           {
@@ -2313,7 +2450,12 @@ std::vector<Posting> InvertedIndex::Search(const std::string &Collection, const 
 
      if (Limit > 0 && CandidatePruneMultiplier > 0)
      {
-          const size_t CandidateLimitValue = std::max(static_cast<size_t>(Limit), static_cast<size_t>(Limit) * static_cast<size_t>(CandidatePruneMultiplier));
+          const size_t SafeLimitValue = static_cast<size_t>(Limit);
+          const size_t SafeMultiplierValue = static_cast<size_t>(CandidatePruneMultiplier);
+          const size_t ProductLimitValue = SafeMultiplierValue > 0 && SafeLimitValue > (std::numeric_limits<size_t>::max() / SafeMultiplierValue)
+                                               ? std::numeric_limits<size_t>::max()
+                                               : SafeLimitValue * SafeMultiplierValue;
+          const size_t CandidateLimitValue = std::max(SafeLimitValue, ProductLimitValue);
 
           if (CandidateDocs.size() > CandidateLimitValue)
           {
@@ -2340,6 +2482,7 @@ std::vector<Posting> InvertedIndex::Search(const std::string &Collection, const 
           double MatchedTermScore = Post.Score;
 
           double TotalScore = 0.0;
+          std::vector<Posting> MatchedPostingsForProximity;
 
           for (size_t TermIdx = 0; TermIdx < TermResults.size(); ++TermIdx)
           {
@@ -2350,6 +2493,7 @@ std::vector<Posting> InvertedIndex::Search(const std::string &Collection, const 
                     continue;
                }
 
+               MatchedPostingsForProximity.push_back(TermDocIt->second);
                double TermFreq = static_cast<double>(TermDocIt->second.Positions.empty() ? 1 : TermDocIt->second.Positions.size());
                double DocFreq = static_cast<double>(TermDocs.size());
 
@@ -2383,7 +2527,7 @@ std::vector<Posting> InvertedIndex::Search(const std::string &Collection, const 
                if (PivotEnabled && AvgDocLengthValue > 0.0)
                {
                     const double PivotNorm = (1.0 - PivotValue) + PivotValue * (DocLengthValue / AvgDocLengthValue);
-                    if (PivotNorm > 0.0)
+                    if (std::isfinite(PivotNorm) && PivotNorm > 0.0)
                     {
                          TermScoreValue /= PivotNorm;
                     }
@@ -2394,7 +2538,7 @@ std::vector<Posting> InvertedIndex::Search(const std::string &Collection, const 
 
           if (QueryTerms.size() >= 2)
           {
-               double ProximityBoostValue = CalculateProximityBoost(QueryTerms, {Post}, DocID);
+               double ProximityBoostValue = CalculateProximityBoost(QueryTerms, MatchedPostingsForProximity, DocID);
 
                TotalScore *= ProximityBoostValue;
           }
@@ -2408,7 +2552,7 @@ std::vector<Posting> InvertedIndex::Search(const std::string &Collection, const 
 
           Post.Score = TotalScore;
 
-          if (TotalScore <= 0.0)
+          if (!std::isfinite(TotalScore) || TotalScore <= 0.0)
           {
                Post.Score = std::max(MatchedTermScore, 1e-9);
           }
@@ -3008,6 +3152,18 @@ double InvertedIndex::CalculateBM25PlusScore(double TermFreq, double DocFreq, do
           IdfFloorFactor = std::max(0.0, Instance->Config->GetRankingIdfFloorFactor());
      }
 
+     if (!std::isfinite(IdfSmoothValue))
+     {
+          IdfSmoothValue = 1.0;
+     }
+
+     if (!std::isfinite(IdfFloorFactor))
+     {
+          IdfFloorFactor = 0.05;
+     }
+
+     IdfFloorFactor = std::clamp(IdfFloorFactor, 0.0, 1.0);
+
      double Idf = 0.0;
 
      if (IdfMode == "smooth")
@@ -3039,7 +3195,7 @@ double InvertedIndex::CalculateBM25PlusScore(double TermFreq, double DocFreq, do
           }
      }
 
-     const double NormalizedLengthValue = DocLength / AvgDocLength;
+     const double NormalizedLengthValue = std::max(1e-9, DocLength / AvgDocLength);
      const double NumeratorValue = TermFreq * (K1 + 1.0);
      const double DenominatorValue = TermFreq + K1 * (1.0 - B + B * NormalizedLengthValue);
 
@@ -3321,6 +3477,16 @@ double InvertedIndex::CalculateProximityBoost(const std::vector<std::string> &Qu
      {
           boost_scale = Instance->Config->GetProximityBoostScale();
           boost_max = Instance->Config->GetProximityBoostMax();
+     }
+
+     if (!std::isfinite(boost_scale) || boost_scale < 0.0)
+     {
+          boost_scale = 1.0;
+     }
+
+     if (!std::isfinite(boost_max) || boost_max < 1.0)
+     {
+          boost_max = 1.0;
      }
 
      std::vector<Posting> DocPostings;

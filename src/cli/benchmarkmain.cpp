@@ -3280,93 +3280,100 @@ int main(int argc, char *argv[])
           int additional_docs_per_collection_val = 0;
           int total_additional_docs_val = num_collections * additional_docs_per_collection_val;
 
-          if (verbose_mode)
+          if (total_additional_docs_val > 0)
           {
-               std::cout << "\nPhase 2b: Inserting " << additional_docs_per_collection_val << " additional documents per collection (" << total_additional_docs_val << " total)...\n";
-          }
-          else
-          {
-               std::cout << "Inserting additional documents...\n";
-          }
-
-          std::vector<std::thread> additional_document_threads_vec;
-
-          try
-          {
-               for (int i = 0; i < active_document_threads; i++)
+               if (verbose_mode)
                {
-                    if (g_benchmark_should_stop.load())
-                    {
-                         break;
-                    }
-
-                    additional_document_threads_vec.emplace_back(InsertAdditionalDocumentsThread, base_url, auth_token, num_collections, docs_per_collection_val, additional_docs_per_collection_val, i, active_document_threads, batch_size, advanced_mode, total_additional_docs_val, run_id_val, reuse_collections);
+                    std::cout << "\nPhase 2b: Inserting " << additional_docs_per_collection_val << " additional documents per collection (" << total_additional_docs_val << " total)...\n";
+               }
+               else
+               {
+                    std::cout << "Inserting additional documents...\n";
                }
 
-               for (auto &t : additional_document_threads_vec)
+               std::vector<std::thread> additional_document_threads_vec;
+
+               try
                {
-                    if (t.joinable())
+                    for (int i = 0; i < active_document_threads; i++)
                     {
                          if (g_benchmark_should_stop.load())
                          {
-                              t.detach();
+                              break;
                          }
-                         else
+
+                         additional_document_threads_vec.emplace_back(InsertAdditionalDocumentsThread, base_url, auth_token, num_collections, docs_per_collection_val, additional_docs_per_collection_val, i, active_document_threads, batch_size, advanced_mode, total_additional_docs_val, run_id_val, reuse_collections);
+                    }
+
+                    for (auto &t : additional_document_threads_vec)
+                    {
+                         if (t.joinable())
                          {
-                              t.join();
+                              if (g_benchmark_should_stop.load())
+                              {
+                                   t.detach();
+                              }
+                              else
+                              {
+                                   t.join();
+                              }
                          }
                     }
-               }
 
-               if (g_benchmark_should_stop.load())
+                    if (g_benchmark_should_stop.load())
+                    {
+                         std::cerr << "\n[INTERRUPT] Benchmark interrupted during Phase 2b.\n";
+                         return 1;
+                    }
+               }
+               catch (const std::exception &e)
                {
-                    std::cerr << "\n[INTERRUPT] Benchmark interrupted during Phase 2b.\n";
-                    return 1;
+                    std::cerr << "\n[CRITICAL] Exception in Phase 2b (additional document insertion): " << e.what() << ".\n";
+                    std::cerr << "   Attempting to join remaining threads...\n";
+
+                    for (auto &t : additional_document_threads_vec)
+                    {
+                         if (t.joinable())
+                         {
+                              try
+                              {
+                                   t.join();
+                              }
+                              catch (...)
+                              {
+                                   /* Ignore. */
+                              }
+                         }
+                    }
+
+                    std::cerr << "   Phase 2b failed - benchmark may be incomplete.\n";
+               }
+               catch (...)
+               {
+                    std::cerr << "\n[CRITICAL] Unknown exception in Phase 2b (additional document insertion).\n";
+                    std::cerr << "   Attempting to join remaining threads...\n";
+
+                    for (auto &t : additional_document_threads_vec)
+                    {
+                         if (t.joinable())
+                         {
+                              try
+                              {
+                                   t.join();
+                              }
+                              catch (...)
+                              {
+                                   /* Ignore. */
+                              }
+                         }
+                    }
+
+                    std::cerr << "   Phase 2b failed - benchmark may be incomplete.\n";
                }
           }
-          catch (const std::exception &e)
+          else if (verbose_mode)
           {
-               std::cerr << "\n[CRITICAL] Exception in Phase 2b (additional document insertion): " << e.what() << ".\n";
-               std::cerr << "   Attempting to join remaining threads...\n";
-
-               for (auto &t : additional_document_threads_vec)
-               {
-                    if (t.joinable())
-                    {
-                         try
-                         {
-                              t.join();
-                         }
-                         catch (...)
-                         {
-                              /* Ignore. */
-                         }
-                    }
-               }
-
-               std::cerr << "   Phase 2b failed - benchmark may be incomplete.\n";
-          }
-          catch (...)
-          {
-               std::cerr << "\n[CRITICAL] Unknown exception in Phase 2b (additional document insertion).\n";
-               std::cerr << "   Attempting to join remaining threads...\n";
-
-               for (auto &t : additional_document_threads_vec)
-               {
-                    if (t.joinable())
-                    {
-                         try
-                         {
-                              t.join();
-                         }
-                         catch (...)
-                         {
-                              /* Ignore. */
-                         }
-                    }
-               }
-
-               std::cerr << "   Phase 2b failed - benchmark may be incomplete.\n";
+               std::cout << "\nPhase 2b: Skipped additional document insertion (0 configured).\n";
           }
 
           ingest_end_time_val = Now();
@@ -3490,11 +3497,25 @@ int main(int argc, char *argv[])
           std::cout << "\n";
           std::cout << "Collections created: " << collections_created.load() << ".\n";
           std::cout << "Collections skipped: " << collections_skipped.load() << ".\n";
-          std::cout << "Target documents: " << num_documents << " base + " << total_additional_docs_val << " additional.\n";
+          if (total_additional_docs_val > 0)
+          {
+               std::cout << "Target documents: " << num_documents << " base + " << total_additional_docs_val << " additional.\n";
+          }
+          else
+          {
+               std::cout << "Target documents: " << num_documents << ".\n";
+          }
           int64_t total_inserted = documents_inserted.load();
           int64_t additional_inserted = additional_documents_inserted.load();
           int64_t base_inserted = total_inserted - additional_inserted;
-          std::cout << "Documents inserted: " << total_inserted << " (base: " << base_inserted << ", additional: " << additional_inserted << ").\n";
+          if (total_additional_docs_val > 0 || additional_inserted > 0)
+          {
+               std::cout << "Documents inserted: " << total_inserted << " (base: " << base_inserted << ", additional: " << additional_inserted << ").\n";
+          }
+          else
+          {
+               std::cout << "Documents inserted: " << total_inserted << ".\n";
+          }
           std::cout << "Documents skipped: " << documents_skipped.load() << ".\n";
           std::cout << "Ingest time: " << ingest_duration_ms << " ms.\n";
           std::cout << "Commit time: " << flush_duration_ms << " ms.\n";

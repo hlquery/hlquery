@@ -306,6 +306,12 @@ VENDOR_DIR  = vendor
 RUN_DIR     = run
 HLQUERY_WRAPPER_TEMPLATE = make/hlquery.tpl
 
+ifeq ($(SKIP_PREPARE),1)
+  PREPARE_PREREQ :=
+else
+  PREPARE_PREREQ := prepare
+endif
+
 # SOURCE FILE DISCOVERY
 
 # Source files discovery with explicit exclusions
@@ -412,7 +418,12 @@ ALL_OBJS = $(REGULAR_ALL_OBJS) $(HTTP_OBJS)
 
 # BUILD TARGETS
 
-prepare: rocksdb-check rocksdb-preflight binary-compat-check $(ROCKSDB_LIB) prune-disabled-extra-modules
+prepare:
+	@$(MAKE) --no-print-directory rocksdb-check
+	@$(MAKE) --no-print-directory rocksdb-preflight
+	@$(MAKE) --no-print-directory binary-compat-check
+	@$(MAKE) --no-print-directory -q $(ROCKSDB_LIB) || $(MAKE) --no-print-directory $(ROCKSDB_LIB)
+	@$(MAKE) --no-print-directory prune-disabled-extra-modules
 	@mkdir -p $(OBJ_DIR) $(BIN_DIR)
 	@mkdir -p $(OBJ_DIR)/core $(OBJ_DIR)/runtime $(OBJ_DIR)/utils $(OBJ_DIR)/api $(OBJ_DIR)/search $(OBJ_DIR)/sql $(OBJ_DIR)/socketengines $(OBJ_DIR)/timers $(OBJ_DIR)/cli $(OBJ_DIR)/talk $(OBJ_DIR)/modules $(OBJ_DIR)/vendor/fmt $(OBJ_DIR)/vendor/sha2 $(OBJ_DIR)/vendor/md5
 	@mkdir -p $(RUN_DIR)/bin $(RUN_DIR)/conf $(RUN_DIR)/data $(RUN_DIR)/logs $(RUN_DIR)/modules $(RUN_DIR)/pid
@@ -636,7 +647,7 @@ $(OBJ_DIR)/vendor/md5/md5.o: $(VENDOR_DIR)/md5/md5.c | $(OBJ_DIR)
 
 -include $(DEPS)
 
-.PHONY: all prepare rocksdb-check rocksdb-preflight binary-compat-check prune-disabled-extra-modules clean install uninstall debug create_ssl help build-info synonyms-sync synonyms-check package package-all package-deb package-rpm
+.PHONY: all build-products prepare rocksdb-check rocksdb-preflight binary-compat-check prune-disabled-extra-modules clean install uninstall debug create_ssl help build-info synonyms-sync synonyms-check package package-all package-deb package-rpm
 
 prune-disabled-extra-modules:
 	@mkdir -p $(RUN_DIR)/modules
@@ -823,7 +834,7 @@ synonyms-check:
 # Explicitly depend on ALL_OBJS and ROCKSDB_LIB to ensure proper dependency tracking
 # This prevents the linker from starting before all object files are compiled AND RocksDB is built
 # Note: ALL_OBJS includes REGULAR_OBJS, HTTP_OBJS, FMT_OBJ, SHA2_OBJ, MD5_OBJ, CLD2_OBJS
-$(BIN_DIR)/hlquery: $(REGULAR_OBJS) $(HTTP_OBJS) $(FMT_OBJ) $(SHA2_OBJ) $(MD5_OBJ) $(CLD2_OBJS) | $(ROCKSDB_LIB)
+$(BIN_DIR)/hlquery: $(REGULAR_OBJS) $(HTTP_OBJS) $(FMT_OBJ) $(SHA2_OBJ) $(MD5_OBJ) $(CLD2_OBJS) $(ROCKSDB_LIB)
 	@mkdir -p $(BIN_DIR)
 	@echo "$(CYAN)Linking hlquery...$(NC)"
 	$(CXX) $(CXXFLAGS) \
@@ -868,11 +879,11 @@ TALK_OBJS := $(CLI_SUPPORT_OBJS) \
              $(OBJ_DIR)/talk/main.o \
              $(OBJ_DIR)/runtime/exitmanager.o
 
-$(ALL_OBJS) $(CLI_OBJS) $(BENCHMARK_OBJ) $(TALK_OBJS): | prepare
+$(ALL_OBJS) $(CLI_OBJS) $(BENCHMARK_OBJ) $(TALK_OBJS): | $(PREPARE_PREREQ)
 
 # CLI binary
 # Note: CLI doesn't need RocksDB, but we ensure it waits for prepare target
-$(BIN_DIR)/hlquery-cli: $(CLI_OBJS) | prepare
+$(BIN_DIR)/hlquery-cli: $(CLI_OBJS) | $(PREPARE_PREREQ)
 	@mkdir -p $(BIN_DIR)
 	$(CXX) $(CXXFLAGS) \
 		$(CLI_OBJS) \
@@ -881,14 +892,14 @@ $(BIN_DIR)/hlquery-cli: $(CLI_OBJS) | prepare
 
 # Benchmark binary
 # Note: Benchmark doesn't need RocksDB, but we ensure it waits for prepare target
-$(BIN_DIR)/hlquery-benchmark: $(BENCHMARK_OBJ) | prepare
+$(BIN_DIR)/hlquery-benchmark: $(BENCHMARK_OBJ) | $(PREPARE_PREREQ)
 	@mkdir -p $(BIN_DIR)
 	$(CXX) $(CXXFLAGS) \
 		$(BENCHMARK_OBJ) \
 		-o $@ \
 		$(LDFLAGS)
 
-$(BIN_DIR)/hlquery-talk: $(TALK_OBJS) | prepare
+$(BIN_DIR)/hlquery-talk: $(TALK_OBJS) | $(PREPARE_PREREQ)
 	@mkdir -p $(BIN_DIR) $(RUN_DIR)/bin
 	$(CXX) $(CXXFLAGS) \
 		$(TALK_OBJS) \
@@ -898,8 +909,13 @@ $(BIN_DIR)/hlquery-talk: $(TALK_OBJS) | prepare
 
 $(REGULAR_OBJS) $(HTTP_OBJS) $(CLI_OBJS) $(BENCHMARK_OBJ) $(TALK_OBJS) $(MODULE_OBJS): $(CONFIG_HEADER)
 
-# Main build target
-all: prepare $(BIN_DIR)/hlquery $(BIN_DIR)/hlquery-cli $(BIN_DIR)/hlquery-benchmark $(BIN_DIR)/hlquery-talk $(MODULE_LIBS)
+# Main build target. Keep dependency/configuration work in a separate phase so a
+# RocksDB configure/build failure stops before any hlquery compilation starts.
+all:
+	@$(MAKE) --no-print-directory prepare
+	@$(MAKE) --no-print-directory SKIP_PREPARE=1 build-products
+
+build-products: $(BIN_DIR)/hlquery $(BIN_DIR)/hlquery-cli $(BIN_DIR)/hlquery-benchmark $(BIN_DIR)/hlquery-talk $(MODULE_LIBS)
 	@echo ""
 	@echo "$(GREEN)  Build complete!$(NC)"
 	@echo "$(BLUE)   Server: build/bin/hlquery$(NC)"

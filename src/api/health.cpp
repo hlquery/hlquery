@@ -499,40 +499,13 @@ static bool ConfigFileIsSecretKey(const std::string &Key)
 
      return Normalized.find("passwd") != std::string::npos ||
             Normalized.find("password") != std::string::npos ||
+            Normalized == "key" ||
+            Normalized.find("_key") != std::string::npos ||
             Normalized.find("token") != std::string::npos ||
             Normalized.find("secret") != std::string::npos ||
-            Normalized.find("api_key") != std::string::npos;
-}
-
-static std::string ConfigFileRedactLine(const std::string &Line)
-{
-     static const std::regex AttributePattern("([A-Za-z_][A-Za-z0-9_-]*)\\s*=\\s*\"([^\"]*)\"");
-
-     std::string Output;
-     std::sregex_iterator It(Line.begin(), Line.end(), AttributePattern);
-     std::sregex_iterator End;
-     size_t LastPos = 0;
-
-     for (; It != End; ++It)
-     {
-          const std::smatch &Match = *It;
-          Output.append(Line.substr(LastPos, static_cast<size_t>(Match.position()) - LastPos));
-
-          const std::string Key = Match[1].str();
-          if (ConfigFileIsSecretKey(Key))
-          {
-               Output.append(Key + "=\"[redacted]\"");
-          }
-          else
-          {
-               Output.append(Match.str());
-          }
-
-          LastPos = static_cast<size_t>(Match.position() + Match.length());
-     }
-
-     Output.append(Line.substr(LastPos));
-     return Output;
+            Normalized.find("credential") != std::string::npos ||
+            Normalized.find("auth") != std::string::npos ||
+            Normalized.find("bearer") != std::string::npos;
 }
 
 static nlohmann::json ConfigFileParseRows(const std::string &Content)
@@ -631,7 +604,6 @@ static nlohmann::json ConfigFileReadOne(const std::filesystem::path &Path)
      FileJSON["path"] = Path.string();
      FileJSON["exists"] = false;
      FileJSON["truncated"] = false;
-     FileJSON["content"] = "";
      FileJSON["rows"] = nlohmann::json::array();
 
      std::error_code Error;
@@ -666,25 +638,9 @@ static nlohmann::json ConfigFileReadOne(const std::filesystem::path &Path)
      const bool Truncated = Input.good();
      const std::string RawContent = Buffer.str();
 
-     std::istringstream RawStream(RawContent);
-     std::ostringstream RedactedStream;
-     std::string Line;
-     bool First = true;
-     while (std::getline(RawStream, Line))
-     {
-          if (!First)
-          {
-               RedactedStream << '\n';
-          }
-          First = false;
-          RedactedStream << ConfigFileRedactLine(Line);
-     }
-
-     const std::string RedactedContent = RedactedStream.str();
      FileJSON["exists"] = true;
      FileJSON["truncated"] = Truncated;
-     FileJSON["content"] = RedactedContent;
-     FileJSON["rows"] = ConfigFileParseRows(RedactedContent);
+     FileJSON["rows"] = ConfigFileParseRows(RawContent);
 
      return FileJSON;
 }
