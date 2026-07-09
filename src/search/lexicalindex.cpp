@@ -1804,6 +1804,8 @@ std::vector<Posting> InvertedIndex::Search(const std::string &Collection, const 
 
      std::vector<std::unordered_map<std::string, Posting>> TermResults;
      std::unordered_set<std::string> NegativeDocIDs;
+     TermResults.reserve(QueryTerms.empty() ? 1 : QueryTerms.size());
+     NegativeDocIDs.reserve(NegativeTerms.size() * 16);
      size_t ValidQueryTermCount = 0;
 
      auto IsWildcardTerm = [](const std::string &term) -> bool
@@ -2098,6 +2100,12 @@ std::vector<Posting> InvertedIndex::Search(const std::string &Collection, const 
 
      double PivotValue = 0.25;
 
+     std::string IdfMode = "legacy";
+
+     bool IdfClampNegative = true;
+
+     double IdfFloorFactor = 0.05;
+
      std::string MatchMode = "and";
 
      int MinShouldMatch = 1;
@@ -2125,6 +2133,12 @@ std::vector<Posting> InvertedIndex::Search(const std::string &Collection, const 
           PivotEnabled = Instance->Config->GetPivotNormEnabled();
 
           PivotValue = Instance->Config->GetPivotNormPivot();
+
+          IdfMode = Instance->Config->GetRankingIdfMode();
+
+          IdfClampNegative = Instance->Config->GetRankingIdfClampNegative();
+
+          IdfFloorFactor = Instance->Config->GetRankingIdfFloorFactor();
 
           MatchMode = Instance->Config->GetSearchMatchMode();
 
@@ -2169,6 +2183,18 @@ std::vector<Posting> InvertedIndex::Search(const std::string &Collection, const 
           PivotValue = 0.25;
      }
      PivotValue = std::clamp(PivotValue, 0.0, 1.0);
+
+     std::transform(IdfMode.begin(), IdfMode.end(), IdfMode.begin(), ToLowerAsciiSafe);
+     if (IdfMode != "smooth")
+     {
+          IdfMode = "legacy";
+     }
+
+     if (!std::isfinite(IdfFloorFactor))
+     {
+          IdfFloorFactor = 0.05;
+     }
+     IdfFloorFactor = std::clamp(IdfFloorFactor, 0.0, 1.0);
 
      std::transform(SearchAlgorithm.begin(), SearchAlgorithm.end(), SearchAlgorithm.begin(), ToLowerAsciiSafe);
      if (SearchAlgorithm != "bm25" && SearchAlgorithm != "bm25+" && SearchAlgorithm != "tfidf" && SearchAlgorithm != "hybrid")
@@ -2231,8 +2257,35 @@ std::vector<Posting> InvertedIndex::Search(const std::string &Collection, const 
 
      std::sort(TermOrder.begin(), TermOrder.end(), [&TermResults](size_t IndexA, size_t IndexB)
                {
-                    return TermResults[IndexA].size() < TermResults[IndexB].size();
+                    if (TermResults[IndexA].size() != TermResults[IndexB].size())
+                    {
+                         return TermResults[IndexA].size() < TermResults[IndexB].size();
+                    }
+
+                    return IndexA < IndexB;
                });
+
+     size_t ExpectedCandidateCount = 0;
+     if (MatchMode == "and")
+     {
+          ExpectedCandidateCount = TermResults[TermOrder[0]].size();
+     }
+     else
+     {
+          for (const auto &TermDocs : TermResults)
+          {
+               if (ExpectedCandidateCount > std::numeric_limits<size_t>::max() - TermDocs.size())
+               {
+                    ExpectedCandidateCount = std::numeric_limits<size_t>::max();
+                    break;
+               }
+
+               ExpectedCandidateCount += TermDocs.size();
+          }
+     }
+
+     DocScores.reserve(ExpectedCandidateCount);
+     DocMatchCounts.reserve(ExpectedCandidateCount);
 
      if (MatchMode == "and")
      {
@@ -2266,6 +2319,9 @@ std::vector<Posting> InvertedIndex::Search(const std::string &Collection, const 
 
                     std::unordered_map<std::string, Posting> Intersection;
                     std::unordered_map<std::string, size_t> IntersectionCounts;
+                    const size_t ReserveSize = std::min(DocScores.size(), CurrentTermDocs.size());
+                    Intersection.reserve(ReserveSize);
+                    IntersectionCounts.reserve(ReserveSize);
 
                     size_t Pos1 = 0;
 
@@ -2306,6 +2362,9 @@ std::vector<Posting> InvertedIndex::Search(const std::string &Collection, const 
                {
                     std::unordered_map<std::string, Posting> Intersection;
                     std::unordered_map<std::string, size_t> IntersectionCounts;
+                    const size_t ReserveSize = std::min(DocScores.size(), CurrentTermDocs.size());
+                    Intersection.reserve(ReserveSize);
+                    IntersectionCounts.reserve(ReserveSize);
 
                     for (const auto &Pair : CurrentTermDocs)
                     {
@@ -2448,6 +2507,79 @@ std::vector<Posting> InvertedIndex::Search(const std::string &Collection, const 
           }
      }
 
+     const double CollectionSizeDouble = static_cast<double>(CollectionSizeValue);
+     const double EffectiveB = PivotEnabled ? 0.0 : B;
+     const bool EffectiveTFIDFNormalization = NormalizeTFIDF && !PivotEnabled;
+     const double HybridWeightTotal = BM25Weight + TFIDFWeight;
+
+     struct TermScoringState
+     {
+          double BM25Idf = 0.0;
+          double TFIDFIdf = 0.0;
+     };
+
+     auto ComputeBM25Idf = [&](double DocFreq) -> double
+     {
+          if (!std::isfinite(DocFreq) || DocFreq <= 0.0 || CollectionSizeDouble <= 0.0 || DocFreq > CollectionSizeDouble)
+          {
+               return 0.0;
+          }
+
+          if (IdfMode == "smooth")
+          {
+               const double Denominator = DocFreq + 0.5 + IdfSmooth;
+               if (Denominator <= 0.0)
+               {
+                    return 0.0;
+               }
+
+               return std::log1p(std::max(0.0, (CollectionSizeDouble - DocFreq + 0.5) / Denominator));
+          }
+
+          const double Denominator = DocFreq + 0.5;
+          if (Denominator <= 0.0)
+          {
+               return 0.0;
+          }
+
+          double Idf = std::log((CollectionSizeDouble - DocFreq + 0.5) / Denominator);
+          if (IdfClampNegative && Idf < 0.0)
+          {
+               Idf = IdfFloorFactor * std::log1p(CollectionSizeDouble / DocFreq);
+          }
+
+          return std::isfinite(Idf) ? Idf : 0.0;
+     };
+
+     auto ComputeTFIDFIdf = [&](double DocFreq) -> double
+     {
+          if (!std::isfinite(DocFreq) || DocFreq <= 0.0 || CollectionSizeDouble <= 0.0 || DocFreq > CollectionSizeDouble)
+          {
+               return 0.0;
+          }
+
+          const double IdfDenominator = DocFreq + IdfSmooth;
+          const double IdfNumerator = CollectionSizeDouble + IdfSmooth;
+          if (IdfDenominator <= 0.0 || IdfNumerator <= 0.0)
+          {
+               return 0.0;
+          }
+
+          const double Idf = 1.0 + std::log(IdfNumerator / IdfDenominator);
+          return std::isfinite(Idf) && Idf > 0.0 ? Idf : 0.0;
+     };
+
+     std::vector<TermScoringState> TermScoringStates;
+     TermScoringStates.reserve(TermResults.size());
+     for (const auto &TermDocs : TermResults)
+     {
+          const double DocFreq = static_cast<double>(TermDocs.size());
+          TermScoringStates.push_back({
+              ComputeBM25Idf(DocFreq),
+              ComputeTFIDFIdf(DocFreq)
+          });
+     }
+
      if (Limit > 0 && CandidatePruneMultiplier > 0)
      {
           const size_t SafeLimitValue = static_cast<size_t>(Limit);
@@ -2483,6 +2615,10 @@ std::vector<Posting> InvertedIndex::Search(const std::string &Collection, const 
 
           double TotalScore = 0.0;
           std::vector<Posting> MatchedPostingsForProximity;
+          if (QueryTerms.size() >= 2)
+          {
+               MatchedPostingsForProximity.reserve(std::min(QueryTerms.size(), TermResults.size()));
+          }
 
           for (size_t TermIdx = 0; TermIdx < TermResults.size(); ++TermIdx)
           {
@@ -2493,35 +2629,65 @@ std::vector<Posting> InvertedIndex::Search(const std::string &Collection, const 
                     continue;
                }
 
-               MatchedPostingsForProximity.push_back(TermDocIt->second);
+               if (QueryTerms.size() >= 2 && !TermDocIt->second.Positions.empty())
+               {
+                    MatchedPostingsForProximity.push_back(TermDocIt->second);
+               }
+
                double TermFreq = static_cast<double>(TermDocIt->second.Positions.empty() ? 1 : TermDocIt->second.Positions.size());
-               double DocFreq = static_cast<double>(TermDocs.size());
+               const TermScoringState &TermState = TermScoringStates[TermIdx];
+               const double SafeDocLengthValue = std::max(1e-9, DocLengthValue);
 
                double TermScoreValue = 0.0;
-               const double EffectiveB = PivotEnabled ? 0.0 : B;
-               const bool EffectiveTFIDFNormalization = NormalizeTFIDF && !PivotEnabled;
 
                if (SearchAlgorithm == "bm25")
                {
-                    TermScoreValue = CalculateBM25PlusScore(TermFreq, DocFreq, DocLengthValue, AvgDocLengthValue, static_cast<double>(CollectionSizeValue), K1, EffectiveB, 0.0);
+                    const double NormalizedLengthValue = std::max(1e-9, SafeDocLengthValue / AvgDocLengthValue);
+                    const double DenominatorValue = TermFreq + K1 * (1.0 - EffectiveB + EffectiveB * NormalizedLengthValue);
+                    if (DenominatorValue > 0.0)
+                    {
+                         TermScoreValue = TermState.BM25Idf * ((TermFreq * (K1 + 1.0)) / DenominatorValue);
+                    }
                }
                else if (SearchAlgorithm == "tfidf")
                {
-                    TermScoreValue = CalculateTFIDFScore(TermFreq, DocFreq, DocLengthValue, static_cast<double>(CollectionSizeValue), IdfSmooth, EffectiveTFIDFNormalization);
+                    TermScoreValue = 1.0 + std::log(TermFreq);
+                    if (EffectiveTFIDFNormalization)
+                    {
+                         TermScoreValue /= std::sqrt(SafeDocLengthValue);
+                    }
+                    TermScoreValue *= TermState.TFIDFIdf;
                }
                else if (SearchAlgorithm == "hybrid")
                {
-                    const double WeightTotal = BM25Weight + TFIDFWeight;
-                    if (WeightTotal > 0.0)
+                    if (HybridWeightTotal > 0.0)
                     {
-                         const double BM25Score = CalculateBM25PlusScore(TermFreq, DocFreq, DocLengthValue, AvgDocLengthValue, static_cast<double>(CollectionSizeValue), K1, EffectiveB, 0.0);
-                         const double TFIDFScore = CalculateTFIDFScore(TermFreq, DocFreq, DocLengthValue, static_cast<double>(CollectionSizeValue), IdfSmooth, EffectiveTFIDFNormalization);
-                         TermScoreValue = ((BM25Weight * BM25Score) + (TFIDFWeight * TFIDFScore)) / WeightTotal;
+                         const double NormalizedLengthValue = std::max(1e-9, SafeDocLengthValue / AvgDocLengthValue);
+                         const double DenominatorValue = TermFreq + K1 * (1.0 - EffectiveB + EffectiveB * NormalizedLengthValue);
+                         double BM25Score = 0.0;
+                         if (DenominatorValue > 0.0)
+                         {
+                              BM25Score = TermState.BM25Idf * ((TermFreq * (K1 + 1.0)) / DenominatorValue);
+                         }
+
+                         double TFIDFScore = 1.0 + std::log(TermFreq);
+                         if (EffectiveTFIDFNormalization)
+                         {
+                              TFIDFScore /= std::sqrt(SafeDocLengthValue);
+                         }
+                         TFIDFScore *= TermState.TFIDFIdf;
+
+                         TermScoreValue = ((BM25Weight * BM25Score) + (TFIDFWeight * TFIDFScore)) / HybridWeightTotal;
                     }
                }
                else
                {
-                    TermScoreValue = CalculateBM25PlusScore(TermFreq, DocFreq, DocLengthValue, AvgDocLengthValue, static_cast<double>(CollectionSizeValue), K1, EffectiveB, Delta);
+                    const double NormalizedLengthValue = std::max(1e-9, SafeDocLengthValue / AvgDocLengthValue);
+                    const double DenominatorValue = TermFreq + K1 * (1.0 - EffectiveB + EffectiveB * NormalizedLengthValue);
+                    if (DenominatorValue > 0.0)
+                    {
+                         TermScoreValue = TermState.BM25Idf * (((TermFreq * (K1 + 1.0)) / DenominatorValue) + Delta);
+                    }
                }
 
                if (PivotEnabled && AvgDocLengthValue > 0.0)
@@ -2536,7 +2702,7 @@ std::vector<Posting> InvertedIndex::Search(const std::string &Collection, const 
                TotalScore += TermScoreValue * std::max(0.0, TermDocIt->second.Score);
           }
 
-          if (QueryTerms.size() >= 2)
+          if (QueryTerms.size() >= 2 && MatchedPostingsForProximity.size() >= 2 && DocMatchCounts[DocID] >= 2)
           {
                double ProximityBoostValue = CalculateProximityBoost(QueryTerms, MatchedPostingsForProximity, DocID);
 
@@ -2639,11 +2805,20 @@ std::vector<Posting> InvertedIndex::SearchPrefix(const std::string &Collection, 
      }
 
      std::unordered_map<std::string, Posting> DocScores;
+     const size_t ResultLimitValue = Limit > 0 ? static_cast<size_t>(Limit) : 0;
+     const size_t BroadPrefixTermLimit = NormalizedPrefix.size() <= 2 && ResultLimitValue > 0
+                                             ? std::max<size_t>(64, ResultLimitValue * 4)
+                                             : std::numeric_limits<size_t>::max();
+     size_t MatchedPrefixTerms = 0;
+     DocScores.reserve(ResultLimitValue > 0 ? std::min<size_t>(ResultLimitValue * 8, 8192) : 1024);
 
      for (const auto &[TermValue, Postings] : CollectionIt->second)
      {
-          if (TermValue.length() >= NormalizedPrefix.length() && TermValue.substr(0, NormalizedPrefix.length()) == NormalizedPrefix)
+          if (TermValue.length() >= NormalizedPrefix.length() &&
+              TermValue.compare(0, NormalizedPrefix.length(), NormalizedPrefix) == 0)
           {
+               ++MatchedPrefixTerms;
+
                for (const auto &Post : Postings)
                {
                     auto It = DocScores.find(Post.DocumentID);
@@ -2656,6 +2831,11 @@ std::vector<Posting> InvertedIndex::SearchPrefix(const std::string &Collection, 
                     {
                          It->second.Score += Post.Score * 0.9;
                     }
+               }
+
+               if (MatchedPrefixTerms >= BroadPrefixTermLimit)
+               {
+                    break;
                }
           }
      }
