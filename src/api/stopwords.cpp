@@ -105,6 +105,13 @@ static std::string StopwordJSONValueToText(const nlohmann::json &Value)
      return "";
 }
 
+static bool StopwordsEqual(const std::string &Left, const std::string &Right)
+{
+     const std::string NormalizedLeft = NormalizeStopwordValue(Left);
+     const std::string NormalizedRight = NormalizeStopwordValue(Right);
+     return !NormalizedLeft.empty() && NormalizedLeft == NormalizedRight;
+}
+
 static bool IsGlobalStopwordsPath(const std::string &Path)
 {
      return Path == "/stopwords/global" ||
@@ -479,24 +486,6 @@ HttpResponse SearchAPI::HandleCreateStopword(const HttpRequest &Request)
 
           auto &StopwordsArray = RootObj["stopwords"];
 
-          auto CaseInsensitiveEqual = [](const std::string &A, const std::string &B)
-          {
-               if (A.length() != B.length())
-               {
-                    return false;
-               }
-
-               for (size_t I = 0; I < A.length(); ++I)
-               {
-                    if (std::tolower(static_cast<unsigned char>(A[I])) != std::tolower(static_cast<unsigned char>(B[I])))
-                    {
-                         return false;
-                    }
-               }
-
-               return true;
-          };
-
           int AddedCount = 0;
 
           for (const auto &WordStr : WordsToAdd)
@@ -507,7 +496,7 @@ HttpResponse SearchAPI::HandleCreateStopword(const HttpRequest &Request)
                {
                     std::string ExistingWord = StopwordJSONValueToText(SW);
 
-                    if (!ExistingWord.empty() && CaseInsensitiveEqual(WordStr, ExistingWord))
+                    if (!ExistingWord.empty() && StopwordsEqual(WordStr, ExistingWord))
                     {
                          Exists = true;
                          break;
@@ -729,31 +718,13 @@ HttpResponse SearchAPI::HandleDeleteStopword(const HttpRequest &Request)
 
           auto &StopwordsArray = RootObj["stopwords"];
 
-          auto CaseInsensitiveEqual = [](const std::string &A, const std::string &B)
-          {
-               if (A.length() != B.length())
-               {
-                    return false;
-               }
-
-               for (size_t I = 0; I < A.length(); ++I)
-               {
-                    if (std::tolower(static_cast<unsigned char>(A[I])) != std::tolower(static_cast<unsigned char>(B[I])))
-                    {
-                         return false;
-                    }
-               }
-
-               return true;
-          };
-
           bool FoundVal = false;
 
           for (auto SWIt = StopwordsArray.begin(); SWIt != StopwordsArray.end(); ++SWIt)
           {
                std::string ExistingWord = StopwordJSONValueToText(*SWIt);
 
-               if (!ExistingWord.empty() && CaseInsensitiveEqual(WordStr, ExistingWord))
+               if (!ExistingWord.empty() && StopwordsEqual(WordStr, ExistingWord))
                {
                     StopwordsArray.erase(SWIt);
                     FoundVal = true;

@@ -120,19 +120,6 @@ static bool HasModulePreCheckFailure(const HttpResponse &Response)
      return Response.StatusCode != 0;
 }
 
-static std::string NormalizeSynonymTerm(const std::string &Value)
-{
-     std::string Result;
-     Result.reserve(Value.size());
-
-     for (unsigned char ch : Value)
-     {
-          Result.push_back(static_cast<char>(std::tolower(ch)));
-     }
-
-     return Result;
-}
-
 static std::string TrimSynonymTerm(const std::string &Value)
 {
      const size_t Start = Value.find_first_not_of(" \t\r\n");
@@ -144,6 +131,18 @@ static std::string TrimSynonymTerm(const std::string &Value)
 
      const size_t End = Value.find_last_not_of(" \t\r\n");
      return Value.substr(Start, End - Start + 1);
+}
+
+static std::string NormalizeSynonymTerm(const std::string &Value)
+{
+     std::string Result = TrimSynonymTerm(Value);
+
+     for (char &Ch : Result)
+     {
+          Ch = static_cast<char>(std::tolower(static_cast<unsigned char>(Ch)));
+     }
+
+     return Result;
 }
 
 static std::string GetSynonymSortValue(const nlohmann::json &Synonym, const std::string &SortBy)
@@ -726,17 +725,6 @@ HttpResponse SearchAPI::HandleGetSynonym(const HttpRequest &Request)
           return HttpResponse(Status::BAD_REQUEST, StatusText(Status::BAD_REQUEST), "application/json");
      }
 
-     if (Instance && Instance->Modules)
-     {
-          HttpResponse PreCheckResponse = ApplySynonymPreCheck(
-               RUN_MODULE_PRECHECK(OnPreDeleteSynonym, CollectionName, SynonymID, IsGlobalScope, Request.RemoteAddress, Request.APIKeyID, !Request.APIKeyID.empty()));
-
-          if (HasModulePreCheckFailure(PreCheckResponse))
-          {
-               return PreCheckResponse;
-          }
-     }
-
      /* Check if collection exists. */
 
      if (!IsGlobalScope)
@@ -924,7 +912,8 @@ HttpResponse SearchAPI::HandleDeleteSynonym(const HttpRequest &Request)
                {
                     Matches = true;
                }
-               else if (SynIt->contains("root") && (*SynIt)["root"] == SynonymID)
+               else if (SynIt->contains("root") && (*SynIt)["root"].is_string() &&
+                        NormalizeSynonymTerm((*SynIt)["root"].get<std::string>()) == NormalizeSynonymTerm(SynonymID))
                {
                     Matches = true;
                }

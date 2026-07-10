@@ -175,10 +175,10 @@ static CollectionRouteInfo BuildCollectionRouteInfo(std::string_view NormalizedP
      Info.IsDocumentContext = Info.IsCollectionPath && Info.Segments.size() == 5 && Info.SegmentEquals(2, "documents") && Info.SegmentEquals(4, "context");
      Info.IsDocumentsUpdateByQuery = Info.IsDocumentsChild && Info.Segments.size() == 4 && Info.SegmentEquals(3, "_update_by_query");
      Info.IsDocumentsDeleteByQuery = Info.IsDocumentsChild && Info.Segments.size() == 4 && Info.SegmentEquals(3, "_delete_by_query");
-     Info.IsSynonymsRoot = Info.IsCollectionPath && Info.Segments.size() == 3 && Info.SegmentEquals(2, "synonyms");
-     Info.IsSynonymsChild = Info.IsCollectionPath && Info.Segments.size() >= 4 && Info.SegmentEquals(2, "synonyms");
-     Info.IsStopwordsRoot = Info.IsCollectionPath && Info.Segments.size() == 3 && Info.SegmentEquals(2, "stopwords");
-     Info.IsStopwordsChild = Info.IsCollectionPath && Info.Segments.size() >= 4 && Info.SegmentEquals(2, "stopwords");
+     Info.IsSynonymsRoot = Info.IsCollectionPath && Info.Segments.size() == 3 && (Info.SegmentEquals(2, "synonyms") || Info.SegmentEquals(2, "synonym_sets"));
+     Info.IsSynonymsChild = Info.IsCollectionPath && Info.Segments.size() >= 4 && (Info.SegmentEquals(2, "synonyms") || Info.SegmentEquals(2, "synonym_sets"));
+     Info.IsStopwordsRoot = Info.IsCollectionPath && Info.Segments.size() == 3 && (Info.SegmentEquals(2, "stopwords") || Info.SegmentEquals(2, "stopword_sets"));
+     Info.IsStopwordsChild = Info.IsCollectionPath && Info.Segments.size() >= 4 && (Info.SegmentEquals(2, "stopwords") || Info.SegmentEquals(2, "stopword_sets"));
      Info.IsOverridesRoot = Info.IsCollectionPath && Info.Segments.size() == 3 && Info.SegmentEquals(2, "overrides");
      Info.IsOverridesChild = Info.IsCollectionPath && Info.Segments.size() >= 4 && Info.SegmentEquals(2, "overrides");
      Info.IsCurationsRoot = Info.IsCollectionPath && Info.Segments.size() == 3 && (Info.SegmentEquals(2, "curations") || Info.SegmentEquals(2, "curation_sets"));

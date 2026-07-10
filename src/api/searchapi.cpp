@@ -1281,7 +1281,7 @@ std::string SearchAPI::ExtractSynonymIdFromPath(const std::string &Path)
 {
      /* Extract synonym ID from paths like /collections/{name}/synonyms/{id}. */
 
-     std::regex SynonymRegex(R"(/collections/[^/]+/synonyms/([^/]+))");
+     std::regex SynonymRegex(R"(/collections/[^/]+/(?:synonyms|synonym_sets)/([^/]+))");
      std::smatch Match;
 
      if (std::regex_search(Path, Match, SynonymRegex))
@@ -1305,7 +1305,7 @@ std::string SearchAPI::ExtractStopwordFromPath(const std::string &Path)
 {
      /* Extract stopword from paths like /collections/{name}/stopwords/{word}. */
 
-     std::regex StopwordRegex(R"(/collections/[^/]+/stopwords/([^/]+))");
+     std::regex StopwordRegex(R"(/collections/[^/]+/(?:stopwords|stopword_sets)/([^/]+))");
      std::smatch Match;
 
      if (std::regex_search(Path, Match, StopwordRegex))
