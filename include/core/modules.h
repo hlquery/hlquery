@@ -283,6 +283,39 @@ struct SearchEvent
      bool Distributed = false;
 };
 
+/* Shared payload emitted when analytics creates a flush snapshot. */
+
+struct AnalyticsSnapshotEvent
+{
+     /* Module or subsystem that produced the snapshot. */
+
+     std::string Source;
+
+     /* Inclusive snapshot window start in Unix epoch milliseconds. */
+
+     uint64_t WindowStartMS = 0;
+
+     /* Exclusive snapshot window end in Unix epoch milliseconds. */
+
+     uint64_t WindowEndMS = 0;
+
+     /* Number of aggregate buckets included in the snapshot. */
+
+     uint64_t BucketCount = 0;
+
+     /* Number of individual query/click rows included in the snapshot. */
+
+     uint64_t QueryEventCount = 0;
+
+     /* Total counted requests represented by the aggregate buckets. */
+
+     uint64_t TotalRequests = 0;
+
+     /* Serialized payload size in bytes, when available. */
+
+     uint64_t PayloadBytes = 0;
+};
+
 /* Describes whether a pre-check hook permits or blocks an operation. */
 
 enum class ModulePreCheckAction
@@ -394,6 +427,7 @@ enum class ModuleHook : size_t
      OnLinksDisconnect,
      OnRepair,
      OnAnalyticsClick,
+     OnSnapshot,
 
      /* Sentinel used to size hook tracking storage. */
 
@@ -573,6 +607,8 @@ class RuntimeModule
                !std::is_same_v<decltype(&Derived::OnRepair), decltype(&RuntimeModule::OnRepair)>;
           Hooks[static_cast<size_t>(ModuleHook::OnAnalyticsClick)] =
                !std::is_same_v<decltype(&Derived::OnAnalyticsClick), decltype(&RuntimeModule::OnAnalyticsClick)>;
+          Hooks[static_cast<size_t>(ModuleHook::OnSnapshot)] =
+               !std::is_same_v<decltype(&Derived::OnSnapshot), decltype(&RuntimeModule::OnSnapshot)>;
 
           return Hooks;
      }
@@ -1356,6 +1392,13 @@ class RuntimeModule
           (void)RequesterIP;
           (void)RequesterUser;
           (void)Authenticated;
+     }
+
+     /* Called when a module produces a durable analytics snapshot. */
+
+     virtual void OnSnapshot(const AnalyticsSnapshotEvent& Event)
+     {
+          (void)Event;
      }
 
      /* Returns metadata for the module HTTP API surface. */

@@ -184,8 +184,14 @@ sub collect_module_annotations {
         my $stem = $relative;
         $stem =~ s/\.cpp$//;
         my $module_name = $relative;
-        $module_name =~ s{/.*$}{};
-        $module_name =~ s/\.cpp$//;
+        if ($module_name =~ m{^extra/(m_[^/]+)/}) {
+            $module_name = $1;
+        } elsif ($module_name =~ m{^extra/(m_[^/]+)\.cpp$}) {
+            $module_name = $1;
+        } else {
+            $module_name =~ s{/.*$}{};
+            $module_name =~ s/\.cpp$//;
+        }
 
         open my $fh, '<', $source or next;
         while (my $line = <$fh>) {

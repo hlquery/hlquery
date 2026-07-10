@@ -1689,6 +1689,20 @@ class ServerConfig
           return DistributedTransportBurst;
      }
 
+     /* Returns max persistent peer sockets kept per remote node. */
+
+     int GetDistributedConnectionsPerPeer() const
+     {
+          return DistributedConnectionsPerPeer;
+     }
+
+     /* Returns idle peer socket lifetime in milliseconds. */
+
+     int GetDistributedTransportIdleMS() const
+     {
+          return DistributedTransportIdleMS;
+     }
+
      /* Returns whether peer sockets should auto-reconnect with timer backoff. */
 
      bool GetDistributedAutoReconnect() const
@@ -2468,7 +2482,15 @@ class ServerConfig
 
      /* Number of requests per persistent peer socket before reconnect. */
 
-     int DistributedTransportBurst = 32;
+     int DistributedTransportBurst = 256;
+
+     /* Number of reusable HTTP sockets to keep warm per peer. */
+
+     int DistributedConnectionsPerPeer = 4;
+
+     /* Idle lifetime for reusable peer sockets. */
+
+     int DistributedTransportIdleMS = 30000;
 
      /* Whether failed peer sockets should reconnect automatically with timer backoff. */
 

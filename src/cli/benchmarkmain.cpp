@@ -2030,7 +2030,7 @@ bool CreateFakeCollections(const std::string &base_url, const std::string &auth_
                }
 
                const FakeSynonymSeed &seed = collection_synonyms[local_index];
-               const std::string synonym_id = "fake_syn_" + spec.Name + "_" + std::to_string(local_index + 1);
+               const std::string synonym_id = spec.Name + "_syn_" + std::to_string(local_index + 1);
                const bool synonym_added = client.AddSynonym(collection_name, synonym_id, seed.Root, seed.Synonyms);
 
                if (g_benchmark_should_stop.load())
@@ -2092,7 +2092,7 @@ bool CreateFakeCollections(const std::string &base_url, const std::string &auth_
           }
 
           const std::string &target_collection = inserted_fake_collections[i];
-          const std::string alias_name = "fake_alias_" + std::to_string(i + 1);
+          const std::string alias_name = target_collection + "_alias";
           const bool alias_created = client.CreateAlias(alias_name, target_collection);
 
           if (g_benchmark_should_stop.load())
@@ -2124,7 +2124,7 @@ bool CreateFakeCollections(const std::string &base_url, const std::string &auth_
           }
 
           const FakeSynonymSeed &seed = kFakeGlobalSynonymSeeds[i];
-          const std::string synonym_id = "fake_global_syn_" + std::to_string(i + 1);
+          const std::string synonym_id = "benchmark_global_syn_" + std::to_string(i + 1);
           const bool synonym_added = client.AddGlobalSynonym(synonym_id, seed.Root, seed.Synonyms);
 
           if (g_benchmark_should_stop.load())

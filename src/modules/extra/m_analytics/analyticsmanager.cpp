@@ -40,6 +40,7 @@
 #include "common/searchpool.h"
 #include "core/config.h"
 #include "core/hlquery.h"
+#include "core/modulemanager.h"
 #include "modules/extra/m_analytics/analyticsmanager.h"
 #include "vendor/json/json.hpp"
 
@@ -625,8 +626,8 @@ void AnalyticsManager::WorkerLoop()
                if (Instance && Instance->Logs)
                {
                     Instance->Logs->Debug("analytics", "Analytics worker wakeup: exit=" + std::string(ShouldExit ? "true" : "false") +
-                                                           ", flush_now=" + std::string(FlushNowRequested ? "true" : "false") +
-                                                           ", flush_interval=" + std::to_string(FlushIntervalSeconds) + "s.");
+                                                            ", flush_now=" + std::string(FlushNowRequested ? "true" : "false") +
+                                                            ", flush_interval=" + std::to_string(FlushIntervalSeconds) + "s.");
                }
 
                (void)FlushStartupEvent();
@@ -734,6 +735,16 @@ void AnalyticsManager::FlushOnce()
           return;
      }
 
+     AnalyticsSnapshotEvent SnapshotEvent;
+     SnapshotEvent.Source = "analytics";
+     SnapshotEvent.WindowStartMS = SnapshotStartMS;
+     SnapshotEvent.WindowEndMS = SnapshotEndMS;
+     SnapshotEvent.BucketCount = Snapshot.size();
+     SnapshotEvent.QueryEventCount = QuerySnapshot.size();
+     SnapshotEvent.TotalRequests = TotalRequests;
+     SnapshotEvent.PayloadBytes = Payload.size();
+     FOREACH_MOD(OnSnapshot, SnapshotEvent);
+
      if (!PostPayload(Payload))
      {
           std::lock_guard<std::mutex> Lock(BucketsMutex);
@@ -755,7 +766,7 @@ void AnalyticsManager::FlushOnce()
      if (Instance && Instance->Logs)
      {
           Instance->Logs->Normal("analytics", "Analytics usage flush sent: buckets=" + std::to_string(Snapshot.size()) +
-                                                  ", total_requests=" + std::to_string(TotalRequests) + ".");
+                                                   ", total_requests=" + std::to_string(TotalRequests) + ".");
      }
 }
 
@@ -1261,7 +1272,7 @@ bool AnalyticsManager::PostPayload(const std::string &Body)
      if (!Success && Instance && Instance->Logs)
      {
           Instance->Logs->Normal("analytics", "Analytics flush failed: remote endpoint returned status " +
-                                                  std::to_string(StatusCode) + ".");
+                                                   std::to_string(StatusCode) + ".");
      }
 
      if (!Success)

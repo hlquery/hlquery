@@ -203,19 +203,17 @@ void PrintCommandDetails(HLQueryCLI &CLI, const nlohmann::json &Commands)
                     continue;
                }
 
-               rows.push_back({
-                    Parameter.contains("name") ? JSONValueToString(Parameter["name"]) : "",
-                    Parameter.contains("type") ? JSONValueToString(Parameter["type"]) : "",
-                    Parameter.contains("required") ? JSONValueToString(Parameter["required"]) : "false",
-                    Parameter.contains("description") ? JSONValueToString(Parameter["description"]) : ""
-               });
+               rows.push_back({Parameter.contains("name") ? JSONValueToString(Parameter["name"]) : "",
+                               Parameter.contains("type") ? JSONValueToString(Parameter["type"]) : "",
+                               Parameter.contains("required") ? JSONValueToString(Parameter["required"]) : "false",
+                               Parameter.contains("description") ? JSONValueToString(Parameter["description"]) : ""});
           }
 
           if (!rows.empty())
           {
                CLI.PrintTable({"Name", "Type", "Required", "Description"}, rows);
-         }
-    }
+          }
+     }
 }
 
 /* Formats module requirement metadata for display. */
@@ -279,6 +277,16 @@ LoadedModuleFilter ParseLoadedModuleFilter(const std::string &FilterText, bool &
      return LoadedModuleFilter::All;
 }
 
+std::string NormalizeModuleCommandName(const std::string &ModuleName)
+{
+     if (ModuleName.rfind("m_", 0) == 0 && ModuleName.size() > 2)
+     {
+          return ModuleName.substr(2);
+     }
+
+     return ModuleName;
+}
+
 bool IsCoreLoadedModule(const std::string &ModuleName)
 {
      return ModuleName.rfind("core_", 0) == 0;
@@ -314,11 +322,10 @@ void PrintDocumentsTable(HLQueryCLI &CLI, const nlohmann::json &Values)
                continue;
           }
 
-          rows.push_back({
-               Value.contains("collection") ? JSONValueToString(Value["collection"]) : "",
-               Value.contains("id") ? JSONValueToString(Value["id"]) : "",
-               Value.contains("title") ? JSONValueToString(Value["title"]) : "",
-               Value.contains("content_preview") ? JSONValueToString(Value["content_preview"]) : ""});
+          rows.push_back({Value.contains("collection") ? JSONValueToString(Value["collection"]) : "",
+                          Value.contains("id") ? JSONValueToString(Value["id"]) : "",
+                          Value.contains("title") ? JSONValueToString(Value["title"]) : "",
+                          Value.contains("content_preview") ? JSONValueToString(Value["content_preview"]) : ""});
      }
 
      if (!rows.empty())
@@ -339,11 +346,10 @@ void PrintHitsTable(HLQueryCLI &CLI, const nlohmann::json &Values)
           }
 
           const nlohmann::json &document = Value.contains("document") && Value["document"].is_object() ? Value["document"] : Value;
-          rows.push_back({
-               Value.contains("collection") ? JSONValueToString(Value["collection"]) : "",
-               document.contains("id") ? JSONValueToString(document["id"]) : "",
-               document.contains("title") ? JSONValueToString(document["title"]) : "",
-               Value.contains("score") ? JSONValueToString(Value["score"]) : (Value.contains("text_match") ? JSONValueToString(Value["text_match"]) : "")});
+          rows.push_back({Value.contains("collection") ? JSONValueToString(Value["collection"]) : "",
+                          document.contains("id") ? JSONValueToString(document["id"]) : "",
+                          document.contains("title") ? JSONValueToString(document["title"]) : "",
+                          Value.contains("score") ? JSONValueToString(Value["score"]) : (Value.contains("text_match") ? JSONValueToString(Value["text_match"]) : "")});
      }
 
      if (!rows.empty())
@@ -353,6 +359,36 @@ void PrintHitsTable(HLQueryCLI &CLI, const nlohmann::json &Values)
      else
      {
           std::cout << "No matching documents were returned. Try a broader query or adjust your filters." << std::endl;
+     }
+}
+
+void PrintSnapshotsTable(HLQueryCLI &CLI, const nlohmann::json &Values)
+{
+     std::vector<std::vector<std::string>> rows;
+
+     for (const auto &Value : Values)
+     {
+          if (!Value.is_object())
+          {
+               continue;
+          }
+
+          rows.push_back({Value.contains("id") ? JSONValueToString(Value["id"]) : "",
+                          Value.contains("source") ? JSONValueToString(Value["source"]) : "",
+                          Value.contains("created_at_ms") ? JSONValueToString(Value["created_at_ms"]) : "",
+                          Value.contains("total_requests") ? JSONValueToString(Value["total_requests"]) : "",
+                          Value.contains("bucket_count") ? JSONValueToString(Value["bucket_count"]) : "",
+                          Value.contains("query_event_count") ? JSONValueToString(Value["query_event_count"]) : "",
+                          Value.contains("payload_bytes") ? JSONValueToString(Value["payload_bytes"]) : ""});
+     }
+
+     if (!rows.empty())
+     {
+          CLI.PrintTable({"ID", "Source", "Created MS", "Total Requests", "Buckets", "Query Events", "Payload Bytes"}, rows);
+     }
+     else
+     {
+          std::cout << "No snapshots were returned." << std::endl;
      }
 }
 
@@ -413,6 +449,12 @@ void PrintModuleJSON(HLQueryCLI &CLI, const nlohmann::json &Root)
           if (Root.contains("hits") && Root["hits"].is_array())
           {
                PrintHitsTable(CLI, Root["hits"]);
+               return;
+          }
+
+          if (Root.contains("snapshots") && Root["snapshots"].is_array())
+          {
+               PrintSnapshotsTable(CLI, Root["snapshots"]);
                return;
           }
 
@@ -632,24 +674,26 @@ void HLQueryCLI::ListModules(const std::string &filter)
 
 void HLQueryCLI::ShowModuleSyntax(const std::string &module_name)
 {
-     HTTPResponse response = MakeRequest("GET", "/modules/" + hlquery_cli::UrlEncode(module_name) + "/syntax");
+     const std::string normalized_module_name = NormalizeModuleCommandName(module_name);
+     HTTPResponse response = MakeRequest("GET", "/modules/" + hlquery_cli::UrlEncode(normalized_module_name) + "/syntax");
 
-     if (CheckRequestFailed(response, false, "/modules/" + module_name + "/syntax"))
+     if (CheckRequestFailed(response, false, "/modules/" + normalized_module_name + "/syntax"))
      {
           return;
      }
 
-     PrintModuleResponse(*this, module_name, response.Body);
+     PrintModuleResponse(*this, normalized_module_name, response.Body);
 }
 
 void HLQueryCLI::RunModuleCommand(const std::string &module_name, const std::string &route, const std::vector<std::string> &args)
 {
+     const std::string normalized_module_name = NormalizeModuleCommandName(module_name);
      std::string effective_route = route;
      std::vector<std::string> effective_args = args;
      bool async_requested = false;
      if (!route.empty())
      {
-          const std::string syntax_path = "/modules/" + hlquery_cli::UrlEncode(module_name) + "/syntax";
+          const std::string syntax_path = "/modules/" + hlquery_cli::UrlEncode(normalized_module_name) + "/syntax";
           HTTPResponse syntax_response = MakeRequest("GET", syntax_path);
 
           if (!CheckRequestFailed(syntax_response, false, syntax_path))
@@ -741,10 +785,10 @@ void HLQueryCLI::RunModuleCommand(const std::string &module_name, const std::str
 
      const std::string normalized_route = effective_route.empty() ? "" : "/" + hlquery_cli::UrlEncode(effective_route);
 
-     const std::string path = "/modules/" + hlquery_cli::UrlEncode(module_name) + normalized_route;
+     const std::string path = "/modules/" + hlquery_cli::UrlEncode(normalized_module_name) + normalized_route;
 
      const int request_timeout_seconds =
-          (module_name == "llama") ? std::max(60, DefaultTimeoutSeconds) : DefaultTimeoutSeconds;
+          (normalized_module_name == "llama") ? std::max(60, DefaultTimeoutSeconds) : DefaultTimeoutSeconds;
 
      HTTPResponse response = MakeRequest("POST", path, body_json.dump(), request_timeout_seconds);
 
@@ -753,7 +797,7 @@ void HLQueryCLI::RunModuleCommand(const std::string &module_name, const std::str
           return;
      }
 
-     if (module_name == "llama" && !async_requested && response.StatusCode == 202)
+     if (normalized_module_name == "llama" && !async_requested && response.StatusCode == 202)
      {
           std::string job_id;
           if (TryParseQueuedLlamaJobID(response.Body, job_id))
@@ -781,12 +825,13 @@ void HLQueryCLI::RunModuleCommand(const std::string &module_name, const std::str
           }
      }
 
-     PrintModuleResponse(*this, module_name, response.Body, json_output);
+     PrintModuleResponse(*this, normalized_module_name, response.Body, json_output);
 }
 
 void HLQueryCLI::LoadModule(const std::string &module_name)
 {
-     const std::string path = "/modules/load/" + hlquery_cli::UrlEncode(module_name);
+     const std::string normalized_module_name = NormalizeModuleCommandName(module_name);
+     const std::string path = "/modules/load/" + hlquery_cli::UrlEncode(normalized_module_name);
      HTTPResponse response = MakeRequest("POST", path, "{}");
 
      if (CheckRequestFailed(response, false, path))
@@ -799,7 +844,8 @@ void HLQueryCLI::LoadModule(const std::string &module_name)
 
 void HLQueryCLI::UnloadModule(const std::string &module_name)
 {
-     const std::string path = "/modules/unload/" + hlquery_cli::UrlEncode(module_name);
+     const std::string normalized_module_name = NormalizeModuleCommandName(module_name);
+     const std::string path = "/modules/unload/" + hlquery_cli::UrlEncode(normalized_module_name);
      HTTPResponse response = MakeRequest("POST", path, "{}");
 
      if (CheckRequestFailed(response, false, path))

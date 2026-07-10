@@ -99,9 +99,9 @@ static void PruneAliasesForDeletedCollection(TalkState &state, const std::string
 }
 
 static bool ResolveTalkAliasCollection(const TalkState &state,
-                                      HLQueryCLI &cli,
-                                      const std::string &name,
-                                      std::string &resolved_collection_name)
+                                       HLQueryCLI &cli,
+                                       const std::string &name,
+                                       std::string &resolved_collection_name)
 {
      const std::string lowered = ToLower(name);
      const auto alias_it = state.CommandAliases.find(lowered);
@@ -160,7 +160,7 @@ static std::string RewriteSQLFromAlias(const TalkState &state, HLQueryCLI &cli, 
      {
           const unsigned char current = static_cast<unsigned char>(sql[name_end]);
 
-          if (std::isalnum(current) != 0 || sql[name_end] == '_' || sql[name_end] == '-' )
+          if (std::isalnum(current) != 0 || sql[name_end] == '_' || sql[name_end] == '-')
           {
                ++name_end;
                continue;
@@ -446,7 +446,9 @@ std::string NormalizeHostValue(const std::string &value)
      std::string normalized = TrimWhitespace(value);
 
      std::transform(normalized.begin(), normalized.end(), normalized.begin(), [](unsigned char character)
-                    { return static_cast<char>(std::tolower(character)); });
+                    {
+                         return static_cast<char>(std::tolower(character));
+                    });
 
      return normalized;
 }
@@ -699,7 +701,9 @@ bool ConnectTalkToEndpoint(HLQueryCLI &cli,
 std::string ToLower(std::string value)
 {
      std::transform(value.begin(), value.end(), value.begin(), [](unsigned char character)
-                    { return static_cast<char>(std::tolower(character)); });
+                    {
+                         return static_cast<char>(std::tolower(character));
+                    });
 
      return value;
 }
@@ -884,7 +888,9 @@ bool IsUnsignedInteger(const std::string &value)
      }
 
      return std::all_of(value.begin(), value.end(), [](unsigned char character)
-                        { return std::isdigit(character) != 0; });
+                        {
+                             return std::isdigit(character) != 0;
+                        });
 }
 
 /* Parse optional list pagination arguments. */
@@ -1489,8 +1495,7 @@ static std::string NormalizeTalkAskQuery(std::string query)
           "find documents ",
           "find docs ",
           "search documents ",
-          "search docs "
-     };
+          "search docs "};
 
      for (const std::string &prefix : prefixes)
      {
@@ -1727,11 +1732,11 @@ bool FetchAndPrintCollectionList(HLQueryCLI &cli,
           const nlohmann::json &collections = root["collections"];
           const size_t display_count = collections.size();
           const size_t total_count = root.contains("total") && root["total"].is_number_unsigned()
-                                      ? root["total"].get<size_t>()
-                                      : display_count;
+                                          ? root["total"].get<size_t>()
+                                          : display_count;
           const size_t found_count = root.contains("found") && root["found"].is_number_unsigned()
-                                      ? root["found"].get<size_t>()
-                                      : display_count;
+                                          ? root["found"].get<size_t>()
+                                          : display_count;
 
           state.LastListedCollections.clear();
           state.LastListedDocumentIds.clear();
@@ -2042,9 +2047,9 @@ bool ResolveCollectionDocumentReference(HLQueryCLI &cli,
 /* Resolve a numeric collection reference against the last listed names. */
 
 bool EnsureCachedCollectionNames(HLQueryCLI &cli,
-                                TalkState &state,
-                                const std::string &value,
-                                std::string &error_message)
+                                 TalkState &state,
+                                 const std::string &value,
+                                 std::string &error_message)
 {
      error_message.clear();
 
@@ -2201,6 +2206,7 @@ void PrintHelp()
      std::cout << "  modules [1|0]  List loaded modules, core only with 1, optional only with 0\n";
      std::cout << "  ask QUERY  Search the active collection, for example: ask find docs about boston\n";
      std::cout << "  module NAME [info|syntax|ROUTE [args...]]  Run one module command\n";
+     std::cout << "  module ROUTE NAME [args...]  Alternate module route syntax\n";
      std::cout << "  load NAME  Load one runtime module\n";
      std::cout << "  unload NAME  Unload one runtime module\n";
      std::cout << "  loadmodule NAME  Alias for load\n";
@@ -2299,56 +2305,55 @@ std::string GetCurrentLocation(const TalkState &state)
 std::vector<std::string> GetTalkCommands()
 {
      return {
-         "alias",
-         "aliases",
-         "uname",
-         "id",
-         "server",
-         "me",
-         "help",
-         "connect",
-         "run",
-         "use",
-         "lang",
-         "pwd",
-         "back",
-         "cd",
-         "l",
-         "ls",
-         "als",
-         "show",
-         "search",
-         "exec",
-         "algorithm",
-         "open",
-         "select",
-         "update",
-         "count",
-         "migrate",
-         "copy",
-         "delete",
-         "maybe",
-         "stats",
-         "ping",
-         "links",
-         "bw",
-         "modules",
-         "ask",
-         "module",
-         "load",
-         "loadmodule",
-         "unload",
-         "unloadmodule",
-         "dbsize",
-         "flush",
-         "reset",
-         "unalias",
-         "uptime",
-         "exit",
-         "quit",
-         "sql:"};
+          "alias",
+          "aliases",
+          "uname",
+          "id",
+          "server",
+          "me",
+          "help",
+          "connect",
+          "run",
+          "use",
+          "lang",
+          "pwd",
+          "back",
+          "cd",
+          "l",
+          "ls",
+          "als",
+          "show",
+          "search",
+          "exec",
+          "algorithm",
+          "open",
+          "select",
+          "update",
+          "count",
+          "migrate",
+          "copy",
+          "delete",
+          "maybe",
+          "stats",
+          "ping",
+          "links",
+          "bw",
+          "modules",
+          "ask",
+          "module",
+          "load",
+          "loadmodule",
+          "unload",
+          "unloadmodule",
+          "dbsize",
+          "flush",
+          "reset",
+          "unalias",
+          "uptime",
+          "exit",
+          "quit",
+          "sql:"};
 }
-
 
 bool IsBuiltinTalkCommand(const std::string &command)
 {
@@ -3918,15 +3923,39 @@ bool ExecuteTalkCommand(const std::string &line,
      {
           if (parts.size() < 2)
           {
-               TalkPrintError("Usage: module <name> [info|syntax|<route> [args...]]");
+               TalkPrintError("Usage: module <name> [info|syntax|<route> [args...]] or module <route> <name> [args...]");
                return true;
           }
 
-          const std::string module_name = parts[1];
+          std::string module_name = parts[1];
 
           if (module_name == "info" && parts.size() == 2)
           {
                cli.ListModules();
+               return true;
+          }
+
+          if (parts.size() >= 3 &&
+              (parts[1] == "syntax" || parts[1] == "info" || parts[1] == "routes" ||
+               parts[1] == "last" || parts[1] == "snapshots"))
+          {
+               const std::string route = parts[1];
+               module_name = parts[2];
+
+               if (route == "syntax" || route == "info")
+               {
+                    cli.ShowModuleSyntax(module_name);
+                    return true;
+               }
+
+               std::vector<std::string> module_args;
+
+               for (size_t index = 3; index < parts.size(); ++index)
+               {
+                    module_args.push_back(parts[index]);
+               }
+
+               cli.RunModuleCommand(module_name, route, module_args);
                return true;
           }
 

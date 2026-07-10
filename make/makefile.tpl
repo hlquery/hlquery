@@ -348,13 +348,14 @@ SRCS_TOP += $(SQL_SRCS)
 
 # Runtime-loadable modules
 CORE_MODULE_SRCS := $(wildcard $(SRC_DIR)/modules/core_*.cpp) $(wildcard $(SRC_DIR)/modules/m_core_*.cpp)
-MODULE_SIMPLE_SRCS := $(CORE_MODULE_SRCS) $(filter-out $(CORE_MODULE_SRCS),$(wildcard $(SRC_DIR)/modules/m*.cpp))
 EXTRA_MODULE_SIMPLE_SRCS := ${EXTRA_MODULE_SIMPLE_SRCS}
 EXTRA_MODULE_DIR_SRCS := ${EXTRA_MODULE_DIR_SRCS}
 EXTRA_MODULE_LIBS := ${EXTRA_MODULE_LIBS}
 EXTRA_MODULE_KNOWN_NAMES := ${EXTRA_MODULE_KNOWN_NAMES}
 EXTRA_MODULE_ENABLED_NAMES := ${EXTRA_MODULE_ENABLED_NAMES}
-MODULE_DIRS := $(filter-out $(EXTRA_MODULE_ENABLED_NAMES),$(notdir $(shell find -L $(SRC_DIR)/modules -mindepth 1 -maxdepth 1 -type d -name 'm_*' 2>/dev/null)))
+EXTRA_MODULE_SIMPLE_LINKS := $(addprefix $(SRC_DIR)/modules/,$(addsuffix .cpp,$(EXTRA_MODULE_KNOWN_NAMES)))
+MODULE_SIMPLE_SRCS := $(CORE_MODULE_SRCS) $(filter-out $(CORE_MODULE_SRCS) $(EXTRA_MODULE_SIMPLE_LINKS),$(wildcard $(SRC_DIR)/modules/m*.cpp))
+MODULE_DIRS := $(filter-out $(EXTRA_MODULE_KNOWN_NAMES),$(notdir $(shell find -L $(SRC_DIR)/modules -mindepth 1 -maxdepth 1 -type d -name 'm_*' 2>/dev/null)))
 MODULE_DIR_SRCS := $(foreach mod,$(MODULE_DIRS),$(wildcard $(SRC_DIR)/modules/$(mod)/*.cpp))
 MODULE_SIMPLE_SRCS += $(EXTRA_MODULE_SIMPLE_SRCS)
 MODULE_DIR_SRCS += $(EXTRA_MODULE_DIR_SRCS)

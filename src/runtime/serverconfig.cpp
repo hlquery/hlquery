@@ -1962,6 +1962,8 @@ void ServerConfig::ApplyConfiguration()
 
           DistributedPersistentTransport = DistributedSettingsTag->GetBool("persistent", DistributedPersistentTransport);
           DistributedTransportBurst = DistributedSettingsTag->GetInt("burst", DistributedTransportBurst);
+          DistributedConnectionsPerPeer = DistributedSettingsTag->GetInt("connections_per_peer", DistributedConnectionsPerPeer);
+          DistributedTransportIdleMS = DistributedSettingsTag->GetInt("idle_ms", DistributedTransportIdleMS);
           DistributedAutoReconnect = DistributedSettingsTag->GetBool("autoconnect", DistributedAutoReconnect);
           DistributedReconnectMS = DistributedSettingsTag->GetInt("reconnect_ms", DistributedReconnectMS);
           if (DistributedTransportBurst < 1)
@@ -1971,6 +1973,22 @@ void ServerConfig::ApplyConfiguration()
           else if (DistributedTransportBurst > 1000)
           {
                DistributedTransportBurst = 1000;
+          }
+          if (DistributedConnectionsPerPeer < 1)
+          {
+               DistributedConnectionsPerPeer = 1;
+          }
+          else if (DistributedConnectionsPerPeer > 64)
+          {
+               DistributedConnectionsPerPeer = 64;
+          }
+          if (DistributedTransportIdleMS < 1000)
+          {
+               DistributedTransportIdleMS = 1000;
+          }
+          else if (DistributedTransportIdleMS > 600000)
+          {
+               DistributedTransportIdleMS = 600000;
           }
           if (DistributedReconnectMS < 100)
           {
@@ -1983,7 +2001,7 @@ void ServerConfig::ApplyConfiguration()
 
           if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
           {
-               Instance->Logs->Debug("serverconfig", "Loaded distributed_search: enabled=" + std::string(DistributedSearchEnabled ? "true" : "false") + ", mode=" + DistributedSearchMode + ", prefer_local=" + std::string(DistributedSearchPreferLocal ? "true" : "false") + ", timeout_ms=" + std::to_string(DistributedSearchTimeoutMS) + ", persistent=" + std::string(DistributedPersistentTransport ? "true" : "false") + ", burst=" + std::to_string(DistributedTransportBurst) + ", autoconnect=" + std::string(DistributedAutoReconnect ? "true" : "false") + ", reconnect_ms=" + std::to_string(DistributedReconnectMS) + ".");
+               Instance->Logs->Debug("serverconfig", "Loaded distributed_search: enabled=" + std::string(DistributedSearchEnabled ? "true" : "false") + ", mode=" + DistributedSearchMode + ", prefer_local=" + std::string(DistributedSearchPreferLocal ? "true" : "false") + ", timeout_ms=" + std::to_string(DistributedSearchTimeoutMS) + ", persistent=" + std::string(DistributedPersistentTransport ? "true" : "false") + ", burst=" + std::to_string(DistributedTransportBurst) + ", connections_per_peer=" + std::to_string(DistributedConnectionsPerPeer) + ", idle_ms=" + std::to_string(DistributedTransportIdleMS) + ", autoconnect=" + std::string(DistributedAutoReconnect ? "true" : "false") + ", reconnect_ms=" + std::to_string(DistributedReconnectMS) + ".");
           }
      }
 

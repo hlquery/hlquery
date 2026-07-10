@@ -26,10 +26,10 @@
 #include "core/config.h"
 
 #ifdef HLQUERY_HAS_OPENSSL
-     
-     #include <openssl/err.h>
-     #include <openssl/ssl.h>
-     
+
+#include <openssl/err.h>
+#include <openssl/ssl.h>
+
 #endif
 
 #include <sstream>
@@ -316,6 +316,7 @@ bool HLQueryCLI::CheckRequestFailed(const HTTPResponse &response, bool silent_on
                     {
                          error_msg = error_json["error"].get<std::string>();
                          error_msg += " (HTTP " + std::to_string(response.StatusCode) + ")";
+                         error_details.clear();
                     }
 
                     if (error_json.contains("message") && error_json["message"].is_string())
@@ -1050,7 +1051,6 @@ HLQueryCLI::HTTPResponse HLQueryCLI::MakeRequest(const std::string &method, cons
 
      if (bytes_received < 0)
      {
-
 #ifdef HLQUERY_HAS_OPENSSL
 
           if (SSLObj)
