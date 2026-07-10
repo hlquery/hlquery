@@ -28,6 +28,7 @@ Unless a maintainer asks otherwise, target `unstable` for new contributions.
 ### Code Style
 
 - Follow the existing code style in the surrounding files.
+- Use the project style guide in [`etc/hlog/CODE_STYLE.md`](./etc/hlog/CODE_STYLE.md) for comments, braces, indentation, naming, logging, includes, classes, and review checks.
 - C++ formatting is defined in [`.clang-format`](./.clang-format).
 - Keep include ordering as written unless the file already uses a different local pattern.
 - Avoid unrelated formatting-only changes in functional pull requests.

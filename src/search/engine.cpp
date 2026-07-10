@@ -710,6 +710,8 @@ size_t DBManager::BatchSet(const std::vector<std::pair<std::string, std::string>
      }
 
      rocksdb::WriteBatch batch;
+     size_t cumulative_batch_size = 0;
+
      for (const auto &kv : key_values)
      {
           const auto validation = ValidateWALEntrySize(kv.first.size(), kv.second.size(), false);
@@ -720,7 +722,31 @@ size_t DBManager::BatchSet(const std::vector<std::pair<std::string, std::string>
                return 0;
           }
 
+          if (cumulative_batch_size > (std::numeric_limits<size_t>::max() - validation.TotalLength))
+          {
+               WALEntryValidationResult overflow_validation;
+               overflow_validation.Valid = false;
+               overflow_validation.Error = WALEntryValidationError::SizeOverflow;
+               overflow_validation.KeyLength = 0;
+               overflow_validation.ValueLength = validation.TotalLength;
+               overflow_validation.TotalLength = std::numeric_limits<size_t>::max();
+               overflow_validation.MaxAllowedLength = MAX_WAL_ENTRY_SIZE_FOR_MODE(false);
+               overflow_validation.IsRecoveryMode = false;
+               RecordWriteValidationFailure("BatchSet.cumulative", overflow_validation, false);
+               return 0;
+          }
+
+          cumulative_batch_size += validation.TotalLength;
+
           batch.Put(kv.first, kv.second);
+     }
+
+     const auto batch_validation = ValidateWALEntrySize(0, cumulative_batch_size, false);
+
+     if (!batch_validation.Valid)
+     {
+          RecordWriteValidationFailure("BatchSet.cumulative", batch_validation, false);
+          return 0;
      }
 
      ClearLastWriteError();

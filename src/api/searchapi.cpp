@@ -68,6 +68,24 @@ static std::string ToLowerCopy(const std::string &Value)
      return Result;
 }
 
+static std::string NormalizePathForExtraction(const std::string &Path)
+{
+     std::string NormalizedPath = Path;
+     const size_t QueryPos = NormalizedPath.find('?');
+
+     if (QueryPos != std::string::npos)
+     {
+          NormalizedPath = NormalizedPath.substr(0, QueryPos);
+     }
+
+     if (NormalizedPath.size() > 1 && NormalizedPath.back() == '/')
+     {
+          NormalizedPath.pop_back();
+     }
+
+     return NormalizedPath;
+}
+
 static std::string GetHeaderValueInsensitive(const std::map<std::string, std::string> &Headers, const std::string &Name)
 {
      for (const auto &Pair : Headers)
@@ -1163,10 +1181,11 @@ std::string SearchAPI::ExtractCollectionFromPath(const std::string &Path)
 {
      /* Extract collection name from paths like /collections/{name}/documents. */
 
-     std::regex CollectionRegex(R"(/collections/([^/]+))");
+     const std::string NormalizedPath = NormalizePathForExtraction(Path);
+     std::regex CollectionRegex(R"(^/collections/([^/]+)(?:/|$))");
      std::smatch Match;
 
-     if (std::regex_search(Path, Match, CollectionRegex))
+     if (std::regex_search(NormalizedPath, Match, CollectionRegex))
      {
           std::string CollectionName = Match[1].str();
 
@@ -1209,10 +1228,11 @@ std::string SearchAPI::ExtractDocumentIdFromPath(const std::string &Path)
 {
      /* Extract document ID from paths like /collections/{name}/documents/{id}. */
 
-     std::regex DocumentRegex(R"(/collections/[^/]+/documents/([^/]+))");
+     const std::string NormalizedPath = NormalizePathForExtraction(Path);
+     std::regex DocumentRegex(R"(^/collections/[^/]+/documents/([^/]+)(?:/context)?$)");
      std::smatch Match;
 
-     if (std::regex_search(Path, Match, DocumentRegex))
+     if (std::regex_search(NormalizedPath, Match, DocumentRegex))
      {
           std::string DocID = Match[1].str();
 
@@ -1256,13 +1276,13 @@ std::string SearchAPI::ExtractDocumentIdFromPath(const std::string &Path)
 
           /* Check for valid characters (alphanumeric, underscore, hyphen). */
 
-          for (char C : DocID)
+          for (unsigned char C : DocID)
           {
                if (!std::isalnum(C) && C != '_' && C != '-' && C != '.')
                {
                     if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
                     {
-                         Instance->Logs->Debug("search_api", "Document ID contains invalid character: " + std::string(1, C) + " in ID: " + DocID + ".");
+                         Instance->Logs->Debug("search_api", "Document ID contains invalid character: " + std::string(1, static_cast<char>(C)) + " in ID: " + DocID + ".");
                     }
 
                     return "";
@@ -1281,17 +1301,18 @@ std::string SearchAPI::ExtractSynonymIdFromPath(const std::string &Path)
 {
      /* Extract synonym ID from paths like /collections/{name}/synonyms/{id}. */
 
-     std::regex SynonymRegex(R"(/collections/[^/]+/(?:synonyms|synonym_sets)/([^/]+))");
+     const std::string NormalizedPath = NormalizePathForExtraction(Path);
+     std::regex SynonymRegex(R"(^/collections/[^/]+/(?:synonyms|synonym_sets)/([^/]+)$)");
      std::smatch Match;
 
-     if (std::regex_search(Path, Match, SynonymRegex))
+     if (std::regex_search(NormalizedPath, Match, SynonymRegex))
      {
           return Match[1].str();
      }
 
-     std::regex GlobalSynonymSetRegex(R"(/synonym_sets/global/(?:items/)?([^/]+))");
+     std::regex GlobalSynonymSetRegex(R"(^/synonym_sets/global/(?:items/)?([^/]+)$)");
 
-     if (std::regex_search(Path, Match, GlobalSynonymSetRegex))
+     if (std::regex_search(NormalizedPath, Match, GlobalSynonymSetRegex))
      {
           return Match[1].str();
      }
@@ -1305,24 +1326,25 @@ std::string SearchAPI::ExtractStopwordFromPath(const std::string &Path)
 {
      /* Extract stopword from paths like /collections/{name}/stopwords/{word}. */
 
-     std::regex StopwordRegex(R"(/collections/[^/]+/(?:stopwords|stopword_sets)/([^/]+))");
+     const std::string NormalizedPath = NormalizePathForExtraction(Path);
+     std::regex StopwordRegex(R"(^/collections/[^/]+/(?:stopwords|stopword_sets)/([^/]+)$)");
      std::smatch Match;
 
-     if (std::regex_search(Path, Match, StopwordRegex))
+     if (std::regex_search(NormalizedPath, Match, StopwordRegex))
      {
           return Match[1].str();
      }
 
      /* Extract stopword from global paths like /stopwords/global/{word}. */
 
-     std::regex GlobalStopwordRegex(R"(/stopwords/global/([^/]+))");
-     if (std::regex_search(Path, Match, GlobalStopwordRegex))
+     std::regex GlobalStopwordRegex(R"(^/stopwords/global/([^/]+)$)");
+     if (std::regex_search(NormalizedPath, Match, GlobalStopwordRegex))
      {
           return Match[1].str();
      }
 
-     std::regex GlobalStopwordSetRegex(R"(/stopword_sets/global/(?:items/)?([^/]+))");
-     if (std::regex_search(Path, Match, GlobalStopwordSetRegex))
+     std::regex GlobalStopwordSetRegex(R"(^/stopword_sets/global/(?:items/)?([^/]+)$)");
+     if (std::regex_search(NormalizedPath, Match, GlobalStopwordSetRegex))
      {
           return Match[1].str();
      }
@@ -1336,10 +1358,11 @@ std::string SearchAPI::ExtractOverrideIdFromPath(const std::string &Path)
 {
      /* Extract override ID from paths like /collections/{name}/overrides/{id}. */
 
-     std::regex OverrideRegex(R"(/collections/[^/]+/(?:overrides|curations|curation_sets)/([^/]+))");
+     const std::string NormalizedPath = NormalizePathForExtraction(Path);
+     std::regex OverrideRegex(R"(^/collections/[^/]+/(?:overrides|curations|curation_sets)/([^/]+)$)");
      std::smatch Match;
 
-     if (std::regex_search(Path, Match, OverrideRegex))
+     if (std::regex_search(NormalizedPath, Match, OverrideRegex))
      {
           return Match[1].str();
      }
@@ -1353,10 +1376,11 @@ std::string SearchAPI::ExtractAliasNameFromPath(const std::string &Path)
 {
      /* Extract alias name from paths like /aliases/{name}. */
 
-     std::regex AliasRegex(R"(/aliases/([^/]+))");
+     const std::string NormalizedPath = NormalizePathForExtraction(Path);
+     std::regex AliasRegex(R"(^/aliases/([^/]+)$)");
      std::smatch Match;
 
-     if (std::regex_search(Path, Match, AliasRegex))
+     if (std::regex_search(NormalizedPath, Match, AliasRegex))
      {
           std::string AliasName = Match[1].str();
 
@@ -1385,20 +1409,20 @@ std::string SearchAPI::ExtractAliasNameFromPath(const std::string &Path)
                return "";
           }
 
-          for (char C : AliasName)
+          for (unsigned char C : AliasName)
           {
                if (!std::isalnum(C) && C != '_' && C != '-' && C != '.')
                {
                     if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
                     {
-                         Instance->Logs->Debug("search_api", "Alias name contains invalid character: " + std::string(1, C) + " in name: " + AliasName + ".");
+                         Instance->Logs->Debug("search_api", "Alias name contains invalid character: " + std::string(1, static_cast<char>(C)) + " in name: " + AliasName + ".");
                     }
 
                     return "";
                }
           }
 
-          if (!std::isalpha(AliasName[0]) && AliasName[0] != '_')
+          if (!std::isalpha(static_cast<unsigned char>(AliasName[0])) && AliasName[0] != '_')
           {
                if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
                {

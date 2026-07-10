@@ -2806,10 +2806,6 @@ std::vector<Posting> InvertedIndex::SearchPrefix(const std::string &Collection, 
 
      std::unordered_map<std::string, Posting> DocScores;
      const size_t ResultLimitValue = Limit > 0 ? static_cast<size_t>(Limit) : 0;
-     const size_t BroadPrefixTermLimit = NormalizedPrefix.size() <= 2 && ResultLimitValue > 0
-                                             ? std::max<size_t>(64, ResultLimitValue * 4)
-                                             : std::numeric_limits<size_t>::max();
-     size_t MatchedPrefixTerms = 0;
      DocScores.reserve(ResultLimitValue > 0 ? std::min<size_t>(ResultLimitValue * 8, 8192) : 1024);
 
      for (const auto &[TermValue, Postings] : CollectionIt->second)
@@ -2817,8 +2813,6 @@ std::vector<Posting> InvertedIndex::SearchPrefix(const std::string &Collection, 
           if (TermValue.length() >= NormalizedPrefix.length() &&
               TermValue.compare(0, NormalizedPrefix.length(), NormalizedPrefix) == 0)
           {
-               ++MatchedPrefixTerms;
-
                for (const auto &Post : Postings)
                {
                     auto It = DocScores.find(Post.DocumentID);
@@ -2831,11 +2825,6 @@ std::vector<Posting> InvertedIndex::SearchPrefix(const std::string &Collection, 
                     {
                          It->second.Score += Post.Score * 0.9;
                     }
-               }
-
-               if (MatchedPrefixTerms >= BroadPrefixTermLimit)
-               {
-                    break;
                }
           }
      }
@@ -2863,7 +2852,7 @@ std::vector<Posting> InvertedIndex::SearchPrefix(const std::string &Collection, 
           }
      }
 
-     if (Instance->Logs->GetDebugMode())
+     if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
      {
           Instance->Logs->Debug("inverted_index", "SearchPrefix: Found " + std::to_string(Results.size()) + " results for prefix '" + Prefix + "'.");
      }
