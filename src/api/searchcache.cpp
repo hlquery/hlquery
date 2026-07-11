@@ -190,6 +190,8 @@
           return std::max(GlobalEpoch, It == CollectionGenerations.end() ? 0 : It->second);
      }
 
+/* Implements the configure helper. */
+
 void SearchResponseCache::Configure(uint64_t TTLMS, size_t MaxSizeBytes)
 {
      std::lock_guard<std::mutex> Lock(CacheMutex);
@@ -197,6 +199,8 @@ void SearchResponseCache::Configure(uint64_t TTLMS, size_t MaxSizeBytes)
      CacheMaxSizeBytes = std::max<size_t>(1, MaxSizeBytes);
      TrimLocked();
 }
+
+/* Returns stats values. */
 
 SearchResponseCache::Stats SearchResponseCache::GetStats()
 {
@@ -211,11 +215,15 @@ SearchResponseCache::Stats SearchResponseCache::GetStats()
      return Result;
 }
 
+/* Returns generation values. */
+
 uint64_t SearchResponseCache::GetGeneration(const std::string& Collection)
 {
      std::lock_guard<std::mutex> Lock(CacheMutex);
      return CurrentGenerationLocked(Collection);
 }
+
+/* Returns a cached search response when available. */
 
 bool SearchResponseCache::Get(const std::string& Namespace,
                               const HttpRequest& Request,
@@ -255,6 +263,8 @@ bool SearchResponseCache::Get(const std::string& Namespace,
      return true;
 }
 
+/* Implements the put helper. */
+
 void SearchResponseCache::Put(const std::string& Namespace,
                               const HttpRequest& Request,
                               const std::string& Collection,
@@ -293,6 +303,8 @@ void SearchResponseCache::Put(const std::string& Namespace,
      CompactOrderLocked();
 }
 
+/* Implements the invalidate collection helper. */
+
 void SearchResponseCache::InvalidateCollection(const std::string& Collection)
 {
      std::lock_guard<std::mutex> Lock(CacheMutex);
@@ -329,6 +341,8 @@ void SearchResponseCache::InvalidateCollection(const std::string& Collection)
      EraseGroup("*");
 }
 
+/* Implements the invalidate all helper. */
+
 void SearchResponseCache::InvalidateAll()
 {
      std::lock_guard<std::mutex> Lock(CacheMutex);
@@ -338,6 +352,8 @@ void SearchResponseCache::InvalidateAll()
      KeysByCollection.clear();
      CacheSizeBytes = 0;
 }
+
+/* Implements the flush expired helper. */
 
 size_t SearchResponseCache::FlushExpired(uint64_t MaxAgeMS)
 {

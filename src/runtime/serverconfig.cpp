@@ -2353,6 +2353,74 @@ bool ServerConfig::RemoveClusterNode(const std::string &Endpoint, std::string *O
      return Removed;
 }
 
+bool ServerConfig::AddSlaveNode(const std::string &Endpoint, std::string *OutError)
+{
+     std::string Error;
+     std::string Normalized = NormalizeClusterEndpoint(Endpoint, &Error);
+     if (Normalized.empty())
+     {
+          if (OutError)
+          {
+               *OutError = Error.empty() ? "Invalid endpoint" : Error;
+          }
+          return false;
+     }
+
+     std::lock_guard<std::mutex> Lock(ClusterNodesMutex);
+
+     for (const auto &Existing : SlaveNodes)
+     {
+          if (NormalizeClusterEndpoint(Existing, nullptr) == Normalized)
+          {
+               return true;
+          }
+     }
+
+     SlaveNodes.push_back(Normalized);
+     std::sort(SlaveNodes.begin(), SlaveNodes.end());
+     SlaveNodes.erase(std::unique(SlaveNodes.begin(), SlaveNodes.end()), SlaveNodes.end());
+     return true;
+}
+
+bool ServerConfig::RemoveSlaveNode(const std::string &Endpoint, std::string *OutError)
+{
+     std::string Error;
+     std::string Normalized = NormalizeClusterEndpoint(Endpoint, &Error);
+     if (Normalized.empty())
+     {
+          if (OutError)
+          {
+               *OutError = Error.empty() ? "Invalid endpoint" : Error;
+          }
+          return false;
+     }
+
+     std::lock_guard<std::mutex> Lock(ClusterNodesMutex);
+
+     bool Removed = false;
+     std::vector<std::string> Remaining;
+     Remaining.reserve(SlaveNodes.size());
+
+     for (const auto &Existing : SlaveNodes)
+     {
+          if (NormalizeClusterEndpoint(Existing, nullptr) == Normalized)
+          {
+               Removed = true;
+               continue;
+          }
+
+          Remaining.push_back(Existing);
+     }
+
+     if (Removed)
+     {
+          SlaveNodes.swap(Remaining);
+          SlavePeerTokens.erase(Normalized);
+     }
+
+     return Removed;
+}
+
 void ServerConfig::ClearClusterNodes()
 {
      std::lock_guard<std::mutex> Lock(ClusterNodesMutex);

@@ -65,6 +65,8 @@ static std::string ToLowerCopy(const std::string &Value)
      return Out;
 }
 
+/* Returns a request header value using case-insensitive lookup. */
+
 static std::string GetHeaderValueInsensitive(const std::map<std::string, std::string> &Headers, const std::string &Name)
 {
      auto It = Headers.find(Name);
@@ -87,10 +89,14 @@ static std::string GetHeaderValueInsensitive(const std::map<std::string, std::st
      return "";
 }
 
+/* Formats a steady-clock duration as milliseconds. */
+
 static std::string DurationToMillisecondsString(const std::chrono::steady_clock::duration &Duration)
 {
      return std::to_string(std::chrono::duration_cast<std::chrono::milliseconds>(Duration).count());
 }
+
+/* Returns a trimmed copy of the input string. */
 
 static std::string TrimCopy(const std::string &Value)
 {
@@ -105,12 +111,16 @@ static std::string TrimCopy(const std::string &Value)
      return Value.substr(Start, End - Start + 1);
 }
 
+/* Builds a unique replication operation id. */
+
 static std::string BuildReplicationOperationID()
 {
      const uint64_t TimestampMS = Instance ? static_cast<uint64_t>(Instance->NowMs()) : static_cast<uint64_t>(time(nullptr) * 1000);
      static std::atomic<uint64_t> Sequence{1};
      return std::to_string(TimestampMS) + "-" + std::to_string(Sequence.fetch_add(1, std::memory_order_relaxed));
 }
+
+/* Ensures replication requests have a stable operation id. */
 
 static void EnsureReplicationOperationID(HttpRequest &Request)
 {
@@ -121,6 +131,8 @@ static void EnsureReplicationOperationID(HttpRequest &Request)
 
      Request.Headers["X-HLQ-Replication-Op"] = BuildReplicationOperationID();
 }
+
+/* Parses node endpoint input. */
 
 static bool ParseNodeEndpoint(const std::string &Raw, std::string &HostOut, int &PortOut, bool &UseSSLOut)
 {
@@ -142,6 +154,8 @@ static bool ParseNodeEndpoint(const std::string &Raw, std::string &HostOut, int 
      return true;
 }
 
+/* Checks whether a host name refers to the local node. */
+
 static bool IsLocalHostName(const std::string &Host)
 {
      std::string Lower = ToLowerCopy(Host);
@@ -156,6 +170,8 @@ struct NodeEndpoint
      bool UseSSL = false;
      bool IsLocal = false;
 };
+
+/* Builds a readable label for a distributed node. */
 
 static std::string BuildDistributedNodeLabel(const NodeEndpoint &Node)
 {
@@ -213,6 +229,8 @@ struct PersistentPeerPool
 static std::mutex PersistentPeerSocketMutex;
 static std::unordered_map<std::string, std::shared_ptr<PersistentPeerPool>> PersistentPeerSocketPool;
 
+/* Clamps peer reconnect delays to supported bounds. */
+
 static int ClampPeerReconnectMS(int ReconnectMS)
 {
      if (ReconnectMS < 100)
@@ -222,6 +240,8 @@ static int ClampPeerReconnectMS(int ReconnectMS)
 
      return std::min(ReconnectMS, kPeerReconnectBackoffMaxMS);
 }
+
+/* Computes the reconnect delay for a peer after failures. */
 
 static int ComputePeerReconnectDelayMS(int BaseReconnectMS, int ConsecutiveFailures, const std::string &Key)
 {
@@ -240,6 +260,8 @@ static int ComputePeerReconnectDelayMS(int BaseReconnectMS, int ConsecutiveFailu
      return DelayMS;
 }
 
+/* Clears reconnect state for one peer. */
+
 static void ResetPeerReconnectState(const std::string &Key)
 {
      std::lock_guard<std::mutex> Guard(PersistentPeerSocketMutex);
@@ -256,6 +278,8 @@ static void ResetPeerReconnectState(const std::string &Key)
      It->second->LastError.clear();
 }
 
+/* Clears reconnect state for every peer. */
+
 static void ResetAllPeerReconnectState()
 {
      std::lock_guard<std::mutex> Guard(PersistentPeerSocketMutex);
@@ -267,6 +291,8 @@ static void ResetAllPeerReconnectState()
           Pair.second->LastError.clear();
      }
 }
+
+/* Captures reconnect diagnostics for one peer. */
 
 static PeerReconnectDiagnostics SnapshotPeerReconnectState(const std::string &Key)
 {
@@ -292,6 +318,8 @@ static PeerReconnectDiagnostics SnapshotPeerReconnectState(const std::string &Ke
 
      return Diagnostics;
 }
+
+/* Acquires the shared persistent socket pool for a peer. */
 
 static std::shared_ptr<PersistentPeerPool> AcquirePersistentPeerPool(const std::string &Key, int MaxConnections)
 {
@@ -319,6 +347,8 @@ static std::shared_ptr<PersistentPeerPool> AcquirePersistentPeerPool(const std::
      PersistentPeerSocketPool[Key] = Pool;
      return Pool;
 }
+
+/* Closes a persistent peer socket and clears its TLS state. */
 
 static void ClosePersistentPeerSocket(PersistentPeerSocket &Socket)
 {
@@ -363,6 +393,8 @@ struct PeerRequestResult
      int Attempts = 0;
 };
 
+/* Checks whether secondary peer token exists. */
+
 static bool HasSecondaryPeerToken(PeerTokenSource TokenSource,
                                   const std::string &Endpoint,
                                   std::string *OutPrimary,
@@ -397,6 +429,8 @@ static bool HasSecondaryPeerToken(PeerTokenSource TokenSource,
 
      return FoundTokens && !SecondaryToken.empty();
 }
+
+/* Builds configured endpoints data. */
 
 static bool BuildConfiguredEndpoints(const std::vector<std::string> &ConfiguredNodes, std::vector<NodeEndpoint> &OutNodes)
 {
@@ -459,6 +493,8 @@ static bool BuildConfiguredEndpoints(const std::vector<std::string> &ConfiguredN
      return !OutNodes.empty();
 }
 
+/* Builds cluster endpoints data. */
+
 static bool BuildClusterEndpoints(std::vector<NodeEndpoint> &OutNodes)
 {
      if (!Instance || !Instance->Config)
@@ -469,6 +505,8 @@ static bool BuildClusterEndpoints(std::vector<NodeEndpoint> &OutNodes)
      return BuildConfiguredEndpoints(Instance->Config->GetClusterNodes(), OutNodes);
 }
 
+/* Builds slave endpoints data. */
+
 static bool BuildSlaveEndpoints(std::vector<NodeEndpoint> &OutNodes)
 {
      if (!Instance || !Instance->Config)
@@ -478,6 +516,8 @@ static bool BuildSlaveEndpoints(std::vector<NodeEndpoint> &OutNodes)
 
      return BuildConfiguredEndpoints(Instance->Config->GetSlaveNodes(), OutNodes);
 }
+
+/* Implements the snapshot collection document ids helper. */
 
 static std::vector<std::string> SnapshotCollectionDocumentIDs(const std::string &Collection)
 {
@@ -506,6 +546,8 @@ static std::vector<std::string> SnapshotCollectionDocumentIDs(const std::string 
      return IDs;
 }
 
+/* Checks whether replication replica endpoint applies. */
+
 static bool IsReplicationReplicaEndpoint(const std::string &Endpoint)
 {
      if (!Instance || !Instance->Config)
@@ -516,6 +558,8 @@ static bool IsReplicationReplicaEndpoint(const std::string &Endpoint)
      const auto SlaveNodes = Instance->Config->GetSlaveNodes();
      return std::find(SlaveNodes.begin(), SlaveNodes.end(), TrimCopy(Endpoint)) != SlaveNodes.end();
 }
+
+/* Implements the send HTTP request helper. */
 
 static bool SendHttpRequest(const std::string &Host,
                             int Port,
@@ -1359,6 +1403,8 @@ static bool SendHttpRequest(const std::string &Host,
      return true;
 }
 
+/* Implements the execute peer request with fallback helper. */
+
 static bool ExecutePeerRequestWithFallback(const std::string &Host,
                                            int Port,
                                            const std::string &Endpoint,
@@ -1459,6 +1505,8 @@ static bool ExecutePeerRequestWithFallback(const std::string &Host,
      return true;
 }
 
+/* Implements the serialize collection config for replication helper. */
+
 static std::string SerializeCollectionConfigForReplication(const CollectionConfig &Config)
 {
      nlohmann::json Body;
@@ -1480,6 +1528,8 @@ static std::string SerializeCollectionConfigForReplication(const CollectionConfi
 
      return Body.dump();
 }
+
+/* Implements the serialize document batch for replication helper. */
 
 static std::string SerializeDocumentBatchForReplication(const std::vector<Document> &Docs)
 {
@@ -1505,6 +1555,8 @@ static std::string SerializeDocumentBatchForReplication(const std::vector<Docume
      return Body.dump();
 }
 
+/* Implements the score for hit helper. */
+
 static float ScoreForHit(const SearchHit &Hit)
 {
      if (Hit.HybridScore > 0.0f)
@@ -1517,6 +1569,8 @@ static float ScoreForHit(const SearchHit &Hit)
      }
      return Hit.TextMatch;
 }
+
+/* Implements the merge facet counts helper. */
 
 static void MergeFacetCounts(std::map<std::string, std::map<std::string, int>> &FacetCounts,
                              const nlohmann::json &FacetsJSON)
@@ -1549,6 +1603,8 @@ static void MergeFacetCounts(std::map<std::string, std::map<std::string, int>> &
           }
      }
 }
+
+/* Implements the append hits from JSON helper. */
 
 static void AppendHitsFromJSON(const nlohmann::json &JSONObj,
                                std::vector<SearchHit> &OutHits,
@@ -1745,6 +1801,8 @@ bool SearchAPI::GetReplicationNodeState(const std::string &Endpoint,
 
      return HasState;
 }
+
+/* Implements the try distributed search helper. */
 
 bool SearchAPI::TryDistributedSearch(const HttpRequest &Request,
                                      const std::string &Collection,
@@ -2608,6 +2666,8 @@ bool SearchAPI::ShouldAttemptReplication(const HttpRequest &Request) const
 
      return true;
 }
+
+/* Builds replication slave state key data. */
 
 static std::string BuildReplicationSlaveStateKey(const std::string &Endpoint)
 {

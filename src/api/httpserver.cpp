@@ -79,6 +79,8 @@ struct RouteContext
 
 static RouteContext BuildRouteContext(const HttpRequest &Request, SearchAPI *API = nullptr);
 
+/* Checks whether use async HTTP dispatch should be used. */
+
 static bool ShouldUseAsyncHttpDispatch()
 {
      static const bool UseThreadPool = []
@@ -130,10 +132,14 @@ static bool ShouldUseAsyncHttpDispatch()
 
 std::string UrlDecode(const std::string &Str, bool DecodePlusAsSpace = true);
 
+/* Checks whether hex digit applies. */
+
 static bool IsHexDigit(char C)
 {
      return std::isxdigit(static_cast<unsigned char>(C)) != 0;
 }
+
+/* Implements the hex digit value helper. */
 
 static int HexDigitValue(char C)
 {
@@ -145,6 +151,8 @@ static int HexDigitValue(char C)
      C = static_cast<char>(std::tolower(static_cast<unsigned char>(C)));
      return 10 + (C - 'a');
 }
+
+/* Checks whether valid request framing headers exists. */
 
 static bool HasValidRequestFramingHeaders(const std::string &HeadersPart, std::string *Error)
 {
@@ -239,6 +247,8 @@ static void LogAccessControl(const std::string &Reason, const HttpRequest &Reque
      }
 }
 
+/* Implements the authorize HTTP request helper. */
+
 static bool AuthorizeHttpRequest(HttpRequest &Request, HttpResponse &Response)
 {
      if (!Instance || !Instance->Users)
@@ -309,6 +319,8 @@ static bool AuthorizeHttpRequest(HttpRequest &Request, HttpResponse &Response)
      return true;
 }
 
+/* Returns a request header value using case-insensitive lookup. */
+
 static std::string GetHeaderValueInsensitive(const std::map<std::string, std::string> &Headers, const std::string &Name)
 {
      std::string LowerName = Name;
@@ -333,6 +345,8 @@ static std::string GetHeaderValueInsensitive(const std::map<std::string, std::st
      return "";
 }
 
+/* Checks whether health like path applies. */
+
 static bool IsHealthLikePath(const std::string &Path)
 {
      return Path == "/health" || Path == "/health/" ||
@@ -342,6 +356,8 @@ static bool IsHealthLikePath(const std::string &Path)
             Path == "/ping" || Path == "/ping/" ||
             Path == "/stats" || Path == "/stats/";
 }
+
+/* Checks whether document ingestion request applies. */
 
 static bool IsDocumentIngestionRequest(const std::string &Method, const std::string &Path)
 {
@@ -353,6 +369,8 @@ static bool IsDocumentIngestionRequest(const std::string &Method, const std::str
             Path.find("/documents/maybe") == std::string::npos &&
             Path.find("/documents/export") == std::string::npos;
 }
+
+/* Checks whether replication hop request applies. */
 
 static bool IsReplicationHopRequest(const HttpRequest &Request)
 {
@@ -378,6 +396,8 @@ static bool IsReplicationHopRequest(const HttpRequest &Request)
 
      return false;
 }
+
+/* Checks whether authorized replication request applies. */
 
 static bool IsAuthorizedReplicationRequest(const HttpRequest &Request)
 {
@@ -432,6 +452,8 @@ static bool IsAuthorizedReplicationRequest(const HttpRequest &Request)
      return false;
 }
 
+/* Implements the record analytics for response helper. */
+
 static void RecordAnalyticsForResponse(const HttpRequest &Request, const HttpResponse &Response, RouteAction ActionVal)
 {
      FOREACH_MOD(OnRequestAnalytics, Request, Response, ActionVal);
@@ -442,10 +464,14 @@ static void RecordAnalyticsForResponse(const HttpRequest &Request, const HttpRes
      }
 }
 
+/* Implements the record analytics for response helper. */
+
 static void RecordAnalyticsForResponse(const HttpRequest &Request, const HttpResponse &Response)
 {
      RecordAnalyticsForResponse(Request, Response, ResolveRouteWithFallback(Request));
 }
+
+/* Checks whether mutating request method applies. */
 
 static bool IsMutatingRequestMethod(const HttpRequest &Request)
 {
@@ -454,6 +480,8 @@ static bool IsMutatingRequestMethod(const HttpRequest &Request)
 
 static std::atomic<uint64_t> BackpressureConnectionRejects{0};
 static std::atomic<uint64_t> BackpressureQueueRejects{0};
+
+/* Builds backpressure response data. */
 
 static HttpResponse BuildBackpressureResponse(const std::string &Source, const std::string &Message)
 {
@@ -468,6 +496,8 @@ static HttpResponse BuildBackpressureResponse(const std::string &Source, const s
 
      return Response;
 }
+
+/* Builds backpressure raw response data. */
 
 static std::string BuildBackpressureRawResponse(const std::string &Source, const std::string &Message)
 {
@@ -488,6 +518,8 @@ static std::string BuildBackpressureRawResponse(const std::string &Source, const
      return Response;
 }
 
+/* Implements the trim HTTP field value helper. */
+
 static std::string TrimHTTPFieldValue(const std::string &Value)
 {
      size_t Start = Value.find_first_not_of(" \t");
@@ -500,6 +532,8 @@ static std::string TrimHTTPFieldValue(const std::string &Value)
      size_t End = Value.find_last_not_of(" \t");
      return Value.substr(Start, End - Start + 1);
 }
+
+/* Extracts auth token from request values. */
 
 static bool ExtractAuthTokenFromRequest(const HttpRequest &Request, std::string &OutAuthHeader, std::string &OutToken)
 {
@@ -1681,6 +1715,8 @@ void HttpConnection::ProcessRequest()
 }
 
 /* SetAdvancedSocketOptions sets advanced socket options for performance. */
+
+/* Updates set advanced socket options values. */
 
 void HttpConnection::SetAdvancedSocketOptions(int FDValue)
 {
@@ -3372,6 +3408,8 @@ void HttpConnection::CleanupConnection()
      }
 }
 
+/* Forces the HTTP connection to close. */
+
 void HttpConnection::ForceClose()
 {
      if (!HasFD())
@@ -3903,6 +3941,8 @@ HttpServer::HttpServer(const BindConfig &Conf) : Config(Conf), Running(false)
                    });
 }
 
+/* Releases HTTP server resources on shutdown. */
+
 HttpServer::~HttpServer()
 {
      Stop();
@@ -4234,6 +4274,8 @@ bool HttpServer::Start()
 
 /* SetReadyToAccept sets ready to accept flag. */
 
+/* Updates set ready to accept values. */
+
 void HttpServer::SetReadyToAccept(bool Ready)
 {
      bool OldValue = ReadyToAcceptValue.load();
@@ -4247,6 +4289,8 @@ void HttpServer::SetReadyToAccept(bool Ready)
 }
 
 /* SetLoading sets loading flag. */
+
+/* Updates set loading values. */
 
 void HttpServer::SetLoading(bool Loading)
 {
@@ -4394,6 +4438,8 @@ HttpResponse HttpServer::HandleHealth(const HttpRequest &Request)
 
      return Builder.Build();
 }
+
+/* Handles ready requests. */
 
 HttpResponse HttpServer::HandleReady(const HttpRequest &Request)
 {
@@ -4943,10 +4989,14 @@ APIKeyAction MapRouteToKeyAction(RouteAction ActionVal)
      }
 }
 
+/* Resolves route with fallback values. */
+
 static RouteAction ResolveRouteWithFallback(const HttpRequest &Request)
 {
      return BuildRouteContext(Request).ActionVal;
 }
+
+/* Checks whether public route action applies. */
 
 static bool IsPublicRouteAction(RouteAction ActionVal)
 {
@@ -4958,6 +5008,8 @@ static bool IsPublicRouteAction(RouteAction ActionVal)
              ActionVal == RouteAction::LinksList ||
              ActionVal == RouteAction::LinksPing);
 }
+
+/* Checks whether admin only route action applies. */
 
 static bool IsAdminOnlyRouteAction(RouteAction ActionVal)
 {
@@ -4986,6 +5038,8 @@ static bool IsAdminOnlyRouteAction(RouteAction ActionVal)
              ActionVal == RouteAction::StorageStatus);
 }
 
+/* Normalizes request path values. */
+
 static std::string NormalizeRequestPath(const std::string &Path)
 {
      std::string NormalizedPath = Path;
@@ -5004,6 +5058,8 @@ static std::string NormalizeRequestPath(const std::string &Path)
      return NormalizedPath;
 }
 
+/* Checks whether module control route path applies. */
+
 static bool IsModuleControlRoutePath(const std::string &Path)
 {
      return Path == "/loadmodule" ||
@@ -5015,6 +5071,8 @@ static bool IsModuleControlRoutePath(const std::string &Path)
             Path.rfind("/modules/load/", 0) == 0 ||
             Path.rfind("/modules/unload/", 0) == 0;
 }
+
+/* Builds route context data. */
 
 static RouteContext BuildRouteContext(const HttpRequest &Request, SearchAPI *API)
 {

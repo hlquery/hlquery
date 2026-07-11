@@ -498,6 +498,8 @@ bool APIKeyManager::SaveKeySnapshotToEncryptedFile(const std::string &FilePath, 
      return WriteFileAtomic(FilePath, Encrypted);
 }
 
+/* Saves keys to encrypted file data. */
+
 bool APIKeyManager::SaveKeysToEncryptedFile(const std::string &FilePath)
 {
      std::vector<APIKey> Snapshot;
@@ -514,6 +516,8 @@ bool APIKeyManager::SaveKeysToEncryptedFile(const std::string &FilePath)
 
      return SaveKeySnapshotToEncryptedFile(FilePath, Snapshot);
 }
+
+/* Loads keys from encrypted file data. */
 
 bool APIKeyManager::LoadKeysFromEncryptedFile(const std::string &FilePath)
 {

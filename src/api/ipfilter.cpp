@@ -754,6 +754,8 @@ void IPFilter::FlushDNSCache()
 
 /* Configure maximum DNS cache entries. */
 
+/* Updates set DNS cache max size values. */
+
 void IPFilter::SetDNSCacheMaxSize(size_t MaxSize)
 {
      if (MaxSize == 0)

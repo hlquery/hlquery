@@ -62,6 +62,8 @@ std::string ExtractAliasCollectionFromPath(const std::string &Path)
      return "";
 }
 
+/* Applies alias pre check processing. */
+
 HttpResponse ApplyAliasPreCheck(const ModulePreCheckResult &PreCheck)
 {
      if (PreCheck.Action == ModulePreCheckAction::Deny)
@@ -71,6 +73,8 @@ HttpResponse ApplyAliasPreCheck(const ModulePreCheckResult &PreCheck)
 
      return HttpResponse(Status::OK, StatusText(Status::OK), "application/json");
 }
+
+/* Checks whether alias pre check failure exists. */
 
 bool HasAliasPreCheckFailure(const HttpResponse &Response)
 {

@@ -129,6 +129,8 @@ static bool StringToAction(const std::string &S, APIKeyAction &OutAction)
      return false;
 }
 
+/* Parses action or throw input. */
+
 static APIKeyAction ParseActionOrThrow(const std::string &S)
 {
      APIKeyAction Action;
@@ -140,6 +142,8 @@ static APIKeyAction ParseActionOrThrow(const std::string &S)
 
      return Action;
 }
+
+/* Parses rate limit or throw input. */
 
 static int ParseRateLimitOrThrow(const json &Body)
 {

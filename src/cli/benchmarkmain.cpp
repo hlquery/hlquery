@@ -1082,23 +1082,30 @@ static const std::unordered_map<std::string, std::vector<FakeSynonymSeed>> kFake
            {"city", {"location", "metro", "region", "area"}},
            {"cambridge", {"boston", "greater boston", "massachusetts", "kendall square"}},
       }},
+     {"anomalies",
+      {
+           {"anomaly", {"outlier", "exception", "abnormal", "irregular"}},
+           {"baseline", {"normal", "expected", "routine", "standard"}},
+           {"incident", {"alert", "event", "failure", "signal"}},
+      }},
 };
 
 static const std::unordered_map<std::string, std::vector<std::string>> kFakeCollectionStopwordProfiles = {
-     {"art", {"art", "gallery", "studio", "canvas"}},
-     {"books", {"book", "author", "reader", "chapter"}},
-     {"food", {"food", "dish", "kitchen", "flavor"}},
-     {"history", {"history", "era", "archive", "empire"}},
-     {"math", {"math", "proof", "equation", "theorem"}},
-     {"stocks", {"stock", "session", "portfolio", "watchlist"}},
-     {"movies", {"film", "scene", "director", "cinema"}},
-     {"people", {"person", "profile", "biography", "name"}},
-     {"music", {"music", "song", "album", "artist"}},
-     {"science", {"study", "lab", "data", "theory"}},
-     {"sports", {"team", "match", "season", "league"}},
-     {"technology", {"tech", "software", "system", "platform"}},
-     {"travel", {"travel", "trip", "route", "guide"}},
-     {"universities", {"campus", "student", "faculty", "research"}},
+     {"art", {"art", "studio", "artwork", "creative"}},
+     {"books", {"reader", "page", "literary", "review"}},
+     {"food", {"menu", "ingredient", "kitchen", "flavor"}},
+     {"history", {"era", "museum", "source", "heritage"}},
+     {"math", {"math", "numeric", "logic", "sequence"}},
+     {"stocks", {"market", "session", "watchlist", "finance"}},
+     {"movies", {"cinema", "screen", "audience", "theater"}},
+     {"people", {"community", "fictional", "identity", "background"}},
+     {"music", {"audio", "stage", "genre", "concert"}},
+     {"science", {"method", "lab", "data", "theory"}},
+     {"sports", {"score", "venue", "training", "season"}},
+     {"technology", {"tech", "system", "infrastructure", "interface"}},
+     {"travel", {"lodging", "budget", "culture", "season"}},
+     {"universities", {"education", "ranking", "tuition", "library"}},
+     {"anomalies", {"the", "and", "anomaly", "outlier", "baseline"}},
 };
 
 static const std::vector<FakeSynonymSeed> &GetFakeCollectionSynonyms(const std::string &collection_name)
@@ -1112,6 +1119,15 @@ static const std::vector<FakeSynonymSeed> &GetFakeCollectionSynonyms(const std::
      return kFakeBenchmarkSynonymSeeds;
 }
 
+static std::string NormalizeFakeLexicalTerm(const std::string &value)
+{
+     std::string normalized = TrimWhitespace(value);
+     std::transform(normalized.begin(), normalized.end(), normalized.begin(),
+                    [](unsigned char ch)
+                    { return static_cast<char>(std::tolower(ch)); });
+     return normalized;
+}
+
 static std::vector<std::string> GetFakeCollectionStopwords(const std::string &collection_name)
 {
      std::vector<std::string> result = {"the", "and"};
@@ -1122,7 +1138,70 @@ static std::vector<std::string> GetFakeCollectionStopwords(const std::string &co
           result.insert(result.end(), it->second.begin(), it->second.end());
      }
 
+     std::vector<std::string> deduped;
+     std::unordered_set<std::string> seen;
+     for (const std::string &word : result)
+     {
+          const std::string normalized = NormalizeFakeLexicalTerm(word);
+          if (normalized.empty() || seen.find(normalized) != seen.end())
+          {
+               continue;
+          }
+
+          seen.insert(normalized);
+          deduped.push_back(word);
+     }
+
+     result = std::move(deduped);
      return result;
+}
+
+static std::unordered_set<std::string> BuildFakeStopwordSet(const std::vector<std::string> &stopwords)
+{
+     std::unordered_set<std::string> result;
+     for (const std::string &word : stopwords)
+     {
+          const std::string normalized = NormalizeFakeLexicalTerm(word);
+          if (!normalized.empty())
+          {
+               result.insert(normalized);
+          }
+     }
+
+     return result;
+}
+
+static FakeSynonymSeed FilterFakeSynonymSeedAgainstStopwords(const FakeSynonymSeed &seed,
+                                                             const std::unordered_set<std::string> &stopwords,
+                                                             bool allow_overlap)
+{
+     if (allow_overlap)
+     {
+          return seed;
+     }
+
+     FakeSynonymSeed filtered;
+     filtered.Root = seed.Root;
+     if (stopwords.find(NormalizeFakeLexicalTerm(seed.Root)) != stopwords.end())
+     {
+          filtered.Root.clear();
+          return filtered;
+     }
+
+     std::unordered_set<std::string> seen_terms;
+     for (const std::string &term : seed.Synonyms)
+     {
+          const std::string normalized = NormalizeFakeLexicalTerm(term);
+          if (normalized.empty() || stopwords.find(normalized) != stopwords.end() || seen_terms.find(normalized) != seen_terms.end())
+          {
+               continue;
+          }
+
+          seen_terms.insert(normalized);
+          filtered.Synonyms.push_back(term);
+     }
+
+     return filtered;
 }
 
 static std::string BuildCollectionSynonymDocHint(const std::string &collection_name, int index)
@@ -2021,6 +2100,9 @@ bool CreateFakeCollections(const std::string &base_url, const std::string &auth_
           }
 
           size_t collection_synonyms_added = 0;
+          const std::vector<std::string> collection_stopwords = GetFakeCollectionStopwords(spec.Name);
+          const std::unordered_set<std::string> collection_stopword_set = BuildFakeStopwordSet(collection_stopwords);
+          const bool allow_collection_lexical_overlap = spec.Name == "anomalies";
           const std::vector<FakeSynonymSeed> &collection_synonyms = GetFakeCollectionSynonyms(spec.Name);
           for (size_t local_index = 0; local_index < collection_synonyms.size(); ++local_index)
           {
@@ -2029,7 +2111,12 @@ bool CreateFakeCollections(const std::string &base_url, const std::string &auth_
                     return false;
                }
 
-               const FakeSynonymSeed &seed = collection_synonyms[local_index];
+               const FakeSynonymSeed seed = FilterFakeSynonymSeedAgainstStopwords(collection_synonyms[local_index], collection_stopword_set, allow_collection_lexical_overlap);
+               if (seed.Root.empty() || seed.Synonyms.empty())
+               {
+                    continue;
+               }
+
                const std::string synonym_id = spec.Name + "_syn_" + std::to_string(local_index + 1);
                const bool synonym_added = client.AddSynonym(collection_name, synonym_id, seed.Root, seed.Synonyms);
 
@@ -2049,7 +2136,6 @@ bool CreateFakeCollections(const std::string &base_url, const std::string &auth_
           }
 
           size_t collection_stopwords_added = 0;
-          const std::vector<std::string> collection_stopwords = GetFakeCollectionStopwords(spec.Name);
           for (const auto &word : collection_stopwords)
           {
                if (g_benchmark_should_stop.load())
@@ -2116,6 +2202,7 @@ bool CreateFakeCollections(const std::string &base_url, const std::string &auth_
      }
 
      size_t global_synonyms_added = 0;
+     const std::unordered_set<std::string> global_stopword_set = BuildFakeStopwordSet(kFakeGlobalStopwords);
      for (size_t i = 0; i < kFakeGlobalSynonymSeeds.size(); ++i)
      {
           if (g_benchmark_should_stop.load())
@@ -2123,7 +2210,12 @@ bool CreateFakeCollections(const std::string &base_url, const std::string &auth_
                return false;
           }
 
-          const FakeSynonymSeed &seed = kFakeGlobalSynonymSeeds[i];
+          const FakeSynonymSeed seed = FilterFakeSynonymSeedAgainstStopwords(kFakeGlobalSynonymSeeds[i], global_stopword_set, false);
+          if (seed.Root.empty() || seed.Synonyms.empty())
+          {
+               continue;
+          }
+
           const std::string synonym_id = "benchmark_global_syn_" + std::to_string(i + 1);
           const bool synonym_added = client.AddGlobalSynonym(synonym_id, seed.Root, seed.Synonyms);
 

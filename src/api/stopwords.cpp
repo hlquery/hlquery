@@ -54,6 +54,8 @@
 
 static const char *kGlobalStopwordsCollection = "__global__";
 
+/* Implements the trim stopword value helper. */
+
 static std::string TrimStopwordValue(const std::string &Value)
 {
      const size_t Start = Value.find_first_not_of(" \t\r\n");
@@ -66,6 +68,8 @@ static std::string TrimStopwordValue(const std::string &Value)
      return Value.substr(Start, End - Start + 1);
 }
 
+/* Normalizes stopword value values. */
+
 static std::string NormalizeStopwordValue(const std::string &Value)
 {
      std::string Result = TrimStopwordValue(Value);
@@ -76,6 +80,8 @@ static std::string NormalizeStopwordValue(const std::string &Value)
                     });
      return Result;
 }
+
+/* Implements the stopword JSON value to text helper. */
 
 static std::string StopwordJSONValueToText(const nlohmann::json &Value)
 {
@@ -105,12 +111,16 @@ static std::string StopwordJSONValueToText(const nlohmann::json &Value)
      return "";
 }
 
+/* Implements the stopwords equal helper. */
+
 static bool StopwordsEqual(const std::string &Left, const std::string &Right)
 {
      const std::string NormalizedLeft = NormalizeStopwordValue(Left);
      const std::string NormalizedRight = NormalizeStopwordValue(Right);
      return !NormalizedLeft.empty() && NormalizedLeft == NormalizedRight;
 }
+
+/* Checks whether global stopwords path applies. */
 
 static bool IsGlobalStopwordsPath(const std::string &Path)
 {
@@ -119,6 +129,8 @@ static bool IsGlobalStopwordsPath(const std::string &Path)
             Path == "/stopword_sets/global" ||
             Path.find("/stopword_sets/global/") == 0;
 }
+
+/* Resolves stopword scope values. */
 
 static bool ResolveStopwordScope(const std::string &Path,
                                  const std::string &ExtractedCollection,
@@ -804,15 +816,21 @@ HttpResponse SearchAPI::HandleDeleteStopword(const HttpRequest &Request)
      }
 }
 
+/* Handles list global stopwords requests. */
+
 HttpResponse SearchAPI::HandleListGlobalStopwords(const HttpRequest &Request)
 {
      return HandleListStopwords(Request);
 }
 
+/* Handles create global stopword requests. */
+
 HttpResponse SearchAPI::HandleCreateGlobalStopword(const HttpRequest &Request)
 {
      return HandleCreateStopword(Request);
 }
+
+/* Handles delete global stopword requests. */
 
 HttpResponse SearchAPI::HandleDeleteGlobalStopword(const HttpRequest &Request)
 {

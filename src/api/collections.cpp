@@ -62,6 +62,8 @@ struct CollectionMaybeSettings
      int Limit = 5;
 };
 
+/* Parses collection maybe int input. */
+
 static int ParseCollectionMaybeInt(const std::string &value, int fallback)
 {
      try
@@ -79,6 +81,8 @@ static int ParseCollectionMaybeInt(const std::string &value, int fallback)
      }
 }
 
+/* Parses collection maybe token input. */
+
 static std::string ParseCollectionMaybeToken(const std::string &value)
 {
      std::string out;
@@ -95,15 +99,21 @@ static std::string ParseCollectionMaybeToken(const std::string &value)
      return out;
 }
 
+/* Checks whether collection maybe truthy token applies. */
+
 static bool IsCollectionMaybeTruthyToken(const std::string &token)
 {
      return token.empty() || token == "1" || token == "true" || token == "yes" || token == "on";
 }
 
+/* Checks whether collection maybe falsy token applies. */
+
 static bool IsCollectionMaybeFalsyToken(const std::string &token)
 {
      return token == "0" || token == "false" || token == "no" || token == "off";
 }
+
+/* Checks whether collection truthy param applies. */
 
 static bool IsCollectionTruthyParam(const std::map<std::string, std::string> &params, const std::string &name)
 {
@@ -116,6 +126,8 @@ static bool IsCollectionTruthyParam(const std::map<std::string, std::string> &pa
 
      return IsCollectionMaybeTruthyToken(ParseCollectionMaybeToken(it->second));
 }
+
+/* Parses collection maybe settings input. */
 
 static CollectionMaybeSettings ParseCollectionMaybeSettings(const std::map<std::string, std::string> &params)
 {
@@ -229,6 +241,8 @@ static CollectionMaybeSettings ParseCollectionMaybeSettings(const std::map<std::
      return out;
 }
 
+/* Implements the distributed to lower copy helper. */
+
 static std::string DistToLowerCopy(const std::string &Value)
 {
      std::string Out = Value;
@@ -239,6 +253,8 @@ static std::string DistToLowerCopy(const std::string &Value)
                     });
      return Out;
 }
+
+/* Implements the distributed trim copy helper. */
 
 static std::string DistTrimCopy(const std::string &Value)
 {
@@ -252,6 +268,8 @@ static std::string DistTrimCopy(const std::string &Value)
      size_t End = Value.find_last_not_of(" \t\r\n");
      return Value.substr(Start, End - Start + 1);
 }
+
+/* Implements the distributed get header value insensitive helper. */
 
 static std::string DistGetHeaderValueInsensitive(const std::map<std::string, std::string> &Headers, const std::string &Name)
 {
@@ -273,6 +291,8 @@ static std::string DistGetHeaderValueInsensitive(const std::map<std::string, std
 
      return "";
 }
+
+/* Implements the distributed build peer auth headers helper. */
 
 static void DistBuildPeerAuthHeaders(const std::string &Endpoint,
                                      const HttpRequest &Request,
@@ -307,6 +327,8 @@ static void DistBuildPeerAuthHeaders(const std::string &Endpoint,
      AuthorizationOut = "Bearer " + SelectedToken;
 }
 
+/* Implements the distributed has secondary cluster peer token helper. */
+
 static bool DistHasSecondaryClusterPeerToken(const std::string &Endpoint)
 {
      if (!Instance || !Instance->Config || Endpoint.empty())
@@ -323,6 +345,8 @@ static bool DistHasSecondaryClusterPeerToken(const std::string &Endpoint)
 
      return !SecondaryToken.empty();
 }
+
+/* Implements the distributed collection name matches query helper. */
 
 static bool DistCollectionNameMatchesQuery(const std::string &Name,
                                            const std::string &SearchVal,
@@ -342,6 +366,8 @@ static bool DistCollectionNameMatchesQuery(const std::string &Name,
      return DistToLowerCopy(Name) == DistToLowerCopy(SearchVal);
 }
 
+/* Implements the distributed collection query uses wildcard helper. */
+
 static bool DistCollectionQueryUsesWildcard(const std::string &SearchVal, const std::string &PatternVal)
 {
      if (!PatternVal.empty())
@@ -351,6 +377,8 @@ static bool DistCollectionQueryUsesWildcard(const std::string &SearchVal, const 
 
      return SearchVal.find('*') != std::string::npos || SearchVal.find('?') != std::string::npos;
 }
+
+/* Implements the distributed parse node endpoint helper. */
 
 static bool DistParseNodeEndpoint(const std::string &Raw, std::string &HostOut, int &PortOut)
 {
@@ -368,6 +396,8 @@ static bool DistParseNodeEndpoint(const std::string &Raw, std::string &HostOut, 
      return true;
 }
 
+/* Implements the distributed is local host name helper. */
+
 static bool DistIsLocalHostName(const std::string &Host)
 {
      std::string Lower = DistToLowerCopy(Host);
@@ -382,6 +412,8 @@ struct DistNodeEndpoint
      std::string Raw;
 };
 
+/* Implements the distributed is replication replica endpoint helper. */
+
 static bool DistIsReplicationReplicaEndpoint(const std::string &Endpoint)
 {
      if (!Instance || !Instance->Config)
@@ -392,6 +424,8 @@ static bool DistIsReplicationReplicaEndpoint(const std::string &Endpoint)
      const auto SlaveNodes = Instance->Config->GetSlaveNodes();
      return std::find(SlaveNodes.begin(), SlaveNodes.end(), Endpoint) != SlaveNodes.end();
 }
+
+/* Implements the distributed build cluster endpoints helper. */
 
 static bool DistBuildClusterEndpoints(std::vector<DistNodeEndpoint> &OutNodes)
 {
@@ -458,6 +492,8 @@ static bool DistBuildClusterEndpoints(std::vector<DistNodeEndpoint> &OutNodes)
 
      return !OutNodes.empty();
 }
+
+/* Implements the distributed send HTTP request helper. */
 
 static bool DistSendHttpRequest(const std::string &Endpoint,
                                 const std::string &Host,
@@ -685,6 +721,8 @@ static bool DistSendHttpRequest(const std::string &Endpoint,
      return true;
 }
 
+/* Implements the distributed send peer collection request helper. */
+
 static bool DistSendPeerCollectionRequest(const std::string &Endpoint,
                                           const std::string &Host,
                                           int Port,
@@ -740,6 +778,8 @@ struct DistCollectionEntry
      std::string CreatedAt;
      bool HasCounts = false;
 };
+
+/* Implements the distributed add collections from JSON helper. */
 
 static void DistAddCollectionsFromJSON(const nlohmann::json &ResponseJSON,
                                        const std::string &NodeLabel,
@@ -829,6 +869,8 @@ static void DistAddCollectionsFromJSON(const nlohmann::json &ResponseJSON,
      }
 }
 
+/* Implements the distributed get local collection created at helper. */
+
 static std::string DistGetLocalCollectionCreatedAt(const std::string &CollectionName)
 {
      std::string ColDir = std::string(HLQUERY_DATA_DIR) + "/collections/" + CollectionName;
@@ -875,6 +917,8 @@ static std::string DistGetLocalCollectionCreatedAt(const std::string &Collection
           return "";
      }
 }
+
+/* Implements the distributed add local collections helper. */
 
 static void DistAddLocalCollections(const std::string &NodeLabel,
                                     std::map<std::string, DistCollectionEntry> &OutMap,
@@ -2281,6 +2325,8 @@ HttpResponse SearchAPI::HandleGetCollection(const HttpRequest &Request)
           return Response;
      }
 }
+
+/* Handles get collection language requests. */
 
 HttpResponse SearchAPI::HandleGetCollectionLanguage(const HttpRequest &Request)
 {

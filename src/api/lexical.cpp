@@ -105,6 +105,8 @@ static std::string StripQuotes(const std::string &input)
      return input;
 }
 
+/* Implements the strip wildcard chars helper. */
+
 static std::string StripWildcardChars(const std::string &input)
 {
      std::string out;
@@ -165,6 +167,8 @@ static std::string NormalizeTermSimple(const std::string &term, bool case_sensit
 
      return normalized;
 }
+
+/* Checks whether identifier like term simple applies. */
 
 static bool IsIdentifierLikeTermSimple(const std::string &term)
 {
@@ -240,6 +244,8 @@ static std::vector<std::string> ExtractTermsSimple(const std::string &text, bool
      return terms;
 }
 
+/* Extracts terms in order simple values. */
+
 static std::vector<std::string> ExtractTermsInOrderSimple(const std::string &text, bool case_sensitive = false)
 {
      std::vector<std::string> terms;
@@ -289,6 +295,8 @@ static std::vector<std::string> ExtractTermsInOrderSimple(const std::string &tex
 
      return terms;
 }
+
+/* Implements the field contains phrase simple helper. */
 
 static bool FieldContainsPhraseSimple(const std::string &field_value,
                                       const std::string &phrase,
@@ -363,6 +371,8 @@ static std::vector<std::string> ExtractQuotedPhrases(const std::string &text, bo
      return phrases;
 }
 
+/* Calculates levenshtein distance simple values. */
+
 static int CalculateLevenshteinDistanceSimple(const std::string &left, const std::string &right)
 {
      if (left == right)
@@ -404,6 +414,8 @@ static int CalculateLevenshteinDistanceSimple(const std::string &left, const std
      return previous[right.size()];
 }
 
+/* Checks whether typo tolerant match simple applies. */
+
 static bool IsTypoTolerantMatchSimple(const std::string &field_term, const std::string &term, int max_typos)
 {
      if (max_typos <= 0 || field_term.empty() || term.empty())
@@ -418,6 +430,8 @@ static bool IsTypoTolerantMatchSimple(const std::string &field_term, const std::
 
      return CalculateLevenshteinDistanceSimple(field_term, term) <= max_typos;
 }
+
+/* Implements the field matches term simple helper. */
 
 static bool FieldMatchesTermSimple(const std::string &field_value,
                                    const std::string &term,
@@ -468,6 +482,8 @@ static bool FieldMatchesTermSimple(const std::string &field_value,
      return false;
 }
 
+/* Builds index query for search data. */
+
 static std::string BuildIndexQueryForSearch(const std::string &query_text, bool allow_prefix_match)
 {
      if (!allow_prefix_match)
@@ -491,6 +507,8 @@ static std::string BuildIndexQueryForSearch(const std::string &query_text, bool 
 
      return term + "*";
 }
+
+/* Builds relaxed query variants data. */
 
 static std::vector<std::string> BuildRelaxedQueryVariants(const std::string &query_text,
                                                           int drop_tokens_threshold,
@@ -539,6 +557,8 @@ static std::vector<std::string> BuildRelaxedQueryVariants(const std::string &que
      return variants;
 }
 
+/* Builds highlight terms for search data. */
+
 static std::vector<std::string> BuildHighlightTermsForSearch(const std::string &query_text, bool case_sensitive = false)
 {
      std::vector<std::string> raw_terms = ExtractTermsSimple(query_text, case_sensitive);
@@ -585,6 +605,8 @@ static void AppendRequestedFieldValues(const Document &doc,
                                        std::vector<std::pair<std::string, std::string>> &field_values,
                                        bool case_sensitive = false);
 
+/* Checks whether field specifier applies. */
+
 static bool IsFieldSpecifier(const std::string &value)
 {
      if (value.empty())
@@ -602,6 +624,8 @@ static bool IsFieldSpecifier(const std::string &value)
 
      return true;
 }
+
+/* Implements the tokenize structured query helper. */
 
 static std::vector<std::string> TokenizeStructuredQuery(const std::string &query_text)
 {
@@ -650,6 +674,8 @@ static std::vector<std::string> TokenizeStructuredQuery(const std::string &query
 
      return tokens;
 }
+
+/* Parses structured query expression input. */
 
 static ParsedQueryExpression ParseStructuredQueryExpression(const std::string &query_text, bool case_sensitive = false)
 {
@@ -759,6 +785,8 @@ static ParsedQueryExpression ParseStructuredQueryExpression(const std::string &q
      return expression;
 }
 
+/* Implements the collect field values for clause helper. */
+
 static void CollectFieldValuesForClause(const Document &doc,
                                         const ParsedQueryClause &clause,
                                         const std::vector<std::string> &query_by,
@@ -773,6 +801,8 @@ static void CollectFieldValuesForClause(const Document &doc,
 
      AppendRequestedFieldValues(doc, query_by, field_values, case_sensitive);
 }
+
+/* Implements the evaluate query clause helper. */
 
 static bool EvaluateQueryClause(const Document &doc,
                                 const ParsedQueryClause &clause,
@@ -808,6 +838,8 @@ static bool EvaluateQueryClause(const Document &doc,
 
      return false;
 }
+
+/* Implements the evaluate parsed query expression helper. */
 
 static bool EvaluateParsedQueryExpression(const Document &doc,
                                           const ParsedQueryExpression &expression,
@@ -853,6 +885,8 @@ static bool EvaluateParsedQueryExpression(const Document &doc,
      return false;
 }
 
+/* Builds candidate queries from parsed expression data. */
+
 static std::vector<std::string> BuildCandidateQueriesFromParsedExpression(const ParsedQueryExpression &expression)
 {
      std::vector<std::string> queries;
@@ -890,6 +924,8 @@ static std::vector<std::string> BuildCandidateQueriesFromParsedExpression(const 
 
      return queries;
 }
+
+/* Loads synonym graph for collection data. */
 
 static void LoadSynonymGraphForCollection(const std::string &Collection,
                                           std::unordered_map<std::string, std::vector<std::string>> &SynonymGraph)
@@ -1025,6 +1061,8 @@ static void LoadSynonymGraphForCollection(const std::string &Collection,
      }
 }
 
+/* Loads stopwords for collection data. */
+
 static void LoadStopwordsForCollection(const std::string &Collection, std::unordered_set<std::string> &Stopwords)
 {
      const std::string ScopePreference =
@@ -1145,11 +1183,15 @@ static std::atomic<uint64_t> ExpansionCacheHits{0};
 static std::atomic<uint64_t> ExpansionCacheMisses{0};
 static constexpr size_t MaxExpansionCacheEntries = 4096;
 
+/* Returns lexical generations locked values. */
+
 static std::pair<uint64_t, uint64_t> GetLexicalGenerationsLocked(const std::string &Collection)
 {
      const auto It = CollectionGenerations.find(Collection);
      return {It == CollectionGenerations.end() ? 0 : It->second, GlobalLexicalGeneration};
 }
+
+/* Returns lexical resource snapshot values. */
 
 static std::shared_ptr<const LexicalResourceSnapshot> GetLexicalResourceSnapshot(const std::string &Collection)
 {
@@ -1196,6 +1238,8 @@ static std::shared_ptr<const LexicalResourceSnapshot> GetLexicalResourceSnapshot
      return Snapshot;
 }
 
+/* Builds expansion cache key data. */
+
 static std::string BuildExpansionCacheKey(const std::string &Collection,
                                           const std::string &QueryText,
                                           bool EnableSynonyms,
@@ -1210,6 +1254,8 @@ static std::string BuildExpansionCacheKey(const std::string &Collection,
             ScopePreference;
 }
 
+/* Implements the put expansion cache helper. */
+
 static void PutExpansionCache(const std::string &Key,
                               const std::string &Collection,
                               const std::vector<std::string> &Variants)
@@ -1223,6 +1269,8 @@ static void PutExpansionCache(const std::string &Key,
           ExpansionOrder.pop_front();
      }
 }
+
+/* Builds expanded queries from synonyms data. */
 
 static std::vector<std::string> BuildExpandedQueriesFromSynonyms(const std::string &QueryText,
                                                                  const std::string &Collection,
@@ -1353,6 +1401,8 @@ static std::vector<std::string> BuildExpandedQueriesFromSynonyms(const std::stri
      return Variants;
 }
 
+/* Implements the invalidate collection helper. */
+
 void LexicalQueryCache::InvalidateCollection(const std::string &Collection)
 {
      std::lock_guard<std::mutex> Lock(LexicalCacheMutex);
@@ -1371,6 +1421,8 @@ void LexicalQueryCache::InvalidateCollection(const std::string &Collection)
      }
 }
 
+/* Implements the invalidate all helper. */
+
 void LexicalQueryCache::InvalidateAll()
 {
      std::lock_guard<std::mutex> Lock(LexicalCacheMutex);
@@ -1379,6 +1431,8 @@ void LexicalQueryCache::InvalidateAll()
      ExpansionEntries.clear();
      ExpansionOrder.clear();
 }
+
+/* Returns stats values. */
 
 LexicalQueryCache::Stats LexicalQueryCache::GetStats()
 {
@@ -1448,10 +1502,14 @@ static std::string HighlightTermsSimple(const std::string &text,
      return result;
 }
 
+/* Checks whether requested query fields exists. */
+
 static bool HasRequestedQueryFields(const std::vector<std::string> &query_by)
 {
      return !query_by.empty();
 }
+
+/* Implements the queries only keyword fields helper. */
 
 static bool QueriesOnlyKeywordFields(const CollectionConfig &config,
                                      const std::vector<std::string> &query_by)
@@ -1478,6 +1536,8 @@ static bool QueriesOnlyKeywordFields(const CollectionConfig &config,
      return true;
 }
 
+/* Implements the keyword field matches exact helper. */
+
 static bool KeywordFieldMatchesExact(const std::vector<std::pair<std::string, std::string>> &field_values,
                                      const std::string &query,
                                      bool case_sensitive)
@@ -1492,6 +1552,8 @@ static bool KeywordFieldMatchesExact(const std::vector<std::pair<std::string, st
             std::any_of(field_values.begin(), field_values.end(), [&](const auto &field_value)
                         { return TrimWhitespace(field_value.second) == normalized_query; });
 }
+
+/* Implements the append requested field values helper. */
 
 static void AppendRequestedFieldValues(const Document &doc,
                                        const std::vector<std::string> &query_by,
@@ -1560,6 +1622,8 @@ static void AppendRequestedFieldValues(const Document &doc,
      }
 }
 
+/* Implements the all query terms match requested fields helper. */
+
 static bool AllQueryTermsMatchRequestedFields(const std::vector<std::pair<std::string, std::string>> &field_values,
                                               const std::vector<std::string> &query_terms,
                                               bool allow_prefix_match,
@@ -1601,6 +1665,8 @@ static bool AllQueryTermsMatchRequestedFields(const std::vector<std::pair<std::s
 
      return true;
 }
+
+/* Implements the matches any query variant helper. */
 
 static bool MatchesAnyQueryVariant(const std::vector<std::pair<std::string, std::string>> &field_values,
                                    const std::vector<std::vector<std::string>> &variant_terms_list,
@@ -1644,6 +1710,8 @@ static bool MatchesAnyQueryVariant(const std::vector<std::pair<std::string, std:
      return false;
 }
 
+/* Implements the all quoted phrases match requested fields helper. */
+
 static bool AllQuotedPhrasesMatchRequestedFields(const std::vector<std::pair<std::string, std::string>> &field_values,
                                                  const std::vector<std::string> &quoted_phrases)
 {
@@ -1668,6 +1736,8 @@ static bool AllQuotedPhrasesMatchRequestedFields(const std::vector<std::pair<std
 
      return true;
 }
+
+/* Calculates requested field exact match boost values. */
 
 static double CalculateRequestedFieldExactMatchBoost(const Document &doc,
                                                      const std::vector<std::string> &query_by,
@@ -1706,6 +1776,8 @@ static double CalculateRequestedFieldExactMatchBoost(const Document &doc,
 
      return match_boost;
 }
+
+/* Calculates inline term boost values. */
 
 static double CalculateInlineTermBoost(const Document &doc,
                                        const std::vector<std::string> &query_by,

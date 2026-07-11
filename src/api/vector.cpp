@@ -127,6 +127,8 @@ struct ScoreStats
 
 static constexpr int MaxVectorRequestLimit = 10000;
 
+/* Normalizes lower copy values. */
+
 static std::string NormalizeLowerCopy(const std::string &Value)
 {
      std::string Lower = Value;
@@ -137,10 +139,14 @@ static std::string NormalizeLowerCopy(const std::string &Value)
      return Lower;
 }
 
+/* Implements the clamp vector request limit helper. */
+
 static int ClampVectorRequestLimit(int Value)
 {
      return std::min(MaxVectorRequestLimit, std::max(1, Value));
 }
+
+/* Implements the try get finite float helper. */
 
 static bool TryGetFiniteFloat(const nlohmann::json &Value, float *Out)
 {
@@ -168,6 +174,8 @@ static bool TryGetFiniteFloat(const nlohmann::json &Value, float *Out)
      }
 }
 
+/* Calculates score stats values. */
+
 static ScoreStats CalculateScoreStats(const std::vector<float> &Values)
 {
      ScoreStats StatsObj;
@@ -194,6 +202,8 @@ static ScoreStats CalculateScoreStats(const std::vector<float> &Values)
      return StatsObj;
 }
 
+/* Parses vector metric input. */
+
 static VectorMetric ParseVectorMetric(const std::string &Raw)
 {
      const std::string Metric = NormalizeLowerCopy(Raw);
@@ -212,6 +222,8 @@ static VectorMetric ParseVectorMetric(const std::string &Raw)
      return VectorMetric::Cosine;
 }
 
+/* Returns vector value values. */
+
 static float GetVectorValue(const VectorPayload &Payload, int Index)
 {
      if (Index >= 0 && Index < static_cast<int>(Payload.Dense.size()))
@@ -228,6 +240,8 @@ static float GetVectorValue(const VectorPayload &Payload, int Index)
      return 0.0f;
 }
 
+/* Updates set vector parse error values. */
+
 static bool SetVectorParseError(std::string *Error, const std::string &Path, const std::string &Message)
 {
      if (Error && Error->empty())
@@ -237,6 +251,8 @@ static bool SetVectorParseError(std::string *Error, const std::string &Path, con
 
      return false;
 }
+
+/* Parses vector payload from JSON value input. */
 
 static bool ParseVectorPayloadFromJsonValue(const nlohmann::json &Value, VectorPayload *Out, std::string *Error = nullptr, const std::string &Path = "vector")
 {
@@ -326,6 +342,8 @@ static bool ParseVectorPayloadFromJsonValue(const nlohmann::json &Value, VectorP
 
      return SetVectorParseError(Error, Path, "vector payload must be an array or sparse object.");
 }
+
+/* Parses single vector query input. */
 
 static bool ParseSingleVectorQuery(const nlohmann::json &Obj, ParsedVectorQuery *OutQuery, std::string *Error = nullptr, const std::string &Path = "vector_query")
 {
@@ -468,6 +486,8 @@ static bool ParseSingleVectorQuery(const nlohmann::json &Obj, ParsedVectorQuery 
      *OutQuery = std::move(Query);
      return true;
 }
+
+/* Parses vector request input. */
 
 static ParsedVectorRequest ParseVectorRequest(const nlohmann::json &Root, int DefaultTopK, std::string *Error = nullptr)
 {
@@ -784,6 +804,8 @@ static ParsedVectorRequest ParseVectorRequest(const nlohmann::json &Root, int De
      return Parsed;
 }
 
+/* Validates parsed vector request input. */
+
 static bool ValidateParsedVectorRequest(const nlohmann::json &Root, int DefaultTopK, std::string *Error)
 {
      std::string ParseError;
@@ -801,6 +823,8 @@ static bool ValidateParsedVectorRequest(const nlohmann::json &Root, int DefaultT
 
      return true;
 }
+
+/* Validates vector query payload input. */
 
 bool SearchAPI::ValidateVectorQueryPayload(const std::string &Payload, int DefaultTopK, std::string *Error)
 {
@@ -827,6 +851,8 @@ bool SearchAPI::ValidateVectorQueryPayload(const std::string &Payload, int Defau
           return false;
      }
 }
+
+/* Normalizes score values. */
 
 static float NormalizeScore(float RawValue, const ScoreStats &StatsObj, const std::string &Method, bool Enabled)
 {
@@ -863,6 +889,8 @@ static float NormalizeScore(float RawValue, const ScoreStats &StatsObj, const st
      }
      return Value;
 }
+
+/* Implements the count query terms helper. */
 
 static int CountQueryTerms(const std::string &Query)
 {
@@ -905,6 +933,8 @@ static int CountQueryTerms(const std::string &Query)
      return std::max(0, Count);
 }
 
+/* Computes vector magnitude values. */
+
 static float ComputeVectorMagnitude(const VectorPayload &Payload)
 {
      if (Payload.Empty())
@@ -930,6 +960,8 @@ static float ComputeVectorMagnitude(const VectorPayload &Payload)
 
      return std::sqrt(std::max(0.0f, Sum));
 }
+
+/* Normalizes vector payload values. */
 
 static void NormalizeVectorPayload(VectorPayload *Payload)
 {
@@ -959,6 +991,8 @@ static void NormalizeVectorPayload(VectorPayload *Payload)
           }
      }
 }
+
+/* Visits every populated vector dimension for pairwise comparison. */
 
 static void VisitVectorDimensions(const VectorPayload &Query,
                                   const VectorPayload &Doc,
@@ -992,6 +1026,8 @@ static void VisitVectorDimensions(const VectorPayload &Query,
      }
 }
 
+/* Implements the are vector dimensions compatible helper. */
+
 static bool AreVectorDimensionsCompatible(const VectorPayload &Query, const VectorPayload &Doc)
 {
      if (Query.Empty() || Doc.Empty())
@@ -1017,6 +1053,8 @@ static bool AreVectorDimensionsCompatible(const VectorPayload &Query, const Vect
      return true;
 }
 
+/* Computes dot product values. */
+
 static float ComputeDotProduct(const VectorPayload &QueryVector, const VectorPayload &DocVector)
 {
      float Sum = 0.0f;
@@ -1026,6 +1064,8 @@ static float ComputeDotProduct(const VectorPayload &QueryVector, const VectorPay
                            });
      return Sum;
 }
+
+/* Computes l2 distance values. */
 
 static float ComputeL2Distance(const VectorPayload &QueryVector, const VectorPayload &DocVector)
 {
@@ -1038,6 +1078,8 @@ static float ComputeL2Distance(const VectorPayload &QueryVector, const VectorPay
      return std::sqrt(std::max(0.0f, Sum));
 }
 
+/* Computes l1 distance values. */
+
 static float ComputeL1Distance(const VectorPayload &QueryVector, const VectorPayload &DocVector)
 {
      float Sum = 0.0f;
@@ -1047,6 +1089,8 @@ static float ComputeL1Distance(const VectorPayload &QueryVector, const VectorPay
                            });
      return Sum;
 }
+
+/* Computes similarity by metric values. */
 
 static float ComputeSimilarityByMetric(const VectorPayload &QueryVector,
                                        const VectorPayload &DocVector,
@@ -1083,6 +1127,8 @@ static float ComputeSimilarityByMetric(const VectorPayload &QueryVector,
 
      return ComputeDotProduct(QueryVector, DocVector) / (NormQ * NormD);
 }
+
+/* Computes distance by metric values. */
 
 static float ComputeDistanceByMetric(const VectorPayload &QueryVector,
                                      const VectorPayload &DocVector,
@@ -1661,6 +1707,8 @@ class BruteForceVectorIndex : public VectorIndex
           return "brute_force";
      }
 };
+
+/* Creates vector index values. */
 
 static std::unique_ptr<VectorIndex> CreateVectorIndex(const ParsedVectorRequest &)
 {

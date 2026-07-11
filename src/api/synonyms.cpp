@@ -55,6 +55,8 @@
 
 static const char *kGlobalSynonymsCollection = "__global__";
 
+/* Checks whether global synonyms path applies. */
+
 static bool IsGlobalSynonymsPath(const std::string &Path)
 {
      return Path == "/synonyms/global" ||
@@ -62,6 +64,8 @@ static bool IsGlobalSynonymsPath(const std::string &Path)
             Path == "/synonym_sets/global" ||
             Path.find("/synonym_sets/global/") == 0;
 }
+
+/* Extracts global synonym id values. */
 
 static std::string ExtractGlobalSynonymId(const std::string &Path)
 {
@@ -75,6 +79,8 @@ static std::string ExtractGlobalSynonymId(const std::string &Path)
 
      return "";
 }
+
+/* Resolves synonym scope values. */
 
 static bool ResolveSynonymScope(const std::string &Path,
                                 const std::string &ExtractedCollection,
@@ -105,6 +111,8 @@ static bool ResolveSynonymScope(const std::string &Path,
      return false;
 }
 
+/* Applies synonym pre check processing. */
+
 static HttpResponse ApplySynonymPreCheck(const ModulePreCheckResult &PreCheck)
 {
      if (PreCheck.Action == ModulePreCheckAction::Deny)
@@ -115,10 +123,14 @@ static HttpResponse ApplySynonymPreCheck(const ModulePreCheckResult &PreCheck)
      return HttpResponse(0, "", "");
 }
 
+/* Checks whether module pre check failure exists. */
+
 static bool HasModulePreCheckFailure(const HttpResponse &Response)
 {
      return Response.StatusCode != 0;
 }
+
+/* Implements the trim synonym term helper. */
 
 static std::string TrimSynonymTerm(const std::string &Value)
 {
@@ -133,6 +145,8 @@ static std::string TrimSynonymTerm(const std::string &Value)
      return Value.substr(Start, End - Start + 1);
 }
 
+/* Normalizes synonym term values. */
+
 static std::string NormalizeSynonymTerm(const std::string &Value)
 {
      std::string Result = TrimSynonymTerm(Value);
@@ -145,6 +159,8 @@ static std::string NormalizeSynonymTerm(const std::string &Value)
      return Result;
 }
 
+/* Returns synonym sort value values. */
+
 static std::string GetSynonymSortValue(const nlohmann::json &Synonym, const std::string &SortBy)
 {
      if (!Synonym.is_object() || !Synonym.contains(SortBy) || !Synonym[SortBy].is_string())
@@ -154,6 +170,8 @@ static std::string GetSynonymSortValue(const nlohmann::json &Synonym, const std:
 
      return NormalizeSynonymTerm(TrimSynonymTerm(Synonym[SortBy].get<std::string>()));
 }
+
+/* Returns synonym sort tie breaker values. */
 
 static std::string GetSynonymSortTieBreaker(const nlohmann::json &Synonym)
 {
@@ -1013,20 +1031,28 @@ HttpResponse SearchAPI::HandleDeleteSynonym(const HttpRequest &Request)
      }
 }
 
+/* Handles list global synonyms requests. */
+
 HttpResponse SearchAPI::HandleListGlobalSynonyms(const HttpRequest &Request)
 {
      return HandleListSynonyms(Request);
 }
+
+/* Handles create or update global synonym requests. */
 
 HttpResponse SearchAPI::HandleCreateOrUpdateGlobalSynonym(const HttpRequest &Request)
 {
      return HandleCreateOrUpdateSynonym(Request);
 }
 
+/* Handles get global synonym requests. */
+
 HttpResponse SearchAPI::HandleGetGlobalSynonym(const HttpRequest &Request)
 {
      return HandleGetSynonym(Request);
 }
+
+/* Handles delete global synonym requests. */
 
 HttpResponse SearchAPI::HandleDeleteGlobalSynonym(const HttpRequest &Request)
 {

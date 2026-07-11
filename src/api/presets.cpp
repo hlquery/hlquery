@@ -78,6 +78,8 @@ namespace
      }
 }
 
+/* Handles list presets requests. */
+
 HttpResponse SearchAPI::HandleListPresets(const HttpRequest &Request)
 {
      if (Request.Method != "GET")
@@ -92,6 +94,8 @@ HttpResponse SearchAPI::HandleListPresets(const HttpRequest &Request)
      Response.Body = ResponseJSON.dump();
      return Response;
 }
+
+/* Handles create or update preset requests. */
 
 HttpResponse SearchAPI::HandleCreateOrUpdatePreset(const HttpRequest &Request)
 {
@@ -138,6 +142,8 @@ HttpResponse SearchAPI::HandleCreateOrUpdatePreset(const HttpRequest &Request)
      }
 }
 
+/* Handles get preset requests. */
+
 HttpResponse SearchAPI::HandleGetPreset(const HttpRequest &Request)
 {
      if (Request.Method != "GET")
@@ -167,6 +173,8 @@ HttpResponse SearchAPI::HandleGetPreset(const HttpRequest &Request)
      Response.Body = ResponseJSON.dump();
      return Response;
 }
+
+/* Handles delete preset requests. */
 
 HttpResponse SearchAPI::HandleDeletePreset(const HttpRequest &Request)
 {

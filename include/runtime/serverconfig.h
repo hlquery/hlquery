@@ -1643,6 +1643,14 @@ class ServerConfig
 
      bool RemoveClusterNode(const std::string& Endpoint, std::string* OutError = nullptr);
 
+     /* Adds a replication slave endpoint at runtime (in-memory only). */
+
+     bool AddSlaveNode(const std::string& Endpoint, std::string* OutError = nullptr);
+
+     /* Removes a replication slave endpoint at runtime (in-memory only). */
+
+     bool RemoveSlaveNode(const std::string& Endpoint, std::string* OutError = nullptr);
+
      /* Clears all cluster nodes at runtime (in-memory only). */
 
      void ClearClusterNodes();

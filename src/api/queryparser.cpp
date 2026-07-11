@@ -52,6 +52,8 @@ static bool ParseSearchBool(const std::string &Value, bool DefaultValue = false)
      return DefaultValue;
 }
 
+/* Applies inline query directives processing. */
+
 static void ApplyInlineQueryDirectives(std::string &QueryText, bool &CaseSensitive)
 {
      if (QueryText.empty())
@@ -96,6 +98,8 @@ static void ApplyInlineQueryDirectives(std::string &QueryText, bool &CaseSensiti
      QueryText = Rebuilt.str();
 }
 
+/* Applies case sensitive search defaults processing. */
+
 static void ApplyCaseSensitiveSearchDefaults(ComprehensiveSearchQuery &QueryObj)
 {
      if (!QueryObj.CaseSensitive)
@@ -109,6 +113,8 @@ static void ApplyCaseSensitiveSearchDefaults(ComprehensiveSearchQuery &QueryObj)
      QueryObj.TypoTokensThreshold = 0;
 }
 
+/* Returns a trimmed copy of the input string. */
+
 static std::string TrimCopy(std::string Value)
 {
      const std::size_t First = Value.find_first_not_of(" \t\r\n");
@@ -120,6 +126,8 @@ static std::string TrimCopy(std::string Value)
      const std::size_t Last = Value.find_last_not_of(" \t\r\n");
      return Value.substr(First, Last - First + 1);
 }
+
+/* Normalizes inline term values. */
 
 static std::string NormalizeInlineTerm(std::string Term, bool CaseSensitive)
 {
@@ -145,6 +153,8 @@ static std::string NormalizeInlineTerm(std::string Term, bool CaseSensitive)
      return Term;
 }
 
+/* Implements the append inline filter helper. */
+
 static void AppendInlineFilter(ComprehensiveSearchQuery &QueryObj, const std::string &Filter)
 {
      if (Filter.empty())
@@ -161,6 +171,8 @@ static void AppendInlineFilter(ComprehensiveSearchQuery &QueryObj, const std::st
      QueryObj.FilterBy += " && " + Filter;
 }
 
+/* Implements the cleanup inline query operators helper. */
+
 static void CleanupInlineQueryOperators(std::string &QueryText)
 {
      QueryText = std::regex_replace(QueryText, std::regex(R"(\s+)"), " ");
@@ -176,6 +188,8 @@ static void CleanupInlineQueryOperators(std::string &QueryText)
           Changed = QueryText != Before;
      }
 }
+
+/* Extracts inline range filters values. */
 
 static void ExtractInlineRangeFilters(ComprehensiveSearchQuery &QueryObj)
 {
@@ -208,6 +222,8 @@ static void ExtractInlineRangeFilters(ComprehensiveSearchQuery &QueryObj)
      Rebuilt.append(QueryObj.Q, LastPos, std::string::npos);
      QueryObj.Q = Rebuilt;
 }
+
+/* Extracts inline boosts values. */
 
 static void ExtractInlineBoosts(ComprehensiveSearchQuery &QueryObj)
 {
@@ -247,6 +263,8 @@ static void ExtractInlineBoosts(ComprehensiveSearchQuery &QueryObj)
      Rebuilt.append(QueryObj.Q, LastPos, std::string::npos);
      QueryObj.Q = Rebuilt;
 }
+
+/* Extracts inline fuzzy values. */
 
 static void ExtractInlineFuzzy(ComprehensiveSearchQuery &QueryObj)
 {
@@ -288,6 +306,8 @@ static void ExtractInlineFuzzy(ComprehensiveSearchQuery &QueryObj)
           QueryObj.InlineFuzzy = true;
      }
 }
+
+/* Applies inline query syntax processing. */
 
 static void ApplyInlineQuerySyntax(ComprehensiveSearchQuery &QueryObj)
 {

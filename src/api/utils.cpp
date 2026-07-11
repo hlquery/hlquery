@@ -44,6 +44,8 @@ std::string TrimRankMetadataValue(const std::string &Value)
      return Value.substr(Start, End - Start + 1);
 }
 
+/* Implements the lower rank metadata value helper. */
+
 std::string LowerRankMetadataValue(std::string Value)
 {
      std::transform(Value.begin(), Value.end(), Value.begin(), [](unsigned char C)
@@ -52,6 +54,8 @@ std::string LowerRankMetadataValue(std::string Value)
                     });
      return Value;
 }
+
+/* Implements the try parse double value helper. */
 
 bool TryParseDoubleValue(const std::string &Value, double *Out)
 {
@@ -83,6 +87,8 @@ bool TryParseDoubleValue(const std::string &Value, double *Out)
           return false;
      }
 }
+
+/* Implements the split geo args helper. */
 
 static std::vector<std::string> SplitGeoArgs(const std::string &Input)
 {
@@ -154,6 +160,8 @@ static std::vector<std::string> SplitGeoArgs(const std::string &Input)
      return Args;
 }
 
+/* Implements the try parse geo distance km helper. */
+
 static bool TryParseGeoDistanceKM(const std::string &Value, double *OutKM)
 {
      if (!OutKM)
@@ -199,12 +207,16 @@ static bool TryParseGeoDistanceKM(const std::string &Value, double *OutKM)
      return true;
 }
 
+/* Checks whether valid geo coordinates applies. */
+
 static bool IsValidGeoCoordinates(double Lat, double Lon)
 {
      return std::isfinite(Lat) && std::isfinite(Lon) &&
             Lat >= -90.0 && Lat <= 90.0 &&
             Lon >= -180.0 && Lon <= 180.0;
 }
+
+/* Implements the try parse geo point value helper. */
 
 static bool TryParseGeoPointValue(const std::string &Value, GeoPoint *OutPoint)
 {
@@ -298,6 +310,8 @@ static bool TryParseGeoPointValue(const std::string &Value, GeoPoint *OutPoint)
      return AssignIfValid(Lat, Lon);
 }
 
+/* Implements the try get geo point from document helper. */
+
 static bool TryGetGeoPointFromDocument(const std::map<std::string, std::string> &Document, const std::string &Field, GeoPoint *OutPoint)
 {
      const auto It = Document.find(Field);
@@ -326,6 +340,8 @@ static bool TryGetGeoPointFromDocument(const std::map<std::string, std::string> 
 
      return false;
 }
+
+/* Implements the try parse geo distance sort helper. */
 
 static bool TryParseGeoDistanceSort(const std::string &SortSpec, std::string *OutField, GeoPoint *OutOrigin, bool *OutDescending)
 {
@@ -386,12 +402,16 @@ static bool TryParseGeoDistanceSort(const std::string &SortSpec, std::string *Ou
      return true;
 }
 
+/* Implements the format rank signal value helper. */
+
 std::string FormatRankSignalValue(double Value)
 {
      std::ostringstream Stream;
      Stream << std::fixed << std::setprecision(6) << std::clamp(Value, 0.0, 1.0);
      return Stream.str();
 }
+
+/* Implements the compare rank tie break helper. */
 
 bool CompareRankTieBreak(const SearchHit &A, const SearchHit &B)
 {
@@ -424,6 +444,8 @@ bool CompareRankTieBreak(const SearchHit &A, const SearchHit &B)
      const auto BId = B.Document.find("id");
      return (AId == A.Document.end() ? "" : AId->second) < (BId == B.Document.end() ? "" : BId->second);
 }
+
+/* Implements the try parse ISO 8601 timestamp to milliseconds helper. */
 
 bool TryParseISO8601TimestampToMs(const std::string &value, std::uint64_t *parsed_ms)
 {
@@ -527,6 +549,8 @@ bool TryParseISO8601TimestampToMs(const std::string &value, std::uint64_t *parse
      *parsed_ms = static_cast<std::uint64_t>(seconds) * 1000ULL + static_cast<std::uint64_t>(fractional_ms);
      return has_timezone || trimmed.size() >= 19;
 }
+
+/* Implements the format timestamp milliseconds as ISO 8601 helper. */
 
 std::string FormatTimestampMsAsISO8601(std::uint64_t timestamp_ms)
 {
@@ -913,6 +937,8 @@ class FilterExpressionParser
      }
 };
 
+/* Calculates geo distance values. */
+
 double SearchAPI::CalculateGeoDistance(const GeoPoint &P1, const GeoPoint &P2)
 {
      constexpr double EarthRadiusKM = 6371.0088;
@@ -936,6 +962,8 @@ double SearchAPI::CalculateGeoDistance(const GeoPoint &P1, const GeoPoint &P2)
      return EarthRadiusKM * C;
 }
 
+/* Checks whether within geo radius applies. */
+
 bool SearchAPI::IsWithinGeoRadius(const GeoPoint &Point, const GeoRadius &Radius)
 {
      if (!Radius.Enabled || Radius.RadiusKM < 0.0)
@@ -948,6 +976,8 @@ bool SearchAPI::IsWithinGeoRadius(const GeoPoint &Point, const GeoRadius &Radius
      Origin.Longitude = Radius.Lon;
      return CalculateGeoDistance(Point, Origin) <= Radius.RadiusKM;
 }
+
+/* Checks whether within geo box applies. */
 
 bool SearchAPI::IsWithinGeoBox(const GeoPoint &Point, const GeoBox &Box)
 {
@@ -1597,6 +1627,8 @@ std::vector<std::string> SearchAPI::ResolveDefaultCollectionSortBy(const std::st
      return {SortFieldName + ":" + SortOrder};
 }
 
+/* Applies module weights processing. */
+
 void SearchAPI::ApplyModuleWeights(std::vector<SearchHit> &Hits,
                                    const std::string &Collection,
                                    const ComprehensiveSearchQuery &Query,
@@ -1618,6 +1650,8 @@ void SearchAPI::ApplyModuleWeights(std::vector<SearchHit> &Hits,
           }
      }
 }
+
+/* Applies collection rank weights processing. */
 
 void SearchAPI::ApplyCollectionRankWeights(std::vector<SearchHit> &Hits, const std::string &Collection)
 {

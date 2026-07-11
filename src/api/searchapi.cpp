@@ -58,6 +58,8 @@ static constexpr const char *kReplicationResyncStateKey = "replication_resync:ac
 static constexpr const char *kReplicationResyncCollectionsPrefix = "replication_resync:collections:";
 static constexpr size_t kReplicationOutboxStoredBodyLimit = 64 * 1024;
 
+/* Returns a lowercase copy of the input string. */
+
 static std::string ToLowerCopy(const std::string &Value)
 {
      std::string Result(Value);
@@ -67,6 +69,8 @@ static std::string ToLowerCopy(const std::string &Value)
      });
      return Result;
 }
+
+/* Normalizes path for extraction values. */
 
 static std::string NormalizePathForExtraction(const std::string &Path)
 {
@@ -86,6 +90,8 @@ static std::string NormalizePathForExtraction(const std::string &Path)
      return NormalizedPath;
 }
 
+/* Returns a request header value using case-insensitive lookup. */
+
 static std::string GetHeaderValueInsensitive(const std::map<std::string, std::string> &Headers, const std::string &Name)
 {
      for (const auto &Pair : Headers)
@@ -99,6 +105,8 @@ static std::string GetHeaderValueInsensitive(const std::map<std::string, std::st
      return "";
 }
 
+/* Implements the trim header value helper. */
+
 static std::string TrimHeaderValue(const std::string &Value)
 {
      const std::size_t Start = Value.find_first_not_of(" \t");
@@ -111,6 +119,8 @@ static std::string TrimHeaderValue(const std::string &Value)
      return Value.substr(Start, End - Start + 1);
 }
 
+/* Returns query param value values. */
+
 static std::string GetQueryParamValue(const HttpRequest &Request, const std::string &Key)
 {
      const auto It = Request.QueryParams.find(Key);
@@ -121,6 +131,8 @@ static std::string GetQueryParamValue(const HttpRequest &Request, const std::str
 
      return TrimHeaderValue(It->second);
 }
+
+/* Extracts peer auth token values. */
 
 static std::string ExtractPeerAuthToken(const HttpRequest &Request)
 {
@@ -141,6 +153,8 @@ static std::string ExtractPeerAuthToken(const HttpRequest &Request)
 
      return TrimHeaderValue(AuthHeader);
 }
+
+/* Checks whether authorized replication hop applies. */
 
 static bool IsAuthorizedReplicationHop(const HttpRequest &Request)
 {
@@ -199,6 +213,8 @@ static bool IsAuthorizedReplicationHop(const HttpRequest &Request)
      return false;
 }
 
+/* Validates collection name value input. */
+
 static bool ValidateCollectionNameValue(const std::string &Name, std::string *ErrorMessage)
 {
      if (Name.empty())
@@ -247,15 +263,21 @@ static bool ValidateCollectionNameValue(const std::string &Name, std::string *Er
      return true;
 }
 
+/* Builds replication outbox key data. */
+
 static std::string BuildReplicationOutboxKey(const std::string &EntryID)
 {
      return std::string(kReplicationOutboxPrefix) + EntryID;
 }
 
+/* Builds replication applied key data. */
+
 static std::string BuildReplicationAppliedKey(const std::string &OperationID)
 {
      return std::string(kReplicationAppliedPrefix) + OperationID;
 }
+
+/* Implements the serialize replication outbox record helper. */
 
 static nlohmann::json SerializeReplicationOutboxRecord(const std::string &EntryID,
                                                        const std::string &State,
@@ -291,20 +313,28 @@ static nlohmann::json SerializeReplicationOutboxRecord(const std::string &EntryI
      return Record;
 }
 
+/* Returns replication resync session header values. */
+
 static std::string GetReplicationResyncSessionHeader(const HttpRequest &Request)
 {
      return TrimHeaderValue(GetHeaderValueInsensitive(Request.Headers, "X-HLQ-Resync-Session"));
 }
+
+/* Returns replication resync stage header values. */
 
 static std::string GetReplicationResyncStageHeader(const HttpRequest &Request)
 {
      return ToLowerCopy(TrimHeaderValue(GetHeaderValueInsensitive(Request.Headers, "X-HLQ-Resync-Stage")));
 }
 
+/* Builds replication resync collections key data. */
+
 static std::string BuildReplicationResyncCollectionsKey(const std::string &SessionID)
 {
      return std::string(kReplicationResyncCollectionsPrefix) + SessionID;
 }
+
+/* Extracts resync collection from path values. */
 
 static std::string ExtractResyncCollectionFromPath(const std::string &Path)
 {
@@ -325,6 +355,8 @@ static std::string ExtractResyncCollectionFromPath(const std::string &Path)
 
      return Remainder.substr(0, SlashPos);
 }
+
+/* Implements the track replication resync collection helper. */
 
 static void TrackReplicationResyncCollection(const std::string &SessionID,
                                              const std::string &CollectionName)
@@ -383,6 +415,8 @@ static void TrackReplicationResyncCollection(const std::string &SessionID,
      (void)Instance->Database->Set(Key, Root.dump());
 }
 
+/* Loads replication resync collections data. */
+
 static std::vector<std::string> LoadReplicationResyncCollections(const std::string &SessionID)
 {
      std::vector<std::string> Collections;
@@ -429,6 +463,8 @@ static std::vector<std::string> LoadReplicationResyncCollections(const std::stri
      return Collections;
 }
 
+/* Implements the clear replication resync collections helper. */
+
 static void ClearReplicationResyncCollections(const std::string &SessionID)
 {
      if (!Instance || !Instance->Database || SessionID.empty())
@@ -439,10 +475,14 @@ static void ClearReplicationResyncCollections(const std::string &SessionID)
      (void)Instance->Database->Del(BuildReplicationResyncCollectionsKey(SessionID));
 }
 
+/* Returns replication operation header values. */
+
 static std::string GetReplicationOperationHeader(const HttpRequest &Request)
 {
      return TrimHeaderValue(GetHeaderValueInsensitive(Request.Headers, "X-HLQ-Replication-Op"));
 }
+
+/* Implements the crash point matches helper. */
 
 static bool CrashPointMatches(const std::string &ConfiguredPoints, const std::string &Point)
 {
@@ -460,12 +500,16 @@ static bool CrashPointMatches(const std::string &ConfiguredPoints, const std::st
      return false;
 }
 
+/* Returns the singleton SearchAPI instance. */
+
 SearchAPI &SearchAPI::GetInstance()
 {
      static SearchAPI SInstance;
 
      return SInstance;
 }
+
+/* Releases SearchAPI resources during shutdown. */
 
 SearchAPI::~SearchAPI()
 {
@@ -963,6 +1007,8 @@ void SearchAPI::EnqueueAsyncReplicationTask(std::function<void()> Task) const
      }));
 }
 
+/* Implements the shutdown helper. */
+
 void SearchAPI::Shutdown()
 {
      DistributedLinkMonitorStop.store(true, std::memory_order_relaxed);
@@ -1007,6 +1053,8 @@ bool SearchAPI::IsInitialized() const
 {
      return HybridStorageManagerInstance().IsInitialized();
 }
+
+/* Implements the attach search response meta helper. */
 
 void SearchAPI::AttachSearchResponseMeta(HttpResponse &Response,
                                          const ComprehensiveSearchQuery &Query,
@@ -1069,6 +1117,8 @@ uint64_t SearchAPI::GetCollectionMutationVersion(const std::string &Collection) 
      return std::max(collection_version, global_version);
 }
 
+/* Implements the bump collection mutation version helper. */
+
 uint64_t SearchAPI::BumpCollectionMutationVersion(const std::string &Collection)
 {
      const uint64_t next_version = CollectionMutationClock.fetch_add(1, std::memory_order_relaxed) + 1;
@@ -1080,6 +1130,8 @@ uint64_t SearchAPI::BumpCollectionMutationVersion(const std::string &Collection)
 
      return next_version;
 }
+
+/* Implements the reset collection mutation versions helper. */
 
 void SearchAPI::ResetCollectionMutationVersions()
 {
@@ -1713,6 +1765,8 @@ bool SearchAPI::ParseDocumentFromJSON(const std::string &Json, Document &Documen
           return false;
      }
 }
+
+/* Parses document from JSON input. */
 
 bool SearchAPI::ParseDocumentFromJSON(const nlohmann::json &DocJSON, Document &DocumentObj, std::string *ErrorMsg)
 {

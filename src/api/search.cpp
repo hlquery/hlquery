@@ -73,6 +73,8 @@ static SearchEvent BuildSearchEvent(const std::string &Query,
      return Event;
 }
 
+/* Reads cached search counts data. */
+
 static void ReadCachedSearchCounts(const HttpResponse &Response,
                                    uint64_t *Found,
                                    uint64_t *Returned)
@@ -111,6 +113,8 @@ static void ReadCachedSearchCounts(const HttpResponse &Response,
      }
 }
 
+/* Implements the search header value insensitive helper. */
+
 static std::string SearchHeaderValueInsensitive(const std::map<std::string, std::string> &Headers,
                                                 const std::string &Name)
 {
@@ -133,6 +137,8 @@ static std::string SearchHeaderValueInsensitive(const std::map<std::string, std:
 
      return "";
 }
+
+/* Implements the emit cached search analytics helper. */
 
 static void EmitCachedSearchAnalytics(const ComprehensiveSearchQuery &Query,
                                       const HttpRequest &Request,
@@ -221,6 +227,8 @@ static DocumentMaybeSettings ParseDocumentMaybeSettings(const std::unordered_map
      return Settings;
 }
 
+/* Parses scalar JSON value input. */
+
 static bool ParseScalarJSONValue(const std::string &Value, nlohmann::json *OutValue)
 {
      if (!OutValue)
@@ -266,6 +274,8 @@ static bool ParseScalarJSONValue(const std::string &Value, nlohmann::json *OutVa
      return true;
 }
 
+/* Implements the format timestamp milliseconds as ISO 8601 local helper. */
+
 static std::string FormatTimestampMsAsISO8601Local(std::uint64_t TimestampMs)
 {
      auto TimePoint = std::chrono::system_clock::time_point(std::chrono::milliseconds(TimestampMs));
@@ -287,6 +297,8 @@ static std::string FormatTimestampMsAsISO8601Local(std::uint64_t TimestampMs)
 
 static std::string BuildDistinctKey(const SearchHit &Hit, const SQLTranslationResult &SQLResult);
 
+/* Builds collection not found sqlresponse data. */
+
 static HttpResponse BuildCollectionNotFoundSQLResponse()
 {
      HttpResponse Response(Status::NOT_FOUND, StatusText(Status::NOT_FOUND), "application/json");
@@ -301,6 +313,8 @@ static HttpResponse BuildCollectionNotFoundSQLResponse()
      return Response;
 }
 
+/* Checks whether built in SQL field name applies. */
+
 static bool IsBuiltInSQLFieldName(const std::string &FieldName)
 {
      return FieldName == "id" || FieldName == "title" || FieldName == "content" ||
@@ -308,10 +322,14 @@ static bool IsBuiltInSQLFieldName(const std::string &FieldName)
             FieldName == "_text_match" || FieldName == "score";
 }
 
+/* Implements the SQL field exists in collection helper. */
+
 static bool SQLFieldExistsInCollection(const std::string &FieldName, const CollectionConfig &Config)
 {
      return IsBuiltInSQLFieldName(FieldName) || Config.Fields.find(FieldName) != Config.Fields.end();
 }
+
+/* Checks whether sqlprojected output field applies. */
 
 static bool IsSQLProjectedOutputField(const SQLTranslationResult &SQLResult, const std::string &FieldName)
 {
@@ -334,6 +352,8 @@ static bool IsSQLProjectedOutputField(const SQLTranslationResult &SQLResult, con
      return false;
 }
 
+/* Checks whether allowed sqlaggregate function applies. */
+
 static bool IsAllowedSQLAggregateFunction(const std::string &FunctionName)
 {
      return FunctionName == "COUNT" ||
@@ -342,6 +362,8 @@ static bool IsAllowedSQLAggregateFunction(const std::string &FunctionName)
             FunctionName == "MIN" ||
             FunctionName == "MAX";
 }
+
+/* Validates sqlrequested fields input. */
 
 static bool ValidateSQLRequestedFields(const SQLTranslationResult &SQLResult,
                                        const CollectionConfig &Config,
@@ -403,6 +425,8 @@ static bool ValidateSQLRequestedFields(const SQLTranslationResult &SQLResult,
 
      return true;
 }
+
+/* Validates sqlexecution policy input. */
 
 static bool ValidateSQLExecutionPolicy(const HttpRequest &Request,
                                        const SQLTranslationResult &SQLResult,
@@ -501,6 +525,8 @@ struct SQLRow
      std::size_t FirstSeen = 0;
 };
 
+/* Implements the try parse numeric value helper. */
+
 static bool TryParseNumericValue(const std::string &Value, double *OutValue)
 {
      if (!OutValue)
@@ -518,6 +544,8 @@ static bool TryParseNumericValue(const std::string &Value, double *OutValue)
      *OutValue = ParsedValue;
      return true;
 }
+
+/* Implements the jsonscalar to filter value helper. */
 
 static std::string JSONScalarToFilterValue(const nlohmann::json &Value)
 {
@@ -555,6 +583,8 @@ static std::string JSONScalarToFilterValue(const nlohmann::json &Value)
 
      return Value.dump();
 }
+
+/* Builds sqlrow value from hit data. */
 
 static bool BuildSQLRowValueFromHit(const SearchHit &Hit,
                                     const std::string &SourceField,
@@ -611,6 +641,8 @@ static bool BuildSQLRowValueFromHit(const SearchHit &Hit,
      return ParseScalarJSONValue(FieldIt->second, OutValue);
 }
 
+/* Builds sqlrows from hits data. */
+
 static std::vector<SQLRow> BuildSQLRowsFromHits(const SQLTranslationResult &SQLResult,
                                                 const ComprehensiveSearchQuery &Query,
                                                 const std::vector<SearchHit> &Hits)
@@ -662,6 +694,8 @@ static std::vector<SQLRow> BuildSQLRowsFromHits(const SQLTranslationResult &SQLR
 
      return Rows;
 }
+
+/* Computes sqlaggregate metric values. */
 
 static double ComputeSQLAggregateMetric(const SQLAggregateSpec &AggSpec, const std::vector<SearchHit> &Hits)
 {
@@ -767,6 +801,8 @@ static double ComputeSQLAggregateMetric(const SQLAggregateSpec &AggSpec, const s
      return 0.0;
 }
 
+/* Resolves sqlsort output field values. */
+
 static std::string ResolveSQLSortOutputField(const SQLTranslationResult &SQLResult, const std::string &SortField)
 {
      for (const auto &Field : SQLResult.SelectFields)
@@ -787,6 +823,8 @@ static std::string ResolveSQLSortOutputField(const SQLTranslationResult &SQLResu
 
      return SortField;
 }
+
+/* Implements the compare sqlJSON values helper. */
 
 static int CompareSQLJSONValues(const nlohmann::json &Left, const nlohmann::json &Right)
 {
@@ -829,6 +867,8 @@ static int CompareSQLJSONValues(const nlohmann::json &Left, const nlohmann::json
      return 0;
 }
 
+/* Sorts sqlrows values. */
+
 static void SortSQLRows(std::vector<SQLRow> &Rows, const SQLTranslationResult &SQLResult)
 {
      if (SQLResult.Query.SortBy.empty())
@@ -860,6 +900,8 @@ static void SortSQLRows(std::vector<SQLRow> &Rows, const SQLTranslationResult &S
                            return Left.FirstSeen < Right.FirstSeen;
                       });
 }
+
+/* Applies sqlhaving processing. */
 
 static void ApplySQLHaving(std::vector<SQLRow> &Rows, const SQLTranslationResult &SQLResult)
 {
@@ -911,6 +953,8 @@ static void ApplySQLHaving(std::vector<SQLRow> &Rows, const SQLTranslationResult
      Rows = std::move(FilteredRows);
 }
 
+/* Builds sqlrows response data. */
+
 static std::string BuildSQLRowsResponse(const std::vector<SQLRow> &Rows,
                                         int Found,
                                         int OutOf,
@@ -950,6 +994,8 @@ static std::string BuildSQLRowsResponse(const std::vector<SQLRow> &Rows,
 
      return Root.dump();
 }
+
+/* Builds show collections sqlresponse data. */
 
 static HttpResponse BuildShowCollectionsSQLResponse(const HttpRequest &Request)
 {
@@ -1050,6 +1096,8 @@ static HttpResponse BuildShowCollectionsSQLResponse(const HttpRequest &Request)
      return Response;
 }
 
+/* Builds distinct sqlresponse data. */
+
 static std::string BuildDistinctSQLResponse(const SQLTranslationResult &SQLResult,
                                             const ComprehensiveSearchQuery &Query,
                                             const ComprehensiveSearchResult &SearchResult)
@@ -1096,6 +1144,8 @@ static std::string BuildDistinctSQLResponse(const SQLTranslationResult &SQLResul
                                  false,
                                  {});
 }
+
+/* Builds aggregate only sqlresponse data. */
 
 static std::string BuildAggregateOnlySQLResponse(const SQLTranslationResult &SQLResult,
                                                  const ComprehensiveSearchQuery &Query,
@@ -1148,6 +1198,8 @@ static std::string BuildAggregateOnlySQLResponse(const SQLTranslationResult &SQL
      return Root.dump();
 }
 
+/* Builds select sqlresponse data. */
+
 static std::string BuildSelectSQLResponse(const SQLTranslationResult &SQLResult,
                                           const ComprehensiveSearchQuery &Query,
                                           const ComprehensiveSearchResult &SearchResult)
@@ -1177,6 +1229,8 @@ static std::string BuildSelectSQLResponse(const SQLTranslationResult &SQLResult,
                                  false,
                                  {});
 }
+
+/* Builds grouped sqlresponse data. */
 
 static std::string BuildGroupedSQLResponse(const SQLTranslationResult &SQLResult,
                                            const ComprehensiveSearchQuery &Query,
@@ -1532,6 +1586,8 @@ static SQLParamApplyResult ApplySQLSearchParams(std::unordered_map<std::string, 
      return Result;
 }
 
+/* Builds distinct key data. */
+
 static std::string BuildDistinctKey(const SearchHit &Hit, const SQLTranslationResult &SQLResult)
 {
      std::string Key;
@@ -1560,6 +1616,8 @@ static std::string BuildDistinctKey(const SearchHit &Hit, const SQLTranslationRe
 
      return Key;
 }
+
+/* Applies sqldistinct processing. */
 
 static void ApplySQLDistinct(ComprehensiveSearchResult &SearchResultObj, const SQLTranslationResult &SQLResult)
 {
@@ -2052,6 +2110,8 @@ HttpResponse SearchAPI::HandleSearch(const HttpRequest &Request)
 
      return Response;
 }
+
+/* Handles global search requests. */
 
 HttpResponse SearchAPI::HandleGlobalSearch(const HttpRequest &Request)
 {

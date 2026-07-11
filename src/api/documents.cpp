@@ -96,6 +96,8 @@ static nlohmann::json BuildDocumentJSON(const Document &Doc)
      return J;
 }
 
+/* Implements the compare natural string helper. */
+
 static int CompareNaturalString(const std::string &A, const std::string &B)
 {
      size_t I = 0;
@@ -153,6 +155,8 @@ static int CompareNaturalString(const std::string &A, const std::string &B)
 
      return 0;
 }
+
+/* Handles list documents requests. */
 
 HttpResponse SearchAPI::HandleListDocuments(const HttpRequest &Request)
 {
@@ -1850,6 +1854,8 @@ HttpResponse SearchAPI::HandleGetDocument(const HttpRequest &Request)
      return Response;
 }
 
+/* Handles get document context requests. */
+
 HttpResponse SearchAPI::HandleGetDocumentContext(const HttpRequest &Request)
 {
      if (Request.Method != "GET")
@@ -1911,6 +1917,8 @@ HttpResponse SearchAPI::HandleGetDocumentContext(const HttpRequest &Request)
      Response.Body = Root.dump();
      return Response;
 }
+
+/* Handles bulk import documents requests. */
 
 HttpResponse SearchAPI::HandleBulkImportDocuments(const HttpRequest &Request)
 {
