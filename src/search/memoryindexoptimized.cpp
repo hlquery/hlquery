@@ -18,9 +18,23 @@
 #include "search/mindex.h"
 #include "utils/simdutils.h"
 
+/* HasMappedBytes checks whether a mapped pointer has enough bytes left
+ * without forming an out-of-range pointer first.
+ */
+
+static bool HasMappedBytes(const uint8_t *Ptr, const uint8_t *EndPtr, size_t Length)
+{
+     if (!Ptr || !EndPtr || Ptr > EndPtr)
+     {
+          return false;
+     }
+
+     return Length <= static_cast<size_t>(EndPtr - Ptr);
+}
+
 /* ReadMappedTerm - Finds the null terminator for a term stored inside the memory-mapped terms file. */
 
-bool ReadMappedTerm(const char *TermStartPtr, const char *TermsEndPtr, size_t &TermLenOut)
+static bool ReadMappedTerm(const char *TermStartPtr, const char *TermsEndPtr, size_t &TermLenOut)
 {
      if (!TermStartPtr || TermStartPtr >= TermsEndPtr)
      {
@@ -56,7 +70,7 @@ MMapIndex::TermEntry MMapIndex::FindTermOptimized(const std::string &TermParam) 
 
      for (uint32_t I = 0; I < TermCount && Ptr < EndPtr; ++I)
      {
-          if (Ptr + sizeof(uint16_t) > EndPtr)
+          if (!HasMappedBytes(Ptr, EndPtr, sizeof(uint16_t)))
           {
                break;
           }
@@ -65,7 +79,7 @@ MMapIndex::TermEntry MMapIndex::FindTermOptimized(const std::string &TermParam) 
           std::memcpy(&TermLenValue, Ptr, sizeof(TermLenValue));
           Ptr += sizeof(uint16_t);
 
-          if (Ptr + TermLenValue + sizeof(uint64_t) + sizeof(uint32_t) > EndPtr)
+          if (!HasMappedBytes(Ptr, EndPtr, static_cast<size_t>(TermLenValue) + sizeof(uint64_t) + sizeof(uint32_t)))
           {
                break;
           }
@@ -283,7 +297,7 @@ std::vector<Posting> MMapIndex::DecodePostingsOptimized(const uint8_t *DataParam
 
           PrevDocHash = DocHash;
 
-          if (Ptr + sizeof(float) > EndPtr)
+          if (!HasMappedBytes(Ptr, EndPtr, sizeof(float)))
           {
                break;
           }
@@ -293,7 +307,7 @@ std::vector<Posting> MMapIndex::DecodePostingsOptimized(const uint8_t *DataParam
 
           Ptr += sizeof(float);
 
-          if (Ptr + sizeof(uint16_t) > EndPtr)
+          if (!HasMappedBytes(Ptr, EndPtr, sizeof(uint16_t)))
           {
                break;
           }
@@ -303,7 +317,7 @@ std::vector<Posting> MMapIndex::DecodePostingsOptimized(const uint8_t *DataParam
 
           Ptr += sizeof(uint16_t);
 
-          if (Ptr + DocIDLenVal > EndPtr)
+          if (!HasMappedBytes(Ptr, EndPtr, DocIDLenVal))
           {
                break;
           }

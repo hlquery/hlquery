@@ -179,6 +179,20 @@ namespace
           return true;
      }
 
+     /* HasMappedBytes checks whether a mapped pointer has enough bytes left
+      * without forming an out-of-range pointer first.
+      */
+
+     bool HasMappedBytes(const uint8_t *Ptr, const uint8_t *EndPtr, size_t Length)
+     {
+          if (!Ptr || !EndPtr || Ptr > EndPtr)
+          {
+               return false;
+          }
+
+          return Length <= static_cast<size_t>(EndPtr - Ptr);
+     }
+
      /* ValidateMMapFile verifies the shared header before the reader trusts any
       * payload pointer. This keeps malformed or partial files from being decoded
       * as valid term or postings data.
@@ -973,7 +987,7 @@ std::vector<Posting> MMapIndex::DecodePostings(const uint8_t *DataParam, size_t 
 
           PrevDocHash = DocHash;
 
-          if (Ptr + sizeof(float) > EndPtr)
+          if (!HasMappedBytes(Ptr, EndPtr, sizeof(float)))
           {
                break;
           }
@@ -983,7 +997,7 @@ std::vector<Posting> MMapIndex::DecodePostings(const uint8_t *DataParam, size_t 
 
           Ptr += sizeof(float);
 
-          if (Ptr + sizeof(uint16_t) > EndPtr)
+          if (!HasMappedBytes(Ptr, EndPtr, sizeof(uint16_t)))
           {
                break;
           }
@@ -993,7 +1007,7 @@ std::vector<Posting> MMapIndex::DecodePostings(const uint8_t *DataParam, size_t 
 
           Ptr += sizeof(uint16_t);
 
-          if (Ptr + DocIDLenVal > EndPtr)
+          if (!HasMappedBytes(Ptr, EndPtr, DocIDLenVal))
           {
                break;
           }
