@@ -481,6 +481,27 @@ void ModuleManager::EndModuleCallback(const ModuleReference &Module)
      Module.ExecutionState->Condition.notify_all();
 }
 
+ModuleManager::ModuleCallbackGuard::ModuleCallbackGuard(const ModuleReference &ModuleRef)
+    : Module(ModuleRef)
+{
+}
+
+ModuleManager::ModuleCallbackGuard::~ModuleCallbackGuard()
+{
+     Release();
+}
+
+void ModuleManager::ModuleCallbackGuard::Release()
+{
+     if (!Active)
+     {
+          return;
+     }
+
+     Active = false;
+     ModuleManager::EndModuleCallback(Module);
+}
+
 /* Blocks new callback entry and waits until all in-flight work for the module has drained. */
 
 void ModuleManager::QuiesceModuleCallbacks(const ModuleReference &Module)
@@ -547,19 +568,18 @@ void ModuleManager::DispatchModuleEvent(const ModuleSnapshot &Modules,
                continue;
           }
 
+          ModuleCallbackGuard Guard(Module);
+
           try
           {
                Invoke(*Module.Instance);
-               EndModuleCallback(Module);
           }
           catch (const std::exception &Ex)
           {
-               EndModuleCallback(Module);
                LogModuleDispatchFailure(Module.Instance.get(), EventName, Ex.what());
           }
           catch (...)
           {
-               EndModuleCallback(Module);
                LogUnknownModuleDispatchFailure(Module.Instance.get(), EventName);
           }
      }
@@ -901,10 +921,11 @@ float ModuleManager::ComputeSearchWeightMultiplier(const std::string &Collection
                continue;
           }
 
+          ModuleCallbackGuard Guard(Module);
+
           try
           {
                const float module_multiplier = Module.Instance->ComputeSearchWeightMultiplier(Collection, Query, RankingMode, Hit, BaseScore);
-               EndModuleCallback(Module);
 
                if (std::isfinite(module_multiplier) && module_multiplier > 0.0f)
                {
@@ -913,12 +934,10 @@ float ModuleManager::ComputeSearchWeightMultiplier(const std::string &Collection
           }
           catch (const std::exception &Ex)
           {
-               EndModuleCallback(Module);
                LogModuleDispatchFailure(Module.Instance.get(), "ComputeSearchWeightMultiplier", Ex.what());
           }
           catch (...)
           {
-               EndModuleCallback(Module);
                LogUnknownModuleDispatchFailure(Module.Instance.get(), "ComputeSearchWeightMultiplier");
           }
      }
@@ -1231,23 +1250,22 @@ std::vector<ModuleAPIDescription> ModuleManager::GetModuleAPIDescriptions() cons
                continue;
           }
 
+          ModuleCallbackGuard Guard(ModuleRef);
+
           ModuleAPIDescription Description;
 
           try
           {
                Description = ModuleRef.Instance->GetAPIDescription();
                Description.RequirementFlags = ModuleRef.Instance->GetRequirementFlags();
-               EndModuleCallback(ModuleRef);
           }
           catch (const std::exception &Ex)
           {
-               EndModuleCallback(ModuleRef);
                LogModuleDispatchFailure(ModuleRef.Instance.get(), "GetAPIDescription", Ex.what());
                continue;
           }
           catch (...)
           {
-               EndModuleCallback(ModuleRef);
                LogUnknownModuleDispatchFailure(ModuleRef.Instance.get(), "GetAPIDescription");
                continue;
           }
@@ -1289,21 +1307,20 @@ bool ModuleManager::GetModuleAPIDescription(const std::string &ModuleName, Modul
           return false;
      }
 
+     ModuleCallbackGuard Guard(ModuleRef);
+
      try
      {
           *Description = ModuleRef.Instance->GetAPIDescription();
           Description->RequirementFlags = ModuleRef.Instance->GetRequirementFlags();
-          EndModuleCallback(ModuleRef);
      }
      catch (const std::exception &Ex)
      {
-          EndModuleCallback(ModuleRef);
           LogModuleDispatchFailure(ModuleRef.Instance.get(), "GetAPIDescription", Ex.what());
           return false;
      }
      catch (...)
      {
-          EndModuleCallback(ModuleRef);
           LogUnknownModuleDispatchFailure(ModuleRef.Instance.get(), "GetAPIDescription");
           return false;
      }
@@ -1342,20 +1359,19 @@ bool ModuleManager::GetModuleCommandSpecs(const std::string &ModuleName, std::ve
           return false;
      }
 
+     ModuleCallbackGuard Guard(ModuleRef);
+
      try
      {
           *Commands = ModuleRef.Instance->GetCommandSpecs();
-          EndModuleCallback(ModuleRef);
      }
      catch (const std::exception &Ex)
      {
-          EndModuleCallback(ModuleRef);
           LogModuleDispatchFailure(ModuleRef.Instance.get(), "GetCommandSpecs", Ex.what());
           return false;
      }
      catch (...)
      {
-          EndModuleCallback(ModuleRef);
           LogUnknownModuleDispatchFailure(ModuleRef.Instance.get(), "GetCommandSpecs");
           return false;
      }
@@ -1384,21 +1400,20 @@ bool ModuleManager::HandleModuleCommand(const std::string &ModuleName, const Mod
           return false;
      }
 
+     ModuleCallbackGuard Guard(Module);
+
      try
      {
           *Response = Module.Instance->HandleCommand(Request);
-          EndModuleCallback(Module);
           return true;
      }
      catch (const std::exception &Ex)
      {
-          EndModuleCallback(Module);
           LogModuleDispatchFailure(Module.Instance.get(), "HandleModuleCommand", Ex.what());
           return false;
      }
      catch (...)
      {
-          EndModuleCallback(Module);
           LogUnknownModuleDispatchFailure(Module.Instance.get(), "HandleModuleCommand");
           return false;
      }
@@ -1425,21 +1440,20 @@ HttpResponse ModuleManager::HandleModuleAPIRequest(const std::string &ModuleName
           return HttpResponse(503, "Service Unavailable", "application/json");
      }
 
+     ModuleCallbackGuard Guard(Module);
+
      try
      {
           HttpResponse Response = Module.Instance->HandleAPIRequest(Request, SubPath);
-          EndModuleCallback(Module);
           return Response;
      }
      catch (const std::exception &Ex)
      {
-          EndModuleCallback(Module);
           LogModuleDispatchFailure(Module.Instance.get(), "HandleModuleAPIRequest", Ex.what());
           return HttpResponse(500, "Internal Server Error", "application/json");
      }
      catch (...)
      {
-          EndModuleCallback(Module);
           LogUnknownModuleDispatchFailure(Module.Instance.get(), "HandleModuleAPIRequest");
           return HttpResponse(500, "Internal Server Error", "application/json");
      }

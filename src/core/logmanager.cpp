@@ -465,9 +465,7 @@ bool LogStream::RotateLogFile()
           /* Close and rename the active file before creating its replacement. */
 
           FileStream->close();
-
           RotationCount++;
-
           std::string RotatedFilename = GenerateRotatedFilename(RotationCount);
 
           fs::path CurrentFilePath(ConfigValue.target);
@@ -549,11 +547,10 @@ void LogStream::CleanupOldRotatedFiles()
                }
           }
 
-          std::sort(RotatedFilesList.begin(), RotatedFilesList.end(),
-                    [](const auto &a, const auto &b)
-                    {
-                         return a.first < b.first;
-                    });
+          std::sort(RotatedFilesList.begin(), RotatedFilesList.end(), [](const auto &a, const auto &b)
+          {
+                   return a.first < b.first;
+          });
 
           /* Remove files that exceed the configured age limit. */
 
@@ -578,13 +575,13 @@ void LogStream::CleanupOldRotatedFiles()
                     }
                }
 
-               RotatedFilesList.erase(
-                    std::remove_if(RotatedFilesList.begin(), RotatedFilesList.end(),
-                                   [&](const auto &RotatedFileItem)
-                                   {
+               RotatedFilesList.erase(std::remove_if(RotatedFilesList.begin(), RotatedFilesList.end(),
+               [&](const auto &RotatedFileItem)
+               {
                                         return !fs::exists(RotatedFileItem.second);
-                                   }),
-                    RotatedFilesList.end());
+               }),
+               
+               RotatedFilesList.end());
           }
 
           if (ConfigValue.max_rotated_files > 0 && RotatedFilesList.size() > ConfigValue.max_rotated_files)
@@ -785,7 +782,6 @@ bool LogManager::Initialize(const std::vector<LogConfig> &LogConfigs, bool Debug
                     LogConfig ConsoleConfig;
 
                     ConsoleConfig.method = "console";
-
                     ConsoleConfig.type = "*";
                     ConsoleConfig.level = LogLevel::LOG_NORMAL;
                     ConsoleConfig.target = "console";

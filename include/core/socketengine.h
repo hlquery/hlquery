@@ -86,21 +86,21 @@ class EventHandler
 
      int GetFD() const
      {
-          return FD;
+          return FD.load(std::memory_order_acquire);
      }
 
      /* Sets the file descriptor */
 
      void SetFD(int fd)
      {
-          FD = fd;
+          FD.store(fd, std::memory_order_release);
      }
 
      /* Returns true if the file descriptor is valid */
 
      bool HasFD() const
      {
-          return FD >= 0;
+          return GetFD() >= 0;
      }
 
      /* Event mask management */
@@ -109,25 +109,25 @@ class EventHandler
 
      int GetEventMask() const
      {
-          return EventMask;
+          return EventMask.load(std::memory_order_acquire);
      }
 
      /* Sets the event mask */
 
      void SetEventMask(int mask)
      {
-          EventMask = mask;
+          EventMask.store(mask, std::memory_order_release);
      }
 
    private:
 
      /* File descriptor */
 
-     int FD = -1;
+     std::atomic<int> FD{-1};
 
      /* Event mask */
 
-     int EventMask = 0;
+     std::atomic<int> EventMask{0};
 };
 
 /* hlquery socket engine - epoll-based event dispatcher */

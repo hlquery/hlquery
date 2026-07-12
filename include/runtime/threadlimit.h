@@ -66,14 +66,22 @@ class ThreadLimit
 
      static void IncrementThreadCount()
      {
-          CurrentThreads++;
+          CurrentThreads.fetch_add(1, std::memory_order_acq_rel);
      }
 
      /* Decrement thread count */
 
      static void DecrementThreadCount()
      {
-          CurrentThreads--;
+          size_t CurrentValue = CurrentThreads.load(std::memory_order_acquire);
+
+          while (CurrentValue > 0)
+          {
+               if (CurrentThreads.compare_exchange_weak(CurrentValue, CurrentValue - 1, std::memory_order_acq_rel, std::memory_order_acquire))
+               {
+                    return;
+               }
+          }
      }
 
      /* Reset thread counters after fork */

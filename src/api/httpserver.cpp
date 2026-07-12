@@ -83,49 +83,14 @@ static RouteContext BuildRouteContext(const HttpRequest &Request, SearchAPI *API
 
 static bool ShouldUseAsyncHttpDispatch()
 {
-     static const bool UseThreadPool = []
-     {
-          const char *EnvValue = std::getenv("HLQUERY_HTTP_USE_THREAD_POOL");
-
-          if (!EnvValue)
-          {
-               return false;
-          }
-
-          std::string Value(EnvValue);
-          std::transform(Value.begin(), Value.end(), Value.begin(), [](unsigned char c)
-                         {
-                              return static_cast<char>(std::tolower(c));
-                         });
-
-          if (!(Value == "1" || Value == "true" || Value == "yes" || Value == "on"))
-          {
-               return false;
-          }
-
-          /*
-           * HttpConnection instances are owned by HttpServer::Connections and can be
-           * destroyed by the event loop. Until connection ownership is ref-counted,
-           * dispatching lambdas that capture `this` is unsafe.
-           */
-
-          const char *UnsafeValue = std::getenv("HLQUERY_HTTP_ALLOW_UNSAFE_ASYNC_CONNECTIONS");
-
-          if (!UnsafeValue)
-          {
-               return false;
-          }
-
-          std::string UnsafeFlag(UnsafeValue);
-          std::transform(UnsafeFlag.begin(), UnsafeFlag.end(), UnsafeFlag.begin(), [](unsigned char c)
-                         {
-                              return static_cast<char>(std::tolower(c));
-                         });
-
-          return UnsafeFlag == "1" || UnsafeFlag == "true" || UnsafeFlag == "yes" || UnsafeFlag == "on";
-     }();
-
-     return UseThreadPool;
+     /*
+      * HttpConnection instances are owned by HttpServer::Connections while the
+      * socket engine stores raw EventHandler pointers. Dispatching request work
+      * to another thread captures `this` across event-loop cleanup, producing a
+      * possible use-after-free. Keep request execution on the event-loop thread
+      * until connection ownership is ref-counted end to end.
+      */
+     return false;
 }
 
 /* UrlDecode decodes a URL string. */
@@ -2008,7 +1973,7 @@ void HttpConnection::ProcessMultipleRequests()
           {
                if (ThreadPoolValue && !ShouldUseAsyncHttpDispatch() && Instance && Instance->Logs && Instance->Logs->GetDebugMode())
                {
-                    Instance->Logs->Debug("http_server", "ProcessMultipleRequests: HTTP pool available but disabled via HLQUERY_HTTP_USE_THREAD_POOL; processing inline.");
+                    Instance->Logs->Debug("http_server", "ProcessMultipleRequests: HTTP pool available but async connection dispatch is disabled until connection ownership is ref-counted; processing inline.");
                }
 
                ProcessSingleRequest(RequestStr);

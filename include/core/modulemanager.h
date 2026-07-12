@@ -98,6 +98,20 @@ class ModuleManager
          std::shared_ptr<ModuleExecutionState> ExecutionState;
     };
 
+    struct ModuleCallbackGuard
+    {
+         explicit ModuleCallbackGuard(const ModuleReference& ModuleRef);
+         ~ModuleCallbackGuard();
+
+         ModuleCallbackGuard(const ModuleCallbackGuard&) = delete;
+         ModuleCallbackGuard& operator=(const ModuleCallbackGuard&) = delete;
+
+         void Release();
+
+         ModuleReference Module;
+         bool Active = true;
+    };
+
     /* 
      * Snapshot of currently referenced runtime modules.
      * Snapshots are used to iterate safely without holding write access.
@@ -278,11 +292,11 @@ class ModuleManager
                     continue;
                }
 
+               ModuleCallbackGuard Guard(Module);
+
                try
                {
                     ModulePreCheckResult Result = Invoke(*Module.Instance);
-
-                    EndModuleCallback(Module);
 
                     if (Result.Action == ModulePreCheckAction::Deny)
                     {
@@ -291,12 +305,10 @@ class ModuleManager
                }
                catch (const std::exception& Ex)
                {
-                    EndModuleCallback(Module);
                     LogDispatchFailure(Module.Instance.get(), EventName, Ex.what());
                }
                catch (...)
                {
-                    EndModuleCallback(Module);
                     LogUnknownDispatchFailure(Module.Instance.get(), EventName);
                }
           }

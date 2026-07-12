@@ -245,7 +245,7 @@ class SearchThreadPool
 
           /* Assigned CPU core or -1 when no affinity is applied */
 
-          int CPUCore{-1};
+          std::atomic<int> CPUCore{-1};
 
           /* Time point of the most recent completed work */
 

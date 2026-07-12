@@ -17,7 +17,7 @@ use File::Spec;
 use File::Path qw(make_path);
 use File::Basename;
 
-# Colors for output
+# ANSI colors used to make the generated steps easy to scan in a terminal.
 my $RED = "\033[31m";
 my $GREEN = "\033[32m";
 my $YELLOW = "\033[33m";
@@ -26,12 +26,12 @@ my $CYAN = "\033[36m";
 my $RESET = "\033[0m";
 my $BOLD = "\033[1m";
 
-# Setup paths
+# Locate this helper and its parent so it works from any current directory.
 my $script_dir = dirname(File::Spec->rel2abs($0));
 my $parent_dir = File::Spec->rel2abs(File::Spec->catdir($script_dir, ".."));
 
-# Default to run/ssl if run/ exists in the parent directory,
-# otherwise use ssl/ in the parent directory (for cases where we are already in run/)
+# Write certs into run/ssl during normal development, or ssl/ when invoked
+# from an already-staged run directory.
 my $ssl_dir;
 if (-d File::Spec->catdir($parent_dir, "run")) {
     $ssl_dir = File::Spec->catdir($parent_dir, "run", "ssl");
@@ -48,12 +48,12 @@ unless (-d $ssl_dir) {
     make_path($ssl_dir) or die "Could not create SSL directory: $ssl_dir\n";
 }
 
-# Generate private key
+# Generate a local development private key and lock down its permissions.
 print "${GREEN}[STEP 1/2]${RESET} Generating RSA private key...\n";
 system("openssl genrsa -out \"$ssl_dir/server.key\" 2048 2>/dev/null");
 chmod 0600, "$ssl_dir/server.key";
 
-# Generate self-signed certificate
+# Create a self-signed localhost certificate that matches the generated key.
 print "${GREEN}[STEP 2/2]${RESET} Generating self-signed certificate...\n";
 my $subj = "/C=US/ST=California/L=San Francisco/O=HLQuery Test/OU=IT/CN=localhost";
 system("openssl req -new -x509 -sha256 -key \"$ssl_dir/server.key\" -out \"$ssl_dir/server.crt\" -days 365 -subj \"$subj\" 2>/dev/null");
