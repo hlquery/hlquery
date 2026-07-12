@@ -116,6 +116,7 @@ $ ./run/hlquery stop --json
 
 ```bash
 $ ./run/hlquery start --nofork
+...
 ```
 
 **Run talk:**
