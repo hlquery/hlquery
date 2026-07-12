@@ -814,6 +814,211 @@ sub check_lsm_storage {
     return 1;
 }
 
+sub check_rocksdb_vendor {
+    my $rocksdb_dir = catdir($base_path, 'vendor', 'rocksdb');
+    my $rocksdb_include = catfile($rocksdb_dir, 'include', 'rocksdb', 'db.h');
+    my $rocksdb_cmake = catfile($rocksdb_dir, 'CMakeLists.txt');
+    my $rocksdb_lib = catfile($rocksdb_dir, 'build', 'librocksdb.a');
+
+    if (!-d $rocksdb_dir || !-f $rocksdb_cmake || !-f $rocksdb_include) {
+        print_error('Vendored RocksDB', 'missing or incomplete');
+        print_error('Expected RocksDB source', $rocksdb_dir);
+        die "Error: vendored RocksDB source is required under vendor/rocksdb\n";
+    }
+
+    print_success('Vendored RocksDB source', 'found');
+
+    if (!-f $rocksdb_lib) {
+        print_status('SKIP', 'Vendored RocksDB library', 'not built yet (make will build it)');
+        return 1;
+    }
+
+    if (!-s $rocksdb_lib) {
+        print_error('Vendored RocksDB library', 'empty archive');
+        die "Error: RocksDB archive exists but is empty: $rocksdb_lib\n";
+    }
+
+    my $test_src = catfile($base_path, 'build', "rocksdb_configure_test_$$.cpp");
+    my $test_bin = catfile($base_path, 'build', "rocksdb_configure_test_$$");
+    open my $tfh, '>', $test_src or die "Cannot write RocksDB test file: $!\n";
+    print $tfh <<'EOF';
+#include <rocksdb/db.h>
+#include <rocksdb/options.h>
+
+int main()
+{
+    rocksdb::Options options;
+    options.create_if_missing = true;
+    return rocksdb::Status::OK().ok() ? 0 : 1;
+}
+EOF
+    close $tfh;
+
+    my $include = shell_quote_arg(catdir($rocksdb_dir, 'include'));
+    my $src = shell_quote_arg($test_src);
+    my $bin = shell_quote_arg($test_bin);
+    my $lib = shell_quote_arg($rocksdb_lib);
+    my $cmd = "$config{CXX} $config{CXXFLAGS} -std=c++20 -I$include $src $lib -lz -ldl -pthread -o $bin >/dev/null 2>&1";
+    my $result = system($cmd);
+
+    unlink $test_src if -f $test_src;
+    unlink $test_bin if -f $test_bin;
+
+    if ($result == 0) {
+        print_success('Vendored RocksDB library', 'compiled and linkable');
+        return 1;
+    }
+
+    print_error('Vendored RocksDB library', 'link check failed');
+    die "Error: RocksDB archive failed configure link check. Try: rm -rf vendor/rocksdb/build && make rocksdb-smoke\n";
+}
+
+sub check_fmt_vendor {
+    my $fmt_dir = catdir($base_path, 'vendor', 'fmt');
+    my $fmt_header = catfile($fmt_dir, 'format.h');
+    my $fmt_source = catfile($fmt_dir, 'format.cc');
+
+    if (!-d $fmt_dir || !-f $fmt_header || !-f $fmt_source) {
+        print_error('Vendored fmt', 'missing or incomplete');
+        print_error('Expected fmt source', $fmt_dir);
+        die "Error: vendored fmt source is required under vendor/fmt\n";
+    }
+
+    my $test_src = catfile($base_path, 'build', "fmt_configure_test_$$.cpp");
+    my $fmt_obj = catfile($base_path, 'build', "fmt_configure_format_$$.o");
+    my $test_bin = catfile($base_path, 'build', "fmt_configure_test_$$");
+
+    open my $tfh, '>', $test_src or die "Cannot write fmt test file: $!\n";
+    print $tfh <<'EOF';
+#include <string>
+#include "vendor/fmt/format.h"
+
+int main()
+{
+    const std::string value = fmt::format("{} {}", "hlquery", 42);
+    return value == "hlquery 42" ? 0 : 1;
+}
+EOF
+    close $tfh;
+
+    my $root_include = shell_quote_arg($base_path);
+    my $vendor_include = shell_quote_arg(catdir($base_path, 'vendor'));
+    my $src = shell_quote_arg($test_src);
+    my $fmt_cc = shell_quote_arg($fmt_source);
+    my $obj = shell_quote_arg($fmt_obj);
+    my $bin = shell_quote_arg($test_bin);
+
+    my $compile_cmd = "$config{CXX} $config{CXXFLAGS} -std=c++20 -I$root_include -I$vendor_include -c $fmt_cc -o $obj >/dev/null 2>&1";
+    my $link_cmd = "$config{CXX} $config{CXXFLAGS} -std=c++20 -I$root_include -I$vendor_include $src $obj -o $bin >/dev/null 2>&1";
+
+    my $result = system($compile_cmd);
+    $result = system($link_cmd) if $result == 0;
+
+    unlink $test_src if -f $test_src;
+    unlink $fmt_obj if -f $fmt_obj;
+    unlink $test_bin if -f $test_bin;
+
+    if ($result == 0) {
+        print_success('Vendored fmt', 'compiled and linkable');
+        return 1;
+    }
+
+    print_error('Vendored fmt', 'compile/link check failed');
+    die "Error: fmt vendor source failed configure compile/link check. Verify vendor/fmt/format.cc and vendor/fmt/*.h\n";
+}
+
+sub cld2_vendor_sources {
+    return qw(
+        cldutil.cc cldutil_shared.cc compact_lang_det.cc compact_lang_det_hint_code.cc
+        compact_lang_det_impl.cc debug.cc fixunicodevalue.cc generated_entities.cc
+        generated_language.cc generated_ulscript.cc getonescriptspan.cc lang_script.cc
+        offsetmap.cc scoreonescriptspan.cc tote.cc utf8statetable.cc
+        cld_generated_cjk_uni_prop_80.cc cld2_generated_cjk_compatible.cc
+        cld_generated_cjk_delta_bi_4.cc generated_distinct_bi_0.cc
+        cld2_generated_quadchrome_2.cc cld2_generated_deltaoctachrome.cc
+        cld2_generated_distinctoctachrome.cc cld_generated_score_quad_octa_2.cc
+    );
+}
+
+sub check_cld2_vendor {
+    my $cld2_dir = catdir($base_path, 'vendor', 'cld2');
+    my $public_dir = catdir($cld2_dir, 'public');
+    my $internal_dir = catdir($cld2_dir, 'internal');
+    my $cld2_header = catfile($public_dir, 'compact_lang_det.h');
+
+    if (!-d $cld2_dir || !-d $public_dir || !-d $internal_dir || !-f $cld2_header) {
+        print_error('Vendored CLD2', 'missing or incomplete');
+        print_error('Expected CLD2 source', $cld2_dir);
+        die "Error: vendored CLD2 source is required under vendor/cld2\n";
+    }
+
+    my @sources = map { catfile($internal_dir, $_) } cld2_vendor_sources();
+    my @missing = grep { !-f $_ } @sources;
+    if (@missing) {
+        print_error('Vendored CLD2', 'missing source files');
+        die "Error: missing CLD2 vendor source: $missing[0]\n";
+    }
+
+    my $test_src = catfile($base_path, 'build', "cld2_configure_test_$$.cpp");
+    my $test_bin = catfile($base_path, 'build', "cld2_configure_test_$$");
+    my @objects = map {
+        my $name = basename($_);
+        $name =~ s/\.cc$//;
+        catfile($base_path, 'build', "cld2_configure_${name}_$$.o");
+    } @sources;
+
+    open my $tfh, '>', $test_src or die "Cannot write CLD2 test file: $!\n";
+    print $tfh <<'EOF';
+#include <cstdio>
+#include "vendor/cld2/public/compact_lang_det.h"
+#include "vendor/cld2/internal/lang_script.h"
+
+int main()
+{
+    bool reliable = false;
+    const char text[] = "hello from hlquery";
+    CLD2::Language lang = CLD2::DetectLanguage(text, sizeof(text) - 1, true, &reliable);
+    const char* code = CLD2::LanguageCode(lang);
+    return code && code[0] ? 0 : 1;
+}
+EOF
+    close $tfh;
+
+    my $root_include = shell_quote_arg($base_path);
+    my $vendor_include = shell_quote_arg(catdir($base_path, 'vendor'));
+    my $result = 0;
+
+    for (my $i = 0; $i < @sources; $i++) {
+        my $src = shell_quote_arg($sources[$i]);
+        my $obj = shell_quote_arg($objects[$i]);
+        my $cmd = "$config{CXX} $config{CXXFLAGS} -std=c++20 -I$root_include -I$vendor_include -Wno-narrowing -Wno-implicit-fallthrough -Wno-sign-compare -Wno-unused-variable -Wno-unused-but-set-variable -Wno-char-subscripts -c $src -o $obj >/dev/null 2>&1";
+        $result = system($cmd);
+        last if $result != 0;
+    }
+
+    if ($result == 0) {
+        my $src = shell_quote_arg($test_src);
+        my $bin = shell_quote_arg($test_bin);
+        my $objs = shell_quote_args(@objects);
+        my $cmd = "$config{CXX} $config{CXXFLAGS} -std=c++20 -I$root_include -I$vendor_include $src $objs -o $bin >/dev/null 2>&1";
+        $result = system($cmd);
+    }
+
+    unlink $test_src if -f $test_src;
+    unlink $test_bin if -f $test_bin;
+    foreach my $obj (@objects) {
+        unlink $obj if -f $obj;
+    }
+
+    if ($result == 0) {
+        print_success('Vendored CLD2', 'compiled and linkable');
+        return 1;
+    }
+
+    print_error('Vendored CLD2', 'compile/link check failed');
+    die "Error: CLD2 vendor source failed configure compile/link check. Verify vendor/cld2/public and vendor/cld2/internal\n";
+}
+
 # Configuration generation
 # Configuration generation - REFACTORED: Uses template file for cleaner code
 sub generate_config_h {
@@ -1286,6 +1491,10 @@ sub compile_and_test {
         
         # Compile with proper defines for features
         my $defines = "";
+        if ($test_file eq 'test_rocksdb.cpp') {
+            my $rocksdb_include = catdir($base_path, 'vendor', 'rocksdb', 'include');
+            $defines .= " -std=c++20 -I" . shell_quote_arg($rocksdb_include);
+        }
         
         my $compile_cmd = "$config{CXX} $config{CXXFLAGS} -I$base_path $defines -c $test_path -o $temp_object 2>/dev/null";
         
@@ -1604,6 +1813,9 @@ sub main {
     
     my $clock_ok = check_clock_gettime();
     my $lsm_ok = check_lsm_storage();
+    my $rocksdb_ok = check_rocksdb_vendor();
+    my $fmt_ok = check_fmt_vendor();
+    my $cld2_ok = check_cld2_vendor();
     
     print_section_end();
     

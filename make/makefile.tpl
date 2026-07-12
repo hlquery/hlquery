@@ -424,6 +424,7 @@ prepare:
 	@$(MAKE) --no-print-directory rocksdb-preflight
 	@$(MAKE) --no-print-directory binary-compat-check
 	@$(MAKE) --no-print-directory -q $(ROCKSDB_LIB) || $(MAKE) --no-print-directory $(ROCKSDB_LIB)
+	@$(MAKE) --no-print-directory rocksdb-smoke
 	@$(MAKE) --no-print-directory prune-disabled-extra-modules
 	@mkdir -p $(OBJ_DIR) $(BIN_DIR)
 	@mkdir -p $(OBJ_DIR)/core $(OBJ_DIR)/runtime $(OBJ_DIR)/utils $(OBJ_DIR)/api $(OBJ_DIR)/search $(OBJ_DIR)/sql $(OBJ_DIR)/socketengines $(OBJ_DIR)/timers $(OBJ_DIR)/cli $(OBJ_DIR)/talk $(OBJ_DIR)/modules $(OBJ_DIR)/vendor/fmt $(OBJ_DIR)/vendor/sha2 $(OBJ_DIR)/vendor/md5
@@ -563,6 +564,35 @@ $(ROCKSDB_LIB):
 		echo "$(GREEN)✓ RocksDB compiled successfully$(NC)"; \
 	fi
 
+rocksdb-smoke: $(ROCKSDB_LIB) | $(BIN_DIR)
+	@mkdir -p build
+	@printf '%s\n' \
+		'#include <cassert>' \
+		'#include <memory>' \
+		'#include <string>' \
+		'#include <rocksdb/db.h>' \
+		'#include <rocksdb/options.h>' \
+		'int main() {' \
+		'  const std::string path = "build/rocksdb-smoke-db";' \
+		'  rocksdb::Options options;' \
+		'  options.create_if_missing = true;' \
+		'  rocksdb::DestroyDB(path, options);' \
+		'  std::unique_ptr<rocksdb::DB> db;' \
+		'  rocksdb::Status status = rocksdb::DB::Open(options, path, &db);' \
+		'  if (!status.ok()) return 1;' \
+		'  status = db->Put(rocksdb::WriteOptions(), "hlquery", "rocksdb");' \
+		'  if (!status.ok()) return 2;' \
+		'  std::string value;' \
+		'  status = db->Get(rocksdb::ReadOptions(), "hlquery", &value);' \
+		'  db.reset();' \
+		'  rocksdb::DestroyDB(path, options);' \
+		'  return status.ok() && value == "rocksdb" ? 0 : 3;' \
+		'}' > build/rocksdb-smoke.cpp
+	@$(CXX) $(BASE_CXXFLAGS) build/rocksdb-smoke.cpp -o build/rocksdb-smoke $(ROCKSDB_LIB) $(CONFIGURE_LDFLAGS) $(BASE_LDFLAGS)
+	@./build/rocksdb-smoke
+	@rm -rf build/rocksdb-smoke build/rocksdb-smoke.cpp build/rocksdb-smoke-db
+	@echo "$(GREEN)[OK] RocksDB smoke test passed$(NC)"
+
 # Vendor object files (use less strict warnings for third-party code)
 $(FMT_OBJ): $(VENDOR_DIR)/fmt/format.cc | $(OBJ_DIR)
 	@mkdir -p $(dir $@)
@@ -648,7 +678,7 @@ $(OBJ_DIR)/vendor/md5/md5.o: $(VENDOR_DIR)/md5/md5.c | $(OBJ_DIR)
 
 -include $(DEPS)
 
-.PHONY: all build-products prepare rocksdb-check rocksdb-preflight binary-compat-check prune-disabled-extra-modules clean install uninstall debug create_ssl help build-info synonyms-sync synonyms-check package package-all package-deb package-rpm
+.PHONY: all build-products prepare rocksdb-check rocksdb-preflight rocksdb-smoke binary-compat-check prune-disabled-extra-modules test clean install uninstall debug create_ssl help build-info synonyms-sync synonyms-check package package-all package-deb package-rpm
 
 prune-disabled-extra-modules:
 	@mkdir -p $(RUN_DIR)/modules
@@ -929,6 +959,13 @@ build-products: $(BIN_DIR)/hlquery $(BIN_DIR)/hlquery-cli $(BIN_DIR)/hlquery-ben
 
 # UTILITY TARGETS
 
+test: rocksdb-smoke
+	@if [ -x "$(RUN_DIR)/test/run_tests.sh" ]; then \
+		"$(RUN_DIR)/test/run_tests.sh"; \
+	else \
+		echo "$(YELLOW)Test runner not found; run ./configure first$(NC)"; \
+	fi
+
 help:
 	@echo "$(BOLD)HLQuery Build System$(NC)"
 	@echo ""
@@ -949,6 +986,7 @@ help:
 	@echo ""
 	@echo "$(BOLD)Common Targets:$(NC)"
 	@echo "  make                      - Build everything (release mode)"
+	@echo "  make test                 - Run generated tests and RocksDB smoke check"
 	@echo "  make clean                 - Remove build artifacts"
 	@echo "  make clean-all            - Remove all generated files"
 	@echo "  make install              - Build LLM runtime tools and install binaries to run/bin/"
