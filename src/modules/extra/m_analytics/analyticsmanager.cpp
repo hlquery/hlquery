@@ -743,6 +743,7 @@ void AnalyticsManager::FlushOnce()
      SnapshotEvent.QueryEventCount = QuerySnapshot.size();
      SnapshotEvent.TotalRequests = TotalRequests;
      SnapshotEvent.PayloadBytes = Payload.size();
+     SnapshotEvent.PayloadJSON = Payload;
      FOREACH_MOD(OnSnapshot, SnapshotEvent);
 
      if (!PostPayload(Payload))

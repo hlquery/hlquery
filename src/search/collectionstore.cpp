@@ -82,12 +82,12 @@ static void RefreshCollectionLanguageIfNeeded(const std::string &Collection,
 
      if (SeedDocument)
      {
-          language = lang::DetectDocumentLanguage(Collection, *SeedDocument);
+          language = DetectDocumentLanguage(Collection, *SeedDocument);
      }
 
      if (language.empty() || language == "und")
      {
-          language = lang::DetectCollectionLanguage(Collection, 128);
+          language = DetectCollectionLanguage(Collection, 128);
      }
 
      if (!language.empty() && language != "und")

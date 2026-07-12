@@ -314,6 +314,10 @@ struct AnalyticsSnapshotEvent
      /* Serialized payload size in bytes, when available. */
 
      uint64_t PayloadBytes = 0;
+
+     /* Serialized analytics payload, when the producing module exposes one. */
+
+     std::string PayloadJSON;
 };
 
 /* Describes whether a pre-check hook permits or blocks an operation. */

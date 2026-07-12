@@ -717,13 +717,13 @@ bool LogManager::Initialize(const std::vector<LogConfig> &LogConfigs, bool Debug
 
      /* Capture runtime modes before constructing output streams. */
 
-     this->DebugMode = DebugFlag;
-     this->NoForkMode = NoForkFlag;
-     this->VerboseMode = VerboseFlag;
+     this->DebugMode 	   =   DebugFlag;
+     this->NoForkMode      =   NoForkFlag;
+     this->VerboseMode     =   VerboseFlag;
 
      if (this->VerboseMode && !this->DebugMode)
      {
-          this->DebugMode = true;
+          this->DebugMode  =   true;
      }
 
      LogStreams.clear();
@@ -753,7 +753,6 @@ bool LogManager::Initialize(const std::vector<LogConfig> &LogConfigs, bool Debug
           for (size_t i = 0; i < LogConfigs.size(); ++i)
           {
                const auto &ConfigItem = LogConfigs[i];
-
                auto StreamInstance = std::make_unique<LogStream>(ConfigItem);
 
                if (StreamInstance->IsOpen())
@@ -777,7 +776,6 @@ bool LogManager::Initialize(const std::vector<LogConfig> &LogConfigs, bool Debug
                     if (StreamItem->ConfigValue.method == "console")
                     {
                          HasConsoleFlag = true;
-
                          break;
                     }
                }
@@ -815,7 +813,6 @@ std::unique_ptr<LogManager> LogManager::CreateAndInitialize(class ServerConfig *
      if (!ConfigPointer)
      {
           ConsoleWriter::WriteError("[FATAL] Config is null in LogManager::CreateAndInitialize().", true);
-
           return nullptr;
      }
 

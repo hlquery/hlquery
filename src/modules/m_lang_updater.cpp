@@ -283,7 +283,7 @@ class LangUpdaterRuntimeModule final : public AutoRuntimeModule<LangUpdaterRunti
                     const std::string ExistingLanguage =
                          LangIt == Config.Metadata.end() ? "" : NormalizeLanguageValue(LangIt->second);
                     const std::string DetectedLanguage =
-                         NormalizeLanguageValue(lang::DetectCollectionLanguage(Collection, MaxDocumentsPerCollection));
+                         NormalizeLanguageValue(DetectCollectionLanguage(Collection, MaxDocumentsPerCollection));
 
                     ++CollectionsScanned;
 

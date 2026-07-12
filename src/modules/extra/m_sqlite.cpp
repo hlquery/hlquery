@@ -256,6 +256,7 @@ class SQLiteRuntimeModule final : public AutoRuntimeModule<SQLiteRuntimeModule>
      sqlite3 *Database = nullptr;
      std::string DatabasePath = ":memory:";
      uint64_t SnapshotsRecorded = 0;
+     uint64_t SearchEventsRecorded = 0;
 
      std::filesystem::path GetRuntimeDataDir() const
      {
@@ -375,6 +376,99 @@ class SQLiteRuntimeModule final : public AutoRuntimeModule<SQLiteRuntimeModule>
           return Count;
      }
 
+     uint64_t CountSearchEventRows() const
+     {
+          if (!Database)
+          {
+               return 0;
+          }
+
+          sqlite3_stmt *Statement = nullptr;
+          uint64_t Count = 0;
+
+          if (sqlite3_prepare_v2(Database, "SELECT COUNT(*) FROM analytics_search_events;", -1, &Statement, nullptr) == SQLITE_OK)
+          {
+               if (sqlite3_step(Statement) == SQLITE_ROW)
+               {
+                    Count = static_cast<uint64_t>(sqlite3_column_int64(Statement, 0));
+               }
+          }
+
+          if (Statement)
+          {
+               sqlite3_finalize(Statement);
+          }
+
+          return Count;
+     }
+
+     uint64_t LastInsertRowID() const
+     {
+          if (!Database)
+          {
+               return 0;
+          }
+
+          sqlite3_stmt *Statement = nullptr;
+          uint64_t RowID = 0;
+
+          if (sqlite3_prepare_v2(Database, "SELECT last_insert_rowid();", -1, &Statement, nullptr) == SQLITE_OK)
+          {
+               if (sqlite3_step(Statement) == SQLITE_ROW)
+               {
+                    RowID = static_cast<uint64_t>(sqlite3_column_int64(Statement, 0));
+               }
+          }
+
+          if (Statement)
+          {
+               sqlite3_finalize(Statement);
+          }
+
+          return RowID;
+     }
+
+     static std::string JSONStringOrEmpty(const nlohmann::json &Object, const char *Key)
+     {
+          if (!Object.contains(Key) || Object[Key].is_null())
+          {
+               return "";
+          }
+
+          if (Object[Key].is_string())
+          {
+               return Object[Key].get<std::string>();
+          }
+
+          return Object[Key].dump();
+     }
+
+     static uint64_t JSONUIntOrZero(const nlohmann::json &Object, const char *Key)
+     {
+          if (!Object.contains(Key) || Object[Key].is_null())
+          {
+               return 0;
+          }
+
+          if (Object[Key].is_number_unsigned())
+          {
+               return Object[Key].get<uint64_t>();
+          }
+
+          if (Object[Key].is_number_integer())
+          {
+               const int64_t Value = Object[Key].get<int64_t>();
+               return Value > 0 ? static_cast<uint64_t>(Value) : 0;
+          }
+
+          return 0;
+     }
+
+     static bool JSONBoolOrFalse(const nlohmann::json &Object, const char *Key)
+     {
+          return Object.contains(Key) && Object[Key].is_boolean() && Object[Key].get<bool>();
+     }
+
      int ParseLimit(const ModuleCommandRequest &Request) const
      {
           std::string LimitValue;
@@ -487,6 +581,147 @@ class SQLiteRuntimeModule final : public AutoRuntimeModule<SQLiteRuntimeModule>
           return Rows;
      }
 
+     nlohmann::json ReadLastSearchEvents(int Limit) const
+     {
+          nlohmann::json Rows = nlohmann::json::array();
+
+          if (!Database)
+          {
+               return Rows;
+          }
+
+          sqlite3_stmt *Statement = nullptr;
+          const char *SQL =
+               "SELECT id, snapshot_id, created_at_ms, window_start_ms, window_end_ms, action, collection, query, "
+               "document_id, requester_ip, requester_user, authenticated, search_time_ms, found, returned, document_count "
+               "FROM analytics_search_events ORDER BY id DESC LIMIT ?;";
+
+          if (sqlite3_prepare_v2(Database, SQL, -1, &Statement, nullptr) != SQLITE_OK)
+          {
+               return Rows;
+          }
+
+          sqlite3_bind_int(Statement, 1, Limit);
+
+          while (sqlite3_step(Statement) == SQLITE_ROW)
+          {
+               const auto TextColumn = [Statement](int Column) -> std::string
+               {
+                    const unsigned char *Text = sqlite3_column_text(Statement, Column);
+                    return Text ? reinterpret_cast<const char *>(Text) : "";
+               };
+
+               Rows.push_back({{"id", static_cast<uint64_t>(sqlite3_column_int64(Statement, 0))},
+                               {"snapshot_id", static_cast<uint64_t>(sqlite3_column_int64(Statement, 1))},
+                               {"created_at_ms", static_cast<uint64_t>(sqlite3_column_int64(Statement, 2))},
+                               {"window_start_ms", static_cast<uint64_t>(sqlite3_column_int64(Statement, 3))},
+                               {"window_end_ms", static_cast<uint64_t>(sqlite3_column_int64(Statement, 4))},
+                               {"action", TextColumn(5)},
+                               {"collection", TextColumn(6)},
+                               {"query", TextColumn(7)},
+                               {"document_id", TextColumn(8)},
+                               {"requester_ip", TextColumn(9)},
+                               {"requester_user", TextColumn(10)},
+                               {"authenticated", sqlite3_column_int64(Statement, 11) != 0},
+                               {"search_time_ms", static_cast<uint64_t>(sqlite3_column_int64(Statement, 12))},
+                               {"found", static_cast<uint64_t>(sqlite3_column_int64(Statement, 13))},
+                               {"returned", static_cast<uint64_t>(sqlite3_column_int64(Statement, 14))},
+                               {"document_count", static_cast<uint64_t>(sqlite3_column_int64(Statement, 15))}});
+          }
+
+          sqlite3_finalize(Statement);
+          return Rows;
+     }
+
+     uint64_t StoreSearchEvents(uint64_t SnapshotID, const AnalyticsSnapshotEvent &Event)
+     {
+          if (!Database || Event.PayloadJSON.empty())
+          {
+               return 0;
+          }
+
+          nlohmann::json Payload;
+
+          try
+          {
+               Payload = nlohmann::json::parse(Event.PayloadJSON);
+          }
+          catch (const std::exception &)
+          {
+               return 0;
+          }
+
+          if (!Payload.contains("searches") || !Payload["searches"].is_array())
+          {
+               return 0;
+          }
+
+          sqlite3_stmt *Statement = nullptr;
+          const char *SQL =
+               "INSERT INTO analytics_search_events "
+               "(snapshot_id, created_at_ms, window_start_ms, window_end_ms, action, collection, query, document_id, "
+               "requester_ip, requester_user, authenticated, search_time_ms, found, returned, document_count) "
+               "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);";
+
+          if (sqlite3_prepare_v2(Database, SQL, -1, &Statement, nullptr) != SQLITE_OK)
+          {
+               return 0;
+          }
+
+          uint64_t Inserted = 0;
+
+          for (const auto &Search : Payload["searches"])
+          {
+               if (!Search.is_object())
+               {
+                    continue;
+               }
+
+               const std::string Action = JSONStringOrEmpty(Search, "action");
+               const std::string Collection = JSONStringOrEmpty(Search, "collection");
+               const std::string Query = JSONStringOrEmpty(Search, "query");
+               const std::string DocumentID = JSONStringOrEmpty(Search, "document_id");
+               const std::string RequesterIP = JSONStringOrEmpty(Search, "requester_ip");
+               const std::string RequesterUser = JSONStringOrEmpty(Search, "requester_user");
+
+               sqlite3_bind_int64(Statement, 1, static_cast<sqlite3_int64>(SnapshotID));
+               sqlite3_bind_int64(Statement, 2, static_cast<sqlite3_int64>(Event.WindowEndMS));
+               sqlite3_bind_int64(Statement, 3, static_cast<sqlite3_int64>(Event.WindowStartMS));
+               sqlite3_bind_int64(Statement, 4, static_cast<sqlite3_int64>(Event.WindowEndMS));
+               sqlite3_bind_text(Statement, 5, Action.c_str(), -1, SQLITE_TRANSIENT);
+               sqlite3_bind_text(Statement, 6, Collection.c_str(), -1, SQLITE_TRANSIENT);
+               sqlite3_bind_text(Statement, 7, Query.c_str(), -1, SQLITE_TRANSIENT);
+               sqlite3_bind_text(Statement, 8, DocumentID.c_str(), -1, SQLITE_TRANSIENT);
+               sqlite3_bind_text(Statement, 9, RequesterIP.c_str(), -1, SQLITE_TRANSIENT);
+               sqlite3_bind_text(Statement, 10, RequesterUser.c_str(), -1, SQLITE_TRANSIENT);
+               sqlite3_bind_int(Statement, 11, JSONBoolOrFalse(Search, "authenticated") ? 1 : 0);
+               sqlite3_bind_int64(Statement, 12, static_cast<sqlite3_int64>(JSONUIntOrZero(Search, "search_time_ms")));
+               sqlite3_bind_int64(Statement, 13, static_cast<sqlite3_int64>(JSONUIntOrZero(Search, "found")));
+               sqlite3_bind_int64(Statement, 14, static_cast<sqlite3_int64>(JSONUIntOrZero(Search, "returned")));
+               sqlite3_bind_int64(Statement, 15, static_cast<sqlite3_int64>(JSONUIntOrZero(Search, "document_count")));
+
+               if (sqlite3_step(Statement) == SQLITE_DONE)
+               {
+                    Inserted++;
+               }
+
+               sqlite3_finalize(Statement);
+               Statement = nullptr;
+
+               if (sqlite3_prepare_v2(Database, SQL, -1, &Statement, nullptr) != SQLITE_OK)
+               {
+                    break;
+               }
+          }
+
+          if (Statement)
+          {
+               sqlite3_finalize(Statement);
+          }
+
+          return Inserted;
+     }
+
    public:
      SQLiteRuntimeModule()
          : AutoRuntimeModule("sqlite", true)
@@ -548,7 +783,46 @@ class SQLiteRuntimeModule final : public AutoRuntimeModule<SQLiteRuntimeModule>
                return false;
           }
 
+          const std::string CreateSearchEventsSQL =
+               "CREATE TABLE IF NOT EXISTS analytics_search_events ("
+               "id INTEGER PRIMARY KEY AUTOINCREMENT,"
+               "snapshot_id INTEGER NOT NULL,"
+               "created_at_ms INTEGER NOT NULL,"
+               "window_start_ms INTEGER NOT NULL,"
+               "window_end_ms INTEGER NOT NULL,"
+               "action TEXT NOT NULL,"
+               "collection TEXT NOT NULL,"
+               "query TEXT NOT NULL,"
+               "document_id TEXT NOT NULL,"
+               "requester_ip TEXT NOT NULL,"
+               "requester_user TEXT NOT NULL,"
+               "authenticated INTEGER NOT NULL,"
+               "search_time_ms INTEGER NOT NULL,"
+               "found INTEGER NOT NULL,"
+               "returned INTEGER NOT NULL,"
+               "document_count INTEGER NOT NULL,"
+               "FOREIGN KEY(snapshot_id) REFERENCES analytics_snapshots(id)"
+               ");";
+
+          if (!ExecuteSQL(CreateSearchEventsSQL, &ErrorMessage))
+          {
+               ErrorMessage = "SQLite module could not create analytics_search_events table: " + ErrorMessage;
+               sqlite3_close(Database);
+               Database = nullptr;
+               return false;
+          }
+
+          if (!ExecuteSQL("CREATE INDEX IF NOT EXISTS idx_analytics_search_events_snapshot_id ON analytics_search_events(snapshot_id);", &ErrorMessage) ||
+              !ExecuteSQL("CREATE INDEX IF NOT EXISTS idx_analytics_search_events_collection ON analytics_search_events(collection);", &ErrorMessage))
+          {
+               ErrorMessage = "SQLite module could not create analytics_search_events indexes: " + ErrorMessage;
+               sqlite3_close(Database);
+               Database = nullptr;
+               return false;
+          }
+
           SnapshotsRecorded = CountSnapshotRows();
+          SearchEventsRecorded = CountSearchEventRows();
 
           return true;
      }
@@ -568,12 +842,13 @@ class SQLiteRuntimeModule final : public AutoRuntimeModule<SQLiteRuntimeModule>
 
           Description.Name = "sqlite";
           Description.Summary = "Stores module-owned SQLite state, including analytics snapshot records emitted by OnSnapshot.";
-          Description.Syntax = "GET /modules/sqlite | POST /modules/sqlite/status | POST /modules/sqlite/routes | POST /modules/sqlite/last";
+          Description.Syntax = "GET /modules/sqlite | POST /modules/sqlite/status | POST /modules/sqlite/routes | POST /modules/sqlite/last | POST /modules/sqlite/queries";
           Description.MinParameters = 0;
           Description.MaxParameters = 0;
           Description.Examples.push_back("hlquery-cli module sqlite status");
           Description.Examples.push_back("hlquery-cli module sqlite routes");
           Description.Examples.push_back("hlquery-cli module sqlite last 10");
+          Description.Examples.push_back("hlquery-cli module sqlite queries 10");
 
           return Description;
      }
@@ -608,6 +883,7 @@ class SQLiteRuntimeModule final : public AutoRuntimeModule<SQLiteRuntimeModule>
           if (sqlite3_step(Statement) == SQLITE_DONE)
           {
                SnapshotsRecorded++;
+               SearchEventsRecorded += StoreSearchEvents(LastInsertRowID(), Event);
           }
 
           sqlite3_finalize(Statement);
@@ -644,7 +920,18 @@ class SQLiteRuntimeModule final : public AutoRuntimeModule<SQLiteRuntimeModule>
           LastCommand.Examples.push_back("hlquery-cli module sqlite last");
           LastCommand.Examples.push_back("hlquery-cli module sqlite last 10");
 
-          return {StatusCommand, RoutesCommand, LastCommand};
+          ModuleCommandSpec QueriesCommand;
+
+          QueriesCommand.Route = "queries";
+          QueriesCommand.Summary = "Returns the most recent detailed analytics search/query rows stored by the SQLite module.";
+          QueriesCommand.Syntax = "module sqlite queries [limit]";
+          QueriesCommand.MinParameters = 0;
+          QueriesCommand.MaxParameters = 1;
+          QueriesCommand.Parameters.push_back({"limit", "int", "Maximum number of detailed rows to return, clamped to 1..100. Defaults to 10.", false});
+          QueriesCommand.Examples.push_back("hlquery-cli module sqlite queries");
+          QueriesCommand.Examples.push_back("hlquery-cli module sqlite queries 10");
+
+          return {StatusCommand, RoutesCommand, LastCommand, QueriesCommand};
      }
 
      ModuleCommandResponse HandleCommand(const ModuleCommandRequest &Request) override
@@ -692,6 +979,25 @@ class SQLiteRuntimeModule final : public AutoRuntimeModule<SQLiteRuntimeModule>
                return Response;
           }
 
+          if (Route == "queries" || Route == "searches")
+          {
+               const int Limit = ParseLimit(Request);
+               nlohmann::json SearchEvents = ReadLastSearchEvents(Limit);
+
+               nlohmann::json Body;
+               Body["module"] = "sqlite";
+               Body["route"] = "queries";
+               Body["limit"] = Limit;
+               Body["count"] = SearchEvents.size();
+               Body["queries"] = SearchEvents;
+
+               ModuleCommandResponse Response;
+               Response.Success = true;
+               Response.StatusCode = 200;
+               Response.Body = Body.dump();
+               return Response;
+          }
+
           if (Route != "status")
           {
                return RuntimeModule::HandleCommand(Request);
@@ -708,6 +1014,8 @@ class SQLiteRuntimeModule final : public AutoRuntimeModule<SQLiteRuntimeModule>
                                .Add("sqlite_version", sqlite3_libversion())
                                .Add("analytics_snapshots_recorded", static_cast<unsigned long long>(SnapshotsRecorded))
                                .Add("analytics_snapshot_rows", static_cast<unsigned long long>(CountSnapshotRows()))
+                               .Add("analytics_search_events_recorded", static_cast<unsigned long long>(SearchEventsRecorded))
+                               .Add("analytics_search_event_rows", static_cast<unsigned long long>(CountSearchEventRows()))
                                .ToString();
 
           return Response;
@@ -734,12 +1042,13 @@ class SQLiteRuntimeModule final : public AutoRuntimeModule<SQLiteRuntimeModule>
 
           Description.Name = "sqlite";
           Description.Summary = "SQLite-backed module state. This build lacks sqlite3 headers, so storage is unavailable.";
-          Description.Syntax = "GET /modules/sqlite | POST /modules/sqlite/status | POST /modules/sqlite/routes | POST /modules/sqlite/last";
+          Description.Syntax = "GET /modules/sqlite | POST /modules/sqlite/status | POST /modules/sqlite/routes | POST /modules/sqlite/last | POST /modules/sqlite/queries";
           Description.MinParameters = 0;
           Description.MaxParameters = 0;
           Description.Examples.push_back("hlquery-cli module sqlite status");
           Description.Examples.push_back("hlquery-cli module sqlite routes");
           Description.Examples.push_back("hlquery-cli module sqlite last 10");
+          Description.Examples.push_back("hlquery-cli module sqlite queries 10");
 
           return Description;
      }
@@ -775,7 +1084,18 @@ class SQLiteRuntimeModule final : public AutoRuntimeModule<SQLiteRuntimeModule>
           LastCommand.Examples.push_back("hlquery-cli module sqlite last");
           LastCommand.Examples.push_back("hlquery-cli module sqlite last 10");
 
-          return {StatusCommand, RoutesCommand, LastCommand};
+          ModuleCommandSpec QueriesCommand;
+
+          QueriesCommand.Route = "queries";
+          QueriesCommand.Summary = "Returns recent detailed analytics search/query rows when SQLite support is available.";
+          QueriesCommand.Syntax = "module sqlite queries [limit]";
+          QueriesCommand.MinParameters = 0;
+          QueriesCommand.MaxParameters = 1;
+          QueriesCommand.Parameters.push_back({"limit", "int", "Maximum number of detailed rows to return. Defaults to 10.", false});
+          QueriesCommand.Examples.push_back("hlquery-cli module sqlite queries");
+          QueriesCommand.Examples.push_back("hlquery-cli module sqlite queries 10");
+
+          return {StatusCommand, RoutesCommand, LastCommand, QueriesCommand};
      }
 
      ModuleCommandResponse HandleCommand(const ModuleCommandRequest &Request) override
@@ -845,6 +1165,23 @@ class SQLiteRuntimeModule final : public AutoRuntimeModule<SQLiteRuntimeModule>
                Body["available"] = false;
                Body["count"] = 0;
                Body["snapshots"] = nlohmann::json::array();
+               Body["error"] = "SQLite support is unavailable because this build was compiled without sqlite3 headers.";
+
+               ModuleCommandResponse Response;
+               Response.Success = false;
+               Response.StatusCode = 503;
+               Response.Body = Body.dump();
+               return Response;
+          }
+
+          if (Route == "queries" || Route == "searches")
+          {
+               nlohmann::json Body;
+               Body["module"] = "sqlite";
+               Body["route"] = "queries";
+               Body["available"] = false;
+               Body["count"] = 0;
+               Body["queries"] = nlohmann::json::array();
                Body["error"] = "SQLite support is unavailable because this build was compiled without sqlite3 headers.";
 
                ModuleCommandResponse Response;

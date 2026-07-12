@@ -1285,7 +1285,6 @@ void hlquery::WaitForMetadataScan()
                     std::thread LoadThreadInstanceFinal([]()
                     {
                          bool InternalLoadedStatusFlag = false;
-
                          std::vector<std::string> FailedCollectionsListFinal;
 
                          try
@@ -1296,7 +1295,6 @@ void hlquery::WaitForMetadataScan()
                               }
 
                               InternalLoadedStatusFlag = HybridStorageManagerInstance().LoadCollectionsFromRocksDB();
-
                               size_t CollectionCountFinalValue = 0;
 
                               if (Instance && Instance->Database && InternalLoadedStatusFlag)
@@ -1304,7 +1302,6 @@ void hlquery::WaitForMetadataScan()
                                    try
                                    {
                                         auto CurrentCollectionsFinalList = HybridStorageManagerInstance().ListCollections();
-
                                         CollectionCountFinalValue = CurrentCollectionsFinalList.size();
                                    }
                                    catch (...)
@@ -1317,11 +1314,8 @@ void hlquery::WaitForMetadataScan()
                                    std::lock_guard<std::mutex> Lock(Instance->StatsVal.StartupStateMutex);
 
                                    Instance->StatsVal.StartupStateInfo.CollectionLoadEnd = Instance->Now();
-
                                    Instance->StatsVal.StartupStateInfo.CollectionsLoaded = InternalLoadedStatusFlag;
-
                                    Instance->StatsVal.StartupStateInfo.CollectionsLoadedCount = CollectionCountFinalValue;
-
                                    Instance->StatsVal.StartupStateInfo.FailedCollections = FailedCollectionsListFinal;
 
                                    if (!InternalLoadedStatusFlag)
@@ -1407,11 +1401,8 @@ void hlquery::WaitForMetadataScan()
                                    std::lock_guard<std::mutex> Lock(Instance->StatsVal.StartupStateMutex);
 
                                    Instance->StatsVal.StartupStateInfo.CollectionLoadEnd = Instance->Now();
-
                                    Instance->StatsVal.StartupStateInfo.CollectionsLoadFailed = true;
-
                                    Instance->StatsVal.StartupStateInfo.CollectionLoadError = std::string("Exception: ") + e.what();
-
                                    Instance->StatsVal.StartupStateInfo.FailedCollections = FailedCollectionsListFinal;
                               }
 
@@ -1438,11 +1429,8 @@ void hlquery::WaitForMetadataScan()
                                    std::lock_guard<std::mutex> Lock(Instance->StatsVal.StartupStateMutex);
 
                                    Instance->StatsVal.StartupStateInfo.CollectionLoadEnd = Instance->Now();
-
                                    Instance->StatsVal.StartupStateInfo.CollectionsLoadFailed = true;
-
                                    Instance->StatsVal.StartupStateInfo.CollectionLoadError = "Unknown exception";
-
                                    Instance->StatsVal.StartupStateInfo.FailedCollections = FailedCollectionsListFinal;
                               }
 

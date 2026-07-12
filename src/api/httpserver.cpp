@@ -4039,9 +4039,21 @@ bool HttpServer::Start()
 
      struct sockaddr_in Address;
 
+     memset(&Address, 0, sizeof(Address));
      Address.sin_family = AF_INET;
-     Address.sin_addr.s_addr = inet_addr(Config.address.c_str());
      Address.sin_port = htons(Config.port);
+
+     if (inet_pton(AF_INET, Config.address.c_str(), &Address.sin_addr) != 1)
+     {
+          if (Instance && Instance->Logs)
+          {
+               Instance->Logs->Critical("httpserver", "Invalid bind address '" + Config.address + "' for port " + std::to_string(Config.port) + ".");
+          }
+
+          close(ServerFD);
+
+          return false;
+     }
 
      if (bind(ServerFD, reinterpret_cast<struct sockaddr *>(&Address), sizeof(Address)) < 0)
      {
@@ -4078,20 +4090,88 @@ bool HttpServer::Start()
 
           /* Set SSL protocols. */
 
-          if (Config.ssl_protocols.find("TLSv1.3") != std::string::npos)
+          const bool AllowTLS12 = Config.ssl_protocols.find("TLSv1.2") != std::string::npos;
+          const bool AllowTLS13 = Config.ssl_protocols.find("TLSv1.3") != std::string::npos;
+
+          int MinProtocol = 0;
+          int MaxProtocol = 0;
+
+          if (AllowTLS12 && AllowTLS13)
           {
-               SSL_CTX_set_min_proto_version(SSLCtx, TLS1_3_VERSION);
+               MinProtocol = TLS1_2_VERSION;
+               MaxProtocol = TLS1_3_VERSION;
           }
-          else if (Config.ssl_protocols.find("TLSv1.2") != std::string::npos)
+          else if (AllowTLS12)
           {
-               SSL_CTX_set_min_proto_version(SSLCtx, TLS1_2_VERSION);
+               MinProtocol = TLS1_2_VERSION;
+               MaxProtocol = TLS1_2_VERSION;
+          }
+          else if (AllowTLS13)
+          {
+               MinProtocol = TLS1_3_VERSION;
+               MaxProtocol = TLS1_3_VERSION;
+          }
+          else
+          {
+               if (Instance && Instance->Logs)
+               {
+                    Instance->Logs->Critical("http_server", "SSL protocols must include TLSv1.2 or TLSv1.3.");
+               }
+
+               SSL_CTX_free(SSLCtx);
+               SSLCtx = nullptr;
+               close(ServerFD);
+
+               return false;
+          }
+
+          if (SSL_CTX_set_min_proto_version(SSLCtx, MinProtocol) != 1)
+          {
+               if (Instance && Instance->Logs)
+               {
+                    Instance->Logs->Critical("http_server", "Failed to configure SSL minimum protocol from: " + Config.ssl_protocols + ".");
+               }
+
+               SSL_CTX_free(SSLCtx);
+               SSLCtx = nullptr;
+               close(ServerFD);
+
+               return false;
+          }
+
+          if (SSL_CTX_set_max_proto_version(SSLCtx, MaxProtocol) != 1)
+          {
+               if (Instance && Instance->Logs)
+               {
+                    Instance->Logs->Critical("http_server", "Failed to configure SSL maximum protocol from: " + Config.ssl_protocols + ".");
+               }
+
+               SSL_CTX_free(SSLCtx);
+               SSLCtx = nullptr;
+               close(ServerFD);
+
+               return false;
           }
 
           /* Set cipher list. */
 
           if (!Config.ssl_ciphers.empty())
           {
-               SSL_CTX_set_cipher_list(SSLCtx, Config.ssl_ciphers.c_str());
+               if (SSL_CTX_set_cipher_list(SSLCtx, Config.ssl_ciphers.c_str()) != 1)
+               {
+                    if (Instance && Instance->Logs)
+                    {
+                         Instance->Logs->Critical("http_server", "Failed to configure SSL cipher list: " + Config.ssl_ciphers + ".");
+                    }
+
+                    ConsoleWriter::WriteError("[FATAL] Failed to configure SSL cipher list: " + Config.ssl_ciphers, true);
+
+                    SSL_CTX_free(SSLCtx);
+                    SSLCtx = nullptr;
+                    close(ServerFD);
+
+                    return false;
+               }
           }
 
           /* Load certificate and private key. */
