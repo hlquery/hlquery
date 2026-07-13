@@ -14,6 +14,7 @@
 
 #include <array>
 #include <condition_variable>
+#include <cstddef>
 #include <ctime>
 #include <exception>
 #include <functional>

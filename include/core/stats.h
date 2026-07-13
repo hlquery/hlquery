@@ -13,9 +13,12 @@
 #pragma once
 
 #include <atomic>
+#include <cstddef>
+#include <cstdint>
 #include <ctime>
 #include <mutex>
 #include <string>
+#include <vector>
 
 #include "runtime/startup.h"
 

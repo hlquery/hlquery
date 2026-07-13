@@ -12,6 +12,8 @@
 
 #pragma once
 
+#include <cstddef>
+#include <cstdint>
 #include <ctime>
 #include <fstream>
 #include <memory>

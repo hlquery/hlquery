@@ -13,6 +13,7 @@
 #pragma once
 
 #include <atomic>
+#include <cstddef>
 #include <cstdint>
 #include <fcntl.h>
 #include <netinet/in.h>
