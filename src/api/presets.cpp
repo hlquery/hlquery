@@ -19,63 +19,63 @@
 
 namespace
 {
-     constexpr const char *kPresetsKey = "presets";
+constexpr const char *kPresetsKey = "presets";
 
-     std::string ExtractPresetName(const std::string &Path)
+std::string ExtractPresetName(const std::string &Path)
+{
+     std::regex PresetRegex(R"(^/presets/([^/?]+)$)");
+     std::smatch Match;
+
+     if (std::regex_search(Path, Match, PresetRegex))
      {
-          std::regex PresetRegex(R"(^/presets/([^/?]+)$)");
-          std::smatch Match;
-
-          if (std::regex_search(Path, Match, PresetRegex))
-          {
-               return Match[1].str();
-          }
-
-          return "";
+          return Match[1].str();
      }
 
-     bool IsValidPresetName(const std::string &Name)
+     return "";
+}
+
+bool IsValidPresetName(const std::string &Name)
+{
+     if (Name.empty() || Name.size() > 128 || Name.find("..") != std::string::npos)
      {
-          if (Name.empty() || Name.size() > 128 || Name.find("..") != std::string::npos)
+          return false;
+     }
+
+     for (char Ch : Name)
+     {
+          if (!std::isalnum(static_cast<unsigned char>(Ch)) && Ch != '_' && Ch != '-' && Ch != '.')
           {
                return false;
           }
-
-          for (char Ch : Name)
-          {
-               if (!std::isalnum(static_cast<unsigned char>(Ch)) && Ch != '_' && Ch != '-' && Ch != '.')
-               {
-                    return false;
-               }
-          }
-
-          return true;
      }
 
-     nlohmann::json LoadPresets()
+     return true;
+}
+
+nlohmann::json LoadPresets()
+{
+     const std::string Raw = HybridStorageManagerInstance().Get(kPresetsKey);
+
+     if (Raw.empty())
      {
-          const std::string Raw = HybridStorageManagerInstance().Get(kPresetsKey);
-
-          if (Raw.empty())
-          {
-               return nlohmann::json::object();
-          }
-
-          try
-          {
-               nlohmann::json Parsed = nlohmann::json::parse(Raw);
-               return Parsed.is_object() ? Parsed : nlohmann::json::object();
-          }
-          catch (const std::exception &)
-          {
-               return nlohmann::json::object();
-          }
+          return nlohmann::json::object();
      }
 
-     bool SavePresets(const nlohmann::json &Presets)
+     try
      {
-          return Instance && Instance->Database && Instance->Database->Set(kPresetsKey, Presets.dump());
+          nlohmann::json Parsed = nlohmann::json::parse(Raw);
+          return Parsed.is_object() ? Parsed : nlohmann::json::object();
      }
+     catch (const std::exception &)
+     {
+          return nlohmann::json::object();
+     }
+}
+
+bool SavePresets(const nlohmann::json &Presets)
+{
+     return Instance && Instance->Database && Instance->Database->Set(kPresetsKey, Presets.dump());
+}
 }
 
 /* Handles list presets requests. */

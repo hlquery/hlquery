@@ -45,9 +45,9 @@
 #include "core/modulemanager.h"
 #include "core/socketengine.h"
 #include "runtime/threadlimit.h"
-#include "search/rfusion.h"
-#include "search/cstore.h"
-#include "search/lindex.h"
+#include "search/hybrid_rank_fusion.h"
+#include "search/document_collection_store.h"
+#include "search/lexical_inverted_index.h"
 #include "utils/consolewriter.h"
 #include "utils/protocol.h"
 #include "utils/wildcard.h"
@@ -1323,7 +1323,8 @@ HttpResponse SearchAPI::HandleFlush(const HttpRequest &Request)
      ResponseJSON["collections_deleted"] = CollectionsCount;
      ResponseJSON["indexes_cleared"] = true;
      ResponseJSON["caches_cleared"] = true;
-     ResponseJSON["mmap_indexes_removed"] = true;     ResponseJSON["success"] = true;
+     ResponseJSON["mmap_indexes_removed"] = true;
+     ResponseJSON["success"] = true;
 
      HttpResponse Response(Status::OK, StatusText(Status::OK), "application/json");
 
@@ -1783,12 +1784,12 @@ HttpResponse SearchAPI::HandleListCollections(const HttpRequest &Request)
                     }
 
                     size_t PrefixLen = 0;
-         
+
                     while (PrefixLen < NameLower.size() && PrefixLen < SearchLowerMaybe.size() && NameLower[PrefixLen] == SearchLowerMaybe[PrefixLen])
                     {
                          PrefixLen++;
                     }
-         
+
                     Score += static_cast<int>(PrefixLen) * 4;
                }
                else if (!PatternVal.empty())
@@ -2037,7 +2038,7 @@ HttpResponse SearchAPI::HandleListCollectionsDistributed(const HttpRequest &Requ
           SortFieldName = SortByVal.substr(0, ColonPos);
           std::string Order = SortByVal.substr(ColonPos + 1);
           Order = DistToLowerCopy(DistTrimCopy(Order));
-         
+
           if (Order == "desc")
           {
                Descending = true;
@@ -2353,11 +2354,11 @@ HttpResponse SearchAPI::HandleGetCollectionLanguage(const HttpRequest &Request)
           return BuildErrorResponse(Status::NOT_FOUND, Code::COLLECTION_NOT_FOUND, "Collection not found", "The specified collection does not exist.");
      }
 
-     auto ReadDocLanguage = [](const Document& Doc) -> std::string
+     auto ReadDocLanguage = [](const Document &Doc) -> std::string
      {
-          static const std::array<const char*, 4> LanguageFields = {"lang", "language", "_lang", "locale"};
+          static const std::array<const char *, 4> LanguageFields = {"lang", "language", "_lang", "locale"};
 
-          for (const char* Field : LanguageFields)
+          for (const char *Field : LanguageFields)
           {
                auto It = Doc.Fields.find(Field);
                if (It == Doc.Fields.end())
@@ -2384,7 +2385,7 @@ HttpResponse SearchAPI::HandleGetCollectionLanguage(const HttpRequest &Request)
      std::string FirstLang;
      bool SawAny = false;
 
-     for (const auto& Doc : Docs)
+     for (const auto &Doc : Docs)
      {
           std::string DocLang = ReadDocLanguage(Doc);
           if (DocLang.empty())

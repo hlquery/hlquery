@@ -11,7 +11,7 @@
  */
 
 #include <unordered_map>
-#include "search/storagemaint.h"
+#include "search/storage_defragmentation.h"
 
 /*
  * DefragmentationManager::DefragmentationManager - Initializes counters for the placeholder defragmentation API.
@@ -21,7 +21,6 @@ DefragmentationManager::DefragmentationManager()
     : Enabled(true),
       TotalDefragmented(0), TotalBytesFreed(0)
 {
-
 }
 
 /*
@@ -30,7 +29,6 @@ DefragmentationManager::DefragmentationManager()
 
 DefragmentationManager::~DefragmentationManager()
 {
-
 }
 
 /*

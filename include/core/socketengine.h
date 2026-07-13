@@ -19,32 +19,32 @@
 #include <sys/socket.h>
 
 #ifdef __linux__
- 
-    #include <sys/epoll.h>
+
+#include <sys/epoll.h>
 
 #else
 
-     /* Compatibility epoll-style event definitions for non-Linux platforms. */
+/* Compatibility epoll-style event definitions for non-Linux platforms. */
 
-     struct epoll_event
+struct epoll_event
+{
+     uint32_t events;
+     union
      {
-          uint32_t events;
-          union
-          {
-               int fd;
-               void *ptr;
-               uint64_t u64;
-          } data;
-     };
+          int fd;
+          void *ptr;
+          uint64_t u64;
+     } data;
+};
 
-     static constexpr int EPOLLIN = 0x001;
-     static constexpr int EPOLLPRI = 0x002;
-     static constexpr int EPOLLOUT = 0x004;
-     static constexpr int EPOLLERR = 0x008;
-     static constexpr int EPOLLHUP = 0x010;
-     static constexpr int EPOLLRDHUP = 0x2000;
-     static constexpr int EPOLLET = 0x80000000;
-     static constexpr int EPOLL_CLOEXEC = 0x80000;
+static constexpr int EPOLLIN = 0x001;
+static constexpr int EPOLLPRI = 0x002;
+static constexpr int EPOLLOUT = 0x004;
+static constexpr int EPOLLERR = 0x008;
+static constexpr int EPOLLHUP = 0x010;
+static constexpr int EPOLLRDHUP = 0x2000;
+static constexpr int EPOLLET = 0x80000000;
+static constexpr int EPOLL_CLOEXEC = 0x80000;
 
 #endif
 
@@ -56,12 +56,10 @@
 class EventHandler
 {
    public:
-
      /* Destructor */
 
      virtual ~EventHandler()
      {
-     
      }
 
      /* Called when there is a read event */
@@ -72,7 +70,6 @@ class EventHandler
 
      virtual void OnEventHandlerWrite()
      {
-
      }
 
      /* Called when there is an error event */
@@ -120,7 +117,6 @@ class EventHandler
      }
 
    private:
-
      /* File descriptor */
 
      std::atomic<int> FD{-1};
@@ -134,9 +130,7 @@ class EventHandler
 
 class SocketEngine
 {
-
    public:
-
      /* Increased from 1024 to handle high-throughput scenarios */
 
      static const int MAX_EVENTS = 16384;
@@ -157,11 +151,11 @@ class SocketEngine
 
      /* Adds a file descriptor to the engine */
 
-     static bool AddFD(EventHandler* EH, int Events = EPOLLIN);
+     static bool AddFD(EventHandler *EH, int Events = EPOLLIN);
 
      /* Deletes a file descriptor from the engine */
 
-     static void DelFD(EventHandler* EH);
+     static void DelFD(EventHandler *EH);
 
      /* Dispatches pending events */
 
@@ -171,11 +165,11 @@ class SocketEngine
 
      /* Registers a pending write */
 
-     static void RegisterPendingWrite(EventHandler* EH);
+     static void RegisterPendingWrite(EventHandler *EH);
 
      /* Unregisters a pending write */
 
-     static void UnregisterPendingWrite(EventHandler* EH);
+     static void UnregisterPendingWrite(EventHandler *EH);
 
      /* Dispatches trial writes */
 
@@ -223,11 +217,11 @@ class SocketEngine
 
      /* Returns a zero-copy buffer */
 
-     static void* GetZeroCopyBuffer();
+     static void *GetZeroCopyBuffer();
 
      /* Returns a zero-copy buffer to the pool */
 
-     static void ReturnZeroCopyBuffer(void* buffer);
+     static void ReturnZeroCopyBuffer(void *buffer);
 
      /* Enables or disables adaptive timeout */
 
@@ -291,7 +285,6 @@ class SocketEngine
      }
 
    private:
-
      /* Static members for engine state. */
 
      /* Engine file descriptor */
@@ -303,12 +296,12 @@ class SocketEngine
      static std::atomic<bool> EpollFDValid;
 
      /* Events */
-     
+
      static std::vector<epoll_event> Events;
 
      /* Pending writes queue */
 
-     static std::vector<EventHandler*> PendingWrites;
+     static std::vector<EventHandler *> PendingWrites;
 
      /* Thread-safe count for HasPendingWork() */
 

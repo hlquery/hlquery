@@ -336,7 +336,6 @@ bool ModuleManager::LoadModule(const ServerConfig &Config,
           }
           catch (...)
           {
-
           }
 
           Module.reset();
@@ -367,7 +366,6 @@ bool ModuleManager::LoadModule(const ServerConfig &Config,
                }
                catch (...)
                {
-
                }
 
                Loaded.Instance.reset();
@@ -651,7 +649,7 @@ std::string ModuleManager::ResolveModulePath(const ServerConfig &Config, const S
           if (std::filesystem::exists(Candidate, EC))
           {
                return Candidate.string();
-       }
+          }
      }
 
      return Candidates.front().string();
@@ -689,7 +687,6 @@ bool ModuleManager::LoadConfiguredModules(const ServerConfig &Config, std::strin
                     }
                     catch (...)
                     {
-             
                     }
 
                     It->Instance.reset();
@@ -840,8 +837,8 @@ bool ModuleManager::LoadConfiguredModules(const ServerConfig &Config, std::strin
                Started = false;
           }
 
-         if (!Started)
-         {
+          if (!Started)
+          {
                if (Instance && Instance->Logs)
                {
                     const std::string StartMessage = StartError.empty() ? "unknown failure" : StartError;
@@ -853,7 +850,6 @@ bool ModuleManager::LoadConfiguredModules(const ServerConfig &Config, std::strin
                }
                catch (...)
                {
-
                }
 
                Module.reset();
@@ -862,20 +858,20 @@ bool ModuleManager::LoadConfiguredModules(const ServerConfig &Config, std::strin
                ErrorMessage = StartError.empty() ? "Module '" + ModuleName + "' failed to start." : StartError;
                RollbackStagedModules();
                return false;
-         }
+          }
 
-         if (Instance && Instance->Logs)
-         {
-              Instance->Logs->Normal("modules", "Loaded module '" + ModuleName + "' from " + ModulePath + ".");
-         }
+          if (Instance && Instance->Logs)
+          {
+               Instance->Logs->Normal("modules", "Loaded module '" + ModuleName + "' from " + ModulePath + ".");
+          }
 
-         LoadedModule Loaded;
-         Loaded.Name = ModuleName;
-         Loaded.Path = ModulePath;
-         Loaded.Handle = Handle;
-         Loaded.Instance = std::move(Module);
-         Loaded.ExecutionState = std::make_shared<ModuleExecutionState>();
-         Loaded.UnloadNotified = false;
+          LoadedModule Loaded;
+          Loaded.Name = ModuleName;
+          Loaded.Path = ModulePath;
+          Loaded.Handle = Handle;
+          Loaded.Instance = std::move(Module);
+          Loaded.ExecutionState = std::make_shared<ModuleExecutionState>();
+          Loaded.UnloadNotified = false;
 
           StagedModules.push_back(std::move(Loaded));
      }
@@ -1023,9 +1019,9 @@ bool ModuleManager::UnloadModule(const std::string &ModuleName, std::string &Err
           std::unique_lock<std::shared_mutex> Lock(ModulesMutex);
 
           auto It = std::find_if(Modules.begin(), Modules.end(), [&](const LoadedModule &Loaded)
-          {
-                return Loaded.Name == ModuleName;
-          });
+                                 {
+                                      return Loaded.Name == ModuleName;
+                                 });
 
           if (It == Modules.end())
           {
@@ -1080,7 +1076,6 @@ void ModuleManager::UnloadModuleList(std::vector<LoadedModule> ModulesToUnload)
                }
                catch (...)
                {
-      
                }
 
                if (It->Instance.use_count() > 1)

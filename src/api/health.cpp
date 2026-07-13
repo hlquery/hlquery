@@ -52,17 +52,17 @@
 #include "core/socketengine.h"
 #include "runtime/daemon.h"
 #include "runtime/threadlimit.h"
-#include "search/rfusion.h"
-#include "search/cstore.h"
-#include "search/lindex.h"
+#include "search/hybrid_rank_fusion.h"
+#include "search/document_collection_store.h"
+#include "search/lexical_inverted_index.h"
 #include "utils/consolewriter.h"
 #include "utils/protocol.h"
 #include "utils/wildcard.h"
 #include "vendor/json/json.hpp"
 
 #ifdef HLQUERY_HAS_OPENSSL
-     #include <openssl/err.h>
-     #include <openssl/ssl.h>
+#include <openssl/err.h>
+#include <openssl/ssl.h>
 #endif
 
 /* Provides health, diagnostics, and readiness API handlers. */
@@ -551,9 +551,9 @@ static bool ConfigFileIsSecretKey(const std::string &Key)
 {
      std::string Normalized = Key;
      std::transform(Normalized.begin(), Normalized.end(), Normalized.begin(), [](unsigned char Ch)
-     {
-          return static_cast<char>(std::tolower(Ch));
-     });
+                    {
+                         return static_cast<char>(std::tolower(Ch));
+                    });
 
      return Normalized.find("passwd") != std::string::npos ||
             Normalized.find("password") != std::string::npos ||
@@ -1665,8 +1665,7 @@ HttpResponse SearchAPI::HandleEtc(const HttpRequest &Request)
           {"ready", {{"method", "GET"}, {"path", "/ready"}}},
           {"status", {{"method", "GET"}, {"paths", {"/status", "/query"}}}},
           {"stats", {{"method", "GET"}, {"path", "/stats"}}},
-          {"flush", {{"method", "POST"}, {"path", "/flush"}}}
-     };
+          {"flush", {{"method", "POST"}, {"path", "/flush"}}}};
 
      ProtocolCodes["http_status_codes"] = {
           {"OK", Status::OK},
@@ -1690,8 +1689,7 @@ HttpResponse SearchAPI::HandleEtc(const HttpRequest &Request)
           {"NOT_IMPLEMENTED", Status::NOT_IMPLEMENTED},
           {"BAD_GATEWAY", Status::BAD_GATEWAY},
           {"SERVICE_UNAVAILABLE", Status::SERVICE_UNAVAILABLE},
-          {"GATEWAY_TIMEOUT", Status::GATEWAY_TIMEOUT}
-     };
+          {"GATEWAY_TIMEOUT", Status::GATEWAY_TIMEOUT}};
 
      ProtocolCodes["protocol_codes"] = {
           {"SUCCESS", Code::SUCCESS},
@@ -1761,8 +1759,7 @@ HttpResponse SearchAPI::HandleEtc(const HttpRequest &Request)
           {"MODULE_NOT_FOUND", Code::MODULE_NOT_FOUND},
           {"MODULE_ROUTE_NOT_FOUND", Code::MODULE_ROUTE_NOT_FOUND},
           {"MODULE_UNAVAILABLE", Code::MODULE_UNAVAILABLE},
-          {"RATE_LIMIT_EXCEEDED", Code::RATE_LIMIT_EXCEEDED}
-     };
+          {"RATE_LIMIT_EXCEEDED", Code::RATE_LIMIT_EXCEEDED}};
 
      HttpResponse Response(Status::OK, StatusText(Status::OK), "application/json");
 
@@ -1836,11 +1833,10 @@ HttpResponse SearchAPI::HandleStats(const HttpRequest &Request)
                nlohmann::json StageArray = nlohmann::json::array();
                for (const auto &Stage : DaemonStats.stages)
                {
-                    StageArray.push_back({
-                         {"name", Stage.name},
-                         {"runs", Stage.runs},
-                         {"deferrals", Stage.deferrals},
-                         {"last_runtime_us", Stage.last_runtime_us}});
+                    StageArray.push_back({{"name", Stage.name},
+                                          {"runs", Stage.runs},
+                                          {"deferrals", Stage.deferrals},
+                                          {"last_runtime_us", Stage.last_runtime_us}});
                }
                DaemonJSON["stages"] = StageArray;
                StatsJSON["daemon"] = DaemonJSON;
@@ -2320,9 +2316,7 @@ HttpResponse SearchAPI::HandleLinksPing(const HttpRequest &Request)
           Instance->Logs->Normal("links", "Received /links/ping request.");
      }
 
-     const bool HasEndpointParam = Request.QueryParams.find("endpoint") != Request.QueryParams.end()
-                                   || Request.QueryParams.find("node") != Request.QueryParams.end()
-                                   || !Request.Body.empty();
+     const bool HasEndpointParam = Request.QueryParams.find("endpoint") != Request.QueryParams.end() || Request.QueryParams.find("node") != Request.QueryParams.end() || !Request.Body.empty();
      if (HasEndpointParam)
      {
           std::string Endpoint;

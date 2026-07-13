@@ -22,15 +22,12 @@
 
 class ThreadLimit
 {
-
    private:
-
      static std::atomic<size_t> MaxThreadsValue;
 
      static std::atomic<size_t> CurrentThreads;
 
    public:
-
      /* Get the maximum number of threads allowed globally */
 
      static size_t GetMaxThreads();
@@ -41,7 +38,7 @@ class ThreadLimit
 
      /* Initialize threading system from configuration */
 
-     static bool Initialize(class ServerConfig* config);
+     static bool Initialize(class ServerConfig *config);
 
      /* Calculate how many threads a subsystem can use */
 
@@ -90,5 +87,5 @@ class ThreadLimit
 
      /* Set the name of the current thread */
 
-     static void SetThreadName(const char* name);
+     static void SetThreadName(const char *name);
 };

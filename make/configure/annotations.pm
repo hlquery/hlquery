@@ -195,7 +195,7 @@ sub collect_module_annotations {
 
         open my $fh, '<', $source or next;
         while (my $line = <$fh>) {
-            next unless $line =~ m{^\s*///\s*\$(CompilerFlags|LinkerFlags|PackageInfo):\s*(.*?)\s*$};
+            next unless $line =~ m{^\s*(?:///\s*|/\*\s*)\$(CompilerFlags|LinkerFlags|PackageInfo):\s*(.*?)\s*(?:\*/)?\s*$};
             my ($kind, $payload) = ($1, $2);
 
             if ($kind eq 'CompilerFlags') {

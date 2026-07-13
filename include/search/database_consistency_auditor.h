@@ -22,10 +22,9 @@
 class ConsistencyChecker
 {
    private:
-
      /* CheckKeyConsistency validates key-level consistency. */
 
-     bool CheckKeyConsistency(int DbID, const std::string& Key);
+     bool CheckKeyConsistency(int DbID, const std::string &Key);
 
      /* CheckMemoryConsistency validates in-memory structures. */
 
@@ -36,7 +35,6 @@ class ConsistencyChecker
      mutable std::mutex Mutex;
 
    public:
-
      /* Constructor. */
 
      ConsistencyChecker();

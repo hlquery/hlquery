@@ -16,7 +16,6 @@
 
 #include "utils/wildcard.h"
 
-
 /*
       * Normalize patterns by collapsing consecutive '*'.
       */
@@ -275,7 +274,7 @@ bool MatchWildcard(const char *Str, const char *Pattern)
           Pattern++;
      }
 
-    return *Pattern == '\0';
+     return *Pattern == '\0';
 }
 
 bool MatchExactCaseSensitive(const char *Str, const char *Pattern)
@@ -361,7 +360,6 @@ bool MatchWildcardCaseSensitive(const char *Str, const char *Pattern)
 
      return *Pattern == '\0';
 }
-
 
 /*
  * Check whether a string matches a wildcard pattern.

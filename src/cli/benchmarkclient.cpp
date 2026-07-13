@@ -460,7 +460,7 @@ HTTPResponse BenchmarkClient::MakeRequest(const std::string &method, const std::
 
                if (UseSSL)
                {
-// The SSL path is only compiled when OpenSSL is enabled.
+/* The SSL path is only compiled when OpenSSL is enabled. */
 #ifdef HLQUERY_HAS_OPENSSL
                     write_result = SSL_write(SSLObj,
                                              request_str.c_str() + sent,
@@ -708,8 +708,8 @@ HTTPResponse BenchmarkClient::MakeRequest(const std::string &method, const std::
 
                     response.StatusCode = -1;
                     response.ErrorMessage = (bytes == 0)
-                                                  ? "Connection closed before a complete HTTP response was received."
-                                                  : "Failed to read HTTP response from server.";
+                                                 ? "Connection closed before a complete HTTP response was received."
+                                                 : "Failed to read HTTP response from server.";
 
                     return response;
                }
@@ -1041,7 +1041,9 @@ static bool IsLocalWriteCommittedDespiteReplicationError(const HTTPResponse &res
 static std::string LowercaseCopy(std::string value)
 {
      std::transform(value.begin(), value.end(), value.begin(), [](unsigned char ch)
-                    { return static_cast<char>(std::tolower(ch)); });
+                    {
+                         return static_cast<char>(std::tolower(ch));
+                    });
      return value;
 }
 

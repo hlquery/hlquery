@@ -36,7 +36,7 @@
 
 /* Global hlquery engine instance exported. */
 
-CoreExport extern hlquery* Instance;
+CoreExport extern hlquery *Instance;
 
 /* 
  * hlquery's main class.
@@ -47,7 +47,6 @@ CoreExport extern hlquery* Instance;
 class CoreExport hlquery
 {
    private:
-
      /* Internal initialization function */
 
      bool StartServer();
@@ -123,11 +122,11 @@ class CoreExport hlquery
      /* Listener startup diagnostics. */
 
      size_t ConfiguredListenerCount = 0;
-     
+
      size_t StartedListenerCount = 0;
-     
+
      size_t SkippedListenerCount = 0;
-     
+
      std::string LastListenerError;
 
      /* Process signal state owned by the hlquery lifecycle manager. */

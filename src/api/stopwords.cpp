@@ -42,9 +42,9 @@
 #include "core/hlquery.h"
 #include "core/socketengine.h"
 #include "runtime/threadlimit.h"
-#include "search/rfusion.h"
-#include "search/cstore.h"
-#include "search/lindex.h"
+#include "search/hybrid_rank_fusion.h"
+#include "search/document_collection_store.h"
+#include "search/lexical_inverted_index.h"
 #include "utils/consolewriter.h"
 #include "utils/protocol.h"
 #include "utils/wildcard.h"
@@ -327,15 +327,15 @@ HttpResponse SearchAPI::HandleListStopwords(const HttpRequest &Request)
      }
 
      std::sort(Result["stopwords"].begin(), Result["stopwords"].end(), [&SortOptions](const nlohmann::json &Left, const nlohmann::json &Right)
-     {
-          const std::string LeftText = StopwordJSONValueToText(Left);
-          const std::string RightText = StopwordJSONValueToText(Right);
-          return CompareLexicalSortValues(NormalizeStopwordValue(LeftText),
-                                          NormalizeStopwordValue(RightText),
-                                          LeftText + "\n" + Left.dump(),
-                                          RightText + "\n" + Right.dump(),
-                                          SortOptions.SortOrder);
-     });
+               {
+                    const std::string LeftText = StopwordJSONValueToText(Left);
+                    const std::string RightText = StopwordJSONValueToText(Right);
+                    return CompareLexicalSortValues(NormalizeStopwordValue(LeftText),
+                                                    NormalizeStopwordValue(RightText),
+                                                    LeftText + "\n" + Left.dump(),
+                                                    RightText + "\n" + Right.dump(),
+                                                    SortOptions.SortOrder);
+               });
      Result["sort_by"] = SortOptions.SortBy;
      Result["sort_order"] = SortOptions.SortOrder;
      Response.Body = Result.dump();

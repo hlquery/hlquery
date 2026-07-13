@@ -45,7 +45,6 @@ void FloodSignalHandler(int signal);
 class FloodCircuitBreaker
 {
    private:
-
      std::atomic<int> ConsecutiveFailures;
 
      std::atomic<bool> CircuitOpen;
@@ -57,7 +56,6 @@ class FloodCircuitBreaker
      static const int RESET_TIMEOUT_MS = 2000;
 
    public:
-
      /* Initializes the circuit breaker state. */
 
      FloodCircuitBreaker()

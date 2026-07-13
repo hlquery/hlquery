@@ -29,14 +29,12 @@
 IPFilter::IPFilter() : AllowAll(true),
                        DenyAll(false), HasHostnames(false), HasWildcardHostnames(false), HasDenyEntries(false), HasDenyHostnames(false), HasDenyWildcardHostnames(false), DNSCacheMaxSize(DNS_CACHE_MAX_SIZE), LastCacheFlush(Instance->Now())
 {
-
 }
 
 /* IPFilter destructor. */
 
 IPFilter::~IPFilter()
 {
-
 }
 
 /* Initialize IP filter from allow configuration. */
@@ -648,9 +646,9 @@ void IPFilter::FlushDNSCache()
      {
           std::lock_guard<std::mutex> CacheLock(CacheMutex);
 
-          DNSCount         =   DNSCache.size();
-          ReverseCount     =   ReverseDNSCache.size();
- 
+          DNSCount = DNSCache.size();
+          ReverseCount = ReverseDNSCache.size();
+
           DNSCache.clear();
           ReverseDNSCache.clear();
           DNSCacheOrder.clear();

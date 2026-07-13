@@ -121,7 +121,10 @@ static std::string SearchHeaderValueInsensitive(const std::map<std::string, std:
      auto Lower = [](std::string Value)
      {
           std::transform(Value.begin(), Value.end(), Value.begin(),
-                         [](unsigned char Ch) { return static_cast<char>(std::tolower(Ch)); });
+                         [](unsigned char Ch)
+                         {
+                              return static_cast<char>(std::tolower(Ch));
+                         });
           return Value;
      };
 
@@ -1830,7 +1833,10 @@ HttpResponse SearchAPI::HandleSearch(const HttpRequest &Request)
      {
           std::string Value = RequestCacheIt->second;
           std::transform(Value.begin(), Value.end(), Value.begin(),
-                         [](unsigned char Ch) { return static_cast<char>(std::tolower(Ch)); });
+                         [](unsigned char Ch)
+                         {
+                              return static_cast<char>(std::tolower(Ch));
+                         });
           RequestCacheEnabled = Value == "1" || Value == "true" || Value == "yes" || Value == "on";
      }
      const bool IsGroupedSQLQuery = SQLApplyResult.Translation.Valid && SQLApplyResult.Translation.GroupedAggregates;
@@ -1917,9 +1923,9 @@ HttpResponse SearchAPI::HandleSearch(const HttpRequest &Request)
      const DocumentMaybeSettings MaybeSettings = ParseDocumentMaybeSettings(Params);
      const auto DistributedOverrideIt = Request.QueryParams.find("distributed");
      const bool HasExplicitDistributedOverride = (DistributedOverrideIt != Request.QueryParams.end() &&
-                                                 !DistributedOverrideIt->second.empty());
+                                                  !DistributedOverrideIt->second.empty());
      const bool SupportsDistributedExecution = !IsSQLSelectQuery &&
-                                              (SearchQueryObj.Aggregations.empty() || HasExplicitDistributedOverride);
+                                               (SearchQueryObj.Aggregations.empty() || HasExplicitDistributedOverride);
 
      HttpResponse CachedResponse;
      const uint64_t SearchCacheGeneration = SearchResponseCache::GetGeneration(CollectionName);
@@ -2489,8 +2495,8 @@ HttpResponse SearchAPI::HandleGlobalSearch(const HttpRequest &Request)
      GlobalResult.SearchTimeMS = MaxSearchTime;
      GlobalResult.DistributedDiagnostics = std::move(GlobalDistributedDiagnostics);
      GlobalResult.OutOf = (AllHits.size() > static_cast<std::size_t>(std::numeric_limits<int>::max()))
-                              ? std::numeric_limits<int>::max()
-                              : static_cast<int>(AllHits.size());
+                               ? std::numeric_limits<int>::max()
+                               : static_cast<int>(AllHits.size());
      GlobalResult.Found = GlobalResult.OutOf;
 
      const std::size_t PageIndex = static_cast<std::size_t>(GlobalResult.Page - 1);
@@ -2867,8 +2873,8 @@ ComprehensiveSearchResult SearchAPI::PerformComprehensiveSearch(const std::strin
 
      const int MaxResultCount = std::numeric_limits<int>::max();
      ResultObj.Found = (Hits.size() > static_cast<std::size_t>(MaxResultCount))
-                           ? MaxResultCount
-                           : static_cast<int>(Hits.size());
+                            ? MaxResultCount
+                            : static_cast<int>(Hits.size());
      ResultObj.OutOf = ResultObj.Found;
 
      /* Collection and module weights are applied before sorting so custom ranking affects final order. */
@@ -2916,7 +2922,7 @@ ComprehensiveSearchResult SearchAPI::PerformComprehensiveSearch(const std::strin
           {
                Instance->Logs->Normal("search_api",
                                       "Capping facet/aggregation post-processing to " + std::to_string(MaxPostProcessingHits) +
-                                      " hits out of " + std::to_string(Hits.size()) + " for collection '" + Collection + "'.");
+                                           " hits out of " + std::to_string(Hits.size()) + " for collection '" + Collection + "'.");
           }
      }
 

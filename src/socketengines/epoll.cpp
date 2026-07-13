@@ -32,7 +32,7 @@
 #include "core/logmanager.h"
 #include "core/socketengine.h"
 #include "runtime/timers.h"
-#include "search/storageengine.h"
+#include "search/rocksdb_storage_engine.h"
 #include "utils/consolewriter.h"
 
 int SocketEngine::EpollFD = -1;
@@ -253,7 +253,7 @@ void SocketEngine::InitializeZeroCopyBuffers()
       * Buffers will be allocated on first GetZeroCopyBuffer() call
       */
 
-      ZeroCopyBuffersAllocated.store(false);
+     ZeroCopyBuffersAllocated.store(false);
 }
 
 /* Cleans up zero-copy buffers */
@@ -646,7 +646,6 @@ void SocketEngine::DelFD(EventHandler *EH)
                 * Ensure the socket can be closed safely after epoll removal
                 * so stale event references cannot reach the handler later.
                 */
-
           }
           else if (saved_errno == EBADF)
           {
@@ -787,7 +786,7 @@ int SocketEngine::DispatchEvents()
      }
      else
      {
-        /*
+          /*
          * Wake periodically for time-based work even when there is no socket activity.
          * This keeps timers and wall-clock hooks such as OnEveryOneMinute progressing
          * without requiring an external request to wake the event loop.
@@ -877,7 +876,6 @@ int SocketEngine::DispatchEvents()
            * Flood protection is intentionally omitted here so real socket
            * activity can continue at full event-loop throughput.
            */
-
      }
 
      /* HLQuery-style: If we hit the event limit, process immediately and loop back */
@@ -960,7 +958,6 @@ int SocketEngine::DispatchEvents()
                 * Still have pending work, so keep the current short timeout
                 * and let the main loop process queued actions next.
                 */
-
           }
 
           return 0;
@@ -1113,7 +1110,7 @@ int SocketEngine::DispatchEvents()
           {
                read_events++;
 
-            /*
+               /*
              * CRITICAL FIX: Only log read events in very verbose debug mode to reduce log spam.
              * Most read events are normal and don't need logging.
              */
@@ -1154,7 +1151,6 @@ int SocketEngine::DispatchEvents()
                 * Read completion logging stays disabled here to avoid
                 * excessive event-loop noise under normal traffic.
                 */
-
           }
      }
 
@@ -1213,7 +1209,7 @@ int SocketEngine::DispatchEvents()
                     Instance->Logs->Debug("socketengine", "DispatchEvents: Processing write event #" + std::to_string(write_events) + " (fd=" + std::to_string(fd) + ").");
                }
 
-            /*
+               /*
              * Validate handler is still valid before calling methods
              * Check if fd is still valid by verifying it hasn't been closed
              */
@@ -1364,13 +1360,13 @@ void SocketEngine::DispatchTrialWrites()
                     continue;
                }
 
-             /*
+               /*
               * Smart Write State Detection.
               * Before attempting writes, we check if the socket is actually
               * ready for writing using a non-blocking approach.
               */
 
-             /*
+               /*
               * Optimized: Skip select() check and directly attempt write
               * Modern kernels handle EAGAIN efficiently, making the select() overhead unnecessary
               */
@@ -1382,7 +1378,6 @@ void SocketEngine::DispatchTrialWrites()
                 * Do not yield between immediate publish writes; the batch
                 * boundary already limits per-pass work.
                 */
-
           }
      }
 }

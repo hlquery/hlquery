@@ -7,7 +7,7 @@
  * This file is part of hlquery, released under the BSD License version 3.
  */
 
-#include "search/segmentmanager.h"
+#include "search/segmented_document_router.h"
 
 #include <algorithm>
 #include <chrono>
@@ -20,65 +20,65 @@
 
 namespace
 {
-     constexpr const char* DocLocationPrefix = "__hlq_docloc:";
-     constexpr const char* TombstonePrefix = "__hlq_tombstone:";
-     constexpr const char* ManifestGenerationKey = "__hlq_segment_manifest_generation";
+constexpr const char *DocLocationPrefix = "__hlq_docloc:";
+constexpr const char *TombstonePrefix = "__hlq_tombstone:";
+constexpr const char *ManifestGenerationKey = "__hlq_segment_manifest_generation";
 
-     std::string DocKeyFromLocationKey(const std::string& loc_key)
+std::string DocKeyFromLocationKey(const std::string &loc_key)
+{
+     const std::string prefix(DocLocationPrefix);
+
+     if (!loc_key.starts_with(prefix))
      {
-          const std::string prefix(DocLocationPrefix);
-
-          if (!loc_key.starts_with(prefix))
-          {
-               return "";
-          }
-
-          return "doc:" + loc_key.substr(prefix.size());
+          return "";
      }
 
-     std::string LocationPrefixFromDocPrefix(const std::string& doc_prefix)
-     {
-          if (!doc_prefix.starts_with("doc:"))
-          {
-               return "";
-          }
-
-          return std::string(DocLocationPrefix) + doc_prefix.substr(4);
-     }
-
-     uint64_t SegmentOrdinal(const std::string& segment_id)
-     {
-          constexpr const char* prefix = "seg_";
-
-          if (!segment_id.starts_with(prefix))
-          {
-               return 0;
-          }
-
-          try
-          {
-               return static_cast<uint64_t>(std::stoull(segment_id.substr(4)));
-          }
-          catch (...)
-          {
-               return 0;
-          }
-     }
+     return "doc:" + loc_key.substr(prefix.size());
 }
 
-SegmentManager::SegmentManager(const std::string& data_dir,
-                               rocksdb::DB* system_db,
-                               const rocksdb::Options& options,
-                               const rocksdb::WriteOptions& write_options,
-                               const RocksDBOptions& storage_options)
-     : DataDir(data_dir),
-       StorageDir(data_dir + "/storage"),
-       SegmentsDir(data_dir + "/storage/segments"),
-       ManifestPath(data_dir + "/storage/manifest.json"),
-       SystemDB(system_db),
-       OptionsValue(options),
-       WriteOptionsValue(write_options),
-       StorageOptions(storage_options)
+std::string LocationPrefixFromDocPrefix(const std::string &doc_prefix)
+{
+     if (!doc_prefix.starts_with("doc:"))
+     {
+          return "";
+     }
+
+     return std::string(DocLocationPrefix) + doc_prefix.substr(4);
+}
+
+uint64_t SegmentOrdinal(const std::string &segment_id)
+{
+     constexpr const char *prefix = "seg_";
+
+     if (!segment_id.starts_with(prefix))
+     {
+          return 0;
+     }
+
+     try
+     {
+          return static_cast<uint64_t>(std::stoull(segment_id.substr(4)));
+     }
+     catch (...)
+     {
+          return 0;
+     }
+}
+}
+
+SegmentManager::SegmentManager(const std::string &data_dir,
+                               rocksdb::DB *system_db,
+                               const rocksdb::Options &options,
+                               const rocksdb::WriteOptions &write_options,
+                               const RocksDBOptions &storage_options)
+    : DataDir(data_dir),
+      StorageDir(data_dir + "/storage"),
+      SegmentsDir(data_dir + "/storage/segments"),
+      ManifestPath(data_dir + "/storage/manifest.json"),
+      SystemDB(system_db),
+      OptionsValue(options),
+      WriteOptionsValue(write_options),
+      StorageOptions(storage_options)
 {
 }
 
@@ -146,12 +146,12 @@ void SegmentManager::Shutdown()
      SealedSegments.clear();
 }
 
-bool SegmentManager::IsDocKey(const std::string& key)
+bool SegmentManager::IsDocKey(const std::string &key)
 {
      return key.starts_with("doc:");
 }
 
-bool SegmentManager::ParseDocKey(const std::string& key, std::string& collection, std::string& doc_id)
+bool SegmentManager::ParseDocKey(const std::string &key, std::string &collection, std::string &doc_id)
 {
      if (!IsDocKey(key))
      {
@@ -170,12 +170,12 @@ bool SegmentManager::ParseDocKey(const std::string& key, std::string& collection
      return true;
 }
 
-std::string SegmentManager::DocLocationKey(const std::string& collection, const std::string& doc_id)
+std::string SegmentManager::DocLocationKey(const std::string &collection, const std::string &doc_id)
 {
      return std::string(DocLocationPrefix) + collection + ":" + doc_id;
 }
 
-std::string SegmentManager::TombstoneKey(const std::string& collection, const std::string& doc_id)
+std::string SegmentManager::TombstoneKey(const std::string &collection, const std::string &doc_id)
 {
      return std::string(TombstonePrefix) + collection + ":" + doc_id;
 }
@@ -186,7 +186,7 @@ uint64_t SegmentManager::NowMs()
      return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(now).count());
 }
 
-uint64_t SegmentManager::DirectorySize(const std::string& path, uint64_t* sst_files)
+uint64_t SegmentManager::DirectorySize(const std::string &path, uint64_t *sst_files)
 {
      uint64_t total = 0;
 
@@ -202,7 +202,7 @@ uint64_t SegmentManager::DirectorySize(const std::string& path, uint64_t* sst_fi
                return 0;
           }
 
-          for (const auto& entry : std::filesystem::recursive_directory_iterator(path))
+          for (const auto &entry : std::filesystem::recursive_directory_iterator(path))
           {
                if (!entry.is_regular_file())
                {
@@ -231,7 +231,7 @@ std::string SegmentManager::FormatSegmentId(uint64_t value)
      return stream.str();
 }
 
-std::mutex& SegmentManager::GetKeyMutex(const std::string& key)
+std::mutex &SegmentManager::GetKeyMutex(const std::string &key)
 {
      return KeyMutexes[std::hash<std::string>{}(key) % KeyMutexes.size()];
 }
@@ -274,7 +274,7 @@ bool SegmentManager::LoadOrCreateManifest()
      {
           if (std::filesystem::exists(SegmentsDir))
           {
-               for (const auto& entry : std::filesystem::directory_iterator(SegmentsDir))
+               for (const auto &entry : std::filesystem::directory_iterator(SegmentsDir))
                {
                     if (!entry.is_directory())
                     {
@@ -295,16 +295,16 @@ bool SegmentManager::LoadOrCreateManifest()
           return false;
      }
 
-     std::sort(discovered.begin(), discovered.end(), [](const SegmentMetadata& left, const SegmentMetadata& right)
-     {
-          return left.Id < right.Id;
-     });
+     std::sort(discovered.begin(), discovered.end(), [](const SegmentMetadata &left, const SegmentMetadata &right)
+               {
+                    return left.Id < right.Id;
+               });
 
      Manifest = SegmentManifest();
      Manifest.CreatedAtMs = NowMs();
      Manifest.Generation = 0;
 
-     for (const auto& metadata : discovered)
+     for (const auto &metadata : discovered)
      {
           Manifest.Generation = std::max(Manifest.Generation, SegmentOrdinal(metadata.Id));
 
@@ -327,7 +327,7 @@ bool SegmentManager::LoadOrCreateManifest()
      return PersistManifestLocked();
 }
 
-std::shared_ptr<SegmentManager::SegmentHandle> SegmentManager::OpenSegment(const SegmentMetadata& metadata)
+std::shared_ptr<SegmentManager::SegmentHandle> SegmentManager::OpenSegment(const SegmentMetadata &metadata)
 {
      auto handle = std::make_shared<SegmentHandle>();
      handle->Metadata = metadata;
@@ -360,7 +360,7 @@ bool SegmentManager::OpenManifestSegments()
      ActiveSegment.reset();
      SealedSegments.clear();
 
-     for (const auto& segment_id : Manifest.Sealed)
+     for (const auto &segment_id : Manifest.Sealed)
      {
           SegmentMetadata metadata;
           if (!SegmentMetadata::Load(SegmentsDir + "/" + segment_id + "/segment.json", metadata))
@@ -401,8 +401,7 @@ bool SegmentManager::CreateActiveSegmentLocked()
      do
      {
           segment_id = FormatSegmentId(next_id++);
-     }
-     while (used.count(segment_id) > 0);
+     } while (used.count(segment_id) > 0);
 
      SegmentMetadata metadata;
      metadata.Id = segment_id;
@@ -448,7 +447,7 @@ bool SegmentManager::PersistManifestLocked()
      return status.ok();
 }
 
-bool SegmentManager::PersistSegmentMetadata(const std::shared_ptr<SegmentHandle>& segment) const
+bool SegmentManager::PersistSegmentMetadata(const std::shared_ptr<SegmentHandle> &segment) const
 {
      if (!segment)
      {
@@ -513,14 +512,14 @@ bool SegmentManager::SealActiveSegmentAndCreateNewLocked()
      return true;
 }
 
-std::shared_ptr<SegmentManager::SegmentHandle> SegmentManager::FindSegment(const std::string& segment_id, const std::shared_ptr<SegmentSnapshot>& snapshot) const
+std::shared_ptr<SegmentManager::SegmentHandle> SegmentManager::FindSegment(const std::string &segment_id, const std::shared_ptr<SegmentSnapshot> &snapshot) const
 {
      if (!snapshot)
      {
           return nullptr;
      }
 
-     for (const auto& segment : snapshot->LiveNewestFirst)
+     for (const auto &segment : snapshot->LiveNewestFirst)
      {
           if (segment && segment->Metadata.Id == segment_id)
           {
@@ -531,7 +530,7 @@ std::shared_ptr<SegmentManager::SegmentHandle> SegmentManager::FindSegment(const
      return nullptr;
 }
 
-bool SegmentManager::GetSystemValue(const std::string& key, std::string& value) const
+bool SegmentManager::GetSystemValue(const std::string &key, std::string &value) const
 {
      if (!SystemDB)
      {
@@ -542,7 +541,7 @@ bool SegmentManager::GetSystemValue(const std::string& key, std::string& value) 
      return status.ok();
 }
 
-bool SegmentManager::PutDocLocation(const std::string& key, const std::string& segment_id, uint64_t timestamp_ms)
+bool SegmentManager::PutDocLocation(const std::string &key, const std::string &segment_id, uint64_t timestamp_ms)
 {
      std::string collection;
      std::string doc_id;
@@ -559,18 +558,18 @@ bool SegmentManager::PutDocLocation(const std::string& key, const std::string& s
      return SystemDB->Write(WriteOptionsValue, &batch).ok();
 }
 
-bool SegmentManager::RepairDocLocation(const std::string& key, const std::string& segment_id)
+bool SegmentManager::RepairDocLocation(const std::string &key, const std::string &segment_id)
 {
      return PutDocLocation(key, segment_id, NowMs());
 }
 
-bool SegmentManager::IsTombstoned(const std::string& collection, const std::string& doc_id) const
+bool SegmentManager::IsTombstoned(const std::string &collection, const std::string &doc_id) const
 {
      std::string tombstone;
      return GetSystemValue(TombstoneKey(collection, doc_id), tombstone);
 }
 
-bool SegmentManager::SetDocument(const std::string& key, const std::string& value)
+bool SegmentManager::SetDocument(const std::string &key, const std::string &value)
 {
      std::string collection;
      std::string doc_id;
@@ -633,7 +632,7 @@ bool SegmentManager::SetDocument(const std::string& key, const std::string& valu
      return true;
 }
 
-size_t SegmentManager::BatchSetDocuments(const std::vector<std::pair<std::string, std::string>>& key_values)
+size_t SegmentManager::BatchSetDocuments(const std::vector<std::pair<std::string, std::string>> &key_values)
 {
      if (key_values.empty())
      {
@@ -656,7 +655,7 @@ size_t SegmentManager::BatchSetDocuments(const std::vector<std::pair<std::string
      rocksdb::WriteBatch segment_batch;
      uint64_t bytes = 0;
 
-     for (const auto& kv : key_values)
+     for (const auto &kv : key_values)
      {
           if (!IsDocKey(kv.first))
           {
@@ -675,7 +674,7 @@ size_t SegmentManager::BatchSetDocuments(const std::vector<std::pair<std::string
      rocksdb::WriteBatch system_batch;
      const uint64_t timestamp_ms = NowMs();
 
-     for (const auto& kv : key_values)
+     for (const auto &kv : key_values)
      {
           std::string collection;
           std::string doc_id;
@@ -716,7 +715,7 @@ size_t SegmentManager::BatchSetDocuments(const std::vector<std::pair<std::string
      return key_values.size();
 }
 
-std::string SegmentManager::GetDocument(const std::string& key)
+std::string SegmentManager::GetDocument(const std::string &key)
 {
      std::string collection;
      std::string doc_id;
@@ -750,7 +749,7 @@ std::string SegmentManager::GetDocument(const std::string& key)
           return "";
      }
 
-     for (const auto& segment : snapshot->LiveNewestFirst)
+     for (const auto &segment : snapshot->LiveNewestFirst)
      {
           if (!segment || !segment->DB)
           {
@@ -768,7 +767,7 @@ std::string SegmentManager::GetDocument(const std::string& key)
      return "";
 }
 
-int SegmentManager::DeleteDocument(const std::string& key)
+int SegmentManager::DeleteDocument(const std::string &key)
 {
      std::string collection;
      std::string doc_id;
@@ -803,7 +802,7 @@ int SegmentManager::DeleteDocument(const std::string& key)
      return 1;
 }
 
-size_t SegmentManager::DeleteDocumentRange(const std::string& start_key, const std::string& end_key)
+size_t SegmentManager::DeleteDocumentRange(const std::string &start_key, const std::string &end_key)
 {
      if (!start_key.starts_with("doc:"))
      {
@@ -845,12 +844,12 @@ size_t SegmentManager::DeleteDocumentRange(const std::string& start_key, const s
      return SystemDB->Write(WriteOptionsValue, &batch).ok() ? 1 : 0;
 }
 
-bool SegmentManager::ExistsDocument(const std::string& key)
+bool SegmentManager::ExistsDocument(const std::string &key)
 {
      return !GetDocument(key).empty();
 }
 
-std::vector<std::string> SegmentManager::Keys(const std::string& pattern)
+std::vector<std::string> SegmentManager::Keys(const std::string &pattern)
 {
      std::vector<std::string> result;
      const std::string loc_prefix(DocLocationPrefix);
@@ -876,12 +875,12 @@ std::vector<std::string> SegmentManager::Keys(const std::string& pattern)
      return result;
 }
 
-size_t SegmentManager::CountKeys(const std::string& prefix)
+size_t SegmentManager::CountKeys(const std::string &prefix)
 {
      return PrefixKeys(prefix, 0, 0).size();
 }
 
-std::vector<std::string> SegmentManager::PrefixKeys(const std::string& prefix, size_t offset, size_t limit)
+std::vector<std::string> SegmentManager::PrefixKeys(const std::string &prefix, size_t offset, size_t limit)
 {
      std::vector<std::string> keys;
      const std::string loc_prefix = LocationPrefixFromDocPrefix(prefix);
@@ -922,7 +921,7 @@ std::vector<std::string> SegmentManager::PrefixKeys(const std::string& prefix, s
      return keys;
 }
 
-bool SegmentManager::ForEachPrefixKeySnapshot(const std::string& prefix, size_t limit, const std::function<bool(const std::string&)>& callback)
+bool SegmentManager::ForEachPrefixKeySnapshot(const std::string &prefix, size_t limit, const std::function<bool(const std::string &)> &callback)
 {
      if (!callback)
      {
@@ -931,7 +930,7 @@ bool SegmentManager::ForEachPrefixKeySnapshot(const std::string& prefix, size_t 
 
      const auto keys = PrefixKeys(prefix, 0, limit);
 
-     for (const auto& key : keys)
+     for (const auto &key : keys)
      {
           if (!callback(key))
           {
@@ -942,12 +941,12 @@ bool SegmentManager::ForEachPrefixKeySnapshot(const std::string& prefix, size_t 
      return true;
 }
 
-size_t SegmentManager::GetPrefixTotalSize(const std::string& prefix)
+size_t SegmentManager::GetPrefixTotalSize(const std::string &prefix)
 {
      size_t total = 0;
      const auto keys = PrefixKeys(prefix, 0, 0);
 
-     for (const auto& key : keys)
+     for (const auto &key : keys)
      {
           total += GetDocument(key).size();
      }
@@ -962,7 +961,7 @@ bool SegmentManager::Flush()
 
      if (snapshot)
      {
-          for (const auto& segment : snapshot->LiveNewestFirst)
+          for (const auto &segment : snapshot->LiveNewestFirst)
           {
                if (segment && segment->DB)
                {
@@ -981,7 +980,7 @@ bool SegmentManager::FlushAndSync()
 
      if (snapshot)
      {
-          for (const auto& segment : snapshot->LiveNewestFirst)
+          for (const auto &segment : snapshot->LiveNewestFirst)
           {
                if (segment && segment->DB)
                {
@@ -1001,7 +1000,7 @@ bool SegmentManager::SyncWAL()
 
      if (snapshot)
      {
-          for (const auto& segment : snapshot->LiveNewestFirst)
+          for (const auto &segment : snapshot->LiveNewestFirst)
           {
                if (segment && segment->DB)
                {
@@ -1022,7 +1021,7 @@ void SegmentManager::Compact()
           return;
      }
 
-     for (const auto& segment : snapshot->LiveNewestFirst)
+     for (const auto &segment : snapshot->LiveNewestFirst)
      {
           if (segment && segment->DB)
           {
@@ -1043,7 +1042,7 @@ bool SegmentManager::RebuildDocLocationMap()
      rocksdb::WriteBatch batch;
      std::set<std::string> seen;
 
-     for (const auto& segment : snapshot->LiveNewestFirst)
+     for (const auto &segment : snapshot->LiveNewestFirst)
      {
           if (!segment || !segment->DB)
           {
@@ -1088,7 +1087,7 @@ SegmentManager::SegmentStats SegmentManager::GetStats() const
           stats.ManifestGeneration = snapshot->Generation;
           stats.ActiveSegmentId = snapshot->ActiveId;
 
-          for (const auto& segment : snapshot->LiveNewestFirst)
+          for (const auto &segment : snapshot->LiveNewestFirst)
           {
                if (!segment)
                {

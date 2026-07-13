@@ -24,8 +24,8 @@
 #include "core/hlquery.h"
 #include "core/modules.h"
 #include "runtime/timers.h"
-#include "search/lang.h"
-#include "search/cstore.h"
+#include "search/language_detection.h"
+#include "search/document_collection_store.h"
 #include "vendor/json/json.hpp"
 
 /* Periodically refreshes collection-level language metadata. */
@@ -33,7 +33,6 @@
 class LangUpdaterRuntimeModule final : public AutoRuntimeModule<LangUpdaterRuntimeModule>
 {
    private:
-
      static constexpr uint64_t OneHourMS = 60ULL * 60ULL * 1000ULL;
      static constexpr uint64_t SixHoursMS = 6ULL * OneHourMS;
      static constexpr uint64_t TwelveHoursMS = 12ULL * OneHourMS;
@@ -78,7 +77,7 @@ class LangUpdaterRuntimeModule final : public AutoRuntimeModule<LangUpdaterRunti
                                             .count());
      }
 
-     static std::string TrimCopy(const std::string& Value)
+     static std::string TrimCopy(const std::string &Value)
      {
           const size_t Start = Value.find_first_not_of(" \t\r\n");
 
@@ -91,7 +90,7 @@ class LangUpdaterRuntimeModule final : public AutoRuntimeModule<LangUpdaterRunti
           return Value.substr(Start, End - Start + 1);
      }
 
-     static std::string NormalizeLanguageValue(const std::string& Value)
+     static std::string NormalizeLanguageValue(const std::string &Value)
      {
           std::string Normalized = TrimCopy(Value);
           std::transform(Normalized.begin(),
@@ -104,7 +103,7 @@ class LangUpdaterRuntimeModule final : public AutoRuntimeModule<LangUpdaterRunti
           return Normalized;
      }
 
-     static bool ParseCollectionCreatedAtSeconds(const std::string& Collection, uint64_t& CreatedAtSeconds)
+     static bool ParseCollectionCreatedAtSeconds(const std::string &Collection, uint64_t &CreatedAtSeconds)
      {
           CreatedAtSeconds = 0;
 
@@ -134,7 +133,7 @@ class LangUpdaterRuntimeModule final : public AutoRuntimeModule<LangUpdaterRunti
           }
      }
 
-     size_t CountCollectionsCreatedInLastDay(const std::vector<std::string>& Collections) const
+     size_t CountCollectionsCreatedInLastDay(const std::vector<std::string> &Collections) const
      {
           const time_t NowSeconds = Instance ? Instance->Time() : std::time(nullptr);
 
@@ -144,12 +143,12 @@ class LangUpdaterRuntimeModule final : public AutoRuntimeModule<LangUpdaterRunti
           }
 
           const uint64_t CutoffSeconds = static_cast<uint64_t>(NowSeconds) > (OneDayMS / 1000ULL)
-               ? static_cast<uint64_t>(NowSeconds) - (OneDayMS / 1000ULL)
-               : 0;
+                                              ? static_cast<uint64_t>(NowSeconds) - (OneDayMS / 1000ULL)
+                                              : 0;
 
           size_t Count = 0;
 
-          for (const auto& Collection : Collections)
+          for (const auto &Collection : Collections)
           {
                uint64_t CreatedAtSeconds = 0;
 
@@ -264,7 +263,7 @@ class LangUpdaterRuntimeModule final : public AutoRuntimeModule<LangUpdaterRunti
                     Collections.resize(MaxCollectionsPerPass);
                }
 
-               for (const auto& Collection : Collections)
+               for (const auto &Collection : Collections)
                {
                     if (Stopping.load(std::memory_order_acquire))
                     {
@@ -308,11 +307,11 @@ class LangUpdaterRuntimeModule final : public AutoRuntimeModule<LangUpdaterRunti
                     }
                }
           }
-          catch (const std::bad_alloc&)
+          catch (const std::bad_alloc &)
           {
                Error = "out of memory";
           }
-          catch (const std::exception& Exception)
+          catch (const std::exception &Exception)
           {
                Error = Exception.what();
           }
@@ -383,12 +382,11 @@ class LangUpdaterRuntimeModule final : public AutoRuntimeModule<LangUpdaterRunti
      }
 
    public:
-
      LangUpdaterRuntimeModule() : AutoRuntimeModule("lang_updater", true)
      {
      }
 
-     bool Start(const ServerConfig& Config, std::string& ErrorMessage) override
+     bool Start(const ServerConfig &Config, std::string &ErrorMessage) override
      {
           if (!Instance || !Instance->Timers)
           {
@@ -464,7 +462,7 @@ class LangUpdaterRuntimeModule final : public AutoRuntimeModule<LangUpdaterRunti
           return {Status, Run, Interval};
      }
 
-     ModuleCommandResponse HandleCommand(const ModuleCommandRequest& Request) override
+     ModuleCommandResponse HandleCommand(const ModuleCommandRequest &Request) override
      {
           ModuleCommandResponse Response;
           Response.ContentType = "application/json";

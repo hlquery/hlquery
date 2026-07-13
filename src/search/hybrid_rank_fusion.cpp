@@ -10,7 +10,7 @@
  * For more details, please visit: https://docs.hlquery.com
  */
 
-#include "search/rfusion.h"
+#include "search/hybrid_rank_fusion.h"
 
 /*
  * HybridSearchEngine::CombineScores - Blends lexical and vector relevance into a single score.

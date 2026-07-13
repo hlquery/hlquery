@@ -119,9 +119,9 @@ static std::set<UserFlag> ParseFlags(const json &FlagsValue, std::string &ErrorM
                {
                     continue;
                }
-           
+
                AddFlag(Item);
-           
+
                if (!ErrorMsg.empty())
                {
                     return {};
@@ -137,9 +137,9 @@ static std::set<UserFlag> ParseFlags(const json &FlagsValue, std::string &ErrorM
                     ErrorMsg = "Flags must be strings";
                     return {};
                }
-           
+
                AddFlag(FlagVal.get<std::string>());
-           
+
                if (!ErrorMsg.empty())
                {
                     return {};
@@ -478,7 +478,7 @@ HttpResponse SearchAPI::HandleUpdateUser(const HttpRequest &Request)
                {
                     return MakeJSONResponse(409, "Conflict", "{\"error\":\"Token already in use\"}");
                }
-               
+
                Updated.Token = Token;
                IncludeToken = true;
           }

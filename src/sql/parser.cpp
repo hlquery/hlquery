@@ -21,41 +21,40 @@ static bool SQLIsReservedValueKeyword(const std::string &upper)
      /* Keywords that mark SQL syntax must not be accepted as unquoted scalar values. */
 
      static const std::set<std::string> reserved_keywords =
-     {
-          "AND",
-          "AS",
-          "BETWEEN",
-          "BY",
-          "CONTAINS",
-          "DELETE",
-          "DESC",
-          "DROP",
-          "FETCH",
-          "FIRST",
-          "FROM",
-          "GROUP",
-          "HAVING",
-          "ILIKE",
-          "IN",
-          "INSERT",
-          "INTO",
-          "IS",
-          "LIKE",
-          "LIMIT",
-          "NEXT",
-          "NOT",
-          "OFFSET",
-          "ONLY",
-          "OR",
-          "ORDER",
-          "ROW",
-          "ROWS",
-          "SELECT",
-          "SHOW",
-          "UPDATE",
-          "VALUES",
-          "WHERE"
-     };
+          {
+               "AND",
+               "AS",
+               "BETWEEN",
+               "BY",
+               "CONTAINS",
+               "DELETE",
+               "DESC",
+               "DROP",
+               "FETCH",
+               "FIRST",
+               "FROM",
+               "GROUP",
+               "HAVING",
+               "ILIKE",
+               "IN",
+               "INSERT",
+               "INTO",
+               "IS",
+               "LIKE",
+               "LIMIT",
+               "NEXT",
+               "NOT",
+               "OFFSET",
+               "ONLY",
+               "OR",
+               "ORDER",
+               "ROW",
+               "ROWS",
+               "SELECT",
+               "SHOW",
+               "UPDATE",
+               "VALUES",
+               "WHERE"};
 
      return reserved_keywords.count(upper) > 0;
 }
@@ -71,20 +70,19 @@ static bool SQLCanUseTokenAsValue(const SQLToken &token)
      }
 
      static const std::set<std::string> invalid_value_tokens =
-     {
-          ",",
-          "(",
-          ")",
-          "*",
-          ";",
-          "=",
-          "!=",
-          "<>",
-          ">",
-          ">=",
-          "<",
-          "<="
-     };
+          {
+               ",",
+               "(",
+               ")",
+               "*",
+               ";",
+               "=",
+               "!=",
+               "<>",
+               ">",
+               ">=",
+               "<",
+               "<="};
 
      if (invalid_value_tokens.count(token.Text) > 0)
      {
@@ -102,8 +100,8 @@ static bool SQLCanUseTokenAsValue(const SQLToken &token)
 /* AST to translation result conversion. */
 
 SQLTranslationResult Parser::BuildTranslationResultFromAST(const SQLTranslationResult &template_result,
-                                                          const SQLASTStatement &statement,
-                                                          const nlohmann::json &aggregate_config)
+                                                           const SQLASTStatement &statement,
+                                                           const nlohmann::json &aggregate_config)
 {
      SQLTranslationResult result = template_result;
 
@@ -159,9 +157,8 @@ SQLTranslationResult Parser::BuildTranslationResultFromAST(const SQLTranslationR
 /* Creates a parser instance with a pre-tokenized query. */
 
 Parser::Parser(std::vector<SQLToken> tokens)
-     : Tokens(std::move(tokens))
+    : Tokens(std::move(tokens))
 {
-
 }
 
 SQLTranslationResult Parser::Parse()
@@ -1466,9 +1463,9 @@ std::string Parser::ToLowerASCII(std::string value) const
 }
 
 std::string Parser::ToLowerAggregateName(const std::string &function_name,
-                                        const std::string &field_name,
-                                        bool count_all,
-                                        bool distinct_values) const
+                                         const std::string &field_name,
+                                         bool count_all,
+                                         bool distinct_values) const
 {
      const std::string prefix = ToLowerASCII(function_name);
 

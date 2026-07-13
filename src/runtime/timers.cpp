@@ -20,41 +20,38 @@
 
 namespace
 {
-     TimerManager::Clock::time_point GetTimerNow()
+TimerManager::Clock::time_point GetTimerNow()
+{
+     return Instance ? Instance->Now() : TimerManager::Clock::now();
+}
+
+int ClampTimerMilliseconds(long long Milliseconds)
+{
+     if (Milliseconds <= 0)
      {
-          return Instance ? Instance->Now() : TimerManager::Clock::now();
+          return 0;
      }
 
-     int ClampTimerMilliseconds(long long Milliseconds)
+     if (Milliseconds > static_cast<long long>(std::numeric_limits<int>::max()))
      {
-          if (Milliseconds <= 0)
-          {
-               return 0;
-          }
-
-          if (Milliseconds > static_cast<long long>(std::numeric_limits<int>::max()))
-          {
-               return std::numeric_limits<int>::max();
-          }
-
-          return static_cast<int>(Milliseconds);
+          return std::numeric_limits<int>::max();
      }
+
+     return static_cast<int>(Milliseconds);
+}
 }
 
 Timer::Timer() : NextRun(Clock::time_point::max()), Interval(0), Repeating(false)
 {
-
 }
 
 Timer::Timer(std::function<void()> callback, Clock::time_point next_run, std::chrono::milliseconds interval, bool repeating)
-     : NextRun(next_run), Interval(interval), Callback(std::move(callback)), Repeating(repeating)
+    : NextRun(next_run), Interval(interval), Callback(std::move(callback)), Repeating(repeating)
 {
-
 }
 
 Timer::~Timer()
 {
-
 }
 
 bool Timer::IsDue(Clock::time_point now) const
@@ -93,14 +90,12 @@ Timer::Clock::time_point Timer::GetNextRun() const
 
 TimerManager::TimerManager()
 {
-
 }
 
 /* Default destructor */
 
 TimerManager::~TimerManager()
 {
-
 }
 
 /* Add a new timer */
@@ -127,7 +122,6 @@ void TimerManager::Add(std::function<void()> callback, std::chrono::milliseconds
           }
           catch (...)
           {
-          
           }
      }
 }

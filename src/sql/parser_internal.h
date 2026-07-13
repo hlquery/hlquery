@@ -28,7 +28,6 @@
 class Parser
 {
    private:
-
      /* Limits that prevent excessive parser work on hostile inputs. */
 
      static constexpr std::size_t SQLMaxASTNodes = 256;
@@ -51,8 +50,8 @@ class Parser
      /* Converts the built AST into the public translation result structure. */
 
      static SQLTranslationResult BuildTranslationResultFromAST(const SQLTranslationResult &template_result,
-                                                              const SQLASTStatement &statement,
-                                                              const nlohmann::json &aggregate_config);
+                                                               const SQLASTStatement &statement,
+                                                               const nlohmann::json &aggregate_config);
 
      bool TryConsumeASTNode(const std::string &label, std::string *error);
      bool EnterExpressionGroup(std::string *error);
@@ -132,7 +131,6 @@ class Parser
      bool ParseInsertValue(nlohmann::json &out, std::string *error);
 
    public:
-
      /* Creates a parser instance with a pre-tokenized query. */
 
      explicit Parser(std::vector<SQLToken> tokens);

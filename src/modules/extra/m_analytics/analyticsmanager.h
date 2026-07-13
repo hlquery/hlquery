@@ -139,8 +139,6 @@ struct AnalyticsQueryEvent
 class AnalyticsManager
 {
    private:
-
-
      struct ParsedEndpoint
      {
           /* URL scheme. */
@@ -150,6 +148,10 @@ class AnalyticsManager
           /* Remote host name. */
 
           std::string Host;
+
+          /* HTTP Host header value. */
+
+          std::string HostHeader;
 
           /* Remote port. */
 
@@ -340,9 +342,7 @@ class AnalyticsManager
      static constexpr size_t MaxQueryLength = 512;
 
    public:
-
      /* Initialize the analytics manager with endpoint and tracking settings. */
-
 
      AnalyticsManager(const std::string &ServerNameValue,
                       const std::string &ServerIDValue,

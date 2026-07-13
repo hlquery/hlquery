@@ -29,38 +29,38 @@
 
 /* Calls a module manager dispatcher when modules are available. */
 
-#define FOREACH_MOD(Method, ...)                                            \
-     do                                                                     \
-     {                                                                      \
-          if (Instance && Instance->Modules)                                \
-          {                                                                 \
-               try                                                          \
-               {                                                            \
-                    Instance->Modules->NotifyModules(                       \
-                         ModuleHook::Method,                                \
-                         #Method,                                           \
-                         std::function<void(RuntimeModule&)>(               \
-                              [&](RuntimeModule& Module)                   \
-                              {                                             \
-                                   Module.Method(__VA_ARGS__);             \
-                              }));                                         \
-               }                                                            \
-               catch (...)                                                  \
-               {                                                            \
-               }                                                            \
-          }                                                                 \
+#define FOREACH_MOD(Method, ...)                               \
+     do                                                        \
+     {                                                         \
+          if (Instance && Instance->Modules)                   \
+          {                                                    \
+               try                                             \
+               {                                               \
+                    Instance->Modules->NotifyModules(          \
+                         ModuleHook::Method,                   \
+                         #Method,                              \
+                         std::function<void(RuntimeModule &)>( \
+                              [&](RuntimeModule &Module)       \
+                              {                                \
+                                   Module.Method(__VA_ARGS__); \
+                              }));                             \
+               }                                               \
+               catch (...)                                     \
+               {                                               \
+               }                                               \
+          }                                                    \
      } while (0)
 
-#define RUN_MODULE_PRECHECK(Method, ...)                                   \
-     ((Instance && Instance->Modules)                                      \
-          ? Instance->Modules->RunPreCheck(                                \
-                 ModuleHook::Method,                                        \
-                 #Method,                                                   \
-                 [&](RuntimeModule& Module)                                 \
-                 {                                                          \
-                      return Module.Method(__VA_ARGS__);                    \
-                 })                                                         \
-          : ModulePreCheckResult())
+#define RUN_MODULE_PRECHECK(Method, ...)                  \
+     ((Instance && Instance->Modules)                     \
+           ? Instance->Modules->RunPreCheck(              \
+                  ModuleHook::Method,                     \
+                  #Method,                                \
+                  [&](RuntimeModule &Module)              \
+                  {                                       \
+                       return Module.Method(__VA_ARGS__); \
+                  })                                      \
+           : ModulePreCheckResult())
 
 /* 
  * Manages the lifecycle of runtime modules.
@@ -70,61 +70,60 @@
 
 class ModuleManager
 {
-  private:
-
-    /* 
+   private:
+     /* 
      * Tracks serialized callback execution for one loaded module instance.
      * This prevents concurrent hook entry into the same module and lets unload
      * wait for in-flight callbacks to drain before Stop() runs.
      */
 
-    struct ModuleExecutionState
-    {
-         std::mutex Mutex;
-         std::condition_variable Condition;
-         unsigned int ActiveCallbacks = 0;
-         bool DispatchInProgress = false;
-         bool Stopping = false;
-    };
+     struct ModuleExecutionState
+     {
+          std::mutex Mutex;
+          std::condition_variable Condition;
+          unsigned int ActiveCallbacks = 0;
+          bool DispatchInProgress = false;
+          bool Stopping = false;
+     };
 
-    /* 
+     /* 
      * Pairs one runtime module instance with its execution state.
      * Snapshots carry both so dispatch remains safe after registry updates.
      */
 
-    struct ModuleReference
-    {
-         std::shared_ptr<RuntimeModule> Instance;
-         std::shared_ptr<ModuleExecutionState> ExecutionState;
-    };
+     struct ModuleReference
+     {
+          std::shared_ptr<RuntimeModule> Instance;
+          std::shared_ptr<ModuleExecutionState> ExecutionState;
+     };
 
-    struct ModuleCallbackGuard
-    {
-         explicit ModuleCallbackGuard(const ModuleReference& ModuleRef);
-         ~ModuleCallbackGuard();
+     struct ModuleCallbackGuard
+     {
+          explicit ModuleCallbackGuard(const ModuleReference &ModuleRef);
+          ~ModuleCallbackGuard();
 
-         ModuleCallbackGuard(const ModuleCallbackGuard&) = delete;
-         ModuleCallbackGuard& operator=(const ModuleCallbackGuard&) = delete;
+          ModuleCallbackGuard(const ModuleCallbackGuard &) = delete;
+          ModuleCallbackGuard &operator=(const ModuleCallbackGuard &) = delete;
 
-         void Release();
+          void Release();
 
-         ModuleReference Module;
-         bool Active = true;
-    };
+          ModuleReference Module;
+          bool Active = true;
+     };
 
-    /* 
+     /* 
      * Snapshot of currently referenced runtime modules.
      * Snapshots are used to iterate safely without holding write access.
      */
 
-    using ModuleSnapshot = std::vector<ModuleReference>;
+     using ModuleSnapshot = std::vector<ModuleReference>;
 
-    /* 
+     /* 
      * Maps each hook identifier to the modules subscribed to that hook.
      * The array index matches the ModuleHook enumeration value.
      */
 
-    using HookSubscribers = std::array<ModuleSnapshot, static_cast<size_t>(ModuleHook::OnCount)>;
+     using HookSubscribers = std::array<ModuleSnapshot, static_cast<size_t>(ModuleHook::OnCount)>;
 
      /* 
       * Stores one loaded module entry.
@@ -143,7 +142,7 @@ class ModuleManager
 
           /* Native shared-library handle */
 
-          void* Handle = nullptr;
+          void *Handle = nullptr;
 
           /* Live runtime module instance */
 
@@ -170,47 +169,47 @@ class ModuleManager
 
      HookSubscribers SubscribersByHook;
 
-    /* Protects the loaded module state and subscriber registries */
+     /* Protects the loaded module state and subscriber registries */
 
-    mutable std::shared_mutex ModulesMutex;
+     mutable std::shared_mutex ModulesMutex;
 
-    /* Protects demo mode state updates */
+     /* Protects demo mode state updates */
 
-    mutable std::mutex DemoStateMutex;
+     mutable std::mutex DemoStateMutex;
 
-    /* Indicates whether demo mode restrictions are active */
+     /* Indicates whether demo mode restrictions are active */
 
-    bool DemoModeActive = false;
+     bool DemoModeActive = false;
 
-    /* User-visible reason describing the current demo mode state */
+     /* User-visible reason describing the current demo mode state */
 
-    std::string DemoModeMessage;
+     std::string DemoModeMessage;
 
-    /* Indicates that a config reload is collecting demo state from staged modules */
+     /* Indicates that a config reload is collecting demo state from staged modules */
 
-    bool DemoModeStaging = false;
+     bool DemoModeStaging = false;
 
-    /* Demo mode state produced by modules being staged during config reload */
+     /* Demo mode state produced by modules being staged during config reload */
 
-    bool StagedDemoModeActive = false;
+     bool StagedDemoModeActive = false;
 
-    /* User-visible reason produced by staged modules during config reload */
+     /* User-visible reason produced by staged modules during config reload */
 
-    std::string StagedDemoModeMessage;
+     std::string StagedDemoModeMessage;
 
-    /* 
+     /* 
      * Releases retired modules whose handles can now be cleaned up.
      * This finalizes deferred unload work after the active lists are updated.
      */
 
-    void ReapRetiredModules();
+     void ReapRetiredModules();
 
-    /* 
+     /* 
      * Unloads a specific list of modules using the provided logger.
      * The supplied list is detached from the active registry before cleanup.
      */
 
-    void UnloadModuleList(std::vector<LoadedModule> ModulesToUnload);
+     void UnloadModuleList(std::vector<LoadedModule> ModulesToUnload);
 
      /* 
       * Captures the subscribers registered for one specific hook.
@@ -231,49 +230,49 @@ class ModuleManager
       * The manager resolves the current subscriber snapshot before dispatch.
       */
 
-     void DispatchEvent(ModuleHook Hook, const char* EventName, const std::function<void(RuntimeModule&)> &Invoke);
+     void DispatchEvent(ModuleHook Hook, const char *EventName, const std::function<void(RuntimeModule &)> &Invoke);
 
      /*
       * Dispatches an event callback to the modules contained in a snapshot.
       * Snapshot dispatch isolates iteration from concurrent registry updates.
       */
 
-     static void DispatchModuleEvent(const ModuleSnapshot& Modules,
-                                     const char* EventName,
-                                     const std::function<void(RuntimeModule&)> &Invoke);
+     static void DispatchModuleEvent(const ModuleSnapshot &Modules,
+                                     const char *EventName,
+                                     const std::function<void(RuntimeModule &)> &Invoke);
 
      /* 
       * Attempts to enter one module callback region.
       * Returns false when the module is stopping and should no longer accept work.
       */
 
-     static bool BeginModuleCallback(const ModuleReference& Module);
+     static bool BeginModuleCallback(const ModuleReference &Module);
 
      /* 
       * Leaves one module callback region and wakes unload waiters if needed.
       */
 
-     static void EndModuleCallback(const ModuleReference& Module);
+     static void EndModuleCallback(const ModuleReference &Module);
 
      /* 
       * Prevents new callbacks from starting and waits for in-flight work to finish.
       */
 
-     static void QuiesceModuleCallbacks(const ModuleReference& Module);
+     static void QuiesceModuleCallbacks(const ModuleReference &Module);
 
      /* 
       * Finds one loaded module and returns both the instance and execution state.
      */
 
-     bool GetModuleReference(const std::string& Name, ModuleReference* Module) const;
+     bool GetModuleReference(const std::string &Name, ModuleReference *Module) const;
 
      /* Records one module hook failure through the module manager logger. */
 
-     static void LogDispatchFailure(const RuntimeModule* Module, const char* EventName, const std::string& ErrorMessage);
+     static void LogDispatchFailure(const RuntimeModule *Module, const char *EventName, const std::string &ErrorMessage);
 
      /* Records one module hook failure when the exception type is unknown. */
 
-     static void LogUnknownDispatchFailure(const RuntimeModule* Module, const char* EventName);
+     static void LogUnknownDispatchFailure(const RuntimeModule *Module, const char *EventName);
 
      /*
       * Runs a pre-check callback for each module in a snapshot.
@@ -281,11 +280,11 @@ class ModuleManager
       */
 
      template <typename Callback>
-     static ModulePreCheckResult DispatchPreCheckEvent(const ModuleSnapshot& Modules,
-                                                       const char* EventName,
-                                                       Callback&& Invoke)
+     static ModulePreCheckResult DispatchPreCheckEvent(const ModuleSnapshot &Modules,
+                                                       const char *EventName,
+                                                       Callback &&Invoke)
      {
-          for (const auto& Module : Modules)
+          for (const auto &Module : Modules)
           {
                if (!BeginModuleCallback(Module))
                {
@@ -303,7 +302,7 @@ class ModuleManager
                          return Result;
                     }
                }
-               catch (const std::exception& Ex)
+               catch (const std::exception &Ex)
                {
                     LogDispatchFailure(Module.Instance.get(), EventName, Ex.what());
                }
@@ -321,16 +320,15 @@ class ModuleManager
       * This converts configuration data into the concrete path used for loading.
       */
 
-     std::string ResolveModulePath(const ServerConfig& Config, const ServerConfig::ModuleLoadEntry& ModuleEntry) const;
+     std::string ResolveModulePath(const ServerConfig &Config, const ServerConfig::ModuleLoadEntry &ModuleEntry) const;
 
    public:
-
      /*
       * Validates the logical module name used for config entries and runtime
       * load/unload requests. Paths belong in ModuleLoadEntry::Path, not Name.
       */
 
-     static bool IsValidModuleName(const std::string& Name);
+     static bool IsValidModuleName(const std::string &Name);
 
      /* 
       * Destroys the module manager and releases any remaining resources.
@@ -344,21 +342,21 @@ class ModuleManager
       * This is the top-level entry point used during server startup.
       */
 
-     bool LoadModules(const ServerConfig& Config, std::string& ErrorMessage);
+     bool LoadModules(const ServerConfig &Config, std::string &ErrorMessage);
 
      /* Loads one runtime module into the active registry without replacing the rest. */
 
-     bool LoadModule(const ServerConfig& Config,
-                     const std::string& ModuleName,
-                     std::string& ErrorMessage,
-                     const std::string& ExplicitPath = "");
+     bool LoadModule(const ServerConfig &Config,
+                     const std::string &ModuleName,
+                     std::string &ErrorMessage,
+                     const std::string &ExplicitPath = "");
 
      /* 
       * Loads all configured modules and reports any failure details.
       * This performs the actual configuration-driven module load pass.
       */
 
-     bool LoadConfiguredModules(const ServerConfig& Config, std::string& ErrorMessage);
+     bool LoadConfiguredModules(const ServerConfig &Config, std::string &ErrorMessage);
 
      /* 
       * Unloads every currently loaded module.
@@ -372,7 +370,7 @@ class ModuleManager
       * Returns a shared pointer to the live runtime instance when found.
       */
 
-     std::shared_ptr<RuntimeModule> Find(const std::string& Name) const;
+     std::shared_ptr<RuntimeModule> Find(const std::string &Name) const;
 
      /* Returns the names of all loaded modules.
       * The result includes both core and optional modules that are active.
@@ -406,28 +404,28 @@ class ModuleManager
       * Returns false when the module is missing or exposes no API metadata.
       */
 
-     bool GetModuleAPIDescription(const std::string& ModuleName, ModuleAPIDescription* Description) const;
+     bool GetModuleAPIDescription(const std::string &ModuleName, ModuleAPIDescription *Description) const;
 
      /* 
       * Retrieves the command specifications exposed by a module.
       * The output vector is filled only for modules that publish commands.
       */
 
-     bool GetModuleCommandSpecs(const std::string& ModuleName, std::vector<ModuleCommandSpec>* Commands) const;
+     bool GetModuleCommandSpecs(const std::string &ModuleName, std::vector<ModuleCommandSpec> *Commands) const;
 
      /* 
       * Handles a module command request for the specified module.
       * The request is routed to the matching module implementation.
       */
 
-     bool HandleModuleCommand(const std::string& ModuleName, const ModuleCommandRequest& Request, ModuleCommandResponse* Response) const;
+     bool HandleModuleCommand(const std::string &ModuleName, const ModuleCommandRequest &Request, ModuleCommandResponse *Response) const;
 
      /* 
       * Routes an HTTP API request to the specified module.
       * The sub-path is forwarded so the target module can resolve routing.
       */
 
-     HttpResponse HandleModuleAPIRequest(const std::string& ModuleName, const HttpRequest& Request, const std::string& SubPath) const;
+     HttpResponse HandleModuleAPIRequest(const std::string &ModuleName, const HttpRequest &Request, const std::string &SubPath) const;
 
      /* 
       * Notifies modules that they are about to be unloaded.
@@ -438,46 +436,46 @@ class ModuleManager
 
      /* Unloads one named runtime module from the active registry. */
 
-     bool UnloadModule(const std::string& ModuleName, std::string& ErrorMessage);
+     bool UnloadModule(const std::string &ModuleName, std::string &ErrorMessage);
 
      /*  
       * Computes a module-adjusted multiplier for a search hit score.
       * Loaded modules may raise or lower the base score contribution.
       */
 
-     float ComputeSearchWeightMultiplier(const std::string& Collection,
-                                         const std::string& Query,
-                                         const std::string& RankingMode,
-                                         const SearchHit& Hit,
+     float ComputeSearchWeightMultiplier(const std::string &Collection,
+                                         const std::string &Query,
+                                         const std::string &RankingMode,
+                                         const SearchHit &Hit,
                                          float BaseScore) const;
 
-    /* 
+     /* 
      * Returns whether demo mode is currently enabled.
      * This state is shared across module-managed demo restrictions.
      */
 
-    bool IsDemoModeEnabled() const;
+     bool IsDemoModeEnabled() const;
 
-    /* 
+     /* 
      * Returns the current demo mode message.
      * The message explains why demo mode is active or what it affects.
      */
 
-    std::string GetDemoModeMessage() const;
+     std::string GetDemoModeMessage() const;
 
-    /* 
+     /* 
      * Updates the current demo mode state and message.
      * Modules can use this to publish centralized demo mode restrictions.
      */
 
-    void SetDemoModeState(bool Active, const std::string& Message);
+     void SetDemoModeState(bool Active, const std::string &Message);
 
      /* 
       * Runs a callback across the currently loaded modules.
       * The callback is dispatched to the subscribers for the requested hook.
       */
 
-     void NotifyModules(ModuleHook Hook, const char* EventName, const std::function<void(RuntimeModule&)>& Invoke);
+     void NotifyModules(ModuleHook Hook, const char *EventName, const std::function<void(RuntimeModule &)> &Invoke);
 
      /* 
       * Runs a pre-check callback across the subscribers registered for one hook.
@@ -485,9 +483,8 @@ class ModuleManager
       */
 
      template <typename Callback>
-     ModulePreCheckResult RunPreCheck(ModuleHook Hook, const char* EventName, Callback&& Invoke) const
+     ModulePreCheckResult RunPreCheck(ModuleHook Hook, const char *EventName, Callback &&Invoke) const
      {
           return DispatchPreCheckEvent(GetHookSnapshot(Hook), EventName, std::forward<Callback>(Invoke));
      }
-
 };

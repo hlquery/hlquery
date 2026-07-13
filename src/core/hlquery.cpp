@@ -48,9 +48,9 @@
 #include "core/modules.h"
 #include "core/socketengine.h"
 #include "sql/sql.h"
-#include "search/cstore.h"
-#include "search/lindex.h"
-#include "search/storageengine.h"
+#include "search/document_collection_store.h"
+#include "search/lexical_inverted_index.h"
+#include "search/rocksdb_storage_engine.h"
 #include "utils/consolewriter.h"
 #include "utils/infos.h"
 #include "utils/simdutils.h"
@@ -76,10 +76,10 @@ hlquery::hlquery(int argc, char **argv)
 {
      ThreadLimit::SetThreadName("hlquery");
 
-     Instance   =   this;
-     Metrics    =   std::make_unique<HLQueryMetrics>();
-     SQL        =   std::make_unique<SQLService>();
-     Config     =   std::make_unique<ServerConfig>(argc, argv);
+     Instance = this;
+     Metrics = std::make_unique<HLQueryMetrics>();
+     SQL = std::make_unique<SQLService>();
+     Config = std::make_unique<ServerConfig>(argc, argv);
 
      ParseArgs();
      StatsVal.Start();
@@ -87,21 +87,21 @@ hlquery::hlquery(int argc, char **argv)
      /* Register cleanup wrapper with ExitManager to ensure resources are released */
 
      ExitManager::RegisterCleanup([]()
-     {
-            if (Instance)
-            {
-                 Instance->Cleanup();
-            }
-     });
+                                  {
+                                       if (Instance)
+                                       {
+                                            Instance->Cleanup();
+                                       }
+                                  });
 }
 
 /* Destructor for the hlquery class */
 
 hlquery::~hlquery()
 {
-     API          =  nullptr;
-     ThreadPools  =  nullptr;
-     Engine       =  nullptr;
+     API = nullptr;
+     ThreadPools = nullptr;
+     Engine = nullptr;
 
      HTTPServers.clear();
 }
@@ -185,12 +185,12 @@ void hlquery::StartupBanner()
 {
      newline();
      std::vector<std::string> loaded_modules;
-     
+
      if (Modules)
      {
           loaded_modules = Modules->GetLoadedModuleNames();
      }
-     
+
      ConsoleWriter::WriteStartup(Tools::FormatStartupMessage(loaded_modules), true, false);
 }
 

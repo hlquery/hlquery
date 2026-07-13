@@ -27,8 +27,8 @@
 #include "common/searchpool.h"
 #include "core/hlquery.h"
 #include "core/modules.h"
-#include "search/cstore.h"
-#include "search/storageengine.h"
+#include "search/document_collection_store.h"
+#include "search/rocksdb_storage_engine.h"
 #include "utils/jsonbuilder.h"
 #include "vendor/json/json.hpp"
 
@@ -37,7 +37,6 @@
 class AutoDeleterRuntimeModule final : public AutoRuntimeModule<AutoDeleterRuntimeModule>
 {
    private:
-
      /* Supported purge scopes. */
 
      enum class DeleteMode
@@ -66,6 +65,10 @@ class AutoDeleterRuntimeModule final : public AutoRuntimeModule<AutoDeleterRunti
      /* Active purge scope. */
 
      DeleteMode delete_scope = DeleteMode::DocumentsOnly;
+
+     /* Whether records without usable timestamps should be purged. */
+
+     bool delete_missing_timestamps = false;
 
      /* Tracks whether the background worker is active. */
 
@@ -440,7 +443,7 @@ class AutoDeleterRuntimeModule final : public AutoRuntimeModule<AutoDeleterRunti
                for (const auto &key : keys)
                {
                     const size_t last_colon = key.find_last_of(':');
-                 
+
                     if (last_colon == std::string::npos || last_colon + 1 >= key.size())
                     {
                          continue;
@@ -449,7 +452,7 @@ class AutoDeleterRuntimeModule final : public AutoRuntimeModule<AutoDeleterRunti
                     const std::string document_id = key.substr(last_colon + 1);
                     uint64_t stored_timestamp = 0;
                     bool missing_timestamp = false;
-                 
+
                     if (!ReadStoredTimestamp(collection, document_id, stored_timestamp, missing_timestamp))
                     {
                          continue;
@@ -508,6 +511,7 @@ class AutoDeleterRuntimeModule final : public AutoRuntimeModule<AutoDeleterRunti
           std::string retention_label_snapshot = "120d";
           int delete_batch_size_snapshot = 256;
           DeleteMode delete_scope_snapshot = DeleteMode::DocumentsOnly;
+          bool delete_missing_timestamps_snapshot = false;
           size_t collection_cursor_snapshot = 0;
 
           PurgePassStats stats;
@@ -522,6 +526,7 @@ class AutoDeleterRuntimeModule final : public AutoRuntimeModule<AutoDeleterRunti
                retention_label_snapshot = retention_label;
                delete_batch_size_snapshot = delete_batch_size;
                delete_scope_snapshot = delete_scope;
+               delete_missing_timestamps_snapshot = delete_missing_timestamps;
                collection_cursor_snapshot = next_collection_cursor;
           }
 
@@ -649,6 +654,13 @@ class AutoDeleterRuntimeModule final : public AutoRuntimeModule<AutoDeleterRunti
                     if (missing_timestamp || stored_timestamp == 0)
                     {
                          ++stats.ZeroTimestampSkipped;
+
+                         if (!delete_missing_timestamps_snapshot)
+                         {
+                              collection_has_live_documents = true;
+                              continue;
+                         }
+
                          expired_ids.push_back(document_id);
                          ++stats.ExpiredFound;
 
@@ -1070,26 +1082,28 @@ class AutoDeleterRuntimeModule final : public AutoRuntimeModule<AutoDeleterRunti
 
                if (MgmtStats.TotalThreads > 0)
                {
-                    auto future = ThreadPoolManager::GetInstance().GetManagementPool().Submit([this, drain_until_complete]()
-                    {
-                         if (stopping.load(std::memory_order_acquire))
-                         {
-                              scheduled.store(false, std::memory_order_release);
-                              scheduled_at_ms.store(0, std::memory_order_release);
-                              return;
-                         }
+                    running.store(true, std::memory_order_release);
 
-                         running.store(true, std::memory_order_release);
-                         WorkerGuard Guard{scheduled, running, scheduled_at_ms};
-                         if (drain_until_complete)
-                         {
-                              RunDrainSweep(true);
-                         }
-                         else
-                         {
-                              RunPurgePass(true);
-                         }
-                    });
+                    auto future = ThreadPoolManager::GetInstance().GetManagementPool().Submit([this, drain_until_complete]()
+                                                                                              {
+                                                                                                   if (stopping.load(std::memory_order_acquire))
+                                                                                                   {
+                                                                                                        running.store(false, std::memory_order_release);
+                                                                                                        scheduled.store(false, std::memory_order_release);
+                                                                                                        scheduled_at_ms.store(0, std::memory_order_release);
+                                                                                                        return;
+                                                                                                   }
+
+                                                                                                   WorkerGuard Guard{scheduled, running, scheduled_at_ms};
+                                                                                                   if (drain_until_complete)
+                                                                                                   {
+                                                                                                        RunDrainSweep(true);
+                                                                                                   }
+                                                                                                   else
+                                                                                                   {
+                                                                                                        RunPurgePass(true);
+                                                                                                   }
+                                                                                              });
 
                     if (future.valid())
                     {
@@ -1099,6 +1113,8 @@ class AutoDeleterRuntimeModule final : public AutoRuntimeModule<AutoDeleterRunti
                          }
                          return true;
                     }
+
+                    running.store(false, std::memory_order_release);
                }
           }
 
@@ -1117,7 +1133,6 @@ class AutoDeleterRuntimeModule final : public AutoRuntimeModule<AutoDeleterRunti
      }
 
    public:
-
      /* Initialize the auto-deleter runtime module. */
 
      AutoDeleterRuntimeModule()
@@ -1160,9 +1175,9 @@ class AutoDeleterRuntimeModule final : public AutoRuntimeModule<AutoDeleterRunti
                                                           tag->GetInt("batch_size", 256)),
                                               1, 10000);
                delete_scope = ParseDeleteScope(tag->GetString("delete_scope", "docs"));
+               delete_missing_timestamps = tag->GetBool("delete_missing_timestamps", false);
           }
 
-          TryRunPurgePass(false);
           return true;
      }
 
@@ -1172,10 +1187,15 @@ class AutoDeleterRuntimeModule final : public AutoRuntimeModule<AutoDeleterRunti
      {
           stopping.store(true, std::memory_order_release);
 
-          while (running.load(std::memory_order_acquire))
+          while (running.load(std::memory_order_acquire) || scheduled.load(std::memory_order_acquire))
           {
                std::this_thread::sleep_for(std::chrono::milliseconds(10));
           }
+     }
+
+     void OnThreadPoolsReady() override
+     {
+          TryRunPurgePass(true);
      }
 
      /* Run one purge pass from the periodic module hook. */
@@ -1198,6 +1218,7 @@ class AutoDeleterRuntimeModule final : public AutoRuntimeModule<AutoDeleterRunti
           description.Parameters.push_back({"retention_time", "string", "Retention window. Suffixes: s=seconds, m=minutes, h=hours, d=days, w=weeks, y=years. Legacy alias: retention_days.", false});
           description.Parameters.push_back({"delete_batch_size", "int", "Deletion batch size. Legacy alias: batch_size.", false});
           description.Parameters.push_back({"delete_scope", "string", "One of docs, docs_and_collections, or collections.", false});
+          description.Parameters.push_back({"delete_missing_timestamps", "bool", "Whether documents without a usable timestamp should be purged.", false});
           description.Examples.push_back("curl http://localhost:9200/modules/autodeleter");
           description.Examples.push_back("curl -X POST http://localhost:9200/modules/autodeleter/run");
           description.Examples.push_back("curl -X POST http://localhost:9200/modules/autodeleter/config -d '{\"retention_time\":\"2w\",\"delete_batch_size\":128,\"delete_scope\":\"docs\"}'");
@@ -1252,24 +1273,25 @@ class AutoDeleterRuntimeModule final : public AutoRuntimeModule<AutoDeleterRunti
 
           if (route == "status")
           {
-              std::string retention_label_snapshot;
-              int delete_batch_size_snapshot = 0;
-              DeleteMode delete_scope_snapshot = DeleteMode::DocumentsOnly;
-              uint64_t last_started_at_snapshot = 0;
-              uint64_t last_completed_at_snapshot = 0;
-              uint64_t last_duration_ms_snapshot = 0;
-              size_t last_collections_scanned_snapshot = 0;
-              size_t last_documents_checked_snapshot = 0;
-              size_t last_expired_found_snapshot = 0;
-              size_t last_deleted_count_snapshot = 0;
-              size_t last_zero_timestamp_skipped_snapshot = 0;
-              bool last_pass_hit_time_budget_snapshot = false;
-              bool last_pass_hit_collection_limit_snapshot = false;
-              bool last_run_async_snapshot = false;
-              bool last_more_work_likely_snapshot = false;
-              bool last_run_drained_snapshot = false;
-              size_t last_sweep_passes_snapshot = 0;
-              std::string last_error_snapshot;
+               std::string retention_label_snapshot;
+               int delete_batch_size_snapshot = 0;
+               DeleteMode delete_scope_snapshot = DeleteMode::DocumentsOnly;
+               uint64_t last_started_at_snapshot = 0;
+               uint64_t last_completed_at_snapshot = 0;
+               uint64_t last_duration_ms_snapshot = 0;
+               size_t last_collections_scanned_snapshot = 0;
+               size_t last_documents_checked_snapshot = 0;
+               size_t last_expired_found_snapshot = 0;
+               size_t last_deleted_count_snapshot = 0;
+               size_t last_zero_timestamp_skipped_snapshot = 0;
+               bool last_pass_hit_time_budget_snapshot = false;
+               bool last_pass_hit_collection_limit_snapshot = false;
+               bool last_run_async_snapshot = false;
+               bool last_more_work_likely_snapshot = false;
+               bool last_run_drained_snapshot = false;
+               bool delete_missing_timestamps_snapshot = false;
+               size_t last_sweep_passes_snapshot = 0;
+               std::string last_error_snapshot;
 
                {
                     std::lock_guard<std::mutex> Lock(state_mutex);
@@ -1289,6 +1311,7 @@ class AutoDeleterRuntimeModule final : public AutoRuntimeModule<AutoDeleterRunti
                     last_run_async_snapshot = last_run_async;
                     last_more_work_likely_snapshot = last_more_work_likely;
                     last_run_drained_snapshot = last_run_drained;
+                    delete_missing_timestamps_snapshot = delete_missing_timestamps;
                     last_sweep_passes_snapshot = last_sweep_passes;
                     last_error_snapshot = last_error;
                }
@@ -1305,6 +1328,7 @@ class AutoDeleterRuntimeModule final : public AutoRuntimeModule<AutoDeleterRunti
                body.Add("running", running_snapshot);
                body.Add("scheduled", scheduled_snapshot);
                body.Add("stopping", stopping_snapshot);
+               body.Add("delete_missing_timestamps", delete_missing_timestamps_snapshot);
                body.Add("worker_mode", ThreadPoolManager::GetInstance().IsInitialized() ? "management_pool" : "inline");
                if (scheduled_snapshot && !running_snapshot)
                {
@@ -1327,7 +1351,7 @@ class AutoDeleterRuntimeModule final : public AutoRuntimeModule<AutoDeleterRunti
                body.Add("last_run_drained", last_run_drained_snapshot);
                body.Add("last_sweep_passes", static_cast<unsigned long long>(last_sweep_passes_snapshot));
                body.Add("next_run_in_seconds", static_cast<int>(60 - (CurrentUnixTime() % 60)));
-               body.Add("note", "Documents without an internal timestamp fall back to document fields like created_at or timestamp; if still unresolved, autodeleter treats them as expired old-format records.");
+               body.Add("note", "Documents without an internal timestamp fall back to document fields like created_at or timestamp; unresolved timestamps are skipped unless delete_missing_timestamps is enabled.");
                if (!last_error_snapshot.empty())
                {
                     body.Add("last_error", last_error_snapshot);
@@ -1339,8 +1363,8 @@ class AutoDeleterRuntimeModule final : public AutoRuntimeModule<AutoDeleterRunti
                return response;
           }
 
-         if (route == "run")
-         {
+          if (route == "run")
+          {
                ModuleCommandResponse response;
 
                if (!TryRunPurgePass(false, nullptr, true))
@@ -1348,17 +1372,17 @@ class AutoDeleterRuntimeModule final : public AutoRuntimeModule<AutoDeleterRunti
                     response.StatusCode = 409;
                     response.Success = false;
                     response.Body = JsonBuilder()
-                         .Add("module", "autodeleter")
-                         .Add("error", "Purge pass already running or stopping.")
-                         .ToString();
+                                         .Add("module", "autodeleter")
+                                         .Add("error", "Purge pass already running or stopping.")
+                                         .ToString();
                     return response;
                }
 
                response.Success = true;
                response.Body = JsonBuilder()
-                    .Add("module", "autodeleter")
-                    .Add("message", "Drain sweep completed.")
-                    .ToString();
+                                    .Add("module", "autodeleter")
+                                    .Add("message", "Drain sweep completed.")
+                                    .ToString();
                return response;
           }
 
@@ -1405,15 +1429,27 @@ class AutoDeleterRuntimeModule final : public AutoRuntimeModule<AutoDeleterRunti
                          delete_scope = ParseDeleteScope(Request.NamedParameters.at("delete_scope"));
                     }
 
+                    if (Request.NamedParameters.count("delete_missing_timestamps"))
+                    {
+                         std::string value = Request.NamedParameters.at("delete_missing_timestamps");
+                         std::transform(value.begin(), value.end(), value.begin(),
+                                        [](unsigned char Character)
+                                        {
+                                             return static_cast<char>(std::tolower(Character));
+                                        });
+                         delete_missing_timestamps = (value == "1" || value == "true" || value == "yes" || value == "on");
+                    }
+
                     ModuleCommandResponse response;
                     response.Success = true;
                     response.Body = JsonBuilder()
-                         .Add("module", "autodeleter")
-                         .Add("retention_time", retention_label)
-                         .Add("delete_batch_size", delete_batch_size)
-                         .Add("delete_scope", DeleteScopeToString(delete_scope))
-                         .Add("message", "Configuration updated.")
-                         .ToString();
+                                         .Add("module", "autodeleter")
+                                         .Add("retention_time", retention_label)
+                                         .Add("delete_batch_size", delete_batch_size)
+                                         .Add("delete_scope", DeleteScopeToString(delete_scope))
+                                         .Add("delete_missing_timestamps", delete_missing_timestamps)
+                                         .Add("message", "Configuration updated.")
+                                         .ToString();
                     return response;
                }
                catch (const std::exception &Error)
@@ -1422,9 +1458,9 @@ class AutoDeleterRuntimeModule final : public AutoRuntimeModule<AutoDeleterRunti
                     response.StatusCode = 400;
                     response.Success = false;
                     response.Body = JsonBuilder()
-                         .Add("error", "Invalid module parameters")
-                         .Add("message", Error.what())
-                         .ToString();
+                                         .Add("error", "Invalid module parameters")
+                                         .Add("message", Error.what())
+                                         .ToString();
                     return response;
                }
           }

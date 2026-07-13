@@ -23,41 +23,38 @@
 
 namespace
 {
-     static constexpr time_t HEALTH_SNAPSHOT_INTERVAL_SEC = 15;
+static constexpr time_t HEALTH_SNAPSHOT_INTERVAL_SEC = 15;
 
-     std::string FormatFriendlyTime(time_t Timestamp)
+std::string FormatFriendlyTime(time_t Timestamp)
+{
+     if (Timestamp <= 0)
      {
-          if (Timestamp <= 0)
-          {
-               return "unknown time";
-          }
-
-          std::tm LocalTime{};
-          localtime_r(&Timestamp, &LocalTime);
-          char Buffer[64] = {};
-
-          if (std::strftime(Buffer, sizeof(Buffer), "%Y-%m-%d %H:%M:%S", &LocalTime) == 0)
-          {
-               return "unknown time";
-          }
-
-          return std::string(Buffer);
+          return "unknown time";
      }
+
+     std::tm LocalTime{};
+     localtime_r(&Timestamp, &LocalTime);
+     char Buffer[64] = {};
+
+     if (std::strftime(Buffer, sizeof(Buffer), "%Y-%m-%d %H:%M:%S", &LocalTime) == 0)
+     {
+          return "unknown time";
+     }
+
+     return std::string(Buffer);
+}
 }
 
 class CoreTimersModule final : public AutoRuntimeModule<CoreTimersModule>
 {
    private:
-
      time_t LastSnapshot = 0;
      time_t LastFlush = 0;
      time_t LastSearchCacheFlush = 0;
 
    public:
-
      CoreTimersModule() : AutoRuntimeModule("core_timers")
      {
-
      }
 
      bool Start(const ServerConfig &, std::string &) override
@@ -80,7 +77,6 @@ class CoreTimersModule final : public AutoRuntimeModule<CoreTimersModule>
                {
                     LastSearchCacheFlush = NowTime;
                }
-
           }
 
           return true;
@@ -88,7 +84,6 @@ class CoreTimersModule final : public AutoRuntimeModule<CoreTimersModule>
 
      void Stop() override
      {
-
      }
 
      void OnThreadPoolsReady() override
@@ -188,70 +183,69 @@ class CoreTimersModule final : public AutoRuntimeModule<CoreTimersModule>
                EmitDaemonHealthSnapshot(NowTime);
                LastSnapshot = NowTime;
           }
-
      }
 
-     void OnCreateCollection(const std::string& Collection, const std::string&, const std::string&, bool) override
+     void OnCreateCollection(const std::string &Collection, const std::string &, const std::string &, bool) override
      {
           SearchResponseCache::InvalidateCollection(Collection);
      }
 
-     void OnUpdateCollection(const std::string& Collection, const std::string&, const std::string&, bool) override
+     void OnUpdateCollection(const std::string &Collection, const std::string &, const std::string &, bool) override
      {
           SearchResponseCache::InvalidateCollection(Collection);
      }
 
-     void OnDeleteCollection(const std::string& Collection, const std::string&, const std::string&, bool) override
+     void OnDeleteCollection(const std::string &Collection, const std::string &, const std::string &, bool) override
      {
           SearchResponseCache::InvalidateCollection(Collection);
      }
 
-     void OnAddDocument(const std::string& Collection, const std::string&, const std::string&, const std::string&, bool) override
+     void OnAddDocument(const std::string &Collection, const std::string &, const std::string &, const std::string &, bool) override
      {
           SearchResponseCache::InvalidateCollection(Collection);
      }
 
-     void OnUpdateDocument(const std::string& Collection, const std::string&, const std::string&, const std::string&, bool) override
+     void OnUpdateDocument(const std::string &Collection, const std::string &, const std::string &, const std::string &, bool) override
      {
           SearchResponseCache::InvalidateCollection(Collection);
      }
 
-     void OnDeleteDocument(const std::string& Collection, const std::string&, const std::string&, const std::string&, bool) override
+     void OnDeleteDocument(const std::string &Collection, const std::string &, const std::string &, const std::string &, bool) override
      {
           SearchResponseCache::InvalidateCollection(Collection);
      }
 
-     void OnDeleteDocuments(const std::string& Collection, uint64_t, const std::string&, const std::string&, bool) override
+     void OnDeleteDocuments(const std::string &Collection, uint64_t, const std::string &, const std::string &, bool) override
      {
           SearchResponseCache::InvalidateCollection(Collection);
      }
 
-     void OnBulkImportDocuments(const std::string& Collection, uint64_t, const std::string&, const std::string&, bool) override
+     void OnBulkImportDocuments(const std::string &Collection, uint64_t, const std::string &, const std::string &, bool) override
      {
           SearchResponseCache::InvalidateCollection(Collection);
      }
 
-     void OnUpsertSynonym(const std::string& Collection, const std::string&, bool GlobalScope, const std::string&, const std::string&, bool) override
+     void OnUpsertSynonym(const std::string &Collection, const std::string &, bool GlobalScope, const std::string &, const std::string &, bool) override
      {
           GlobalScope ? SearchResponseCache::InvalidateAll() : SearchResponseCache::InvalidateCollection(Collection);
      }
 
-     void OnDeleteSynonym(const std::string& Collection, const std::string&, bool GlobalScope, const std::string&, const std::string&, bool) override
+     void OnDeleteSynonym(const std::string &Collection, const std::string &, bool GlobalScope, const std::string &, const std::string &, bool) override
      {
           GlobalScope ? SearchResponseCache::InvalidateAll() : SearchResponseCache::InvalidateCollection(Collection);
      }
 
-     void OnCreateStopword(const std::string& Collection, uint64_t, bool GlobalScope, const std::string&, const std::string&, bool) override
+     void OnCreateStopword(const std::string &Collection, uint64_t, bool GlobalScope, const std::string &, const std::string &, bool) override
      {
           GlobalScope ? SearchResponseCache::InvalidateAll() : SearchResponseCache::InvalidateCollection(Collection);
      }
 
-     void OnDeleteStopword(const std::string& Collection, const std::string&, bool GlobalScope, const std::string&, const std::string&, bool) override
+     void OnDeleteStopword(const std::string &Collection, const std::string &, bool GlobalScope, const std::string &, const std::string &, bool) override
      {
           GlobalScope ? SearchResponseCache::InvalidateAll() : SearchResponseCache::InvalidateCollection(Collection);
      }
 
-     void OnFlush(uint64_t, const std::string&, const std::string&, bool) override
+     void OnFlush(uint64_t, const std::string &, const std::string &, bool) override
      {
           SearchResponseCache::InvalidateAll();
      }

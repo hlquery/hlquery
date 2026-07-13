@@ -22,8 +22,8 @@ struct SegmentManifest
      std::vector<std::string> Deleted;
      uint64_t CreatedAtMs = 0;
 
-     static bool Load(const std::string& path, SegmentManifest& out_manifest);
-     bool SaveAtomic(const std::string& path) const;
+     static bool Load(const std::string &path, SegmentManifest &out_manifest);
+     bool SaveAtomic(const std::string &path) const;
 };
 
 struct SegmentMetadata
@@ -35,6 +35,6 @@ struct SegmentMetadata
      uint64_t DocCountEstimate = 0;
      uint64_t BytesEstimate = 0;
 
-     static bool Load(const std::string& path, SegmentMetadata& out_metadata);
-     bool SaveAtomic(const std::string& path) const;
+     static bool Load(const std::string &path, SegmentMetadata &out_metadata);
+     bool SaveAtomic(const std::string &path) const;
 };

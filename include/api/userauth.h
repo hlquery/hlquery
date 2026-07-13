@@ -23,8 +23,8 @@
 
 enum class UserFlag
 {
-     USER,   /* Standard user permissions. */
-     ADMIN   /* Administrative permissions. */
+     USER, /* Standard user permissions. */
+     ADMIN /* Administrative permissions. */
 };
 
 /* User information structure. */
@@ -38,10 +38,9 @@ struct User
 
      User() = default;
 
-     User(const std::string& N, const std::string& T, const std::set<UserFlag>& F, const std::string& D = "")
+     User(const std::string &N, const std::string &T, const std::set<UserFlag> &F, const std::string &D = "")
          : Name(N), Token(T), Flags(F), Description(D)
      {
-
      }
 
      bool HasFlag(UserFlag FlagVal) const
@@ -70,13 +69,11 @@ struct AuthResult
 
      AuthResult() : Valid(false)
      {
-
      }
 
-     AuthResult(bool V, const User& U, const std::string& Msg = "")
+     AuthResult(bool V, const User &U, const std::string &Msg = "")
          : Valid(V), UserObj(U), ErrorMessage(Msg)
      {
-
      }
 };
 
@@ -85,7 +82,6 @@ struct AuthResult
 class UserAuthManager
 {
    public:
-
      UserAuthManager() = default;
 
      /* Initialize authentication system. */
@@ -94,42 +90,42 @@ class UserAuthManager
 
      /* Load users from configuration file. */
 
-     bool LoadUsersFromConfig(const std::string& ConfigFile);
+     bool LoadUsersFromConfig(const std::string &ConfigFile);
 
      /* Load users from ConfigReader (used when config is included in main config). */
 
-     bool LoadUsersFromConfigReader(const class ConfigReader& Reader);
+     bool LoadUsersFromConfigReader(const class ConfigReader &Reader);
 
      /* Authentication methods. */
 
-     AuthResult AuthenticateToken(const std::string& Token);
+     AuthResult AuthenticateToken(const std::string &Token);
 
-     AuthResult AuthenticateRequest(const std::string& AuthHeader);
+     AuthResult AuthenticateRequest(const std::string &AuthHeader);
 
      /* User management. */
 
-     bool AddUser(const User& UserObj);
+     bool AddUser(const User &UserObj);
 
-     bool RemoveUser(const std::string& Name);
+     bool RemoveUser(const std::string &Name);
 
-     bool UpdateUser(const User& UserObj);
+     bool UpdateUser(const User &UserObj);
 
      /* 
       * Return optional<User> instead of pointer to prevent Use-After-Free. 
       * Returning a pointer to internal map element is unsafe if RemoveUser is called concurrently. 
       */
 
-     std::optional<User> GetUser(const std::string& Name);
+     std::optional<User> GetUser(const std::string &Name);
 
      std::vector<User> GetAllUsers();
 
      /* Permission checking. */
 
-     bool HasPermission(const std::string& Token, UserFlag RequiredFlag);
+     bool HasPermission(const std::string &Token, UserFlag RequiredFlag);
 
-     bool IsAdmin(const std::string& Token);
+     bool IsAdmin(const std::string &Token);
 
-     bool IsUser(const std::string& Token);
+     bool IsUser(const std::string &Token);
 
      /* Configuration. */
 
@@ -145,27 +141,26 @@ class UserAuthManager
 
      /* Token validation. */
 
-     bool IsValidToken(const std::string& Token);
+     bool IsValidToken(const std::string &Token);
 
      /* Encrypted ACL methods. */
 
      bool CreateRootUser();
 
-     bool LoadUsersFromEncryptedFile(const std::string& FilePath);
+     bool LoadUsersFromEncryptedFile(const std::string &FilePath);
 
-     bool SaveUsersToEncryptedFile(const std::string& FilePath);
+     bool SaveUsersToEncryptedFile(const std::string &FilePath);
 
    private:
-
      /* Internal methods. */
 
      /* Extract the bearer token value from one authorization header. */
 
-     std::string ExtractTokenFromHeader(const std::string& AuthHeader);
+     std::string ExtractTokenFromHeader(const std::string &AuthHeader);
 
      /* Parse one user flag token into the corresponding enum value. */
 
-     UserFlag ParseUserFlag(const std::string& FlagStr);
+     UserFlag ParseUserFlag(const std::string &FlagStr);
 
      /* Generate one random authentication token for a user. */
 
@@ -173,7 +168,7 @@ class UserAuthManager
 
      /* Parse a flag list string into the set of user flags. */
 
-     std::set<UserFlag> ParseUserFlags(const std::string& FlagsStr);
+     std::set<UserFlag> ParseUserFlags(const std::string &FlagsStr);
 
      /* Data members. */
 
@@ -197,13 +192,13 @@ class UserAuthManager
 
      /* Parse the full authentication configuration file. */
 
-     bool ParseConfigFile(const std::string& ConfigFile);
+     bool ParseConfigFile(const std::string &ConfigFile);
 
      /* Parse one user entry line from the configuration file. */
 
-     bool ParseUserEntry(const std::string& Line);
+     bool ParseUserEntry(const std::string &Line);
 
      /* Parse the authentication enable or disable setting line. */
 
-     bool ParseAuthSetting(const std::string& Line);
+     bool ParseAuthSetting(const std::string &Line);
 };

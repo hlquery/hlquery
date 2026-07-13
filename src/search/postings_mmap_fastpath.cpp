@@ -14,8 +14,8 @@
 #include <cstring>
 
 #include "core/hlquery.h"
-#include "search/lindex.h"
-#include "search/mindex.h"
+#include "search/lexical_inverted_index.h"
+#include "search/mapped_posting_index.h"
 #include "utils/simdutils.h"
 
 /* HasMappedBytes checks whether a mapped pointer has enough bytes left

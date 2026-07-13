@@ -44,7 +44,6 @@ struct OperationStats
 class PerformanceMonitor
 {
    private:
-
      /* Mutex guards stats access. */
 
      mutable std::mutex Mutex;
@@ -58,7 +57,6 @@ class PerformanceMonitor
      std::unordered_map<std::string, OperationStats> OperationStatsMap;
 
    public:
-
      /* Constructor. */
 
      PerformanceMonitor();
@@ -69,15 +67,15 @@ class PerformanceMonitor
 
      /* StartOperation records a start time for an operation. */
 
-     void StartOperation(const std::string& Operation);
+     void StartOperation(const std::string &Operation);
 
      /* EndOperation records the completion of an operation. */
 
-     void EndOperation(const std::string& Operation, bool Success);
+     void EndOperation(const std::string &Operation, bool Success);
 
      /* GetOperationStats returns stats for a single operation. */
 
-     std::unordered_map<std::string, std::string> GetOperationStats(const std::string& Operation) const;
+     std::unordered_map<std::string, std::string> GetOperationStats(const std::string &Operation) const;
 
      /* GetAllStats returns stats for all operations. */
 

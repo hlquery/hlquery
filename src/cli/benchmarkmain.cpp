@@ -107,7 +107,8 @@ static void PrintBenchmarkTitle(const std::string &Title)
 
 static void PrintBenchmarkSection(const std::string &Title)
 {
-     std::cout << "\n" << Title << "\n";
+     std::cout << "\n"
+               << Title << "\n";
 }
 
 static void PrintBenchmarkValue(const std::string &Label, const std::string &Value)
@@ -850,12 +851,12 @@ static std::string BuildBenchmarkDescription(const std::string &collection,
 static std::vector<std::string> ExtractBenchmarkKeywords(const std::string &text)
 {
      static const std::unordered_set<std::string> stopwords = {
-          "a",          "an",        "and",       "are",       "as",         "at",        "artist",     "artists",
-          "book",       "books",     "by",        "for",       "from",       "in",        "is",         "its",
-          "like",       "modern",    "note",      "of",        "on",         "profile",   "spotlight",  "such",
-          "that",       "the",       "their",     "through",   "to",         "topic",     "with",       "work",
-          "works",      "album",     "albums",    "science",   "travel",     "music",     "movie",      "movies",
-          "film",       "films",     "history",   "technology","food",       "sports",    "art",        "books"};
+          "a", "an", "and", "are", "as", "at", "artist", "artists",
+          "book", "books", "by", "for", "from", "in", "is", "its",
+          "like", "modern", "note", "of", "on", "profile", "spotlight", "such",
+          "that", "the", "their", "through", "to", "topic", "with", "work",
+          "works", "album", "albums", "science", "travel", "music", "movie", "movies",
+          "film", "films", "history", "technology", "food", "sports", "art", "books"};
 
      std::vector<std::string> keywords;
      std::string current;
@@ -1124,7 +1125,9 @@ static std::string NormalizeFakeLexicalTerm(const std::string &value)
      std::string normalized = TrimWhitespace(value);
      std::transform(normalized.begin(), normalized.end(), normalized.begin(),
                     [](unsigned char ch)
-                    { return static_cast<char>(std::tolower(ch)); });
+                    {
+                         return static_cast<char>(std::tolower(ch));
+                    });
      return normalized;
 }
 
@@ -2653,7 +2656,8 @@ int main(int argc, char *argv[])
                else if (arg == "--reuse-collections")
                {
                     reuse_collections = true;
-               }               else if (arg == "--log-file")
+               }
+               else if (arg == "--log-file")
                {
                     log_file_val = RequireNextValue(i, arg);
                }
@@ -3215,7 +3219,7 @@ int main(int argc, char *argv[])
                advanced_metrics.ManualWalFlush = durability_config.ManualWalFlush;
           }
 
-               int collections_per_thread_val = (num_collections + active_collection_threads - 1) / active_collection_threads;
+          int collections_per_thread_val = (num_collections + active_collection_threads - 1) / active_collection_threads;
 
           if (!reuse_collections && verbose_mode)
           {

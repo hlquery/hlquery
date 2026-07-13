@@ -7,7 +7,7 @@
  * This file is part of hlquery, released under the BSD License version 3.
  */
 
-#include "search/segmentmanifest.h"
+#include "search/segment_catalog.h"
 
 #include <filesystem>
 #include <fstream>
@@ -16,14 +16,14 @@
 
 namespace
 {
-     bool FsyncFileBestEffort(const std::string& path)
-     {
-          (void)path;
-          return true;
-     }
+bool FsyncFileBestEffort(const std::string &path)
+{
+     (void)path;
+     return true;
+}
 }
 
-bool SegmentManifest::Load(const std::string& path, SegmentManifest& out_manifest)
+bool SegmentManifest::Load(const std::string &path, SegmentManifest &out_manifest)
 {
      std::ifstream input(path);
 
@@ -50,7 +50,7 @@ bool SegmentManifest::Load(const std::string& path, SegmentManifest& out_manifes
      }
 }
 
-bool SegmentManifest::SaveAtomic(const std::string& path) const
+bool SegmentManifest::SaveAtomic(const std::string &path) const
 {
      const std::filesystem::path target(path);
      const std::filesystem::path tmp_path = target.parent_path() / "manifest.tmp";
@@ -94,7 +94,7 @@ bool SegmentManifest::SaveAtomic(const std::string& path) const
      }
 }
 
-bool SegmentMetadata::Load(const std::string& path, SegmentMetadata& out_metadata)
+bool SegmentMetadata::Load(const std::string &path, SegmentMetadata &out_metadata)
 {
      std::ifstream input(path);
 
@@ -121,7 +121,7 @@ bool SegmentMetadata::Load(const std::string& path, SegmentMetadata& out_metadat
      }
 }
 
-bool SegmentMetadata::SaveAtomic(const std::string& path) const
+bool SegmentMetadata::SaveAtomic(const std::string &path) const
 {
      const std::filesystem::path target(path);
      const std::filesystem::path tmp_path = target.parent_path() / "segment.tmp";

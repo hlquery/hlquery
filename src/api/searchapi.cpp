@@ -41,10 +41,10 @@
 #include "core/hlquery.h"
 #include "core/socketengine.h"
 #include "runtime/threadlimit.h"
-#include "search/rfusion.h"
-#include "search/cstore.h"
-#include "search/storageengine.h"
-#include "search/lindex.h"
+#include "search/hybrid_rank_fusion.h"
+#include "search/document_collection_store.h"
+#include "search/rocksdb_storage_engine.h"
+#include "search/lexical_inverted_index.h"
 #include "utils/consolewriter.h"
 #include "utils/protocol.h"
 #include "utils/wildcard.h"
@@ -64,9 +64,9 @@ static std::string ToLowerCopy(const std::string &Value)
 {
      std::string Result(Value);
      std::transform(Result.begin(), Result.end(), Result.begin(), [](unsigned char C)
-     {
-          return static_cast<char>(std::tolower(C));
-     });
+                    {
+                         return static_cast<char>(std::tolower(C));
+                    });
      return Result;
 }
 
@@ -183,8 +183,8 @@ static bool IsAuthorizedReplicationHop(const HttpRequest &Request)
                std::string PrimaryToken;
                std::string SecondaryToken;
                const bool FoundTokens = UseSlaveTokens
-                                            ? Instance->Config->GetSlavePeerTokens(Endpoint, &PrimaryToken, &SecondaryToken)
-                                            : Instance->Config->GetClusterPeerTokens(Endpoint, &PrimaryToken, &SecondaryToken);
+                                             ? Instance->Config->GetSlavePeerTokens(Endpoint, &PrimaryToken, &SecondaryToken)
+                                             : Instance->Config->GetClusterPeerTokens(Endpoint, &PrimaryToken, &SecondaryToken);
                if (!FoundTokens)
                {
                     continue;
@@ -973,7 +973,8 @@ void SearchAPI::FinalizeReplicationResyncRequest(const HttpRequest &Request,
           return;
      }
 
-     const std::vector<std::string> ResyncedCollections = LoadReplicationResyncCollections(SessionID);     ClearReplicationResyncCollections(SessionID);
+     const std::vector<std::string> ResyncedCollections = LoadReplicationResyncCollections(SessionID);
+     ClearReplicationResyncCollections(SessionID);
      Instance->Database->Del(kReplicationResyncStateKey);
      Instance->Database->SyncWAL();
 }
@@ -1002,9 +1003,9 @@ void SearchAPI::EnqueueAsyncReplicationTask(std::function<void()> Task) const
 
      std::lock_guard<std::mutex> lock(AsyncReplicationTasksMutex);
      AsyncReplicationTasks.push_back(std::async(std::launch::async, [Task = std::move(Task)]() mutable
-     {
-          Task();
-     }));
+                                                {
+                                                     Task();
+                                                }));
 }
 
 /* Implements the shutdown helper. */
@@ -2353,8 +2354,7 @@ bool SearchAPI::ValidateCollectionSchema(const CollectionConfig &Config, std::st
           "latlon",
           "object",
           "json",
-          "vector"
-     };
+          "vector"};
 
      for (const auto &FieldEntry : Config.Fields)
      {
@@ -2371,7 +2371,9 @@ bool SearchAPI::ValidateCollectionSchema(const CollectionConfig &Config, std::st
 
           std::string NormalizedType = FieldEntry.second;
           std::transform(NormalizedType.begin(), NormalizedType.end(), NormalizedType.begin(), [](unsigned char c)
-                         { return static_cast<char>(std::tolower(c)); });
+                         {
+                              return static_cast<char>(std::tolower(c));
+                         });
 
           if (AllowedTypes.find(NormalizedType) == AllowedTypes.end())
           {

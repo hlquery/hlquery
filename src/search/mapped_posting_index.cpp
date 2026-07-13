@@ -22,262 +22,262 @@
 #include <unordered_set>
 
 #include "core/hlquery.h"
-#include "search/lindex.h"
-#include "search/mindex.h"
+#include "search/lexical_inverted_index.h"
+#include "search/mapped_posting_index.h"
 #include "utils/wildcard.h"
 
 namespace
 {
-     /* The mmap index is split into several small files instead of one monolithic
+/* The mmap index is split into several small files instead of one monolithic
       * blob so each reader can map only the structures it needs. Every file uses
       * the same fixed header, followed by a type-specific payload.
       */
 
-     constexpr uint32_t kMMapIndexVersion = 1;
-     constexpr uint32_t kMMapIndexEndianMarker = 0x01020304U;
-     constexpr size_t kMMapFileHeaderSize = 40;
-     constexpr uint64_t kFnv64Offset = 14695981039346656037ULL;
-     constexpr uint64_t kFnv64Prime = 1099511628211ULL;
-     constexpr uint32_t kFnv32Offset = 2166136261U;
-     constexpr uint32_t kFnv32Prime = 16777619U;
+constexpr uint32_t kMMapIndexVersion = 1;
+constexpr uint32_t kMMapIndexEndianMarker = 0x01020304U;
+constexpr size_t kMMapFileHeaderSize = 40;
+constexpr uint64_t kFnv64Offset = 14695981039346656037ULL;
+constexpr uint64_t kFnv64Prime = 1099511628211ULL;
+constexpr uint32_t kFnv32Offset = 2166136261U;
+constexpr uint32_t kFnv32Prime = 16777619U;
 
-     const std::array<uint8_t, 8> kTermsMagic = {'H', 'L', 'Q', 'T', 'E', 'R', 'M', '1'};
-     const std::array<uint8_t, 8> kTermMapMagic = {'H', 'L', 'Q', 'T', 'M', 'A', 'P', '1'};
-     const std::array<uint8_t, 8> kTermIndexMagic = {'H', 'L', 'Q', 'T', 'I', 'D', 'X', '1'};
-     const std::array<uint8_t, 8> kPostingsMagic = {'H', 'L', 'Q', 'P', 'O', 'S', 'T', '1'};
+const std::array<uint8_t, 8> kTermsMagic = {'H', 'L', 'Q', 'T', 'E', 'R', 'M', '1'};
+const std::array<uint8_t, 8> kTermMapMagic = {'H', 'L', 'Q', 'T', 'M', 'A', 'P', '1'};
+const std::array<uint8_t, 8> kTermIndexMagic = {'H', 'L', 'Q', 'T', 'I', 'D', 'X', '1'};
+const std::array<uint8_t, 8> kPostingsMagic = {'H', 'L', 'Q', 'P', 'O', 'S', 'T', '1'};
 
-     /* StableChecksum64 computes a deterministic checksum over serialized bytes.
+/* StableChecksum64 computes a deterministic checksum over serialized bytes.
       * The checksum is intentionally simple and portable because its purpose is
       * corruption detection, not cryptographic validation.
       */
 
-     uint64_t StableChecksum64(const uint8_t *Data, size_t Length)
+uint64_t StableChecksum64(const uint8_t *Data, size_t Length)
+{
+     uint64_t Hash = kFnv64Offset;
+
+     for (size_t I = 0; I < Length; ++I)
      {
-          uint64_t Hash = kFnv64Offset;
-
-          for (size_t I = 0; I < Length; ++I)
-          {
-               Hash ^= Data[I];
-               Hash *= kFnv64Prime;
-          }
-
-          return Hash;
+          Hash ^= Data[I];
+          Hash *= kFnv64Prime;
      }
 
-     /* StableHash32 produces the document hash used by postings delta encoding.
+     return Hash;
+}
+
+/* StableHash32 produces the document hash used by postings delta encoding.
       * The writer stores full document IDs too, so hash collisions only affect
       * compression efficiency and not lookup correctness.
       */
 
-     uint32_t StableHash32(const std::string &Value)
+uint32_t StableHash32(const std::string &Value)
+{
+     uint32_t Hash = kFnv32Offset;
+
+     for (unsigned char C : Value)
      {
-          uint32_t Hash = kFnv32Offset;
-
-          for (unsigned char C : Value)
-          {
-               Hash ^= C;
-               Hash *= kFnv32Prime;
-          }
-
-          return Hash;
+          Hash ^= C;
+          Hash *= kFnv32Prime;
      }
 
-     /* AppendBytes appends raw binary data to a serialization buffer. Callers are
+     return Hash;
+}
+
+/* AppendBytes appends raw binary data to a serialization buffer. Callers are
       * responsible for choosing values with stable sizes and explicit widths.
       */
 
-     void AppendBytes(std::vector<uint8_t> &Buffer, const void *Data, size_t Length)
-     {
-          const uint8_t *Bytes = static_cast<const uint8_t *>(Data);
-          Buffer.insert(Buffer.end(), Bytes, Bytes + Length);
-     }
+void AppendBytes(std::vector<uint8_t> &Buffer, const void *Data, size_t Length)
+{
+     const uint8_t *Bytes = static_cast<const uint8_t *>(Data);
+     Buffer.insert(Buffer.end(), Bytes, Bytes + Length);
+}
 
-     /* AppendValue stores a trivially copyable scalar in the native on-disk layout
+/* AppendValue stores a trivially copyable scalar in the native on-disk layout
       * used by this index version.
       */
 
-     template <typename T>
-     void AppendValue(std::vector<uint8_t> &Buffer, const T &Value)
-     {
-          AppendBytes(Buffer, &Value, sizeof(Value));
-     }
+template <typename T>
+void AppendValue(std::vector<uint8_t> &Buffer, const T &Value)
+{
+     AppendBytes(Buffer, &Value, sizeof(Value));
+}
 
-     /* WriteMMapFile writes the common file envelope:
+/* WriteMMapFile writes the common file envelope:
       * magic, version, header size, endian marker, reserved bytes, payload size,
       * checksum, then the payload itself.
       */
 
-     bool WriteMMapFile(const std::string &Path, const std::array<uint8_t, 8> &Magic, const std::vector<uint8_t> &Payload)
+bool WriteMMapFile(const std::string &Path, const std::array<uint8_t, 8> &Magic, const std::vector<uint8_t> &Payload)
+{
+     std::ofstream Out(Path, std::ios::binary);
+
+     if (!Out)
      {
-          std::ofstream Out(Path, std::ios::binary);
-
-          if (!Out)
-          {
-               return false;
-          }
-
-          const uint32_t Version = kMMapIndexVersion;
-          const uint32_t HeaderSize = static_cast<uint32_t>(kMMapFileHeaderSize);
-          const uint32_t Endian = kMMapIndexEndianMarker;
-          const uint32_t Reserved = 0;
-          const uint64_t PayloadSize = static_cast<uint64_t>(Payload.size());
-          const uint64_t Checksum = StableChecksum64(Payload.data(), Payload.size());
-
-          Out.write(reinterpret_cast<const char *>(Magic.data()), Magic.size());
-          Out.write(reinterpret_cast<const char *>(&Version), sizeof(Version));
-          Out.write(reinterpret_cast<const char *>(&HeaderSize), sizeof(HeaderSize));
-          Out.write(reinterpret_cast<const char *>(&Endian), sizeof(Endian));
-          Out.write(reinterpret_cast<const char *>(&Reserved), sizeof(Reserved));
-          Out.write(reinterpret_cast<const char *>(&PayloadSize), sizeof(PayloadSize));
-          Out.write(reinterpret_cast<const char *>(&Checksum), sizeof(Checksum));
-
-          if (!Payload.empty())
-          {
-               Out.write(reinterpret_cast<const char *>(Payload.data()), Payload.size());
-          }
-
-          return Out.good();
+          return false;
      }
 
-     /* ReadValue copies a scalar from a mapped file only after checking that the
+     const uint32_t Version = kMMapIndexVersion;
+     const uint32_t HeaderSize = static_cast<uint32_t>(kMMapFileHeaderSize);
+     const uint32_t Endian = kMMapIndexEndianMarker;
+     const uint32_t Reserved = 0;
+     const uint64_t PayloadSize = static_cast<uint64_t>(Payload.size());
+     const uint64_t Checksum = StableChecksum64(Payload.data(), Payload.size());
+
+     Out.write(reinterpret_cast<const char *>(Magic.data()), Magic.size());
+     Out.write(reinterpret_cast<const char *>(&Version), sizeof(Version));
+     Out.write(reinterpret_cast<const char *>(&HeaderSize), sizeof(HeaderSize));
+     Out.write(reinterpret_cast<const char *>(&Endian), sizeof(Endian));
+     Out.write(reinterpret_cast<const char *>(&Reserved), sizeof(Reserved));
+     Out.write(reinterpret_cast<const char *>(&PayloadSize), sizeof(PayloadSize));
+     Out.write(reinterpret_cast<const char *>(&Checksum), sizeof(Checksum));
+
+     if (!Payload.empty())
+     {
+          Out.write(reinterpret_cast<const char *>(Payload.data()), Payload.size());
+     }
+
+     return Out.good();
+}
+
+/* ReadValue copies a scalar from a mapped file only after checking that the
       * requested byte range is fully contained in the mapped region.
       */
 
-     template <typename T>
-     bool ReadValue(const uint8_t *Base, size_t Size, size_t Offset, T &Out)
+template <typename T>
+bool ReadValue(const uint8_t *Base, size_t Size, size_t Offset, T &Out)
+{
+     if (Offset > Size || sizeof(T) > Size - Offset)
      {
-          if (Offset > Size || sizeof(T) > Size - Offset)
-          {
-               return false;
-          }
-
-          std::memcpy(&Out, Base + Offset, sizeof(T));
-          return true;
+          return false;
      }
 
-     /* ReadMappedTerm finds the next null terminator without reading past the
+     std::memcpy(&Out, Base + Offset, sizeof(T));
+     return true;
+}
+
+/* ReadMappedTerm finds the next null terminator without reading past the
       * mapped terms payload.
       */
 
-     bool ReadMappedTerm(const char *TermStartPtr, const char *TermsEndPtr, std::string &TermOut)
+bool ReadMappedTerm(const char *TermStartPtr, const char *TermsEndPtr, std::string &TermOut)
+{
+     if (!TermStartPtr || TermStartPtr >= TermsEndPtr)
      {
-          if (!TermStartPtr || TermStartPtr >= TermsEndPtr)
-          {
-               return false;
-          }
-
-          const void *NullTerminator = std::memchr(TermStartPtr, '\0', static_cast<size_t>(TermsEndPtr - TermStartPtr));
-
-          if (!NullTerminator)
-          {
-               return false;
-          }
-
-          const char *TermEndPtr = static_cast<const char *>(NullTerminator);
-
-          TermOut.assign(TermStartPtr, static_cast<size_t>(TermEndPtr - TermStartPtr));
-          return true;
+          return false;
      }
 
-     /* HasMappedBytes checks whether a mapped pointer has enough bytes left
+     const void *NullTerminator = std::memchr(TermStartPtr, '\0', static_cast<size_t>(TermsEndPtr - TermStartPtr));
+
+     if (!NullTerminator)
+     {
+          return false;
+     }
+
+     const char *TermEndPtr = static_cast<const char *>(NullTerminator);
+
+     TermOut.assign(TermStartPtr, static_cast<size_t>(TermEndPtr - TermStartPtr));
+     return true;
+}
+
+/* HasMappedBytes checks whether a mapped pointer has enough bytes left
       * without forming an out-of-range pointer first.
       */
 
-     bool HasMappedBytes(const uint8_t *Ptr, const uint8_t *EndPtr, size_t Length)
+bool HasMappedBytes(const uint8_t *Ptr, const uint8_t *EndPtr, size_t Length)
+{
+     if (!Ptr || !EndPtr || Ptr > EndPtr)
      {
-          if (!Ptr || !EndPtr || Ptr > EndPtr)
-          {
-               return false;
-          }
-
-          return Length <= static_cast<size_t>(EndPtr - Ptr);
+          return false;
      }
 
-     /* ValidateMMapFile verifies the shared header before the reader trusts any
+     return Length <= static_cast<size_t>(EndPtr - Ptr);
+}
+
+/* ValidateMMapFile verifies the shared header before the reader trusts any
       * payload pointer. This keeps malformed or partial files from being decoded
       * as valid term or postings data.
       */
 
-     bool ValidateMMapFile(const uint8_t *Base,
-                           size_t FileSize,
-                           const std::array<uint8_t, 8> &Magic,
-                           const uint8_t *&Payload,
-                           size_t &PayloadSize,
-                           const std::string &Path)
+bool ValidateMMapFile(const uint8_t *Base,
+                      size_t FileSize,
+                      const std::array<uint8_t, 8> &Magic,
+                      const uint8_t *&Payload,
+                      size_t &PayloadSize,
+                      const std::string &Path)
+{
+     if (!Base || FileSize < kMMapFileHeaderSize)
      {
-          if (!Base || FileSize < kMMapFileHeaderSize)
+          if (Instance && Instance->Logs)
           {
-               if (Instance && Instance->Logs)
-               {
-                    Instance->Logs->Normal("mmap_index", "Index file too small or missing header: " + Path + ".");
-               }
-               return false;
+               Instance->Logs->Normal("mmap_index", "Index file too small or missing header: " + Path + ".");
           }
+          return false;
+     }
 
-          if (!std::equal(Magic.begin(), Magic.end(), Base))
+     if (!std::equal(Magic.begin(), Magic.end(), Base))
+     {
+          if (Instance && Instance->Logs)
           {
-               if (Instance && Instance->Logs)
-               {
-                    Instance->Logs->Normal("mmap_index", "Invalid index file magic: " + Path + ".");
-               }
-               return false;
+               Instance->Logs->Normal("mmap_index", "Invalid index file magic: " + Path + ".");
           }
+          return false;
+     }
 
-          uint32_t Version = 0;
-          uint32_t HeaderSize = 0;
-          uint32_t Endian = 0;
-          uint64_t StoredPayloadSize = 0;
-          uint64_t StoredChecksum = 0;
+     uint32_t Version = 0;
+     uint32_t HeaderSize = 0;
+     uint32_t Endian = 0;
+     uint64_t StoredPayloadSize = 0;
+     uint64_t StoredChecksum = 0;
 
-          /* Header fields live at fixed byte offsets so mmap readers can validate
+     /* Header fields live at fixed byte offsets so mmap readers can validate
            * files without constructing any temporary parser state.
            */
 
-          if (!ReadValue(Base, FileSize, 8, Version) ||
-              !ReadValue(Base, FileSize, 12, HeaderSize) ||
-              !ReadValue(Base, FileSize, 16, Endian) ||
-              !ReadValue(Base, FileSize, 24, StoredPayloadSize) ||
-              !ReadValue(Base, FileSize, 32, StoredChecksum))
+     if (!ReadValue(Base, FileSize, 8, Version) ||
+         !ReadValue(Base, FileSize, 12, HeaderSize) ||
+         !ReadValue(Base, FileSize, 16, Endian) ||
+         !ReadValue(Base, FileSize, 24, StoredPayloadSize) ||
+         !ReadValue(Base, FileSize, 32, StoredChecksum))
+     {
+          return false;
+     }
+
+     if (Version != kMMapIndexVersion || HeaderSize != kMMapFileHeaderSize || Endian != kMMapIndexEndianMarker)
+     {
+          if (Instance && Instance->Logs)
           {
-               return false;
+               Instance->Logs->Normal("mmap_index", "Unsupported index file header: " + Path + ".");
           }
+          return false;
+     }
 
-          if (Version != kMMapIndexVersion || HeaderSize != kMMapFileHeaderSize || Endian != kMMapIndexEndianMarker)
+     if (StoredPayloadSize > FileSize - HeaderSize)
+     {
+          if (Instance && Instance->Logs)
           {
-               if (Instance && Instance->Logs)
-               {
-                    Instance->Logs->Normal("mmap_index", "Unsupported index file header: " + Path + ".");
-               }
-               return false;
+               Instance->Logs->Normal("mmap_index", "Invalid index payload size: " + Path + ".");
           }
+          return false;
+     }
 
-          if (StoredPayloadSize > FileSize - HeaderSize)
-          {
-               if (Instance && Instance->Logs)
-               {
-                    Instance->Logs->Normal("mmap_index", "Invalid index payload size: " + Path + ".");
-               }
-               return false;
-          }
+     Payload = Base + HeaderSize;
+     PayloadSize = static_cast<size_t>(StoredPayloadSize);
 
-          Payload = Base + HeaderSize;
-          PayloadSize = static_cast<size_t>(StoredPayloadSize);
-
-          /* The checksum covers only the payload. Header mutations are caught by
+     /* The checksum covers only the payload. Header mutations are caught by
            * explicit magic, version, size, and endian checks above.
            */
 
-          if (StableChecksum64(Payload, PayloadSize) != StoredChecksum)
+     if (StableChecksum64(Payload, PayloadSize) != StoredChecksum)
+     {
+          if (Instance && Instance->Logs)
           {
-               if (Instance && Instance->Logs)
-               {
-                    Instance->Logs->Normal("mmap_index", "Index checksum mismatch: " + Path + ".");
-               }
-               return false;
+               Instance->Logs->Normal("mmap_index", "Index checksum mismatch: " + Path + ".");
           }
-
-          return true;
+          return false;
      }
+
+     return true;
+}
 }
 
 /*
@@ -1247,9 +1247,9 @@ std::vector<Posting> MMapIndex::SearchWildcard(const std::string &PatternValue, 
      }
 
      std::sort(ResultsList.begin(), ResultsList.end(), [](const Posting &A, const Posting &B)
-     {
-          return A.Score > B.Score;
-     });
+               {
+                    return A.Score > B.Score;
+               });
 
      if (LimitVal > 0)
      {

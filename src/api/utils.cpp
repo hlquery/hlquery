@@ -591,7 +591,7 @@ class FilterExpressionParser
 {
    public:
      explicit FilterExpressionParser(const std::string &input)
-          : Input(input)
+         : Input(input)
      {
      }
 
@@ -955,7 +955,7 @@ double SearchAPI::CalculateGeoDistance(const GeoPoint &P1, const GeoPoint &P2)
 
      const double RawA = std::sin(DeltaLat / 2.0) * std::sin(DeltaLat / 2.0) +
                          std::cos(Lat1) * std::cos(Lat2) *
-                             std::sin(DeltaLon / 2.0) * std::sin(DeltaLon / 2.0);
+                              std::sin(DeltaLon / 2.0) * std::sin(DeltaLon / 2.0);
      const double A = std::clamp(RawA, 0.0, 1.0);
      const double C = 2.0 * std::atan2(std::sqrt(A), std::sqrt(1.0 - A));
 
@@ -1005,7 +1005,6 @@ bool SearchAPI::IsWithinGeoBox(const GeoPoint &Point, const GeoBox &Box)
 
      return Point.Longitude >= West || Point.Longitude <= East;
 }
-
 
 /* ApplyFilters filters search hits based on filter conditions. */
 
@@ -1058,7 +1057,7 @@ std::vector<SearchHit> SearchAPI::ApplyFilters(const std::vector<SearchHit> &Hit
      }
 
      std::function<bool(const std::map<std::string, std::string> &, const FilterExpressionNode *)> EvaluateExpression =
-         [&](const std::map<std::string, std::string> &Document, const FilterExpressionNode *Node) -> bool
+          [&](const std::map<std::string, std::string> &Document, const FilterExpressionNode *Node) -> bool
      {
           if (!Node)
           {
@@ -1782,8 +1781,8 @@ void SearchAPI::ApplyCollectionRankWeights(std::vector<SearchHit> &Hits, const s
           if (Range > 0.0)
           {
                Signal = Descending
-                    ? ((Parsed.Value - MinRank) / Range)
-                    : ((MaxRank - Parsed.Value) / Range);
+                             ? ((Parsed.Value - MinRank) / Range)
+                             : ((MaxRank - Parsed.Value) / Range);
           }
 
           Parsed.Signal = std::clamp(Signal, 0.0, 1.0);

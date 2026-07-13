@@ -26,11 +26,11 @@
 #include "core/hlquery.h"
 #include "runtime/clock.h"
 #include "runtime/threadlimit.h"
-#include "search/storageengine.h"
-#include "search/cstore.h"
-#include "search/lindex.h"
-#include "search/lang.h"
-#include "search/writeaheadlogvalidator.h"
+#include "search/rocksdb_storage_engine.h"
+#include "search/document_collection_store.h"
+#include "search/lexical_inverted_index.h"
+#include "search/language_detection.h"
+#include "search/wal_entry_guard.h"
 #include "utils/consolewriter.h"
 
 /* Static container for background indexing threads */
@@ -368,7 +368,6 @@ static std::string ResolveStorageRootDir()
      }
      catch (...)
      {
-
      }
 
      return storage_root;
@@ -1011,7 +1010,7 @@ bool HybridStorageManager::CreateCollection(const std::string &name, const Colle
                     {
                          Instance->Logs->Critical("hybrid_storage", "[COLLECTION_CREATE_ERROR] Collection name mismatch in map: expected '" + name + "', found '" + final_check->first + "'.");
                     }
-          
+
                     Collections[name] = config;
                }
           }
@@ -1044,7 +1043,7 @@ bool HybridStorageManager::CreateCollection(const std::string &name, const Colle
                     {
                          Instance->Logs->Debug("hybrid_storage", "[COLLECTION_VERIFY] Collection '" + name + "' confirmed in map iteration.");
                     }
-           
+
                     break;
                }
           }
@@ -2135,7 +2134,8 @@ size_t HybridStorageManager::AddDocumentsBatch(const std::string &collection, co
                else
                {
                     timestamp_to_store = static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
-                         Now().time_since_epoch()).count());
+                                                                    Now().time_since_epoch())
+                                                                    .count());
                }
           }
 
@@ -2256,7 +2256,8 @@ size_t HybridStorageManager::AddDocumentsBatch(const std::string &collection, co
      }
 
      if (count > 0)
-     {     }
+     {
+     }
 
      if (count > 0)
      {
@@ -2352,8 +2353,8 @@ Document HybridStorageManager::GetDocument(const std::string &collection, const 
                               std::string fields_str = doc_data.substr(pos3 + 1, pos4 - pos3 - 1);
                               size_t pos5 = doc_data.find('|', pos4 + 1);
                               std::string timestamp_str = (pos5 == std::string::npos)
-                                                              ? doc_data.substr(pos4 + 1)
-                                                              : doc_data.substr(pos4 + 1, pos5 - pos4 - 1);
+                                                               ? doc_data.substr(pos4 + 1)
+                                                               : doc_data.substr(pos4 + 1, pos5 - pos4 - 1);
                               std::string score_str = (pos5 == std::string::npos) ? "" : doc_data.substr(pos5 + 1);
 
                               /* Parse fields JSON */
@@ -2869,7 +2870,8 @@ bool HybridStorageManager::UpdateDocument(const std::string &collection, const D
      }
 
      if (index_success)
-     {     }
+     {
+     }
 
      /*
            * Invalidate cache after successful update.
@@ -3744,15 +3746,15 @@ void HybridStorageManager::IndexCollectionInBackground(const std::string &collec
           {
                size_t yielded = 0;
                scan_completed = Instance->Database->ForEachPrefixKeySnapshot(DocPrefix, documents_to_index, [&](const std::string &doc_key)
-               {
-                    const bool keep_going = IndexDocumentKey(doc_key);
-                    yielded++;
-                    if ((yielded % (BatchSize * 10)) == 0)
-                    {
-                         std::this_thread::yield();
-                    }
-                    return keep_going;
-               });
+                                                                             {
+                                                                                  const bool keep_going = IndexDocumentKey(doc_key);
+                                                                                  yielded++;
+                                                                                  if ((yielded % (BatchSize * 10)) == 0)
+                                                                                  {
+                                                                                       std::this_thread::yield();
+                                                                                  }
+                                                                                  return keep_going;
+                                                                             });
           }
           else
           {
@@ -3835,8 +3837,8 @@ void HybridStorageManager::IndexCollectionInBackground(const std::string &collec
           {
                State.State = LazyIndexBuildState::Failed;
                State.Error = document_cap_reached ? "Document cap reached during lazy indexing."
-                                                   : (memory_limit_reached ? "Memory limit reached during lazy indexing."
-                                                                           : "Snapshot scan did not complete.");
+                                                  : (memory_limit_reached ? "Memory limit reached during lazy indexing."
+                                                                          : "Snapshot scan did not complete.");
           }
           else
           {

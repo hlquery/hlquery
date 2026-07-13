@@ -17,7 +17,6 @@
 class CoreExport ConsoleWriter
 {
    public:
-
      /* ANSI color codes */
 
      static const std::string ColorGreen;
@@ -45,49 +44,49 @@ class CoreExport ConsoleWriter
 
      /* Message formatting */
 
-     static std::string FormatMessage(const std::string& Message, const std::string& Status, bool Dot = true);
+     static std::string FormatMessage(const std::string &Message, const std::string &Status, bool Dot = true);
 
      /* Startup and status messages */
 
-     static void WriteStartup(const std::string& Message, bool Success, bool Dot = true);
-     static void WriteStartupPlain(const std::string& Message, bool Dot = true);
+     static void WriteStartup(const std::string &Message, bool Success, bool Dot = true);
+     static void WriteStartupPlain(const std::string &Message, bool Dot = true);
 
-     static void WriteConfig(const std::string& Message, bool Success, bool Dot = true);
+     static void WriteConfig(const std::string &Message, bool Success, bool Dot = true);
 
-     static void WriteInfo(const std::string& Message, bool Dot = true);
+     static void WriteInfo(const std::string &Message, bool Dot = true);
 
-     static void WriteWarning(const std::string& Message, bool Dot = true);
+     static void WriteWarning(const std::string &Message, bool Dot = true);
 
-     static void WriteError(const std::string& Message, bool Dot = true);
+     static void WriteError(const std::string &Message, bool Dot = true);
 
-     static void WriteDebug(const std::string& Message, bool Dot = true);
+     static void WriteDebug(const std::string &Message, bool Dot = true);
 
-     static void WriteExit(const std::string& Message, bool Dot = true);
+     static void WriteExit(const std::string &Message, bool Dot = true);
 
      /* Initialization messages (for daemon startup) */
 
-     static void WriteInit(const std::string& Message, bool Dot = true);
+     static void WriteInit(const std::string &Message, bool Dot = true);
 
-     static void WriteInitCritical(const std::string& Message, bool Dot = true);
+     static void WriteInitCritical(const std::string &Message, bool Dot = true);
 
      /* Async-signal-safe version for post-fork logging (takes const char* for safety) */
 
-     static void WriteInitSafe(int Fd, const char* Message, bool Dot = true);
+     static void WriteInitSafe(int Fd, const char *Message, bool Dot = true);
 
-     static void WriteInitCriticalSafe(int Fd, const char* Message, bool Dot = true);
+     static void WriteInitCriticalSafe(int Fd, const char *Message, bool Dot = true);
 
-     static void WriteStartupSafe(int Fd, const char* Message, bool Dot = true);
-     static void WriteStartupPlainSafe(int Fd, const char* Message, bool Dot = true);
+     static void WriteStartupSafe(int Fd, const char *Message, bool Dot = true);
+     static void WriteStartupPlainSafe(int Fd, const char *Message, bool Dot = true);
 
      /* Header and section display */
 
      static void WriteBlankLine();
 
-     static void WriteHeader(const std::string& Title);
+     static void WriteHeader(const std::string &Title);
 
-     static void WriteServerInfo(const std::string& Key, const std::string& Value, const std::string& Status);
+     static void WriteServerInfo(const std::string &Key, const std::string &Value, const std::string &Status);
 
      /* Helper to ensure periods in messages */
 
-     static std::string EnsurePeriod(const std::string& Message, bool Dot = true);
+     static std::string EnsurePeriod(const std::string &Message, bool Dot = true);
 };

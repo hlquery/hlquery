@@ -122,8 +122,8 @@ static bool IsGeneratedRotatedLogName(const std::string &Filename,
      }
 
      const std::string LegacyPrefix = LogExtension.empty()
-          ? LogBasename + ".log."
-          : LogBasename + LogExtension + ".";
+                                           ? LogBasename + ".log."
+                                           : LogBasename + LogExtension + ".";
 
      if (Filename.rfind(LegacyPrefix, 0) != 0 || Filename.size() == LegacyPrefix.size())
      {
@@ -548,9 +548,9 @@ void LogStream::CleanupOldRotatedFiles()
           }
 
           std::sort(RotatedFilesList.begin(), RotatedFilesList.end(), [](const auto &a, const auto &b)
-          {
-                   return a.first < b.first;
-          });
+                    {
+                         return a.first < b.first;
+                    });
 
           /* Remove files that exceed the configured age limit. */
 
@@ -576,12 +576,12 @@ void LogStream::CleanupOldRotatedFiles()
                }
 
                RotatedFilesList.erase(std::remove_if(RotatedFilesList.begin(), RotatedFilesList.end(),
-               [&](const auto &RotatedFileItem)
-               {
-                                        return !fs::exists(RotatedFileItem.second);
-               }),
-               
-               RotatedFilesList.end());
+                                                     [&](const auto &RotatedFileItem)
+                                                     {
+                                                          return !fs::exists(RotatedFileItem.second);
+                                                     }),
+
+                                      RotatedFilesList.end());
           }
 
           if (ConfigValue.max_rotated_files > 0 && RotatedFilesList.size() > ConfigValue.max_rotated_files)
@@ -641,8 +641,7 @@ std::string LogStream::GenerateRotatedFilename(size_t SequenceNum)
           {
                CandidatePath = LogDir / (LogBasename + "_" + std::string(TimestampStr) + "_" +
                                          std::to_string(SequenceNum++) + RotatedExtension);
-          }
-          while (fs::exists(CandidatePath));
+          } while (fs::exists(CandidatePath));
 
           return CandidatePath.string();
      }
@@ -696,7 +695,6 @@ LogManager::LogManager()
       NoForkMode(false),
       VerboseMode(false)
 {
-
 }
 
 /* Destructor for LogManager ensuring all active streams are flushed. */
@@ -714,13 +712,13 @@ bool LogManager::Initialize(const std::vector<LogConfig> &LogConfigs, bool Debug
 
      /* Capture runtime modes before constructing output streams. */
 
-     this->DebugMode 	   =   DebugFlag;
-     this->NoForkMode      =   NoForkFlag;
-     this->VerboseMode     =   VerboseFlag;
+     this->DebugMode = DebugFlag;
+     this->NoForkMode = NoForkFlag;
+     this->VerboseMode = VerboseFlag;
 
      if (this->VerboseMode && !this->DebugMode)
      {
-          this->DebugMode  =   true;
+          this->DebugMode = true;
      }
 
      LogStreams.clear();

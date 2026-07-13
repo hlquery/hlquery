@@ -43,9 +43,9 @@
 #include "core/hlquery.h"
 #include "core/socketengine.h"
 #include "runtime/threadlimit.h"
-#include "search/rfusion.h"
-#include "search/cstore.h"
-#include "search/lindex.h"
+#include "search/hybrid_rank_fusion.h"
+#include "search/document_collection_store.h"
+#include "search/lexical_inverted_index.h"
 #include "utils/consolewriter.h"
 #include "utils/protocol.h"
 #include "utils/wildcard.h"
@@ -277,13 +277,13 @@ HttpResponse SearchAPI::HandleListSynonyms(const HttpRequest &Request)
      }
 
      std::sort(SynonymsArray.begin(), SynonymsArray.end(), [&SortOptions](const nlohmann::json &Left, const nlohmann::json &Right)
-     {
-          return CompareLexicalSortValues(GetSynonymSortValue(Left, SortOptions.SortBy),
-                                          GetSynonymSortValue(Right, SortOptions.SortBy),
-                                          GetSynonymSortTieBreaker(Left),
-                                          GetSynonymSortTieBreaker(Right),
-                                          SortOptions.SortOrder);
-     });
+               {
+                    return CompareLexicalSortValues(GetSynonymSortValue(Left, SortOptions.SortBy),
+                                                    GetSynonymSortValue(Right, SortOptions.SortBy),
+                                                    GetSynonymSortTieBreaker(Left),
+                                                    GetSynonymSortTieBreaker(Right),
+                                                    SortOptions.SortOrder);
+               });
 
      Result["sort_by"] = SortOptions.SortBy;
      Result["sort_order"] = SortOptions.SortOrder;
@@ -343,7 +343,6 @@ HttpResponse SearchAPI::HandleListAllSynonyms(const HttpRequest &Request)
                }
                catch (const std::exception &)
                {
-               
                }
           }
 
@@ -563,7 +562,7 @@ HttpResponse SearchAPI::HandleCreateOrUpdateSynonym(const HttpRequest &Request)
                     Syn["root"] = SynonymData["root"];
                     Syn["synonyms"] = SynonymData["synonyms"];
                     Syn["updated_at"] = GetCurrentTimestamp();
-                
+
                     if (!Source.empty())
                     {
                          Syn["source"] = Source;
@@ -595,12 +594,12 @@ HttpResponse SearchAPI::HandleCreateOrUpdateSynonym(const HttpRequest &Request)
                NewSynonym["synonyms"] = SynonymData["synonyms"];
                NewSynonym["created_at"] = GetCurrentTimestamp();
                NewSynonym["updated_at"] = GetCurrentTimestamp();
-               
+
                if (!Source.empty())
                {
                     NewSynonym["source"] = Source;
                }
-               
+
                if (SynonymData.contains("confidence") && SynonymData["confidence"].is_number())
                {
                     NewSynonym["confidence"] = SynonymData["confidence"];

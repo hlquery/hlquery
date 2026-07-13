@@ -28,7 +28,6 @@
 class HybridSearchEngine
 {
    public:
-
      /* CombineScores merges lexical and vector scores. */
 
      static float CombineScores(float LexicalScore, float VectorScore, float Alpha);

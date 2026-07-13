@@ -17,7 +17,6 @@
 class HttpCodes
 {
    public:
-
      struct code
      {
           /* 2xx Success */
@@ -84,7 +83,7 @@ class HttpCodes
           static constexpr int NETWORK_AUTHENTICATION_REQUIRED = 511;
      };
 
-     static const char* StatusText(int value)
+     static const char *StatusText(int value)
      {
           switch (value)
           {
@@ -200,7 +199,7 @@ class HttpCodes
      }
 };
 
-inline const char* StatusText(int value)
+inline const char *StatusText(int value)
 {
      return HttpCodes::StatusText(value);
 }

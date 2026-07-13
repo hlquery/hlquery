@@ -16,7 +16,7 @@
 #include "api/userauth.h"
 #include "core/hlquery.h"
 #include "core/modules.h"
-#include "search/storageengine.h"
+#include "search/rocksdb_storage_engine.h"
 #include "vendor/json/json.hpp"
 
 /* Builds the fixed storage prefix used by one module. */
@@ -140,7 +140,6 @@ static void ParseJSONBodyParameters(const std::string &Body, ModuleCommandReques
      }
      catch (...)
      {
-
      }
 }
 /* Returns the storage prefix reserved for this module. */
@@ -276,7 +275,7 @@ HttpResponse RuntimeModule::HandleAPIRequest(const HttpRequest &Request, const s
           else if (command_request.Authenticated && !command_request.IsAPIKey && !command_request.AuthToken.empty())
           {
                const AuthResult Auth = Instance->Users->AuthenticateToken(command_request.AuthToken);
-          
+
                if (Auth.Valid)
                {
                     command_request.RequesterUser = Auth.UserObj.Name;

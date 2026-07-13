@@ -34,14 +34,12 @@
 ConfigReader::ConfigReader() : Valid(false),
                                IncludeDepth(0)
 {
-
 }
 
 /* ConfigReader Destructor */
 
 ConfigReader::~ConfigReader()
 {
-
 }
 
 /* Helper function to format file size in human-readable format */
@@ -1129,7 +1127,7 @@ bool ConfigReader::ProcessCommentsAndIncludes(const std::string &Content,
                     std::string Path;
 
                     ActiveIncludeScope(ConfigReader *ReaderPtr, const std::string &PathValue)
-                         : Reader(ReaderPtr), Path(PathValue)
+                        : Reader(ReaderPtr), Path(PathValue)
                     {
                          Reader->ActiveIncludes.insert(Path);
                          Reader->IncludeDepth++;

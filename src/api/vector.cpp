@@ -28,7 +28,7 @@
 #include "api/common.h"
 #include "core/hlquery.h"
 #include "core/modulemanager.h"
-#include "search/rfusion.h"
+#include "search/hybrid_rank_fusion.h"
 #include "vendor/json/json.hpp"
 
 /* Provides vector search API handlers and vector payload parsing. */
@@ -815,8 +815,8 @@ static bool ValidateParsedVectorRequest(const nlohmann::json &Root, int DefaultT
           if (Error)
           {
                *Error = ParseError.empty()
-                            ? "Vector search requires at least one valid non-empty vector query."
-                            : ParseError;
+                             ? "Vector search requires at least one valid non-empty vector query."
+                             : ParseError;
           }
           return false;
      }
@@ -1670,7 +1670,7 @@ float SearchAPI::CalculateVectorSimilarity(const Document &Doc, const VectorQuer
 
 class VectorIndex
 {
-  public:
+   public:
      virtual ~VectorIndex() = default;
      virtual std::vector<Document> LoadCandidates(const std::string &Collection,
                                                   const ParsedVectorRequest &Request,
@@ -1680,7 +1680,7 @@ class VectorIndex
 
 class BruteForceVectorIndex : public VectorIndex
 {
-  public:
+   public:
      std::vector<Document> LoadCandidates(const std::string &Collection,
                                           const ParsedVectorRequest &,
                                           int CandidateLimit) override

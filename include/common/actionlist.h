@@ -39,47 +39,45 @@
 class CoreExport ActionList
 {
    private:
-
      /* Active processing queue; holds actions currently being executed. */
 
-     static std::vector<std::function<void()>>& Actions;
+     static std::vector<std::function<void()>> &Actions;
 
      /* Incoming queue; holds actions waiting for the next processing cycle. */
 
-     static std::vector<std::function<void()>>& PendingActions;
+     static std::vector<std::function<void()>> &PendingActions;
 
      /* Synchronizes access to both action queues and related state. */
 
-     static std::mutex& ActionsMutex;
+     static std::mutex &ActionsMutex;
 
      /* Re-entrancy guard indicating whether processing is currently running. */
 
-     static std::atomic<bool>& Processing;
+     static std::atomic<bool> &Processing;
 
      /* Statistics counters */
 
      /* Total number of actions accepted into the queue. */
 
-     static std::atomic<size_t>& TotalQueued;
+     static std::atomic<size_t> &TotalQueued;
 
      /* Total number of actions executed without exceptions. */
 
-     static std::atomic<size_t>& TotalProcessed;
+     static std::atomic<size_t> &TotalProcessed;
 
      /* Total number of actions that failed during execution. */
 
-     static std::atomic<size_t>& TotalFailed;
+     static std::atomic<size_t> &TotalFailed;
 
      /* Total number of actions rejected due to queue capacity limits. */
 
-     static std::atomic<size_t>& TotalDropped;
+     static std::atomic<size_t> &TotalDropped;
 
      /* Number of actions currently being executed outside the queue lock. */
 
-     static std::atomic<size_t>& CurrentProcessingCount;
+     static std::atomic<size_t> &CurrentProcessingCount;
 
    public:
-
      using Action = std::function<void()>;
 
      /* Statistics structure for monitoring action list performance. */

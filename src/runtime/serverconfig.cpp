@@ -123,9 +123,9 @@ bool ServerConfig::LoadConfig(const std::string &ConfigFilePath)
      }
 
      if (Instance && Instance->Config && Instance->Config->GetDebugMode())
-      {
-           ConsoleWriter::WriteDebug("ServerConfig::LoadConfig: Loading config file: " + ConfigFilePath + ".");
-      }
+     {
+          ConsoleWriter::WriteDebug("ServerConfig::LoadConfig: Loading config file: " + ConfigFilePath + ".");
+     }
 
      {
           std::error_code Ec;
@@ -372,283 +372,282 @@ void ServerConfig::ApplyConfiguration()
           AIModelCatalog.push_back({"qwen_coder_1_5", "Qwen2.5.1-Coder-1.5B-Instruct-Q4_K_M.gguf", false});
      }
 
-    auto ResolveRelativePath = [&](const std::filesystem::path &RawPath) -> std::filesystem::path
-    {
-         if (RawPath.empty() || RawPath.is_absolute())
-         {
-              return RawPath;
-         }
+     auto ResolveRelativePath = [&](const std::filesystem::path &RawPath) -> std::filesystem::path
+     {
+          if (RawPath.empty() || RawPath.is_absolute())
+          {
+               return RawPath;
+          }
 
-         std::error_code Ec;
-         const std::filesystem::path WorkingCandidate = std::filesystem::absolute(RawPath, Ec);
+          std::error_code Ec;
+          const std::filesystem::path WorkingCandidate = std::filesystem::absolute(RawPath, Ec);
 
-         if (!Ec && std::filesystem::exists(WorkingCandidate))
-         {
-              return WorkingCandidate;
-         }
+          if (!Ec && std::filesystem::exists(WorkingCandidate))
+          {
+               return WorkingCandidate;
+          }
 
-         if (!ConfigDirectory.empty())
-         {
-              std::filesystem::path RepoRootCandidateBase = std::filesystem::path(ConfigDirectory);
-              std::filesystem::path RunDir;
-              std::filesystem::path RepoRootDir;
+          if (!ConfigDirectory.empty())
+          {
+               std::filesystem::path RepoRootCandidateBase = std::filesystem::path(ConfigDirectory);
+               std::filesystem::path RunDir;
+               std::filesystem::path RepoRootDir;
 
-              if (RepoRootCandidateBase.filename() == "conf")
-              {
-                   RunDir = RepoRootCandidateBase.parent_path();
+               if (RepoRootCandidateBase.filename() == "conf")
+               {
+                    RunDir = RepoRootCandidateBase.parent_path();
 
-                   if (RunDir.filename() == "run")
-                   {
-                        RepoRootDir = RunDir.parent_path();
+                    if (RunDir.filename() == "run")
+                    {
+                         RepoRootDir = RunDir.parent_path();
 
-                        if (!RepoRootDir.empty())
-                        {
-                             const std::filesystem::path LocalSharedModelsDir = RepoRootDir / "run" / "models";
-                             const std::filesystem::path ParentSharedModelsDir = RepoRootDir.parent_path() / "run" / "models";
+                         if (!RepoRootDir.empty())
+                         {
+                              const std::filesystem::path LocalSharedModelsDir = RepoRootDir / "run" / "models";
+                              const std::filesystem::path ParentSharedModelsDir = RepoRootDir.parent_path() / "run" / "models";
 
-                             if (!std::filesystem::exists(LocalSharedModelsDir) &&
-                                 std::filesystem::exists(ParentSharedModelsDir))
-                             {
-                                  RepoRootDir = RepoRootDir.parent_path();
-                             }
-                        }
-                   }
-              }
+                              if (!std::filesystem::exists(LocalSharedModelsDir) &&
+                                  std::filesystem::exists(ParentSharedModelsDir))
+                              {
+                                   RepoRootDir = RepoRootDir.parent_path();
+                              }
+                         }
+                    }
+               }
 
-              const std::filesystem::path ConfigCandidate =
-                   std::filesystem::absolute(std::filesystem::path(ConfigDirectory) / RawPath, Ec);
+               const std::filesystem::path ConfigCandidate =
+                    std::filesystem::absolute(std::filesystem::path(ConfigDirectory) / RawPath, Ec);
 
-              if (!Ec && std::filesystem::exists(ConfigCandidate))
-              {
-                   return ConfigCandidate;
-              }
+               if (!Ec && std::filesystem::exists(ConfigCandidate))
+               {
+                    return ConfigCandidate;
+               }
 
-              if (!ResolveAIPathsRelativeToConfig && !RepoRootDir.empty())
-              {
-                   std::error_code RepoRootEC;
-                   const std::filesystem::path NormalizedRaw = RawPath.lexically_normal();
-                   const std::string NormalizedRawString = NormalizedRaw.generic_string();
+               if (!ResolveAIPathsRelativeToConfig && !RepoRootDir.empty())
+               {
+                    std::error_code RepoRootEC;
+                    const std::filesystem::path NormalizedRaw = RawPath.lexically_normal();
+                    const std::string NormalizedRawString = NormalizedRaw.generic_string();
 
-                   if (NormalizedRawString == "../models" ||
-                       NormalizedRawString.rfind("../models/", 0) == 0)
-                   {
-                        std::filesystem::path SharedModelsPath = RepoRootDir / "run" / "models";
-                        static const std::string SharedModelsPrefix = "../models/";
+                    if (NormalizedRawString == "../models" ||
+                        NormalizedRawString.rfind("../models/", 0) == 0)
+                    {
+                         std::filesystem::path SharedModelsPath = RepoRootDir / "run" / "models";
+                         static const std::string SharedModelsPrefix = "../models/";
 
-                        if (NormalizedRawString.rfind(SharedModelsPrefix, 0) == 0 &&
-                            NormalizedRawString.size() > SharedModelsPrefix.size())
-                        {
-                             SharedModelsPath /= NormalizedRawString.substr(SharedModelsPrefix.size());
-                        }
+                         if (NormalizedRawString.rfind(SharedModelsPrefix, 0) == 0 &&
+                             NormalizedRawString.size() > SharedModelsPrefix.size())
+                         {
+                              SharedModelsPath /= NormalizedRawString.substr(SharedModelsPrefix.size());
+                         }
 
-                        const std::filesystem::path SharedModelsCandidate =
-                             std::filesystem::absolute(SharedModelsPath, RepoRootEC);
+                         const std::filesystem::path SharedModelsCandidate =
+                              std::filesystem::absolute(SharedModelsPath, RepoRootEC);
 
-                        if (!RepoRootEC && std::filesystem::exists(SharedModelsCandidate))
-                        {
-                             return SharedModelsCandidate;
-                        }
-                   }
-              }
+                         if (!RepoRootEC && std::filesystem::exists(SharedModelsCandidate))
+                         {
+                              return SharedModelsCandidate;
+                         }
+                    }
+               }
 
-              if (RawPath.has_relative_path())
-              {
-                   if (!RepoRootDir.empty())
-                   {
-                        const std::filesystem::path RepoRootCandidate =
-                             std::filesystem::absolute(RepoRootDir / RawPath, Ec);
+               if (RawPath.has_relative_path())
+               {
+                    if (!RepoRootDir.empty())
+                    {
+                         const std::filesystem::path RepoRootCandidate =
+                              std::filesystem::absolute(RepoRootDir / RawPath, Ec);
 
-                        if (!RunDir.empty() && RawPath.begin() != RawPath.end() && *RawPath.begin() == "data" && !Ec)
-                        {
-                             return std::filesystem::absolute(RunDir / RawPath, Ec);
-                        }
+                         if (!RunDir.empty() && RawPath.begin() != RawPath.end() && *RawPath.begin() == "data" && !Ec)
+                         {
+                              return std::filesystem::absolute(RunDir / RawPath, Ec);
+                         }
 
-                        /* Paths like run/data/... in run/conf/hlquery.conf are project-root-relative,
+                         /* Paths like run/data/... in run/conf/hlquery.conf are project-root-relative,
                          * not relative to run/conf. Resolve them to <repo>/run/... even before the
                          * target exists so runtime directories do not get created under run/conf/run/. */
-                        if (RawPath.begin() != RawPath.end() && *RawPath.begin() == "run" && !Ec)
-                        {
-                             return RepoRootCandidate;
-                        }
+                         if (RawPath.begin() != RawPath.end() && *RawPath.begin() == "run" && !Ec)
+                         {
+                              return RepoRootCandidate;
+                         }
 
-                        if (!Ec && std::filesystem::exists(RepoRootCandidate))
-                        {
-                             return RepoRootCandidate;
-                        }
-                   }
-              }
+                         if (!Ec && std::filesystem::exists(RepoRootCandidate))
+                         {
+                              return RepoRootCandidate;
+                         }
+                    }
+               }
 
-              if (!Ec)
-              {
-                   return ConfigCandidate;
-              }
-         }
+               if (!Ec)
+               {
+                    return ConfigCandidate;
+               }
+          }
 
-         return WorkingCandidate;
-    };
+          return WorkingCandidate;
+     };
 
-    auto ResolveModelPath = [&](const ServerConfig::AIModelDescriptor &Descriptor) -> std::string
-    {
-         std::filesystem::path Candidate(Descriptor.File);
+     auto ResolveModelPath = [&](const ServerConfig::AIModelDescriptor &Descriptor) -> std::string
+     {
+          std::filesystem::path Candidate(Descriptor.File);
 
-         if (!Candidate.is_absolute() && !AIModelsDirectory.empty())
-         {
-              Candidate = std::filesystem::path(AIModelsDirectory) / Candidate;
-         }
+          if (!Candidate.is_absolute() && !AIModelsDirectory.empty())
+          {
+               Candidate = std::filesystem::path(AIModelsDirectory) / Candidate;
+          }
 
-         return ResolveRelativePath(Candidate).string();
-    };
+          return ResolveRelativePath(Candidate).string();
+     };
 
-    auto FindFirstModel = [&]() -> std::string
-    {
-         if (AIModelsDirectory.empty())
-         {
-              return "";
-         }
+     auto FindFirstModel = [&]() -> std::string
+     {
+          if (AIModelsDirectory.empty())
+          {
+               return "";
+          }
 
-         const std::filesystem::path ModelsDirectory =
-              ResolveRelativePath(std::filesystem::path(AIModelsDirectory));
-         std::error_code Ec;
+          const std::filesystem::path ModelsDirectory =
+               ResolveRelativePath(std::filesystem::path(AIModelsDirectory));
+          std::error_code Ec;
 
-         if (!std::filesystem::exists(ModelsDirectory, Ec) ||
-             !std::filesystem::is_directory(ModelsDirectory, Ec))
-         {
-              return "";
-         }
+          if (!std::filesystem::exists(ModelsDirectory, Ec) ||
+              !std::filesystem::is_directory(ModelsDirectory, Ec))
+          {
+               return "";
+          }
 
-         std::vector<std::filesystem::path> Candidates;
+          std::vector<std::filesystem::path> Candidates;
 
-         for (std::filesystem::directory_iterator It(ModelsDirectory, Ec), End;
-              !Ec && It != End;
-              It.increment(Ec))
-         {
-              if (!It->is_regular_file(Ec))
-              {
-                   continue;
-              }
+          for (std::filesystem::directory_iterator It(ModelsDirectory, Ec), End;
+               !Ec && It != End;
+               It.increment(Ec))
+          {
+               if (!It->is_regular_file(Ec))
+               {
+                    continue;
+               }
 
-              std::string Extension = It->path().extension().string();
-              std::transform(Extension.begin(), Extension.end(), Extension.begin(),
-                             [](unsigned char C)
-                             {
-                                  return static_cast<char>(std::tolower(C));
-                             });
+               std::string Extension = It->path().extension().string();
+               std::transform(Extension.begin(), Extension.end(), Extension.begin(),
+                              [](unsigned char C)
+                              {
+                                   return static_cast<char>(std::tolower(C));
+                              });
 
-              if (Extension == ".gguf")
-              {
-                   Candidates.push_back(It->path());
-              }
-         }
+               if (Extension == ".gguf")
+               {
+                    Candidates.push_back(It->path());
+               }
+          }
 
-         if (Ec || Candidates.empty())
-         {
-              return "";
-         }
+          if (Ec || Candidates.empty())
+          {
+               return "";
+          }
 
-         std::sort(Candidates.begin(), Candidates.end());
-         return Candidates.front().string();
-    };
+          std::sort(Candidates.begin(), Candidates.end());
+          return Candidates.front().string();
+     };
 
-    auto PickDefaultModel = [&]() -> std::string
-    {
-         if (AIModelCatalog.empty())
-         {
-              return "";
-         }
+     auto PickDefaultModel = [&]() -> std::string
+     {
+          if (AIModelCatalog.empty())
+          {
+               return "";
+          }
 
-         auto DefaultIt = std::find_if(AIModelCatalog.begin(), AIModelCatalog.end(),
-                                       [](const ServerConfig::AIModelDescriptor &Entry)
-                                       {
-                                            return Entry.IsDefault;
-                                       });
-
-         if (DefaultIt != AIModelCatalog.end())
-         {
-              return DefaultIt->Name;
-         }
-
-         return AIModelCatalog.front().Name;
-    };
-
-    std::string AutoFoundModelPath;
-
-    if (AutoFindModel &&
-        ModelFileOverride.empty() &&
-        ModelPathOverride.empty() &&
-        AIModelName.empty())
-    {
-         AutoFoundModelPath = FindFirstModel();
-    }
-
-    if (!ModelFileOverride.empty())
-    {
-         std::filesystem::path FilePath(ModelFileOverride);
-
-         if (!FilePath.is_absolute() && !AIModelsDirectory.empty())
-         {
-              FilePath = std::filesystem::path(AIModelsDirectory) / FilePath;
-         }
-
-         AIModelPath = ResolveRelativePath(FilePath).string();
-    }
-    else if (!ModelPathOverride.empty())
-    {
-         std::filesystem::path OverridePath(ModelPathOverride);
-
-         if (!OverridePath.is_absolute() && !AIModelsDirectory.empty())
-         {
-              OverridePath = std::filesystem::path(AIModelsDirectory) / OverridePath;
-         }
-
-         AIModelPath = ResolveRelativePath(OverridePath).string();
-    }
-    else if (!AutoFoundModelPath.empty())
-    {
-         AIModelPath = AutoFoundModelPath;
-         AIModelName = std::filesystem::path(AIModelPath).filename().string();
-    }
-    else if (!AIModelCatalog.empty())
-    {
-         if (AIModelName.empty())
-         {
-              AIModelName = PickDefaultModel();
-         }
-
-         auto SelectedIt = std::find_if(AIModelCatalog.begin(), AIModelCatalog.end(),
-                                        [&](const ServerConfig::AIModelDescriptor &Entry)
+          auto DefaultIt = std::find_if(AIModelCatalog.begin(), AIModelCatalog.end(),
+                                        [](const ServerConfig::AIModelDescriptor &Entry)
                                         {
-                                             return Entry.Name == AIModelName;
+                                             return Entry.IsDefault;
                                         });
 
-         if (SelectedIt != AIModelCatalog.end())
-         {
-              AIModelPath = ResolveModelPath(*SelectedIt);
-         }
-         else
-         {
-              AIModelPath.clear();
-         }
-    }
-    else
-    {
-         AIModelPath.clear();
-    }
-    const bool HasExplicitAIConfig = (AITag != nullptr);
+          if (DefaultIt != AIModelCatalog.end())
+          {
+               return DefaultIt->Name;
+          }
 
-    if (HasExplicitAIConfig && AIEnabled)
-    {
-         if (AIModelPath.empty())
-         {
-              throw std::runtime_error("AI model is configured but no model path could be resolved.");
-         }
+          return AIModelCatalog.front().Name;
+     };
 
-         std::error_code ModelEC;
+     std::string AutoFoundModelPath;
 
-         if (!std::filesystem::exists(AIModelPath, ModelEC) || std::filesystem::is_directory(AIModelPath, ModelEC))
-         {
-              throw std::runtime_error("Configured AI model file does not exist: " + AIModelPath);
-         }
+     if (AutoFindModel &&
+         ModelFileOverride.empty() &&
+         ModelPathOverride.empty() &&
+         AIModelName.empty())
+     {
+          AutoFoundModelPath = FindFirstModel();
+     }
 
+     if (!ModelFileOverride.empty())
+     {
+          std::filesystem::path FilePath(ModelFileOverride);
+
+          if (!FilePath.is_absolute() && !AIModelsDirectory.empty())
+          {
+               FilePath = std::filesystem::path(AIModelsDirectory) / FilePath;
+          }
+
+          AIModelPath = ResolveRelativePath(FilePath).string();
+     }
+     else if (!ModelPathOverride.empty())
+     {
+          std::filesystem::path OverridePath(ModelPathOverride);
+
+          if (!OverridePath.is_absolute() && !AIModelsDirectory.empty())
+          {
+               OverridePath = std::filesystem::path(AIModelsDirectory) / OverridePath;
+          }
+
+          AIModelPath = ResolveRelativePath(OverridePath).string();
+     }
+     else if (!AutoFoundModelPath.empty())
+     {
+          AIModelPath = AutoFoundModelPath;
+          AIModelName = std::filesystem::path(AIModelPath).filename().string();
+     }
+     else if (!AIModelCatalog.empty())
+     {
+          if (AIModelName.empty())
+          {
+               AIModelName = PickDefaultModel();
+          }
+
+          auto SelectedIt = std::find_if(AIModelCatalog.begin(), AIModelCatalog.end(),
+                                         [&](const ServerConfig::AIModelDescriptor &Entry)
+                                         {
+                                              return Entry.Name == AIModelName;
+                                         });
+
+          if (SelectedIt != AIModelCatalog.end())
+          {
+               AIModelPath = ResolveModelPath(*SelectedIt);
+          }
+          else
+          {
+               AIModelPath.clear();
+          }
+     }
+     else
+     {
+          AIModelPath.clear();
+     }
+     const bool HasExplicitAIConfig = (AITag != nullptr);
+
+     if (HasExplicitAIConfig && AIEnabled)
+     {
+          if (AIModelPath.empty())
+          {
+               throw std::runtime_error("AI model is configured but no model path could be resolved.");
+          }
+
+          std::error_code ModelEC;
+
+          if (!std::filesystem::exists(AIModelPath, ModelEC) || std::filesystem::is_directory(AIModelPath, ModelEC))
+          {
+               throw std::runtime_error("Configured AI model file does not exist: " + AIModelPath);
+          }
      }
 
      /* Handle network binding configurations for multiple listeners */
@@ -1013,7 +1012,7 @@ void ServerConfig::ApplyConfiguration()
                {
                     ConsoleWriter::WriteError("Invalid search match_mode specified: '" + MatchModeValue + "'.");
                     ConsoleWriter::WriteError("Valid match modes are: and, or, min_should_match.");
-                    
+
                     ExitManager::Exit(1);
                }
           }
@@ -1044,11 +1043,11 @@ void ServerConfig::ApplyConfiguration()
           {
                std::string IdfModeValue = RankingParamsTag->GetString("idf_mode", RankingIdfMode);
                std::transform(IdfModeValue.begin(), IdfModeValue.end(), IdfModeValue.begin(),
-               [](unsigned char C)
-               {
-                         return static_cast<char>(std::tolower(C));
-               });
-               
+                              [](unsigned char C)
+                              {
+                                   return static_cast<char>(std::tolower(C));
+                              });
+
                if (IdfModeValue == "legacy" || IdfModeValue == "smooth")
                {
                     RankingIdfMode = IdfModeValue;
@@ -1083,11 +1082,11 @@ void ServerConfig::ApplyConfiguration()
           {
                std::string MergeMethodValue = HybridMergeTag->GetString("method", HybridMergeMethod);
                std::transform(MergeMethodValue.begin(), MergeMethodValue.end(), MergeMethodValue.begin(),
-               [](unsigned char C)
-               {
-                       return static_cast<char>(std::tolower(C));
-               });
-               
+                              [](unsigned char C)
+                              {
+                                   return static_cast<char>(std::tolower(C));
+                              });
+
                if (MergeMethodValue == "linear" || MergeMethodValue == "rrf")
                {
                     HybridMergeMethod = MergeMethodValue;
@@ -1502,12 +1501,12 @@ void ServerConfig::ApplyConfiguration()
                NewLogConfig.rotation_interval = ParseRotationInterval(LogTagItem);
 
                NewLogConfig.max_rotated_files = LogTagItem->HasAttribute("max_rotated_files")
-                    ? static_cast<size_t>(LogTagItem->GetUnsignedInt("max_rotated_files", static_cast<unsigned int>(NewLogConfig.max_rotated_files)))
-                    : NewLogConfig.max_rotated_files;
+                                                     ? static_cast<size_t>(LogTagItem->GetUnsignedInt("max_rotated_files", static_cast<unsigned int>(NewLogConfig.max_rotated_files)))
+                                                     : NewLogConfig.max_rotated_files;
 
                NewLogConfig.max_age_days = LogTagItem->HasAttribute("max_age_days")
-                    ? static_cast<size_t>(LogTagItem->GetUnsignedInt("max_age_days", 0))
-                    : 0;
+                                                ? static_cast<size_t>(LogTagItem->GetUnsignedInt("max_age_days", 0))
+                                                : 0;
 
                if (NewLogConfig.method == "file")
                {
@@ -1679,8 +1678,8 @@ void ServerConfig::ApplyConfiguration()
      {
           Instance->Logs->Debug("serverconfig",
                                 "Loaded " + std::to_string(IPFilterTags.size()) +
-                                " ip_filter/iptfilter tag(s): dns_cache_size=" +
-                                std::to_string(DNSCacheMaxSize) + ".");
+                                     " ip_filter/iptfilter tag(s): dns_cache_size=" +
+                                     std::to_string(DNSCacheMaxSize) + ".");
      }
 
      /* Configure pivot-based normalization settings */
@@ -2318,7 +2317,7 @@ bool ServerConfig::RemoveClusterNode(const std::string &Endpoint, std::string *O
           {
                *OutError = Error.empty() ? "Invalid endpoint" : Error;
           }
-          
+
           return false;
      }
 
@@ -2479,7 +2478,7 @@ bool ServerConfig::GetSlavePeerTokens(const std::string &Endpoint,
           {
                OutSecondaryToken->clear();
           }
-          
+
           return false;
      }
 

@@ -37,7 +37,7 @@ struct WALEntryValidationResult
      bool IsRecoveryMode = false;
 };
 
-inline const char* WALEntryValidationErrorCode(WALEntryValidationError error)
+inline const char *WALEntryValidationErrorCode(WALEntryValidationError error)
 {
      switch (error)
      {
@@ -52,7 +52,7 @@ inline const char* WALEntryValidationErrorCode(WALEntryValidationError error)
      return "unknown_wal_validation_error";
 }
 
-inline std::string WALEntryValidationMessage(const WALEntryValidationResult& result)
+inline std::string WALEntryValidationMessage(const WALEntryValidationResult &result)
 {
      if (result.Valid)
      {

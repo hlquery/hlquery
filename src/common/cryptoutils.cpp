@@ -26,21 +26,21 @@
 
 namespace
 {
-     std::string HexBytes(const unsigned char *Data, size_t Len)
+std::string HexBytes(const unsigned char *Data, size_t Len)
+{
+     static constexpr char HexChars[] = "0123456789abcdef";
+
+     std::string Result;
+     Result.resize(Len * 2);
+
+     for (size_t I = 0; I < Len; ++I)
      {
-          static constexpr char HexChars[] = "0123456789abcdef";
-
-          std::string Result;
-          Result.resize(Len * 2);
-
-          for (size_t I = 0; I < Len; ++I)
-          {
-               Result[I * 2] = HexChars[(Data[I] >> 4) & 0x0F];
-               Result[I * 2 + 1] = HexChars[Data[I] & 0x0F];
-          }
-
-          return Result;
+          Result[I * 2] = HexChars[(Data[I] >> 4) & 0x0F];
+          Result[I * 2 + 1] = HexChars[Data[I] & 0x0F];
      }
+
+     return Result;
+}
 }
 
 std::vector<uint8_t> SHA256(const void *data, size_t len)

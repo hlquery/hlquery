@@ -41,10 +41,10 @@
 #include "core/hlquery.h"
 #include "core/socketengine.h"
 #include "runtime/threadlimit.h"
-#include "search/rfusion.h"
-#include "search/cstore.h"
-#include "search/storageengine.h"
-#include "search/lindex.h"
+#include "search/hybrid_rank_fusion.h"
+#include "search/document_collection_store.h"
+#include "search/rocksdb_storage_engine.h"
+#include "search/lexical_inverted_index.h"
 #include "utils/consolewriter.h"
 #include "utils/protocol.h"
 #include "utils/wildcard.h"
@@ -178,7 +178,7 @@ inline bool ParseSharedNodeEndpoint(const std::string &Raw,
           {
                Host = Node.substr(0, ColonPos);
                std::string PortStr = TrimNodeEndpointValue(Node.substr(ColonPos + 1));
-           
+
                if (PortStr.empty())
                {
                     if (!Options.AllowEmptyPort)
@@ -190,12 +190,12 @@ inline bool ParseSharedNodeEndpoint(const std::string &Raw,
                {
                     int ParsedPort = 0;
                     auto [Ptr, EC] = std::from_chars(PortStr.data(), PortStr.data() + PortStr.size(), ParsedPort);
-                
+
                     if (EC != std::errc() || Ptr != PortStr.data() + PortStr.size())
                     {
                          return false;
                     }
-                
+
                     Port = ParsedPort;
                }
           }

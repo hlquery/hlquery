@@ -32,7 +32,7 @@
 #include "core/logmanager.h"
 #include "core/socketengine.h"
 #include "runtime/timers.h"
-#include "search/storageengine.h"
+#include "search/rocksdb_storage_engine.h"
 
 /* HLQuery ae.c inspired - clean and simple poll backend */
 
@@ -744,7 +744,6 @@ int SocketEngine::DispatchEvents()
                catch (...)
                {
                     /* Ignore flush errors and continue processing. */
-
                }
           }
      }
@@ -914,7 +913,6 @@ int SocketEngine::DispatchEvents()
            * poll() already delivered the ready set for this cycle, so do
            * not recurse and rescan the descriptor array.
            */
-
      }
 
      /* DEBUG: Log final result */
@@ -1017,14 +1015,12 @@ void SocketEngine::DispatchTrialWrites()
                 * Do not yield between immediate publish writes; the batch
                 * boundary already limits per-pass work.
                 */
-
           }
 
           /*
            * Inter-batch yielding is intentionally omitted to keep publish
            * delivery latency low under load.
            */
-
      }
 }
 
@@ -1145,16 +1141,16 @@ void SocketEngine::UnregisterPendingWrite(EventHandler *EH)
                {
                     size_t index = index_it->second;
 
-                   if (index < PollFDs.size() && PollFDs[index].fd == fd)
-                   {
+                    if (index < PollFDs.size() && PollFDs[index].fd == fd)
+                    {
                          /*
                           * Remove transient write readiness only when the
                           * original registration did not request POLLOUT.
                           */
 
-                        if ((EH->GetEventMask() & EPOLLOUT) == 0)
-                        {
-                             PollFDs[index].events &= ~POLLOUT;
+                         if ((EH->GetEventMask() & EPOLLOUT) == 0)
+                         {
+                              PollFDs[index].events &= ~POLLOUT;
                          }
                          return;
                     }
@@ -1164,16 +1160,16 @@ void SocketEngine::UnregisterPendingWrite(EventHandler *EH)
 
                for (auto &pfd : PollFDs)
                {
-                   if (pfd.fd == fd)
-                   {
+                    if (pfd.fd == fd)
+                    {
                          /*
                           * The fallback path follows the same rule as the
                           * indexed path: preserve caller-owned POLLOUT.
                           */
 
-                        if ((EH->GetEventMask() & EPOLLOUT) == 0)
-                        {
-                             pfd.events &= ~POLLOUT;
+                         if ((EH->GetEventMask() & EPOLLOUT) == 0)
+                         {
+                              pfd.events &= ~POLLOUT;
                          }
                          break;
                     }
@@ -1247,7 +1243,6 @@ void SocketEngine::InitializeAdvancedIO()
 void SocketEngine::InitializeZeroCopyBuffers()
 {
      /* No-op: poll doesn't support zero-copy buffers */
-
 }
 
 /* Cleans up zero-copy buffers */
@@ -1255,7 +1250,6 @@ void SocketEngine::InitializeZeroCopyBuffers()
 void SocketEngine::CleanupZeroCopyBuffers()
 {
      /* No-op: poll doesn't support zero-copy buffers */
-
 }
 
 /* Starts I/O worker threads */
@@ -1263,7 +1257,6 @@ void SocketEngine::CleanupZeroCopyBuffers()
 void SocketEngine::StartIOWorkerThreads()
 {
      /* No-op: poll doesn't use worker threads */
-
 }
 
 /* I/O worker thread loop */
@@ -1278,7 +1271,6 @@ void SocketEngine::IOWorkerThread(unsigned int WorkerID)
 void SocketEngine::SetOptimalSocketOptions()
 {
      /* No-op: poll doesn't require special socket options */
-
 }
 
 /* Returns a zero-copy buffer */

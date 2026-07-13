@@ -16,29 +16,29 @@
 #include <sched.h>
 #include <sstream>
 #include <unistd.h>
-     
+
 #if defined(__linux__)
-     
-     #include <sys/sysinfo.h>
-     
+
+#include <sys/sysinfo.h>
+
 #endif
 
 #include "common/searchpool.h"
 #include "core/hlquery.h"
 #include "runtime/threadlimit.h"
-#include "search/storageengine.h"
+#include "search/rocksdb_storage_engine.h"
 
 namespace
 {
-     std::chrono::steady_clock::time_point PoolNow()
+std::chrono::steady_clock::time_point PoolNow()
+{
+     if (Instance)
      {
-          if (Instance)
-          {
-               return Instance->Now();
-          }
-
-          return std::chrono::steady_clock::now();
+          return Instance->Now();
      }
+
+     return std::chrono::steady_clock::now();
+}
 }
 
 SearchThreadPool::SearchThreadPool(const ThreadPoolConfig &config)
@@ -1271,6 +1271,6 @@ std::vector<int> CPUAffinityManager::GetOptimalCoresForPool(SearchThreadPool::Po
 void CPUAffinityManager::EnableNUMAOptimization()
 {
      NUMAEnabled = true;
-     
+
      /* Additional NUMA optimization logic would go here */
 }

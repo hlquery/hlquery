@@ -37,7 +37,6 @@ ModulePreCheckResult MakeDeniedResult(const std::string &Operation, const std::s
 class DemoRuntimeModule final : public AutoRuntimeModule<DemoRuntimeModule>
 {
    private:
-
      bool BlockLinks = true;
 
      bool BlockAdmin = true;
@@ -86,11 +85,10 @@ class DemoRuntimeModule final : public AutoRuntimeModule<DemoRuntimeModule>
      }
 
    public:
-
      /* Initialize the demo runtime module. */
 
      DemoRuntimeModule()
-          : AutoRuntimeModule("demo", false)
+         : AutoRuntimeModule("demo", false)
      {
      }
 

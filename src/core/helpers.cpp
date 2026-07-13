@@ -24,220 +24,220 @@
 #include "utils/consolewriter.h"
 #include "utils/infos.h"
 #include "utils/tools.h"
-#include "search/storageengine.h"
+#include "search/rocksdb_storage_engine.h"
 
 namespace
 {
-     /* Records a periodic task failure only when the logging subsystem is ready. */
+/* Records a periodic task failure only when the logging subsystem is ready. */
 
-     void LogPeriodicTaskFailure(const std::string &Message)
+void LogPeriodicTaskFailure(const std::string &Message)
+{
+     if (Instance && Instance->Logs)
      {
-          if (Instance && Instance->Logs)
-          {
-               Instance->Logs->Debug("hlquery", Message);
-          }
+          Instance->Logs->Debug("hlquery", Message);
      }
+}
 
-     void LogPeriodicTaskFailure(const std::string &TaskName, const std::exception &Error)
+void LogPeriodicTaskFailure(const std::string &TaskName, const std::exception &Error)
+{
+     LogPeriodicTaskFailure(TaskName + " failed: " + Error.what() + ".");
+}
+
+void LogUnknownPeriodicTaskFailure(const std::string &TaskName)
+{
+     LogPeriodicTaskFailure(TaskName + " failed with unknown exception.");
+}
+
+}
+
+/* Returns true when either process termination state has been requested. */
+
+bool CoreHelpers::ShouldExitLoop()
+{
+     return hlquery::ShouldForceExit() || hlquery::ShouldShutdown();
+}
+
+/* Transfers ownership of a worker thread to the application thread registry. */
+
+void hlquery::AddBackgroundThread(std::thread &&ThreadVal)
+{
+     /* Protect the registry while appending the new worker. */
+
+     std::lock_guard<std::mutex> Lock(BackgroundThreadsMutex);
+     BackgroundThreads.push_back(std::move(ThreadVal));
+}
+
+/* Removes and returns all registered worker threads for orderly joining. */
+
+std::vector<std::thread> hlquery::TakeBackgroundThreads()
+{
+     std::vector<std::thread> ThreadsToJoin;
+
+     /* Swap under the lock to minimize time spent blocking thread registration. */
+
      {
-          LogPeriodicTaskFailure(TaskName + " failed: " + Error.what() + ".");
-     }
-
-     void LogUnknownPeriodicTaskFailure(const std::string &TaskName)
-     {
-          LogPeriodicTaskFailure(TaskName + " failed with unknown exception.");
-     }
-
-     } 
-
-     /* Returns true when either process termination state has been requested. */
-
-     bool CoreHelpers::ShouldExitLoop()
-     {
-          return hlquery::ShouldForceExit() || hlquery::ShouldShutdown();
-     }
-
-     /* Transfers ownership of a worker thread to the application thread registry. */
-
-     void hlquery::AddBackgroundThread(std::thread &&ThreadVal)
-     {
-          /* Protect the registry while appending the new worker. */
-
           std::lock_guard<std::mutex> Lock(BackgroundThreadsMutex);
-          BackgroundThreads.push_back(std::move(ThreadVal));
+          ThreadsToJoin.swap(BackgroundThreads);
      }
 
-     /* Removes and returns all registered worker threads for orderly joining. */
+     return ThreadsToJoin;
+}
 
-     std::vector<std::thread> hlquery::TakeBackgroundThreads()
+/* Flushes pending database writes without allowing failures to stop periodic work. */
+
+void CoreHelpers::SafePeriodicFlush()
+{
+     /* A flush is unavailable until both the application and database exist. */
+
+     if (!Instance || !Instance->Database)
      {
-          std::vector<std::thread> ThreadsToJoin;
-
-          /* Swap under the lock to minimize time spent blocking thread registration. */
-
-          {
-               std::lock_guard<std::mutex> Lock(BackgroundThreadsMutex);
-               ThreadsToJoin.swap(BackgroundThreads);
-          }
-
-          return ThreadsToJoin;
+          return;
      }
 
-     /* Flushes pending database writes without allowing failures to stop periodic work. */
+     /* Isolate storage failures from the caller's maintenance loop. */
 
-     void CoreHelpers::SafePeriodicFlush()
+     try
      {
-          /* A flush is unavailable until both the application and database exist. */
+          Instance->Database->Flush();
+     }
+     catch (const std::exception &e)
+     {
+          LogPeriodicTaskFailure("Periodic flush", e);
+     }
+     catch (...)
+     {
+          LogUnknownPeriodicTaskFailure("Periodic flush");
+     }
+}
 
-          if (!Instance || !Instance->Database)
-          {
-               return;
-          }
+/* Runs deferred daemon operations and advances application timers. */
 
-          /* Isolate storage failures from the caller's maintenance loop. */
+void CoreHelpers::ProcessPeriodicTasks()
+{
+     /* Process daemon work independently so timer work can still proceed. */
 
+     try
+     {
+          DaemonHandler::ProcessLazyOperations();
+     }
+     catch (const std::exception &e)
+     {
+          LogPeriodicTaskFailure("Lazy operations", e);
+     }
+     catch (...)
+     {
+          LogUnknownPeriodicTaskFailure("Lazy operations");
+     }
+
+     /* Advance timers only after the timer manager becomes available. */
+
+     if (Instance && Instance->Timers)
+     {
           try
           {
-               Instance->Database->Flush();
+               Instance->Timers->Tick();
           }
           catch (const std::exception &e)
           {
-               LogPeriodicTaskFailure("Periodic flush", e);
+               LogPeriodicTaskFailure("Timer tick", e);
           }
           catch (...)
           {
-               LogUnknownPeriodicTaskFailure("Periodic flush");
+               LogUnknownPeriodicTaskFailure("Timer tick");
           }
      }
+}
 
-     /* Runs deferred daemon operations and advances application timers. */
+/* Loads configuration when needed and validates every SSL-enabled bind. */
 
-     void CoreHelpers::ProcessPeriodicTasks()
+bool CoreHelpers::PreflightSSLConfig()
+{
+     /* Missing configuration does not require SSL preflight work. */
+
+     if (!Instance || !Instance->Config)
      {
-          /* Process daemon work independently so timer work can still proceed. */
-
-          try
-          {
-               DaemonHandler::ProcessLazyOperations();
-          }
-          catch (const std::exception &e)
-          {
-               LogPeriodicTaskFailure("Lazy operations", e);
-          }
-          catch (...)
-          {
-               LogUnknownPeriodicTaskFailure("Lazy operations");
-          }
-
-          /* Advance timers only after the timer manager becomes available. */
-
-          if (Instance && Instance->Timers)
-          {
-               try
-               {
-                    Instance->Timers->Tick();
-               }
-               catch (const std::exception &e)
-               {
-                    LogPeriodicTaskFailure("Timer tick", e);
-               }
-               catch (...)
-               {
-                    LogUnknownPeriodicTaskFailure("Timer tick");
-               }
-          }
-     }
-
-     /* Loads configuration when needed and validates every SSL-enabled bind. */
-
-     bool CoreHelpers::PreflightSSLConfig()
-     {
-          /* Missing configuration does not require SSL preflight work. */
-
-          if (!Instance || !Instance->Config)
-          {
-               return true;
-          }
-
-          ServerConfig *ConfigPtr = Instance->Config.get();
-          const std::string &ConfigFileLoc = ConfigPtr->GetConfigFile();
-
-          if (ConfigFileLoc.empty())
-          {
-               return true;
-          }
-
-          /* Load the configuration before inspecting bind definitions. */
-
-          if (!ConfigPtr->IsValid())
-          {
-               if (!ConfigPtr->LoadConfig(ConfigFileLoc))
-               {
-                    /* Prefer the parser's specific error when one is available. */
-
-                    const std::string &ErrorMsg = ConfigPtr->GetError();
-
-                    if (!ErrorMsg.empty())
-                    {
-                         print_error("{}", ErrorMsg);
-                    }
-                    else
-                    {
-                         print_error("Failed to load configuration file: {}.", ConfigFileLoc);
-                    }
-
-                    return false;
-               }
-          }
-
-          const auto &BindConfigs = ConfigPtr->GetBindConfigs();
-
-          /* Validate only network bindings that explicitly enable SSL. */
-
-          for (const auto &BindConfigVal : BindConfigs)
-          {
-               if (!BindConfigVal.ssl)
-               {
-                    continue;
-               }
-
-               std::string ErrorMsg;
-
-               /* Stop startup at the first invalid certificate or key configuration. */
-
-               if (!ValidateSSLConfig(BindConfigVal, &ErrorMsg))
-               {
-                    print_error("SSL preflight failed for {}:{} ({}): {}",
-                              BindConfigVal.address,
-                              BindConfigVal.port,
-                              BindConfigVal.type,
-                              ErrorMsg);
-
-                    return false;
-               }
-          }
-
           return true;
      }
 
-     /* Prints a startup heading followed by each loaded module name. */
+     ServerConfig *ConfigPtr = Instance->Config.get();
+     const std::string &ConfigFileLoc = ConfigPtr->GetConfigFile();
 
-     void CoreHelpers::PrintStartupModuleList(const std::string &Heading, const std::vector<std::string> &ModuleNames)
+     if (ConfigFileLoc.empty())
      {
-          ConsoleWriter::WriteStartup(Heading + ":", true, false);
+          return true;
+     }
 
-          /* Emit an explicit status when the module collection is empty. */
+     /* Load the configuration before inspecting bind definitions. */
 
-          if (ModuleNames.empty())
+     if (!ConfigPtr->IsValid())
+     {
+          if (!ConfigPtr->LoadConfig(ConfigFileLoc))
           {
-               ConsoleWriter::WriteStartup("No modules loaded.", true, false);
-               return;
+               /* Prefer the parser's specific error when one is available. */
+
+               const std::string &ErrorMsg = ConfigPtr->GetError();
+
+               if (!ErrorMsg.empty())
+               {
+                    print_error("{}", ErrorMsg);
+               }
+               else
+               {
+                    print_error("Failed to load configuration file: {}.", ConfigFileLoc);
+               }
+
+               return false;
+          }
+     }
+
+     const auto &BindConfigs = ConfigPtr->GetBindConfigs();
+
+     /* Validate only network bindings that explicitly enable SSL. */
+
+     for (const auto &BindConfigVal : BindConfigs)
+     {
+          if (!BindConfigVal.ssl)
+          {
+               continue;
           }
 
-          /* Render one consistently indented startup entry per module. */
+          std::string ErrorMsg;
 
-          for (const auto &ModuleName : ModuleNames)
+          /* Stop startup at the first invalid certificate or key configuration. */
+
+          if (!ValidateSSLConfig(BindConfigVal, &ErrorMsg))
           {
-               ConsoleWriter::WriteStartupPlain("       - " + ModuleName, false);
+               print_error("SSL preflight failed for {}:{} ({}): {}",
+                           BindConfigVal.address,
+                           BindConfigVal.port,
+                           BindConfigVal.type,
+                           ErrorMsg);
+
+               return false;
           }
+     }
+
+     return true;
+}
+
+/* Prints a startup heading followed by each loaded module name. */
+
+void CoreHelpers::PrintStartupModuleList(const std::string &Heading, const std::vector<std::string> &ModuleNames)
+{
+     ConsoleWriter::WriteStartup(Heading + ":", true, false);
+
+     /* Emit an explicit status when the module collection is empty. */
+
+     if (ModuleNames.empty())
+     {
+          ConsoleWriter::WriteStartup("No modules loaded.", true, false);
+          return;
+     }
+
+     /* Render one consistently indented startup entry per module. */
+
+     for (const auto &ModuleName : ModuleNames)
+     {
+          ConsoleWriter::WriteStartupPlain("       - " + ModuleName, false);
+     }
 }

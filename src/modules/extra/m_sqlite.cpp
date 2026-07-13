@@ -10,11 +10,11 @@
  * For more details, please visit: https://docs.hlquery.com
  */
 
-/// $CompilerFlags: find_compiler_flags("sqlite3", "SQLite3", "")
-/// $LinkerFlags: find_linker_flags("sqlite3", "SQLite3", "")
-/// $PackageInfo: require_system("darwin") sqlite3 pkg-config
-/// $PackageInfo: require_system("debian~") libsqlite3-dev pkg-config
-/// $PackageInfo: require_system("rhel~") sqlite-devel pkgconf-pkg-config
+/* $CompilerFlags: find_compiler_flags("sqlite3", "SQLite3", "") */
+/* $LinkerFlags: find_linker_flags("sqlite3", "SQLite3", "") */
+/* $PackageInfo: require_system("darwin") sqlite3 pkg-config */
+/* $PackageInfo: require_system("debian~") libsqlite3-dev pkg-config */
+/* $PackageInfo: require_system("rhel~") sqlite-devel pkgconf-pkg-config */
 
 #define HLQUERY_HAVE_SQLITE3 1
 
@@ -23,6 +23,7 @@
 #include <cstdint>
 #include <dlfcn.h>
 #include <filesystem>
+#include <mutex>
 #include <stdexcept>
 #include <string>
 #include <system_error>
@@ -257,6 +258,15 @@ class SQLiteRuntimeModule final : public AutoRuntimeModule<SQLiteRuntimeModule>
      std::string DatabasePath = ":memory:";
      uint64_t SnapshotsRecorded = 0;
      uint64_t SearchEventsRecorded = 0;
+     mutable std::mutex DatabaseMutex;
+
+     void LogSQLiteError(const std::string &Operation) const
+     {
+          if (Instance && Instance->Logs)
+          {
+               Instance->Logs->Normal("sqlite", Operation + ": " + std::string(Database ? sqlite3_errmsg(Database) : "database is not open") + ".");
+          }
+     }
 
      std::filesystem::path GetRuntimeDataDir() const
      {
@@ -557,6 +567,7 @@ class SQLiteRuntimeModule final : public AutoRuntimeModule<SQLiteRuntimeModule>
 
           if (sqlite3_prepare_v2(Database, SQL, -1, &Statement, nullptr) != SQLITE_OK)
           {
+               LogSQLiteError("SQLite module could not prepare latest snapshots query");
                return Rows;
           }
 
@@ -598,6 +609,7 @@ class SQLiteRuntimeModule final : public AutoRuntimeModule<SQLiteRuntimeModule>
 
           if (sqlite3_prepare_v2(Database, SQL, -1, &Statement, nullptr) != SQLITE_OK)
           {
+               LogSQLiteError("SQLite module could not prepare latest search events query");
                return Rows;
           }
 
@@ -665,6 +677,7 @@ class SQLiteRuntimeModule final : public AutoRuntimeModule<SQLiteRuntimeModule>
 
           if (sqlite3_prepare_v2(Database, SQL, -1, &Statement, nullptr) != SQLITE_OK)
           {
+               LogSQLiteError("SQLite module could not prepare analytics search event insert");
                return 0;
           }
 
@@ -829,6 +842,8 @@ class SQLiteRuntimeModule final : public AutoRuntimeModule<SQLiteRuntimeModule>
 
      void Stop() override
      {
+          std::lock_guard<std::mutex> Lock(DatabaseMutex);
+
           if (Database)
           {
                sqlite3_close(Database);
@@ -855,6 +870,8 @@ class SQLiteRuntimeModule final : public AutoRuntimeModule<SQLiteRuntimeModule>
 
      void OnSnapshot(const AnalyticsSnapshotEvent &Event) override
      {
+          std::lock_guard<std::mutex> Lock(DatabaseMutex);
+
           if (!Database)
           {
                return;
@@ -868,6 +885,7 @@ class SQLiteRuntimeModule final : public AutoRuntimeModule<SQLiteRuntimeModule>
 
           if (sqlite3_prepare_v2(Database, SQL, -1, &Statement, nullptr) != SQLITE_OK)
           {
+               LogSQLiteError("SQLite module could not prepare analytics snapshot insert");
                return;
           }
 
@@ -880,10 +898,16 @@ class SQLiteRuntimeModule final : public AutoRuntimeModule<SQLiteRuntimeModule>
           sqlite3_bind_int64(Statement, 7, static_cast<sqlite3_int64>(Event.TotalRequests));
           sqlite3_bind_int64(Statement, 8, static_cast<sqlite3_int64>(Event.PayloadBytes));
 
-          if (sqlite3_step(Statement) == SQLITE_DONE)
+          const int StepResult = sqlite3_step(Statement);
+
+          if (StepResult == SQLITE_DONE)
           {
                SnapshotsRecorded++;
                SearchEventsRecorded += StoreSearchEvents(LastInsertRowID(), Event);
+          }
+          else
+          {
+               LogSQLiteError("SQLite module could not insert analytics snapshot");
           }
 
           sqlite3_finalize(Statement);
@@ -963,6 +987,7 @@ class SQLiteRuntimeModule final : public AutoRuntimeModule<SQLiteRuntimeModule>
           if (Route == "last" || Route == "snapshots")
           {
                const int Limit = ParseLimit(Request);
+               std::lock_guard<std::mutex> Lock(DatabaseMutex);
                nlohmann::json Snapshots = ReadLastSnapshots(Limit);
 
                nlohmann::json Body;
@@ -982,6 +1007,7 @@ class SQLiteRuntimeModule final : public AutoRuntimeModule<SQLiteRuntimeModule>
           if (Route == "queries" || Route == "searches")
           {
                const int Limit = ParseLimit(Request);
+               std::lock_guard<std::mutex> Lock(DatabaseMutex);
                nlohmann::json SearchEvents = ReadLastSearchEvents(Limit);
 
                nlohmann::json Body;
@@ -1004,6 +1030,8 @@ class SQLiteRuntimeModule final : public AutoRuntimeModule<SQLiteRuntimeModule>
           }
 
           ModuleCommandResponse Response;
+
+          std::lock_guard<std::mutex> Lock(DatabaseMutex);
 
           Response.Success = true;
           Response.StatusCode = 200;

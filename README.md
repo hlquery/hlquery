@@ -351,10 +351,10 @@ We welcome contributions from the community! All contributions must be released 
 
 ### How to Contribute
 
-- Check existing [issues](https://github.com/hlquery/hlquery/issues) or open a new one
-- Contribute to client libraries (Node.js, TypeScript, Go, Java, Python, PHP, Ruby, Rust, Perl, C++)
-- Test and report bugs
-- Improve documentation
+- Check existing [issues](https://github.com/hlquery/hlquery/issues) or open a new one.
+- Contribute to client libraries.
+- Test and report bugs.
+- Improve documentation.
 
 ### Community
 

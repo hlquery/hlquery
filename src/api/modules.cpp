@@ -156,7 +156,6 @@ std::string ExtractControlledModuleName(const HttpRequest &Request)
           }
           catch (...)
           {
-
           }
      }
 

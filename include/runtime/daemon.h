@@ -28,7 +28,6 @@
 class DaemonHandler
 {
    private:
-
      static constexpr std::size_t StageCountValue = 5;
 
      /* Static optimization state variables */
@@ -86,7 +85,6 @@ class DaemonHandler
      static std::array<std::atomic<int>, StageCountValue> StageLastRuntimeUS;
 
    public:
-
      enum DaemonStage : std::size_t
      {
           StageSocketPacing = 0,

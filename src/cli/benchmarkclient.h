@@ -45,7 +45,6 @@ struct HTTPResponse
 class BenchmarkClient
 {
    private:
-
      std::string Host;
 
      int Port;
@@ -96,7 +95,6 @@ class BenchmarkClient
      void SleepBeforeWriteRetry(int attempt) const;
 
    public:
-
      BenchmarkClient(const std::string &base_url, const std::string &token = "", bool reuse_collections = false);
 
      ~BenchmarkClient();
@@ -243,7 +241,6 @@ class BenchmarkClient
      static void SetGlobalSSLAuthMode(bool enabled);
 
    private:
-
      /* Encodes a URL. */
 
      std::string UrlEncode(const std::string &value);

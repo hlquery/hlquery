@@ -42,50 +42,49 @@
 class CoreExport IPFilter
 {
    private:
-
      /* Resolve hostname to IP addresses. */
 
-     bool ResolveHostname(const std::string& Hostname, std::vector<std::string>& ResolvedIPs, bool UseCache = true) const;
+     bool ResolveHostname(const std::string &Hostname, std::vector<std::string> &ResolvedIPs, bool UseCache = true) const;
 
      /* Check if string is a hostname. */
 
-     bool IsHostname(const std::string& StrVal) const;
+     bool IsHostname(const std::string &StrVal) const;
 
      /* Validate IP address format. */
 
-     bool IsValidIP(const std::string& IP) const;
+     bool IsValidIP(const std::string &IP) const;
 
      /* Check if string is CIDR notation. */
 
-     bool IsCIDR(const std::string& CIDR) const;
+     bool IsCIDR(const std::string &CIDR) const;
 
      /* Check if string is wildcard hostname. */
 
-     bool IsWildcardHostname(const std::string& Hostname) const;
+     bool IsWildcardHostname(const std::string &Hostname) const;
 
      /* Check if IP is in CIDR range. */
 
-     bool IsIPInCIDR(const std::string& IP, const std::string& CIDR) const;
+     bool IsIPInCIDR(const std::string &IP, const std::string &CIDR) const;
 
      /* Match hostname against wildcard pattern. */
 
-     bool MatchWildcardHostname(const std::string& Hostname, const std::string& Pattern) const;
+     bool MatchWildcardHostname(const std::string &Hostname, const std::string &Pattern) const;
 
      /* Internal method to check IP address. */
 
-     bool IsAllowedInternal(const std::string& IPAddress) const;
+     bool IsAllowedInternal(const std::string &IPAddress) const;
 
      /* Internal method to check IP address against deny list. */
 
-     bool IsDeniedInternal(const std::string& IPAddress) const;
+     bool IsDeniedInternal(const std::string &IPAddress) const;
 
      /* Perform reverse DNS lookup. */
 
-     std::string ReverseDNS(const std::string& IP) const;
+     std::string ReverseDNS(const std::string &IP) const;
 
      /* Parse comma-separated list of IPs/hostnames. */
 
-     static std::vector<std::string> ParseIPList(const std::string& AllowedIPsConfig);
+     static std::vector<std::string> ParseIPList(const std::string &AllowedIPsConfig);
 
      /* Synchronizes filter updates. */
 
@@ -204,7 +203,6 @@ class CoreExport IPFilter
      std::string OriginalConfig;
 
    public:
-
      /* Constructor. */
 
      IPFilter();
@@ -215,15 +213,15 @@ class CoreExport IPFilter
 
      /* Initialize IP filter from allow configuration. */
 
-     bool Initialize(const std::string& AllowedIPsConfig);
+     bool Initialize(const std::string &AllowedIPsConfig);
 
      /* Initialize IP filter from allow and deny configuration. */
 
-     bool Initialize(const std::string& AllowedIPsConfig, const std::string& DeniedIPsConfig);
+     bool Initialize(const std::string &AllowedIPsConfig, const std::string &DeniedIPsConfig);
 
      /* Check if an IP address or hostname is allowed. */
 
-     bool IsAllowed(const std::string& IPOrHostname) const;
+     bool IsAllowed(const std::string &IPOrHostname) const;
 
      /* Check if IP filtering is enabled. */
 
@@ -271,7 +269,7 @@ class CoreExport IPFilter
 
      /* Add an IP address or hostname to the allowed list. */
 
-     bool AddAllowed(const std::string& IPOrHostname);
+     bool AddAllowed(const std::string &IPOrHostname);
 
      /* Clear all allowed IPs and reset to allow all. */
 
@@ -279,11 +277,11 @@ class CoreExport IPFilter
 
      /* Reload allow configuration. */
 
-     bool Reload(const std::string& AllowedIPsConfig);
+     bool Reload(const std::string &AllowedIPsConfig);
 
      /* Reload allow and deny configuration. */
 
-     bool Reload(const std::string& AllowedIPsConfig, const std::string& DeniedIPsConfig);
+     bool Reload(const std::string &AllowedIPsConfig, const std::string &DeniedIPsConfig);
 
      /* Flush DNS cache. */
 
@@ -295,9 +293,9 @@ class CoreExport IPFilter
 
      /* Get hostname for an IP address. */
 
-     std::string GetHostnameForIP(const std::string& IP) const;
+     std::string GetHostnameForIP(const std::string &IP) const;
 
      /* Resolve hostname to a single IP address. */
 
-     bool ResolveHostnameToIP(const std::string& Hostname, std::string& ResolvedIP, bool UseCache = true) const;
+     bool ResolveHostnameToIP(const std::string &Hostname, std::string &ResolvedIP, bool UseCache = true) const;
 };

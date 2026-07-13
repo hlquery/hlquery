@@ -137,7 +137,7 @@ RocksDBOptions RocksDBOptions::LoadFromConfigReader(const ConfigReader &ReaderIn
           ConfiguredMaxBackgroundCompactions = std::min(ConfiguredMaxBackgroundCompactions,
                                                         ConfiguredMaxBackgroundJobs);
           ConfiguredMaxBackgroundFlushes = std::min(ConfiguredMaxBackgroundFlushes,
-               ConfiguredMaxBackgroundJobs - ConfiguredMaxBackgroundCompactions);
+                                                    ConfiguredMaxBackgroundJobs - ConfiguredMaxBackgroundCompactions);
      }
 
      /* Apply the validated background job counts

@@ -18,16 +18,14 @@
 
 #include "core/hlquery.h"
 #include "core/modules.h"
-#include "search/storageengine.h"
+#include "search/rocksdb_storage_engine.h"
 
 class DumpModule final : public AutoRuntimeModule<DumpModule>
 {
    public:
-
      DumpModule()
          : AutoRuntimeModule("dump", true)
      {
-
      }
 
      void Stop() override
@@ -226,7 +224,7 @@ class DumpModule final : public AutoRuntimeModule<DumpModule>
                {
                     break;
                }
-           }
+          }
 
           if (cancelled)
           {

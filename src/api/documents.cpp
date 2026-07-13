@@ -46,9 +46,9 @@
 #include "core/modulemanager.h"
 #include "core/socketengine.h"
 #include "runtime/threadlimit.h"
-#include "search/rfusion.h"
-#include "search/cstore.h"
-#include "search/lindex.h"
+#include "search/hybrid_rank_fusion.h"
+#include "search/document_collection_store.h"
+#include "search/lexical_inverted_index.h"
 #include "utils/consolewriter.h"
 #include "utils/protocol.h"
 #include "utils/wildcard.h"
@@ -202,7 +202,6 @@ HttpResponse SearchAPI::HandleListDocuments(const HttpRequest &Request)
           }
           catch (...)
           {
-
           }
      }
 
@@ -226,7 +225,6 @@ HttpResponse SearchAPI::HandleListDocuments(const HttpRequest &Request)
           }
           catch (...)
           {
-          
           }
      }
 
@@ -1885,7 +1883,7 @@ HttpResponse SearchAPI::HandleGetDocumentContext(const HttpRequest &Request)
      {
           DocObj = HybridStorageManagerInstance().GetDocument(CollectionName, DocumentID);
      }
-     catch (const std::exception& E)
+     catch (const std::exception &E)
      {
           return BuildErrorResponse(Status::INTERNAL_SERVER_ERROR,
                                     Code::SEARCH_INVALID_PARAMETER,
@@ -2149,7 +2147,9 @@ HttpResponse SearchAPI::HandleBulkImportDocuments(const HttpRequest &Request)
      {
           std::string Value = AssumeNewIt->second;
           std::transform(Value.begin(), Value.end(), Value.begin(), [](unsigned char C)
-                         { return static_cast<char>(std::tolower(C)); });
+                         {
+                              return static_cast<char>(std::tolower(C));
+                         });
           AssumeNewDocuments = (Value == "1" || Value == "true" || Value == "yes" || Value == "on");
      }
 

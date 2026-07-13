@@ -20,7 +20,7 @@
 #include <vector>
 
 #include "core/modules.h"
-#include "search/cstore.h"
+#include "search/document_collection_store.h"
 #include "utils/jsonbuilder.h"
 #include "utils/protocol.h"
 #include "vendor/json/json.hpp"
@@ -92,7 +92,6 @@ const std::vector<std::string> &GetSupportedScopes()
 class BannedRuntimeModule final : public AutoRuntimeModule<BannedRuntimeModule>
 {
    private:
-
      /* Guards the in-memory banned-word cache. */
 
      mutable std::shared_mutex cache_mutex;
@@ -373,7 +372,6 @@ class BannedRuntimeModule final : public AutoRuntimeModule<BannedRuntimeModule>
      }
 
    public:
-
      BannedRuntimeModule()
          : AutoRuntimeModule("banned", true)
      {
@@ -520,12 +518,12 @@ class BannedRuntimeModule final : public AutoRuntimeModule<BannedRuntimeModule>
                ModuleCommandResponse response;
                response.Success = true;
                response.Body = JsonBuilder()
-                    .Add("module", "banned")
-                    .Add("seeded", (GetStorageValue("meta/seeded") == "1"))
-                    .Add("scopes", scopes_json)
-                    .Add("count", count)
-                    .Add("message", "Banned-word module is loaded.")
-                    .ToString();
+                                    .Add("module", "banned")
+                                    .Add("seeded", (GetStorageValue("meta/seeded") == "1"))
+                                    .Add("scopes", scopes_json)
+                                    .Add("count", count)
+                                    .Add("message", "Banned-word module is loaded.")
+                                    .ToString();
 
                return response;
           }
@@ -550,10 +548,10 @@ class BannedRuntimeModule final : public AutoRuntimeModule<BannedRuntimeModule>
                ModuleCommandResponse response;
                response.Success = true;
                response.Body = JsonBuilder()
-                    .Add("module", "banned")
-                    .Add("message", "Available banned module commands.")
-                    .Add("commands", commands_json)
-                    .ToString();
+                                    .Add("module", "banned")
+                                    .Add("message", "Available banned module commands.")
+                                    .Add("commands", commands_json)
+                                    .ToString();
 
                return response;
           }
@@ -575,11 +573,11 @@ class BannedRuntimeModule final : public AutoRuntimeModule<BannedRuntimeModule>
                ModuleCommandResponse response;
                response.Success = true;
                response.Body = JsonBuilder()
-                    .Add("module", "banned")
-                    .Add("scope", scope)
-                    .Add("words", nlohmann::json(GetWords(scope)))
-                    .Add("count", static_cast<int>(GetWords(scope).size()))
-                    .ToString();
+                                    .Add("module", "banned")
+                                    .Add("scope", scope)
+                                    .Add("words", nlohmann::json(GetWords(scope)))
+                                    .Add("count", static_cast<int>(GetWords(scope).size()))
+                                    .ToString();
 
                return response;
           }
@@ -627,11 +625,11 @@ class BannedRuntimeModule final : public AutoRuntimeModule<BannedRuntimeModule>
                ModuleCommandResponse response;
                response.Success = true;
                response.Body = JsonBuilder()
-                    .Add("module", "banned")
-                    .Add("scope", scope)
-                    .Add("word", word)
-                    .Add("message", "Banned word added.")
-                    .ToString();
+                                    .Add("module", "banned")
+                                    .Add("scope", scope)
+                                    .Add("word", word)
+                                    .Add("message", "Banned word added.")
+                                    .ToString();
 
                return response;
           }
@@ -673,12 +671,12 @@ class BannedRuntimeModule final : public AutoRuntimeModule<BannedRuntimeModule>
                response.Success = deleted;
                response.StatusCode = deleted ? 200 : 404;
                response.Body = JsonBuilder()
-                    .Add("module", "banned")
-                    .Add("scope", scope)
-                    .Add("word", word)
-                    .Add("deleted", deleted)
-                    .Add("message", deleted ? "Banned word deleted." : "Banned word not found.")
-                    .ToString();
+                                    .Add("module", "banned")
+                                    .Add("scope", scope)
+                                    .Add("word", word)
+                                    .Add("deleted", deleted)
+                                    .Add("message", deleted ? "Banned word deleted." : "Banned word not found.")
+                                    .ToString();
 
                return response;
           }

@@ -25,29 +25,29 @@
 
 namespace
 {
-     bool SetCloseOnExec(int FDValue)
+bool SetCloseOnExec(int FDValue)
+{
+     int Flags = fcntl(FDValue, F_GETFD);
+
+     if (Flags < 0)
      {
-          int Flags = fcntl(FDValue, F_GETFD);
-
-          if (Flags < 0)
-          {
-               return false;
-          }
-
-          return fcntl(FDValue, F_SETFD, Flags | FD_CLOEXEC) == 0;
+          return false;
      }
 
-     bool SetNonBlocking(int FDValue)
+     return fcntl(FDValue, F_SETFD, Flags | FD_CLOEXEC) == 0;
+}
+
+bool SetNonBlocking(int FDValue)
+{
+     int Flags = fcntl(FDValue, F_GETFL);
+
+     if (Flags < 0)
      {
-          int Flags = fcntl(FDValue, F_GETFL);
-
-          if (Flags < 0)
-          {
-               return false;
-          }
-
-          return fcntl(FDValue, F_SETFL, Flags | O_NONBLOCK) == 0;
+          return false;
      }
+
+     return fcntl(FDValue, F_SETFL, Flags | O_NONBLOCK) == 0;
+}
 }
 
 /* Constructor */
@@ -287,8 +287,8 @@ void ListenManager::OnEventHandlerRead()
       * or re-arm the event, otherwise remaining connections won't trigger new events.
       * We continue accepting until accept() returns EAGAIN/EWOULDBLOCK.
       */
- 
-      /* HTTP connections are handled by HttpServer */
+
+     /* HTTP connections are handled by HttpServer */
 
      while (true)
      {
@@ -431,9 +431,9 @@ void ListenManager::OnEventHandlerRead()
 
           /* Configure keepalive parameters for faster dead connection detection */
 
-          int KeepIdle  = 10;   /* Start keepalive after 10 seconds of inactivity */
-          int KeepIntvl = 5;    /* Send keepalive probes every 5 seconds */
-          int KeepCnt   = 3;    /* Send 3 probes before considering connection dead */
+          int KeepIdle = 10; /* Start keepalive after 10 seconds of inactivity */
+          int KeepIntvl = 5; /* Send keepalive probes every 5 seconds */
+          int KeepCnt = 3;   /* Send 3 probes before considering connection dead */
 
 #if defined(__APPLE__) && defined(TCP_KEEPALIVE)
 

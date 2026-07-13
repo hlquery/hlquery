@@ -18,14 +18,14 @@
 #include <string>
 
 #if defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || defined(_M_IX86)
-    #include <immintrin.h>
+#include <immintrin.h>
 #endif
 
 /* SIMD-optimized string operations for ultra-fast text processing */
 
 /* Fast string comparison using AVX2 */
 
-inline bool fast_string_equal(const char* a, const char* b, size_t len)
+inline bool fast_string_equal(const char *a, const char *b, size_t len)
 {
      if (len == 0)
      {
@@ -44,8 +44,8 @@ inline bool fast_string_equal(const char* a, const char* b, size_t len)
 
      while (i + 32 <= len)
      {
-          __m256i va = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(a + i));
-          __m256i vb = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(b + i));
+          __m256i va = _mm256_loadu_si256(reinterpret_cast<const __m256i *>(a + i));
+          __m256i vb = _mm256_loadu_si256(reinterpret_cast<const __m256i *>(b + i));
           __m256i cmp = _mm256_cmpeq_epi8(va, vb);
           int mask = _mm256_movemask_epi8(cmp);
 
@@ -73,8 +73,8 @@ inline bool fast_string_equal(const char* a, const char* b, size_t len)
 
 /* Fast string search using AVX2 */
 
-inline const char* fast_string_search(const char* haystack, size_t haystack_len,
-                                      const char* needle, size_t needle_len)
+inline const char *fast_string_search(const char *haystack, size_t haystack_len,
+                                      const char *needle, size_t needle_len)
 {
      if (needle_len == 0)
      {
@@ -95,7 +95,7 @@ inline const char* fast_string_search(const char* haystack, size_t haystack_len,
      {
           /* Load 32 bytes of haystack */
 
-          __m256i haystack_chunk = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(haystack + i));
+          __m256i haystack_chunk = _mm256_loadu_si256(reinterpret_cast<const __m256i *>(haystack + i));
 
           /* Compare with first character of needle */
 
@@ -137,7 +137,7 @@ inline const char* fast_string_search(const char* haystack, size_t haystack_len,
 
 /* Fast string to lowercase conversion using AVX2 */
 
-inline void fast_to_lowercase(char* str, size_t len)
+inline void fast_to_lowercase(char *str, size_t len)
 {
      size_t i = 0;
 
@@ -146,7 +146,7 @@ inline void fast_to_lowercase(char* str, size_t len)
 
      while (i + 32 <= len)
      {
-          __m256i chunk = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(str + i));
+          __m256i chunk = _mm256_loadu_si256(reinterpret_cast<const __m256i *>(str + i));
 
           /* Check if characters are uppercase (A-Z) */
 
@@ -159,7 +159,7 @@ inline void fast_to_lowercase(char* str, size_t len)
           __m256i lower_chunk = _mm256_add_epi8(chunk,
                                                 _mm256_and_si256(is_upper, _mm256_set1_epi8(32)));
 
-          _mm256_storeu_si256(reinterpret_cast<__m256i*>(str + i), lower_chunk);
+          _mm256_storeu_si256(reinterpret_cast<__m256i *>(str + i), lower_chunk);
           i += 32;
      }
 #endif
@@ -178,7 +178,7 @@ inline void fast_to_lowercase(char* str, size_t len)
 
 /* Fast string hash using FNV-1a with SIMD optimization */
 
-inline uint64_t fast_hash(const char* str, size_t len)
+inline uint64_t fast_hash(const char *str, size_t len)
 {
      const uint64_t FNV_OFFSET_BASIS = 14695981039346656037ULL;
      const uint64_t FNV_PRIME = 1099511628211ULL;
@@ -190,7 +190,7 @@ inline uint64_t fast_hash(const char* str, size_t len)
 
      while (i + 8 <= len)
      {
-          uint64_t chunk = *reinterpret_cast<const uint64_t*>(str + i);
+          uint64_t chunk = *reinterpret_cast<const uint64_t *>(str + i);
           hash ^= chunk;
           hash *= FNV_PRIME;
           i += 8;
@@ -210,7 +210,7 @@ inline uint64_t fast_hash(const char* str, size_t len)
 
 /* Fast string comparison for sorting */
 
-inline int fast_string_compare(const char* a, const char* b, size_t len_a, size_t len_b)
+inline int fast_string_compare(const char *a, const char *b, size_t len_a, size_t len_b)
 {
      size_t min_len = std::min(len_a, len_b);
      size_t i = 0;
@@ -220,8 +220,8 @@ inline int fast_string_compare(const char* a, const char* b, size_t len_a, size_
 
      while (i + 32 <= min_len)
      {
-          __m256i va = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(a + i));
-          __m256i vb = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(b + i));
+          __m256i va = _mm256_loadu_si256(reinterpret_cast<const __m256i *>(a + i));
+          __m256i vb = _mm256_loadu_si256(reinterpret_cast<const __m256i *>(b + i));
           __m256i cmp = _mm256_cmpeq_epi8(va, vb);
           int mask = _mm256_movemask_epi8(cmp);
 
@@ -258,7 +258,7 @@ inline int fast_string_compare(const char* a, const char* b, size_t len_a, size_
 
 /* Fast memory copy with prefetching */
 
-inline void fast_memcpy(void* dest, const void* src, size_t len)
+inline void fast_memcpy(void *dest, const void *src, size_t len)
 {
      if (len == 0)
      {
@@ -275,20 +275,20 @@ inline void fast_memcpy(void* dest, const void* src, size_t len)
           /* Prefetch source data */
 
           __builtin_prefetch(src, 0, 3);
-          __builtin_prefetch(static_cast<const char*>(src) + 64, 0, 3);
+          __builtin_prefetch(static_cast<const char *>(src) + 64, 0, 3);
 
           /* Copy 32 bytes at a time */
 
           while (i + 32 <= len)
           {
-               __m256i chunk = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(static_cast<const char*>(src) + i));
-               _mm256_storeu_si256(reinterpret_cast<__m256i*>(static_cast<char*>(dest) + i), chunk);
+               __m256i chunk = _mm256_loadu_si256(reinterpret_cast<const __m256i *>(static_cast<const char *>(src) + i));
+               _mm256_storeu_si256(reinterpret_cast<__m256i *>(static_cast<char *>(dest) + i), chunk);
                i += 32;
           }
 
           /* Handle remaining bytes */
 
-          std::memcpy(static_cast<char*>(dest) + i, static_cast<const char*>(src) + i, len - i);
+          std::memcpy(static_cast<char *>(dest) + i, static_cast<const char *>(src) + i, len - i);
      }
      else
      {
@@ -301,7 +301,7 @@ inline void fast_memcpy(void* dest, const void* src, size_t len)
 
 /* Fast string length calculation */
 
-inline size_t fast_strlen(const char* str)
+inline size_t fast_strlen(const char *str)
 {
      size_t len = 0;
 
@@ -310,7 +310,7 @@ inline size_t fast_strlen(const char* str)
 
      while (true)
      {
-          __m256i chunk = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(str + len));
+          __m256i chunk = _mm256_loadu_si256(reinterpret_cast<const __m256i *>(str + len));
           __m256i zero_cmp = _mm256_cmpeq_epi8(chunk, _mm256_setzero_si256());
           int mask = _mm256_movemask_epi8(zero_cmp);
 
