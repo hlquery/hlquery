@@ -919,7 +919,7 @@ EOF
     unlink $test_bin if -f $test_bin;
 
     if ($result == 0) {
-        print_success('Vendored fmt', 'compiled and linkable');
+        print_success('Vendored fmt source', 'compile/link check passed');
         return 1;
     }
 
@@ -1011,7 +1011,7 @@ EOF
     }
 
     if ($result == 0) {
-        print_success('Vendored CLD2', 'compiled and linkable');
+        print_success('Vendored CLD2 source', 'compile/link check passed');
         return 1;
     }
 

@@ -1,4 +1,4 @@
-> **Development Status**: hlquery is currently in active development and should not be used in production environments. The software may contain bugs, incomplete features, and breaking changes may occur without notice.
+> **Development Status**: hlquery is currently in active development and should not be used in production environments. The software may contain bugs and incomplete features, and breaking changes may occur without notice.
 
 <div align="center">
   <img src="https://docs.hlquery.com/img/hlquery/2.png" alt="hlquery logo" width="200">
@@ -19,12 +19,13 @@
 </div>
 
 > You can explore the live demo at [demo.hlquery.com](https://demo.hlquery.com/).
-> Demo mode is powered by [m_demo.cpp](https://github.com/hlquery/hlquery/blob/unstable/src/modules/m_demo.cpp), so insert, delete, and update operations are disabled.
+> Demo mode is powered by the [m_demo.cpp](https://raw.githubusercontent.com/hlquery/hlquery/unstable/src/modules/m_demo.cpp) module, so insert, delete, and update operations are disabled
+> when in demo mode.
 > The demo UI is built with [hanalyzer](https://github.com/hlquery/hanalyzer).
 
 ### What is hlquery?
 
-hlquery is an open source search engine written in C++, optimized to stay lightweight while handling millions of results efficiently. It is designed for applications that need fast indexing, real-time queries, and a straightforward HTTP/JSON interface without giving up advanced search features. The engine supports full-text search, hybrid ranking, vector similarity, flexible collections, and configurable runtime modules for features such as AI-assisted search.
+hlquery is an open-source search engine written in C++, optimized to stay lightweight while handling millions of results efficiently. It is designed for applications that need fast indexing, real-time queries, and a straightforward HTTP/JSON interface without giving up advanced search features. The engine supports full-text search, hybrid ranking, vector similarity, flexible collections, and configurable runtime modules for features such as AI-assisted search.
 It exposes a REST API for indexing, querying, and administration, and includes command-line tools for local management and testing.
 
 ### Why choose hlquery?
@@ -42,7 +43,7 @@ $ sudo apt-get install build-essential cmake libssl-dev liburing-dev
 
 If CMake prints a `uring` lookup warning during the RocksDB build, it usually means the `liburing` development package is missing. Installing `liburing-dev` on Debian/Ubuntu provides the package metadata CMake is looking for and clears the warning.
 
-**RedHat/CentOS:**
+**Red Hat/CentOS:**
 ```bash
 $ sudo dnf install @development-tools cmake openssl-devel
 ```
@@ -53,7 +54,7 @@ $ xcode-select --install
 $ brew install cmake openssl
 ```
 
-On macOS, Xcode Command Line Tools provide the C/C++ compiler and `make`,
+On macOS, Xcode Command Line Tools provide the C/C++ compiler and `make`.
 Homebrew provides CMake and OpenSSL.
 
 **FreeBSD:**
@@ -119,7 +120,7 @@ $ ./run/hlquery start --nofork
 ...
 ```
 
-**Run talk:**
+**Run the interactive shell:**
 
 ```text
 $ ./run/hlquery talk
@@ -160,8 +161,8 @@ Collection 'products' created successfully
 ```php
 <?php
 
-require_once __DIR__ . '/vendor/autoload.php'; 
-use Hlquery\Client; 
+require_once __DIR__ . '/vendor/autoload.php';
+use Hlquery\Client;
 
 $client = new Client('http://localhost:9200');
 
@@ -191,8 +192,8 @@ $schema = [
     ],
 ];
 
-$response = $collections->create('products', $schema); 
-$body = $response->getBody(); 
+$response = $collections->create('products', $schema);
+$body = $response->getBody();
 
 $client->documents->add('products', [
     'id' => 'prod_keyboard_001',
@@ -205,7 +206,7 @@ $client->documents->add('products', [
 
 ### Index Documents
 
-Each document id must be unique within its collection:
+Each document ID must be unique within its collection:
 
 ```bash
 $ hlquery-cli add products prod_laptop_001 "Laptop Computer" "High-performance laptop with 16GB RAM"
@@ -216,21 +217,21 @@ Document 'prod_laptop_001' added to collection 'products'
 
 ```js
 const Client = require('hlquery-node-client');
-const client = new Client('http://localhost:9200'); 
+const client = new Client('http://localhost:9200');
 const documents = client.documents(); // Use the documents service for document writes.
 
 /* Send POST /collections/products/documents with the product payload. */
 
 const response = await documents.add('products', {
-  id: 'prod_laptop_001', 
-  title: 'Laptop Computer', 
-  content: 'High-performance laptop with 16GB RAM', 
-  price: 1299.99 
-}); 
+  id: 'prod_laptop_001',
+  title: 'Laptop Computer',
+  content: 'High-performance laptop with 16GB RAM',
+  price: 1299.99
+});
 
 /* Inspect the JSON body returned by the API. */
 
-console.log(response.getBody()); 
+console.log(response.getBody());
 
 ```
 
@@ -357,12 +358,12 @@ hlquery is actively developed across multiple GitHub repositories. We maintain a
 
 Each repository follows a **two-branch development model**:
 
-- **`unstable`** - Active development branch where all new features, bug fixes, and improvements are developed
+- **`unstable`** - Active development branch where new features, bug fixes, and improvements are developed
 - **`1.0`** - Stable release branch containing production-ready code
 
 ### Active Development
 
-We're committed to **active, continuous development** of hlquery and all related projects. New features, performance improvements, and bug fixes are regularly added across all repositories.
+We are committed to **active, continuous development** of hlquery and all related projects. New features, performance improvements, and bug fixes are regularly added across all repositories.
 
 **Want to stay updated?** ⭐ **Star and watch our repositories on GitHub** to receive notifications about:
 - New releases and features
@@ -378,7 +379,7 @@ We welcome contributions from the community! All contributions must be released 
 
 ### How to Contribute
 
-- Check existing [issues](https://github.com/hlquery/hlquery/issues) or create new ones
+- Check existing [issues](https://github.com/hlquery/hlquery/issues) or open a new one
 - Contribute to client libraries (Node.js, TypeScript, Go, Java, Python, PHP, Ruby, Rust, Perl, C++)
 - Test and report bugs
 - Improve documentation
