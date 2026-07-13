@@ -50,11 +50,17 @@ static std::mutex RegistryMutex;
 
 /* Define static members declared in socketengine.h */
 
-int SocketEngine::EpollFD = -1; /* Not used in poll, but must be defined */
+/* Poll has no engine descriptor, but the shared interface requires one. */
 
-std::atomic<bool> SocketEngine::EpollFDValid{false}; /* Not used in poll, but must be defined */
+int SocketEngine::EpollFD = -1;
 
-std::vector<epoll_event> SocketEngine::Events; /* Not used in poll, but must be defined */
+/* Poll has no descriptor validity state, but the shared interface requires one. */
+
+std::atomic<bool> SocketEngine::EpollFDValid{false};
+
+/* Poll does not use epoll events, but the shared interface requires storage. */
+
+std::vector<epoll_event> SocketEngine::Events;
 
 std::vector<EventHandler *> SocketEngine::PendingWrites;
 
@@ -216,7 +222,9 @@ bool SocketEngine::AddFD(EventHandler *EH, int EventsMask)
                Instance->Logs->Critical("socketengine", "AddFD: FD " + std::to_string(fd) + " already registered.");
           }
 
-          return false; /* Already registered */
+          /* Already registered. */
+
+          return false;
      }
 
      /* Add to poll fd array */
@@ -263,7 +271,17 @@ bool SocketEngine::AddFD(EventHandler *EH, int EventsMask)
      }
 
      HandlerByFD[fd] = EH;
-     HandlerToIndex[EH] = index; /* OPTIMIZATION: Store index for O(1) DelFD */
+
+     /* Store the index for O(1) deletion. */
+
+     HandlerToIndex[EH] = index;
+
+     /*
+      * Preserve the original readiness subscription so temporary POLLOUT
+      * interest does not erase a caller-owned write registration.
+      */
+
+     EH->SetEventMask(EventsMask);
 
      if (fd > MaxFD)
      {
@@ -384,6 +402,13 @@ void SocketEngine::DelFD(EventHandler *EH)
 
      UnregisterPendingWrite(EH);
      ActiveConnections.fetch_sub(1, std::memory_order_relaxed);
+
+     /*
+      * The descriptor is no longer registered, so discard the cached
+      * subscription used by pending-write bookkeeping.
+      */
+
+     EH->SetEventMask(0);
 }
 
 /* Dispatches pending events */
@@ -405,11 +430,15 @@ int SocketEngine::DispatchEvents()
 
           if (ShutdownRequested)
           {
-               return 0; /* Don't sleep during shutdown */
+               /* Do not sleep during shutdown. */
+
+               return 0;
           }
 
-          /* No file descriptors yet - return immediately to allow main loop to continue */
-          /* The main loop will handle timing and check for new connections */
+          /*
+           * No file descriptors are registered yet, so return immediately
+           * and let the main loop handle timing and new registrations.
+           */
 
           if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
           {
@@ -431,7 +460,9 @@ int SocketEngine::DispatchEvents()
 
      if (ShutdownRequested)
      {
-          return 0; /* Don't call poll during shutdown */
+          /* Do not call poll during shutdown. */
+
+          return 0;
      }
 
      /*
@@ -446,10 +477,14 @@ int SocketEngine::DispatchEvents()
      * letting stale pending-work state spin the server or starve socket events.
      */
 
-     /* Match epoll behavior: use a short wait while busy to avoid stale-work spins. */
-     /* When idle, use -1 (block indefinitely) like epoll to avoid CPU waste */
+     /*
+      * Match epoll behavior by using a short wait while busy and an
+      * indefinite block when idle to avoid unnecessary CPU use.
+      */
 
-     int timeout_ms = -1; /* Default to infinite blocking when idle (like epoll) */
+     /* Default to infinite blocking when idle, like epoll. */
+
+     int timeout_ms = -1;
 
      /* Check if we have pending work that needs immediate processing */
 
@@ -477,26 +512,33 @@ int SocketEngine::DispatchEvents()
           CurrentTimeoutMS.store(timeout_ms, std::memory_order_relaxed);
      }
 
-     /* HLQuery-style high-throughput event processing */
-     /* poll() returns number of file descriptors with events, or 0 on timeout, or -1 on error */
-     /* timeout_ms can be -1 (infinite), 0 (non-blocking), or positive (milliseconds) */
+     /*
+      * poll() returns ready descriptor count, zero on timeout, and -1 on
+      * error while accepting infinite, non-blocking, or millisecond waits.
+      */
 
      if (timeout_ms < -1)
      {
-          timeout_ms = -1; /* Sanity check: invalid timeout, use infinite */
+          /* Sanity check: invalid timeout, use infinite. */
+
+          timeout_ms = -1;
      }
 
-     /* poll() must be called with valid parameters and non-empty array */
-     /* poll() will block for at most timeout_ms milliseconds, then return */
-     /* Ensure we have file descriptors to monitor */
+     /*
+      * poll() requires a non-empty descriptor array and will block for at
+      * most the configured timeout before returning to the event loop.
+      */
 
      if (PollFDs.empty())
      {
-          return 0; /* No file descriptors to monitor */
+          /* No file descriptors to monitor. */
+
+          return 0;
      }
 
-     /* poll() expects nfds_t (unsigned int), not size_t - cast explicitly */
-     /* Validate array size is within nfds_t limits */
+     /*
+      * poll() expects nfds_t, so validate the vector size before casting.
+      */
 
      if (PollFDs.size() > static_cast<size_t>(std::numeric_limits<nfds_t>::max()))
      {
@@ -510,12 +552,16 @@ int SocketEngine::DispatchEvents()
           return 0;
      }
 
-     /* Re-check shutdown flags right before blocking call */
-     /* Another thread could have set shutdown between the check above and this call */
+     /*
+      * Re-check shutdown flags before blocking because another thread may
+      * have requested shutdown after the earlier guard.
+      */
 
      if (hlquery::ShouldShutdown() || hlquery::ShouldForceExit())
      {
-          return 0; /* Don't block during shutdown */
+          /* Do not block during shutdown. */
+
+          return 0;
      }
 
      /* DEBUG: Log before calling poll() */
@@ -546,7 +592,9 @@ int SocketEngine::DispatchEvents()
 
                if (hlquery::ShouldShutdown() || hlquery::ShouldForceExit())
                {
-                    return 0; /* Shutdown requested, don't retry */
+                    /* Shutdown requested, do not retry. */
+
+                    return 0;
                }
 
                /* Retry poll with same timeout */
@@ -561,7 +609,9 @@ int SocketEngine::DispatchEvents()
 
                     if (err == EINTR)
                     {
-                         return 0; /* Multiple interrupts, return to main loop */
+                         /* Multiple interrupts, return to main loop. */
+
+                         return 0;
                     }
 
                     /* Real error - log and return */
@@ -638,7 +688,9 @@ int SocketEngine::DispatchEvents()
                CurrentTimeoutMS.store(0, std::memory_order_relaxed);
           }
 
-          return 0; /* Timeout - no events to process, return to main loop */
+          /* Timeout with no events to process, return to main loop. */
+
+          return 0;
      }
 
      /*
@@ -691,16 +743,20 @@ int SocketEngine::DispatchEvents()
                }
                catch (...)
                {
-                    /* Ignore flush errors, continue processing */
+                    /* Ignore flush errors and continue processing. */
+
                }
           }
      }
 
-     /* Process events - HLQuery ae.c pattern - similar to epoll implementation */
-     /* Process events when nfds > 0 (poll() detected events) */
-     /* poll() sets revents on file descriptors that have events - we must check all fds */
+     /*
+      * Process the descriptors only after poll reports events because
+      * readiness is delivered through each descriptor's revents field.
+      */
 
-     int events_processed = 0; /* Track number of events processed */
+     /* Track number of events processed. */
+
+     int events_processed = 0;
 
      /* Only process events if poll() returned events (nfds > 0) */
 
@@ -838,8 +894,10 @@ int SocketEngine::DispatchEvents()
                pfd.revents = 0;
           }
 
-          /* Now delete handlers that had errors/hangups (after iteration to avoid vector modification issues) */
-          /* Remove duplicates before deletion to avoid double-deletion */
+          /*
+           * Delete handlers with errors after iteration so vector indexes
+           * stay stable, then de-duplicate to avoid repeated cleanup.
+           */
 
           std::unordered_set<EventHandler *> unique_handlers_to_delete(handlers_to_delete.begin(), handlers_to_delete.end());
 
@@ -852,7 +910,11 @@ int SocketEngine::DispatchEvents()
                }
           }
 
-          /* poll() already delivered the ready set for this cycle; do not recurse and rescan the array. */
+          /*
+           * poll() already delivered the ready set for this cycle, so do
+           * not recurse and rescan the descriptor array.
+           */
+
      }
 
      /* DEBUG: Log final result */
@@ -878,12 +940,15 @@ void SocketEngine::DispatchTrialWrites()
 
      if (SocketEngine::PendingWritesCount.load(std::memory_order_relaxed) == 0)
      {
-          return; /* Fast path: no pending writes */
+          /* Fast path: no pending writes. */
+
+          return;
      }
 
-     /* OPTIMIZATION: Swap instead of copy for zero-copy */
-     /* Release lock BEFORE processing writes to avoid deadlock */
-     /* Writes may call RegisterPendingWrite/UnregisterPendingWrite which need the lock */
+     /*
+      * Copy candidates while holding the lock, then release it before
+      * writes because write handlers may update pending-write state.
+      */
 
      std::vector<EventHandler *> WriteCandidates;
 
@@ -920,8 +985,10 @@ void SocketEngine::DispatchTrialWrites()
           WriteCandidates = SocketEngine::PendingWrites;
      }
 
-     /* Process writes immediately for publish messages */
-     /* Lock is released - writes can safely call RegisterPendingWrite/UnregisterPendingWrite */
+     /*
+      * Process writes immediately after releasing the lock so handlers can
+      * safely register or unregister pending writes.
+      */
 
      const size_t BatchSize = POLL_BATCH_SIZE;
      size_t ProcessedCount = 0;
@@ -936,7 +1003,9 @@ void SocketEngine::DispatchTrialWrites()
 
                if (!EH || !EH->HasFD())
                {
-                    continue; /* Skip invalid handlers */
+                    /* Skip invalid handlers. */
+
+                    continue;
                }
 
                /* Simple approach: just try the write */
@@ -944,10 +1013,18 @@ void SocketEngine::DispatchTrialWrites()
                EH->OnEventHandlerWrite();
                ProcessedCount++;
 
-               /* No yielding for immediate publish message delivery */
+               /*
+                * Do not yield between immediate publish writes; the batch
+                * boundary already limits per-pass work.
+                */
+
           }
 
-          /* REMOVED: Inter-batch yielding - no throttling, maximum throughput */
+          /*
+           * Inter-batch yielding is intentionally omitted to keep publish
+           * delivery latency low under load.
+           */
+
      }
 }
 
@@ -957,7 +1034,9 @@ void SocketEngine::RegisterPendingWrite(EventHandler *EH)
 {
      if (!EH || !EH->HasFD())
      {
-          return; /* Invalid handler */
+          /* Invalid handler. */
+
+          return;
      }
 
      /* Thread-safe access to PendingWrites */
@@ -968,7 +1047,9 @@ void SocketEngine::RegisterPendingWrite(EventHandler *EH)
 
      if (PendingWritesSet.find(EH) != PendingWritesSet.end())
      {
-          return; /* Already registered */
+          /* Already registered. */
+
+          return;
      }
 
      /* Add to both set and vector */
@@ -977,8 +1058,10 @@ void SocketEngine::RegisterPendingWrite(EventHandler *EH)
      SocketEngine::PendingWrites.push_back(EH);
      SocketEngine::PendingWritesCount.fetch_add(1, std::memory_order_relaxed);
 
-     /* Enable POLLOUT for this fd in PollFDs array */
-     /* Use HandlerToIndex for O(1) lookup instead of linear search */
+     /*
+      * Enable POLLOUT through the cached index when possible, falling back
+      * to a scan if the index map is stale.
+      */
 
      int fd = EH->GetFD();
      {
@@ -1026,7 +1109,9 @@ void SocketEngine::UnregisterPendingWrite(EventHandler *EH)
 
      if (PendingWritesSet.erase(EH) == 0)
      {
-          return; /* Not registered */
+          /* Not registered. */
+
+          return;
      }
 
      /* Remove from vector - swap with last for O(1) */
@@ -1044,8 +1129,10 @@ void SocketEngine::UnregisterPendingWrite(EventHandler *EH)
           SocketEngine::PendingWritesCount.fetch_sub(1, std::memory_order_relaxed);
      }
 
-     /* Disable POLLOUT for this fd in PollFDs array */
-     /* Use HandlerToIndex for O(1) lookup instead of linear search */
+     /*
+      * Disable transient POLLOUT through the cached index when possible,
+      * falling back to a scan if the index map is stale.
+      */
 
      if (EH->HasFD())
      {
@@ -1058,9 +1145,17 @@ void SocketEngine::UnregisterPendingWrite(EventHandler *EH)
                {
                     size_t index = index_it->second;
 
-                    if (index < PollFDs.size() && PollFDs[index].fd == fd)
-                    {
-                         PollFDs[index].events &= ~POLLOUT;
+                   if (index < PollFDs.size() && PollFDs[index].fd == fd)
+                   {
+                         /*
+                          * Remove transient write readiness only when the
+                          * original registration did not request POLLOUT.
+                          */
+
+                        if ((EH->GetEventMask() & EPOLLOUT) == 0)
+                        {
+                             PollFDs[index].events &= ~POLLOUT;
+                         }
                          return;
                     }
                }
@@ -1069,11 +1164,17 @@ void SocketEngine::UnregisterPendingWrite(EventHandler *EH)
 
                for (auto &pfd : PollFDs)
                {
-                    if (pfd.fd == fd)
-                    {
-                         /* Remove POLLOUT flag */
+                   if (pfd.fd == fd)
+                   {
+                         /*
+                          * The fallback path follows the same rule as the
+                          * indexed path: preserve caller-owned POLLOUT.
+                          */
 
-                         pfd.events &= ~POLLOUT;
+                        if ((EH->GetEventMask() & EPOLLOUT) == 0)
+                        {
+                             pfd.events &= ~POLLOUT;
+                         }
                          break;
                     }
                }
@@ -1146,6 +1247,7 @@ void SocketEngine::InitializeAdvancedIO()
 void SocketEngine::InitializeZeroCopyBuffers()
 {
      /* No-op: poll doesn't support zero-copy buffers */
+
 }
 
 /* Cleans up zero-copy buffers */
@@ -1153,6 +1255,7 @@ void SocketEngine::InitializeZeroCopyBuffers()
 void SocketEngine::CleanupZeroCopyBuffers()
 {
      /* No-op: poll doesn't support zero-copy buffers */
+
 }
 
 /* Starts I/O worker threads */
@@ -1160,6 +1263,7 @@ void SocketEngine::CleanupZeroCopyBuffers()
 void SocketEngine::StartIOWorkerThreads()
 {
      /* No-op: poll doesn't use worker threads */
+
 }
 
 /* I/O worker thread loop */
@@ -1174,6 +1278,7 @@ void SocketEngine::IOWorkerThread(unsigned int WorkerID)
 void SocketEngine::SetOptimalSocketOptions()
 {
      /* No-op: poll doesn't require special socket options */
+
 }
 
 /* Returns a zero-copy buffer */

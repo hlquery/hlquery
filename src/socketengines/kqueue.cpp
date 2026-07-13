@@ -30,6 +30,7 @@
 #include "core/logmanager.h"
 #include "core/socketengine.h"
 #include "runtime/exitmanager.h"
+#include "runtime/timers.h"
 
 #if defined(__APPLE__) || defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__) || defined(__DragonFly__)
 #include <sys/event.h>
@@ -58,10 +59,14 @@ static std::mutex RegistryMutex;
 
 /* Define static members declared in socketengine.h */
 
-int SocketEngine::EpollFD = -1; /* Used as kqueue fd */
+/* The shared engine descriptor stores the kqueue descriptor on this backend. */
+
+int SocketEngine::EpollFD = -1;
 
 std::atomic<bool> SocketEngine::EpollFDValid{false};
-std::vector<epoll_event> SocketEngine::Events; /* Unused, ABI compatibility */
+/* Kqueue uses kevent storage, but the shared interface requires this vector. */
+
+std::vector<epoll_event> SocketEngine::Events;
 
 std::vector<EventHandler *> SocketEngine::PendingWrites;
 std::atomic<size_t> SocketEngine::PendingWritesCount{0};
@@ -277,6 +282,13 @@ bool SocketEngine::AddFD(EventHandler *EH, int EventsMask)
      HandlerToFD[EH] = fd;
      FDStates[fd] = state;
 
+     /*
+      * Preserve the caller-provided readiness mask for consistency with
+      * epoll and poll pending-write registration behavior.
+      */
+
+     EH->SetEventMask(EventsMask);
+
      ActiveConnections.fetch_add(1, std::memory_order_relaxed);
 
      if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
@@ -341,6 +353,13 @@ void SocketEngine::DelFD(EventHandler *EH)
      UnregisterPendingWrite(EH);
 
      ActiveConnections.fetch_sub(1, std::memory_order_relaxed);
+
+     /*
+      * The handler is no longer registered with kqueue, so clear the
+      * cached readiness mask used by pending-write state.
+      */
+
+     EH->SetEventMask(0);
 }
 
 /* Dispatches pending events */
@@ -784,6 +803,20 @@ bool SocketEngine::HasPendingWork()
 #else
 
 /* Stub kqueue backend for platforms without sys/event.h */
+
+/* Define shared SocketEngine state for unsupported kqueue platforms. */
+
+int SocketEngine::EpollFD = -1;
+
+std::atomic<bool> SocketEngine::EpollFDValid{false};
+
+std::vector<epoll_event> SocketEngine::Events;
+
+std::vector<EventHandler *> SocketEngine::PendingWrites;
+
+std::atomic<size_t> SocketEngine::PendingWritesCount{0};
+
+std::atomic<int> SocketEngine::PendingMessageCount{0};
 
 void SocketEngine::Init()
 {

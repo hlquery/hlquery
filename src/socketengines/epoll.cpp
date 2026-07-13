@@ -365,7 +365,10 @@ void *SocketEngine::GetZeroCopyBuffer()
                     }
 
                     AllocationFailed = true;
-                    break; /* Stop allocation on first failure */
+
+                    /* Stop allocation on first failure. */
+
+                    break;
                }
 
                AllocatedCount++;
@@ -389,13 +392,18 @@ void *SocketEngine::GetZeroCopyBuffer()
                /* Reset flag so other threads can retry (or we can retry later) */
 
                ZeroCopyBuffersAllocated.store(false);
-               return nullptr; /* Return null on allocation failure */
+
+               /* Return null on allocation failure. */
+
+               return nullptr;
           }
      }
 
      if (!ZeroCopyBuffersAllocated.load())
      {
-          return nullptr; /* Allocation failed */
+          /* Allocation failed. */
+
+          return nullptr;
      }
 
      size_t Index = ZeroCopyBufferIndex.fetch_add(1) % ZeroCopyBuffers.size();
@@ -408,7 +416,9 @@ void SocketEngine::ReturnZeroCopyBuffer(void *buffer)
 {
      /* Buffer is automatically returned when index wraps around */
 
-     (void)buffer; /* Suppress unused parameter warning */
+     /* Suppress unused parameter warning. */
+
+     (void)buffer;
 }
 
 /* Returns I/O statistics */
@@ -490,8 +500,10 @@ bool SocketEngine::AddFD(EventHandler *EH, int EventsMask)
           return false;
      }
 
-     /* Skip fcntl check if we know fd is valid (optimization) */
-     /* Only check on first call or if we suspect it's invalid */
+     /*
+      * Skip fcntl validation when the descriptor was already accepted
+      * by epoll and there is no reason to suspect it is invalid.
+      */
 
      struct epoll_event ev;
 
@@ -530,6 +542,13 @@ bool SocketEngine::AddFD(EventHandler *EH, int EventsMask)
           return false;
      }
 
+     /*
+      * Preserve the original readiness subscription so temporary write
+      * interest can be added and removed without changing caller intent.
+      */
+
+     EH->SetEventMask(EventsMask);
+
      {
           std::lock_guard<std::mutex> lock(RegisteredFDsMutex);
 
@@ -558,12 +577,16 @@ void SocketEngine::DelFD(EventHandler *EH)
                Instance->Logs->Debug("socketengine", "DelFD: Engine down, skipping (EpollFD=" + std::to_string(EpollFD) + ", valid=" + std::string(EpollFDValid.load() ? "true" : "false") + ").");
           }
 
-          return; /* engine down */
+          /* Engine down. */
+
+          return;
      }
 
      if (!EH)
      {
-          return; /* Check for null handler */
+          /* Check for null handler. */
+
+          return;
      }
 
      if (EH->HasFD())
@@ -612,10 +635,18 @@ void SocketEngine::DelFD(EventHandler *EH)
                     ActiveConnections.fetch_sub(1, std::memory_order_relaxed);
                }
 
-            /*
-             * Ensure socket is closed properly - EventHandler destructor should handle this,
-             * but we verify the FD is removed from epoll first to prevent use-after-free
-             */
+               /*
+                * Clear the cached subscription after epoll has accepted
+                * removal so later write registration cannot revive it.
+                */
+
+               EH->SetEventMask(0);
+
+               /*
+                * Ensure the socket can be closed safely after epoll removal
+                * so stale event references cannot reach the handler later.
+                */
+
           }
           else if (saved_errno == EBADF)
           {
@@ -641,6 +672,13 @@ void SocketEngine::DelFD(EventHandler *EH)
                {
                     ActiveConnections.fetch_sub(1, std::memory_order_relaxed);
                }
+
+               /*
+                * ENOENT means the descriptor is already absent from epoll,
+                * so the cached subscription must be cleared as well.
+                */
+
+               EH->SetEventMask(0);
           }
           else
           {
@@ -657,6 +695,13 @@ void SocketEngine::DelFD(EventHandler *EH)
                {
                     ActiveConnections.fetch_sub(1, std::memory_order_relaxed);
                }
+
+               /*
+                * Treat other removal failures as terminal for this engine
+                * registration and clear the cached event subscription.
+                */
+
+               EH->SetEventMask(0);
           }
      }
      else
@@ -707,7 +752,9 @@ int SocketEngine::DispatchEvents()
                Instance->Logs->Debug("socketengine", "DispatchEvents: Shutdown requested, returning 0.");
           }
 
-          return 0; /* Don't even call epoll_wait during shutdown */
+          /* Do not call epoll_wait during shutdown. */
+
+          return 0;
      }
 
      /*
@@ -721,7 +768,9 @@ int SocketEngine::DispatchEvents()
      * letting stale pending-work state spin the server or starve socket events.
      */
 
-     int timeout_ms = -1; /* Default to infinite blocking */
+     /* Default to infinite blocking. */
+
+     int timeout_ms = -1;
 
      /* Check if we have pending work that needs immediate processing */
 
@@ -824,7 +873,11 @@ int SocketEngine::DispatchEvents()
 
           CurrentTimeoutMS.store(0, std::memory_order_relaxed);
 
-          /* REMOVED: Flood protection counter - no throttling, maximum throughput */
+          /*
+           * Flood protection is intentionally omitted here so real socket
+           * activity can continue at full event-loop throughput.
+           */
+
      }
 
      /* HLQuery-style: If we hit the event limit, process immediately and loop back */
@@ -904,17 +957,19 @@ int SocketEngine::DispatchEvents()
           else
           {
                /*
-             * Still have pending work - keep timeout=0 for now.
-             * The main loop will process the pending work via ActionList::ProcessActions()
-             */
+                * Still have pending work, so keep the current short timeout
+                * and let the main loop process queued actions next.
+                */
+
           }
 
           return 0;
      }
 
-     /* Process socket events with HLQuery-style batch optimization */
-     /* OPTIMIZATION: Process in-place to avoid extra allocations and improve cache locality */
-     /* Process errors first, then reads, then writes for optimal ordering */
+     /*
+      * Process socket events in place to avoid extra allocations, then
+      * handle errors before reads and writes for predictable cleanup.
+      */
 
      /* First pass: process error events immediately (they need cleanup) */
 
@@ -926,7 +981,9 @@ int SocketEngine::DispatchEvents()
 
           if (!EH)
           {
-               continue; /* Safety check */
+               /* Safety check. */
+
+               continue;
           }
 
           uint32_t ev = Events[i].events;
@@ -1020,7 +1077,9 @@ int SocketEngine::DispatchEvents()
      {
           if (Events[i].events == 0)
           {
-               continue; /* Already processed */
+               /* Already processed. */
+
+               continue;
           }
 
           EventHandler *EH = static_cast<EventHandler *>(Events[i].data.ptr);
@@ -1091,7 +1150,11 @@ int SocketEngine::DispatchEvents()
                     continue;
                }
 
-               /* CRITICAL FIX: Only log read event completion in very verbose debug mode */
+               /*
+                * Read completion logging stays disabled here to avoid
+                * excessive event-loop noise under normal traffic.
+                */
+
           }
      }
 
@@ -1105,7 +1168,9 @@ int SocketEngine::DispatchEvents()
      {
           if (Events[i].events == 0)
           {
-               continue; /* Already processed */
+               /* Already processed. */
+
+               continue;
           }
 
           EventHandler *EH = static_cast<EventHandler *>(Events[i].data.ptr);
@@ -1220,7 +1285,9 @@ void SocketEngine::DispatchTrialWrites()
 {
      if (PendingWritesCount.load(std::memory_order_relaxed) == 0)
      {
-          return; /* Fast path: no pending writes */
+          /* Fast path: no pending writes. */
+
+          return;
      }
 
      /*
@@ -1292,7 +1359,9 @@ void SocketEngine::DispatchTrialWrites()
 
                if (!EH || !EH->HasFD())
                {
-                    continue; /* Skip invalid handlers */
+                    /* Skip invalid handlers. */
+
+                    continue;
                }
 
              /*
@@ -1309,10 +1378,13 @@ void SocketEngine::DispatchTrialWrites()
                EH->OnEventHandlerWrite();
                Processed++;
 
-	               /* No yielding for immediate publish message delivery */
-	          }
-	
-	}
+               /*
+                * Do not yield between immediate publish writes; the batch
+                * boundary already limits per-pass work.
+                */
+
+          }
+     }
 }
 
 /*
@@ -1332,7 +1404,9 @@ void SocketEngine::RegisterPendingWrite(EventHandler *EH)
 {
      if (!EH || !EH->HasFD())
      {
-          return; /* Invalid handler */
+          /* Invalid handler. */
+
+          return;
      }
 
      /* Fast O(1) duplicate check using PendingWritesSet - thread-safe */
@@ -1342,7 +1416,9 @@ void SocketEngine::RegisterPendingWrite(EventHandler *EH)
 
           if (PendingWritesSet.find(EH) != PendingWritesSet.end())
           {
-               return; /* Already registered */
+               /* Already registered. */
+
+               return;
           }
 
           /* Add to both set (for fast lookup) and vector (for iteration) */
@@ -1365,7 +1441,13 @@ void SocketEngine::RegisterPendingWrite(EventHandler *EH)
      struct epoll_event ev;
 
      memset(&ev, 0, sizeof(ev));
-     ev.events = EPOLLIN | EPOLLOUT | EPOLLHUP | EPOLLRDHUP | EPOLLERR;
+
+     /*
+      * Add transient write readiness while preserving the handler's
+      * original read/write flags and mandatory error notifications.
+      */
+
+     ev.events = EH->GetEventMask() | EPOLLOUT | EPOLLHUP | EPOLLRDHUP | EPOLLERR;
      ev.data.ptr = EH;
 
      /*
@@ -1523,9 +1605,12 @@ void SocketEngine::UnregisterPendingWrite(EventHandler *EH)
 
           memset(&ev, 0, sizeof(ev));
 
-          /* No EPOLLOUT */
+          /*
+           * Restore the caller-owned readiness mask after pending writes
+           * drain, while keeping error and hangup notifications active.
+           */
 
-          ev.events = EPOLLIN | EPOLLHUP | EPOLLRDHUP | EPOLLERR | EPOLLET;
+          ev.events = EH->GetEventMask() | EPOLLHUP | EPOLLRDHUP | EPOLLERR;
           ev.data.ptr = EH;
 
           epoll_ctl(EpollFD, EPOLL_CTL_MOD, EH->GetFD(), &ev);

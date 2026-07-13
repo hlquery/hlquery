@@ -19,7 +19,7 @@
 </div>
 
 > You can explore the live demo at [demo.hlquery.com](https://demo.hlquery.com/).
-> Demo mode is powered by the [m_demo.cpp](https://raw.githubusercontent.com/hlquery/hlquery/unstable/src/modules/m_demo.cpp) module, so insert, delete, and update operations are disabled
+> Demo mode is powered by the [m_demo.cpp](https://github.com/hlquery/hlquery/blob/unstable/src/modules/m_demo.cpp) module, so insert, delete, and update operations are disabled
 > when in demo mode.
 > The demo UI is built with [hanalyzer](https://github.com/hlquery/hanalyzer).
 
@@ -307,34 +307,6 @@ Distributed search fans a query out to linked search nodes and merges the result
      prefer_local="true"
      timeout_ms="250">
 ```
-
-Then force distributed execution per request when needed:
-
-```bash
-curl "http://localhost:9200/collections/products/documents/search?q=laptop&distributed=on"
-curl -X POST "http://localhost:9200/multi_search?distributed=on" \
-  -H "Content-Type: application/json" \
-  -d '{"searches":[{"collection":"products","q":"laptop"}]}'
-```
-
-Replication ships writes from a primary server to replica nodes. Use `role="replica"` or `role="slave"` for replication targets, enable `<replication ...>` on the primary, and mark replica instances with `<replica enabled="true" allow_writes="false">` when they should reject normal client writes:
-
-```text
-<node
-     host="127.0.0.1"
-     port="9201"
-     role="replica"
-     passwd="shared-secret">
-
-<replication
-     enabled="true"
-     mode="sync_one"
-     timeout_ms="2000">
-```
-
-Operational link endpoints are exposed through `/links` and `/links/ping`, and runtime links can be added or removed with `/links/connect` and `/links/disconnect`.
-
----
 
 **SQL example:**
 
