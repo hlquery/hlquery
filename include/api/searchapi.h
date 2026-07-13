@@ -723,6 +723,10 @@ class SearchAPI
 
      std::vector<std::string> ParseCommaSeparated(const std::string &Input);
 
+     /* ListAliasesFiltered returns aliases, optionally restricted to one target collection. */
+
+     nlohmann::json ListAliasesFiltered(const std::string &TargetCollection) const;
+
      /* ParseFilters parses filter expressions into conditions. */
 
      std::vector<FilterCondition> ParseFilters(const std::string &FilterString);
@@ -1072,6 +1076,14 @@ class SearchAPI
      /* HandleListAliases handles alias listing requests. */
 
      HttpResponse HandleListAliases(const HttpRequest &Request);
+
+     /* ListAliases returns all aliases. */
+
+     nlohmann::json ListAliases() const;
+
+     /* ListAliasesForCollection returns aliases that target the collection. */
+
+     nlohmann::json ListAliasesForCollection(const std::string &CollectionName) const;
 
      /* HandleCreateOrUpdateAlias handles alias upserts. */
 

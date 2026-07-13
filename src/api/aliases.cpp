@@ -81,7 +81,77 @@ bool HasAliasPreCheckFailure(const HttpResponse &Response)
      return Response.StatusCode != Status::OK;
 }
 
-/* HandleListAliases lists all collection aliases. */
+/* ListAliasesFiltered returns aliases, optionally restricted to one target collection. */
+
+nlohmann::json SearchAPI::ListAliasesFiltered(const std::string &TargetCollection) const
+{
+     nlohmann::json AliasesArray = nlohmann::json::array();
+
+     if (!Instance || !Instance->Database)
+     {
+          return AliasesArray;
+     }
+
+     std::vector<std::string> AliasKeys = Instance->Database->Keys("alias:*");
+
+     for (const auto &Key : AliasKeys)
+     {
+          std::string AliasJSON = Instance->Database->Get(Key);
+
+          if (AliasJSON.empty())
+          {
+               continue;
+          }
+
+          try
+          {
+               nlohmann::json AliasData = nlohmann::json::parse(AliasJSON);
+
+               if (!TargetCollection.empty())
+               {
+                    std::string AliasCollection;
+
+                    if (AliasData.contains("collection_name") && AliasData["collection_name"].is_string())
+                    {
+                         AliasCollection = AliasData["collection_name"].get<std::string>();
+                    }
+                    else if (AliasData.contains("collection") && AliasData["collection"].is_string())
+                    {
+                         AliasCollection = AliasData["collection"].get<std::string>();
+                    }
+
+                    if (AliasCollection != TargetCollection)
+                    {
+                         continue;
+                    }
+               }
+
+               AliasesArray.push_back(AliasData);
+          }
+          catch (...)
+          {
+               /* Skip invalid JSON. */
+          }
+     }
+
+     return AliasesArray;
+}
+
+/* ListAliases returns all aliases. */
+
+nlohmann::json SearchAPI::ListAliases() const
+{
+     return ListAliasesFiltered("");
+}
+
+/* ListAliasesForCollection returns aliases that target the collection. */
+
+nlohmann::json SearchAPI::ListAliasesForCollection(const std::string &CollectionName) const
+{
+     return ListAliasesFiltered(CollectionName);
+}
+
+/* HandleListAliases lists collection aliases. */
 
 /*
  * SearchAPI::HandleListAliases implementation.
@@ -106,50 +176,7 @@ HttpResponse SearchAPI::HandleListAliases(const HttpRequest &Request)
           FilterCollection = ExtractAliasCollectionFromPath(Request.Path);
      }
 
-     nlohmann::json AliasesArray = nlohmann::json::array();
-
-     if (Instance && Instance->Database)
-     {
-          std::vector<std::string> AliasKeys = Instance->Database->Keys("alias:*");
-
-          for (const auto &Key : AliasKeys)
-          {
-               std::string AliasJSON = Instance->Database->Get(Key);
-
-               if (!AliasJSON.empty())
-               {
-                    try
-                    {
-                         nlohmann::json AliasData = nlohmann::json::parse(AliasJSON);
-
-                         if (!FilterCollection.empty())
-                         {
-                              std::string AliasCollection;
-
-                              if (AliasData.contains("collection_name") && AliasData["collection_name"].is_string())
-                              {
-                                   AliasCollection = AliasData["collection_name"].get<std::string>();
-                              }
-                              else if (AliasData.contains("collection") && AliasData["collection"].is_string())
-                              {
-                                   AliasCollection = AliasData["collection"].get<std::string>();
-                              }
-
-                              if (AliasCollection != FilterCollection)
-                              {
-                                   continue;
-                              }
-                         }
-
-                         AliasesArray.push_back(AliasData);
-                    }
-                    catch (...)
-                    {
-                         /* Skip invalid JSON. */
-                    }
-               }
-          }
-     }
+     nlohmann::json AliasesArray = FilterCollection.empty() ? ListAliases() : ListAliasesForCollection(FilterCollection);
 
      nlohmann::json ResultJSON;
 
