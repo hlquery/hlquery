@@ -72,11 +72,12 @@
 class ModuleManager
 {
    private:
+
      /* 
-     * Tracks serialized callback execution for one loaded module instance.
-     * This prevents concurrent hook entry into the same module and lets unload
-     * wait for in-flight callbacks to drain before Stop() runs.
-     */
+      * Tracks serialized callback execution for one loaded module instance.
+      * This prevents concurrent hook entry into the same module and lets unload
+      * wait for in-flight callbacks to drain before Stop() runs.
+      */
 
      struct ModuleExecutionState
      {
@@ -88,9 +89,9 @@ class ModuleManager
      };
 
      /* 
-     * Pairs one runtime module instance with its execution state.
-     * Snapshots carry both so dispatch remains safe after registry updates.
-     */
+      * Pairs one runtime module instance with its execution state.
+      * Snapshots carry both so dispatch remains safe after registry updates.
+      */
 
      struct ModuleReference
      {
@@ -113,16 +114,16 @@ class ModuleManager
      };
 
      /* 
-     * Snapshot of currently referenced runtime modules.
-     * Snapshots are used to iterate safely without holding write access.
-     */
+      * Snapshot of currently referenced runtime modules.
+      * Snapshots are used to iterate safely without holding write access.
+      */
 
      using ModuleSnapshot = std::vector<ModuleReference>;
 
      /* 
-     * Maps each hook identifier to the modules subscribed to that hook.
-     * The array index matches the ModuleHook enumeration value.
-     */
+      * Maps each hook identifier to the modules subscribed to that hook.
+      * The array index matches the ModuleHook enumeration value.
+      */
 
      using HookSubscribers = std::array<ModuleSnapshot, static_cast<size_t>(ModuleHook::OnCount)>;
 

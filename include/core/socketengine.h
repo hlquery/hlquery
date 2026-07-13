@@ -21,7 +21,7 @@
 
 #ifdef __linux__
 
-#include <sys/epoll.h>
+    #include <sys/epoll.h>
 
 #else
 
@@ -57,10 +57,12 @@ static constexpr int EPOLL_CLOEXEC = 0x80000;
 class EventHandler
 {
    public:
+    
      /* Destructor */
 
      virtual ~EventHandler()
      {
+    
      }
 
      /* Called when there is a read event */
@@ -71,6 +73,7 @@ class EventHandler
 
      virtual void OnEventHandlerWrite()
      {
+    
      }
 
      /* Called when there is an error event */
@@ -132,6 +135,7 @@ class EventHandler
 class SocketEngine
 {
    public:
+    
      /* Increased from 1024 to handle high-throughput scenarios */
 
      static const int MAX_EVENTS = 16384;
@@ -286,6 +290,7 @@ class SocketEngine
      }
 
    private:
+    
      /* Static members for engine state. */
 
      /* Engine file descriptor */

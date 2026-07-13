@@ -444,6 +444,7 @@ enum class ModuleHook : size_t
 class RuntimeModule
 {
    private:
+
      /* The runtime module name exposed to the loader. */
 
      std::string module_name;
@@ -461,6 +462,7 @@ class RuntimeModule
      std::array<bool, static_cast<size_t>(ModuleHook::OnCount)> attached_hooks{};
 
    protected:
+
      /* Number of hook slots tracked by the module base class. */
 
      static constexpr size_t HookCount = static_cast<size_t>(ModuleHook::OnCount);
@@ -761,24 +763,28 @@ class RuntimeModule
 
      virtual void OnAuthenticatedRequest(const HttpRequest &, RouteAction)
      {
+
      }
 
      /* Called after a ping request has been handled successfully. */
 
      virtual void OnPingRequest(const HttpRequest &)
      {
+
      }
 
      /* Called after a database status request has been handled successfully. */
 
      virtual void OnDBRequest(const HttpRequest &)
      {
+
      }
 
      /* Called after a stats request has been handled successfully. */
 
      virtual void OnStatsRequest(const HttpRequest &)
      {
+
      }
 
      /* Called after a metrics request has been handled successfully. */

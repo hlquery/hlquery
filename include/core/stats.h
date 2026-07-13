@@ -30,6 +30,7 @@
 class ServerStats
 {
    public:
+
      struct HealthStatus
      {
           bool Degraded = false;
@@ -114,6 +115,7 @@ class ServerStats
      mutable std::mutex StartupStateMutex;
 
    private:
+
      /* Restart count */
 
      uint64_t RestartCount;

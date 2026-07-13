@@ -19,6 +19,7 @@
 class CoreHelpers
 {
    public:
+
      CoreHelpers() = delete;
 
      /* Helper function to check if the main processing loop should terminate. */

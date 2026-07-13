@@ -17,6 +17,7 @@
 class HttpCodes
 {
    public:
+
      struct code
      {
           /* 2xx Success */

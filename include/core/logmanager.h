@@ -118,6 +118,7 @@ struct LogConfig
 class CoreExport LogStream
 {
    private:
+
      /* Allow LogManager to access internal state. */
 
      friend class LogManager;
@@ -187,6 +188,7 @@ class CoreExport LogStream
      size_t GetCurrentFileSize();
 
    public:
+
      /* Opens and prepares the destination described by the configuration. */
 
      LogStream(const LogConfig &config);
@@ -216,6 +218,7 @@ class CoreExport LogStream
 class CoreExport LogManager
 {
    private:
+
      /* Defines the value used to detect invalid manager instances. */
 
      static constexpr uint32_t SENTINEL_VALUE = 0xDEADBEEF;
@@ -253,6 +256,7 @@ class CoreExport LogManager
      bool ShouldLog(const LogStream &stream, LogLevel level, const std::string &type);
 
    public:
+
      /* Constructor. */
 
      LogManager();
