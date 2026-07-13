@@ -1324,6 +1324,8 @@ HttpResponse SearchAPI::HandleFlush(const HttpRequest &Request)
      ResponseJSON["indexes_cleared"] = true;
      ResponseJSON["caches_cleared"] = true;
      ResponseJSON["mmap_indexes_removed"] = true;
+     ResponseJSON["database_synced"] = true;
+     ResponseJSON["replica_flush_synced"] = true;
      ResponseJSON["success"] = true;
 
      HttpResponse Response(Status::OK, StatusText(Status::OK), "application/json");

@@ -650,7 +650,7 @@ class SearchAPI
 
      void EnqueueAsyncReplicationTask(std::function<void()> Task) const;
 
-     void MarkSlaveDirty(const std::string &Endpoint) const;
+     void MarkSlaveDirty(const std::string &Endpoint, bool NotifyMonitor = true) const;
 
      void MarkSlaveReachable(const std::string &Endpoint) const;
 

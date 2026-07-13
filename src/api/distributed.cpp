@@ -2762,10 +2762,7 @@ void SearchAPI::EnsureReplicationMonitorStarted() const
      {
           for (const auto &Endpoint : Instance->Config->GetSlaveNodes())
           {
-               if (!RestoreReplicationSlaveState(Endpoint))
-               {
-                    MarkSlaveDirty(Endpoint);
-               }
+               (void)RestoreReplicationSlaveState(Endpoint);
           }
      }
 
@@ -2791,7 +2788,7 @@ void SearchAPI::EnsureDistributedLinkMonitorStarted() const
                                                 });
 }
 
-void SearchAPI::MarkSlaveDirty(const std::string &Endpoint) const
+void SearchAPI::MarkSlaveDirty(const std::string &Endpoint, bool NotifyMonitor) const
 {
      const uint64_t NowMS = Instance ? static_cast<uint64_t>(Instance->NowMs()) : 0;
      {
@@ -2800,7 +2797,10 @@ void SearchAPI::MarkSlaveDirty(const std::string &Endpoint) const
           LastReplicationErrorTimestampMS = NowMS;
      }
      PersistReplicationSlaveState(Endpoint);
-     ReplicationMonitorCV.notify_one();
+     if (NotifyMonitor)
+     {
+          ReplicationMonitorCV.notify_one();
+     }
 }
 
 void SearchAPI::MarkSlaveReachable(const std::string &Endpoint) const
@@ -3630,7 +3630,7 @@ void SearchAPI::ReplicationMonitorLoop() const
                     std::string Error;
                     if (!PingReplicationSlave(Node.Host, Node.Port, &Error))
                     {
-                         MarkSlaveDirty(Node.Endpoint);
+                         MarkSlaveDirty(Node.Endpoint, false);
                          continue;
                     }
 
