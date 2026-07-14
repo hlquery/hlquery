@@ -259,11 +259,17 @@ class SystemResourceMonitor
 
                std::string CPULabel;
 
-               uint64_t UserVal, NiceVal, SystemVal, IdleVal, IOWaitVal, IRQVal, SoftIRQVal, StealVal;
+               uint64_t UserVal = 0;
+               uint64_t NiceVal = 0;
+               uint64_t SystemVal = 0;
+               uint64_t IdleVal = 0;
+               uint64_t IOWaitVal = 0;
+               uint64_t IRQVal = 0;
+               uint64_t SoftIRQVal = 0;
+               uint64_t StealVal = 0;
 
-               Iss >> CPULabel >> UserVal >> NiceVal >> SystemVal >> IdleVal >> IOWaitVal >> IRQVal >> SoftIRQVal >> StealVal;
-
-               if (CPULabel == "cpu")
+               if (Iss >> CPULabel >> UserVal >> NiceVal >> SystemVal >> IdleVal >> IOWaitVal >> IRQVal >> SoftIRQVal >> StealVal &&
+                   CPULabel == "cpu")
                {
                     uint64_t TotalIdleTime = IdleVal + IOWaitVal;
 
@@ -275,7 +281,7 @@ class SystemResourceMonitor
 
                     static uint64_t PrevIdleTime = 0;
 
-                    if (PrevTotalTime > 0)
+                    if (PrevTotalTime > 0 && TotalTime >= PrevTotalTime && TotalIdleTime >= PrevIdleTime)
                     {
                          uint64_t TotalDelta = TotalTime - PrevTotalTime;
 
@@ -334,7 +340,12 @@ class SystemResourceMonitor
 
           if (TotalMemoryValue > 0)
           {
-               uint64_t UsedMemoryBytes = TotalMemoryValue - AvailableMemoryValue;
+               uint64_t UsedMemoryBytes = 0;
+
+               if (AvailableMemoryValue < TotalMemoryValue)
+               {
+                    UsedMemoryBytes = TotalMemoryValue - AvailableMemoryValue;
+               }
 
                MemoryUsageBytes.store(UsedMemoryBytes);
           }
