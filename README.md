@@ -24,14 +24,14 @@
 
 ### What is hlquery?
 
-hlquery is an open-source search engine written in C++, optimized to stay lightweight while handling millions of results efficiently. It is designed for applications that need fast indexing, real-time queries, and a straightforward HTTP/JSON interface without giving up advanced search features. The engine supports full-text search, hybrid ranking, vector similarity, flexible collections, and configurable runtime modules for features such as AI-assisted search.
-It exposes a REST API for indexing, querying, and administration, and includes command-line tools for local management and testing.
+hlquery is an open-source C++ search engine built to stay lightweight while handling millions of results efficiently. It targets applications that need fast indexing, real-time queries, and a straightforward HTTP/JSON interface with advanced search features. The engine supports full-text search, hybrid ranking, vector similarity, flexible collections, and configurable runtime modules for features such as AI-assisted search.
+It also includes a REST API for indexing and querying, plus command-line tools for local management and testing.
 
 ### Why choose hlquery?
 
-hlquery is built for teams that want strong search capabilities without taking on the operational weight of a larger search stack. It combines fast indexing, low-latency queries, and a simple HTTP/JSON surface area with features that are usually expected from more complex systems.
+hlquery is built for teams that want strong search without the operational weight of a larger stack. It combines fast indexing, low-latency queries, and a simple HTTP/JSON API with features usually found in more complex systems.
 
-You can use hlquery for classic full-text search, hybrid retrieval, vector similarity, and AI-assisted search workflows while keeping deployment and integration straightforward. The project also ships with official client libraries, command-line tools, and modular runtime extensions, which makes it practical both for local development and production services.
+You can use hlquery for full-text search, hybrid retrieval, vector similarity, and AI-assisted workflows while keeping deployment straightforward. It ships with client libraries, command-line tools, and modular runtime extensions for local development and production services.
 
 ### Prerequisites
 

@@ -87,12 +87,12 @@ hlquery::hlquery(int argc, char **argv)
      /* Register cleanup wrapper with ExitManager to ensure resources are released */
 
      ExitManager::RegisterCleanup([]()
-                                  {
-                                       if (Instance)
-                                       {
-                                            Instance->Cleanup();
-                                       }
-                                  });
+     {
+             if (Instance)
+             {
+                 Instance->Cleanup();
+             }
+     });
 }
 
 /* Destructor for the hlquery class */
@@ -235,7 +235,7 @@ void hlquery::RunListeners()
 
                if (Logs)
                {
-                    Logs->Debug("hlquery", "Listener skipped (port busy).");
+                    Logs->Debug("hlquery", "Listener skipped after bind/listen failure.");
                }
           }
      }

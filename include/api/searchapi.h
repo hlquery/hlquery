@@ -811,6 +811,8 @@ class SearchAPI
 
      void ClearPeerReconnectDiagnostics(const std::string &Endpoint) const;
 
+     void DropPeerTransportState(const std::string &Endpoint) const;
+
      /*
      * HTTP route handlers.
      *

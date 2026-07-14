@@ -212,6 +212,7 @@ struct PersistentPeerSocket
      int RequestsServed = 0;
      uint64_t LastUsedMS = 0;
      bool InUse = false;
+     bool RetireWhenIdle = false;
 };
 
 struct PersistentPeerPool
@@ -227,6 +228,8 @@ struct PersistentPeerPool
 
 static std::mutex PersistentPeerSocketMutex;
 static std::unordered_map<std::string, std::shared_ptr<PersistentPeerPool>> PersistentPeerSocketPool;
+
+static void ClosePersistentPeerSocket(PersistentPeerSocket &Socket);
 
 /* Clamps peer reconnect delays to supported bounds. */
 
@@ -271,6 +274,46 @@ static void ResetPeerReconnectState(const std::string &Key)
      }
 
      std::lock_guard<std::mutex> PoolGuard(It->second->Mutex);
+     It->second->ConsecutiveFailures = 0;
+     It->second->NextReconnectAt = std::chrono::steady_clock::time_point::min();
+     It->second->LastSuccessMS = Instance ? static_cast<uint64_t>(Instance->NowMs()) : static_cast<uint64_t>(time(nullptr) * 1000);
+     It->second->LastError.clear();
+}
+
+/* Clears reconnect state and closes idle persistent sockets for one peer. */
+
+static void DropIdlePeerTransportState(const std::string &Key)
+{
+     std::lock_guard<std::mutex> Guard(PersistentPeerSocketMutex);
+     auto It = PersistentPeerSocketPool.find(Key);
+     if (It == PersistentPeerSocketPool.end())
+     {
+          return;
+     }
+
+     std::lock_guard<std::mutex> PoolGuard(It->second->Mutex);
+     for (const auto &Socket : It->second->Sockets)
+     {
+          if (!Socket)
+          {
+               continue;
+          }
+
+          if (Socket->InUse)
+          {
+               Socket->RetireWhenIdle = true;
+               continue;
+          }
+
+          if (!Socket->InUse)
+          {
+               ClosePersistentPeerSocket(*Socket);
+               Socket->RequestsServed = 0;
+               Socket->LastUsedMS = 0;
+               Socket->RetireWhenIdle = false;
+          }
+     }
+
      It->second->ConsecutiveFailures = 0;
      It->second->NextReconnectAt = std::chrono::steady_clock::time_point::min();
      It->second->LastSuccessMS = Instance ? static_cast<uint64_t>(Instance->NowMs()) : static_cast<uint64_t>(time(nullptr) * 1000);
@@ -1096,9 +1139,12 @@ static bool SendHttpRequest(const std::string &Host,
                PersistentBurst = 1;
           }
 
-          if (PoolSocket->RequestsServed >= PersistentBurst)
+          if (PoolSocket->RetireWhenIdle || PoolSocket->RequestsServed >= PersistentBurst)
           {
                ClosePersistentPeerSocket(*PoolSocket);
+               PoolSocket->RequestsServed = 0;
+               PoolSocket->LastUsedMS = 0;
+               PoolSocket->RetireWhenIdle = false;
           }
           PoolSocket->InUse = false;
           PoolSocket.reset();
@@ -2862,6 +2908,20 @@ void SearchAPI::ClearPeerReconnectDiagnostics(const std::string &Endpoint) const
 
      (void)UseSSL;
      ResetPeerReconnectState(Host + ":" + std::to_string(Port));
+}
+
+void SearchAPI::DropPeerTransportState(const std::string &Endpoint) const
+{
+     std::string Host;
+     int Port = 0;
+     bool UseSSL = false;
+     if (!ParseNodeEndpoint(Endpoint, Host, Port, UseSSL))
+     {
+          return;
+     }
+
+     (void)UseSSL;
+     DropIdlePeerTransportState(Host + ":" + std::to_string(Port));
 }
 
 bool SearchAPI::IsSlaveResyncActive(const std::string &Endpoint) const

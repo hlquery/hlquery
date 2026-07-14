@@ -47,6 +47,7 @@ CoreExport extern hlquery *Instance;
 class CoreExport hlquery
 {
    private:
+
      /* Internal initialization function */
 
      bool StartServer();

@@ -808,12 +808,6 @@ sub check_clock_gettime {
     return 0;
 }
 
-sub check_lsm_storage {
-    # LSM Storage Engine - using custom high-performance implementation
-    print_status('OK', 'LSM Storage Engine', 'enabled');
-    return 1;
-}
-
 sub check_rocksdb_vendor {
     my $rocksdb_dir = catdir($base_path, 'vendor', 'rocksdb');
     my $rocksdb_include = catfile($rocksdb_dir, 'include', 'rocksdb', 'db.h');
@@ -1812,7 +1806,6 @@ sub main {
     }
     
     my $clock_ok = check_clock_gettime();
-    my $lsm_ok = check_lsm_storage();
     my $rocksdb_ok = check_rocksdb_vendor();
     my $fmt_ok = check_fmt_vendor();
     my $cld2_ok = check_cld2_vendor();

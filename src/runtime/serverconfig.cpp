@@ -2295,6 +2295,7 @@ bool ServerConfig::AddClusterNode(const std::string &Endpoint, std::string *OutE
      {
           if (NormalizeClusterEndpoint(Existing, nullptr) == Normalized)
           {
+               ClusterEnabled = true;
                return true;
           }
      }
@@ -2348,6 +2349,10 @@ bool ServerConfig::RemoveClusterNode(const std::string &Endpoint, std::string *O
                ClusterEnabled = false;
           }
      }
+     else if (OutError)
+     {
+          *OutError = "Endpoint is not configured: " + Normalized;
+     }
 
      return Removed;
 }
@@ -2371,6 +2376,7 @@ bool ServerConfig::AddSlaveNode(const std::string &Endpoint, std::string *OutErr
      {
           if (NormalizeClusterEndpoint(Existing, nullptr) == Normalized)
           {
+               ReplicationEnabled = true;
                return true;
           }
      }
@@ -2378,6 +2384,7 @@ bool ServerConfig::AddSlaveNode(const std::string &Endpoint, std::string *OutErr
      SlaveNodes.push_back(Normalized);
      std::sort(SlaveNodes.begin(), SlaveNodes.end());
      SlaveNodes.erase(std::unique(SlaveNodes.begin(), SlaveNodes.end()), SlaveNodes.end());
+     ReplicationEnabled = true;
      return true;
 }
 
@@ -2415,6 +2422,15 @@ bool ServerConfig::RemoveSlaveNode(const std::string &Endpoint, std::string *Out
      {
           SlaveNodes.swap(Remaining);
           SlavePeerTokens.erase(Normalized);
+
+          if (SlaveNodes.empty())
+          {
+               ReplicationEnabled = false;
+          }
+     }
+     else if (OutError)
+     {
+          *OutError = "Endpoint is not configured: " + Normalized;
      }
 
      return Removed;

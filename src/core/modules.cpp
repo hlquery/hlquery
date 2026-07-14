@@ -10,6 +10,8 @@
  * For more details, please visit: https://docs.hlquery.com
  */
 
+#include <exception>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -138,11 +140,23 @@ static void ParseJSONBodyParameters(const std::string &Body, ModuleCommandReques
                Request.PositionalParameters = Request.Parameters;
           }
      }
+     catch (const std::exception &Error)
+     {
+          if (Instance && Instance->Logs)
+          {
+               Instance->Logs->Debug("modules", "Failed to parse module command JSON body: " + std::string(Error.what()) + ".");
+          }
+     }
      catch (...)
      {
+          if (Instance && Instance->Logs)
+          {
+               Instance->Logs->Debug("modules", "Failed to parse module command JSON body with unknown exception.");
+          }
      }
 }
-/* Returns the storage prefix reserved for this module. */
+
+/* Default module destructor. */
 
 RuntimeModule::~RuntimeModule() = default;
 

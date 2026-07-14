@@ -2349,6 +2349,14 @@ HttpResponse SearchAPI::HandleLinksConnect(const HttpRequest &Request)
           return BuildLinksErrorResponse(Status::INTERNAL_SERVER_ERROR, "Server not ready");
      }
 
+     LinkEndpointInfo Info = HealthBuildEndpointInfo(Endpoint);
+     if (!Info.IsValid)
+     {
+          return BuildLinksErrorResponse(Status::BAD_REQUEST, "Invalid request", Info.Error.empty() ? "Invalid endpoint format" : Info.Error);
+     }
+
+     Endpoint = Info.NormalizedEndpoint;
+
      if (Instance->Modules)
      {
           ModulePreCheckResult PreCheck = RUN_MODULE_PRECHECK(OnPreLinksConnect, Endpoint, Request.RemoteAddress, Request.APIKeyID, !Request.APIKeyID.empty());
@@ -2357,12 +2365,6 @@ HttpResponse SearchAPI::HandleLinksConnect(const HttpRequest &Request)
           {
                return BuildErrorResponse(PreCheck.HttpStatus, PreCheck.ProtocolCode, PreCheck.Message, PreCheck.Details);
           }
-     }
-
-     LinkEndpointInfo Info = HealthBuildEndpointInfo(Endpoint);
-     if (!Info.IsValid)
-     {
-          return BuildLinksErrorResponse(Status::BAD_REQUEST, "Invalid request", Info.Error.empty() ? "Invalid endpoint format" : Info.Error);
      }
 
      if (!Info.IsLocal)
@@ -2399,6 +2401,13 @@ HttpResponse SearchAPI::HandleLinksConnect(const HttpRequest &Request)
           return BuildLinksErrorResponse(Status::BAD_REQUEST, "Failed to add link", AddError);
      }
 
+     DropPeerTransportState(Endpoint);
+
+     if (Role == LinkRuntimeRole::Slave)
+     {
+          MarkSlaveDirty(Endpoint);
+     }
+
      FOREACH_MOD(OnLinksConnect, Endpoint, Request.RemoteAddress, Request.APIKeyID, !Request.APIKeyID.empty());
 
      return HandleLinksList(Request);
@@ -2421,6 +2430,14 @@ HttpResponse SearchAPI::HandleLinksDisconnect(const HttpRequest &Request)
           return BuildLinksErrorResponse(Status::INTERNAL_SERVER_ERROR, "Server not ready");
      }
 
+     LinkEndpointInfo Info = HealthBuildEndpointInfo(Endpoint);
+     if (!Info.IsValid)
+     {
+          return BuildLinksErrorResponse(Status::BAD_REQUEST, "Invalid request", Info.Error.empty() ? "Invalid endpoint format" : Info.Error);
+     }
+
+     Endpoint = Info.NormalizedEndpoint;
+
      if (Instance->Modules)
      {
           ModulePreCheckResult PreCheck = RUN_MODULE_PRECHECK(OnPreLinksDisconnect, Endpoint, Request.RemoteAddress, Request.APIKeyID, !Request.APIKeyID.empty());
@@ -2439,6 +2456,8 @@ HttpResponse SearchAPI::HandleLinksDisconnect(const HttpRequest &Request)
      {
           return BuildLinksErrorResponse(Status::BAD_REQUEST, "Failed to remove link", RemoveError);
      }
+
+     DropPeerTransportState(Endpoint);
 
      FOREACH_MOD(OnLinksDisconnect, Endpoint, Request.RemoteAddress, Request.APIKeyID, !Request.APIKeyID.empty());
 
