@@ -59,7 +59,7 @@ void Trace(const std::string &Message)
 
 /* Runtime module used to print extensive debug information for module callbacks. */
 
-class DebugRuntimeModule final : public AutoRuntimeModule<DebugRuntimeModule>
+class DebugRuntimeModule final : public AutoCompositeRuntimeModule<DebugRuntimeModule>
 {
    private:
      /* Build the shared command summary payload. */
@@ -113,9 +113,10 @@ class DebugRuntimeModule final : public AutoRuntimeModule<DebugRuntimeModule>
      }
 
    public:
-     DebugRuntimeModule()
-         : AutoRuntimeModule("debug", true)
+
+     DebugRuntimeModule() : AutoCompositeRuntimeModule("debug", true)
      {
+
      }
 
      bool Start(const ServerConfig &, std::string &) override

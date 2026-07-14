@@ -34,7 +34,7 @@
 
 /* Runtime module that purges expired documents and collections. */
 
-class AutoDeleterRuntimeModule final : public AutoRuntimeModule<AutoDeleterRuntimeModule>
+class AutoDeleterRuntimeModule final : public AutoCompositeRuntimeModule<AutoDeleterRuntimeModule>
 {
    private:
      /* Supported purge scopes. */
@@ -1136,7 +1136,7 @@ class AutoDeleterRuntimeModule final : public AutoRuntimeModule<AutoDeleterRunti
      /* Initialize the auto-deleter runtime module. */
 
      AutoDeleterRuntimeModule()
-         : AutoRuntimeModule("autodeleter", true)
+         : AutoCompositeRuntimeModule("autodeleter", true)
      {
      }
 

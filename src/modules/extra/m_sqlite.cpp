@@ -251,7 +251,7 @@ const char *sqlite3_libversion()
      return API.Load() ? API.Libversion() : "unavailable";
 }
 
-class SQLiteRuntimeModule final : public AutoRuntimeModule<SQLiteRuntimeModule>
+class SQLiteRuntimeModule final : public AutoCompositeRuntimeModule<SQLiteRuntimeModule>
 {
    private:
      sqlite3 *Database = nullptr;
@@ -737,7 +737,7 @@ class SQLiteRuntimeModule final : public AutoRuntimeModule<SQLiteRuntimeModule>
 
    public:
      SQLiteRuntimeModule()
-         : AutoRuntimeModule("sqlite", true)
+         : AutoCompositeRuntimeModule("sqlite", true)
      {
      }
 
@@ -1052,11 +1052,11 @@ class SQLiteRuntimeModule final : public AutoRuntimeModule<SQLiteRuntimeModule>
 
 #else
 
-class SQLiteRuntimeModule final : public AutoRuntimeModule<SQLiteRuntimeModule>
+class SQLiteRuntimeModule final : public AutoCompositeRuntimeModule<SQLiteRuntimeModule>
 {
    public:
      SQLiteRuntimeModule()
-         : AutoRuntimeModule("sqlite", true)
+         : AutoCompositeRuntimeModule("sqlite", true)
      {
      }
 

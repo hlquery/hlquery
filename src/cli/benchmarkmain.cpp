@@ -3838,13 +3838,21 @@ int main(int argc, char *argv[])
           {
                PrintBenchmarkValue("Setup", std::to_string(setup_duration_val.count()) + " ms (cleanup + create)");
           }
-          if (ingest_commit_duration_val.count() > 0)
+          if (ingest_duration_ms > 0)
           {
-               PrintBenchmarkValue("Ingest rate", FormatBenchmarkRate(documents_inserted.load() * 1000.0 / ingest_commit_duration_val.count()) + " docs/sec");
+               PrintBenchmarkValue("Ingest rate", FormatBenchmarkRate(documents_inserted.load() * 1000.0 / ingest_duration_ms) + " docs/sec");
           }
           else
           {
                PrintBenchmarkValue("Ingest rate", "0 docs/sec");
+          }
+          if (ingest_commit_duration_val.count() > 0)
+          {
+               PrintBenchmarkValue("Committed rate", FormatBenchmarkRate(documents_inserted.load() * 1000.0 / ingest_commit_duration_val.count()) + " docs/sec");
+          }
+          else
+          {
+               PrintBenchmarkValue("Committed rate", "0 docs/sec");
           }
           PrintBenchmarkValue("Searchable", std::to_string(duration_val.count()) + " ms");
           if (duration_val.count() > 0)

@@ -34,7 +34,7 @@ ModulePreCheckResult MakeDeniedResult(const std::string &Operation, const std::s
 
 /* Runtime module that enforces demo mode restrictions. */
 
-class DemoRuntimeModule final : public AutoRuntimeModule<DemoRuntimeModule>
+class DemoRuntimeModule final : public AutoCompositeRuntimeModule<DemoRuntimeModule>
 {
    private:
      bool BlockLinks = true;
@@ -88,7 +88,7 @@ class DemoRuntimeModule final : public AutoRuntimeModule<DemoRuntimeModule>
      /* Initialize the demo runtime module. */
 
      DemoRuntimeModule()
-         : AutoRuntimeModule("demo", false)
+         : AutoCompositeRuntimeModule("demo", false)
      {
      }
 

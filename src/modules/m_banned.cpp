@@ -89,7 +89,7 @@ const std::vector<std::string> &GetSupportedScopes()
 
      return scopes;
 }
-class BannedRuntimeModule final : public AutoRuntimeModule<BannedRuntimeModule>
+class BannedRuntimeModule final : public AutoCompositeRuntimeModule<BannedRuntimeModule>
 {
    private:
      /* Guards the in-memory banned-word cache. */
@@ -373,7 +373,7 @@ class BannedRuntimeModule final : public AutoRuntimeModule<BannedRuntimeModule>
 
    public:
      BannedRuntimeModule()
-         : AutoRuntimeModule("banned", true)
+         : AutoCompositeRuntimeModule("banned", true)
      {
      }
 

@@ -663,6 +663,24 @@ class RuntimeModule
           return attached_hooks[static_cast<size_t>(Hook)];
      }
 
+     /*
+      * Returns the concrete objects that should receive one hook.
+      * Composite modules override this to expose owned subcomponents while
+      * the loader still treats the shared object as one configured module.
+      */
+
+     virtual std::vector<RuntimeModule *> GetHookTargets(ModuleHook Hook)
+     {
+          std::vector<RuntimeModule *> Targets;
+
+          if (HandlesHook(Hook))
+          {
+               Targets.push_back(this);
+          }
+
+          return Targets;
+     }
+
      /* Returns hard requirements that must be satisfied before the module starts. */
 
      virtual uint32_t GetRequirementFlags() const
@@ -1444,6 +1462,46 @@ class AutoRuntimeModule : public RuntimeModule
 
      explicit AutoRuntimeModule(const std::string &Name, bool EnableAPIRoute = false, uint32_t RequirementFlags = ModuleRequirementNone)
          : RuntimeModule(Name, EnableAPIRoute, RequirementFlags)
+     {
+          this->template AutoAttachHooks<Derived>();
+     }
+};
+
+class CompositeRuntimeModule : public RuntimeModule
+{
+   private:
+     std::vector<RuntimeModule *> Components;
+
+   protected:
+     /*
+      * Registers an owned component for hook and lifecycle forwarding.
+      * The composite does not take ownership; components should normally be
+      * member fields declared before the parent constructor body registers them.
+      */
+
+     void AddComponent(RuntimeModule &Component);
+
+   public:
+     explicit CompositeRuntimeModule(const std::string &Name, bool EnableAPIRoute = false, uint32_t RequirementFlags = ModuleRequirementNone)
+         : RuntimeModule(Name, EnableAPIRoute, RequirementFlags)
+     {
+     }
+
+     std::vector<RuntimeModule *> GetHookTargets(ModuleHook Hook) override;
+
+     bool Start(const ServerConfig &Config, std::string &ErrorMessage) override;
+     void Stop() override;
+     void OnUnloadModule() override;
+};
+
+template <typename Derived>
+class AutoCompositeRuntimeModule : public CompositeRuntimeModule
+{
+   protected:
+     /* Constructs a composite module that automatically marks overridden hooks. */
+
+     explicit AutoCompositeRuntimeModule(const std::string &Name, bool EnableAPIRoute = false, uint32_t RequirementFlags = ModuleRequirementNone)
+         : CompositeRuntimeModule(Name, EnableAPIRoute, RequirementFlags)
      {
           this->template AutoAttachHooks<Derived>();
      }

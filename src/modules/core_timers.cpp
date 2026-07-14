@@ -23,38 +23,41 @@
 
 namespace
 {
-static constexpr time_t HEALTH_SNAPSHOT_INTERVAL_SEC = 15;
+     static constexpr time_t HEALTH_SNAPSHOT_INTERVAL_SEC = 15;
 
-std::string FormatFriendlyTime(time_t Timestamp)
-{
-     if (Timestamp <= 0)
+     std::string FormatFriendlyTime(time_t Timestamp)
      {
-          return "unknown time";
+          if (Timestamp <= 0)
+          {
+               return "unknown time";
+          }
+
+          std::tm LocalTime{};
+          localtime_r(&Timestamp, &LocalTime);
+          char Buffer[64] = {};
+
+          if (std::strftime(Buffer, sizeof(Buffer), "%Y-%m-%d %H:%M:%S", &LocalTime) == 0)
+          {
+               return "unknown time";
+          }
+
+          return std::string(Buffer);
      }
-
-     std::tm LocalTime{};
-     localtime_r(&Timestamp, &LocalTime);
-     char Buffer[64] = {};
-
-     if (std::strftime(Buffer, sizeof(Buffer), "%Y-%m-%d %H:%M:%S", &LocalTime) == 0)
-     {
-          return "unknown time";
-     }
-
-     return std::string(Buffer);
-}
 }
 
-class CoreTimersModule final : public AutoRuntimeModule<CoreTimersModule>
+class CoreTimersModule final : public AutoCompositeRuntimeModule<CoreTimersModule>
 {
    private:
+
      time_t LastSnapshot = 0;
      time_t LastFlush = 0;
      time_t LastSearchCacheFlush = 0;
 
    public:
-     CoreTimersModule() : AutoRuntimeModule("core_timers")
+
+     CoreTimersModule() : AutoCompositeRuntimeModule("core_timers")
      {
+
      }
 
      bool Start(const ServerConfig &, std::string &) override
@@ -84,6 +87,7 @@ class CoreTimersModule final : public AutoRuntimeModule<CoreTimersModule>
 
      void Stop() override
      {
+
      }
 
      void OnThreadPoolsReady() override

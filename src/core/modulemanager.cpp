@@ -538,9 +538,12 @@ void ModuleManager::RebuildHookRegistriesLocked()
           {
                const ModuleHook Hook = static_cast<ModuleHook>(HookIndex);
 
-               if (Loaded.Instance->HandlesHook(Hook))
+               for (RuntimeModule *Target : Loaded.Instance->GetHookTargets(Hook))
                {
-                    SubscribersByHook[HookIndex].push_back({Loaded.Instance, Loaded.ExecutionState});
+                    if (Target)
+                    {
+                         SubscribersByHook[HookIndex].push_back({Loaded.Instance, Target, Loaded.ExecutionState});
+                    }
                }
           }
      }
@@ -570,15 +573,16 @@ void ModuleManager::DispatchModuleEvent(const ModuleSnapshot &Modules,
 
           try
           {
-               Invoke(*Module.Instance);
+               RuntimeModule *Target = Module.Target ? Module.Target : Module.Instance.get();
+               Invoke(*Target);
           }
           catch (const std::exception &Ex)
           {
-               LogModuleDispatchFailure(Module.Instance.get(), EventName, Ex.what());
+               LogModuleDispatchFailure(Module.Target ? Module.Target : Module.Instance.get(), EventName, Ex.what());
           }
           catch (...)
           {
-               LogUnknownModuleDispatchFailure(Module.Instance.get(), EventName);
+               LogUnknownModuleDispatchFailure(Module.Target ? Module.Target : Module.Instance.get(), EventName);
           }
      }
 }
@@ -921,7 +925,8 @@ float ModuleManager::ComputeSearchWeightMultiplier(const std::string &Collection
 
           try
           {
-               const float module_multiplier = Module.Instance->ComputeSearchWeightMultiplier(Collection, Query, RankingMode, Hit, BaseScore);
+               RuntimeModule *Target = Module.Target ? Module.Target : Module.Instance.get();
+               const float module_multiplier = Target->ComputeSearchWeightMultiplier(Collection, Query, RankingMode, Hit, BaseScore);
 
                if (std::isfinite(module_multiplier) && module_multiplier > 0.0f)
                {
@@ -930,11 +935,11 @@ float ModuleManager::ComputeSearchWeightMultiplier(const std::string &Collection
           }
           catch (const std::exception &Ex)
           {
-               LogModuleDispatchFailure(Module.Instance.get(), "ComputeSearchWeightMultiplier", Ex.what());
+               LogModuleDispatchFailure(Module.Target ? Module.Target : Module.Instance.get(), "ComputeSearchWeightMultiplier", Ex.what());
           }
           catch (...)
           {
-               LogUnknownModuleDispatchFailure(Module.Instance.get(), "ComputeSearchWeightMultiplier");
+               LogUnknownModuleDispatchFailure(Module.Target ? Module.Target : Module.Instance.get(), "ComputeSearchWeightMultiplier");
           }
      }
 
@@ -965,7 +970,7 @@ void ModuleManager::OnUnloadModules()
                }
 
                Loaded.UnloadNotified = true;
-               ModulesToNotify.push_back({Loaded.Instance, Loaded.ExecutionState});
+               ModulesToNotify.push_back({Loaded.Instance, Loaded.Instance.get(), Loaded.ExecutionState});
           }
      }
 
@@ -1045,7 +1050,7 @@ void ModuleManager::UnloadModuleList(std::vector<LoadedModule> ModulesToUnload)
 {
      for (auto It = ModulesToUnload.rbegin(); It != ModulesToUnload.rend(); ++It)
      {
-          ModuleReference ModuleRef{It->Instance, It->ExecutionState};
+          ModuleReference ModuleRef{It->Instance, It->Instance.get(), It->ExecutionState};
           QuiesceModuleCallbacks(ModuleRef);
           ModuleRef.Instance.reset();
           ModuleRef.ExecutionState.reset();
@@ -1190,6 +1195,7 @@ bool ModuleManager::GetModuleReference(const std::string &Name, ModuleReference 
           if (Loaded.Name == Name && Loaded.Instance)
           {
                Module->Instance = Loaded.Instance;
+               Module->Target = Loaded.Instance.get();
                Module->ExecutionState = Loaded.ExecutionState;
                return true;
           }
@@ -1217,7 +1223,7 @@ std::vector<ModuleAPIDescription> ModuleManager::GetModuleAPIDescriptions() cons
 
           for (const auto &Module : Modules)
           {
-               ModuleReference ModuleRef{Module.Instance, Module.ExecutionState};
+               ModuleReference ModuleRef{Module.Instance, Module.Instance.get(), Module.ExecutionState};
 
                if (!ModuleRef.Instance || !ModuleRef.Instance->IsAPIRouteEnabled())
                {

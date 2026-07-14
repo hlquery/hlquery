@@ -24,7 +24,7 @@
 
 /* Runtime module that forwards events into the analytics manager. */
 
-class AnalyticsRuntimeModule final : public AutoRuntimeModule<AnalyticsRuntimeModule>
+class AnalyticsRuntimeModule final : public AutoCompositeRuntimeModule<AnalyticsRuntimeModule>
 {
    private:
      /* Owns the analytics manager while the module is active. */
@@ -44,7 +44,7 @@ class AnalyticsRuntimeModule final : public AutoRuntimeModule<AnalyticsRuntimeMo
    public:
      /* Initialize the analytics runtime module. */
 
-     AnalyticsRuntimeModule() : AutoRuntimeModule("analytics", true)
+     AnalyticsRuntimeModule() : AutoCompositeRuntimeModule("analytics", true)
      {
      }
 

@@ -96,6 +96,7 @@ class ModuleManager
      struct ModuleReference
      {
           std::shared_ptr<RuntimeModule> Instance;
+          RuntimeModule *Target = nullptr;
           std::shared_ptr<ModuleExecutionState> ExecutionState;
      };
 
@@ -297,7 +298,8 @@ class ModuleManager
 
                try
                {
-                    ModulePreCheckResult Result = Invoke(*Module.Instance);
+                    RuntimeModule *Target = Module.Target ? Module.Target : Module.Instance.get();
+                    ModulePreCheckResult Result = Invoke(*Target);
 
                     if (Result.Action == ModulePreCheckAction::Deny)
                     {
@@ -306,11 +308,11 @@ class ModuleManager
                }
                catch (const std::exception &Ex)
                {
-                    LogDispatchFailure(Module.Instance.get(), EventName, Ex.what());
+                    LogDispatchFailure(Module.Target ? Module.Target : Module.Instance.get(), EventName, Ex.what());
                }
                catch (...)
                {
-                    LogUnknownDispatchFailure(Module.Instance.get(), EventName);
+                    LogUnknownDispatchFailure(Module.Target ? Module.Target : Module.Instance.get(), EventName);
                }
           }
 

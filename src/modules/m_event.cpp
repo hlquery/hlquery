@@ -56,7 +56,7 @@ static std::string BoolString(bool Value)
 
 /* Runtime module that writes internal event documents into day-bucketed collections. */
 
-class EventRuntimeModule final : public AutoRuntimeModule<EventRuntimeModule>
+class EventRuntimeModule final : public AutoCompositeRuntimeModule<EventRuntimeModule>
 {
    private:
      /* One queued event or search record waiting for batch flush. */
@@ -394,7 +394,7 @@ class EventRuntimeModule final : public AutoRuntimeModule<EventRuntimeModule>
      /* Construct the event runtime module. */
 
      EventRuntimeModule()
-         : AutoRuntimeModule("event", false)
+         : AutoCompositeRuntimeModule("event", false)
      {
      }
 

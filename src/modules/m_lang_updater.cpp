@@ -30,7 +30,7 @@
 
 /* Periodically refreshes collection-level language metadata. */
 
-class LangUpdaterRuntimeModule final : public AutoRuntimeModule<LangUpdaterRuntimeModule>
+class LangUpdaterRuntimeModule final : public AutoCompositeRuntimeModule<LangUpdaterRuntimeModule>
 {
    private:
      static constexpr uint64_t OneHourMS = 60ULL * 60ULL * 1000ULL;
@@ -382,7 +382,7 @@ class LangUpdaterRuntimeModule final : public AutoRuntimeModule<LangUpdaterRunti
      }
 
    public:
-     LangUpdaterRuntimeModule() : AutoRuntimeModule("lang_updater", true)
+     LangUpdaterRuntimeModule() : AutoCompositeRuntimeModule("lang_updater", true)
      {
      }
 

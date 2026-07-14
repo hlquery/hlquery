@@ -33,6 +33,7 @@ struct User
 {
      std::string Name;
      std::string Token;
+     std::string Password;
      std::set<UserFlag> Flags;
      std::string Description;
 
@@ -40,6 +41,11 @@ struct User
 
      User(const std::string &N, const std::string &T, const std::set<UserFlag> &F, const std::string &D = "")
          : Name(N), Token(T), Flags(F), Description(D)
+     {
+     }
+
+     User(const std::string &N, const std::string &T, const std::string &P, const std::set<UserFlag> &F, const std::string &D = "")
+         : Name(N), Token(T), Password(P), Flags(F), Description(D)
      {
      }
 

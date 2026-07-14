@@ -20,11 +20,11 @@
 #include "core/modules.h"
 #include "search/rocksdb_storage_engine.h"
 
-class DumpModule final : public AutoRuntimeModule<DumpModule>
+class DumpModule final : public AutoCompositeRuntimeModule<DumpModule>
 {
    public:
      DumpModule()
-         : AutoRuntimeModule("dump", true)
+         : AutoCompositeRuntimeModule("dump", true)
      {
      }
 

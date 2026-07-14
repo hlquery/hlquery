@@ -10,6 +10,7 @@
  * For more details, please visit: https://docs.hlquery.com
  */
 
+#include <algorithm>
 #include <exception>
 #include <map>
 #include <string>
@@ -159,6 +160,136 @@ static void ParseJSONBodyParameters(const std::string &Body, ModuleCommandReques
 /* Default module destructor. */
 
 RuntimeModule::~RuntimeModule() = default;
+
+void CompositeRuntimeModule::AddComponent(RuntimeModule &Component)
+{
+     if (&Component == this)
+     {
+          return;
+     }
+
+     if (std::find(Components.begin(), Components.end(), &Component) == Components.end())
+     {
+          Components.push_back(&Component);
+     }
+}
+
+std::vector<RuntimeModule *> CompositeRuntimeModule::GetHookTargets(ModuleHook Hook)
+{
+     std::vector<RuntimeModule *> Targets = RuntimeModule::GetHookTargets(Hook);
+
+     for (RuntimeModule *Component : Components)
+     {
+          if (!Component)
+          {
+               continue;
+          }
+
+          std::vector<RuntimeModule *> ComponentTargets = Component->GetHookTargets(Hook);
+          Targets.insert(Targets.end(), ComponentTargets.begin(), ComponentTargets.end());
+     }
+
+     return Targets;
+}
+
+bool CompositeRuntimeModule::Start(const ServerConfig &Config, std::string &ErrorMessage)
+{
+     std::vector<RuntimeModule *> StartedComponents;
+     StartedComponents.reserve(Components.size());
+
+     for (RuntimeModule *Component : Components)
+     {
+          if (!Component)
+          {
+               continue;
+          }
+
+          std::string ComponentError;
+          bool Started = false;
+
+          try
+          {
+               Started = Component->Start(Config, ComponentError);
+          }
+          catch (const std::exception &Error)
+          {
+               ComponentError = Error.what();
+               Started = false;
+          }
+          catch (...)
+          {
+               ComponentError = "unknown exception";
+               Started = false;
+          }
+
+          if (Started)
+          {
+               StartedComponents.push_back(Component);
+               continue;
+          }
+
+          for (auto It = StartedComponents.rbegin(); It != StartedComponents.rend(); ++It)
+          {
+               try
+               {
+                    (*It)->Stop();
+               }
+               catch (...)
+               {
+               }
+          }
+
+          ErrorMessage = "Component '" + Component->GetName() + "' failed to start";
+
+          if (!ComponentError.empty())
+          {
+               ErrorMessage += ": " + ComponentError;
+          }
+
+          ErrorMessage += ".";
+          return false;
+     }
+
+     return true;
+}
+
+void CompositeRuntimeModule::Stop()
+{
+     for (auto It = Components.rbegin(); It != Components.rend(); ++It)
+     {
+          if (!*It)
+          {
+               continue;
+          }
+
+          try
+          {
+               (*It)->Stop();
+          }
+          catch (...)
+          {
+          }
+     }
+}
+
+void CompositeRuntimeModule::OnUnloadModule()
+{
+     for (auto It = Components.rbegin(); It != Components.rend(); ++It)
+     {
+          if (!*It)
+          {
+               continue;
+          }
+
+          try
+          {
+               (*It)->OnUnloadModule();
+          }
+          catch (...)
+          {
+          }
+     }
+}
 
 /* Returns the storage prefix reserved for this module. */
 
