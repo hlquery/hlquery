@@ -242,7 +242,7 @@ bool SearchResponseCache::Get(const std::string &Namespace,
           return false;
      }
 
-     const CacheEntry &Entry = It->second;
+     CacheEntry &Entry = It->second;
      const bool Expired = NowMS < Entry.CreatedMS || (NowMS - Entry.CreatedMS) >= CacheTTLMS;
      const bool GlobalStale = Entry.GlobalEpoch != GlobalEpoch;
      const bool CollectionStale = Entry.CollectionGeneration != CurrentGenerationLocked(Collection);
@@ -259,6 +259,9 @@ bool SearchResponseCache::Get(const std::string &Namespace,
      }
 
      Response = Entry.Response;
+     Entry.OrderSequence = ++OrderClock;
+     EntryOrder.push_back({Key, Entry.OrderSequence});
+     CompactOrderLocked();
      ++CacheHits;
      Response.Headers["X-HLQ-Cache"] = "hit";
      return true;

@@ -341,6 +341,18 @@ size_t InvertedIndex::EvictLoadedCollectionsLocked(size_t TargetBytes)
           Collections.insert(Collection);
      }
 
+     for (const auto &[Collection, Terms] : DocumentTerms)
+     {
+          (void)Terms;
+          Collections.insert(Collection);
+     }
+
+     for (const auto &[Collection, Lengths] : DocumentLengths)
+     {
+          (void)Lengths;
+          Collections.insert(Collection);
+     }
+
      std::vector<EvictionCandidate> Candidates;
      Candidates.reserve(Collections.size());
 
@@ -2094,13 +2106,12 @@ void InvertedIndex::LoadFromDisk(const std::string &IndexDir)
 
      for (auto &Entry : LoadedIndexes)
      {
-          /* Installing loaded indexes also records access time for eviction ordering. */
+          /* Startup residency is not user access; actual reads update recency before eviction. */
 
           const std::string &Collection = Entry.first;
           const size_t TermCount = Entry.second->GetTermCount();
 
           MMapIndexes[Collection] = std::move(Entry.second);
-          TouchCollectionLocked(Collection);
 
           if (Instance && Instance->Logs)
           {
