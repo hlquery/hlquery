@@ -19,11 +19,13 @@
 #include <iomanip>
 #include <limits>
 #include <map>
+#include <memory>
 #include <mutex>
 #include <netdb.h>
 #include <sstream>
 #include <string>
 #include <thread>
+#include <netinet/tcp.h>
 #include <sys/socket.h>
 #include <sys/time.h>
 #include <unistd.h>
@@ -31,13 +33,17 @@
 #include <vector>
 
 #ifdef HLQUERY_HAS_OPENSSL
-     #include <openssl/err.h>
-     #include <openssl/ssl.h>
+
+#include <openssl/err.h>
+#include <openssl/ssl.h>
+
 #else
-     struct ssl_ctx_st;
-     struct ssl_st;
-     using SSL_CTX = ssl_ctx_st;
-     using SSL = ssl_st;
+
+struct ssl_ctx_st;
+struct ssl_st;
+using SSL_CTX = ssl_ctx_st;
+using SSL = ssl_st;
+
 #endif
 
 #include "api/searchapi.h"
@@ -45,6 +51,8 @@
 #include "core/hlquery.h"
 #include "utils/protocol.h"
 #include "vendor/json/json.hpp"
+
+/* Provides distributed search and replication API handlers. */
 
 static std::string ToLowerCopy(const std::string &Value)
 {
@@ -56,6 +64,8 @@ static std::string ToLowerCopy(const std::string &Value)
                     });
      return Out;
 }
+
+/* Returns a request header value using case-insensitive lookup. */
 
 static std::string GetHeaderValueInsensitive(const std::map<std::string, std::string> &Headers, const std::string &Name)
 {
@@ -79,10 +89,14 @@ static std::string GetHeaderValueInsensitive(const std::map<std::string, std::st
      return "";
 }
 
+/* Formats a steady-clock duration as milliseconds. */
+
 static std::string DurationToMillisecondsString(const std::chrono::steady_clock::duration &Duration)
 {
      return std::to_string(std::chrono::duration_cast<std::chrono::milliseconds>(Duration).count());
 }
+
+/* Returns a trimmed copy of the input string. */
 
 static std::string TrimCopy(const std::string &Value)
 {
@@ -97,12 +111,16 @@ static std::string TrimCopy(const std::string &Value)
      return Value.substr(Start, End - Start + 1);
 }
 
+/* Builds a unique replication operation id. */
+
 static std::string BuildReplicationOperationID()
 {
      const uint64_t TimestampMS = Instance ? static_cast<uint64_t>(Instance->NowMs()) : static_cast<uint64_t>(time(nullptr) * 1000);
      static std::atomic<uint64_t> Sequence{1};
      return std::to_string(TimestampMS) + "-" + std::to_string(Sequence.fetch_add(1, std::memory_order_relaxed));
 }
+
+/* Ensures replication requests have a stable operation id. */
 
 static void EnsureReplicationOperationID(HttpRequest &Request)
 {
@@ -113,6 +131,8 @@ static void EnsureReplicationOperationID(HttpRequest &Request)
 
      Request.Headers["X-HLQ-Replication-Op"] = BuildReplicationOperationID();
 }
+
+/* Parses node endpoint input. */
 
 static bool ParseNodeEndpoint(const std::string &Raw, std::string &HostOut, int &PortOut, bool &UseSSLOut)
 {
@@ -134,6 +154,8 @@ static bool ParseNodeEndpoint(const std::string &Raw, std::string &HostOut, int 
      return true;
 }
 
+/* Checks whether a host name refers to the local node. */
+
 static bool IsLocalHostName(const std::string &Host)
 {
      std::string Lower = ToLowerCopy(Host);
@@ -148,6 +170,8 @@ struct NodeEndpoint
      bool UseSSL = false;
      bool IsLocal = false;
 };
+
+/* Builds a readable label for a distributed node. */
 
 static std::string BuildDistributedNodeLabel(const NodeEndpoint &Node)
 {
@@ -173,9 +197,9 @@ static constexpr float kReplicaUnknownTrustWeight = 0.97f;
 static constexpr float kReplicaStaleTrustWeight = 0.80f;
 
 static constexpr size_t kMaxPendingReplicationRequests = 512;
+static constexpr int kPeerReconnectBackoffMaxMS = 5000;
 static std::mutex PendingReplicationMutex;
 static std::unordered_map<std::string, std::vector<HttpRequest>> PendingReplicationRequests;
-
 
 struct PersistentPeerSocket
 {
@@ -186,27 +210,187 @@ struct PersistentPeerSocket
 #endif
      bool UseSSL = false;
      int RequestsServed = 0;
+     uint64_t LastUsedMS = 0;
+     bool InUse = false;
+     bool RetireWhenIdle = false;
+};
+
+struct PersistentPeerPool
+{
+     std::vector<std::shared_ptr<PersistentPeerSocket>> Sockets;
      int ConsecutiveFailures = 0;
      std::chrono::steady_clock::time_point NextReconnectAt = std::chrono::steady_clock::time_point::min();
-     bool InUse = false;
+     uint64_t LastFailureMS = 0;
+     uint64_t LastSuccessMS = 0;
+     std::string LastError;
      std::mutex Mutex;
 };
 
 static std::mutex PersistentPeerSocketMutex;
-static std::unordered_map<std::string, std::shared_ptr<PersistentPeerSocket>> PersistentPeerSocketPool;
+static std::unordered_map<std::string, std::shared_ptr<PersistentPeerPool>> PersistentPeerSocketPool;
 
-static std::shared_ptr<PersistentPeerSocket> AcquirePersistentPeerSocket(const std::string &Key)
+static void ClosePersistentPeerSocket(PersistentPeerSocket &Socket);
+
+/* Clamps peer reconnect delays to supported bounds. */
+
+static int ClampPeerReconnectMS(int ReconnectMS)
 {
+     if (ReconnectMS < 100)
+     {
+          return 100;
+     }
+
+     return std::min(ReconnectMS, kPeerReconnectBackoffMaxMS);
+}
+
+/* Computes the reconnect delay for a peer after failures. */
+
+static int ComputePeerReconnectDelayMS(int BaseReconnectMS, int ConsecutiveFailures, const std::string &Key)
+{
+     int DelayMS = ClampPeerReconnectMS(BaseReconnectMS);
+     const int ExtraFailures = std::max(0, ConsecutiveFailures - 1);
+
+     for (int I = 0; I < ExtraFailures && DelayMS < kPeerReconnectBackoffMaxMS; ++I)
+     {
+          DelayMS = std::min(DelayMS * 2, kPeerReconnectBackoffMaxMS);
+     }
+
+     const int JitterWindowMS = std::max(25, std::min(250, DelayMS / 4));
+     const size_t Jitter = std::hash<std::string>{}(Key + ":" + std::to_string(ConsecutiveFailures)) % static_cast<size_t>(JitterWindowMS);
+     DelayMS = std::min(DelayMS + static_cast<int>(Jitter), kPeerReconnectBackoffMaxMS);
+
+     return DelayMS;
+}
+
+/* Clears reconnect state for one peer. */
+
+static void ResetPeerReconnectState(const std::string &Key)
+{
+     std::lock_guard<std::mutex> Guard(PersistentPeerSocketMutex);
+     auto It = PersistentPeerSocketPool.find(Key);
+     if (It == PersistentPeerSocketPool.end())
+     {
+          return;
+     }
+
+     std::lock_guard<std::mutex> PoolGuard(It->second->Mutex);
+     It->second->ConsecutiveFailures = 0;
+     It->second->NextReconnectAt = std::chrono::steady_clock::time_point::min();
+     It->second->LastSuccessMS = Instance ? static_cast<uint64_t>(Instance->NowMs()) : static_cast<uint64_t>(time(nullptr) * 1000);
+     It->second->LastError.clear();
+}
+
+/* Clears reconnect state and closes idle persistent sockets for one peer. */
+
+static void DropIdlePeerTransportState(const std::string &Key)
+{
+     std::lock_guard<std::mutex> Guard(PersistentPeerSocketMutex);
+     auto It = PersistentPeerSocketPool.find(Key);
+     if (It == PersistentPeerSocketPool.end())
+     {
+          return;
+     }
+
+     std::lock_guard<std::mutex> PoolGuard(It->second->Mutex);
+     for (const auto &Socket : It->second->Sockets)
+     {
+          if (!Socket)
+          {
+               continue;
+          }
+
+          if (Socket->InUse)
+          {
+               Socket->RetireWhenIdle = true;
+               continue;
+          }
+
+          if (!Socket->InUse)
+          {
+               ClosePersistentPeerSocket(*Socket);
+               Socket->RequestsServed = 0;
+               Socket->LastUsedMS = 0;
+               Socket->RetireWhenIdle = false;
+          }
+     }
+
+     It->second->ConsecutiveFailures = 0;
+     It->second->NextReconnectAt = std::chrono::steady_clock::time_point::min();
+     It->second->LastSuccessMS = Instance ? static_cast<uint64_t>(Instance->NowMs()) : static_cast<uint64_t>(time(nullptr) * 1000);
+     It->second->LastError.clear();
+}
+
+/* Clears reconnect state for every peer. */
+
+static void ResetAllPeerReconnectState()
+{
+     std::lock_guard<std::mutex> Guard(PersistentPeerSocketMutex);
+     for (auto &Pair : PersistentPeerSocketPool)
+     {
+          std::lock_guard<std::mutex> PoolGuard(Pair.second->Mutex);
+          Pair.second->ConsecutiveFailures = 0;
+          Pair.second->NextReconnectAt = std::chrono::steady_clock::time_point::min();
+          Pair.second->LastError.clear();
+     }
+}
+
+/* Captures reconnect diagnostics for one peer. */
+
+static PeerReconnectDiagnostics SnapshotPeerReconnectState(const std::string &Key)
+{
+     PeerReconnectDiagnostics Diagnostics;
+     std::lock_guard<std::mutex> Guard(PersistentPeerSocketMutex);
+     auto It = PersistentPeerSocketPool.find(Key);
+     if (It == PersistentPeerSocketPool.end())
+     {
+          return Diagnostics;
+     }
+
+     auto NowTime = ::Now();
+     std::lock_guard<std::mutex> PoolGuard(It->second->Mutex);
+     Diagnostics.HasState = true;
+     Diagnostics.ConsecutiveFailures = It->second->ConsecutiveFailures;
+     Diagnostics.LastFailureMS = It->second->LastFailureMS;
+     Diagnostics.LastSuccessMS = It->second->LastSuccessMS;
+     Diagnostics.LastError = It->second->LastError;
+     if (It->second->NextReconnectAt > NowTime)
+     {
+          Diagnostics.NextRetryMS = std::chrono::duration_cast<std::chrono::milliseconds>(It->second->NextReconnectAt - NowTime).count();
+     }
+
+     return Diagnostics;
+}
+
+/* Acquires the shared persistent socket pool for a peer. */
+
+static std::shared_ptr<PersistentPeerPool> AcquirePersistentPeerPool(const std::string &Key, int MaxConnections)
+{
+     if (MaxConnections < 1)
+     {
+          MaxConnections = 1;
+     }
+
      std::lock_guard<std::mutex> Guard(PersistentPeerSocketMutex);
      auto It = PersistentPeerSocketPool.find(Key);
      if (It != PersistentPeerSocketPool.end())
      {
+          std::lock_guard<std::mutex> PoolGuard(It->second->Mutex);
+          while (static_cast<int>(It->second->Sockets.size()) < MaxConnections)
+          {
+               It->second->Sockets.push_back(std::make_shared<PersistentPeerSocket>());
+          }
           return It->second;
      }
-     auto Socket = std::make_shared<PersistentPeerSocket>();
-     PersistentPeerSocketPool[Key] = Socket;
-     return Socket;
+     auto Pool = std::make_shared<PersistentPeerPool>();
+     for (int I = 0; I < MaxConnections; ++I)
+     {
+          Pool->Sockets.push_back(std::make_shared<PersistentPeerSocket>());
+     }
+     PersistentPeerSocketPool[Key] = Pool;
+     return Pool;
 }
+
+/* Closes a persistent peer socket and clears its TLS state. */
 
 static void ClosePersistentPeerSocket(PersistentPeerSocket &Socket)
 {
@@ -230,6 +414,7 @@ static void ClosePersistentPeerSocket(PersistentPeerSocket &Socket)
 #endif
      Socket.UseSSL = false;
      Socket.RequestsServed = 0;
+     Socket.LastUsedMS = 0;
 }
 
 enum class PeerTokenSource
@@ -249,6 +434,8 @@ struct PeerRequestResult
      bool UsedNoAuthFallback = false;
      int Attempts = 0;
 };
+
+/* Checks whether secondary peer token exists. */
 
 static bool HasSecondaryPeerToken(PeerTokenSource TokenSource,
                                   const std::string &Endpoint,
@@ -284,6 +471,8 @@ static bool HasSecondaryPeerToken(PeerTokenSource TokenSource,
 
      return FoundTokens && !SecondaryToken.empty();
 }
+
+/* Builds configured endpoints data. */
 
 static bool BuildConfiguredEndpoints(const std::vector<std::string> &ConfiguredNodes, std::vector<NodeEndpoint> &OutNodes)
 {
@@ -346,6 +535,8 @@ static bool BuildConfiguredEndpoints(const std::vector<std::string> &ConfiguredN
      return !OutNodes.empty();
 }
 
+/* Builds cluster endpoints data. */
+
 static bool BuildClusterEndpoints(std::vector<NodeEndpoint> &OutNodes)
 {
      if (!Instance || !Instance->Config)
@@ -356,6 +547,8 @@ static bool BuildClusterEndpoints(std::vector<NodeEndpoint> &OutNodes)
      return BuildConfiguredEndpoints(Instance->Config->GetClusterNodes(), OutNodes);
 }
 
+/* Builds slave endpoints data. */
+
 static bool BuildSlaveEndpoints(std::vector<NodeEndpoint> &OutNodes)
 {
      if (!Instance || !Instance->Config)
@@ -365,6 +558,8 @@ static bool BuildSlaveEndpoints(std::vector<NodeEndpoint> &OutNodes)
 
      return BuildConfiguredEndpoints(Instance->Config->GetSlaveNodes(), OutNodes);
 }
+
+/* Implements the snapshot collection document ids helper. */
 
 static std::vector<std::string> SnapshotCollectionDocumentIDs(const std::string &Collection)
 {
@@ -393,6 +588,8 @@ static std::vector<std::string> SnapshotCollectionDocumentIDs(const std::string 
      return IDs;
 }
 
+/* Checks whether replication replica endpoint applies. */
+
 static bool IsReplicationReplicaEndpoint(const std::string &Endpoint)
 {
      if (!Instance || !Instance->Config)
@@ -404,6 +601,8 @@ static bool IsReplicationReplicaEndpoint(const std::string &Endpoint)
      return std::find(SlaveNodes.begin(), SlaveNodes.end(), TrimCopy(Endpoint)) != SlaveNodes.end();
 }
 
+/* Implements the send HTTP request helper. */
+
 static bool SendHttpRequest(const std::string &Host,
                             int Port,
                             const std::string &Endpoint,
@@ -412,6 +611,8 @@ static bool SendHttpRequest(const std::string &Host,
                             int TimeoutMS,
                             bool UsePersistentTransport,
                             int PersistentBurst,
+                            int ConnectionsPerPeer,
+                            int IdleMS,
                             bool AutoReconnect,
                             int ReconnectMS,
                             PeerTokenSource TokenSource,
@@ -436,6 +637,13 @@ static bool SendHttpRequest(const std::string &Host,
           TV.tv_usec = (TimeoutMS % 1000) * 1000;
           setsockopt(Sock, SOL_SOCKET, SO_RCVTIMEO, &TV, sizeof(TV));
           setsockopt(Sock, SOL_SOCKET, SO_SNDTIMEO, &TV, sizeof(TV));
+     };
+
+     auto ConfigureSocketPerformance = [&](int Sock)
+     {
+          int Enabled = 1;
+          setsockopt(Sock, SOL_SOCKET, SO_KEEPALIVE, &Enabled, sizeof(Enabled));
+          setsockopt(Sock, IPPROTO_TCP, TCP_NODELAY, &Enabled, sizeof(Enabled));
      };
 
      auto OpenSocket = [&](int *OutSock) -> bool
@@ -471,6 +679,7 @@ static bool SendHttpRequest(const std::string &Host,
                }
 
                ConfigureSocketTimeouts(Sock);
+               ConfigureSocketPerformance(Sock);
 
                if (connect(Sock, P->ai_addr, P->ai_addrlen) == 0)
                {
@@ -720,12 +929,14 @@ static bool SendHttpRequest(const std::string &Host,
 
      std::string ReqStr = Req.str();
      const std::string PoolKey = Host + ":" + std::to_string(Port);
+     const bool IsReadinessProbe = Request.Method == "GET" && Request.Path == "/health";
      int Sock = -1;
 #ifdef HLQUERY_HAS_OPENSSL
      SSL_CTX *ActiveSSLCtx = nullptr;
      SSL *ActiveSSLObj = nullptr;
 #endif
-     std::shared_ptr<PersistentPeerSocket> PoolEntry;
+     std::shared_ptr<PersistentPeerPool> PoolEntry;
+     std::shared_ptr<PersistentPeerSocket> PoolSocket;
      bool PoolReserved = false;
 
      enum class PoolAcquireStatus
@@ -737,18 +948,28 @@ static bool SendHttpRequest(const std::string &Host,
 
      auto AcquirePoolSlot = [&]() -> PoolAcquireStatus
      {
-          if (!UsePersistentTransport)
+          if (!UsePersistentTransport && !AutoReconnect)
           {
                return PoolAcquireStatus::Busy;
           }
-          PoolEntry = AcquirePersistentPeerSocket(PoolKey);
+          PoolEntry = AcquirePersistentPeerPool(PoolKey, UsePersistentTransport ? ConnectionsPerPeer : 1);
           auto Now = ::Now();
+          const uint64_t NowMS = Instance ? static_cast<uint64_t>(Instance->NowMs()) : static_cast<uint64_t>(time(nullptr) * 1000);
           std::lock_guard<std::mutex> Guard(PoolEntry->Mutex);
-          if (PoolEntry->InUse)
+          /*
+           * Failed peer links are only reopened by health probes. Normal
+           * distributed writes/searches must not use a peer that the cluster
+           * currently knows as down, even after the retry timer has elapsed.
+           */
+          if (AutoReconnect && PoolEntry->ConsecutiveFailures > 0 && !IsReadinessProbe)
           {
-               return PoolAcquireStatus::Busy;
+               if (OutError)
+               {
+                    *OutError = "Peer link is down for " + PoolKey + "; waiting for health probe reconnect.";
+               }
+               return PoolAcquireStatus::Backoff;
           }
-          if (AutoReconnect && PoolEntry->NextReconnectAt > Now)
+          if (AutoReconnect && PoolEntry->NextReconnectAt > Now && !IsReadinessProbe)
           {
                if (OutError)
                {
@@ -756,20 +977,81 @@ static bool SendHttpRequest(const std::string &Host,
                }
                return PoolAcquireStatus::Backoff;
           }
-          PoolEntry->InUse = true;
-          PoolReserved = true;
-          if (PoolEntry->Fd >= 0 && PoolEntry->UseSSL == UseSSL)
+
+          const uint64_t IdleLimitMS = IdleMS > 0 ? static_cast<uint64_t>(IdleMS) : 30000;
+          for (const auto &Socket : PoolEntry->Sockets)
           {
-               Sock = PoolEntry->Fd;
+               if (!Socket || Socket->InUse || Socket->Fd < 0 || Socket->LastUsedMS == 0)
+               {
+                    continue;
+               }
+
+               if (NowMS > Socket->LastUsedMS && NowMS - Socket->LastUsedMS > IdleLimitMS)
+               {
+                    ClosePersistentPeerSocket(*Socket);
+               }
+          }
+
+          auto PickReusableSocket = [&]() -> std::shared_ptr<PersistentPeerSocket>
+          {
+               for (const auto &Socket : PoolEntry->Sockets)
+               {
+                    if (Socket && !Socket->InUse && Socket->Fd >= 0 && Socket->UseSSL == UseSSL)
+                    {
+                         return Socket;
+                    }
+               }
+
+               return nullptr;
+          };
+
+          auto PickEmptySocket = [&]() -> std::shared_ptr<PersistentPeerSocket>
+          {
+               for (const auto &Socket : PoolEntry->Sockets)
+               {
+                    if (Socket && !Socket->InUse && Socket->Fd < 0)
+                    {
+                         return Socket;
+                    }
+               }
+
+               return nullptr;
+          };
+
+          /*
+           * Health probes double as pool warmers. They prefer an empty slot
+           * until the pool reaches configured capacity, then normal reuse wins.
+           */
+
+          PoolSocket = (IsReadinessProbe && UsePersistentTransport) ? PickEmptySocket() : PickReusableSocket();
+
+          if (!PoolSocket)
+          {
+               PoolSocket = PickReusableSocket();
+          }
+          if (!PoolSocket)
+          {
+               PoolSocket = PickEmptySocket();
+          }
+          if (!PoolSocket)
+          {
+               return PoolAcquireStatus::Busy;
+          }
+
+          PoolSocket->InUse = true;
+          PoolReserved = true;
+          if (PoolSocket->Fd >= 0 && PoolSocket->UseSSL == UseSSL)
+          {
+               Sock = PoolSocket->Fd;
 #ifdef HLQUERY_HAS_OPENSSL
-               ActiveSSLCtx = PoolEntry->SSLCtx;
-               ActiveSSLObj = PoolEntry->SSLObj;
+               ActiveSSLCtx = PoolSocket->SSLCtx;
+               ActiveSSLObj = PoolSocket->SSLObj;
 #endif
                return PoolAcquireStatus::Success;
           }
-          if (PoolEntry->Fd >= 0)
+          if (PoolSocket->Fd >= 0)
           {
-               ClosePersistentPeerSocket(*PoolEntry);
+               ClosePersistentPeerSocket(*PoolSocket);
           }
           return PoolAcquireStatus::Success;
      };
@@ -783,14 +1065,29 @@ static bool SendHttpRequest(const std::string &Host,
 
           std::lock_guard<std::mutex> Guard(PoolEntry->Mutex);
           PoolEntry->ConsecutiveFailures++;
+          PoolEntry->LastFailureMS = Instance ? static_cast<uint64_t>(Instance->NowMs()) : static_cast<uint64_t>(time(nullptr) * 1000);
+          PoolEntry->LastError = OutError ? *OutError : std::string("Peer request failed");
 
           if (ReconnectMS > 0)
           {
-               PoolEntry->NextReconnectAt = ::Now() + std::chrono::milliseconds(ReconnectMS);
+               PoolEntry->NextReconnectAt = ::Now() + std::chrono::milliseconds(ComputePeerReconnectDelayMS(ReconnectMS, PoolEntry->ConsecutiveFailures, PoolKey));
           }
 
-          ClosePersistentPeerSocket(*PoolEntry);
-          PoolEntry->InUse = false;
+          const bool ClosedActivePoolFD = PoolSocket && PoolSocket->Fd >= 0 && PoolSocket->Fd == Sock;
+          if (PoolSocket)
+          {
+               ClosePersistentPeerSocket(*PoolSocket);
+               PoolSocket->InUse = false;
+          }
+          if (ClosedActivePoolFD)
+          {
+               Sock = -1;
+#ifdef HLQUERY_HAS_OPENSSL
+               ActiveSSLCtx = nullptr;
+               ActiveSSLObj = nullptr;
+#endif
+          }
+          PoolSocket.reset();
           PoolEntry.reset();
           PoolReserved = false;
      };
@@ -805,31 +1102,52 @@ static bool SendHttpRequest(const std::string &Host,
 
           if (!KeepAlive)
           {
-               ClosePersistentPeerSocket(*PoolEntry);
-               PoolEntry->InUse = false;
+               if (PoolSocket)
+               {
+                    ClosePersistentPeerSocket(*PoolSocket);
+                    PoolSocket->InUse = false;
+               }
+               PoolEntry->ConsecutiveFailures = 0;
+               PoolEntry->NextReconnectAt = std::chrono::steady_clock::time_point::min();
+               PoolEntry->LastSuccessMS = Instance ? static_cast<uint64_t>(Instance->NowMs()) : static_cast<uint64_t>(time(nullptr) * 1000);
+               PoolEntry->LastError.clear();
+               PoolSocket.reset();
                PoolEntry.reset();
                PoolReserved = false;
                return;
           }
           PoolEntry->ConsecutiveFailures = 0;
           PoolEntry->NextReconnectAt = std::chrono::steady_clock::time_point::min();
-          PoolEntry->RequestsServed++;
-          PoolEntry->Fd = Sock;
-          PoolEntry->UseSSL = UseSSL;
+          PoolEntry->LastSuccessMS = Instance ? static_cast<uint64_t>(Instance->NowMs()) : static_cast<uint64_t>(time(nullptr) * 1000);
+          PoolEntry->LastError.clear();
+          if (!PoolSocket)
+          {
+               PoolEntry.reset();
+               PoolReserved = false;
+               return;
+          }
+          PoolSocket->RequestsServed++;
+          PoolSocket->Fd = Sock;
+          PoolSocket->UseSSL = UseSSL;
+          PoolSocket->LastUsedMS = PoolEntry->LastSuccessMS;
 #ifdef HLQUERY_HAS_OPENSSL
-          PoolEntry->SSLCtx = ActiveSSLCtx;
-          PoolEntry->SSLObj = ActiveSSLObj;
+          PoolSocket->SSLCtx = ActiveSSLCtx;
+          PoolSocket->SSLObj = ActiveSSLObj;
 #endif
           if (PersistentBurst < 1)
           {
                PersistentBurst = 1;
           }
 
-          if (PoolEntry->RequestsServed >= PersistentBurst)
+          if (PoolSocket->RetireWhenIdle || PoolSocket->RequestsServed >= PersistentBurst)
           {
-               ClosePersistentPeerSocket(*PoolEntry);
+               ClosePersistentPeerSocket(*PoolSocket);
+               PoolSocket->RequestsServed = 0;
+               PoolSocket->LastUsedMS = 0;
+               PoolSocket->RetireWhenIdle = false;
           }
-          PoolEntry->InUse = false;
+          PoolSocket->InUse = false;
+          PoolSocket.reset();
           PoolEntry.reset();
           PoolReserved = false;
      };
@@ -927,12 +1245,12 @@ static bool SendHttpRequest(const std::string &Host,
 
      if (!SendAll(Sock))
      {
-          AbortPoolSlot();
-          CloseEphemeralConnection();
           if (OutError)
           {
                *OutError = "Failed to send request to " + Host + ":" + std::to_string(Port);
           }
+          AbortPoolSlot();
+          CloseEphemeralConnection();
           return false;
      }
 
@@ -1122,13 +1440,15 @@ static bool SendHttpRequest(const std::string &Host,
      {
           FinalizePoolSlot(KeepAlive);
      }
-     else if (!KeepAlive)
+     else
      {
           CloseEphemeralConnection();
      }
 
      return true;
 }
+
+/* Implements the execute peer request with fallback helper. */
 
 static bool ExecutePeerRequestWithFallback(const std::string &Host,
                                            int Port,
@@ -1138,6 +1458,8 @@ static bool ExecutePeerRequestWithFallback(const std::string &Host,
                                            int TimeoutMS,
                                            bool UsePersistentTransport,
                                            int PersistentBurst,
+                                           int ConnectionsPerPeer,
+                                           int IdleMS,
                                            bool AutoReconnect,
                                            int ReconnectMS,
                                            PeerTokenSource TokenSource,
@@ -1167,6 +1489,8 @@ static bool ExecutePeerRequestWithFallback(const std::string &Host,
                                TimeoutMS,
                                UsePersistentTransport,
                                PersistentBurst,
+                               ConnectionsPerPeer,
+                               IdleMS,
                                AutoReconnect,
                                ReconnectMS,
                                AttemptTokenSource,
@@ -1226,6 +1550,8 @@ static bool ExecutePeerRequestWithFallback(const std::string &Host,
      return true;
 }
 
+/* Implements the serialize collection config for replication helper. */
+
 static std::string SerializeCollectionConfigForReplication(const CollectionConfig &Config)
 {
      nlohmann::json Body;
@@ -1247,6 +1573,8 @@ static std::string SerializeCollectionConfigForReplication(const CollectionConfi
 
      return Body.dump();
 }
+
+/* Implements the serialize document batch for replication helper. */
 
 static std::string SerializeDocumentBatchForReplication(const std::vector<Document> &Docs)
 {
@@ -1272,6 +1600,8 @@ static std::string SerializeDocumentBatchForReplication(const std::vector<Docume
      return Body.dump();
 }
 
+/* Implements the score for hit helper. */
+
 static float ScoreForHit(const SearchHit &Hit)
 {
      if (Hit.HybridScore > 0.0f)
@@ -1284,6 +1614,8 @@ static float ScoreForHit(const SearchHit &Hit)
      }
      return Hit.TextMatch;
 }
+
+/* Implements the merge facet counts helper. */
 
 static void MergeFacetCounts(std::map<std::string, std::map<std::string, int>> &FacetCounts,
                              const nlohmann::json &FacetsJSON)
@@ -1316,6 +1648,8 @@ static void MergeFacetCounts(std::map<std::string, std::map<std::string, int>> &
           }
      }
 }
+
+/* Implements the append hits from JSON helper. */
 
 static void AppendHitsFromJSON(const nlohmann::json &JSONObj,
                                std::vector<SearchHit> &OutHits,
@@ -1513,6 +1847,8 @@ bool SearchAPI::GetReplicationNodeState(const std::string &Endpoint,
      return HasState;
 }
 
+/* Implements the try distributed search helper. */
+
 bool SearchAPI::TryDistributedSearch(const HttpRequest &Request,
                                      const std::string &Collection,
                                      const ComprehensiveSearchQuery &Query,
@@ -1631,10 +1967,10 @@ bool SearchAPI::TryDistributedSearch(const HttpRequest &Request,
           else
           {
                State.HasReplicationState = GetReplicationNodeState(Node.Endpoint,
-                                                                  &State.LastReachableMS,
-                                                                  &State.LastResyncMS,
-                                                                  &State.Dirty,
-                                                                  &State.ResyncInProgress);
+                                                                   &State.LastReachableMS,
+                                                                   &State.LastResyncMS,
+                                                                   &State.Dirty,
+                                                                   &State.ResyncInProgress);
                const bool ReachableFresh = (State.LastReachableMS > 0 &&
                                             NowMS >= State.LastReachableMS &&
                                             (NowMS - State.LastReachableMS) <= kReplicaFreshReachableWindowMS);
@@ -1684,16 +2020,16 @@ bool SearchAPI::TryDistributedSearch(const HttpRequest &Request,
      const std::size_t PageSize = static_cast<std::size_t>(Page);
      const std::size_t PerPageSize = static_cast<std::size_t>(PerPage);
      const std::size_t RequestedStart = Query.Offset > 0
-                                            ? static_cast<std::size_t>(Query.Offset)
-                                            : ((PageSize - 1) > (std::numeric_limits<std::size_t>::max() / PerPageSize)
-                                                   ? std::numeric_limits<std::size_t>::max()
-                                                   : (PageSize - 1) * PerPageSize);
+                                             ? static_cast<std::size_t>(Query.Offset)
+                                             : ((PageSize - 1) > (std::numeric_limits<std::size_t>::max() / PerPageSize)
+                                                     ? std::numeric_limits<std::size_t>::max()
+                                                     : (PageSize - 1) * PerPageSize);
      const std::size_t FanoutPerPageSize = RequestedStart > (std::numeric_limits<std::size_t>::max() - PerPageSize)
-                                               ? std::numeric_limits<std::size_t>::max()
-                                               : std::max(PerPageSize, RequestedStart + PerPageSize);
+                                                ? std::numeric_limits<std::size_t>::max()
+                                                : std::max(PerPageSize, RequestedStart + PerPageSize);
      const int FanoutPerPage = (FanoutPerPageSize > static_cast<std::size_t>(std::numeric_limits<int>::max()))
-                                   ? std::numeric_limits<int>::max()
-                                   : static_cast<int>(FanoutPerPageSize);
+                                    ? std::numeric_limits<int>::max()
+                                    : static_cast<int>(FanoutPerPageSize);
      ComprehensiveSearchQuery FanoutQuery = Query;
      FanoutQuery.Page = 1;
      FanoutQuery.PerPage = FanoutPerPage;
@@ -1808,7 +2144,9 @@ bool SearchAPI::TryDistributedSearch(const HttpRequest &Request,
           }
 
           PeerRequestResult PeerResult;
-          if (!ExecutePeerRequestWithFallback(Node.Host, Node.Port, Node.Endpoint, Node.UseSSL, FanoutRequest, TimeoutMS, UsePersistentTransport, PersistentBurst, AutoReconnect, ReconnectMS, PeerTokenSource::Cluster, &PeerResult))
+          int ConnectionsPerPeer = Instance && Instance->Config ? Instance->Config->GetDistributedConnectionsPerPeer() : 4;
+          int IdleMS = Instance && Instance->Config ? Instance->Config->GetDistributedTransportIdleMS() : 30000;
+          if (!ExecutePeerRequestWithFallback(Node.Host, Node.Port, Node.Endpoint, Node.UseSSL, FanoutRequest, TimeoutMS, UsePersistentTransport, PersistentBurst, ConnectionsPerPeer, IdleMS, AutoReconnect, ReconnectMS, PeerTokenSource::Cluster, &PeerResult))
           {
                std::map<std::string, std::string> Diagnostic;
                Diagnostic["node"] = BuildDistributedNodeLabel(Node);
@@ -1988,10 +2326,10 @@ bool SearchAPI::TryDistributedSearch(const HttpRequest &Request,
                          Deduped[Index] = std::move(Hit);
                     }
                }
-           }
+          }
 
-           AggregatedHits.swap(Deduped);
-      }
+          AggregatedHits.swap(Deduped);
+     }
 
      if (DuplicateCount > 0)
      {
@@ -2160,6 +2498,8 @@ bool SearchAPI::ProxyDistributedRequest(const HttpRequest &Request,
      int TimeoutMS = Instance && Instance->Config ? Instance->Config->GetDistributedSearchTimeoutMS() : 2000;
      bool UsePersistentTransport = Instance && Instance->Config ? Instance->Config->GetDistributedPersistentTransport() : true;
      int PersistentBurst = Instance && Instance->Config ? Instance->Config->GetDistributedTransportBurst() : 32;
+     int ConnectionsPerPeer = Instance && Instance->Config ? Instance->Config->GetDistributedConnectionsPerPeer() : 4;
+     int IdleMS = Instance && Instance->Config ? Instance->Config->GetDistributedTransportIdleMS() : 30000;
      bool AutoReconnect = Instance && Instance->Config ? Instance->Config->GetDistributedAutoReconnect() : true;
      int ReconnectMS = Instance && Instance->Config ? Instance->Config->GetDistributedReconnectMS() : 1500;
      std::string Endpoint = Host + ":" + std::to_string(Port);
@@ -2179,7 +2519,7 @@ bool SearchAPI::ProxyDistributedRequest(const HttpRequest &Request,
      }
 
      PeerRequestResult PeerResult;
-     if (!ExecutePeerRequestWithFallback(Host, Port, Endpoint, UseSSLForNode, Request, TimeoutMS, UsePersistentTransport, PersistentBurst, AutoReconnect, ReconnectMS, PeerTokenSource::Cluster, &PeerResult))
+     if (!ExecutePeerRequestWithFallback(Host, Port, Endpoint, UseSSLForNode, Request, TimeoutMS, UsePersistentTransport, PersistentBurst, ConnectionsPerPeer, IdleMS, AutoReconnect, ReconnectMS, PeerTokenSource::Cluster, &PeerResult))
      {
           if (OutError)
           {
@@ -2372,6 +2712,8 @@ bool SearchAPI::ShouldAttemptReplication(const HttpRequest &Request) const
      return true;
 }
 
+/* Builds replication slave state key data. */
+
 static std::string BuildReplicationSlaveStateKey(const std::string &Endpoint)
 {
      return "replication_slave_state:" + Endpoint;
@@ -2460,23 +2802,39 @@ void SearchAPI::EnsureReplicationMonitorStarted() const
           return;
      }
 
+     ResetAllPeerReconnectState();
+
      if (Instance && Instance->Config && Instance->Config->GetReplicationEnabled())
      {
           for (const auto &Endpoint : Instance->Config->GetSlaveNodes())
           {
-               if (!RestoreReplicationSlaveState(Endpoint))
-               {
-                    MarkSlaveDirty(Endpoint);
-               }
+               (void)RestoreReplicationSlaveState(Endpoint);
           }
      }
 
      ReplicationMonitorStop.store(false, std::memory_order_relaxed);
      ReplicationMonitorThread = std::thread([this]()
-                                            { ReplicationMonitorLoop(); });
+                                            {
+                                                 ReplicationMonitorLoop();
+                                            });
 }
 
-void SearchAPI::MarkSlaveDirty(const std::string &Endpoint) const
+void SearchAPI::EnsureDistributedLinkMonitorStarted() const
+{
+     if (DistributedLinkMonitorRunning.exchange(true, std::memory_order_acq_rel))
+     {
+          return;
+     }
+
+     ResetAllPeerReconnectState();
+     DistributedLinkMonitorStop.store(false, std::memory_order_relaxed);
+     DistributedLinkMonitorThread = std::thread([this]()
+                                                {
+                                                     DistributedLinkMonitorLoop();
+                                                });
+}
+
+void SearchAPI::MarkSlaveDirty(const std::string &Endpoint, bool NotifyMonitor) const
 {
      const uint64_t NowMS = Instance ? static_cast<uint64_t>(Instance->NowMs()) : 0;
      {
@@ -2485,12 +2843,24 @@ void SearchAPI::MarkSlaveDirty(const std::string &Endpoint) const
           LastReplicationErrorTimestampMS = NowMS;
      }
      PersistReplicationSlaveState(Endpoint);
-     ReplicationMonitorCV.notify_one();
+     if (NotifyMonitor)
+     {
+          ReplicationMonitorCV.notify_one();
+     }
 }
 
 void SearchAPI::MarkSlaveReachable(const std::string &Endpoint) const
 {
      const uint64_t NowMS = Instance ? static_cast<uint64_t>(Instance->NowMs()) : 0;
+     std::string Host;
+     int Port = 0;
+     bool UseSSL = false;
+     if (ParseNodeEndpoint(Endpoint, Host, Port, UseSSL))
+     {
+          (void)UseSSL;
+          ResetPeerReconnectState(Host + ":" + std::to_string(Port));
+     }
+
      {
           std::lock_guard<std::mutex> lock(ReplicationSlaveStateMutex);
           ReplicationLastReachableTimestampMS[Endpoint] = NowMS;
@@ -2510,6 +2880,48 @@ void SearchAPI::MarkSlaveResynced(const std::string &Endpoint) const
      }
      PersistReplicationSlaveState(Endpoint);
      ReplicationMonitorCV.notify_one();
+}
+
+PeerReconnectDiagnostics SearchAPI::GetPeerReconnectDiagnostics(const std::string &Endpoint) const
+{
+     std::string Host;
+     int Port = 0;
+     bool UseSSL = false;
+     if (!ParseNodeEndpoint(Endpoint, Host, Port, UseSSL))
+     {
+          return PeerReconnectDiagnostics();
+     }
+
+     (void)UseSSL;
+     return SnapshotPeerReconnectState(Host + ":" + std::to_string(Port));
+}
+
+void SearchAPI::ClearPeerReconnectDiagnostics(const std::string &Endpoint) const
+{
+     std::string Host;
+     int Port = 0;
+     bool UseSSL = false;
+     if (!ParseNodeEndpoint(Endpoint, Host, Port, UseSSL))
+     {
+          return;
+     }
+
+     (void)UseSSL;
+     ResetPeerReconnectState(Host + ":" + std::to_string(Port));
+}
+
+void SearchAPI::DropPeerTransportState(const std::string &Endpoint) const
+{
+     std::string Host;
+     int Port = 0;
+     bool UseSSL = false;
+     if (!ParseNodeEndpoint(Endpoint, Host, Port, UseSSL))
+     {
+          return;
+     }
+
+     (void)UseSSL;
+     DropIdlePeerTransportState(Host + ":" + std::to_string(Port));
 }
 
 bool SearchAPI::IsSlaveResyncActive(const std::string &Endpoint) const
@@ -2549,7 +2961,9 @@ bool SearchAPI::PingReplicationSlave(const std::string &Host,
      PingRequest.Headers["X-HLQ-Replication-Hop"] = "1";
 
      PeerRequestResult PeerResult;
-     if (!ExecutePeerRequestWithFallback(Host, Port, Endpoint, UseSSLForNode, PingRequest, TimeoutMS, UsePersistentTransport, PersistentBurst, AutoReconnect, ReconnectMS, PeerTokenSource::Slave, &PeerResult))
+     int ConnectionsPerPeer = Instance && Instance->Config ? Instance->Config->GetDistributedConnectionsPerPeer() : 4;
+     int IdleMS = Instance && Instance->Config ? Instance->Config->GetDistributedTransportIdleMS() : 30000;
+     if (!ExecutePeerRequestWithFallback(Host, Port, Endpoint, UseSSLForNode, PingRequest, TimeoutMS, UsePersistentTransport, PersistentBurst, ConnectionsPerPeer, IdleMS, AutoReconnect, ReconnectMS, PeerTokenSource::Slave, &PeerResult))
      {
           if (OutError)
           {
@@ -2589,6 +3003,8 @@ bool SearchAPI::ProxyReplicationRequest(const HttpRequest &Request,
      int TimeoutMS = Instance && Instance->Config ? Instance->Config->GetReplicationTimeoutMS() : 2000;
      bool UsePersistentTransport = Instance && Instance->Config ? Instance->Config->GetDistributedPersistentTransport() : true;
      int PersistentBurst = Instance && Instance->Config ? Instance->Config->GetDistributedTransportBurst() : 32;
+     int ConnectionsPerPeer = Instance && Instance->Config ? Instance->Config->GetDistributedConnectionsPerPeer() : 4;
+     int IdleMS = Instance && Instance->Config ? Instance->Config->GetDistributedTransportIdleMS() : 30000;
      bool AutoReconnect = Instance && Instance->Config ? Instance->Config->GetDistributedAutoReconnect() : true;
      int ReconnectMS = Instance && Instance->Config ? Instance->Config->GetDistributedReconnectMS() : 1500;
      std::string Endpoint = Host + ":" + std::to_string(Port);
@@ -2611,7 +3027,7 @@ bool SearchAPI::ProxyReplicationRequest(const HttpRequest &Request,
      ReplicationRequest.Headers["X-HLQ-Replication-Hop"] = "1";
 
      PeerRequestResult PeerResult;
-     if (!ExecutePeerRequestWithFallback(Host, Port, Endpoint, UseSSLForNode, ReplicationRequest, TimeoutMS, UsePersistentTransport, PersistentBurst, AutoReconnect, ReconnectMS, PeerTokenSource::Slave, &PeerResult))
+     if (!ExecutePeerRequestWithFallback(Host, Port, Endpoint, UseSSLForNode, ReplicationRequest, TimeoutMS, UsePersistentTransport, PersistentBurst, ConnectionsPerPeer, IdleMS, AutoReconnect, ReconnectMS, PeerTokenSource::Slave, &PeerResult))
      {
           if (OutError)
           {
@@ -2629,9 +3045,9 @@ bool SearchAPI::ProxyReplicationRequest(const HttpRequest &Request,
           return false;
      }
 
-    *OutResponse = HttpResponse(PeerResult.StatusCode, StatusText(PeerResult.StatusCode), "application/json");
-    OutResponse->Body = PeerResult.Body;
-    return true;
+     *OutResponse = HttpResponse(PeerResult.StatusCode, StatusText(PeerResult.StatusCode), "application/json");
+     OutResponse->Body = PeerResult.Body;
+     return true;
 }
 
 bool SearchAPI::QueuePendingReplication(const std::string &Endpoint,
@@ -2884,7 +3300,7 @@ bool SearchAPI::ReplicateWriteRequest(const HttpRequest &Request,
                else
                {
                     const bool ResyncConflict = (ReplicaResponse.StatusCode == 409 &&
-                                                ReplicaResponse.Body.find("Replica resync in progress") != std::string::npos);
+                                                 ReplicaResponse.Body.find("Replica resync in progress") != std::string::npos);
                     if (ResyncConflict)
                     {
                          {
@@ -2939,9 +3355,9 @@ bool SearchAPI::ReplicateWriteRequest(const HttpRequest &Request,
      if (Mode == "async")
      {
           EnqueueAsyncReplicationTask([ExecuteReplication]()
-          {
-               ExecuteReplication();
-          });
+                                      {
+                                           ExecuteReplication();
+                                      });
           return true;
      }
 
@@ -3013,11 +3429,13 @@ bool SearchAPI::ResyncSlaveFromScratch(const std::string &Host,
 
           bool UsePersistentTransport = Instance && Instance->Config ? Instance->Config->GetDistributedPersistentTransport() : true;
           int PersistentBurst = Instance && Instance->Config ? Instance->Config->GetDistributedTransportBurst() : 32;
+          int ConnectionsPerPeer = Instance && Instance->Config ? Instance->Config->GetDistributedConnectionsPerPeer() : 4;
+          int IdleMS = Instance && Instance->Config ? Instance->Config->GetDistributedTransportIdleMS() : 30000;
           bool AutoReconnect = Instance && Instance->Config ? Instance->Config->GetDistributedAutoReconnect() : true;
           int ReconnectMS = Instance && Instance->Config ? Instance->Config->GetDistributedReconnectMS() : 1500;
           int TimeoutMS = Instance && Instance->Config ? std::max(5000, Instance->Config->GetReplicationTimeoutMS()) : 5000;
           PeerRequestResult PeerResult;
-          if (!ExecutePeerRequestWithFallback(Host, Port, Endpoint, UseSSLForNode, Req, TimeoutMS, UsePersistentTransport, PersistentBurst, AutoReconnect, ReconnectMS, PeerTokenSource::Slave, &PeerResult))
+          if (!ExecutePeerRequestWithFallback(Host, Port, Endpoint, UseSSLForNode, Req, TimeoutMS, UsePersistentTransport, PersistentBurst, ConnectionsPerPeer, IdleMS, AutoReconnect, ReconnectMS, PeerTokenSource::Slave, &PeerResult))
           {
                if (OutSendError)
                {
@@ -3167,6 +3585,85 @@ bool SearchAPI::ResyncSlaveFromScratch(const std::string &Host,
      return true;
 }
 
+void SearchAPI::DistributedLinkMonitorLoop() const
+{
+     constexpr auto ProbeInterval = std::chrono::seconds(5);
+
+     while (!DistributedLinkMonitorStop.load(std::memory_order_relaxed))
+     {
+          if (!Instance || !Instance->Config || Instance->Config->GetClusterNodes().empty())
+          {
+               std::unique_lock<std::mutex> lock(DistributedLinkMonitorCVMutex);
+               DistributedLinkMonitorCV.wait_for(lock, ProbeInterval);
+               continue;
+          }
+
+          std::vector<NodeEndpoint> ClusterNodes;
+          if (BuildClusterEndpoints(ClusterNodes))
+          {
+               for (const auto &Node : ClusterNodes)
+               {
+                    if (DistributedLinkMonitorStop.load(std::memory_order_relaxed))
+                    {
+                         break;
+                    }
+
+                    if (Node.IsLocal)
+                    {
+                         ResetPeerReconnectState(Node.Host + ":" + std::to_string(Node.Port));
+                         continue;
+                    }
+
+                    HttpRequest PingRequest;
+                    PingRequest.Method = "GET";
+                    PingRequest.Path = "/health";
+                    PingRequest.Headers["X-HLQ-Link-Ping"] = "1";
+
+                    const int TimeoutMS = Instance && Instance->Config ? Instance->Config->GetDistributedSearchTimeoutMS() : 2000;
+                    const bool UsePersistentTransport = Instance && Instance->Config ? Instance->Config->GetDistributedPersistentTransport() : true;
+                    const int PersistentBurst = Instance && Instance->Config ? Instance->Config->GetDistributedTransportBurst() : 32;
+                    const int ConnectionsPerPeer = Instance && Instance->Config ? Instance->Config->GetDistributedConnectionsPerPeer() : 4;
+                    const int IdleMS = Instance && Instance->Config ? Instance->Config->GetDistributedTransportIdleMS() : 30000;
+                    const bool AutoReconnect = Instance && Instance->Config ? Instance->Config->GetDistributedAutoReconnect() : true;
+                    const int ReconnectMS = Instance && Instance->Config ? Instance->Config->GetDistributedReconnectMS() : 1500;
+
+                    const int ProbeCount = UsePersistentTransport ? std::max(1, ConnectionsPerPeer) : 1;
+                    for (int ProbeIndex = 0; ProbeIndex < ProbeCount; ++ProbeIndex)
+                    {
+                         if (DistributedLinkMonitorStop.load(std::memory_order_relaxed))
+                         {
+                              break;
+                         }
+
+                         PeerRequestResult PeerResult;
+                         (void)ExecutePeerRequestWithFallback(Node.Host,
+                                                              Node.Port,
+                                                              Node.Endpoint,
+                                                              Node.UseSSL,
+                                                              PingRequest,
+                                                              TimeoutMS,
+                                                              UsePersistentTransport,
+                                                              PersistentBurst,
+                                                              ConnectionsPerPeer,
+                                                              IdleMS,
+                                                              AutoReconnect,
+                                                              ReconnectMS,
+                                                              PeerTokenSource::Cluster,
+                                                              &PeerResult);
+                    }
+               }
+          }
+
+          if (DistributedLinkMonitorStop.load(std::memory_order_relaxed))
+          {
+               break;
+          }
+
+          std::unique_lock<std::mutex> lock(DistributedLinkMonitorCVMutex);
+          DistributedLinkMonitorCV.wait_for(lock, ProbeInterval);
+     }
+}
+
 void SearchAPI::ReplicationMonitorLoop() const
 {
      constexpr auto ProbeInterval = std::chrono::seconds(5);
@@ -3193,7 +3690,7 @@ void SearchAPI::ReplicationMonitorLoop() const
                     std::string Error;
                     if (!PingReplicationSlave(Node.Host, Node.Port, &Error))
                     {
-                         MarkSlaveDirty(Node.Endpoint);
+                         MarkSlaveDirty(Node.Endpoint, false);
                          continue;
                     }
 

@@ -18,7 +18,9 @@ use warnings FATAL => qw(all);
 use Exporter qw(import);
 use File::Basename qw(basename);
 use File::Path qw(mkpath);
+use File::Spec ();
 use File::Spec::Functions qw(abs2rel catfile catdir);
+use File::Temp qw(tempfile);
 
 our @EXPORT_OK = qw(
     discover_available_extra_modules
@@ -56,6 +58,86 @@ sub discover_available_extra_modules {
     return \%available;
 }
 
+sub compiler_can_include_header {
+    my ($header) = @_;
+    return 0 unless defined $header && length $header;
+
+    my ($fh, $source_path) = tempfile('hlquery-configure-header-XXXXXX', SUFFIX => '.cpp', TMPDIR => 1, UNLINK => 1);
+    print {$fh} "#include <$header>\nint main() { return 0; }\n";
+    close $fh;
+
+    my ($obj_fh, $object_path) = tempfile('hlquery-configure-header-XXXXXX', SUFFIX => '.o', TMPDIR => 1, UNLINK => 1);
+    close $obj_fh;
+
+    my $compiler = $ENV{CXX} || 'c++';
+    my @cmd = ($compiler, '-x', 'c++', '-std=c++17', '-c', $source_path, '-o', $object_path);
+    open my $saved_stderr, '>&', \*STDERR;
+    open STDERR, '>', File::Spec->devnull();
+    my $ok = system(@cmd) == 0;
+    open STDERR, '>&', $saved_stderr;
+
+    return $ok;
+}
+
+sub parse_annotation_arguments {
+    my ($raw) = @_;
+    my @args = ($raw =~ /"((?:[^"\\]|\\.)*)"/g);
+    @args = map {
+        my $v = $_;
+        $v =~ s/\\"/"/g;
+        $v =~ s/\\\\/\\/g;
+        $v;
+    } @args;
+    return @args;
+}
+
+sub extra_module_sources {
+    my ($available, $name) = @_;
+
+    if (exists $available->{simple}{$name}) {
+        return ($available->{simple}{$name});
+    }
+
+    if (exists $available->{dir}{$name}) {
+        return @{$available->{dir}{$name}};
+    }
+
+    return ();
+}
+
+sub extra_dependency_annotations_available {
+    my (@sources) = @_;
+
+    for my $source (@sources) {
+        open my $fh, '<', $source or next;
+
+        while (my $line = <$fh>) {
+            next unless $line =~ m{^\s*///\s*\$Dependency:\s*(.*?)\s*$};
+            my $payload = $1;
+
+            if ($payload =~ /^require_header\s*\((.*)\)\s*$/) {
+                my @headers = parse_annotation_arguments($1);
+
+                for my $header (@headers) {
+                    if (!compiler_can_include_header($header)) {
+                        close $fh;
+                        return 0;
+                    }
+                }
+            }
+        }
+
+        close $fh;
+    }
+
+    return 1;
+}
+
+sub default_extra_dependencies_available {
+    my ($available, $name) = @_;
+    return extra_dependency_annotations_available(extra_module_sources($available, $name));
+}
+
 sub discover_default_enabled_extras {
     my ($base_path) = @_;
     my $available = discover_available_extra_modules($base_path);
@@ -74,6 +156,7 @@ sub discover_default_enabled_extras {
             my @candidates = ($name, 'm_' . $name);
             my ($matched) = grep { $known{$_} } @candidates;
             next unless defined $matched;
+            next unless default_extra_dependencies_available($available, $matched);
             push @enabled, $matched;
         }
     }
@@ -123,15 +206,8 @@ sub parse_enabled_extras {
 
     for my $name (@requested) {
         if (exists $available->{simple}{$name}) {
-            push @simple_srcs, '$(SRC_DIR)/modules/extra/' . $name . '.cpp';
-            push @libs, '$(RUN_DIR)/modules/' . $name . '.so';
-            push @rules,
-                '$(RUN_DIR)/modules/' . $name . '.so: $(OBJ_DIR)/modules/extra/' . $name . '.module.o $(ROCKSDB_LIB) | $(BIN_DIR)',
-                "\t" . '@mkdir -p $(RUN_DIR)/modules',
-                "\t" . '@echo "$(CYAN)Linking extra module ' . $name . '...$(NC)"',
-                "\t" . '$(CXX) -shared -o $@ $^ $(CONFIGURE_LDFLAGS) $(MODULE_SHARED_LDFLAGS) $(MODULE_EXTRA_LDFLAGS)',
-                '';
-            push @sources, $available->{simple}{$name};
+            push @simple_srcs, '$(SRC_DIR)/modules/' . $name . '.cpp';
+            push @sources, catfile($base_path, 'src', 'modules', $name . '.cpp');
             next;
         }
 
@@ -184,12 +260,6 @@ sub sync_enabled_extra_module_links {
     for my $name (@{list_known_extra_module_names($base_path)}) {
         my $target_path = catfile($modules_root, $name);
         $target_path .= '.cpp' if exists $available->{simple}{$name};
-
-        my $enabled = grep { $_ eq $name } @{$enabled_extras->{names} // []};
-        if (!$enabled) {
-            unlink $target_path if -l $target_path;
-            next;
-        }
 
         my $link_target = exists $available->{simple}{$name}
             ? catfile('extra', $name . '.cpp')

@@ -10,7 +10,7 @@
  * For more details, please visit: https://docs.hlquery.com
  */
 
-#include "search/rfusion.h"
+#include "search/hybrid_rank_fusion.h"
 
 /*
  * HybridSearchEngine::CombineScores - Blends lexical and vector relevance into a single score.
@@ -29,6 +29,9 @@ float HybridSearchEngine::CombineScores(float LexicalScore, float VectorScore, f
 
 /*
  * HybridSearchEngine::ReciprocalRankFusion - Merges ranked lists using reciprocal rank fusion.
+ *
+ * Based on Cormack, Clarke, and Buettcher, "Reciprocal Rank Fusion
+ * Outperforms Condorcet and Individual Rank Learning Methods", SIGIR 2009.
  */
 
 float HybridSearchEngine::ReciprocalRankFusion(int LexicalRank, int VectorRank, int K)

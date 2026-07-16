@@ -25,6 +25,7 @@
 #include <iomanip>
 #include <iostream>
 #include <map>
+#include <mutex>
 #include <netdb.h>
 #include <pthread.h>
 #include <regex>
@@ -33,6 +34,7 @@
 #include <sys/time.h>
 #include <thread>
 #include <unistd.h>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -50,20 +52,29 @@
 #include "core/socketengine.h"
 #include "runtime/daemon.h"
 #include "runtime/threadlimit.h"
-#include "search/rfusion.h"
-#include "search/cstore.h"
-#include "search/lindex.h"
+#include "search/hybrid_rank_fusion.h"
+#include "search/document_collection_store.h"
+#include "search/lexical_inverted_index.h"
 #include "utils/consolewriter.h"
 #include "utils/protocol.h"
 #include "utils/wildcard.h"
 #include "vendor/json/json.hpp"
+
+#ifdef HLQUERY_HAS_OPENSSL
+#include <openssl/err.h>
+#include <openssl/ssl.h>
+#endif
+
+/* Provides health, diagnostics, and readiness API handlers. */
 
 struct LinkEndpointInfo
 {
      std::string RawEndpoint;
      std::string NormalizedEndpoint;
      std::string Host;
+     std::string Scheme;
      int Port = 0;
+     bool UseSSL = false;
      bool IsValid = false;
      bool IsLocal = false;
      bool Reachable = false;
@@ -72,10 +83,14 @@ struct LinkEndpointInfo
      std::string Error;
 };
 
+/* Implements the health is loopback host helper. */
+
 static bool HealthIsLoopbackHost(const std::string &Host)
 {
      return Host == "127.0.0.1" || Host == "localhost" || Host == "::1";
 }
+
+/* Implements the health trim whitespace helper. */
 
 static std::string HealthTrimWhitespace(const std::string &Value)
 {
@@ -95,6 +110,8 @@ static std::string HealthTrimWhitespace(const std::string &Value)
 
      return Value.substr(Start, End - Start);
 }
+
+/* Implements the health parse bool param helper. */
 
 static bool HealthParseBoolParam(const std::map<std::string, std::string> &Params, const std::string &Key, bool DefaultValue = false)
 {
@@ -118,6 +135,8 @@ static bool HealthParseBoolParam(const std::map<std::string, std::string> &Param
 
      return normalized == "1" || normalized == "true" || normalized == "yes" || normalized == "on";
 }
+
+/* Implements the health bind matches host helper. */
 
 static bool HealthBindMatchesHost(const std::string &BindAddress, const std::string &Host)
 {
@@ -144,6 +163,8 @@ static bool HealthBindMatchesHost(const std::string &BindAddress, const std::str
 
      return false;
 }
+
+/* Implements the health is local HTTP bind helper. */
 
 static bool HealthIsLocalHttpBind(const std::string &Host, int Port)
 {
@@ -192,13 +213,27 @@ static bool HealthIsLocalHttpBind(const std::string &Host, int Port)
      return false;
 }
 
-static bool HealthParseNodeEndpoint(const std::string &Raw, std::string &HostOut, int &PortOut)
+/* Implements the health parse node endpoint helper. */
+
+static bool HealthParseNodeEndpoint(const std::string &Raw, std::string &HostOut, int &PortOut, std::string *SchemeOut = nullptr)
 {
      NodeEndpointParseOptions Options;
      Options.DefaultPort = 9200;
      Options.AllowEmptyPort = false;
-     return ParseSharedNodeEndpoint(Raw, HostOut, PortOut, nullptr, Options);
+     return ParseSharedNodeEndpoint(Raw, HostOut, PortOut, SchemeOut, Options);
 }
+
+static std::string HealthFormatEndpointHost(const std::string &Host)
+{
+     if (Host.find(':') != std::string::npos && !(Host.size() >= 2 && Host.front() == '[' && Host.back() == ']'))
+     {
+          return "[" + Host + "]";
+     }
+
+     return Host;
+}
+
+/* Implements the health build endpoint info helper. */
 
 static LinkEndpointInfo HealthBuildEndpointInfo(const std::string &RawEndpoint)
 {
@@ -206,20 +241,24 @@ static LinkEndpointInfo HealthBuildEndpointInfo(const std::string &RawEndpoint)
      Info.RawEndpoint = RawEndpoint;
      Info.NormalizedEndpoint = HealthTrimWhitespace(RawEndpoint);
 
-     if (!HealthParseNodeEndpoint(Info.NormalizedEndpoint, Info.Host, Info.Port))
+     if (!HealthParseNodeEndpoint(Info.NormalizedEndpoint, Info.Host, Info.Port, &Info.Scheme))
      {
           Info.Error = "Invalid endpoint format";
           return Info;
      }
 
      Info.IsValid = true;
-     Info.NormalizedEndpoint = Info.Host + ":" + std::to_string(Info.Port);
+     Info.UseSSL = (Info.Scheme == "https");
+     const std::string EndpointHost = HealthFormatEndpointHost(Info.Host);
+     Info.NormalizedEndpoint = Info.UseSSL ? "https://" + EndpointHost + ":" + std::to_string(Info.Port)
+                                           : EndpointHost + ":" + std::to_string(Info.Port);
      Info.IsLocal = HealthIsLocalHttpBind(Info.Host, Info.Port);
      return Info;
 }
 
 static bool HealthSendPingRequest(const std::string &Host,
                                   int Port,
+                                  bool UseSSL,
                                   int TimeoutMS,
                                   int *OutStatusCode,
                                   double *OutLatencyMS,
@@ -228,6 +267,8 @@ static bool HealthSendPingRequest(const std::string &Host,
 static std::vector<std::string> HealthGetLocalLoadedModules();
 
 static bool HealthValidateRemoteModules(const std::string &ResponseBody, std::string *OutError);
+
+/* Implements the health probe endpoint helper. */
 
 static void HealthProbeEndpoint(LinkEndpointInfo &Info, bool PingNode)
 {
@@ -251,13 +292,20 @@ static void HealthProbeEndpoint(LinkEndpointInfo &Info, bool PingNode)
           Info.Reachable = true;
           Info.StatusCode = 200;
           Info.LatencyMS = 0.0;
+          SearchAPI::GetInstance().ClearPeerReconnectDiagnostics(Info.NormalizedEndpoint);
           return;
      }
 
      const int TimeoutMS = (Instance && Instance->Config) ? Instance->Config->GetDistributedSearchTimeoutMS() : 0;
-     bool Ok = HealthSendPingRequest(Info.Host, Info.Port, TimeoutMS, &Info.StatusCode, &Info.LatencyMS, &Info.Error);
+     bool Ok = HealthSendPingRequest(Info.Host, Info.Port, Info.UseSSL, TimeoutMS, &Info.StatusCode, &Info.LatencyMS, &Info.Error);
      Info.Reachable = Ok && Info.StatusCode >= 200 && Info.StatusCode < 300;
+     if (Info.Reachable)
+     {
+          SearchAPI::GetInstance().ClearPeerReconnectDiagnostics(Info.NormalizedEndpoint);
+     }
 }
+
+/* Implements the health endpoint info to JSON helper. */
 
 static nlohmann::json HealthEndpointInfoToJSON(const LinkEndpointInfo &Info)
 {
@@ -278,6 +326,21 @@ static nlohmann::json HealthEndpointInfoToJSON(const LinkEndpointInfo &Info)
      EndpointJSON["status_code"] = Info.StatusCode;
      EndpointJSON["latency_ms"] = Info.LatencyMS;
 
+     PeerReconnectDiagnostics Reconnect = SearchAPI::GetInstance().GetPeerReconnectDiagnostics(Info.NormalizedEndpoint);
+     if (Reconnect.HasState)
+     {
+          nlohmann::json ReconnectJSON;
+          ReconnectJSON["consecutive_failures"] = Reconnect.ConsecutiveFailures;
+          ReconnectJSON["next_retry_ms"] = Reconnect.NextRetryMS;
+          ReconnectJSON["last_failure_ms"] = Reconnect.LastFailureMS;
+          ReconnectJSON["last_success_ms"] = Reconnect.LastSuccessMS;
+          if (!Reconnect.LastError.empty())
+          {
+               ReconnectJSON["last_error"] = Reconnect.LastError;
+          }
+          EndpointJSON["reconnect"] = ReconnectJSON;
+     }
+
      if (!Info.Error.empty())
      {
           EndpointJSON["error"] = Info.Error;
@@ -285,6 +348,8 @@ static nlohmann::json HealthEndpointInfoToJSON(const LinkEndpointInfo &Info)
 
      return EndpointJSON;
 }
+
+/* Builds links nodes JSON data. */
 
 static nlohmann::json BuildLinksNodesJSON(const std::vector<std::string> &Nodes, bool PingNodes)
 {
@@ -305,6 +370,8 @@ static nlohmann::json BuildLinksNodesJSON(const std::vector<std::string> &Nodes,
      return NodesArray;
 }
 
+/* Builds socket iostats JSON data. */
+
 static nlohmann::json BuildSocketIOStatsJSON()
 {
      SocketEngine::IOStats IOStatsVal = SocketEngine::GetIOStats();
@@ -315,6 +382,8 @@ static nlohmann::json BuildSocketIOStatsJSON()
 
      return IOJSON;
 }
+
+/* Implements the health read CPU usage percent helper. */
 
 static uint64_t HealthReadCPUUsagePercent()
 {
@@ -369,6 +438,8 @@ static uint64_t HealthReadCPUUsagePercent()
      return LastCPUPercent;
 }
 
+/* Implements the health read memory usage bytes helper. */
+
 static uint64_t HealthReadMemoryUsageBytes()
 {
      std::ifstream MemInfoFileStream("/proc/meminfo");
@@ -406,6 +477,8 @@ static uint64_t HealthReadMemoryUsageBytes()
      return TotalMemoryValue - AvailableMemoryValue;
 }
 
+/* Implements the health normalize endpoint value helper. */
+
 static bool HealthNormalizeEndpointValue(std::string &Endpoint, std::string &OutError)
 {
      Endpoint = HealthTrimWhitespace(Endpoint);
@@ -427,12 +500,16 @@ static bool HealthNormalizeEndpointValue(std::string &Endpoint, std::string &Out
      return true;
 }
 
+/* Builds JSON response data. */
+
 static HttpResponse BuildJSONResponse(Status StatusVal, const nlohmann::json &Body)
 {
      HttpResponse Response(StatusVal, StatusText(StatusVal), "application/json");
      Response.Body = Body.dump();
      return Response;
 }
+
+/* Builds an error response for link endpoint operations. */
 
 static HttpResponse BuildLinksErrorResponse(Status StatusVal,
                                             const std::string &Error,
@@ -448,6 +525,237 @@ static HttpResponse BuildLinksErrorResponse(Status StatusVal,
 
      return BuildJSONResponse(StatusVal, Body);
 }
+
+/* Implements the config file trim helper. */
+
+static std::string ConfigFileTrim(const std::string &Value)
+{
+     size_t Start = 0;
+     while (Start < Value.size() && std::isspace(static_cast<unsigned char>(Value[Start])))
+     {
+          ++Start;
+     }
+
+     size_t End = Value.size();
+     while (End > Start && std::isspace(static_cast<unsigned char>(Value[End - 1])))
+     {
+          --End;
+     }
+
+     return Value.substr(Start, End - Start);
+}
+
+/* Implements the config file is secret key helper. */
+
+static bool ConfigFileIsSecretKey(const std::string &Key)
+{
+     std::string Normalized = Key;
+     std::transform(Normalized.begin(), Normalized.end(), Normalized.begin(), [](unsigned char Ch)
+                    {
+                         return static_cast<char>(std::tolower(Ch));
+                    });
+
+     return Normalized.find("passwd") != std::string::npos ||
+            Normalized.find("password") != std::string::npos ||
+            Normalized == "key" ||
+            Normalized.find("_key") != std::string::npos ||
+            Normalized.find("token") != std::string::npos ||
+            Normalized.find("secret") != std::string::npos ||
+            Normalized.find("credential") != std::string::npos ||
+            Normalized.find("auth") != std::string::npos ||
+            Normalized.find("bearer") != std::string::npos;
+}
+
+/* Implements the config file parse rows helper. */
+
+static nlohmann::json ConfigFileParseRows(const std::string &Content)
+{
+     static const std::regex TagPattern(R"(^<\s*([A-Za-z_][A-Za-z0-9_-]*)([^>]*)>)");
+     static const std::regex AttributePattern("([A-Za-z_][A-Za-z0-9_-]*)\\s*=\\s*\"([^\"]*)\"");
+
+     nlohmann::json Rows = nlohmann::json::array();
+     std::unordered_map<std::string, size_t> TagCounts;
+     std::istringstream Stream(Content);
+     std::string Line;
+     size_t LineNo = 0;
+
+     while (std::getline(Stream, Line))
+     {
+          ++LineNo;
+          const std::string Trimmed = ConfigFileTrim(Line);
+          if (Trimmed.empty() || Trimmed[0] == '#' || Trimmed.rfind("</", 0) == 0)
+          {
+               continue;
+          }
+
+          std::smatch TagMatch;
+          if (!std::regex_search(Trimmed, TagMatch, TagPattern))
+          {
+               continue;
+          }
+
+          const std::string Tag = TagMatch[1].str();
+          const std::string Attributes = TagMatch[2].str();
+          const size_t TagIndex = ++TagCounts[Tag];
+          bool HasAttributes = false;
+
+          std::sregex_iterator It(Attributes.begin(), Attributes.end(), AttributePattern);
+          std::sregex_iterator End;
+          for (; It != End; ++It)
+          {
+               HasAttributes = true;
+               const std::string Key = (*It)[1].str();
+               const std::string RawValue = (*It)[2].str();
+
+               nlohmann::json Row;
+               Row["key"] = Tag + "[" + std::to_string(TagIndex) + "]." + Key;
+               Row["value"] = ConfigFileIsSecretKey(Key) ? "[redacted]" : RawValue;
+               Row["line"] = LineNo;
+               Rows.push_back(Row);
+          }
+
+          if (!HasAttributes)
+          {
+               nlohmann::json Row;
+               Row["key"] = Tag + "[" + std::to_string(TagIndex) + "]";
+               Row["value"] = "";
+               Row["line"] = LineNo;
+               Rows.push_back(Row);
+          }
+     }
+
+     return Rows;
+}
+
+/* Implements the config file is under root helper. */
+
+static bool ConfigFileIsUnderRoot(const std::filesystem::path &Path, const std::filesystem::path &Root)
+{
+     std::error_code Error;
+     const std::filesystem::path CanonicalPath = std::filesystem::weakly_canonical(Path, Error);
+     if (Error)
+     {
+          return false;
+     }
+
+     const std::filesystem::path CanonicalRoot = std::filesystem::weakly_canonical(Root, Error);
+     if (Error)
+     {
+          return false;
+     }
+
+     auto PathIt = CanonicalPath.begin();
+     auto RootIt = CanonicalRoot.begin();
+     for (; RootIt != CanonicalRoot.end(); ++RootIt, ++PathIt)
+     {
+          if (PathIt == CanonicalPath.end() || *PathIt != *RootIt)
+          {
+               return false;
+          }
+     }
+
+     return true;
+}
+
+/* Implements the config file read one helper. */
+
+static nlohmann::json ConfigFileReadOne(const std::filesystem::path &Path)
+{
+     constexpr size_t MaxConfigFileBytes = 512 * 1024;
+
+     nlohmann::json FileJSON;
+     FileJSON["name"] = Path.filename().string();
+     FileJSON["path"] = Path.string();
+     FileJSON["exists"] = false;
+     FileJSON["truncated"] = false;
+     FileJSON["rows"] = nlohmann::json::array();
+
+     std::error_code Error;
+     if (!std::filesystem::exists(Path, Error) || Error)
+     {
+          FileJSON["error"] = "File not found";
+          return FileJSON;
+     }
+
+     const uintmax_t FileSize = std::filesystem::file_size(Path, Error);
+     if (!Error)
+     {
+          FileJSON["size_bytes"] = FileSize;
+     }
+
+     std::ifstream Input(Path, std::ios::binary);
+     if (!Input)
+     {
+          FileJSON["error"] = "Unable to read file";
+          return FileJSON;
+     }
+
+     std::ostringstream Buffer;
+     char Ch = '\0';
+     size_t BytesRead = 0;
+     while (BytesRead < MaxConfigFileBytes && Input.get(Ch))
+     {
+          Buffer << Ch;
+          ++BytesRead;
+     }
+
+     const bool Truncated = Input.good();
+     const std::string RawContent = Buffer.str();
+
+     FileJSON["exists"] = true;
+     FileJSON["truncated"] = Truncated;
+     FileJSON["rows"] = ConfigFileParseRows(RawContent);
+
+     return FileJSON;
+}
+
+/* Implements the config file collect includes helper. */
+
+static void ConfigFileCollectIncludes(const std::filesystem::path &Path,
+                                      const std::filesystem::path &Root,
+                                      std::vector<std::filesystem::path> &Files,
+                                      std::unordered_set<std::string> &Seen)
+{
+     static const std::regex IncludePattern("<\\s*include\\s+[^>]*file\\s*=\\s*\"([^\"]+)\"", std::regex::icase);
+
+     std::ifstream Input(Path);
+     if (!Input)
+     {
+          return;
+     }
+
+     std::string Line;
+     while (std::getline(Input, Line))
+     {
+          std::smatch Match;
+          if (!std::regex_search(Line, Match, IncludePattern))
+          {
+               continue;
+          }
+
+          std::filesystem::path IncludePath = Match[1].str();
+          if (IncludePath.is_relative())
+          {
+               IncludePath = Path.parent_path() / IncludePath;
+          }
+
+          std::error_code Error;
+          IncludePath = std::filesystem::weakly_canonical(IncludePath, Error);
+          if (Error || !ConfigFileIsUnderRoot(IncludePath, Root))
+          {
+               continue;
+          }
+
+          const std::string Key = IncludePath.string();
+          if (Seen.insert(Key).second)
+          {
+               Files.push_back(IncludePath);
+               ConfigFileCollectIncludes(IncludePath, Root, Files, Seen);
+          }
+     }
+}
+
+/* Builds links base response data. */
 
 static nlohmann::json BuildLinksBaseResponse()
 {
@@ -468,6 +776,8 @@ static nlohmann::json BuildLinksBaseResponse()
      return LinksJSON;
 }
 
+/* Builds links response body data. */
+
 static nlohmann::json BuildLinksResponseBody(bool PingNodes)
 {
      nlohmann::json LinksJSON = BuildLinksBaseResponse();
@@ -486,10 +796,14 @@ static nlohmann::json BuildLinksResponseBody(bool PingNodes)
      return LinksJSON;
 }
 
+/* Implements the link endpoint list contains helper. */
+
 static bool LinkEndpointListContains(const std::vector<std::string> &Endpoints, const std::string &Endpoint)
 {
      return std::find(Endpoints.begin(), Endpoints.end(), Endpoint) != Endpoints.end();
 }
+
+/* Builds single link ping response body data. */
 
 static nlohmann::json BuildSingleLinkPingResponseBody(const std::string &Endpoint)
 {
@@ -502,20 +816,24 @@ static nlohmann::json BuildSingleLinkPingResponseBody(const std::string &Endpoin
      nlohmann::json EndpointJSON = HealthEndpointInfoToJSON(Info);
 
      bool IsSlave = false;
-     bool IsCluster = true;
+     bool IsCluster = false;
      if (Instance && Instance->Config)
      {
           IsCluster = LinkEndpointListContains(Instance->Config->GetClusterNodes(), Info.NormalizedEndpoint);
           IsSlave = LinkEndpointListContains(Instance->Config->GetSlaveNodes(), Info.NormalizedEndpoint);
      }
 
-     if (IsCluster || !IsSlave)
+     if (IsCluster)
      {
           NodesArray.push_back(EndpointJSON);
      }
      if (IsSlave)
      {
           SlaveArray.push_back(EndpointJSON);
+     }
+     if (!IsCluster && !IsSlave)
+     {
+          LinksJSON["endpoint"] = EndpointJSON;
      }
 
      LinksJSON["nodes"] = NodesArray;
@@ -526,13 +844,58 @@ static nlohmann::json BuildSingleLinkPingResponseBody(const std::string &Endpoin
      return LinksJSON;
 }
 
+/* Returns the active module manager instance. */
+
 static ModuleManager *GetModuleManager()
 {
      return Instance ? Instance->Modules.get() : nullptr;
 }
 
-static bool ExtractLinkEndpoint(const HttpRequest &Request, std::string &OutEndpoint, std::string &OutError)
+enum class LinkRuntimeRole
 {
+     Distributed,
+     Slave,
+};
+
+static bool NormalizeLinkRuntimeRole(const std::string &RawRole, LinkRuntimeRole &OutRole, std::string &OutError)
+{
+     std::string Role = HealthTrimWhitespace(RawRole);
+     std::transform(Role.begin(), Role.end(), Role.begin(),
+                    [](unsigned char C)
+                    {
+                         return static_cast<char>(std::tolower(C));
+                    });
+
+     if (Role.empty() || Role == "distributed" || Role == "search" || Role == "master")
+     {
+          OutRole = LinkRuntimeRole::Distributed;
+          return true;
+     }
+
+     if (Role == "slave" || Role == "replica")
+     {
+          OutRole = LinkRuntimeRole::Slave;
+          return true;
+     }
+
+     OutError = "Invalid role; expected distributed/search/master or slave/replica";
+     return false;
+}
+
+/* Extracts link endpoint values. */
+
+static bool ExtractLinkEndpoint(const HttpRequest &Request, std::string &OutEndpoint, LinkRuntimeRole *OutRole, std::string &OutError)
+{
+     if (OutRole)
+     {
+          *OutRole = LinkRuntimeRole::Distributed;
+          auto RoleIt = Request.QueryParams.find("role");
+          if (RoleIt != Request.QueryParams.end() && !NormalizeLinkRuntimeRole(RoleIt->second, *OutRole, OutError))
+          {
+               return false;
+          }
+     }
+
      auto It = Request.QueryParams.find("endpoint");
      if (It != Request.QueryParams.end() && !It->second.empty())
      {
@@ -572,17 +935,32 @@ static bool ExtractLinkEndpoint(const HttpRequest &Request, std::string &OutEndp
           if (BodyJSON.contains("endpoint") && BodyJSON["endpoint"].is_string())
           {
                OutEndpoint = BodyJSON["endpoint"].get<std::string>();
+               if (OutRole && BodyJSON.contains("role") && BodyJSON["role"].is_string() &&
+                   !NormalizeLinkRuntimeRole(BodyJSON["role"].get<std::string>(), *OutRole, OutError))
+               {
+                    return false;
+               }
                return HealthNormalizeEndpointValue(OutEndpoint, OutError);
           }
 
           if (BodyJSON.contains("node") && BodyJSON["node"].is_string())
           {
                OutEndpoint = BodyJSON["node"].get<std::string>();
+               if (OutRole && BodyJSON.contains("role") && BodyJSON["role"].is_string() &&
+                   !NormalizeLinkRuntimeRole(BodyJSON["role"].get<std::string>(), *OutRole, OutError))
+               {
+                    return false;
+               }
                return HealthNormalizeEndpointValue(OutEndpoint, OutError);
           }
 
           if (BodyJSON.contains("host") && BodyJSON["host"].is_string())
           {
+               if (OutRole && BodyJSON.contains("role") && BodyJSON["role"].is_string() &&
+                   !NormalizeLinkRuntimeRole(BodyJSON["role"].get<std::string>(), *OutRole, OutError))
+               {
+                    return false;
+               }
                std::string Host = BodyJSON["host"].get<std::string>();
                int Port = 9200;
                if (BodyJSON.contains("port"))
@@ -616,8 +994,11 @@ static bool ExtractLinkEndpoint(const HttpRequest &Request, std::string &OutEndp
      }
 }
 
+/* Implements the health send ping request helper. */
+
 static bool HealthSendPingRequest(const std::string &Host,
                                   int Port,
+                                  bool UseSSL,
                                   int TimeoutMS,
                                   int *OutStatusCode,
                                   double *OutLatencyMS,
@@ -689,9 +1070,82 @@ static bool HealthSendPingRequest(const std::string &Host,
      }
 
      auto Start = Now();
+
+#ifndef HLQUERY_HAS_OPENSSL
+     if (UseSSL)
+     {
+          close(Sock);
+          if (OutError)
+          {
+               *OutError = "HTTPS link probing requires OpenSSL support";
+          }
+          return false;
+     }
+#endif
+
+#ifdef HLQUERY_HAS_OPENSSL
+     SSL_CTX *SSLCtx = nullptr;
+     SSL *SSLObj = nullptr;
+     if (UseSSL)
+     {
+          static std::once_flag SSLInitOnce;
+          std::call_once(SSLInitOnce, []()
+                         {
+                              SSL_library_init();
+                              SSL_load_error_strings();
+                              OpenSSL_add_ssl_algorithms();
+                         });
+
+          SSLCtx = SSL_CTX_new(TLS_client_method());
+          if (!SSLCtx)
+          {
+               close(Sock);
+               if (OutError)
+               {
+                    *OutError = "Failed to create TLS client context";
+               }
+               return false;
+          }
+
+          SSL_CTX_set_verify(SSLCtx, SSL_VERIFY_NONE, nullptr);
+          SSLObj = SSL_new(SSLCtx);
+          if (!SSLObj)
+          {
+               SSL_CTX_free(SSLCtx);
+               close(Sock);
+               if (OutError)
+               {
+                    *OutError = "Failed to create TLS session";
+               }
+               return false;
+          }
+
+          SSL_set_fd(SSLObj, Sock);
+#if defined(__GNUC__) || defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wold-style-cast"
+#endif
+          SSL_set_tlsext_host_name(SSLObj, Host.c_str());
+#if defined(__GNUC__) || defined(__clang__)
+#pragma GCC diagnostic pop
+#endif
+          if (SSL_connect(SSLObj) != 1)
+          {
+               SSL_free(SSLObj);
+               SSL_CTX_free(SSLCtx);
+               close(Sock);
+               if (OutError)
+               {
+                    *OutError = "TLS handshake failed";
+               }
+               return false;
+          }
+     }
+#endif
+
      std::ostringstream Req;
      Req << "GET /health HTTP/1.1\r\n";
-     Req << "Host: " << Host << ":" << Port << "\r\n";
+     Req << "Host: " << HealthFormatEndpointHost(Host) << ":" << Port << "\r\n";
      Req << "Connection: close\r\n";
      Req << "Accept: application/json\r\n";
      Req << "X-HLQ-Link-Ping: 1\r\n";
@@ -701,9 +1155,30 @@ static bool HealthSendPingRequest(const std::string &Host,
      ssize_t Sent = 0;
      while (Sent < static_cast<ssize_t>(ReqStr.size()))
      {
-          ssize_t WriteCount = send(Sock, ReqStr.data() + Sent, ReqStr.size() - static_cast<size_t>(Sent), 0);
+          ssize_t WriteCount = 0;
+#ifdef HLQUERY_HAS_OPENSSL
+          if (UseSSL)
+          {
+               WriteCount = SSL_write(SSLObj, ReqStr.data() + Sent, static_cast<int>(ReqStr.size() - static_cast<size_t>(Sent)));
+          }
+          else
+#endif
+          {
+               WriteCount = send(Sock, ReqStr.data() + Sent, ReqStr.size() - static_cast<size_t>(Sent), 0);
+          }
           if (WriteCount <= 0)
           {
+#ifdef HLQUERY_HAS_OPENSSL
+               if (SSLObj)
+               {
+                    SSL_shutdown(SSLObj);
+                    SSL_free(SSLObj);
+               }
+               if (SSLCtx)
+               {
+                    SSL_CTX_free(SSLCtx);
+               }
+#endif
                close(Sock);
                if (OutError)
                {
@@ -718,7 +1193,17 @@ static bool HealthSendPingRequest(const std::string &Host,
      char Buffer[2048];
      while (true)
      {
-          ssize_t ReadCount = recv(Sock, Buffer, sizeof(Buffer), 0);
+          ssize_t ReadCount = 0;
+#ifdef HLQUERY_HAS_OPENSSL
+          if (UseSSL)
+          {
+               ReadCount = SSL_read(SSLObj, Buffer, static_cast<int>(sizeof(Buffer)));
+          }
+          else
+#endif
+          {
+               ReadCount = recv(Sock, Buffer, sizeof(Buffer), 0);
+          }
           if (ReadCount <= 0)
           {
                break;
@@ -726,6 +1211,17 @@ static bool HealthSendPingRequest(const std::string &Host,
           Response.append(Buffer, static_cast<size_t>(ReadCount));
      }
 
+#ifdef HLQUERY_HAS_OPENSSL
+     if (SSLObj)
+     {
+          SSL_shutdown(SSLObj);
+          SSL_free(SSLObj);
+     }
+     if (SSLCtx)
+     {
+          SSL_CTX_free(SSLCtx);
+     }
+#endif
      close(Sock);
      auto End = Now();
      if (OutLatencyMS)
@@ -791,6 +1287,8 @@ static bool HealthSendPingRequest(const std::string &Host,
      return true;
 }
 
+/* Implements the health get local loaded modules helper. */
+
 static std::vector<std::string> HealthGetLocalLoadedModules()
 {
      if (!Instance || !Instance->Modules)
@@ -803,6 +1301,8 @@ static std::vector<std::string> HealthGetLocalLoadedModules()
      Modules.erase(std::unique(Modules.begin(), Modules.end()), Modules.end());
      return Modules;
 }
+
+/* Implements the health validate remote modules helper. */
 
 static bool HealthValidateRemoteModules(const std::string &ResponseBody, std::string *OutError)
 {
@@ -1047,6 +1547,8 @@ HttpResponse SearchAPI::HandleHealth(const HttpRequest &Request)
      return Response;
 }
 
+/* Handles ready requests. */
+
 HttpResponse SearchAPI::HandleReady(const HttpRequest &Request)
 {
      (void)Request;
@@ -1163,8 +1665,7 @@ HttpResponse SearchAPI::HandleEtc(const HttpRequest &Request)
           {"ready", {{"method", "GET"}, {"path", "/ready"}}},
           {"status", {{"method", "GET"}, {"paths", {"/status", "/query"}}}},
           {"stats", {{"method", "GET"}, {"path", "/stats"}}},
-          {"flush", {{"method", "POST"}, {"path", "/flush"}}}
-     };
+          {"flush", {{"method", "POST"}, {"path", "/flush"}}}};
 
      ProtocolCodes["http_status_codes"] = {
           {"OK", Status::OK},
@@ -1188,8 +1689,7 @@ HttpResponse SearchAPI::HandleEtc(const HttpRequest &Request)
           {"NOT_IMPLEMENTED", Status::NOT_IMPLEMENTED},
           {"BAD_GATEWAY", Status::BAD_GATEWAY},
           {"SERVICE_UNAVAILABLE", Status::SERVICE_UNAVAILABLE},
-          {"GATEWAY_TIMEOUT", Status::GATEWAY_TIMEOUT}
-     };
+          {"GATEWAY_TIMEOUT", Status::GATEWAY_TIMEOUT}};
 
      ProtocolCodes["protocol_codes"] = {
           {"SUCCESS", Code::SUCCESS},
@@ -1259,8 +1759,7 @@ HttpResponse SearchAPI::HandleEtc(const HttpRequest &Request)
           {"MODULE_NOT_FOUND", Code::MODULE_NOT_FOUND},
           {"MODULE_ROUTE_NOT_FOUND", Code::MODULE_ROUTE_NOT_FOUND},
           {"MODULE_UNAVAILABLE", Code::MODULE_UNAVAILABLE},
-          {"RATE_LIMIT_EXCEEDED", Code::RATE_LIMIT_EXCEEDED}
-     };
+          {"RATE_LIMIT_EXCEEDED", Code::RATE_LIMIT_EXCEEDED}};
 
      HttpResponse Response(Status::OK, StatusText(Status::OK), "application/json");
 
@@ -1334,11 +1833,10 @@ HttpResponse SearchAPI::HandleStats(const HttpRequest &Request)
                nlohmann::json StageArray = nlohmann::json::array();
                for (const auto &Stage : DaemonStats.stages)
                {
-                    StageArray.push_back({
-                         {"name", Stage.name},
-                         {"runs", Stage.runs},
-                         {"deferrals", Stage.deferrals},
-                         {"last_runtime_us", Stage.last_runtime_us}});
+                    StageArray.push_back({{"name", Stage.name},
+                                          {"runs", Stage.runs},
+                                          {"deferrals", Stage.deferrals},
+                                          {"last_runtime_us", Stage.last_runtime_us}});
                }
                DaemonJSON["stages"] = StageArray;
                StatsJSON["daemon"] = DaemonJSON;
@@ -1660,6 +2158,8 @@ HttpResponse SearchAPI::HandleStatus(const HttpRequest &Request)
      return Response;
 }
 
+/* Handles search config requests. */
+
 HttpResponse SearchAPI::HandleSearchConfig(const HttpRequest &Request)
 {
      (void)Request;
@@ -1731,6 +2231,72 @@ HttpResponse SearchAPI::HandleSearchConfig(const HttpRequest &Request)
      return Response;
 }
 
+/* Handles config files requests. */
+
+HttpResponse SearchAPI::HandleConfigFiles(const HttpRequest &Request)
+{
+     (void)Request;
+
+     if (!Instance || !Instance->Config)
+     {
+          nlohmann::json ErrorJSON;
+          ErrorJSON["error"] = "server_not_ready";
+          ErrorJSON["message"] = "Configuration files are not available yet.";
+
+          return BuildJSONResponse(Status::SERVICE_UNAVAILABLE, ErrorJSON);
+     }
+
+     std::filesystem::path MainConfig = Instance->Config->GetConfigFile();
+     if (MainConfig.empty())
+     {
+          MainConfig = std::filesystem::path(HLQUERY_CONFIG_DIR) / "hlquery.conf";
+     }
+
+     std::error_code Error;
+     MainConfig = std::filesystem::weakly_canonical(MainConfig, Error);
+     if (Error)
+     {
+          MainConfig = std::filesystem::path(Instance->Config->GetConfigFile());
+     }
+
+     const std::filesystem::path ConfigRoot = MainConfig.parent_path();
+
+     std::vector<std::filesystem::path> Files;
+     std::unordered_set<std::string> Seen;
+     Files.push_back(MainConfig);
+     Seen.insert(MainConfig.string());
+
+     ConfigFileCollectIncludes(MainConfig, ConfigRoot, Files, Seen);
+
+     for (const char *Name : {"search.conf", "modules.conf", "links.conf"})
+     {
+          std::filesystem::path Sibling = ConfigRoot / Name;
+          Sibling = std::filesystem::weakly_canonical(Sibling, Error);
+          if (Error || !ConfigFileIsUnderRoot(Sibling, ConfigRoot))
+          {
+               continue;
+          }
+
+          const std::string Key = Sibling.string();
+          if (Seen.insert(Key).second)
+          {
+               Files.push_back(Sibling);
+          }
+     }
+
+     nlohmann::json Body;
+     Body["root"] = ConfigRoot.string();
+     Body["main"] = MainConfig.filename().string();
+     Body["files"] = nlohmann::json::array();
+
+     for (const auto &FilePath : Files)
+     {
+          Body["files"].push_back(ConfigFileReadOne(FilePath));
+     }
+
+     return BuildJSONResponse(Status::OK, Body);
+}
+
 /* HandleLinksList returns configured cluster links. */
 
 HttpResponse SearchAPI::HandleLinksList(const HttpRequest &Request)
@@ -1750,14 +2316,12 @@ HttpResponse SearchAPI::HandleLinksPing(const HttpRequest &Request)
           Instance->Logs->Normal("links", "Received /links/ping request.");
      }
 
-     const bool HasEndpointParam = Request.QueryParams.find("endpoint") != Request.QueryParams.end()
-                                   || Request.QueryParams.find("node") != Request.QueryParams.end()
-                                   || !Request.Body.empty();
+     const bool HasEndpointParam = Request.QueryParams.find("endpoint") != Request.QueryParams.end() || Request.QueryParams.find("node") != Request.QueryParams.end() || !Request.Body.empty();
      if (HasEndpointParam)
      {
           std::string Endpoint;
           std::string Error;
-          if (!ExtractLinkEndpoint(Request, Endpoint, Error))
+          if (!ExtractLinkEndpoint(Request, Endpoint, nullptr, Error))
           {
                return BuildLinksErrorResponse(Status::BAD_REQUEST, "Invalid request", Error);
           }
@@ -1773,8 +2337,9 @@ HttpResponse SearchAPI::HandleLinksPing(const HttpRequest &Request)
 HttpResponse SearchAPI::HandleLinksConnect(const HttpRequest &Request)
 {
      std::string Endpoint;
+     LinkRuntimeRole Role = LinkRuntimeRole::Distributed;
      std::string Error;
-     if (!ExtractLinkEndpoint(Request, Endpoint, Error))
+     if (!ExtractLinkEndpoint(Request, Endpoint, &Role, Error))
      {
           return BuildLinksErrorResponse(Status::BAD_REQUEST, "Invalid request", Error);
      }
@@ -1783,6 +2348,14 @@ HttpResponse SearchAPI::HandleLinksConnect(const HttpRequest &Request)
      {
           return BuildLinksErrorResponse(Status::INTERNAL_SERVER_ERROR, "Server not ready");
      }
+
+     LinkEndpointInfo Info = HealthBuildEndpointInfo(Endpoint);
+     if (!Info.IsValid)
+     {
+          return BuildLinksErrorResponse(Status::BAD_REQUEST, "Invalid request", Info.Error.empty() ? "Invalid endpoint format" : Info.Error);
+     }
+
+     Endpoint = Info.NormalizedEndpoint;
 
      if (Instance->Modules)
      {
@@ -1794,12 +2367,6 @@ HttpResponse SearchAPI::HandleLinksConnect(const HttpRequest &Request)
           }
      }
 
-     LinkEndpointInfo Info = HealthBuildEndpointInfo(Endpoint);
-     if (!Info.IsValid)
-     {
-          return BuildLinksErrorResponse(Status::BAD_REQUEST, "Invalid request", Info.Error.empty() ? "Invalid endpoint format" : Info.Error);
-     }
-
      if (!Info.IsLocal)
      {
           const int TimeoutMS = Instance->Config ? Instance->Config->GetDistributedSearchTimeoutMS() : 0;
@@ -1808,7 +2375,7 @@ HttpResponse SearchAPI::HandleLinksConnect(const HttpRequest &Request)
                Instance->Logs->Normal("links", "Preflight check for link " + Info.Host + ":" + std::to_string(Info.Port) + ".");
           }
 
-          const bool ProbeOK = HealthSendPingRequest(Info.Host, Info.Port, TimeoutMS, &Info.StatusCode, &Info.LatencyMS, &Info.Error);
+          const bool ProbeOK = HealthSendPingRequest(Info.Host, Info.Port, Info.UseSSL, TimeoutMS, &Info.StatusCode, &Info.LatencyMS, &Info.Error);
           if (!ProbeOK || Info.StatusCode < 200 || Info.StatusCode >= 300)
           {
                std::ostringstream Message;
@@ -1826,9 +2393,19 @@ HttpResponse SearchAPI::HandleLinksConnect(const HttpRequest &Request)
      }
 
      std::string AddError;
-     if (!Instance->Config->AddClusterNode(Endpoint, &AddError))
+     const bool Added = Role == LinkRuntimeRole::Slave
+                             ? Instance->Config->AddSlaveNode(Endpoint, &AddError)
+                             : Instance->Config->AddClusterNode(Endpoint, &AddError);
+     if (!Added)
      {
           return BuildLinksErrorResponse(Status::BAD_REQUEST, "Failed to add link", AddError);
+     }
+
+     DropPeerTransportState(Endpoint);
+
+     if (Role == LinkRuntimeRole::Slave)
+     {
+          MarkSlaveDirty(Endpoint);
      }
 
      FOREACH_MOD(OnLinksConnect, Endpoint, Request.RemoteAddress, Request.APIKeyID, !Request.APIKeyID.empty());
@@ -1841,8 +2418,9 @@ HttpResponse SearchAPI::HandleLinksConnect(const HttpRequest &Request)
 HttpResponse SearchAPI::HandleLinksDisconnect(const HttpRequest &Request)
 {
      std::string Endpoint;
+     LinkRuntimeRole Role = LinkRuntimeRole::Distributed;
      std::string Error;
-     if (!ExtractLinkEndpoint(Request, Endpoint, Error))
+     if (!ExtractLinkEndpoint(Request, Endpoint, &Role, Error))
      {
           return BuildLinksErrorResponse(Status::BAD_REQUEST, "Invalid request", Error);
      }
@@ -1851,6 +2429,14 @@ HttpResponse SearchAPI::HandleLinksDisconnect(const HttpRequest &Request)
      {
           return BuildLinksErrorResponse(Status::INTERNAL_SERVER_ERROR, "Server not ready");
      }
+
+     LinkEndpointInfo Info = HealthBuildEndpointInfo(Endpoint);
+     if (!Info.IsValid)
+     {
+          return BuildLinksErrorResponse(Status::BAD_REQUEST, "Invalid request", Info.Error.empty() ? "Invalid endpoint format" : Info.Error);
+     }
+
+     Endpoint = Info.NormalizedEndpoint;
 
      if (Instance->Modules)
      {
@@ -1863,10 +2449,15 @@ HttpResponse SearchAPI::HandleLinksDisconnect(const HttpRequest &Request)
      }
 
      std::string RemoveError;
-     if (!Instance->Config->RemoveClusterNode(Endpoint, &RemoveError))
+     const bool Removed = Role == LinkRuntimeRole::Slave
+                               ? Instance->Config->RemoveSlaveNode(Endpoint, &RemoveError)
+                               : Instance->Config->RemoveClusterNode(Endpoint, &RemoveError);
+     if (!Removed)
      {
           return BuildLinksErrorResponse(Status::BAD_REQUEST, "Failed to remove link", RemoveError);
      }
+
+     DropPeerTransportState(Endpoint);
 
      FOREACH_MOD(OnLinksDisconnect, Endpoint, Request.RemoteAddress, Request.APIKeyID, !Request.APIKeyID.empty());
 

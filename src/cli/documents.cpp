@@ -64,7 +64,9 @@ bool LooksLikeAggregateSQL(const std::string &sql)
      std::string upper = sql;
 
      std::transform(upper.begin(), upper.end(), upper.begin(), [](unsigned char c)
-                    { return static_cast<char>(std::toupper(c)); });
+                    {
+                         return static_cast<char>(std::toupper(c));
+                    });
 
      return upper.find("SELECT AVG(") != std::string::npos ||
             upper.find("SELECT SUM(") != std::string::npos ||
@@ -165,7 +167,6 @@ void PrintSQLRowsTable(HLQueryCLI &cli, const nlohmann::json &rows_json)
           cli.PrintTable(headers, rows);
      }
 }
-
 
 bool HLQueryCLI::IsDataTooMessyForTable(const nlohmann::json &doc)
 {
@@ -1146,12 +1147,11 @@ void HLQueryCLI::SearchDocuments(const std::string &collection_name, const std::
           }
 
           output["cli"] = {
-              {"collection", collection_name},
-              {"requested_query", query},
-              {"requested_limit", limit},
-              {"requested_offset", offset},
-              {"duration_ms", duration_ms}
-          };
+               {"collection", collection_name},
+               {"requested_query", query},
+               {"requested_limit", limit},
+               {"requested_offset", offset},
+               {"duration_ms", duration_ms}};
 
           std::cout << output.dump(2) << "\n";
           return;
@@ -1244,10 +1244,9 @@ void HLQueryCLI::SearchSQL(const std::string &sql, const std::string &collection
           auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(search_end - search_start).count();
 
           output["cli"] = {
-              {"collection", collection_name},
-              {"requested_sql", sql},
-              {"duration_ms", duration_ms}
-          };
+               {"collection", collection_name},
+               {"requested_sql", sql},
+               {"duration_ms", duration_ms}};
 
           std::cout << output.dump(2) << "\n";
           return;
@@ -1978,12 +1977,11 @@ void HLQueryCLI::SearchAcrossCollections(const std::string &query, const std::ve
           }
 
           output["cli"] = {
-              {"requested_query", query},
-              {"requested_collections", collections},
-              {"requested_limit", limit},
-              {"requested_offset", offset},
-              {"duration_ms", duration_ms}
-          };
+               {"requested_query", query},
+               {"requested_collections", collections},
+               {"requested_limit", limit},
+               {"requested_offset", offset},
+               {"duration_ms", duration_ms}};
 
           std::cout << output.dump(2) << "\n";
           return;
@@ -2073,8 +2071,8 @@ void HLQueryCLI::VectorSearch(const std::string &collection_name, const std::str
      nlohmann::json hits = root["hits"];
 
      size_t total_val = (root.contains("found") && root["found"].is_number_unsigned())
-                            ? root["found"].get<size_t>()
-                            : hits.size();
+                             ? root["found"].get<size_t>()
+                             : hits.size();
 
      std::cout << "Vector search results in collection '" << collection_name << "':.\n";
      std::cout << "Found " << hits.size() << " document(s) (showing " << hits.size() << " of " << total_val << ").\n\n";
@@ -2467,7 +2465,7 @@ void HLQueryCLI::CopyDocument(const std::string &collection_name, const std::str
 
      {
           const std::string target_path = "/collections/" + hlquery_cli::UrlEncode(collection_name) +
-                                         "/documents/" + hlquery_cli::UrlEncode(target_id);
+                                          "/documents/" + hlquery_cli::UrlEncode(target_id);
           HTTPResponse target_response = MakeRequest("GET", target_path, "", DefaultTimeoutSeconds);
 
           if (target_response.StatusCode == 200)
@@ -2483,7 +2481,7 @@ void HLQueryCLI::CopyDocument(const std::string &collection_name, const std::str
      }
 
      const std::string source_path = "/collections/" + hlquery_cli::UrlEncode(collection_name) +
-                                    "/documents/" + hlquery_cli::UrlEncode(source_id);
+                                     "/documents/" + hlquery_cli::UrlEncode(source_id);
      HTTPResponse source_response = MakeRequest("GET", source_path, "", DefaultTimeoutSeconds);
 
      if (source_response.StatusCode == 404)

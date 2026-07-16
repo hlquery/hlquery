@@ -24,6 +24,8 @@
 #include "api/common.h"
 #include "vendor/json/json.hpp"
 
+/* Provides fallback search helpers for maybe-style query expansion. */
+
 static std::string ToLowerCopy(const std::string &value)
 {
      std::string out = value;
@@ -33,6 +35,8 @@ static std::string ToLowerCopy(const std::string &value)
                     });
      return out;
 }
+
+/* Implements the collapse whitespace helper. */
 
 static std::string CollapseWhitespace(const std::string &value)
 {
@@ -66,6 +70,8 @@ static std::string CollapseWhitespace(const std::string &value)
      return result;
 }
 
+/* Implements the tokenize terms helper. */
+
 static std::vector<std::string> TokenizeTerms(const std::string &query)
 {
      std::vector<std::string> out;
@@ -98,6 +104,8 @@ static std::vector<std::string> TokenizeTerms(const std::string &query)
 
      return out;
 }
+
+/* Builds snippet data. */
 
 static std::string BuildSnippet(const std::string &raw, const std::vector<std::string> &terms)
 {
@@ -139,6 +147,8 @@ static std::string BuildSnippet(const std::string &raw, const std::vector<std::s
      return CollapseWhitespace(out);
 }
 
+/* Implements the keep alpha num spaces helper. */
+
 static std::string KeepAlphaNumSpaces(const std::string &value)
 {
      std::string out;
@@ -160,6 +170,8 @@ static std::string KeepAlphaNumSpaces(const std::string &value)
      }
      return CollapseWhitespace(out);
 }
+
+/* Removes digits keep spaces data. */
 
 static std::string RemoveDigitsKeepSpaces(const std::string &value)
 {
@@ -187,6 +199,8 @@ static std::string RemoveDigitsKeepSpaces(const std::string &value)
      return CollapseWhitespace(out);
 }
 
+/* Checks whether suggestion stopword applies. */
+
 static bool IsSuggestionStopword(const std::string &value)
 {
      static const std::unordered_set<std::string> Stopwords = {
@@ -196,6 +210,8 @@ static bool IsSuggestionStopword(const std::string &value)
 
      return Stopwords.find(value) != Stopwords.end();
 }
+
+/* Extracts candidate terms values. */
 
 static std::vector<std::string> ExtractCandidateTerms(const std::string &value)
 {
@@ -233,6 +249,8 @@ static std::vector<std::string> ExtractCandidateTerms(const std::string &value)
      return Terms;
 }
 
+/* Implements the singularize term helper. */
+
 static std::string SingularizeTerm(const std::string &value)
 {
      if (value.size() > 4 && value.size() >= 3 && value.substr(value.size() - 3) == "ies")
@@ -247,6 +265,8 @@ static std::string SingularizeTerm(const std::string &value)
 
      return value;
 }
+
+/* Implements the pluralize term helper. */
 
 static std::string PluralizeTerm(const std::string &value)
 {
@@ -267,6 +287,8 @@ static std::string PluralizeTerm(const std::string &value)
 
      return value + "s";
 }
+
+/* Builds query variants data. */
 
 static std::vector<std::string> BuildQueryVariants(const std::string &query)
 {
@@ -300,6 +322,8 @@ static std::vector<std::string> BuildQueryVariants(const std::string &query)
      return out;
 }
 
+/* Checks whether low value suggestion applies. */
+
 static bool IsLowValueSuggestion(const std::string &candidate)
 {
      std::string lower = ToLowerCopy(candidate);
@@ -317,6 +341,8 @@ static bool IsLowValueSuggestion(const std::string &candidate)
      }
      return false;
 }
+
+/* Implements the select candidate helper. */
 
 static std::string SelectCandidate(const SearchHit &hit,
                                    const std::vector<std::string> &terms)
@@ -375,6 +401,8 @@ static std::string SelectCandidate(const SearchHit &hit,
      return "";
 }
 
+/* Computes rapid fuzz similarity values. */
+
 static double ComputeRapidFuzzSimilarity(const std::string &query, const std::string &candidate)
 {
      if (query.empty() || candidate.empty())
@@ -389,6 +417,8 @@ static double ComputeRapidFuzzSimilarity(const std::string &query, const std::st
 
      return (TokenSetScore * 0.40) + (PartialScore * 0.30) + (RatioScore * 0.20) + (TokenSortScore * 0.10);
 }
+
+/* Computes term suggestion rank values. */
 
 static double ComputeTermSuggestionRank(const std::string &query_raw, const std::string &candidate, const std::unordered_set<std::string> &collection_terms)
 {
@@ -463,6 +493,8 @@ static double ComputeTermSuggestionRank(const std::string &query_raw, const std:
      return Score;
 }
 
+/* Computes suggestion rank values. */
+
 static double ComputeSuggestionRank(const std::string &query_raw,
                                     const std::string &candidate_raw,
                                     const std::string &doc_id)
@@ -536,6 +568,8 @@ static double ComputeSuggestionRank(const std::string &query_raw,
      return score;
 }
 
+/* Builds maybe query data. */
+
 static ComprehensiveSearchQuery BuildMaybeQuery(const std::string &query, int per_page)
 {
      ComprehensiveSearchQuery q;
@@ -550,6 +584,8 @@ static ComprehensiveSearchQuery BuildMaybeQuery(const std::string &query, int pe
      q.TypoTokensThreshold = 2;
      return q;
 }
+
+/* Implements the collect suggestions helper. */
 
 static void CollectSuggestions(const ComprehensiveSearchResult &result,
                                const std::string &collection,
@@ -606,6 +642,8 @@ static void CollectSuggestions(const ComprehensiveSearchResult &result,
           }
      }
 }
+
+/* Implements the collect suggestions from sample helper. */
 
 static void CollectSuggestionsFromSample(const std::string &collection,
                                          const std::vector<std::string> &terms,
@@ -673,6 +711,8 @@ static void CollectSuggestionsFromSample(const std::string &collection,
           out->push_back(std::move(row));
      }
 }
+
+/* Implements the collect query suggestions from sample helper. */
 
 static void CollectQuerySuggestionsFromSample(const std::string &collection,
                                               const std::string &query_for_rank,
@@ -815,6 +855,8 @@ static void CollectQuerySuggestionsFromSample(const std::string &collection,
           out->push_back(std::move(Row));
      }
 }
+
+/* Handles maybe requests. */
 
 HttpResponse SearchAPI::HandleMaybe(const HttpRequest &Request)
 {

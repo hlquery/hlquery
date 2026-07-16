@@ -13,38 +13,39 @@
 #pragma once
 
 #include <atomic>
+#include <cstddef>
 #include <cstdint>
 #include <fcntl.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
 
 #ifdef __linux__
- 
+
     #include <sys/epoll.h>
 
 #else
 
-     /* Compatibility epoll-style event definitions for non-Linux platforms. */
+/* Compatibility epoll-style event definitions for non-Linux platforms. */
 
-     struct epoll_event
+struct epoll_event
+{
+     uint32_t events;
+     union
      {
-          uint32_t events;
-          union
-          {
-               int fd;
-               void *ptr;
-               uint64_t u64;
-          } data;
-     };
+          int fd;
+          void *ptr;
+          uint64_t u64;
+     } data;
+};
 
-     static constexpr int EPOLLIN = 0x001;
-     static constexpr int EPOLLPRI = 0x002;
-     static constexpr int EPOLLOUT = 0x004;
-     static constexpr int EPOLLERR = 0x008;
-     static constexpr int EPOLLHUP = 0x010;
-     static constexpr int EPOLLRDHUP = 0x2000;
-     static constexpr int EPOLLET = 0x80000000;
-     static constexpr int EPOLL_CLOEXEC = 0x80000;
+static constexpr int EPOLLIN = 0x001;
+static constexpr int EPOLLPRI = 0x002;
+static constexpr int EPOLLOUT = 0x004;
+static constexpr int EPOLLERR = 0x008;
+static constexpr int EPOLLHUP = 0x010;
+static constexpr int EPOLLRDHUP = 0x2000;
+static constexpr int EPOLLET = 0x80000000;
+static constexpr int EPOLL_CLOEXEC = 0x80000;
 
 #endif
 
@@ -56,12 +57,12 @@
 class EventHandler
 {
    public:
-
+    
      /* Destructor */
 
      virtual ~EventHandler()
      {
-     
+    
      }
 
      /* Called when there is a read event */
@@ -72,7 +73,7 @@ class EventHandler
 
      virtual void OnEventHandlerWrite()
      {
-
+    
      }
 
      /* Called when there is an error event */
@@ -86,21 +87,21 @@ class EventHandler
 
      int GetFD() const
      {
-          return FD;
+          return FD.load(std::memory_order_acquire);
      }
 
      /* Sets the file descriptor */
 
      void SetFD(int fd)
      {
-          FD = fd;
+          FD.store(fd, std::memory_order_release);
      }
 
      /* Returns true if the file descriptor is valid */
 
      bool HasFD() const
      {
-          return FD >= 0;
+          return GetFD() >= 0;
      }
 
      /* Event mask management */
@@ -109,34 +110,32 @@ class EventHandler
 
      int GetEventMask() const
      {
-          return EventMask;
+          return EventMask.load(std::memory_order_acquire);
      }
 
      /* Sets the event mask */
 
      void SetEventMask(int mask)
      {
-          EventMask = mask;
+          EventMask.store(mask, std::memory_order_release);
      }
 
    private:
-
      /* File descriptor */
 
-     int FD = -1;
+     std::atomic<int> FD{-1};
 
      /* Event mask */
 
-     int EventMask = 0;
+     std::atomic<int> EventMask{0};
 };
 
 /* hlquery socket engine - epoll-based event dispatcher */
 
 class SocketEngine
 {
-
    public:
-
+    
      /* Increased from 1024 to handle high-throughput scenarios */
 
      static const int MAX_EVENTS = 16384;
@@ -157,11 +156,11 @@ class SocketEngine
 
      /* Adds a file descriptor to the engine */
 
-     static bool AddFD(EventHandler* EH, int Events = EPOLLIN);
+     static bool AddFD(EventHandler *EH, int Events = EPOLLIN);
 
      /* Deletes a file descriptor from the engine */
 
-     static void DelFD(EventHandler* EH);
+     static void DelFD(EventHandler *EH);
 
      /* Dispatches pending events */
 
@@ -171,11 +170,11 @@ class SocketEngine
 
      /* Registers a pending write */
 
-     static void RegisterPendingWrite(EventHandler* EH);
+     static void RegisterPendingWrite(EventHandler *EH);
 
      /* Unregisters a pending write */
 
-     static void UnregisterPendingWrite(EventHandler* EH);
+     static void UnregisterPendingWrite(EventHandler *EH);
 
      /* Dispatches trial writes */
 
@@ -223,11 +222,11 @@ class SocketEngine
 
      /* Returns a zero-copy buffer */
 
-     static void* GetZeroCopyBuffer();
+     static void *GetZeroCopyBuffer();
 
      /* Returns a zero-copy buffer to the pool */
 
-     static void ReturnZeroCopyBuffer(void* buffer);
+     static void ReturnZeroCopyBuffer(void *buffer);
 
      /* Enables or disables adaptive timeout */
 
@@ -291,7 +290,7 @@ class SocketEngine
      }
 
    private:
-
+    
      /* Static members for engine state. */
 
      /* Engine file descriptor */
@@ -303,12 +302,12 @@ class SocketEngine
      static std::atomic<bool> EpollFDValid;
 
      /* Events */
-     
+
      static std::vector<epoll_event> Events;
 
      /* Pending writes queue */
 
-     static std::vector<EventHandler*> PendingWrites;
+     static std::vector<EventHandler *> PendingWrites;
 
      /* Thread-safe count for HasPendingWork() */
 

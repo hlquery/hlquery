@@ -45,7 +45,6 @@ struct HTTPResponse
 class BenchmarkClient
 {
    private:
-
      std::string Host;
 
      int Port;
@@ -96,7 +95,6 @@ class BenchmarkClient
      void SleepBeforeWriteRetry(int attempt) const;
 
    public:
-
      BenchmarkClient(const std::string &base_url, const std::string &token = "", bool reuse_collections = false);
 
      ~BenchmarkClient();
@@ -236,14 +234,13 @@ class BenchmarkClient
      HTTPResponse UpdateCounters(const std::string &prefix = "");
      /* Flushes and syncs. */
 
-     HTTPResponse FlushSync();
+     HTTPResponse FlushSync(const std::string &prefix = "");
 
      /* Enables or disables global SSL dual-auth header mode for all benchmark clients. */
 
      static void SetGlobalSSLAuthMode(bool enabled);
 
    private:
-
      /* Encodes a URL. */
 
      std::string UrlEncode(const std::string &value);

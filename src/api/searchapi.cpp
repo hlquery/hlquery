@@ -41,14 +41,16 @@
 #include "core/hlquery.h"
 #include "core/socketengine.h"
 #include "runtime/threadlimit.h"
-#include "search/rfusion.h"
-#include "search/cstore.h"
-#include "search/storageengine.h"
-#include "search/lindex.h"
+#include "search/hybrid_rank_fusion.h"
+#include "search/document_collection_store.h"
+#include "search/rocksdb_storage_engine.h"
+#include "search/lexical_inverted_index.h"
 #include "utils/consolewriter.h"
 #include "utils/protocol.h"
 #include "utils/wildcard.h"
 #include "vendor/json/json.hpp"
+
+/* Implements shared SearchAPI lifecycle and request helper behavior. */
 
 static constexpr const char *kReplicationOutboxPrefix = "replication_outbox:";
 static constexpr const char *kReplicationAppliedPrefix = "replication_applied:";
@@ -56,15 +58,39 @@ static constexpr const char *kReplicationResyncStateKey = "replication_resync:ac
 static constexpr const char *kReplicationResyncCollectionsPrefix = "replication_resync:collections:";
 static constexpr size_t kReplicationOutboxStoredBodyLimit = 64 * 1024;
 
+/* Returns a lowercase copy of the input string. */
+
 static std::string ToLowerCopy(const std::string &Value)
 {
      std::string Result(Value);
      std::transform(Result.begin(), Result.end(), Result.begin(), [](unsigned char C)
-     {
-          return static_cast<char>(std::tolower(C));
-     });
+                    {
+                         return static_cast<char>(std::tolower(C));
+                    });
      return Result;
 }
+
+/* Normalizes path for extraction values. */
+
+static std::string NormalizePathForExtraction(const std::string &Path)
+{
+     std::string NormalizedPath = Path;
+     const size_t QueryPos = NormalizedPath.find('?');
+
+     if (QueryPos != std::string::npos)
+     {
+          NormalizedPath = NormalizedPath.substr(0, QueryPos);
+     }
+
+     if (NormalizedPath.size() > 1 && NormalizedPath.back() == '/')
+     {
+          NormalizedPath.pop_back();
+     }
+
+     return NormalizedPath;
+}
+
+/* Returns a request header value using case-insensitive lookup. */
 
 static std::string GetHeaderValueInsensitive(const std::map<std::string, std::string> &Headers, const std::string &Name)
 {
@@ -79,6 +105,8 @@ static std::string GetHeaderValueInsensitive(const std::map<std::string, std::st
      return "";
 }
 
+/* Implements the trim header value helper. */
+
 static std::string TrimHeaderValue(const std::string &Value)
 {
      const std::size_t Start = Value.find_first_not_of(" \t");
@@ -91,6 +119,8 @@ static std::string TrimHeaderValue(const std::string &Value)
      return Value.substr(Start, End - Start + 1);
 }
 
+/* Returns query param value values. */
+
 static std::string GetQueryParamValue(const HttpRequest &Request, const std::string &Key)
 {
      const auto It = Request.QueryParams.find(Key);
@@ -101,6 +131,8 @@ static std::string GetQueryParamValue(const HttpRequest &Request, const std::str
 
      return TrimHeaderValue(It->second);
 }
+
+/* Extracts peer auth token values. */
 
 static std::string ExtractPeerAuthToken(const HttpRequest &Request)
 {
@@ -121,6 +153,8 @@ static std::string ExtractPeerAuthToken(const HttpRequest &Request)
 
      return TrimHeaderValue(AuthHeader);
 }
+
+/* Checks whether authorized replication hop applies. */
 
 static bool IsAuthorizedReplicationHop(const HttpRequest &Request)
 {
@@ -149,8 +183,8 @@ static bool IsAuthorizedReplicationHop(const HttpRequest &Request)
                std::string PrimaryToken;
                std::string SecondaryToken;
                const bool FoundTokens = UseSlaveTokens
-                                            ? Instance->Config->GetSlavePeerTokens(Endpoint, &PrimaryToken, &SecondaryToken)
-                                            : Instance->Config->GetClusterPeerTokens(Endpoint, &PrimaryToken, &SecondaryToken);
+                                             ? Instance->Config->GetSlavePeerTokens(Endpoint, &PrimaryToken, &SecondaryToken)
+                                             : Instance->Config->GetClusterPeerTokens(Endpoint, &PrimaryToken, &SecondaryToken);
                if (!FoundTokens)
                {
                     continue;
@@ -178,6 +212,8 @@ static bool IsAuthorizedReplicationHop(const HttpRequest &Request)
 
      return false;
 }
+
+/* Validates collection name value input. */
 
 static bool ValidateCollectionNameValue(const std::string &Name, std::string *ErrorMessage)
 {
@@ -227,15 +263,21 @@ static bool ValidateCollectionNameValue(const std::string &Name, std::string *Er
      return true;
 }
 
+/* Builds replication outbox key data. */
+
 static std::string BuildReplicationOutboxKey(const std::string &EntryID)
 {
      return std::string(kReplicationOutboxPrefix) + EntryID;
 }
 
+/* Builds replication applied key data. */
+
 static std::string BuildReplicationAppliedKey(const std::string &OperationID)
 {
      return std::string(kReplicationAppliedPrefix) + OperationID;
 }
+
+/* Implements the serialize replication outbox record helper. */
 
 static nlohmann::json SerializeReplicationOutboxRecord(const std::string &EntryID,
                                                        const std::string &State,
@@ -271,20 +313,28 @@ static nlohmann::json SerializeReplicationOutboxRecord(const std::string &EntryI
      return Record;
 }
 
+/* Returns replication resync session header values. */
+
 static std::string GetReplicationResyncSessionHeader(const HttpRequest &Request)
 {
      return TrimHeaderValue(GetHeaderValueInsensitive(Request.Headers, "X-HLQ-Resync-Session"));
 }
+
+/* Returns replication resync stage header values. */
 
 static std::string GetReplicationResyncStageHeader(const HttpRequest &Request)
 {
      return ToLowerCopy(TrimHeaderValue(GetHeaderValueInsensitive(Request.Headers, "X-HLQ-Resync-Stage")));
 }
 
+/* Builds replication resync collections key data. */
+
 static std::string BuildReplicationResyncCollectionsKey(const std::string &SessionID)
 {
      return std::string(kReplicationResyncCollectionsPrefix) + SessionID;
 }
+
+/* Extracts resync collection from path values. */
 
 static std::string ExtractResyncCollectionFromPath(const std::string &Path)
 {
@@ -305,6 +355,8 @@ static std::string ExtractResyncCollectionFromPath(const std::string &Path)
 
      return Remainder.substr(0, SlashPos);
 }
+
+/* Implements the track replication resync collection helper. */
 
 static void TrackReplicationResyncCollection(const std::string &SessionID,
                                              const std::string &CollectionName)
@@ -363,6 +415,8 @@ static void TrackReplicationResyncCollection(const std::string &SessionID,
      (void)Instance->Database->Set(Key, Root.dump());
 }
 
+/* Loads replication resync collections data. */
+
 static std::vector<std::string> LoadReplicationResyncCollections(const std::string &SessionID)
 {
      std::vector<std::string> Collections;
@@ -409,6 +463,8 @@ static std::vector<std::string> LoadReplicationResyncCollections(const std::stri
      return Collections;
 }
 
+/* Implements the clear replication resync collections helper. */
+
 static void ClearReplicationResyncCollections(const std::string &SessionID)
 {
      if (!Instance || !Instance->Database || SessionID.empty())
@@ -419,10 +475,14 @@ static void ClearReplicationResyncCollections(const std::string &SessionID)
      (void)Instance->Database->Del(BuildReplicationResyncCollectionsKey(SessionID));
 }
 
+/* Returns replication operation header values. */
+
 static std::string GetReplicationOperationHeader(const HttpRequest &Request)
 {
      return TrimHeaderValue(GetHeaderValueInsensitive(Request.Headers, "X-HLQ-Replication-Op"));
 }
+
+/* Implements the crash point matches helper. */
 
 static bool CrashPointMatches(const std::string &ConfiguredPoints, const std::string &Point)
 {
@@ -440,12 +500,16 @@ static bool CrashPointMatches(const std::string &ConfiguredPoints, const std::st
      return false;
 }
 
+/* Returns the singleton SearchAPI instance. */
+
 SearchAPI &SearchAPI::GetInstance()
 {
      static SearchAPI SInstance;
 
      return SInstance;
 }
+
+/* Releases SearchAPI resources during shutdown. */
 
 SearchAPI::~SearchAPI()
 {
@@ -500,6 +564,7 @@ bool SearchAPI::Start()
      }
 
      EnsureReplicationMonitorStarted();
+     EnsureDistributedLinkMonitorStarted();
 
      /* Initialize User Authentication Manager. */
 
@@ -908,7 +973,8 @@ void SearchAPI::FinalizeReplicationResyncRequest(const HttpRequest &Request,
           return;
      }
 
-     const std::vector<std::string> ResyncedCollections = LoadReplicationResyncCollections(SessionID);     ClearReplicationResyncCollections(SessionID);
+     const std::vector<std::string> ResyncedCollections = LoadReplicationResyncCollections(SessionID);
+     ClearReplicationResyncCollections(SessionID);
      Instance->Database->Del(kReplicationResyncStateKey);
      Instance->Database->SyncWAL();
 }
@@ -937,13 +1003,23 @@ void SearchAPI::EnqueueAsyncReplicationTask(std::function<void()> Task) const
 
      std::lock_guard<std::mutex> lock(AsyncReplicationTasksMutex);
      AsyncReplicationTasks.push_back(std::async(std::launch::async, [Task = std::move(Task)]() mutable
-     {
-          Task();
-     }));
+                                                {
+                                                     Task();
+                                                }));
 }
+
+/* Implements the shutdown helper. */
 
 void SearchAPI::Shutdown()
 {
+     DistributedLinkMonitorStop.store(true, std::memory_order_relaxed);
+     DistributedLinkMonitorCV.notify_all();
+
+     if (DistributedLinkMonitorThread.joinable())
+     {
+          DistributedLinkMonitorThread.join();
+     }
+
      ReplicationMonitorStop.store(true, std::memory_order_relaxed);
      ReplicationMonitorCV.notify_all();
 
@@ -978,6 +1054,8 @@ bool SearchAPI::IsInitialized() const
 {
      return HybridStorageManagerInstance().IsInitialized();
 }
+
+/* Implements the attach search response meta helper. */
 
 void SearchAPI::AttachSearchResponseMeta(HttpResponse &Response,
                                          const ComprehensiveSearchQuery &Query,
@@ -1040,6 +1118,8 @@ uint64_t SearchAPI::GetCollectionMutationVersion(const std::string &Collection) 
      return std::max(collection_version, global_version);
 }
 
+/* Implements the bump collection mutation version helper. */
+
 uint64_t SearchAPI::BumpCollectionMutationVersion(const std::string &Collection)
 {
      const uint64_t next_version = CollectionMutationClock.fetch_add(1, std::memory_order_relaxed) + 1;
@@ -1051,6 +1131,8 @@ uint64_t SearchAPI::BumpCollectionMutationVersion(const std::string &Collection)
 
      return next_version;
 }
+
+/* Implements the reset collection mutation versions helper. */
 
 void SearchAPI::ResetCollectionMutationVersions()
 {
@@ -1152,10 +1234,11 @@ std::string SearchAPI::ExtractCollectionFromPath(const std::string &Path)
 {
      /* Extract collection name from paths like /collections/{name}/documents. */
 
-     std::regex CollectionRegex(R"(/collections/([^/]+))");
+     const std::string NormalizedPath = NormalizePathForExtraction(Path);
+     std::regex CollectionRegex(R"(^/collections/([^/]+)(?:/|$))");
      std::smatch Match;
 
-     if (std::regex_search(Path, Match, CollectionRegex))
+     if (std::regex_search(NormalizedPath, Match, CollectionRegex))
      {
           std::string CollectionName = Match[1].str();
 
@@ -1198,10 +1281,11 @@ std::string SearchAPI::ExtractDocumentIdFromPath(const std::string &Path)
 {
      /* Extract document ID from paths like /collections/{name}/documents/{id}. */
 
-     std::regex DocumentRegex(R"(/collections/[^/]+/documents/([^/]+))");
+     const std::string NormalizedPath = NormalizePathForExtraction(Path);
+     std::regex DocumentRegex(R"(^/collections/[^/]+/documents/([^/]+)(?:/context)?$)");
      std::smatch Match;
 
-     if (std::regex_search(Path, Match, DocumentRegex))
+     if (std::regex_search(NormalizedPath, Match, DocumentRegex))
      {
           std::string DocID = Match[1].str();
 
@@ -1245,13 +1329,13 @@ std::string SearchAPI::ExtractDocumentIdFromPath(const std::string &Path)
 
           /* Check for valid characters (alphanumeric, underscore, hyphen). */
 
-          for (char C : DocID)
+          for (unsigned char C : DocID)
           {
                if (!std::isalnum(C) && C != '_' && C != '-' && C != '.')
                {
                     if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
                     {
-                         Instance->Logs->Debug("search_api", "Document ID contains invalid character: " + std::string(1, C) + " in ID: " + DocID + ".");
+                         Instance->Logs->Debug("search_api", "Document ID contains invalid character: " + std::string(1, static_cast<char>(C)) + " in ID: " + DocID + ".");
                     }
 
                     return "";
@@ -1270,17 +1354,18 @@ std::string SearchAPI::ExtractSynonymIdFromPath(const std::string &Path)
 {
      /* Extract synonym ID from paths like /collections/{name}/synonyms/{id}. */
 
-     std::regex SynonymRegex(R"(/collections/[^/]+/synonyms/([^/]+))");
+     const std::string NormalizedPath = NormalizePathForExtraction(Path);
+     std::regex SynonymRegex(R"(^/collections/[^/]+/(?:synonyms|synonym_sets)/([^/]+)$)");
      std::smatch Match;
 
-     if (std::regex_search(Path, Match, SynonymRegex))
+     if (std::regex_search(NormalizedPath, Match, SynonymRegex))
      {
           return Match[1].str();
      }
 
-     std::regex GlobalSynonymSetRegex(R"(/synonym_sets/global/(?:items/)?([^/]+))");
+     std::regex GlobalSynonymSetRegex(R"(^/synonym_sets/global/(?:items/)?([^/]+)$)");
 
-     if (std::regex_search(Path, Match, GlobalSynonymSetRegex))
+     if (std::regex_search(NormalizedPath, Match, GlobalSynonymSetRegex))
      {
           return Match[1].str();
      }
@@ -1294,24 +1379,25 @@ std::string SearchAPI::ExtractStopwordFromPath(const std::string &Path)
 {
      /* Extract stopword from paths like /collections/{name}/stopwords/{word}. */
 
-     std::regex StopwordRegex(R"(/collections/[^/]+/stopwords/([^/]+))");
+     const std::string NormalizedPath = NormalizePathForExtraction(Path);
+     std::regex StopwordRegex(R"(^/collections/[^/]+/(?:stopwords|stopword_sets)/([^/]+)$)");
      std::smatch Match;
 
-     if (std::regex_search(Path, Match, StopwordRegex))
+     if (std::regex_search(NormalizedPath, Match, StopwordRegex))
      {
           return Match[1].str();
      }
 
      /* Extract stopword from global paths like /stopwords/global/{word}. */
 
-     std::regex GlobalStopwordRegex(R"(/stopwords/global/([^/]+))");
-     if (std::regex_search(Path, Match, GlobalStopwordRegex))
+     std::regex GlobalStopwordRegex(R"(^/stopwords/global/([^/]+)$)");
+     if (std::regex_search(NormalizedPath, Match, GlobalStopwordRegex))
      {
           return Match[1].str();
      }
 
-     std::regex GlobalStopwordSetRegex(R"(/stopword_sets/global/(?:items/)?([^/]+))");
-     if (std::regex_search(Path, Match, GlobalStopwordSetRegex))
+     std::regex GlobalStopwordSetRegex(R"(^/stopword_sets/global/(?:items/)?([^/]+)$)");
+     if (std::regex_search(NormalizedPath, Match, GlobalStopwordSetRegex))
      {
           return Match[1].str();
      }
@@ -1325,10 +1411,11 @@ std::string SearchAPI::ExtractOverrideIdFromPath(const std::string &Path)
 {
      /* Extract override ID from paths like /collections/{name}/overrides/{id}. */
 
-     std::regex OverrideRegex(R"(/collections/[^/]+/(?:overrides|curations|curation_sets)/([^/]+))");
+     const std::string NormalizedPath = NormalizePathForExtraction(Path);
+     std::regex OverrideRegex(R"(^/collections/[^/]+/(?:overrides|curations|curation_sets)/([^/]+)$)");
      std::smatch Match;
 
-     if (std::regex_search(Path, Match, OverrideRegex))
+     if (std::regex_search(NormalizedPath, Match, OverrideRegex))
      {
           return Match[1].str();
      }
@@ -1342,10 +1429,11 @@ std::string SearchAPI::ExtractAliasNameFromPath(const std::string &Path)
 {
      /* Extract alias name from paths like /aliases/{name}. */
 
-     std::regex AliasRegex(R"(/aliases/([^/]+))");
+     const std::string NormalizedPath = NormalizePathForExtraction(Path);
+     std::regex AliasRegex(R"(^/aliases/([^/]+)$)");
      std::smatch Match;
 
-     if (std::regex_search(Path, Match, AliasRegex))
+     if (std::regex_search(NormalizedPath, Match, AliasRegex))
      {
           std::string AliasName = Match[1].str();
 
@@ -1374,20 +1462,20 @@ std::string SearchAPI::ExtractAliasNameFromPath(const std::string &Path)
                return "";
           }
 
-          for (char C : AliasName)
+          for (unsigned char C : AliasName)
           {
                if (!std::isalnum(C) && C != '_' && C != '-' && C != '.')
                {
                     if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
                     {
-                         Instance->Logs->Debug("search_api", "Alias name contains invalid character: " + std::string(1, C) + " in name: " + AliasName + ".");
+                         Instance->Logs->Debug("search_api", "Alias name contains invalid character: " + std::string(1, static_cast<char>(C)) + " in name: " + AliasName + ".");
                     }
 
                     return "";
                }
           }
 
-          if (!std::isalpha(AliasName[0]) && AliasName[0] != '_')
+          if (!std::isalpha(static_cast<unsigned char>(AliasName[0])) && AliasName[0] != '_')
           {
                if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
                {
@@ -1678,6 +1766,8 @@ bool SearchAPI::ParseDocumentFromJSON(const std::string &Json, Document &Documen
           return false;
      }
 }
+
+/* Parses document from JSON input. */
 
 bool SearchAPI::ParseDocumentFromJSON(const nlohmann::json &DocJSON, Document &DocumentObj, std::string *ErrorMsg)
 {
@@ -2258,10 +2348,13 @@ bool SearchAPI::ValidateCollectionSchema(const CollectionConfig &Config, std::st
           "double",
           "bool",
           "boolean",
+          "geo",
+          "geopoint",
+          "geo_point",
+          "latlon",
           "object",
           "json",
-          "vector"
-     };
+          "vector"};
 
      for (const auto &FieldEntry : Config.Fields)
      {
@@ -2278,7 +2371,9 @@ bool SearchAPI::ValidateCollectionSchema(const CollectionConfig &Config, std::st
 
           std::string NormalizedType = FieldEntry.second;
           std::transform(NormalizedType.begin(), NormalizedType.end(), NormalizedType.begin(), [](unsigned char c)
-                         { return static_cast<char>(std::tolower(c)); });
+                         {
+                              return static_cast<char>(std::tolower(c));
+                         });
 
           if (AllowedTypes.find(NormalizedType) == AllowedTypes.end())
           {

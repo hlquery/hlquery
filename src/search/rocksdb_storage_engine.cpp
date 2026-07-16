@@ -24,70 +24,68 @@
 
 #include "core/hlquery.h"
 #include "runtime/serverconfig.h"
-#include "search/segmentmanager.h"
-#include "search/storageengine.h"
-#include "search/writeaheadlogvalidator.h"
+#include "search/segmented_document_router.h"
+#include "search/rocksdb_storage_engine.h"
+#include "search/wal_entry_guard.h"
 #include "utils/consolewriter.h"
 #include "utils/wildcard.h"
 
 namespace
 {
-     /* Serializes durable database syncs and exposes their lifecycle to readiness checks. */
+/* Serializes durable database syncs and exposes their lifecycle to readiness checks. */
 
-     class DatabaseSyncGuard
+class DatabaseSyncGuard
+{
+   private:
+     std::unique_lock<std::mutex> SyncLock;
+
+   public:
+     DatabaseSyncGuard()
      {
-        private:
-
-          std::unique_lock<std::mutex> SyncLock;
-
-        public:
-
-          DatabaseSyncGuard()
+          if (Instance)
           {
-               if (Instance)
-               {
-                    SyncLock = std::unique_lock<std::mutex>(Instance->GetSyncMutex());
-                    Instance->SetSyncInProgress(true);
-               }
+               SyncLock = std::unique_lock<std::mutex>(Instance->GetSyncMutex());
+               Instance->SetSyncInProgress(true);
           }
-
-          ~DatabaseSyncGuard()
-          {
-               if (Instance)
-               {
-                    Instance->SetSyncInProgress(false);
-               }
-          }
-
-          DatabaseSyncGuard(const DatabaseSyncGuard &) = delete;
-          DatabaseSyncGuard &operator=(const DatabaseSyncGuard &) = delete;
-     };
-
-     bool LooksLikeRocksDBDirectory(const std::string &Path)
-     {
-          try
-          {
-               if (!std::filesystem::exists(Path) || !std::filesystem::is_directory(Path))
-               {
-                    return false;
-               }
-
-               for (const auto &Entry : std::filesystem::directory_iterator(Path))
-               {
-                    const std::string Name = Entry.path().filename().string();
-
-                    if (Name == "CURRENT" || Name.starts_with("MANIFEST-") || Name.starts_with("OPTIONS-"))
-                    {
-                         return true;
-                    }
-               }
-          }
-          catch (...)
-          {
-          }
-
-          return false;
      }
+
+     ~DatabaseSyncGuard()
+     {
+          if (Instance)
+          {
+               Instance->SetSyncInProgress(false);
+          }
+     }
+
+     DatabaseSyncGuard(const DatabaseSyncGuard &) = delete;
+     DatabaseSyncGuard &operator=(const DatabaseSyncGuard &) = delete;
+};
+
+bool LooksLikeRocksDBDirectory(const std::string &Path)
+{
+     try
+     {
+          if (!std::filesystem::exists(Path) || !std::filesystem::is_directory(Path))
+          {
+               return false;
+          }
+
+          for (const auto &Entry : std::filesystem::directory_iterator(Path))
+          {
+               const std::string Name = Entry.path().filename().string();
+
+               if (Name == "CURRENT" || Name.starts_with("MANIFEST-") || Name.starts_with("OPTIONS-"))
+               {
+                    return true;
+               }
+          }
+     }
+     catch (...)
+     {
+     }
+
+     return false;
+}
 }
 
 /*
@@ -384,7 +382,14 @@ bool DBManager::Initialize()
 
                     if (rocksdb_opts.EnableBloomFilter)
                     {
-                         table_options.filter_policy.reset(rocksdb::NewBloomFilterPolicy(rocksdb_opts.BloomFilterBitsPerKey, false));
+                         if (rocksdb_opts.FilterPolicy == "ribbon")
+                         {
+                              table_options.filter_policy.reset(rocksdb::NewRibbonFilterPolicy(rocksdb_opts.BloomFilterBitsPerKey, rocksdb_opts.RibbonBloomBeforeLevel));
+                         }
+                         else
+                         {
+                              table_options.filter_policy.reset(rocksdb::NewBloomFilterPolicy(rocksdb_opts.BloomFilterBitsPerKey, false));
+                         }
                     }
 
                     table_options.block_cache = rocksdb::NewLRUCache(rocksdb_opts.BlockCacheSize);
@@ -992,7 +997,7 @@ std::vector<std::string> DBManager::PrefixKeys(const std::string &prefix, size_t
 
 /* DBManager::ForEachPrefixKeySnapshot - Visits keys from a consistent prefix snapshot. */
 
-bool DBManager::ForEachPrefixKeySnapshot(const std::string &prefix, size_t limit, const std::function<bool(const std::string&)> &callback)
+bool DBManager::ForEachPrefixKeySnapshot(const std::string &prefix, size_t limit, const std::function<bool(const std::string &)> &callback)
 {
      if (!DBValue || !callback)
      {

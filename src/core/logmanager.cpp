@@ -122,8 +122,8 @@ static bool IsGeneratedRotatedLogName(const std::string &Filename,
      }
 
      const std::string LegacyPrefix = LogExtension.empty()
-          ? LogBasename + ".log."
-          : LogBasename + LogExtension + ".";
+                                           ? LogBasename + ".log."
+                                           : LogBasename + LogExtension + ".";
 
      if (Filename.rfind(LegacyPrefix, 0) != 0 || Filename.size() == LegacyPrefix.size())
      {
@@ -465,9 +465,7 @@ bool LogStream::RotateLogFile()
           /* Close and rename the active file before creating its replacement. */
 
           FileStream->close();
-
           RotationCount++;
-
           std::string RotatedFilename = GenerateRotatedFilename(RotationCount);
 
           fs::path CurrentFilePath(ConfigValue.target);
@@ -549,8 +547,7 @@ void LogStream::CleanupOldRotatedFiles()
                }
           }
 
-          std::sort(RotatedFilesList.begin(), RotatedFilesList.end(),
-                    [](const auto &a, const auto &b)
+          std::sort(RotatedFilesList.begin(), RotatedFilesList.end(), [](const auto &a, const auto &b)
                     {
                          return a.first < b.first;
                     });
@@ -578,13 +575,13 @@ void LogStream::CleanupOldRotatedFiles()
                     }
                }
 
-               RotatedFilesList.erase(
-                    std::remove_if(RotatedFilesList.begin(), RotatedFilesList.end(),
-                                   [&](const auto &RotatedFileItem)
-                                   {
-                                        return !fs::exists(RotatedFileItem.second);
-                                   }),
-                    RotatedFilesList.end());
+               RotatedFilesList.erase(std::remove_if(RotatedFilesList.begin(), RotatedFilesList.end(),
+                                                     [&](const auto &RotatedFileItem)
+                                                     {
+                                                          return !fs::exists(RotatedFileItem.second);
+                                                     }),
+
+                                      RotatedFilesList.end());
           }
 
           if (ConfigValue.max_rotated_files > 0 && RotatedFilesList.size() > ConfigValue.max_rotated_files)
@@ -644,8 +641,7 @@ std::string LogStream::GenerateRotatedFilename(size_t SequenceNum)
           {
                CandidatePath = LogDir / (LogBasename + "_" + std::string(TimestampStr) + "_" +
                                          std::to_string(SequenceNum++) + RotatedExtension);
-          }
-          while (fs::exists(CandidatePath));
+          } while (fs::exists(CandidatePath));
 
           return CandidatePath.string();
      }
@@ -699,7 +695,6 @@ LogManager::LogManager()
       NoForkMode(false),
       VerboseMode(false)
 {
-
 }
 
 /* Destructor for LogManager ensuring all active streams are flushed. */
@@ -753,7 +748,6 @@ bool LogManager::Initialize(const std::vector<LogConfig> &LogConfigs, bool Debug
           for (size_t i = 0; i < LogConfigs.size(); ++i)
           {
                const auto &ConfigItem = LogConfigs[i];
-
                auto StreamInstance = std::make_unique<LogStream>(ConfigItem);
 
                if (StreamInstance->IsOpen())
@@ -777,7 +771,6 @@ bool LogManager::Initialize(const std::vector<LogConfig> &LogConfigs, bool Debug
                     if (StreamItem->ConfigValue.method == "console")
                     {
                          HasConsoleFlag = true;
-
                          break;
                     }
                }
@@ -787,7 +780,6 @@ bool LogManager::Initialize(const std::vector<LogConfig> &LogConfigs, bool Debug
                     LogConfig ConsoleConfig;
 
                     ConsoleConfig.method = "console";
-
                     ConsoleConfig.type = "*";
                     ConsoleConfig.level = LogLevel::LOG_NORMAL;
                     ConsoleConfig.target = "console";
@@ -815,7 +807,6 @@ std::unique_ptr<LogManager> LogManager::CreateAndInitialize(class ServerConfig *
      if (!ConfigPointer)
      {
           ConsoleWriter::WriteError("[FATAL] Config is null in LogManager::CreateAndInitialize().", true);
-
           return nullptr;
      }
 

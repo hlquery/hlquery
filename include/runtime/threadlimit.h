@@ -22,15 +22,12 @@
 
 class ThreadLimit
 {
-
    private:
-
      static std::atomic<size_t> MaxThreadsValue;
 
      static std::atomic<size_t> CurrentThreads;
 
    public:
-
      /* Get the maximum number of threads allowed globally */
 
      static size_t GetMaxThreads();
@@ -41,7 +38,7 @@ class ThreadLimit
 
      /* Initialize threading system from configuration */
 
-     static bool Initialize(class ServerConfig* config);
+     static bool Initialize(class ServerConfig *config);
 
      /* Calculate how many threads a subsystem can use */
 
@@ -66,14 +63,22 @@ class ThreadLimit
 
      static void IncrementThreadCount()
      {
-          CurrentThreads++;
+          CurrentThreads.fetch_add(1, std::memory_order_acq_rel);
      }
 
      /* Decrement thread count */
 
      static void DecrementThreadCount()
      {
-          CurrentThreads--;
+          size_t CurrentValue = CurrentThreads.load(std::memory_order_acquire);
+
+          while (CurrentValue > 0)
+          {
+               if (CurrentThreads.compare_exchange_weak(CurrentValue, CurrentValue - 1, std::memory_order_acq_rel, std::memory_order_acquire))
+               {
+                    return;
+               }
+          }
      }
 
      /* Reset thread counters after fork */
@@ -82,5 +87,5 @@ class ThreadLimit
 
      /* Set the name of the current thread */
 
-     static void SetThreadName(const char* name);
+     static void SetThreadName(const char *name);
 };

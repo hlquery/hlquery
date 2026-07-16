@@ -30,7 +30,6 @@
 class CoreExport JsonBuilder
 {
    public:
-
      JsonBuilder() : IsObjectVal(true), FirstItemVal(true)
      {
           JSONStream << "{";
@@ -48,68 +47,68 @@ class CoreExport JsonBuilder
           }
      }
 
-     JsonBuilder& Add(const std::string& Key, const std::string& Value)
+     JsonBuilder &Add(const std::string &Key, const std::string &Value)
      {
           AddComma();
           JSONStream << "\"" << EscapeJSONString(Key) << "\":\"" << EscapeJSONString(Value) << "\"";
           return *this;
      }
 
-     JsonBuilder& Add(const std::string& Key, const char* Value)
+     JsonBuilder &Add(const std::string &Key, const char *Value)
      {
           return Add(Key, std::string(Value));
      }
 
-     JsonBuilder& Add(const std::string& Key, int Value)
+     JsonBuilder &Add(const std::string &Key, int Value)
      {
           AddComma();
           JSONStream << "\"" << EscapeJSONString(Key) << "\":" << Value;
           return *this;
      }
 
-     JsonBuilder& Add(const std::string& Key, long long Value)
+     JsonBuilder &Add(const std::string &Key, long long Value)
      {
           AddComma();
           JSONStream << "\"" << EscapeJSONString(Key) << "\":" << Value;
           return *this;
      }
 
-     JsonBuilder& Add(const std::string& Key, unsigned long long Value)
+     JsonBuilder &Add(const std::string &Key, unsigned long long Value)
      {
           AddComma();
           JSONStream << "\"" << EscapeJSONString(Key) << "\":" << Value;
           return *this;
      }
 
-     JsonBuilder& Add(const std::string& Key, double Value)
+     JsonBuilder &Add(const std::string &Key, double Value)
      {
           AddComma();
           JSONStream << "\"" << EscapeJSONString(Key) << "\":" << std::fixed << std::setprecision(6) << Value;
           return *this;
      }
 
-     JsonBuilder& Add(const std::string& Key, bool Value)
+     JsonBuilder &Add(const std::string &Key, bool Value)
      {
           AddComma();
           JSONStream << "\"" << EscapeJSONString(Key) << "\":" << (Value ? "true" : "false");
           return *this;
      }
 
-     JsonBuilder& Add(const std::string& Key, const nlohmann::json& Value)
+     JsonBuilder &Add(const std::string &Key, const nlohmann::json &Value)
      {
           AddComma();
           JSONStream << "\"" << EscapeJSONString(Key) << "\":" << Value.dump();
           return *this;
      }
 
-     JsonBuilder& Add(const std::string& Key, const JsonBuilder& Nested)
+     JsonBuilder &Add(const std::string &Key, const JsonBuilder &Nested)
      {
           AddComma();
           JSONStream << "\"" << EscapeJSONString(Key) << "\":" << Nested.ToString();
           return *this;
      }
 
-     JsonBuilder& AddItem(const std::string& Value)
+     JsonBuilder &AddItem(const std::string &Value)
      {
           if (!IsObjectVal)
           {
@@ -120,7 +119,7 @@ class CoreExport JsonBuilder
           return *this;
      }
 
-     JsonBuilder& AddItem(int Value)
+     JsonBuilder &AddItem(int Value)
      {
           if (!IsObjectVal)
           {
@@ -131,7 +130,7 @@ class CoreExport JsonBuilder
           return *this;
      }
 
-     JsonBuilder& AddItem(const JsonBuilder& Nested)
+     JsonBuilder &AddItem(const JsonBuilder &Nested)
      {
           if (!IsObjectVal)
           {
@@ -142,7 +141,7 @@ class CoreExport JsonBuilder
           return *this;
      }
 
-     JsonBuilder& AddItem(const nlohmann::json& Value)
+     JsonBuilder &AddItem(const nlohmann::json &Value)
      {
           if (!IsObjectVal)
           {
@@ -153,21 +152,21 @@ class CoreExport JsonBuilder
           return *this;
      }
 
-     JsonBuilder& AddRaw(const std::string& Key, const std::string& RawJSON)
+     JsonBuilder &AddRaw(const std::string &Key, const std::string &RawJSON)
      {
           AddComma();
           JSONStream << "\"" << EscapeJSONString(Key) << "\":" << RawJSON;
           return *this;
      }
 
-     JsonBuilder Object(const std::string& Key)
+     JsonBuilder Object(const std::string &Key)
      {
           AddComma();
           JSONStream << "\"" << EscapeJSONString(Key) << "\":";
           return JsonBuilder(true);
      }
 
-     JsonBuilder Array(const std::string& Key)
+     JsonBuilder Array(const std::string &Key)
      {
           AddComma();
           JSONStream << "\"" << EscapeJSONString(Key) << "\":[";
@@ -194,7 +193,6 @@ class CoreExport JsonBuilder
      }
 
    private:
-
      void AddComma()
      {
           if (!FirstItemVal)
@@ -205,7 +203,7 @@ class CoreExport JsonBuilder
           FirstItemVal = false;
      }
 
-     static std::string EscapeJSONString(const std::string& StrVal)
+     static std::string EscapeJSONString(const std::string &StrVal)
      {
           std::string Result;
           Result.reserve(StrVal.size() + 10);
@@ -264,14 +262,13 @@ class CoreExport JsonBuilder
 class HttpResponseBuilder
 {
    public:
-
-     HttpResponseBuilder(int StatusCodeVal = 200, const std::string& StatusTextParam = "OK")
+     HttpResponseBuilder(int StatusCodeVal = 200, const std::string &StatusTextParam = "OK")
          : StatusCode(StatusCodeVal), StatusTextVal(StatusTextParam)
      {
           JSONBuilderPtr = std::make_unique<JsonBuilder>();
      }
 
-     HttpResponseBuilder& Status(int CodeVal, const std::string& TextVal = "")
+     HttpResponseBuilder &Status(int CodeVal, const std::string &TextVal = "")
      {
           StatusCode = CodeVal;
 
@@ -283,78 +280,78 @@ class HttpResponseBuilder
           return *this;
      }
 
-     HttpResponseBuilder& Add(const std::string& Key, const std::string& Value)
+     HttpResponseBuilder &Add(const std::string &Key, const std::string &Value)
      {
           JSONBuilderPtr->Add(Key, Value);
           return *this;
      }
 
-     HttpResponseBuilder& Add(const std::string& Key, const char* Value)
+     HttpResponseBuilder &Add(const std::string &Key, const char *Value)
      {
           JSONBuilderPtr->Add(Key, std::string(Value));
           return *this;
      }
 
-     HttpResponseBuilder& Add(const std::string& Key, int Value)
+     HttpResponseBuilder &Add(const std::string &Key, int Value)
      {
           JSONBuilderPtr->Add(Key, Value);
           return *this;
      }
 
-     HttpResponseBuilder& Add(const std::string& Key, long long Value)
+     HttpResponseBuilder &Add(const std::string &Key, long long Value)
      {
           JSONBuilderPtr->Add(Key, Value);
           return *this;
      }
 
-     HttpResponseBuilder& Add(const std::string& Key, unsigned long long Value)
+     HttpResponseBuilder &Add(const std::string &Key, unsigned long long Value)
      {
           JSONBuilderPtr->Add(Key, Value);
           return *this;
      }
 
-     HttpResponseBuilder& Add(const std::string& Key, double Value)
+     HttpResponseBuilder &Add(const std::string &Key, double Value)
      {
           JSONBuilderPtr->Add(Key, Value);
           return *this;
      }
 
-     HttpResponseBuilder& Add(const std::string& Key, bool Value)
+     HttpResponseBuilder &Add(const std::string &Key, bool Value)
      {
           JSONBuilderPtr->Add(Key, Value);
           return *this;
      }
 
-     HttpResponseBuilder& Add(const std::string& Key, const nlohmann::json& Value)
+     HttpResponseBuilder &Add(const std::string &Key, const nlohmann::json &Value)
      {
           JSONBuilderPtr->Add(Key, Value);
           return *this;
      }
 
-     JsonBuilder Object(const std::string& Key)
+     JsonBuilder Object(const std::string &Key)
      {
           return JSONBuilderPtr->Object(Key);
      }
 
-     JsonBuilder Array(const std::string& Key)
+     JsonBuilder Array(const std::string &Key)
      {
           return JSONBuilderPtr->Array(Key);
      }
 
-     HttpResponseBuilder& Header(const std::string& Key, const std::string& Value)
+     HttpResponseBuilder &Header(const std::string &Key, const std::string &Value)
      {
           Headers[Key] = Value;
           return *this;
      }
 
-     HttpResponseBuilder& ProtocolCode(int CodeVal)
+     HttpResponseBuilder &ProtocolCode(int CodeVal)
      {
           JSONBuilderPtr->Add("code", CodeVal);
           JSONBuilderPtr->Add("code_text", CodeText(CodeVal));
           return *this;
      }
 
-     static HttpResponseBuilder Error(int HttpCode, const std::string& ErrorMsg, const std::string& Message = "", int ProtocolCodeVal = 0)
+     static HttpResponseBuilder Error(int HttpCode, const std::string &ErrorMsg, const std::string &Message = "", int ProtocolCodeVal = 0)
      {
           HttpResponseBuilder Builder(HttpCode, StatusText(HttpCode));
           Builder.Header("Content-Type", "application/json");
@@ -373,12 +370,12 @@ class HttpResponseBuilder
           return Builder;
      }
 
-     static HttpResponseBuilder ErrorWithCode(int HttpCode, int ProtocolCodeVal, const std::string& ErrorMsg, const std::string& Message = "")
+     static HttpResponseBuilder ErrorWithCode(int HttpCode, int ProtocolCodeVal, const std::string &ErrorMsg, const std::string &Message = "")
      {
           return Error(HttpCode, ErrorMsg, Message, ProtocolCodeVal);
      }
 
-     static HttpResponseBuilder NotFound(const std::string& Path = "", const std::string& Method = "")
+     static HttpResponseBuilder NotFound(const std::string &Path = "", const std::string &Method = "")
      {
           HttpResponseBuilder Builder(404, "Not Found");
           Builder.Header("Content-Type", "application/json");
@@ -397,7 +394,7 @@ class HttpResponseBuilder
           return Builder;
      }
 
-     static HttpResponseBuilder BadRequest(const std::string& Message)
+     static HttpResponseBuilder BadRequest(const std::string &Message)
      {
           HttpResponseBuilder Builder(400, "Bad Request");
           Builder.Header("Content-Type", "application/json");
@@ -411,7 +408,7 @@ class HttpResponseBuilder
           return Builder;
      }
 
-     static HttpResponseBuilder Unauthorized(const std::string& Message = "")
+     static HttpResponseBuilder Unauthorized(const std::string &Message = "")
      {
           HttpResponseBuilder Builder(401, "Unauthorized");
           Builder.Header("Content-Type", "application/json");
@@ -426,7 +423,7 @@ class HttpResponseBuilder
           return Builder;
      }
 
-     static HttpResponseBuilder Forbidden(const std::string& Message = "")
+     static HttpResponseBuilder Forbidden(const std::string &Message = "")
      {
           HttpResponseBuilder Builder(403, "Forbidden");
           Builder.Header("Content-Type", "application/json");
@@ -440,7 +437,7 @@ class HttpResponseBuilder
           return Builder;
      }
 
-     static HttpResponseBuilder InternalError(const std::string& Message = "")
+     static HttpResponseBuilder InternalError(const std::string &Message = "")
      {
           HttpResponseBuilder Builder(500, "Internal Server Error");
           Builder.Header("Content-Type", "application/json");
@@ -454,7 +451,7 @@ class HttpResponseBuilder
           return Builder;
      }
 
-     static HttpResponseBuilder ServiceUnavailable(const std::string& Message = "")
+     static HttpResponseBuilder ServiceUnavailable(const std::string &Message = "")
      {
           HttpResponseBuilder Builder(503, "Service Unavailable");
           Builder.Header("Content-Type", "application/json");
@@ -476,7 +473,7 @@ class HttpResponseBuilder
           return Response;
      }
 
-     HttpResponse BuildWithBody(const std::string& BodyVal, const std::string& ContentType = "text/plain")
+     HttpResponse BuildWithBody(const std::string &BodyVal, const std::string &ContentType = "text/plain")
      {
           HttpResponse Response(StatusCode, StatusTextVal, ContentType);
           Response.Body = BodyVal;
@@ -485,7 +482,6 @@ class HttpResponseBuilder
      }
 
    private:
-
      int StatusCode;
      std::string StatusTextVal;
      std::unique_ptr<JsonBuilder> JSONBuilderPtr;

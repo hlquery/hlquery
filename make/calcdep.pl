@@ -27,7 +27,7 @@ my $obj_dir = catdir($root, 'obj');
 
 print "HLManager Dependency Calculator\n\n";
 
-# Find all source files
+# Walk src/ and collect every C++ translation unit that needs a .d file.
 my @source_files;
 find_source_files($src_dir, \@source_files);
 
@@ -37,7 +37,7 @@ foreach my $file (@source_files) {
 }
 print "\n";
 
-# Calculate dependencies for each source file
+# Parse includes and emit one make-compatible dependency file per source file.
 foreach my $source_file (@source_files) {
     calculate_dependencies($source_file);
 }
@@ -51,6 +51,7 @@ sub find_source_files {
 
         my $path = catfile($dir, $entry);
         if (-d $path) {
+            # Recurse through nested source directories so obj/ mirrors src/.
             find_source_files($path, $files_ref);
         } elsif ($entry =~ /\.(cpp|cxx|cc|c\+\+)$/) {
             push @$files_ref, $path;
@@ -65,9 +66,10 @@ sub calculate_dependencies {
     return unless -f $source_file;
 
     my $base_name = basename($source_file, qw(.cpp .cxx .cc .c++));
-    # Map src/... to obj/... and change extension to .d
+
+    # Convert src/foo/bar.cpp into obj/foo/bar.d.
     my $rel = abs2rel($source_file, $root);
-    $rel =~ s/^src\///; # drop leading src/
+    $rel =~ s/^src\///;
     my $dep_file = catfile($obj_dir, $rel);
     $dep_file =~ s/\.(cpp|cxx|cc|c\+\+)$/.d/;
 
@@ -81,28 +83,28 @@ sub calculate_dependencies {
         if (/^\s*#\s*include\s+["<]([^">]+)[">]/) {
             my $include = $1;
             if (/^\s*#\s*include\s+"([^"]+)"/) {
-                # Local include
+                # Track quoted includes because they are project headers.
                 $includes{$include} = 1;
             } else {
-                # System include
+                # Keep angle-bracket includes out of the .d file but print them for visibility.
                 $system_includes{$include} = 1;
             }
         }
     }
     close $in;
 
-    # Write dependency file
+    # Ensure the matching obj/ subdirectory exists before writing the .d file.
     make_path(dirname($dep_file));
     open my $out, '>', $dep_file or die "Cannot write $dep_file: $!";
 
-    # Object path mirrors obj/ tree
+    # Make target uses a relative obj/ path so generated .d files are portable.
     my $obj_file = catfile('obj', $rel);
     $obj_file =~ s/\.(cpp|cxx|cc|c\+\+)$/.o/;
 
     print $out "$obj_file: $source_file";
 
     foreach my $include (keys %includes) {
-        # Check in include/ first, then build/include for generated headers
+        # Prefer checked-in headers, then generated headers under build/include.
         my $include_path = catfile($include_dir, $include);
         if (-f $include_path) {
             print $out " $include_path";
@@ -118,8 +120,7 @@ sub calculate_dependencies {
 
     print $out "\n";
 
-    # Print dependency info
-
+    # Show what was found so missing project headers are easy to spot.
     if (%includes) {
         print "  Local includes: " . join(', ', keys %includes) . "\n";
     }

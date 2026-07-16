@@ -42,8 +42,8 @@
 #include "common/listenmanager.h"
 #include "core/hlquery.h"
 #include "core/socketengine.h"
-#include "search/cstore.h"
-#include "search/storageengine.h"
+#include "search/document_collection_store.h"
+#include "search/rocksdb_storage_engine.h"
 #include "utils/consolewriter.h"
 #include "utils/infos.h"
 #include "utils/tools.h"
@@ -269,7 +269,6 @@ static void DrainSignalWakePipe()
 
      while (read(SignalWakePipe[0], Buffer, sizeof(Buffer)) > 0)
      {
-
      }
 }
 
@@ -823,11 +822,11 @@ sig_atomic_t hlquery::GetForceExitState()
 
 void hlquery::ResetSignalCounters()
 {
-     ShuttingDown 		= 0;
-     ForceExit 			= 0;
-     PendingShutdownSignal 	= 0;
-     InSignalHandler 		= 0;
-     
+     ShuttingDown = 0;
+     ForceExit = 0;
+     PendingShutdownSignal = 0;
+     InSignalHandler = 0;
+
      ShutdownProcessingValue.store(false);
 }
 
@@ -874,7 +873,6 @@ bool hlquery::CheckExistingProcess()
 
                FdGuard(int fd) : FDValue(fd), Released(false)
                {
-
                }
 
                ~FdGuard()
@@ -910,7 +908,7 @@ bool hlquery::CheckExistingProcess()
                if (PIDFileLock.l_pid > 1 && !IsHLQueryProcess(PIDFileLock.l_pid))
                {
                     unlink(PIDFilePath.c_str());
-   
+
                     return false;
                }
 
@@ -1071,7 +1069,6 @@ bool hlquery::WritePID()
 
                FdGuard(int fd) : FDValue(fd), Released(false), LockAcquired(false)
                {
-               
                }
 
                ~FdGuard()
@@ -1334,13 +1331,9 @@ void hlquery::ForceStop()
      }
 
      std::cout << "hlquery forcestop: Waiting for process to exit..." << std::endl;
-
      const int MaxWaitSeconds = 5;
-
      const int PollIntervalMS = 100;
-
      int WaitedMSCount = 0;
-
      bool ProcessHasExited = false;
 
      /* Poll briefly after SIGTERM so a healthy daemon can flush state and exit cleanly. */
@@ -1359,7 +1352,7 @@ void hlquery::ForceStop()
                     std::cout << "hlquery forcestop: Removed PID file." << std::endl;
                     std::cout << "hlquery forcestop: SUCCESS - Daemon stopped." << std::endl;
                     ProcessHasExited = true;
-                    
+
                     break;
                }
                else if (errno == EPERM)
@@ -1673,7 +1666,7 @@ void hlquery::Cleanup()
           Instance->SetShutdownInProgress(true);
      }
 
-     auto LogCleanupStage = [](const std::string& Stage)
+     auto LogCleanupStage = [](const std::string &Stage)
      {
           if (Instance && Instance->Logs)
           {
@@ -1740,6 +1733,7 @@ void hlquery::Cleanup()
           {
                ShutdownHttpServer(server);
           }
+
           Instance->HTTPServers.clear();
           LogCleanupStage("http servers stopped");
      }
@@ -1781,7 +1775,6 @@ void hlquery::Cleanup()
      try
      {
           const char *TerminationMsg = "hlquery shutting down...\n";
-
           size_t MsgLenVal = 0;
 
           while (TerminationMsg[MsgLenVal] != '\0')
@@ -1790,7 +1783,6 @@ void hlquery::Cleanup()
           }
 
           ssize_t FinalWriteResult = write(STDOUT_FILENO, TerminationMsg, MsgLenVal);
-
           (void)FinalWriteResult;
      }
      catch (...)
@@ -1837,7 +1829,6 @@ void hlquery::Cleanup()
           }
 
           WriteCleanShutdownMarker();
-
           std::string PIDFilePathCleanup = ResolvePIDFilePath();
 
           /* Release the advisory lock before deleting the file so stale state is not left behind. */

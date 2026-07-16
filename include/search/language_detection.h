@@ -16,13 +16,11 @@
 #include <cctype>
 #include <string>
 
-#include "search/cstore.h"
+#include "search/document_collection_store.h"
 #include "vendor/cld2/public/compact_lang_det.h"
 #include "vendor/cld2/internal/lang_script.h"
 
-namespace lang
-{
-inline std::string NormalizeLanguageCode(const char* code)
+inline std::string NormalizeLanguageCode(const char *code)
 {
      if (!code || !*code)
      {
@@ -38,7 +36,7 @@ inline std::string NormalizeLanguageCode(const char* code)
      return out;
 }
 
-inline std::string DetectTextLanguage(const std::string& text)
+inline std::string DetectTextLanguage(const std::string &text)
 {
      if (text.empty())
      {
@@ -47,10 +45,10 @@ inline std::string DetectTextLanguage(const std::string& text)
 
      bool reliable = false;
      const CLD2::Language lang = CLD2::DetectLanguage(text.c_str(),
-                                                     static_cast<int>(text.size()),
-                                                     true,
-                                                     &reliable);
-     const char* code = CLD2::LanguageCode(lang);
+                                                      static_cast<int>(text.size()),
+                                                      true,
+                                                      &reliable);
+     const char *code = CLD2::LanguageCode(lang);
      const std::string normalized = NormalizeLanguageCode(code);
 
      if (normalized == "unknown" || normalized == "un")
@@ -61,7 +59,7 @@ inline std::string DetectTextLanguage(const std::string& text)
      return normalized;
 }
 
-inline std::string DetectDocumentLanguage(const std::string&, const Document& doc)
+inline std::string DetectDocumentLanguage(const std::string &, const Document &doc)
 {
      std::string combined;
      combined.reserve(doc.Title.size() + doc.Content.size() + 64);
@@ -69,7 +67,7 @@ inline std::string DetectDocumentLanguage(const std::string&, const Document& do
      combined.push_back(' ');
      combined.append(doc.Content);
 
-     for (const auto& [key, value] : doc.Fields)
+     for (const auto &[key, value] : doc.Fields)
      {
           combined.push_back(' ');
           combined.append(key);
@@ -80,7 +78,7 @@ inline std::string DetectDocumentLanguage(const std::string&, const Document& do
      return DetectTextLanguage(combined);
 }
 
-inline std::string DetectCollectionLanguage(const std::string& collection, size_t max_documents = 128)
+inline std::string DetectCollectionLanguage(const std::string &collection, size_t max_documents = 128)
 {
      std::string sample;
      sample.reserve(max_documents * 256);
@@ -90,14 +88,14 @@ inline std::string DetectCollectionLanguage(const std::string& collection, size_
           static_cast<int>(max_documents),
           0);
 
-     for (const auto& doc : documents)
+     for (const auto &doc : documents)
      {
           sample.append(doc.Title);
           sample.push_back(' ');
           sample.append(doc.Content);
           sample.push_back(' ');
 
-          for (const auto& [key, value] : doc.Fields)
+          for (const auto &[key, value] : doc.Fields)
           {
                sample.append(key);
                sample.push_back(' ');
@@ -112,5 +110,4 @@ inline std::string DetectCollectionLanguage(const std::string& collection, size_
      }
 
      return DetectTextLanguage(sample);
-}
 }

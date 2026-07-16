@@ -24,10 +24,10 @@
 #include "core/config.h"
 #include "core/hlquery.h"
 #include "runtime/serverconfig.h"
-#include "search/cstore.h"
-#include "search/lindex.h"
-#include "search/mindex.h"
-#include "search/storageengine.h"
+#include "search/document_collection_store.h"
+#include "search/lexical_inverted_index.h"
+#include "search/mapped_posting_index.h"
+#include "search/rocksdb_storage_engine.h"
 #include "utils/wildcard.h"
 
 /* ToLowerAsciiSafe - Lowercases one byte using unsigned-char promotion to avoid undefined behavior. */
@@ -110,78 +110,6 @@ static std::string BuildFieldScopedTerm(const std::string &field_name, const std
      return "__field__" + field_name + ":" + term;
 }
 
-/* AddQueryTermVariants - Adds conservative singular/plural variants for lexical lookup. */
-
-static void AddQueryTermVariants(const std::string &term, std::vector<std::pair<std::string, double>> &variants)
-{
-     if (term.empty())
-     {
-          return;
-     }
-
-     auto AddVariant = [&variants](const std::string &value, double weight)
-     {
-          if (value.empty())
-          {
-               return;
-          }
-
-          for (const auto &Existing : variants)
-          {
-               if (Existing.first == value)
-               {
-                    return;
-               }
-          }
-
-          variants.push_back({value, weight});
-     };
-
-     AddVariant(term, 1.0);
-
-     if (term.size() <= 3 || term.find('*') != std::string::npos || term.find('?') != std::string::npos)
-     {
-          return;
-     }
-
-     const char Last = term.back();
-
-     if (term.size() > 4 && term.substr(term.size() - 3) == "ies")
-     {
-          AddVariant(term.substr(0, term.size() - 3) + "y", 0.92);
-     }
-     else if (Last == 'y')
-     {
-          const char BeforeLast = term[term.size() - 2];
-          if (std::string("aeiou").find(BeforeLast) == std::string::npos)
-          {
-               AddVariant(term.substr(0, term.size() - 1) + "ies", 0.88);
-          }
-          else
-          {
-               AddVariant(term + "s", 0.86);
-          }
-     }
-     else if (term.size() > 4 && (term.substr(term.size() - 2) == "es"))
-     {
-          const std::string Stem = term.substr(0, term.size() - 2);
-          if (!Stem.empty() && (Stem.back() == 's' || Stem.back() == 'x' || Stem.back() == 'z' ||
-                                Stem.back() == 'h'))
-          {
-               AddVariant(Stem, 0.86);
-          }
-     }
-     else if (Last == 's' && term.size() > 4 && term.substr(term.size() - 2) != "ss")
-     {
-          AddVariant(term.substr(0, term.size() - 1), 0.88);
-     }
-     else
-     {
-          AddVariant(term + "s", 0.84);
-          AddVariant(term + "es", 0.80);
-     }
-}
-
 /* FieldNameHasToken - Checks if field name contains any token. */
 
 static bool FieldNameHasToken(const std::string &field_name, const std::initializer_list<const char *> &tokens)
@@ -209,12 +137,16 @@ void InvertedIndex::MarkCollectionDirtyLocked(const std::string &Collection)
 
 size_t InvertedIndex::EnsureCollectionTotalLengthLocked(const std::string &Collection)
 {
+     /* Reuse the cached total when the collection has not invalidated its length accounting. */
+
      auto TotalIt = CollectionTotalLengths.find(Collection);
 
      if (TotalIt != CollectionTotalLengths.end())
      {
           return TotalIt->second;
      }
+
+     /* Fall back to rebuilding the total from per-document lengths after cache misses or repairs. */
 
      size_t TotalLength = 0;
      auto LengthsIt = DocumentLengths.find(Collection);
@@ -234,6 +166,8 @@ size_t InvertedIndex::EnsureCollectionTotalLengthLocked(const std::string &Colle
 
 void InvertedIndex::RefreshCollectionStatsFromTotalLocked(const std::string &Collection)
 {
+     /* Document count is derived from the authoritative length map for the collection. */
+
      auto LengthsIt = DocumentLengths.find(Collection);
      const size_t DocCountValue = (LengthsIt != DocumentLengths.end()) ? LengthsIt->second.size() : 0;
 
@@ -241,6 +175,8 @@ void InvertedIndex::RefreshCollectionStatsFromTotalLocked(const std::string &Col
 
      if (DocCountValue == 0)
      {
+          /* Empty collections keep a nonzero average length so scoring code avoids divide-by-zero paths. */
+
           CollectionTotalLengths[Collection] = 0;
           AvgDocLengths[Collection] = 1.0;
           return;
@@ -260,11 +196,15 @@ void InvertedIndex::TouchCollectionLocked(const std::string &Collection)
 
 size_t InvertedIndex::EstimateCollectionMemoryLocked(const std::string &Collection) const
 {
+     /* This is an approximate residency estimate used for eviction, not a precise allocator report. */
+
      size_t Bytes = 0;
 
      auto IndexIt = Index.find(Collection);
      if (IndexIt != Index.end())
      {
+          /* Account for term keys, posting vectors, and position buffers in the in-memory inverted index. */
+
           Bytes += sizeof(IndexIt->second);
 
           for (const auto &[Term, Postings] : IndexIt->second)
@@ -284,6 +224,8 @@ size_t InvertedIndex::EstimateCollectionMemoryLocked(const std::string &Collecti
      auto TermsIt = DocumentTerms.find(Collection);
      if (TermsIt != DocumentTerms.end())
      {
+          /* DocumentTerms lets deletion find every term contributed by a document, so it is part of residency. */
+
           Bytes += sizeof(TermsIt->second);
 
           for (const auto &[DocID, Terms] : TermsIt->second)
@@ -313,6 +255,8 @@ size_t InvertedIndex::EstimateCollectionMemoryLocked(const std::string &Collecti
      auto MMapIt = MMapIndexes.find(Collection);
      if (MMapIt != MMapIndexes.end() && MMapIt->second)
      {
+          /* Mapped indexes contribute their mapped byte range even when postings stay outside heap memory. */
+
           Bytes += sizeof(MMapIndex) + MMapIt->second->GetMappedSize();
      }
 
@@ -321,6 +265,8 @@ size_t InvertedIndex::EstimateCollectionMemoryLocked(const std::string &Collecti
 
 size_t InvertedIndex::EstimateLoadedMemoryLocked() const
 {
+     /* Build a collection set first so memory shared across maps is counted once per collection. */
+
      std::unordered_set<std::string> Collections;
 
      for (const auto &[Collection, Terms] : Index)
@@ -364,6 +310,8 @@ size_t InvertedIndex::EvictLoadedCollectionsLocked(size_t TargetBytes)
           return 0;
      }
 
+     /* Eviction only runs when estimated loaded data exceeds the configured target. */
+
      size_t LoadedBytes = EstimateLoadedMemoryLocked();
      if (LoadedBytes <= TargetBytes)
      {
@@ -377,6 +325,8 @@ size_t InvertedIndex::EvictLoadedCollectionsLocked(size_t TargetBytes)
           size_t Bytes = 0;
      };
 
+     /* Dirty collections are excluded so pending writes are not discarded before a flush. */
+
      std::unordered_set<std::string> Collections;
 
      for (const auto &[Collection, Terms] : Index)
@@ -388,6 +338,18 @@ size_t InvertedIndex::EvictLoadedCollectionsLocked(size_t TargetBytes)
      for (const auto &[Collection, MMapIdx] : MMapIndexes)
      {
           (void)MMapIdx;
+          Collections.insert(Collection);
+     }
+
+     for (const auto &[Collection, Terms] : DocumentTerms)
+     {
+          (void)Terms;
+          Collections.insert(Collection);
+     }
+
+     for (const auto &[Collection, Lengths] : DocumentLengths)
+     {
+          (void)Lengths;
           Collections.insert(Collection);
      }
 
@@ -409,14 +371,16 @@ size_t InvertedIndex::EvictLoadedCollectionsLocked(size_t TargetBytes)
 
           auto AccessIt = CollectionLastAccess.find(Collection);
           const auto LastAccess = (AccessIt != CollectionLastAccess.end())
-               ? AccessIt->second
-               : std::chrono::steady_clock::time_point{};
+                                       ? AccessIt->second
+                                       : std::chrono::steady_clock::time_point{};
 
           Candidates.push_back({Collection, LastAccess, Bytes});
      }
 
      std::sort(Candidates.begin(), Candidates.end(), [](const EvictionCandidate &A, const EvictionCandidate &B)
                {
+                    /* Older access times are preferred, with collection name as a deterministic tie-breaker. */
+
                     if (A.LastAccess != B.LastAccess)
                     {
                          return A.LastAccess < B.LastAccess;
@@ -445,6 +409,8 @@ size_t InvertedIndex::EvictLoadedCollectionsLocked(size_t TargetBytes)
           CollectionLastFlush.erase(Candidate.Collection);
           CollectionLastAccess.erase(Candidate.Collection);
 
+          /* Keep the running estimate monotonic even when the approximation is larger than loaded bytes. */
+
           LoadedBytes = (LoadedBytes > Candidate.Bytes) ? (LoadedBytes - Candidate.Bytes) : 0;
           Evicted++;
 
@@ -471,6 +437,8 @@ std::vector<std::string> InvertedIndex::SelectFlushCollectionsLocked(uint64_t Mi
      std::vector<std::string> CollectionsToFlush;
      const auto Now = std::chrono::steady_clock::now();
 
+     /* Only collections that are both dirty and backed by in-memory postings can be flushed. */
+
      for (const auto &Collection : DirtyCollections)
      {
           auto IndexIt = Index.find(Collection);
@@ -482,6 +450,8 @@ std::vector<std::string> InvertedIndex::SelectFlushCollectionsLocked(uint64_t Mi
 
           if (MinDirtyAgeSeconds > 0)
           {
+               /* Age gating lets background flushers batch rapid mutation bursts. */
+
                auto MutationIt = CollectionLastMutation.find(Collection);
 
                if (MutationIt != CollectionLastMutation.end())
@@ -514,11 +484,15 @@ bool InvertedIndex::FlushCollectionToDiskLocked(const std::string &IndexDir, con
 
      if (IndexIt == Index.end() || IndexIt->second.empty())
      {
+          /* A dirty marker without postings is stale and can be cleared immediately. */
+
           DirtyCollections.erase(Collection);
           return false;
      }
 
      auto ExistingMMapIt = MMapIndexes.find(Collection);
+
+     /* Avoid overwriting an existing mapped snapshot when the current memory state is only a partial delta. */
 
      if (ExistingMMapIt != MMapIndexes.end() &&
          ExistingMMapIt->second &&
@@ -537,8 +511,12 @@ bool InvertedIndex::FlushCollectionToDiskLocked(const std::string &IndexDir, con
 
      if (Instance && Instance->Database)
      {
+          /* The marker lets startup detect and repair interrupted flushes. */
+
           Instance->Database->Set(FlushMarker, "1");
      }
+
+     /* IndexWriter expects the same collection map shape used by full index serialization. */
 
      IndexWriter CollectionWriter(IndexDir, Collection);
      std::unordered_map<std::string, std::unordered_map<std::string, std::vector<Posting>>> SingleCollection;
@@ -598,6 +576,8 @@ std::vector<std::string> InvertedIndex::ExtractTerms(const std::string &Text)
 
      size_t TermCount = 0;
 
+     /* Cashtags are kept as their own searchable form and later mirrored without the dollar prefix. */
+
      auto IsCashtagStart = [&](size_t Offset) -> bool
      {
           return TextToProcess[Offset] == '$' &&
@@ -611,6 +591,8 @@ std::vector<std::string> InvertedIndex::ExtractTerms(const std::string &Text)
 
           if (Ch == '$')
           {
+               /* A dollar sign starts a term only when it is followed by an alphanumeric symbol. */
+
                return !IsCashtagStart(Offset);
           }
 
@@ -657,6 +639,8 @@ std::vector<std::string> InvertedIndex::ExtractTerms(const std::string &Text)
 
                     if (IsNormalizedCashtag(Normalized))
                     {
+                         /* Index the bare ticker too so $spy can match both cashtag and plain ticker queries. */
+
                          Terms.push_back(Normalized.substr(1));
                     }
 
@@ -677,6 +661,8 @@ static bool IsLikelyTld(const std::string &tail)
           return false;
      }
 
+     /* TLD checks are deliberately conservative to avoid treating arbitrary dotted text as URLs. */
+
      std::string lower = tail;
      std::transform(lower.begin(), lower.end(), lower.begin(), ToLowerAsciiSafe);
 
@@ -687,6 +673,8 @@ static bool IsLikelyTld(const std::string &tail)
 
      if (lower.rfind("xn--", 0) == 0)
      {
+          /* Punycode labels may contain digits and hyphens after the xn-- prefix. */
+
           for (char ch : lower)
           {
                if (!(std::isalnum(static_cast<unsigned char>(ch)) || ch == '-'))
@@ -744,6 +732,8 @@ static bool SplitAndValidateHostname(const std::string &host, std::vector<std::s
           return false;
      }
 
+     /* Host labels are validated one by one before URL terms are admitted into the index. */
+
      std::stringstream host_stream(host);
      std::string part;
 
@@ -760,6 +750,8 @@ static bool SplitAndValidateHostname(const std::string &host, std::vector<std::s
      {
           return false;
      }
+
+     /* A hostname must include at least one label and one plausible top-level domain. */
 
      const std::string &tld = parts.back();
 
@@ -778,6 +770,8 @@ static std::string ExtractHostFromToken(const std::string &token)
 {
      std::string lower = token;
      std::transform(lower.begin(), lower.end(), lower.begin(), ToLowerAsciiSafe);
+
+     /* Strip the scheme and common web prefix before host validation. */
 
      const std::string scheme_sep = "://";
      size_t scheme_pos = lower.find(scheme_sep);
@@ -802,6 +796,8 @@ static std::string ExtractHostFromToken(const std::string &token)
      size_t port_pos = host.find(':');
      if (port_pos != std::string::npos)
      {
+          /* Ports are not indexed as hostname terms. */
+
           host = host.substr(0, port_pos);
      }
 
@@ -814,6 +810,8 @@ static std::string TrimUrlToken(const std::string &token)
 {
      size_t start = 0;
      size_t end = token.size();
+
+     /* Preserve slash and colon while trimming sentence punctuation around URL-like tokens. */
 
      while (start < end && std::ispunct(static_cast<unsigned char>(token[start])) && token[start] != '/' && token[start] != ':')
      {
@@ -836,6 +834,8 @@ static void AddUrlParts(const std::string &url_token, std::unordered_set<std::st
 
      if (token.empty() || token.find('@') != std::string::npos)
      {
+          /* Email-like tokens are skipped so domains from addresses do not get boosted as URLs. */
+
           return;
      }
 
@@ -878,12 +878,16 @@ static void AddUrlParts(const std::string &url_token, std::unordered_set<std::st
 
      if (!host_parts.empty())
      {
+          /* TLDs are tracked separately because their ranking weight is intentionally lower. */
+
           url_tlds.insert(tld);
           host_parts.pop_back();
      }
 
      for (const auto &hp : host_parts)
      {
+          /* Host labels become normal searchable terms after URL-specific normalization. */
+
           std::string normalized = NormalizeUrlToken(hp);
           if (!normalized.empty())
           {
@@ -893,6 +897,8 @@ static void AddUrlParts(const std::string &url_token, std::unordered_set<std::st
 
      if (end_host != std::string::npos && end_host + 1 < lower.size())
      {
+          /* Path segments are broken into alphanumeric tokens so slugs remain searchable. */
+
           std::string path = lower.substr(end_host + 1);
           std::string token_accum;
 
@@ -936,6 +942,8 @@ static void ExtractUrlTerms(const std::string &text, std::unordered_set<std::str
           return;
      }
 
+     /* URL detection starts from whitespace-delimited tokens and then validates host structure. */
+
      std::istringstream iss(text);
      std::string token;
 
@@ -953,6 +961,8 @@ static void ExtractUrlTerms(const std::string &text, std::unordered_set<std::str
 
           if (!has_scheme && !has_www)
           {
+               /* Bare domains are accepted only after hostname and TLD validation. */
+
                std::string host = ExtractHostFromToken(trimmed);
                if (!host.empty())
                {
@@ -985,6 +995,8 @@ void InvertedIndex::RemoveDocumentFromIndex(const std::string &Collection, const
           return;
      }
 
+     /* DocumentTerms is the reverse map that makes removal bounded by a document's own terms. */
+
      auto DocTermsIt = DocumentTerms.find(Collection);
 
      if (DocTermsIt == DocumentTerms.end())
@@ -1003,6 +1015,8 @@ void InvertedIndex::RemoveDocumentFromIndex(const std::string &Collection, const
 
      for (const auto &Term : TermsIt->second)
      {
+          /* Remove only postings owned by this document and delete empty term buckets afterwards. */
+
           auto TermIt = CollectionIndex.find(Term);
 
           if (TermIt != CollectionIndex.end())
@@ -1036,6 +1050,8 @@ void InvertedIndex::RemoveDocumentFromIndex(const std::string &Collection, const
           const auto RemovedLengthIt = DocLengthsIt->second.find(DocID);
           if (RemovedLengthIt != DocLengthsIt->second.end())
           {
+               /* Subtract the removed document from the cached total before erasing its length row. */
+
                const size_t CurrentTotal = EnsureCollectionTotalLengthLocked(Collection);
                CollectionTotalLengths[Collection] = (CurrentTotal > RemovedLengthIt->second) ? (CurrentTotal - RemovedLengthIt->second) : 0;
           }
@@ -1076,6 +1092,8 @@ bool InvertedIndex::AddDocument(const std::string &Collection, const Document &D
      const bool DocumentAlreadyIndexed = DocTermsIt != DocumentTerms.end() &&
                                          DocTermsIt->second.find(Doc.ID) != DocTermsIt->second.end();
 
+     /* Existing documents can be replaced even when the collection is at the configured document limit. */
+
      if (!DocumentAlreadyIndexed && CollectionDocCount >= INVERTED_INDEX_MAX_DOCUMENTS_PER_COLLECTION)
      {
           if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
@@ -1094,6 +1112,8 @@ bool InvertedIndex::AddDocument(const std::string &Collection, const Document &D
      auto IndexIt = Index.find(Collection);
 
      size_t CollectionTermCount = (IndexIt != Index.end()) ? IndexIt->second.size() : 0;
+
+     /* The term limit caps collection growth before extracting and allocating a large replacement payload. */
 
      if (CollectionTermCount >= INVERTED_INDEX_MAX_TERMS_PER_COLLECTION)
      {
@@ -1128,6 +1148,8 @@ bool InvertedIndex::AddDocument(const std::string &Collection, const Document &D
      FieldTermsByName["content"] = ContentTerms;
      FieldTermsByName["id"] = IDTerms;
 
+     /* URL-derived terms are tracked separately so their weights can differ from ordinary text tokens. */
+
      std::unordered_set<std::string> UrlTerms;
      std::unordered_set<std::string> UrlTldTerms;
      ExtractUrlTerms(Doc.Title, UrlTerms, UrlTldTerms);
@@ -1144,6 +1166,8 @@ bool InvertedIndex::AddDocument(const std::string &Collection, const Document &D
 
      if (Instance && Instance->Config)
      {
+          /* Runtime ranking configuration can tune field and URL boosts without rebuilding the index. */
+
           url_token_boost = Instance->Config->GetUrlTokenBoost();
           url_tld_weight = Instance->Config->GetUrlTldWeight();
           title_like_boost = Instance->Config->GetTitleLikeBoost();
@@ -1159,24 +1183,23 @@ bool InvertedIndex::AddDocument(const std::string &Collection, const Document &D
 
      std::set<std::string> AllTermsSet;
 
+     /* The list preserves term positions, while the set keeps one posting bucket per unique term. */
+
      for (const auto &Term : TitleTerms)
      {
           AllTermsList.push_back(Term);
-
           AllTermsSet.insert(Term);
      }
 
      for (const auto &Term : ContentTerms)
      {
           AllTermsList.push_back(Term);
-
           AllTermsSet.insert(Term);
      }
 
      for (const auto &Term : IDTerms)
      {
           AllTermsList.push_back(Term);
-
           AllTermsSet.insert(Term);
      }
 
@@ -1201,6 +1224,8 @@ bool InvertedIndex::AddDocument(const std::string &Collection, const Document &D
 
           std::vector<std::string> FieldTerms = ExtractTerms(Field.second);
           FieldTermsByName[Field.first] = FieldTerms;
+
+          /* Field names are interpreted heuristically to apply boosts without requiring a fixed schema. */
 
           bool is_title_like = FieldNameHasToken(Field.first, {"title", "name", "subject", "headline"});
           bool is_tag_like = FieldNameHasToken(Field.first, {"tag", "tags", "keyword", "keywords", "category", "topic"});
@@ -1252,6 +1277,8 @@ bool InvertedIndex::AddDocument(const std::string &Collection, const Document &D
      std::unordered_map<std::string, std::vector<size_t>> TermPositions;
      std::unordered_map<std::string, std::unordered_map<std::string, std::vector<size_t>>> FieldTermPositions;
 
+     /* Global positions support proximity scoring across the document body. */
+
      size_t Pos = 0;
 
      for (const auto &T : AllTermsList)
@@ -1263,6 +1290,8 @@ bool InvertedIndex::AddDocument(const std::string &Collection, const Document &D
 
      for (const auto &[FieldName, FieldTerms] : FieldTermsByName)
      {
+          /* Field positions support scoped field queries without mixing offsets across fields. */
+
           std::size_t FieldPos = 0;
 
           for (const auto &FieldTerm : FieldTerms)
@@ -1276,6 +1305,8 @@ bool InvertedIndex::AddDocument(const std::string &Collection, const Document &D
                                     const std::vector<size_t> &Positions,
                                     bool InTitle) -> Posting
      {
+          /* Posting score starts as a boost carrier; final ranking is computed at query time. */
+
           Posting Post;
 
           Post.DocumentID = Doc.ID;
@@ -1300,6 +1331,8 @@ bool InvertedIndex::AddDocument(const std::string &Collection, const Document &D
 
           if (UrlTldTerms.find(Term) != UrlTldTerms.end())
           {
+               /* Top-level domains are useful signals but should not dominate content terms. */
+
                Post.Score *= url_tld_weight;
           }
           else if (UrlTerms.find(Term) != UrlTerms.end() || UrlFieldTerms.find(Term) != UrlFieldTerms.end())
@@ -1329,6 +1362,8 @@ bool InvertedIndex::AddDocument(const std::string &Collection, const Document &D
           const bool InTitle = std::find(TitleTerms.begin(), TitleTerms.end(), Term) != TitleTerms.end();
           Posting Post = BuildPostingForTerm(Term, Positions, InTitle);
 
+          /* Unscoped postings serve normal keyword searches. */
+
           CollectionIndex[Term].push_back(Post);
 
           DocTerms.insert(Term);
@@ -1340,6 +1375,8 @@ bool InvertedIndex::AddDocument(const std::string &Collection, const Document &D
 
           for (const auto &[Term, Positions] : FieldPositions)
           {
+               /* Scoped synthetic terms keep field filters in the same inverted index structure. */
+
                const std::string ScopedTerm = BuildFieldScopedTerm(FieldName, Term);
                Posting ScopedPost = BuildPostingForTerm(Term, Positions, IsTitleField);
                CollectionIndex[ScopedTerm].push_back(ScopedPost);
@@ -1352,6 +1389,8 @@ bool InvertedIndex::AddDocument(const std::string &Collection, const Document &D
      CollectionTotalLengths[Collection] = CurrentTotalLength + DocLength;
      RefreshCollectionStatsFromTotalLocked(Collection);
 
+     /* Mark after all maps are consistent so background flushers see a complete mutation. */
+
      if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
      {
           Instance->Logs->Debug("inverted_index", "AddDocument: Indexed " + std::to_string(AllTermsSet.size()) + " unique terms for document '" + Doc.ID + "' (length: " + std::to_string(DocLength) + ").");
@@ -1361,6 +1400,8 @@ bool InvertedIndex::AddDocument(const std::string &Collection, const Document &D
 
      if ((DocCounts[Collection] % INVERTED_INDEX_MEMORY_CHECK_INTERVAL) == 0)
      {
+          /* Periodic eviction keeps loaded clean snapshots bounded during bulk indexing. */
+
           EvictLoadedCollectionsLocked(INVERTED_INDEX_MAX_MEMORY_BYTES);
      }
 
@@ -1405,6 +1446,8 @@ bool InvertedIndex::UpdateDocument(const std::string &Collection, const Document
 
      RemoveDocumentFromIndex(Collection, OldDoc.ID);
 
+     /* Update rebuilds postings from the replacement document after removing the previous contribution. */
+
      std::vector<std::string> TitleTerms = ExtractTerms(NewDoc.Title);
 
      std::vector<std::string> ContentTerms = ExtractTerms(NewDoc.Content);
@@ -1415,6 +1458,8 @@ bool InvertedIndex::UpdateDocument(const std::string &Collection, const Document
      FieldTermsByName["title"] = TitleTerms;
      FieldTermsByName["content"] = ContentTerms;
      FieldTermsByName["id"] = IDTerms;
+
+     /* URL and field-class sets mirror AddDocument so replacements score the same way as inserts. */
 
      std::unordered_set<std::string> UrlTerms;
      std::unordered_set<std::string> UrlTldTerms;
@@ -1442,6 +1487,8 @@ bool InvertedIndex::UpdateDocument(const std::string &Collection, const Document
 
      std::set<std::string> AllTermsSet;
 
+     /* Keep both ordered terms for positions and unique terms for posting creation. */
+
      for (const auto &Term : TitleTerms)
      {
           AllTermsList.push_back(Term);
@@ -1464,6 +1511,8 @@ bool InvertedIndex::UpdateDocument(const std::string &Collection, const Document
      {
           std::vector<std::string> FieldTerms = ExtractTerms(Field.second);
           FieldTermsByName[Field.first] = FieldTerms;
+
+          /* Custom fields use naming heuristics for boosts while still being indexed generically. */
 
           bool is_title_like = FieldNameHasToken(Field.first, {"title", "name", "subject", "headline"});
           bool is_tag_like = FieldNameHasToken(Field.first, {"tag", "tags", "keyword", "keywords", "category", "topic"});
@@ -1504,6 +1553,8 @@ bool InvertedIndex::UpdateDocument(const std::string &Collection, const Document
      std::unordered_map<std::string, std::vector<size_t>> TermPositions;
      std::unordered_map<std::string, std::unordered_map<std::string, std::vector<size_t>>> FieldTermPositions;
 
+     /* Term positions are recomputed from the replacement payload rather than inherited from the old document. */
+
      size_t Pos = 0;
 
      for (const auto &Term : AllTermsList)
@@ -1527,6 +1578,8 @@ bool InvertedIndex::UpdateDocument(const std::string &Collection, const Document
                                     const std::vector<size_t> &Positions,
                                     bool InTitle) -> Posting
      {
+          /* The posting boost is stored with the indexed term and consumed later by ranking. */
+
           Posting Post;
 
           Post.DocumentID = NewDoc.ID;
@@ -1579,6 +1632,8 @@ bool InvertedIndex::UpdateDocument(const std::string &Collection, const Document
 
           for (const auto &[Term, Positions] : FieldPositions)
           {
+               /* Field-scoped replacements overwrite the old scoped terms because removal ran first. */
+
                const std::string ScopedTerm = BuildFieldScopedTerm(FieldName, Term);
                Posting ScopedPost = BuildPostingForTerm(Term, Positions, IsTitleField);
                CollectionIndex[ScopedTerm].push_back(ScopedPost);
@@ -1603,959 +1658,16 @@ bool InvertedIndex::UpdateDocument(const std::string &Collection, const Document
 }
 
 /*
- * InvertedIndex::SearchTerm - Resolves a normalized term from mmap and in-memory indexes.
+ * DeleteCollection - Deletes an entire collection from the index.
  */
-
-std::vector<Posting> InvertedIndex::SearchTerm(const std::string &Collection, const std::string &Term)
-{
-     std::string NormalizedTerm = NormalizeTerm(Term);
-     std::unordered_map<std::string, Posting> TermDocs;
-
-     std::lock_guard<std::mutex> Lock(IndexMutex);
-     TouchCollectionLocked(Collection);
-
-     auto MMapIt = MMapIndexes.find(Collection);
-
-     if (MMapIt != MMapIndexes.end() && MMapIt->second && MMapIt->second->IsValid() && MMapIt->second->GetTermCount() > 0)
-     {
-          auto Results = MMapIt->second->SearchTerm(NormalizedTerm);
-
-          for (auto &Post : Results)
-          {
-               Post.Collection = Collection;
-               TermDocs[Post.DocumentID] = Post;
-          }
-     }
-
-     auto CollectionIt = Index.find(Collection);
-
-     if (CollectionIt != Index.end() && !CollectionIt->second.empty())
-     {
-          auto TermIt = CollectionIt->second.find(NormalizedTerm);
-
-          if (TermIt != CollectionIt->second.end())
-          {
-               for (const auto &Post : TermIt->second)
-               {
-                    auto ExistingIt = TermDocs.find(Post.DocumentID);
-
-                    if (ExistingIt == TermDocs.end())
-                    {
-                         TermDocs[Post.DocumentID] = Post;
-                    }
-                    else
-                    {
-                         ExistingIt->second.Score += Post.Score;
-                    }
-               }
-          }
-     }
-
-     std::vector<Posting> Results;
-     Results.reserve(TermDocs.size());
-
-     for (auto &Pair : TermDocs)
-     {
-          Results.push_back(Pair.second);
-     }
-
-     return Results;
-}
-
-/*
- * InvertedIndex::Search - Parses the query, scores matches, and merges in-memory and mmap-backed results.
- */
-
-std::vector<Posting> InvertedIndex::Search(const std::string &Collection, const std::string &Query, int Limit, const std::vector<std::string> &QueryFields)
-{
-     if (Limit < 0)
-     {
-          Limit = 0;
-     }
-
-     if (Limit > 10000)
-     {
-          Limit = 10000;
-     }
-
-     if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
-     {
-          Instance->Logs->Debug("inverted_index", "Search: Searching for '" + Query + "' in collection '" + Collection + "' with limit " + std::to_string(Limit) + ".");
-     }
-
-     std::vector<std::string> QueryTerms = ExtractTerms(Query);
-     std::vector<std::string> NegativeTerms;
-
-     {
-          std::istringstream QueryStream(Query);
-          std::string TokenValue;
-          bool NextTokenIsNegative = false;
-
-          while (QueryStream >> TokenValue)
-          {
-               std::string LowerToken = TokenValue;
-               std::transform(LowerToken.begin(), LowerToken.end(), LowerToken.begin(), ToLowerAsciiSafe);
-
-               if (LowerToken == "not")
-               {
-                    NextTokenIsNegative = true;
-                    continue;
-               }
-
-               bool IsNegativeToken = NextTokenIsNegative;
-               NextTokenIsNegative = false;
-
-               if (!TokenValue.empty() && TokenValue.front() == '!')
-               {
-                    IsNegativeToken = true;
-                    TokenValue.erase(0, 1);
-               }
-
-               if (IsNegativeToken)
-               {
-                    std::string NormalizedNegative = NormalizeTerm(TokenValue);
-
-                    if (!NormalizedNegative.empty())
-                    {
-                         NegativeTerms.push_back(NormalizedNegative);
-                    }
-               }
-          }
-     }
-
-     if (!NegativeTerms.empty())
-     {
-          std::unordered_set<std::string> NegativeTermSet(NegativeTerms.begin(), NegativeTerms.end());
-
-          QueryTerms.erase(std::remove_if(QueryTerms.begin(), QueryTerms.end(), [&NegativeTermSet](const std::string &TermValue)
-                         {
-                              return TermValue == "not" || NegativeTermSet.find(TermValue) != NegativeTermSet.end();
-                         }),
-                         QueryTerms.end());
-     }
-
-     if (QueryTerms.empty() && NegativeTerms.empty())
-     {
-          return {};
-     }
-
-     bool UseMMap = false;
-
-     {
-          std::lock_guard<std::mutex> Lock(IndexMutex);
-          TouchCollectionLocked(Collection);
-
-          auto MMapIt = MMapIndexes.find(Collection);
-
-          if (MMapIt != MMapIndexes.end() && MMapIt->second && MMapIt->second->IsValid())
-          {
-               if (MMapIt->second->GetTermCount() > 0)
-               {
-                    UseMMap = true;
-               }
-          }
-     }
-
-     std::vector<std::unordered_map<std::string, Posting>> TermResults;
-     std::unordered_set<std::string> NegativeDocIDs;
-     size_t ValidQueryTermCount = 0;
-
-     auto IsWildcardTerm = [](const std::string &term) -> bool
-     {
-          return term.find('*') != std::string::npos || term.find('?') != std::string::npos;
-     };
-
-     auto IsPrefixWildcardTerm = [](const std::string &term) -> bool
-     {
-          size_t StarPos = term.find('*');
-
-          if (StarPos == std::string::npos || StarPos != term.size() - 1)
-          {
-               return false;
-          }
-
-          return term.find('?') == std::string::npos && term.find('*', StarPos + 1) == std::string::npos;
-     };
-
-     auto BuildScopedKeys = [&QueryFields](const std::string &normalized_term) -> std::vector<std::string>
-     {
-          if (QueryFields.empty())
-          {
-               return {normalized_term};
-          }
-
-          std::vector<std::string> ScopedKeys;
-          ScopedKeys.reserve(QueryFields.size());
-
-          for (const auto &FieldName : QueryFields)
-          {
-               if (!FieldName.empty())
-               {
-                    ScopedKeys.push_back(BuildFieldScopedTerm(FieldName, normalized_term));
-               }
-          }
-
-          return ScopedKeys;
-     };
-
-     {
-          std::lock_guard<std::mutex> Lock(IndexMutex);
-          TouchCollectionLocked(Collection);
-          auto CollectionIt = Index.find(Collection);
-          auto MMapIt = MMapIndexes.find(Collection);
-          const bool HasMMapIndex = MMapIt != MMapIndexes.end() &&
-                                    MMapIt->second &&
-                                    MMapIt->second->IsValid() &&
-                                    MMapIt->second->GetTermCount() > 0;
-          const bool HasMemoryIndex = CollectionIt != Index.end() && !CollectionIt->second.empty();
-
-          auto LoadTermDocs = [&](const std::string &Normalized, std::unordered_map<std::string, Posting> &TermDocs)
-          {
-               std::vector<std::pair<std::string, double>> TermVariants;
-               AddQueryTermVariants(Normalized, TermVariants);
-
-               if (HasMMapIndex)
-               {
-                    for (const auto &[VariantTerm, VariantWeight] : TermVariants)
-                    {
-                         const std::vector<std::string> ScopedKeys = BuildScopedKeys(VariantTerm);
-
-                         for (const auto &ScopedKey : ScopedKeys)
-                         {
-                              std::vector<Posting> ScopedPostings;
-
-                              if (IsWildcardTerm(VariantTerm))
-                              {
-                                   if (IsPrefixWildcardTerm(VariantTerm) && ScopedKey.size() > 1)
-                                   {
-                                        std::string Prefix = ScopedKey.substr(0, ScopedKey.size() - 1);
-                                        ScopedPostings = MMapIt->second->SearchPrefix(Prefix, 0);
-                                   }
-                                   else
-                                   {
-                                        ScopedPostings = MMapIt->second->SearchWildcard(ScopedKey, 0);
-                                   }
-                              }
-                              else
-                              {
-                                   ScopedPostings = MMapIt->second->SearchTerm(ScopedKey);
-                              }
-
-                              for (auto &ScopedPost : ScopedPostings)
-                              {
-                                   ScopedPost.Score *= VariantWeight;
-
-                                   auto It = TermDocs.find(ScopedPost.DocumentID);
-                                   if (It == TermDocs.end())
-                                   {
-                                        TermDocs[ScopedPost.DocumentID] = ScopedPost;
-                                        TermDocs[ScopedPost.DocumentID].Collection = Collection;
-                                   }
-                                   else
-                                   {
-                                        It->second.Score += ScopedPost.Score;
-                                   }
-                              }
-                         }
-                    }
-               }
-
-               if (HasMemoryIndex)
-               {
-                    for (const auto &[VariantTerm, VariantWeight] : TermVariants)
-                    {
-                         const std::vector<std::string> ScopedKeys = BuildScopedKeys(VariantTerm);
-
-                         if (IsWildcardTerm(VariantTerm))
-                         {
-                              for (const auto &ScopedKey : ScopedKeys)
-                              {
-                                   for (const auto &[IndexedTerm, MemoryPostings] : CollectionIt->second)
-                                   {
-                                        if (!Wildcard::Match(IndexedTerm, ScopedKey))
-                                        {
-                                             continue;
-                                        }
-
-                                        for (const auto &Post : MemoryPostings)
-                                        {
-                                             Posting WeightedPost = Post;
-                                             WeightedPost.Score *= VariantWeight;
-
-                                             auto It = TermDocs.find(WeightedPost.DocumentID);
-                                             if (It == TermDocs.end())
-                                             {
-                                                  TermDocs[WeightedPost.DocumentID] = WeightedPost;
-                                             }
-                                             else
-                                             {
-                                                  It->second.Score += WeightedPost.Score;
-                                             }
-                                        }
-                                   }
-                              }
-                         }
-                         else
-                         {
-                              for (const auto &ScopedKey : ScopedKeys)
-                              {
-                                   auto TermIt = CollectionIt->second.find(ScopedKey);
-
-                                   if (TermIt == CollectionIt->second.end())
-                                   {
-                                        continue;
-                                   }
-
-                                   for (const auto &Post : TermIt->second)
-                                   {
-                                        Posting WeightedPost = Post;
-                                        WeightedPost.Score *= VariantWeight;
-
-                                        auto It = TermDocs.find(WeightedPost.DocumentID);
-                                        if (It == TermDocs.end())
-                                        {
-                                             TermDocs[WeightedPost.DocumentID] = WeightedPost;
-                                        }
-                                        else
-                                        {
-                                             It->second.Score += WeightedPost.Score;
-                                        }
-                                   }
-                              }
-                         }
-                    }
-               }
-          };
-
-          for (const auto &TermValue : NegativeTerms)
-          {
-               std::string Normalized = NormalizeTerm(TermValue);
-
-               if (Normalized.empty())
-               {
-                    continue;
-               }
-
-               std::unordered_map<std::string, Posting> TermDocs;
-               LoadTermDocs(Normalized, TermDocs);
-
-               for (const auto &Pair : TermDocs)
-               {
-                    NegativeDocIDs.insert(Pair.first);
-               }
-          }
-
-          for (const auto &TermValue : QueryTerms)
-          {
-               std::string Normalized = NormalizeTerm(TermValue);
-
-               if (Normalized.empty())
-               {
-                    continue;
-               }
-
-               ValidQueryTermCount++;
-
-               std::unordered_map<std::string, Posting> TermDocs;
-
-               LoadTermDocs(Normalized, TermDocs);
-
-               if (TermDocs.empty())
-               {
-                    if (Instance && Instance->Config && Instance->Config->GetSearchMatchMode() == "and")
-                    {
-                         if (Instance->Logs && Instance->Logs->GetDebugMode())
-                         {
-                              Instance->Logs->Debug("inverted_index", "Search: Term '" + Normalized + "' not found in index, returning empty results (AND logic).");
-                         }
-
-                         return {};
-                    }
-
-                    continue;
-               }
-
-               TermResults.push_back(TermDocs);
-          }
-
-          if (TermResults.empty() && !NegativeTerms.empty())
-          {
-               std::unordered_map<std::string, Posting> AllDocs;
-
-               auto DocsIt = DocumentTerms.find(Collection);
-
-               if (DocsIt != DocumentTerms.end())
-               {
-                    for (const auto &DocPair : DocsIt->second)
-                    {
-                         Posting Post;
-                         Post.DocumentID = DocPair.first;
-                         Post.Collection = Collection;
-                         Post.Score = 1.0;
-                         AllDocs[Post.DocumentID] = std::move(Post);
-                    }
-               }
-
-               if (HasMemoryIndex)
-               {
-                    for (const auto &[IndexedTerm, MemoryPostings] : CollectionIt->second)
-                    {
-                         (void)IndexedTerm;
-
-                         for (const auto &PostValue : MemoryPostings)
-                         {
-                              if (PostValue.DocumentID.empty())
-                              {
-                                   continue;
-                              }
-
-                              Posting Post = PostValue;
-                              Post.Collection = Collection;
-                              Post.Score = std::max(Post.Score, 1.0);
-                              AllDocs.emplace(Post.DocumentID, std::move(Post));
-                         }
-                    }
-               }
-
-               if (!AllDocs.empty())
-               {
-                    TermResults.push_back(std::move(AllDocs));
-               }
-          }
-     }
-
-     if (TermResults.empty())
-     {
-          return {};
-     }
-
-     std::unordered_map<std::string, Posting> DocScores;
-     std::unordered_map<std::string, size_t> DocMatchCounts;
-
-     double K1 = 1.2;
-
-     double B = 0.75;
-
-     double Delta = 1.0;
-
-     std::string SearchAlgorithm = "bm25+";
-
-     double IdfSmooth = 1.0;
-     
-     bool NormalizeTFIDF = true;
-
-     double BM25Weight = 0.7;
-
-     double TFIDFWeight = 0.3;
-
-     bool PivotEnabled = false;
-
-     double PivotValue = 0.25;
-
-     std::string MatchMode = "and";
-
-     int MinShouldMatch = 1;
-
-     int CandidatePruneMultiplier = 25;
-
-     K1 = Instance->Config->GetRankingK1();
-
-     B = Instance->Config->GetRankingB();
-
-     Delta = Instance->Config->GetRankingDelta();
-
-     SearchAlgorithm = Instance->Config->GetSearchAlgorithm();
-
-     IdfSmooth = Instance->Config->GetRankingIdfSmooth();
-
-     NormalizeTFIDF = Instance->Config->GetRankingNormalize();
-
-     BM25Weight = Instance->Config->GetRankingBm25Weight();
-
-     TFIDFWeight = Instance->Config->GetRankingTfidfWeight();
-
-     PivotEnabled = Instance->Config->GetPivotNormEnabled();
-
-     PivotValue = Instance->Config->GetPivotNormPivot();
-
-     MatchMode = Instance->Config->GetSearchMatchMode();
-
-     MinShouldMatch = Instance->Config->GetSearchMinShouldMatch();
-
-     CandidatePruneMultiplier = Instance->Config->GetSearchCandidatePruneMultiplier();
-
-     size_t RequiredMatches = TermResults.size();
-     if (MatchMode == "or")
-     {
-          RequiredMatches = 1;
-     }
-     else if (MatchMode == "min_should_match")
-     {
-          RequiredMatches = static_cast<size_t>(std::max(1, MinShouldMatch));
-          RequiredMatches = std::min(RequiredMatches, TermResults.size());
-     }
-
-     double AvgDocLengthValue = 1.0;
-
-     size_t CollectionSizeValue = 0;
-
-     {
-          std::lock_guard<std::mutex> Lock(IndexMutex);
-
-          auto AvgIt = AvgDocLengths.find(Collection);
-
-          if (AvgIt != AvgDocLengths.end())
-          {
-               AvgDocLengthValue = AvgIt->second;
-          }
-
-          auto CountIt = DocCounts.find(Collection);
-
-          if (CountIt != DocCounts.end())
-          {
-               CollectionSizeValue = CountIt->second;
-          }
-     }
-
-     std::vector<size_t> TermOrder(TermResults.size());
-
-     std::iota(TermOrder.begin(), TermOrder.end(), 0);
-
-     std::sort(TermOrder.begin(), TermOrder.end(), [&TermResults](size_t IndexA, size_t IndexB)
-               {
-                    return TermResults[IndexA].size() < TermResults[IndexB].size();
-               });
-
-     if (MatchMode == "and")
-     {
-          for (const auto &Pair : TermResults[TermOrder[0]])
-          {
-               DocScores[Pair.first] = Pair.second;
-               DocMatchCounts[Pair.first] = 1;
-          }
-
-          for (size_t Idx = 1; Idx < TermOrder.size(); ++Idx)
-          {
-               size_t I = TermOrder[Idx];
-
-               const auto &CurrentTermDocs = TermResults[I];
-
-               if (CurrentTermDocs.size() > DocScores.size() * 10 && DocScores.size() > 100)
-               {
-                    std::vector<std::pair<std::string, Posting>> SortedDocs(DocScores.begin(), DocScores.end());
-
-                    std::sort(SortedDocs.begin(), SortedDocs.end(), [](const auto &DocA, const auto &DocB)
-                              {
-                                   return DocA.first < DocB.first;
-                              });
-
-                    std::vector<std::pair<std::string, Posting>> SortedCurrent(CurrentTermDocs.begin(), CurrentTermDocs.end());
-
-                    std::sort(SortedCurrent.begin(), SortedCurrent.end(), [](const auto &DocA, const auto &DocB)
-                              {
-                                   return DocA.first < DocB.first;
-                              });
-
-                    std::unordered_map<std::string, Posting> Intersection;
-                    std::unordered_map<std::string, size_t> IntersectionCounts;
-
-                    size_t Pos1 = 0;
-
-                    size_t Pos2 = 0;
-
-                    while (Pos1 < SortedDocs.size() && Pos2 < SortedCurrent.size())
-                    {
-                         if (SortedDocs[Pos1].first < SortedCurrent[Pos2].first)
-                         {
-                              Pos1++;
-                         }
-                         else if (SortedCurrent[Pos2].first < SortedDocs[Pos1].first)
-                         {
-                              Pos2++;
-                         }
-                         else
-                         {
-                              Intersection[SortedDocs[Pos1].first] = SortedDocs[Pos1].second;
-
-                              for (const auto &PosVal : SortedCurrent[Pos2].second.Positions)
-                              {
-                                   Intersection[SortedDocs[Pos1].first].Positions.push_back(PosVal);
-                              }
-
-                              IntersectionCounts[SortedDocs[Pos1].first] = DocMatchCounts[SortedDocs[Pos1].first] + 1;
-
-                              Pos1++;
-
-                              Pos2++;
-                         }
-                    }
-
-                    DocScores = std::move(Intersection);
-                    DocMatchCounts = std::move(IntersectionCounts);
-               }
-               else
-               {
-                    std::unordered_map<std::string, Posting> Intersection;
-                    std::unordered_map<std::string, size_t> IntersectionCounts;
-
-                    for (const auto &Pair : CurrentTermDocs)
-                    {
-                         auto It = DocScores.find(Pair.first);
-
-                         if (It != DocScores.end())
-                         {
-                              Intersection[Pair.first] = It->second;
-
-                              for (const auto &PosVal : Pair.second.Positions)
-                              {
-                                   Intersection[Pair.first].Positions.push_back(PosVal);
-                              }
-
-                              IntersectionCounts[Pair.first] = DocMatchCounts[Pair.first] + 1;
-                         }
-                    }
-
-                    DocScores = std::move(Intersection);
-                    DocMatchCounts = std::move(IntersectionCounts);
-               }
-          }
-     }
-     else
-     {
-          for (const auto &TermDocs : TermResults)
-          {
-               for (const auto &Pair : TermDocs)
-               {
-                    auto It = DocScores.find(Pair.first);
-
-                    if (It == DocScores.end())
-                    {
-                         DocScores[Pair.first] = Pair.second;
-                    }
-                    else
-                    {
-                         It->second.Score += Pair.second.Score;
-
-                         for (const auto &PosVal : Pair.second.Positions)
-                         {
-                              It->second.Positions.push_back(PosVal);
-                         }
-                    }
-
-                    DocMatchCounts[Pair.first]++;
-               }
-          }
-
-          if (RequiredMatches > 1)
-          {
-               for (auto It = DocScores.begin(); It != DocScores.end();)
-               {
-                    if (DocMatchCounts[It->first] < RequiredMatches)
-                    {
-                         DocMatchCounts.erase(It->first);
-                         It = DocScores.erase(It);
-                    }
-                    else
-                    {
-                         ++It;
-                    }
-               }
-          }
-     }
-
-     if (!NegativeDocIDs.empty())
-     {
-          for (const auto &DocID : NegativeDocIDs)
-          {
-               DocScores.erase(DocID);
-               DocMatchCounts.erase(DocID);
-          }
-     }
-
-     if (DocScores.empty())
-     {
-          return {};
-     }
-
-     std::vector<Posting> Results;
-
-     Results.reserve(DocScores.size());
-
-     struct CandidateDocument
-     {
-          std::string DocumentID;
-          Posting *PostingValue;
-          double DocumentLength;
-     };
-
-     std::vector<CandidateDocument> CandidateDocs;
-     CandidateDocs.reserve(DocScores.size());
-
-     {
-          std::lock_guard<std::mutex> Lock(IndexMutex);
-          const auto CollectionLengthsIt = DocumentLengths.find(Collection);
-
-          for (auto &[DocID, Post] : DocScores)
-          {
-               double DocLengthValue = 1.0;
-               if (CollectionLengthsIt != DocumentLengths.end())
-               {
-                    const auto DocLengthIt = CollectionLengthsIt->second.find(DocID);
-                    if (DocLengthIt != CollectionLengthsIt->second.end())
-                    {
-                         DocLengthValue = static_cast<double>(DocLengthIt->second);
-                    }
-               }
-
-               CandidateDocs.push_back({DocID, &Post, DocLengthValue});
-          }
-     }
-
-     if (Limit > 0 && CandidatePruneMultiplier > 0)
-     {
-          const size_t CandidateLimitValue = std::max(static_cast<size_t>(Limit), static_cast<size_t>(Limit) * static_cast<size_t>(CandidatePruneMultiplier));
-
-          if (CandidateDocs.size() > CandidateLimitValue)
-          {
-               std::nth_element(CandidateDocs.begin(),
-                                CandidateDocs.begin() + static_cast<std::ptrdiff_t>(CandidateLimitValue),
-                                CandidateDocs.end(),
-                                [](const CandidateDocument &DocA, const CandidateDocument &DocB)
-                                {
-                                     if (DocA.PostingValue->Score != DocB.PostingValue->Score)
-                                     {
-                                          return DocA.PostingValue->Score > DocB.PostingValue->Score;
-                                     }
-
-                                     return DocA.DocumentID < DocB.DocumentID;
-                                });
-
-               CandidateDocs.resize(CandidateLimitValue);
-          }
-     }
-
-     for (const auto &[DocID, PostPtr, DocLengthValue] : CandidateDocs)
-     {
-          Posting &Post = *PostPtr;
-          double MatchedTermScore = Post.Score;
-
-          double TotalScore = 0.0;
-
-          for (size_t TermIdx = 0; TermIdx < TermResults.size(); ++TermIdx)
-          {
-               const auto &TermDocs = TermResults[TermIdx];
-               auto TermDocIt = TermDocs.find(DocID);
-               if (TermDocIt == TermDocs.end())
-               {
-                    continue;
-               }
-
-               double TermFreq = static_cast<double>(TermDocIt->second.Positions.empty() ? 1 : TermDocIt->second.Positions.size());
-               double DocFreq = static_cast<double>(TermDocs.size());
-
-               double TermScoreValue = 0.0;
-               const double EffectiveB = PivotEnabled ? 0.0 : B;
-               const bool EffectiveTFIDFNormalization = NormalizeTFIDF && !PivotEnabled;
-
-               if (SearchAlgorithm == "bm25")
-               {
-                    TermScoreValue = CalculateBM25PlusScore(TermFreq, DocFreq, DocLengthValue, AvgDocLengthValue, static_cast<double>(CollectionSizeValue), K1, EffectiveB, 0.0);
-               }
-               else if (SearchAlgorithm == "tfidf")
-               {
-                    TermScoreValue = CalculateTFIDFScore(TermFreq, DocFreq, DocLengthValue, static_cast<double>(CollectionSizeValue), IdfSmooth, EffectiveTFIDFNormalization);
-               }
-               else if (SearchAlgorithm == "hybrid")
-               {
-                    const double WeightTotal = BM25Weight + TFIDFWeight;
-                    if (WeightTotal > 0.0)
-                    {
-                         const double BM25Score = CalculateBM25PlusScore(TermFreq, DocFreq, DocLengthValue, AvgDocLengthValue, static_cast<double>(CollectionSizeValue), K1, EffectiveB, 0.0);
-                         const double TFIDFScore = CalculateTFIDFScore(TermFreq, DocFreq, DocLengthValue, static_cast<double>(CollectionSizeValue), IdfSmooth, EffectiveTFIDFNormalization);
-                         TermScoreValue = ((BM25Weight * BM25Score) + (TFIDFWeight * TFIDFScore)) / WeightTotal;
-                    }
-               }
-               else
-               {
-                    TermScoreValue = CalculateBM25PlusScore(TermFreq, DocFreq, DocLengthValue, AvgDocLengthValue, static_cast<double>(CollectionSizeValue), K1, EffectiveB, Delta);
-               }
-
-               if (PivotEnabled && AvgDocLengthValue > 0.0)
-               {
-                    const double PivotNorm = (1.0 - PivotValue) + PivotValue * (DocLengthValue / AvgDocLengthValue);
-                    if (PivotNorm > 0.0)
-                    {
-                         TermScoreValue /= PivotNorm;
-                    }
-               }
-
-               TotalScore += TermScoreValue * std::max(0.0, TermDocIt->second.Score);
-          }
-
-          if (QueryTerms.size() >= 2)
-          {
-               double ProximityBoostValue = CalculateProximityBoost(QueryTerms, {Post}, DocID);
-
-               TotalScore *= ProximityBoostValue;
-          }
-
-          if (ValidQueryTermCount > 1)
-          {
-               const double MatchedTerms = static_cast<double>(DocMatchCounts[DocID]);
-               const double CoverageRatio = std::min(1.0, MatchedTerms / static_cast<double>(ValidQueryTermCount));
-               TotalScore *= 0.75 + (0.25 * CoverageRatio);
-          }
-
-          Post.Score = TotalScore;
-
-          if (TotalScore <= 0.0)
-          {
-               Post.Score = std::max(MatchedTermScore, 1e-9);
-          }
-
-          Results.push_back(Post);
-     }
-
-     if (Limit > 0 && Results.size() > static_cast<size_t>(Limit))
-     {
-          const std::size_t LimitSize = static_cast<std::size_t>(Limit);
-
-          std::nth_element(Results.begin(),
-                           Results.begin() + static_cast<std::ptrdiff_t>(LimitSize),
-                           Results.end(),
-                           [](const Posting &PostingA, const Posting &PostingB)
-                           {
-                                if (PostingA.Score != PostingB.Score)
-                                {
-                                     return PostingA.Score > PostingB.Score;
-                                }
-
-                                return PostingA.DocumentID < PostingB.DocumentID;
-                           });
-
-          Results.resize(LimitSize);
-     }
-
-     std::sort(Results.begin(), Results.end(), [](const Posting &PostingA, const Posting &PostingB)
-               {
-                    if (PostingA.Score != PostingB.Score)
-                    {
-                         return PostingA.Score > PostingB.Score;
-                    }
-
-                    return PostingA.DocumentID < PostingB.DocumentID;
-               });
-
-     if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
-     {
-          Instance->Logs->Debug("inverted_index", "Search: Found " + std::to_string(Results.size()) + " results for query '" + Query + "' (algorithm=" + SearchAlgorithm + ", index=" + (UseMMap ? "mmap" : "memory") + ").");
-     }
-
-     return Results;
-}
-
-/*
- * SearchPrefix - Searches for terms with a given prefix in the index.
- */
-
-/* InvertedIndex::SearchPrefix - Searches prefix terms. */
-
-std::vector<Posting> InvertedIndex::SearchPrefix(const std::string &Collection, const std::string &Prefix, int Limit)
-{
-     if (Limit < 0)
-     {
-          Limit = 0;
-     }
-
-     if (Limit > 10000)
-     {
-          Limit = 10000;
-     }
-
-     std::lock_guard<std::mutex> Lock(IndexMutex);
-     TouchCollectionLocked(Collection);
-
-     if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
-     {
-          Instance->Logs->Debug("inverted_index", "SearchPrefix: Searching for prefix '" + Prefix + "' in collection '" + Collection + "' with limit " + std::to_string(Limit) + ".");
-     }
-
-     std::string NormalizedPrefix = NormalizeTerm(Prefix);
-
-     if (NormalizedPrefix.empty())
-     {
-          return {};
-     }
-
-     auto CollectionIt = Index.find(Collection);
-
-     if (CollectionIt == Index.end())
-     {
-          return {};
-     }
-
-     std::unordered_map<std::string, Posting> DocScores;
-
-     for (const auto &[TermValue, Postings] : CollectionIt->second)
-     {
-          if (TermValue.length() >= NormalizedPrefix.length() && TermValue.substr(0, NormalizedPrefix.length()) == NormalizedPrefix)
-          {
-               for (const auto &Post : Postings)
-               {
-                    auto It = DocScores.find(Post.DocumentID);
-
-                    if (It == DocScores.end())
-                    {
-                         DocScores[Post.DocumentID] = Post;
-                    }
-                    else
-                    {
-                         It->second.Score += Post.Score * 0.9;
-                    }
-               }
-          }
-     }
-
-     std::vector<Posting> Results;
-
-     Results.reserve(DocScores.size());
-
-     for (auto &Pair : DocScores)
-     {
-          Results.push_back(Pair.second);
-     }
-
-     std::sort(Results.begin(), Results.end(), [](const Posting &PostingA, const Posting &PostingB)
-               {
-                    return PostingA.Score > PostingB.Score;
-               });
-
-     if (Limit > 0)
-     {
-          const std::size_t LimitSize = static_cast<std::size_t>(Limit);
-          if (Results.size() > LimitSize)
-          {
-               Results.resize(LimitSize);
-          }
-     }
-
-     if (Instance->Logs->GetDebugMode())
-     {
-          Instance->Logs->Debug("inverted_index", "SearchPrefix: Found " + std::to_string(Results.size()) + " results for prefix '" + Prefix + "'.");
-     }
-
-     return Results;
-}
-
-/*
-      * DeleteCollection - Deletes an entire collection from the index.
-      */
 
 /* InvertedIndex::DeleteCollection - Deletes all data for a collection. */
 
 void InvertedIndex::DeleteCollection(const std::string &Collection)
 {
      std::lock_guard<std::mutex> Lock(IndexMutex);
+
+     /* Remove every in-memory structure that can hold collection-specific state. */
 
      Index.erase(Collection);
 
@@ -2581,6 +1693,8 @@ void InvertedIndex::DeleteCollection(const std::string &Collection)
 
      if (Instance && Instance->Database)
      {
+          /* Clear any stale interrupted-flush marker for the deleted collection. */
+
           Instance->Database->Del("flush_pending:" + Collection);
      }
 
@@ -2599,6 +1713,8 @@ void InvertedIndex::DeleteCollection(const std::string &Collection)
 void InvertedIndex::Clear()
 {
      std::lock_guard<std::mutex> Lock(IndexMutex);
+
+     /* Clear resets loaded index state but leaves persisted index directories untouched. */
 
      Index.clear();
 
@@ -2624,14 +1740,16 @@ void InvertedIndex::Clear()
 }
 
 /*
-      * InvalidateDocumentCache - Invalidates the cache for a specific document.
-      */
+ * InvalidateDocumentCache - Invalidates the cache for a specific document.
+ */
 
 /* InvertedIndex::InvalidateDocumentCache - Invalidates document cache entry. */
 
 void InvertedIndex::InvalidateDocumentCache(const std::string &Collection, const std::string &DocID)
 {
      std::lock_guard<std::mutex> Lock(IndexMutex);
+
+     /* This hook currently reports cache invalidation without mutating index postings. */
 
      auto DocTermsIt = DocumentTerms.find(Collection);
 
@@ -2659,6 +1777,8 @@ void InvertedIndex::InvalidateCollectionCache(const std::string &Collection)
 {
      std::lock_guard<std::mutex> Lock(IndexMutex);
 
+     /* Collection cache invalidation is logged for callers that coordinate external caches. */
+
      if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
      {
           Instance->Logs->Debug("inverted_index", "InvalidateCollectionCache: Invalidated cache for collection '" + Collection + "'.");
@@ -2674,6 +1794,8 @@ void InvertedIndex::InvalidateCollectionCache(const std::string &Collection)
 size_t InvertedIndex::GetTermCount(const std::string &Collection) const
 {
      std::lock_guard<std::mutex> Lock(IndexMutex);
+
+     /* Term count reflects the resident in-memory term map. */
 
      auto It = Index.find(Collection);
 
@@ -2694,6 +1816,8 @@ size_t InvertedIndex::GetTermCount(const std::string &Collection) const
 size_t InvertedIndex::GetDocumentCount(const std::string &Collection) const
 {
      std::lock_guard<std::mutex> Lock(IndexMutex);
+
+     /* Prefer in-memory document tracking, then fall back to the mapped index metadata. */
 
      auto It = DocumentTerms.find(Collection);
 
@@ -2720,6 +1844,8 @@ bool InvertedIndex::HasInMemoryIndex(const std::string &Collection) const
 {
      std::lock_guard<std::mutex> Lock(IndexMutex);
 
+     /* DocumentTerms is the fastest resident signal that a collection has mutable in-memory postings. */
+
      auto It = DocumentTerms.find(Collection);
 
      return It != DocumentTerms.end() && !It->second.empty();
@@ -2737,6 +1863,8 @@ std::string InvertedIndex::GetIndexDir() const
 
      if (Instance && Instance->Config && Instance->Config->IsValid())
      {
+          /* Index storage follows the configured RocksDB data directory when one is provided. */
+
           const auto &RocksDBOpts = Instance->Config->GetRocksDBOptions();
 
           if (!RocksDBOpts.DataDir.empty())
@@ -2761,6 +1889,8 @@ size_t InvertedIndex::FlushToDisk(const std::string &IndexDir, uint64_t MinDirty
           Instance->Logs->Normal("inverted_index", "FlushToDisk: Flushing indexes to disk.");
      }
 
+     /* Flush work is snapshotted under lock and written outside the lock. */
+
      struct FlushWorkItem
      {
           std::string Collection;
@@ -2778,6 +1908,8 @@ size_t InvertedIndex::FlushToDisk(const std::string &IndexDir, uint64_t MinDirty
 
           for (const auto &Collection : CollectionsToFlush)
           {
+               /* Snapshot only collections that still have resident postings when the flush begins. */
+
                auto IndexIt = Index.find(Collection);
 
                if (IndexIt == Index.end() || IndexIt->second.empty())
@@ -2787,6 +1919,8 @@ size_t InvertedIndex::FlushToDisk(const std::string &IndexDir, uint64_t MinDirty
                }
 
                auto ExistingMMapIt = MMapIndexes.find(Collection);
+
+               /* Keep partial in-memory mutations from replacing a previously loaded mmap snapshot. */
 
                if (ExistingMMapIt != MMapIndexes.end() &&
                    ExistingMMapIt->second &&
@@ -2803,8 +1937,8 @@ size_t InvertedIndex::FlushToDisk(const std::string &IndexDir, uint64_t MinDirty
 
                auto MutationIt = CollectionLastMutation.find(Collection);
                const auto MutationTime = (MutationIt != CollectionLastMutation.end())
-                    ? MutationIt->second
-                    : std::chrono::steady_clock::time_point{};
+                                              ? MutationIt->second
+                                              : std::chrono::steady_clock::time_point{};
 
                WorkItems.push_back({Collection, MutationTime, IndexIt->second});
           }
@@ -2818,8 +1952,12 @@ size_t InvertedIndex::FlushToDisk(const std::string &IndexDir, uint64_t MinDirty
 
           if (Instance && Instance->Database)
           {
+               /* Persist the marker before writing files so startup can detect interrupted writes. */
+
                Instance->Database->Set(FlushMarker, "1");
           }
+
+          /* Each collection is serialized independently to keep flush failure isolated. */
 
           IndexWriter CollectionWriter(IndexDir, WorkItem.Collection);
           std::unordered_map<std::string, std::unordered_map<std::string, std::vector<Posting>>> SingleCollection;
@@ -2840,6 +1978,8 @@ size_t InvertedIndex::FlushToDisk(const std::string &IndexDir, uint64_t MinDirty
           {
                std::lock_guard<std::mutex> Lock(IndexMutex);
 
+               /* Install the new mmap view only after the writer has produced a valid index. */
+
                if (MMapIdx && MMapIdx->IsValid())
                {
                     MMapIndexes[WorkItem.Collection] = std::move(MMapIdx);
@@ -2847,7 +1987,9 @@ size_t InvertedIndex::FlushToDisk(const std::string &IndexDir, uint64_t MinDirty
 
                auto MutationIt = CollectionLastMutation.find(WorkItem.Collection);
                const bool HasNewMutation = MutationIt != CollectionLastMutation.end() &&
-                    MutationIt->second > WorkItem.MutationTime;
+                                           MutationIt->second > WorkItem.MutationTime;
+
+               /* A collection remains dirty when new writes arrived after the snapshot was taken. */
 
                if (!HasNewMutation)
                {
@@ -2872,6 +2014,8 @@ size_t InvertedIndex::FlushToDisk(const std::string &IndexDir, uint64_t MinDirty
 
      if (Instance && Instance->Database && FlushedCollections > 0)
      {
+          /* Sync after successful collection writes so flush markers and removals are durable. */
+
           Instance->Database->FlushAndSync();
      }
 
@@ -2891,8 +2035,6 @@ size_t InvertedIndex::FlushToDisk(const std::string &IndexDir, uint64_t MinDirty
 
 void InvertedIndex::LoadFromDisk(const std::string &IndexDir)
 {
-     std::lock_guard<std::mutex> Lock(IndexMutex);
-
      if (Instance && Instance->Logs)
      {
           Instance->Logs->Normal("inverted_index", "LoadFromDisk: Loading indexes from disk.");
@@ -2907,6 +2049,10 @@ void InvertedIndex::LoadFromDisk(const std::string &IndexDir)
 
           return;
      }
+
+     std::vector<std::pair<std::string, std::unique_ptr<MMapIndex>>> LoadedIndexes;
+
+     /* Validate all directories before taking the index mutex. */
 
      for (const auto &Entry : std::filesystem::directory_iterator(IndexDir))
      {
@@ -2927,6 +2073,8 @@ void InvertedIndex::LoadFromDisk(const std::string &IndexDir)
 
                if (!Val.empty())
                {
+                    /* Interrupted flushes are repaired by removing the possibly incomplete collection index. */
+
                     if (Instance && Instance->Logs)
                     {
                          Instance->Logs->Normal("inverted_index", "LoadFromDisk: Detected interrupted flush for collection '" + Collection + "'. The mmap index may be corrupted. Triggering repair.");
@@ -2948,13 +2096,26 @@ void InvertedIndex::LoadFromDisk(const std::string &IndexDir)
 
           if (MMapIdx && MMapIdx->IsValid())
           {
-               MMapIndexes[Collection] = std::move(MMapIdx);
-               TouchCollectionLocked(Collection);
+               /* Loaded indexes are installed after the scan so mmap open work does not hold the mutex. */
 
-               if (Instance && Instance->Logs)
-               {
-                    Instance->Logs->Normal("inverted_index", "LoadFromDisk: Loaded mmap index for collection '" + Collection + "' (" + std::to_string(MMapIndexes[Collection]->GetTermCount()) + " terms).");
-               }
+               LoadedIndexes.emplace_back(Collection, std::move(MMapIdx));
+          }
+     }
+
+     std::lock_guard<std::mutex> Lock(IndexMutex);
+
+     for (auto &Entry : LoadedIndexes)
+     {
+          /* Startup residency is not user access; actual reads update recency before eviction. */
+
+          const std::string &Collection = Entry.first;
+          const size_t TermCount = Entry.second->GetTermCount();
+
+          MMapIndexes[Collection] = std::move(Entry.second);
+
+          if (Instance && Instance->Logs)
+          {
+               Instance->Logs->Normal("inverted_index", "LoadFromDisk: Loaded mmap index for collection '" + Collection + "' (" + std::to_string(TermCount) + " terms).");
           }
      }
 
@@ -2970,6 +2131,8 @@ void InvertedIndex::LoadFromDisk(const std::string &IndexDir)
 bool InvertedIndex::HasMMapIndex(const std::string &Collection) const
 {
      std::lock_guard<std::mutex> Lock(IndexMutex);
+
+     /* A mapped index must be present and valid before callers use it for disk-backed search. */
 
      auto It = MMapIndexes.find(Collection);
 
@@ -2992,6 +2155,8 @@ double InvertedIndex::CalculateBM25PlusScore(double TermFreq, double DocFreq, do
          DocFreq > CollectionSize || DocLength <= 0.0 || AvgDocLength <= 0.0 ||
          K1 < 0.0 || B < 0.0 || B > 1.0 || Delta < 0.0)
      {
+          /* Invalid scoring inputs return a neutral score instead of propagating NaN or infinity. */
+
           return 0.0;
      }
 
@@ -3002,18 +2167,32 @@ double InvertedIndex::CalculateBM25PlusScore(double TermFreq, double DocFreq, do
 
      if (Instance && Instance->Config)
      {
+          /* IDF behavior is shared with the main Search path through runtime configuration. */
+
           IdfMode = Instance->Config->GetRankingIdfMode();
           ClampNegative = Instance->Config->GetRankingIdfClampNegative();
           IdfSmoothValue = std::max(0.0, Instance->Config->GetRankingIdfSmooth());
           IdfFloorFactor = std::max(0.0, Instance->Config->GetRankingIdfFloorFactor());
      }
 
+     if (!std::isfinite(IdfSmoothValue))
+     {
+          IdfSmoothValue = 1.0;
+     }
+
+     if (!std::isfinite(IdfFloorFactor))
+     {
+          IdfFloorFactor = 0.05;
+     }
+
+     IdfFloorFactor = std::clamp(IdfFloorFactor, 0.0, 1.0);
+
      double Idf = 0.0;
 
      if (IdfMode == "smooth")
      {
           double Denominator = DocFreq + 0.5 + IdfSmoothValue;
-        
+
           if (Denominator <= 0.0)
           {
                return 0.0;
@@ -3025,7 +2204,7 @@ double InvertedIndex::CalculateBM25PlusScore(double TermFreq, double DocFreq, do
      else
      {
           double Denominator = DocFreq + 0.5;
-        
+
           if (Denominator <= 0.0)
           {
                return 0.0;
@@ -3039,9 +2218,11 @@ double InvertedIndex::CalculateBM25PlusScore(double TermFreq, double DocFreq, do
           }
      }
 
-     const double NormalizedLengthValue = DocLength / AvgDocLength;
+     const double NormalizedLengthValue = std::max(1e-9, DocLength / AvgDocLength);
      const double NumeratorValue = TermFreq * (K1 + 1.0);
      const double DenominatorValue = TermFreq + K1 * (1.0 - B + B * NormalizedLengthValue);
+
+     /* BM25+ adds Delta after frequency saturation to reduce long-document under-scoring. */
 
      if (DenominatorValue <= 0.0)
      {
@@ -3063,11 +2244,16 @@ double InvertedIndex::CalculateTFIDFScore(double TermFreq, double DocFreq, doubl
          DocLength <= 0.0 || CollectionSize <= 0.0 || DocFreq > CollectionSize ||
          IdfSmooth < 0.0)
      {
+          /* Reject invalid TF-IDF inputs before logarithms or square roots are evaluated. */
+
           return 0.0;
      }
 
      const double IdfDenominator = DocFreq + IdfSmooth;
      const double IdfNumerator = CollectionSize + IdfSmooth;
+
+     /* Smoothed IDF keeps rare terms strong while avoiding division by zero. */
+
      if (IdfDenominator <= 0.0 || IdfNumerator <= 0.0)
      {
           return 0.0;
@@ -3076,6 +2262,8 @@ double InvertedIndex::CalculateTFIDFScore(double TermFreq, double DocFreq, doubl
      double TermWeight = 1.0 + std::log(TermFreq);
      if (Normalize)
      {
+          /* Optional normalization reduces the advantage of long documents with repeated terms. */
+
           TermWeight /= std::sqrt(DocLength);
      }
 
@@ -3094,6 +2282,8 @@ double InvertedIndex::CalculateBM25LScore(double TermFreq, double DocFreq, doubl
 {
      if (CollectionSize <= 0 || DocFreq <= 0 || DocLength <= 0)
      {
+          /* BM25L has no meaningful score without collection, frequency, and length data. */
+
           return 0.0;
      }
 
@@ -3104,6 +2294,8 @@ double InvertedIndex::CalculateBM25LScore(double TermFreq, double DocFreq, doubl
 
      if (Instance && Instance->Config)
      {
+          /* Keep standalone BM25L scoring aligned with configured IDF behavior. */
+
           IdfMode = Instance->Config->GetRankingIdfMode();
           ClampNegative = Instance->Config->GetRankingIdfClampNegative();
           IdfSmoothValue = std::max(0.0, Instance->Config->GetRankingIdfSmooth());
@@ -3114,6 +2306,8 @@ double InvertedIndex::CalculateBM25LScore(double TermFreq, double DocFreq, doubl
 
      if (IdfMode == "smooth")
      {
+          /* Smooth IDF avoids negative values for very frequent terms. */
+
           double Denominator = DocFreq + 0.5 + IdfSmoothValue;
           if (Denominator <= 0.0)
           {
@@ -3125,6 +2319,8 @@ double InvertedIndex::CalculateBM25LScore(double TermFreq, double DocFreq, doubl
      }
      else
      {
+          /* Legacy IDF can be floored when clamping is enabled. */
+
           double Denominator = DocFreq + 0.5;
           if (Denominator <= 0.0)
           {
@@ -3144,6 +2340,8 @@ double InvertedIndex::CalculateBM25LScore(double TermFreq, double DocFreq, doubl
      double NormFactorValue = 1.0 - B + B * NormalizedLengthValue;
 
      NormFactorValue = std::max(NormFactorValue, 1.0);
+
+     /* BM25L shifts term frequency by Delta before saturation. */
 
      double NumeratorValue = (TermFreq + Delta) * (K1 + 1.0);
 
@@ -3169,6 +2367,8 @@ double InvertedIndex::CalculatePivotNormScore(double TermFreq, double DocFreq, d
 {
      if (CollectionSize <= 0 || DocFreq <= 0 || DocLength <= 0 || TermFreq <= 0)
      {
+          /* Pivot normalization needs positive statistics to produce a useful score. */
+
           return 0.0;
      }
 
@@ -3188,7 +2388,6 @@ double InvertedIndex::CalculatePivotNormScore(double TermFreq, double DocFreq, d
      /* TF component with pivot normalization */
 
      double Tf = std::log(1.0 + TermFreq) / Norm;
-
      return Idf * Tf;
 }
 
@@ -3201,6 +2400,8 @@ double InvertedIndex::CalculatePivotNormScore(double TermFreq, double DocFreq, d
 size_t InvertedIndex::CalculateTermFrequency(const std::string &Collection, const std::string &DocID, const std::string &Term) const
 {
      std::lock_guard<std::mutex> Lock(IndexMutex);
+
+     /* Term frequency is read from resident postings and does not consult mapped indexes. */
 
      auto CollectionIt = Index.find(Collection);
 
@@ -3222,6 +2423,8 @@ size_t InvertedIndex::CalculateTermFrequency(const std::string &Collection, cons
      {
           if (Post.DocumentID == DocID)
           {
+               /* Position count is the term frequency; missing positions fall back to one observed hit. */
+
                TfValue = Post.Positions.size();
 
                if (TfValue == 0)
@@ -3250,6 +2453,8 @@ size_t InvertedIndex::CalculateTermFrequency(const std::string &Collection, cons
 size_t InvertedIndex::CalculateDocumentFrequency(const std::string &Collection, const std::string &Term) const
 {
      std::lock_guard<std::mutex> Lock(IndexMutex);
+
+     /* Count unique document IDs because duplicate postings can occur during merged in-memory updates. */
 
      auto CollectionIt = Index.find(Collection);
 
@@ -3285,10 +2490,14 @@ void InvertedIndex::UpdateCollectionStatistics(const std::string &Collection)
 {
      std::lock_guard<std::mutex> Lock(IndexMutex);
 
+     /* Statistics are rebuilt from document lengths so cached totals cannot drift indefinitely. */
+
      auto DocLengthsIt = DocumentLengths.find(Collection);
 
      if (DocLengthsIt == DocumentLengths.end() || DocLengthsIt->second.empty())
      {
+          /* Empty collections keep a neutral average length for scoring callers. */
+
           AvgDocLengths[Collection] = 1.0;
           DocCounts[Collection] = 0;
           CollectionTotalLengths[Collection] = 0;
@@ -3311,6 +2520,8 @@ double InvertedIndex::CalculateProximityBoost(const std::vector<std::string> &Qu
 {
      if (QueryTerms.size() < 2)
      {
+          /* Single-term queries cannot benefit from proximity. */
+
           return 1.0;
      }
 
@@ -3319,11 +2530,25 @@ double InvertedIndex::CalculateProximityBoost(const std::vector<std::string> &Qu
 
      if (Instance && Instance->Config)
      {
+          /* Proximity strength and maximum boost are runtime-tunable. */
+
           boost_scale = Instance->Config->GetProximityBoostScale();
           boost_max = Instance->Config->GetProximityBoostMax();
      }
 
+     if (!std::isfinite(boost_scale) || boost_scale < 0.0)
+     {
+          boost_scale = 1.0;
+     }
+
+     if (!std::isfinite(boost_max) || boost_max < 1.0)
+     {
+          boost_max = 1.0;
+     }
+
      std::vector<Posting> DocPostings;
+
+     /* Keep only postings for the candidate document that have recorded positions. */
 
      for (const auto &Post : Postings)
      {
@@ -3339,6 +2564,8 @@ double InvertedIndex::CalculateProximityBoost(const std::vector<std::string> &Qu
      }
 
      size_t MinDistanceValue = SIZE_MAX;
+
+     /* Compare every pair of matched term positions and keep the closest observed distance. */
 
      for (size_t I = 0; I < DocPostings.size(); ++I)
      {
@@ -3366,6 +2593,8 @@ double InvertedIndex::CalculateProximityBoost(const std::vector<std::string> &Qu
 
      double BoostValueResult = 1.0 + (1.0 / (1.0 + static_cast<double>(MinDistanceValue)));
      BoostValueResult = 1.0 + ((BoostValueResult - 1.0) * boost_scale);
+
+     /* Clamp the boost so proximity cannot overwhelm the base rank. */
 
      return std::min(BoostValueResult, boost_max);
 }

@@ -1,4 +1,4 @@
-> **Development Status**: hlquery is currently in active development and should not be used in production environments. The software may contain bugs, incomplete features, and breaking changes may occur without notice.
+> **Development Status**: hlquery is currently in active development and should not be used in production environments. The software may contain bugs and incomplete features, and breaking changes may occur without notice.
 
 <div align="center">
   <img src="https://docs.hlquery.com/img/hlquery/2.png" alt="hlquery logo" width="200">
@@ -19,19 +19,19 @@
 </div>
 
 > You can explore the live demo at [demo.hlquery.com](https://demo.hlquery.com/).
-> Demo mode is powered by [m_demo.cpp](https://github.com/hlquery/hlquery/blob/unstable/src/modules/m_demo.cpp), so insert, delete, and update operations are disabled.
+> It runs on the [m_demo.cpp](https://github.com/hlquery/hlquery/blob/unstable/src/modules/m_demo.cpp) module, which disables insert, delete, and update operations in demo mode.
 > The demo UI is built with [hanalyzer](https://github.com/hlquery/hanalyzer).
 
 ### What is hlquery?
 
-hlquery is an open source search engine written in C++, optimized to stay lightweight while handling millions of results efficiently. It is designed for applications that need fast indexing, real-time queries, and a straightforward HTTP/JSON interface without giving up advanced search features. The engine supports full-text search, hybrid ranking, vector similarity, flexible collections, and configurable runtime modules for features such as AI-assisted search.
-It exposes a REST API for indexing, querying, and administration, and includes command-line tools for local management and testing.
+hlquery is an open-source C++ search engine built to stay lightweight while handling millions of results efficiently. It targets applications that need fast indexing, real-time queries, and a straightforward HTTP/JSON interface with advanced search features. The engine supports full-text search, hybrid ranking, vector similarity, flexible collections, and configurable runtime modules for features such as AI-assisted search.
+It also includes a REST API for indexing and querying, plus command-line tools for local management and testing.
 
 ### Why choose hlquery?
 
-hlquery is built for teams that want strong search capabilities without taking on the operational weight of a larger search stack. It combines fast indexing, low-latency queries, and a simple HTTP/JSON surface area with features that are usually expected from more complex systems.
+hlquery is built for teams that want strong search without the operational weight of a larger stack. It combines fast indexing, low-latency queries, and a simple HTTP/JSON API with features usually found in more complex systems.
 
-You can use hlquery for classic full-text search, hybrid retrieval, vector similarity, and AI-assisted search workflows while keeping deployment and integration straightforward. The project also ships with official client libraries, command-line tools, and modular runtime extensions, which makes it practical both for local development and production services.
+You can use hlquery for full-text search, hybrid retrieval, vector similarity, and AI-assisted workflows while keeping deployment straightforward. It ships with client libraries, command-line tools, and modular runtime extensions for local development and production services.
 
 ### Prerequisites
 
@@ -42,7 +42,7 @@ $ sudo apt-get install build-essential cmake libssl-dev liburing-dev
 
 If CMake prints a `uring` lookup warning during the RocksDB build, it usually means the `liburing` development package is missing. Installing `liburing-dev` on Debian/Ubuntu provides the package metadata CMake is looking for and clears the warning.
 
-**RedHat/CentOS:**
+**Red Hat/CentOS:**
 ```bash
 $ sudo dnf install @development-tools cmake openssl-devel
 ```
@@ -53,7 +53,7 @@ $ xcode-select --install
 $ brew install cmake openssl
 ```
 
-On macOS, Xcode Command Line Tools provide the C/C++ compiler and `make`,
+On macOS, Xcode Command Line Tools provide the C/C++ compiler and `make`.
 Homebrew provides CMake and OpenSSL.
 
 **FreeBSD:**
@@ -91,6 +91,8 @@ $ gmake install
 
 ```bash
 $ ./run/hlquery start
+[ OK ] Starting hlquery: [Jul-12 - 12:37:59]
+...
 ```
 
 > **Note**: hlquery uses port **9200** by default. Ensure this port is available and not blocked by your firewall.
@@ -99,6 +101,8 @@ $ ./run/hlquery start
 
 ```bash
 $ ./run/hlquery stop
+[ INFO ] Stopping hlquery (PID: 27008) ...
+[ OK ] hlquery stopped successfully.
 ```
 
 **Stop the server as JSON:**
@@ -112,9 +116,10 @@ $ ./run/hlquery stop --json
 
 ```bash
 $ ./run/hlquery start --nofork
+...
 ```
 
-**Run talk:**
+**Run the interactive shell:**
 
 ```text
 $ ./run/hlquery talk
@@ -155,8 +160,8 @@ Collection 'products' created successfully
 ```php
 <?php
 
-require_once __DIR__ . '/vendor/autoload.php'; 
-use Hlquery\Client; 
+require_once __DIR__ . '/vendor/autoload.php';
+use Hlquery\Client;
 
 $client = new Client('http://localhost:9200');
 
@@ -186,8 +191,8 @@ $schema = [
     ],
 ];
 
-$response = $collections->create('products', $schema); 
-$body = $response->getBody(); 
+$response = $collections->create('products', $schema);
+$body = $response->getBody();
 
 $client->documents->add('products', [
     'id' => 'prod_keyboard_001',
@@ -200,7 +205,7 @@ $client->documents->add('products', [
 
 ### Index Documents
 
-Each document id must be unique within its collection:
+Each document ID must be unique within its collection:
 
 ```bash
 $ hlquery-cli add products prod_laptop_001 "Laptop Computer" "High-performance laptop with 16GB RAM"
@@ -211,21 +216,21 @@ Document 'prod_laptop_001' added to collection 'products'
 
 ```js
 const Client = require('hlquery-node-client');
-const client = new Client('http://localhost:9200'); 
+const client = new Client('http://localhost:9200');
 const documents = client.documents(); // Use the documents service for document writes.
 
 /* Send POST /collections/products/documents with the product payload. */
 
 const response = await documents.add('products', {
-  id: 'prod_laptop_001', 
-  title: 'Laptop Computer', 
-  content: 'High-performance laptop with 16GB RAM', 
-  price: 1299.99 
-}); 
+  id: 'prod_laptop_001',
+  title: 'Laptop Computer',
+  content: 'High-performance laptop with 16GB RAM',
+  price: 1299.99
+});
 
 /* Inspect the JSON body returned by the API. */
 
-console.log(response.getBody()); 
+console.log(response.getBody());
 
 ```
 
@@ -302,34 +307,6 @@ Distributed search fans a query out to linked search nodes and merges the result
      timeout_ms="250">
 ```
 
-Then force distributed execution per request when needed:
-
-```bash
-curl "http://localhost:9200/collections/products/documents/search?q=laptop&distributed=on"
-curl -X POST "http://localhost:9200/multi_search?distributed=on" \
-  -H "Content-Type: application/json" \
-  -d '{"searches":[{"collection":"products","q":"laptop"}]}'
-```
-
-Replication ships writes from a primary server to replica nodes. Use `role="replica"` or `role="slave"` for replication targets, enable `<replication ...>` on the primary, and mark replica instances with `<replica enabled="true" allow_writes="false">` when they should reject normal client writes:
-
-```text
-<node
-     host="127.0.0.1"
-     port="9201"
-     role="replica"
-     passwd="shared-secret">
-
-<replication
-     enabled="true"
-     mode="sync_one"
-     timeout_ms="2000">
-```
-
-Operational link endpoints are exposed through `/links` and `/links/ping`, and runtime links can be added or removed with `/links/connect` and `/links/disconnect`.
-
----
-
 **SQL example:**
 
 ```text
@@ -352,12 +329,12 @@ hlquery is actively developed across multiple GitHub repositories. We maintain a
 
 Each repository follows a **two-branch development model**:
 
-- **`unstable`** - Active development branch where all new features, bug fixes, and improvements are developed
+- **`unstable`** - Active development branch where new features, bug fixes, and improvements are developed
 - **`1.0`** - Stable release branch containing production-ready code
 
 ### Active Development
 
-We're committed to **active, continuous development** of hlquery and all related projects. New features, performance improvements, and bug fixes are regularly added across all repositories.
+We are committed to **active, continuous development** of hlquery and all related projects. New features, performance improvements, and bug fixes are regularly added across all repositories.
 
 **Want to stay updated?** ⭐ **Star and watch our repositories on GitHub** to receive notifications about:
 - New releases and features
@@ -373,10 +350,10 @@ We welcome contributions from the community! All contributions must be released 
 
 ### How to Contribute
 
-- Check existing [issues](https://github.com/hlquery/hlquery/issues) or create new ones
-- Contribute to client libraries (Node.js, TypeScript, Go, Java, Python, PHP, Ruby, Rust, Perl, C++)
-- Test and report bugs
-- Improve documentation
+- Check existing [issues](https://github.com/hlquery/hlquery/issues) or open a new one.
+- Contribute to client libraries.
+- Test and report bugs.
+- Improve documentation.
 
 ### Community
 

@@ -25,14 +25,15 @@
 #include "core/config.h"
 
 #ifdef HLQUERY_HAS_OPENSSL
-    
-    #include <openssl/err.h>
-    #include <openssl/ssl.h>
-    
+
+#include <openssl/err.h>
+#include <openssl/ssl.h>
+
 #endif
 
 #include "common/searchpool.h"
 #include "runtime/serverconfig.h"
+#include "core/httpcodes.h"
 #include "core/socketengine.h"
 #include "vendor/json/json.hpp"
 
@@ -63,7 +64,6 @@ struct HttpRequest
 
      HttpRequest() : RemotePort(0)
      {
-     
      }
 };
 
@@ -78,7 +78,7 @@ struct HttpResponse
 
      /* Build an HTTP response with headers pre-populated for this server. */
 
-     HttpResponse(int Code = 200, const std::string& Text = "OK", const std::string& ContentType = "text/plain")
+     HttpResponse(int Code = HttpCodes::code::OK, const std::string &Text = HttpCodes::StatusText(HttpCodes::code::OK), const std::string &ContentType = "text/plain")
          : StatusCode(Code), StatusText(Text)
      {
           Headers["Content-Type"] = ContentType;
@@ -86,9 +86,9 @@ struct HttpResponse
      }
 };
 
-inline HttpResponse BuildRouteNotFoundResponse(const std::string& Path, const std::string& Method = std::string())
+inline HttpResponse BuildRouteNotFoundResponse(const std::string &Path, const std::string &Method = std::string())
 {
-     HttpResponse Response(404, "Not Found", "application/json");
+     HttpResponse Response(HttpCodes::code::NOT_FOUND, StatusText(HttpCodes::code::NOT_FOUND), "application/json");
 
      nlohmann::json Body;
      Body["error"] = "Route not found";
@@ -110,6 +110,7 @@ enum class RouteAction
 {
      Status,
      SearchConfig,
+     ConfigFiles,
      Health,
      Ready,
      Ping,
@@ -212,11 +213,11 @@ enum class RouteAction
 
 /* Resolve the route action for one parsed HTTP request. */
 
-RouteAction ResolveHttpRoute(const HttpRequest& Request);
+RouteAction ResolveHttpRoute(const HttpRequest &Request);
 
 /* Return the human-readable name for one route action value. */
 
-const char* RouteActionName(RouteAction ActionVal);
+const char *RouteActionName(RouteAction ActionVal);
 
 /* 
  * HTTP connection handler.
@@ -227,10 +228,9 @@ const char* RouteActionName(RouteAction ActionVal);
 class HttpConnection : public EventHandler
 {
    public:
-
      /* Construct one HTTP connection handler for an accepted socket. */
 
-     HttpConnection(int FD, const std::string& ClientIP, int ClientPort, SearchThreadPool* ThreadPool = nullptr);
+     HttpConnection(int FD, const std::string &ClientIP, int ClientPort, SearchThreadPool *ThreadPool = nullptr);
 
      /* Destroy the connection handler and release any remaining resources. */
 
@@ -258,11 +258,11 @@ class HttpConnection : public EventHandler
 
      /* Process one complete raw HTTP request string. */
 
-     void ProcessSingleRequest(const std::string& RequestStr);
+     void ProcessSingleRequest(const std::string &RequestStr);
 
      /* Queue or send one HTTP response for this connection. */
 
-     void SendResponse(const HttpResponse& Response);
+     void SendResponse(const HttpResponse &Response);
 
      /* Apply socket-level options used by the HTTP connection. */
 
@@ -280,14 +280,14 @@ class HttpConnection : public EventHandler
 
      /* Attach the negotiated SSL session for this connection. */
 
-     void SetSSL(SSL* SSLVal)
+     void SetSSL(SSL *SSLVal)
      {
           SSLValue = SSLVal;
      }
 
      /* Return the SSL session currently attached to this connection. */
 
-     SSL* GetSSL() const
+     SSL *GetSSL() const
      {
           return SSLValue;
      }
@@ -295,7 +295,6 @@ class HttpConnection : public EventHandler
 #endif
 
    private:
-
      /* Remote client IP address */
 
      std::string ClientIP;
@@ -306,7 +305,7 @@ class HttpConnection : public EventHandler
 
 #ifdef HLQUERY_HAS_OPENSSL
 
-     SSL* SSLValue = nullptr;
+     SSL *SSLValue = nullptr;
      bool SSLHandshaked = false;
 
 #endif
@@ -365,22 +364,21 @@ class HttpConnection : public EventHandler
 
      /* Parse one raw HTTP request into the structured request object. */
 
-     bool ParseHttpRequest(const std::string& RawRequest, HttpRequest& Request);
+     bool ParseHttpRequest(const std::string &RawRequest, HttpRequest &Request);
 
      /* Parse query parameters from one request path. */
 
-     std::map<std::string, std::string> ParseQueryParams(const std::string& Path);
+     std::map<std::string, std::string> ParseQueryParams(const std::string &Path);
 
      /* Parse HTTP header lines into the request header map. */
 
-     void ParseHeaders(const std::string& HeaderLines, std::map<std::string, std::string>& Headers);
+     void ParseHeaders(const std::string &HeaderLines, std::map<std::string, std::string> &Headers);
 
      /* Optional HTTP execution pool assigned by server acceptor. */
 
-     SearchThreadPool* ThreadPoolValue{nullptr};
+     SearchThreadPool *ThreadPoolValue{nullptr};
 
    public:
-
      /* Indicate whether there are in-flight asynchronous requests. */
 
      bool HasActiveRequests() const
@@ -398,10 +396,9 @@ class HttpConnection : public EventHandler
 class HttpServer : public EventHandler
 {
    public:
-
      /* Constructor. */
 
-     HttpServer(const BindConfig& ConfigVal);
+     HttpServer(const BindConfig &ConfigVal);
 
      /* Destructor. */
 
@@ -424,7 +421,7 @@ class HttpServer : public EventHandler
 
      /* Assign a thread pool used for request processing. */
 
-     void SetThreadPool(SearchThreadPool* Pool)
+     void SetThreadPool(SearchThreadPool *Pool)
      {
           ThreadPoolValue = Pool;
      }
@@ -453,20 +450,20 @@ class HttpServer : public EventHandler
 
      /* Register one handler for the given method and path. */
 
-     void RegisterRoute(const std::string& Method, const std::string& Path,
-                        std::function<HttpResponse(const HttpRequest&)> Handler);
+     void RegisterRoute(const std::string &Method, const std::string &Path,
+                        std::function<HttpResponse(const HttpRequest &)> Handler);
 
      /* Default handler used when no route matches the request. */
 
-     HttpResponse HandleNotFound(const HttpRequest& Request);
+     HttpResponse HandleNotFound(const HttpRequest &Request);
 
      /* Default handler for health probes. */
 
-     HttpResponse HandleHealth(const HttpRequest& Request);
+     HttpResponse HandleHealth(const HttpRequest &Request);
 
      /* Default handler for readiness probes. */
 
-     HttpResponse HandleReady(const HttpRequest& Request);
+     HttpResponse HandleReady(const HttpRequest &Request);
 
      /* Accept and process pending socket events for the listener. */
 
@@ -476,7 +473,6 @@ class HttpServer : public EventHandler
 
      void OnEventHandlerWrite() override
      {
-
      }
 
      /* Handle listener socket errors reported by the event engine. */
@@ -484,7 +480,6 @@ class HttpServer : public EventHandler
      void OnEventHandlerError(int ErrorNum) override;
 
    private:
-
      BindConfig Config;
 
      bool Running;
@@ -497,7 +492,7 @@ class HttpServer : public EventHandler
 
      std::atomic<bool> IsLoadingValue{true};
 
-     std::unordered_map<std::string, std::function<HttpResponse(const HttpRequest&)>> Routes;
+     std::unordered_map<std::string, std::function<HttpResponse(const HttpRequest &)>> Routes;
 
      /* Connection management. */
 
@@ -509,7 +504,7 @@ class HttpServer : public EventHandler
 
 #ifdef HLQUERY_HAS_OPENSSL
 
-     SSL_CTX* SSLCtx = nullptr;
+     SSL_CTX *SSLCtx = nullptr;
 
 #endif
 
@@ -523,21 +518,21 @@ class HttpServer : public EventHandler
 
      /* Thread pool for request processing. */
 
-     SearchThreadPool* ThreadPoolValue{nullptr};
+     SearchThreadPool *ThreadPoolValue{nullptr};
 };
 
 /* Validate SSL settings without binding sockets (preflight). */
 
-bool ValidateSSLConfig(const BindConfig& ConfigVal, std::string* ErrorMsg = nullptr);
+bool ValidateSSLConfig(const BindConfig &ConfigVal, std::string *ErrorMsg = nullptr);
 
 /* Initialize and start the HTTP server. */
 
-bool InitializeHttpServer(const BindConfig& ConfigVal, HttpServer*& HttpServerPtr);
+bool InitializeHttpServer(const BindConfig &ConfigVal, HttpServer *&HttpServerPtr);
 
 /* Stop and destroy the HTTP server. */
 
-void ShutdownHttpServer(HttpServer*& HttpServerPtr);
+void ShutdownHttpServer(HttpServer *&HttpServerPtr);
 
 /* URL decoding utility function. */
 
-std::string URLDecode(const std::string& Str);
+std::string URLDecode(const std::string &Str);

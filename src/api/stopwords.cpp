@@ -42,15 +42,19 @@
 #include "core/hlquery.h"
 #include "core/socketengine.h"
 #include "runtime/threadlimit.h"
-#include "search/rfusion.h"
-#include "search/cstore.h"
-#include "search/lindex.h"
+#include "search/hybrid_rank_fusion.h"
+#include "search/document_collection_store.h"
+#include "search/lexical_inverted_index.h"
 #include "utils/consolewriter.h"
 #include "utils/protocol.h"
 #include "utils/wildcard.h"
 #include "vendor/json/json.hpp"
 
+/* Provides stopword API handlers for per-collection text filtering. */
+
 static const char *kGlobalStopwordsCollection = "__global__";
+
+/* Implements the trim stopword value helper. */
 
 static std::string TrimStopwordValue(const std::string &Value)
 {
@@ -64,6 +68,8 @@ static std::string TrimStopwordValue(const std::string &Value)
      return Value.substr(Start, End - Start + 1);
 }
 
+/* Normalizes stopword value values. */
+
 static std::string NormalizeStopwordValue(const std::string &Value)
 {
      std::string Result = TrimStopwordValue(Value);
@@ -74,6 +80,8 @@ static std::string NormalizeStopwordValue(const std::string &Value)
                     });
      return Result;
 }
+
+/* Implements the stopword JSON value to text helper. */
 
 static std::string StopwordJSONValueToText(const nlohmann::json &Value)
 {
@@ -103,6 +111,17 @@ static std::string StopwordJSONValueToText(const nlohmann::json &Value)
      return "";
 }
 
+/* Implements the stopwords equal helper. */
+
+static bool StopwordsEqual(const std::string &Left, const std::string &Right)
+{
+     const std::string NormalizedLeft = NormalizeStopwordValue(Left);
+     const std::string NormalizedRight = NormalizeStopwordValue(Right);
+     return !NormalizedLeft.empty() && NormalizedLeft == NormalizedRight;
+}
+
+/* Checks whether global stopwords path applies. */
+
 static bool IsGlobalStopwordsPath(const std::string &Path)
 {
      return Path == "/stopwords/global" ||
@@ -110,6 +129,8 @@ static bool IsGlobalStopwordsPath(const std::string &Path)
             Path == "/stopword_sets/global" ||
             Path.find("/stopword_sets/global/") == 0;
 }
+
+/* Resolves stopword scope values. */
 
 static bool ResolveStopwordScope(const std::string &Path,
                                  const std::string &ExtractedCollection,
@@ -306,15 +327,15 @@ HttpResponse SearchAPI::HandleListStopwords(const HttpRequest &Request)
      }
 
      std::sort(Result["stopwords"].begin(), Result["stopwords"].end(), [&SortOptions](const nlohmann::json &Left, const nlohmann::json &Right)
-     {
-          const std::string LeftText = StopwordJSONValueToText(Left);
-          const std::string RightText = StopwordJSONValueToText(Right);
-          return CompareLexicalSortValues(NormalizeStopwordValue(LeftText),
-                                          NormalizeStopwordValue(RightText),
-                                          LeftText + "\n" + Left.dump(),
-                                          RightText + "\n" + Right.dump(),
-                                          SortOptions.SortOrder);
-     });
+               {
+                    const std::string LeftText = StopwordJSONValueToText(Left);
+                    const std::string RightText = StopwordJSONValueToText(Right);
+                    return CompareLexicalSortValues(NormalizeStopwordValue(LeftText),
+                                                    NormalizeStopwordValue(RightText),
+                                                    LeftText + "\n" + Left.dump(),
+                                                    RightText + "\n" + Right.dump(),
+                                                    SortOptions.SortOrder);
+               });
      Result["sort_by"] = SortOptions.SortBy;
      Result["sort_order"] = SortOptions.SortOrder;
      Response.Body = Result.dump();
@@ -477,24 +498,6 @@ HttpResponse SearchAPI::HandleCreateStopword(const HttpRequest &Request)
 
           auto &StopwordsArray = RootObj["stopwords"];
 
-          auto CaseInsensitiveEqual = [](const std::string &A, const std::string &B)
-          {
-               if (A.length() != B.length())
-               {
-                    return false;
-               }
-
-               for (size_t I = 0; I < A.length(); ++I)
-               {
-                    if (std::tolower(static_cast<unsigned char>(A[I])) != std::tolower(static_cast<unsigned char>(B[I])))
-                    {
-                         return false;
-                    }
-               }
-
-               return true;
-          };
-
           int AddedCount = 0;
 
           for (const auto &WordStr : WordsToAdd)
@@ -505,7 +508,7 @@ HttpResponse SearchAPI::HandleCreateStopword(const HttpRequest &Request)
                {
                     std::string ExistingWord = StopwordJSONValueToText(SW);
 
-                    if (!ExistingWord.empty() && CaseInsensitiveEqual(WordStr, ExistingWord))
+                    if (!ExistingWord.empty() && StopwordsEqual(WordStr, ExistingWord))
                     {
                          Exists = true;
                          break;
@@ -727,31 +730,13 @@ HttpResponse SearchAPI::HandleDeleteStopword(const HttpRequest &Request)
 
           auto &StopwordsArray = RootObj["stopwords"];
 
-          auto CaseInsensitiveEqual = [](const std::string &A, const std::string &B)
-          {
-               if (A.length() != B.length())
-               {
-                    return false;
-               }
-
-               for (size_t I = 0; I < A.length(); ++I)
-               {
-                    if (std::tolower(static_cast<unsigned char>(A[I])) != std::tolower(static_cast<unsigned char>(B[I])))
-                    {
-                         return false;
-                    }
-               }
-
-               return true;
-          };
-
           bool FoundVal = false;
 
           for (auto SWIt = StopwordsArray.begin(); SWIt != StopwordsArray.end(); ++SWIt)
           {
                std::string ExistingWord = StopwordJSONValueToText(*SWIt);
 
-               if (!ExistingWord.empty() && CaseInsensitiveEqual(WordStr, ExistingWord))
+               if (!ExistingWord.empty() && StopwordsEqual(WordStr, ExistingWord))
                {
                     StopwordsArray.erase(SWIt);
                     FoundVal = true;
@@ -831,15 +816,21 @@ HttpResponse SearchAPI::HandleDeleteStopword(const HttpRequest &Request)
      }
 }
 
+/* Handles list global stopwords requests. */
+
 HttpResponse SearchAPI::HandleListGlobalStopwords(const HttpRequest &Request)
 {
      return HandleListStopwords(Request);
 }
 
+/* Handles create global stopword requests. */
+
 HttpResponse SearchAPI::HandleCreateGlobalStopword(const HttpRequest &Request)
 {
      return HandleCreateStopword(Request);
 }
+
+/* Handles delete global stopword requests. */
 
 HttpResponse SearchAPI::HandleDeleteGlobalStopword(const HttpRequest &Request)
 {

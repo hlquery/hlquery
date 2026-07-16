@@ -21,6 +21,8 @@
 #include "utils/protocol.h"
 #include "vendor/json/json.hpp"
 
+/* Provides module control and inspection API handlers. */
+
 std::string NormalizeModulePath(const std::string &Path)
 {
      std::string normalized_path = Path;
@@ -38,6 +40,8 @@ std::string NormalizeModulePath(const std::string &Path)
 
      return normalized_path;
 }
+
+/* Implements the split path segments helper. */
 
 std::vector<std::string> SplitPathSegments(const std::string &Path)
 {
@@ -65,6 +69,8 @@ std::vector<std::string> SplitPathSegments(const std::string &Path)
      return segments;
 }
 
+/* Extracts module name from request values. */
+
 std::string ExtractModuleNameFromRequest(const HttpRequest &Request)
 {
      const std::vector<std::string> segments = SplitPathSegments(NormalizeModulePath(Request.Path));
@@ -76,6 +82,8 @@ std::string ExtractModuleNameFromRequest(const HttpRequest &Request)
 
      return segments[1];
 }
+
+/* Extracts module sub path from request values. */
 
 std::string ExtractModuleSubPathFromRequest(const HttpRequest &Request)
 {
@@ -100,6 +108,8 @@ std::string ExtractModuleSubPathFromRequest(const HttpRequest &Request)
 
      return sub_path;
 }
+
+/* Extracts controlled module name values. */
 
 std::string ExtractControlledModuleName(const HttpRequest &Request)
 {
@@ -146,12 +156,13 @@ std::string ExtractControlledModuleName(const HttpRequest &Request)
           }
           catch (...)
           {
-
           }
      }
 
      return "";
 }
+
+/* Extracts auth token from request values. */
 
 std::string ExtractAuthTokenFromRequest(const HttpRequest &Request)
 {
@@ -177,6 +188,8 @@ std::string ExtractAuthTokenFromRequest(const HttpRequest &Request)
      return Token;
 }
 
+/* Implements the request has admin privileges helper. */
+
 bool RequestHasAdminPrivileges(const HttpRequest &Request)
 {
      if (!Instance)
@@ -198,6 +211,8 @@ bool RequestHasAdminPrivileges(const HttpRequest &Request)
 
      return !Token.empty() && Instance->Users->IsAdmin(Token);
 }
+
+/* Validates controlled module name input. */
 
 bool ValidateControlledModuleName(const std::string &ModuleName, HttpResponse *Response)
 {
@@ -223,6 +238,8 @@ bool ValidateControlledModuleName(const std::string &ModuleName, HttpResponse *R
 
      return true;
 }
+
+/* Builds module description JSON data. */
 
 nlohmann::json BuildModuleDescriptionJSON(const ModuleAPIDescription &Description)
 {
@@ -256,6 +273,8 @@ nlohmann::json BuildModuleDescriptionJSON(const ModuleAPIDescription &Descriptio
      return module_json;
 }
 
+/* Builds module command JSON data. */
+
 nlohmann::json BuildModuleCommandJSON(const ModuleCommandSpec &Command)
 {
      nlohmann::json command_json;
@@ -285,6 +304,8 @@ nlohmann::json BuildModuleCommandJSON(const ModuleCommandSpec &Command)
      return command_json;
 }
 
+/* Builds module with commands JSON data. */
+
 nlohmann::json BuildModuleWithCommandsJSON(const ModuleAPIDescription &Description, const std::vector<ModuleCommandSpec> &Commands)
 {
      nlohmann::json module_json = BuildModuleDescriptionJSON(Description);
@@ -297,6 +318,8 @@ nlohmann::json BuildModuleWithCommandsJSON(const ModuleAPIDescription &Descripti
 
      return module_json;
 }
+/* Handles list modules requests. */
+
 HttpResponse SearchAPI::HandleListModules(const HttpRequest &Request)
 {
      (void)Request;
@@ -328,6 +351,8 @@ HttpResponse SearchAPI::HandleListModules(const HttpRequest &Request)
 
      return response;
 }
+
+/* Handles module syntax requests. */
 
 HttpResponse SearchAPI::HandleModuleSyntax(const HttpRequest &Request)
 {
@@ -365,6 +390,8 @@ HttpResponse SearchAPI::HandleModuleSyntax(const HttpRequest &Request)
 
      return response;
 }
+
+/* Handles module API requests. */
 
 HttpResponse SearchAPI::HandleModuleAPI(const HttpRequest &Request)
 {
@@ -424,6 +451,8 @@ HttpResponse SearchAPI::HandleModuleAPI(const HttpRequest &Request)
      return response;
 }
 
+/* Handles module load requests. */
+
 HttpResponse SearchAPI::HandleModuleLoad(const HttpRequest &Request)
 {
      if (Request.Method != "POST")
@@ -468,6 +497,8 @@ HttpResponse SearchAPI::HandleModuleLoad(const HttpRequest &Request)
      response.Body = response_json.dump();
      return response;
 }
+
+/* Handles module unload requests. */
 
 HttpResponse SearchAPI::HandleModuleUnload(const HttpRequest &Request)
 {

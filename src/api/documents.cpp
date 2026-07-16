@@ -46,13 +46,15 @@
 #include "core/modulemanager.h"
 #include "core/socketengine.h"
 #include "runtime/threadlimit.h"
-#include "search/rfusion.h"
-#include "search/cstore.h"
-#include "search/lindex.h"
+#include "search/hybrid_rank_fusion.h"
+#include "search/document_collection_store.h"
+#include "search/lexical_inverted_index.h"
 #include "utils/consolewriter.h"
 #include "utils/protocol.h"
 #include "utils/wildcard.h"
 #include "vendor/json/json.hpp"
+
+/* Provides document API handlers for ingestion, retrieval, updates, and deletion. */
 
 static nlohmann::json BuildDocumentJSON(const Document &Doc)
 {
@@ -93,6 +95,8 @@ static nlohmann::json BuildDocumentJSON(const Document &Doc)
 
      return J;
 }
+
+/* Implements the compare natural string helper. */
 
 static int CompareNaturalString(const std::string &A, const std::string &B)
 {
@@ -152,6 +156,8 @@ static int CompareNaturalString(const std::string &A, const std::string &B)
      return 0;
 }
 
+/* Handles list documents requests. */
+
 HttpResponse SearchAPI::HandleListDocuments(const HttpRequest &Request)
 {
      if (Request.Method != "GET")
@@ -196,7 +202,6 @@ HttpResponse SearchAPI::HandleListDocuments(const HttpRequest &Request)
           }
           catch (...)
           {
-
           }
      }
 
@@ -220,7 +225,6 @@ HttpResponse SearchAPI::HandleListDocuments(const HttpRequest &Request)
           }
           catch (...)
           {
-          
           }
      }
 
@@ -1848,6 +1852,8 @@ HttpResponse SearchAPI::HandleGetDocument(const HttpRequest &Request)
      return Response;
 }
 
+/* Handles get document context requests. */
+
 HttpResponse SearchAPI::HandleGetDocumentContext(const HttpRequest &Request)
 {
      if (Request.Method != "GET")
@@ -1877,7 +1883,7 @@ HttpResponse SearchAPI::HandleGetDocumentContext(const HttpRequest &Request)
      {
           DocObj = HybridStorageManagerInstance().GetDocument(CollectionName, DocumentID);
      }
-     catch (const std::exception& E)
+     catch (const std::exception &E)
      {
           return BuildErrorResponse(Status::INTERNAL_SERVER_ERROR,
                                     Code::SEARCH_INVALID_PARAMETER,
@@ -1909,6 +1915,8 @@ HttpResponse SearchAPI::HandleGetDocumentContext(const HttpRequest &Request)
      Response.Body = Root.dump();
      return Response;
 }
+
+/* Handles bulk import documents requests. */
 
 HttpResponse SearchAPI::HandleBulkImportDocuments(const HttpRequest &Request)
 {
@@ -2139,7 +2147,9 @@ HttpResponse SearchAPI::HandleBulkImportDocuments(const HttpRequest &Request)
      {
           std::string Value = AssumeNewIt->second;
           std::transform(Value.begin(), Value.end(), Value.begin(), [](unsigned char C)
-                         { return static_cast<char>(std::tolower(C)); });
+                         {
+                              return static_cast<char>(std::tolower(C));
+                         });
           AssumeNewDocuments = (Value == "1" || Value == "true" || Value == "yes" || Value == "on");
      }
 

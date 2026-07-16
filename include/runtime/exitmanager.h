@@ -23,14 +23,12 @@
 class CoreExport ExitManager
 {
    private:
-
      inline static std::vector<void (*)()> CleanupFuncs;
      inline static std::mutex CleanupMutex;
      inline static std::atomic<bool> ShuttingDownValue{false};
      inline static std::atomic<int> ExitStatusValue{0};
 
    public:
-
      /* Register a cleanup function to be called on exit */
 
      static void RegisterCleanup(void (*func)());

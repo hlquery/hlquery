@@ -124,7 +124,7 @@ void RunSearches(const std::string &base_url, const std::string &auth_token)
 
      std::vector<std::string> bench_collections;
      static const std::vector<std::string> fake_collections =
-          {"art", "books", "food", "history", "math", "movies", "music", "people", "science", "sports", "stocks", "technology", "travel", "universities"};
+          {"anomalies", "art", "books", "food", "history", "math", "movies", "music", "people", "science", "sports", "stocks", "technology", "travel", "universities"};
 
      for (const auto &col : all_collections)
      {
@@ -159,7 +159,7 @@ void RunSearches(const std::string &base_url, const std::string &auth_token)
           {
                "Document", "Collection", "content", "Lorem", "ipsum", "dolor",
                "consectetur", "adipiscing", "elit", "inserted", "thread",
-               "music", "science", "band", "cake", "discovery", "$SPY", "$QQQ", "ticker", "cashtag"};
+               "music", "science", "band", "cake", "discovery", "$SPY", "$QQQ", "ticker", "cashtag", "anomaly", "outlier"};
 
      for (size_t i = 0; i < base_queries.size(); i++)
      {

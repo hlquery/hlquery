@@ -18,6 +18,8 @@
 #include "core/hlquery.h"
 #include "utils/consolewriter.h"
 
+/* Defines HTTP route matching for API request dispatch. */
+
 static bool MatchesMethod(const std::string &Method, std::initializer_list<const char *> Candidates)
 {
      for (const char *Candidate : Candidates)
@@ -30,6 +32,8 @@ static bool MatchesMethod(const std::string &Method, std::initializer_list<const
 
      return false;
 }
+
+/* Implements the prefix route helper. */
 
 static bool PrefixRoute(const std::string &Path,
                         const std::string &Method,
@@ -49,6 +53,8 @@ static bool PrefixRoute(const std::string &Path,
 
      return MatchesMethod(Method, Methods);
 }
+
+/* Implements the single child route helper. */
 
 static bool SingleChildRoute(const std::string &Path,
                              const std::string &Method,
@@ -103,6 +109,8 @@ struct CollectionRouteInfo
      }
 };
 
+/* Normalizes route path values. */
+
 static std::string NormalizeRoutePath(const std::string &Path)
 {
      std::string NormalizedPath = Path;
@@ -121,6 +129,8 @@ static std::string NormalizeRoutePath(const std::string &Path)
 
      return NormalizedPath;
 }
+
+/* Implements the split route segments helper. */
 
 static std::vector<std::string_view> SplitRouteSegments(std::string_view Path)
 {
@@ -148,6 +158,8 @@ static std::vector<std::string_view> SplitRouteSegments(std::string_view Path)
      return Segments;
 }
 
+/* Builds collection route info data. */
+
 static CollectionRouteInfo BuildCollectionRouteInfo(std::string_view NormalizedPath)
 {
      CollectionRouteInfo Info;
@@ -173,10 +185,10 @@ static CollectionRouteInfo BuildCollectionRouteInfo(std::string_view NormalizedP
      Info.IsDocumentContext = Info.IsCollectionPath && Info.Segments.size() == 5 && Info.SegmentEquals(2, "documents") && Info.SegmentEquals(4, "context");
      Info.IsDocumentsUpdateByQuery = Info.IsDocumentsChild && Info.Segments.size() == 4 && Info.SegmentEquals(3, "_update_by_query");
      Info.IsDocumentsDeleteByQuery = Info.IsDocumentsChild && Info.Segments.size() == 4 && Info.SegmentEquals(3, "_delete_by_query");
-     Info.IsSynonymsRoot = Info.IsCollectionPath && Info.Segments.size() == 3 && Info.SegmentEquals(2, "synonyms");
-     Info.IsSynonymsChild = Info.IsCollectionPath && Info.Segments.size() >= 4 && Info.SegmentEquals(2, "synonyms");
-     Info.IsStopwordsRoot = Info.IsCollectionPath && Info.Segments.size() == 3 && Info.SegmentEquals(2, "stopwords");
-     Info.IsStopwordsChild = Info.IsCollectionPath && Info.Segments.size() >= 4 && Info.SegmentEquals(2, "stopwords");
+     Info.IsSynonymsRoot = Info.IsCollectionPath && Info.Segments.size() == 3 && (Info.SegmentEquals(2, "synonyms") || Info.SegmentEquals(2, "synonym_sets"));
+     Info.IsSynonymsChild = Info.IsCollectionPath && Info.Segments.size() >= 4 && (Info.SegmentEquals(2, "synonyms") || Info.SegmentEquals(2, "synonym_sets"));
+     Info.IsStopwordsRoot = Info.IsCollectionPath && Info.Segments.size() == 3 && (Info.SegmentEquals(2, "stopwords") || Info.SegmentEquals(2, "stopword_sets"));
+     Info.IsStopwordsChild = Info.IsCollectionPath && Info.Segments.size() >= 4 && (Info.SegmentEquals(2, "stopwords") || Info.SegmentEquals(2, "stopword_sets"));
      Info.IsOverridesRoot = Info.IsCollectionPath && Info.Segments.size() == 3 && Info.SegmentEquals(2, "overrides");
      Info.IsOverridesChild = Info.IsCollectionPath && Info.Segments.size() >= 4 && Info.SegmentEquals(2, "overrides");
      Info.IsCurationsRoot = Info.IsCollectionPath && Info.Segments.size() == 3 && (Info.SegmentEquals(2, "curations") || Info.SegmentEquals(2, "curation_sets"));
@@ -185,6 +197,8 @@ static CollectionRouteInfo BuildCollectionRouteInfo(std::string_view NormalizedP
 
      return Info;
 }
+
+/* Returns the exact-match GET route table. */
 
 static const std::unordered_map<std::string_view, RouteAction> &GetExactGetRoutes()
 {
@@ -197,6 +211,7 @@ static const std::unordered_map<std::string_view, RouteAction> &GetExactGetRoute
           {"/collections", RouteAction::ListCollections},
           {"/collections/distributed", RouteAction::ListCollectionsDistributed},
           {"/connections", RouteAction::Connections},
+          {"/config-files", RouteAction::ConfigFiles},
           {"/consistency", RouteAction::Integrity},
           {"/debug/counters", RouteAction::DebugCounters},
           {"/doctotal", RouteAction::DocTotal},
@@ -241,6 +256,8 @@ static const std::unordered_map<std::string_view, RouteAction> &GetExactGetRoute
      return Routes;
 }
 
+/* Returns the exact-match POST route table. */
+
 static const std::unordered_map<std::string_view, RouteAction> &GetExactPostRoutes()
 {
      static const std::unordered_map<std::string_view, RouteAction> Routes = {
@@ -264,6 +281,8 @@ static const std::unordered_map<std::string_view, RouteAction> &GetExactPostRout
 
      return Routes;
 }
+
+/* Resolves exact route values. */
 
 static RouteAction ResolveExactRoute(std::string_view Path, const std::string &Method)
 {
@@ -290,6 +309,8 @@ static RouteAction ResolveExactRoute(std::string_view Path, const std::string &M
 
      return RouteIt->second;
 }
+
+/* Resolves HTTP route values. */
 
 RouteAction ResolveHttpRoute(const HttpRequest &Request)
 {
@@ -653,6 +674,8 @@ RouteAction ResolveHttpRoute(const HttpRequest &Request)
      }
 }
 
+/* Returns the readable name for a route action. */
+
 const char *RouteActionName(RouteAction ActionVal)
 {
      switch (ActionVal)
@@ -661,6 +684,8 @@ const char *RouteActionName(RouteAction ActionVal)
                return "Status";
           case RouteAction::SearchConfig:
                return "SearchConfig";
+          case RouteAction::ConfigFiles:
+               return "ConfigFiles";
           case RouteAction::Health:
                return "Health";
           case RouteAction::Ready:

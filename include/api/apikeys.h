@@ -119,7 +119,7 @@ struct APIKey
 
      /* Check if action is allowed for a specific collection. */
 
-     bool HasAction(const std::string& CollectionName, APIKeyAction ActionVal) const
+     bool HasAction(const std::string &CollectionName, APIKeyAction ActionVal) const
      {
           auto Scope = GetScopeForCollection(CollectionName);
 
@@ -138,14 +138,14 @@ struct APIKey
 
      /* Check if collection is allowed. */
 
-     bool CanAccessCollection(const std::string& CollectionName) const
+     bool CanAccessCollection(const std::string &CollectionName) const
      {
           return GetScopeForCollection(CollectionName) != nullptr;
      }
 
      /* Get scope for a collection, considering wildcards. */
 
-     const CollectionScope* GetScopeForCollection(const std::string& CollectionName) const
+     const CollectionScope *GetScopeForCollection(const std::string &CollectionName) const
      {
           auto It = Scopes.find(CollectionName);
 
@@ -168,7 +168,7 @@ struct APIKey
 
      /* Get embedded filters for a collection. */
 
-     std::string GetEmbeddedFilters(const std::string& CollectionName) const
+     std::string GetEmbeddedFilters(const std::string &CollectionName) const
      {
           auto Scope = GetScopeForCollection(CollectionName);
 
@@ -186,8 +186,7 @@ struct APIKey
 class APIKeyManager
 {
    public:
-
-     static APIKeyManager& Instance()
+     static APIKeyManager &Instance()
      {
           static APIKeyManager SInstance;
 
@@ -196,15 +195,15 @@ class APIKeyManager
 
      /* Create new API key. */
 
-     std::string CreateKey(APIKey& KeySpec);
+     std::string CreateKey(APIKey &KeySpec);
 
      /* Get key by ID. */
 
-     bool GetKey(const std::string& KeyID, APIKey* OutKey);
+     bool GetKey(const std::string &KeyID, APIKey *OutKey);
 
      /* Validate key (returns nullptr if invalid/expired). */
 
-     bool ValidateKey(const std::string& KeyString, APIKey* OutKey);
+     bool ValidateKey(const std::string &KeyString, APIKey *OutKey);
 
      /* List all keys. */
 
@@ -212,44 +211,42 @@ class APIKeyManager
 
      /* Delete key. */
 
-     bool DeleteKey(const std::string& KeyID);
+     bool DeleteKey(const std::string &KeyID);
 
      /* Update key. */
 
-     bool UpdateKey(const std::string& KeyID, const APIKey& KeySpec);
+     bool UpdateKey(const std::string &KeyID, const APIKey &KeySpec);
 
      /* Update last used time. */
 
-     void UpdateLastUsed(const std::string& KeyID);
+     void UpdateLastUsed(const std::string &KeyID);
 
      /* Check rate limit. */
 
-     bool CheckRateLimit(const std::string& KeyID);
+     bool CheckRateLimit(const std::string &KeyID);
 
      /* Persistence. */
 
      bool Initialize();
-     bool SaveKeysToEncryptedFile(const std::string& FilePath);
-     bool LoadKeysFromEncryptedFile(const std::string& FilePath);
+     bool SaveKeysToEncryptedFile(const std::string &FilePath);
+     bool LoadKeysFromEncryptedFile(const std::string &FilePath);
 
    private:
-
      APIKeyManager()
      {
-     
      }
 
      ~APIKeyManager()
      {
-     
      }
 
-     APIKeyManager(const APIKeyManager&) = delete;
-     APIKeyManager& operator=(const APIKeyManager&) = delete;
+     APIKeyManager(const APIKeyManager &) = delete;
+     APIKeyManager &operator=(const APIKeyManager &) = delete;
 
      std::unordered_map<std::string, APIKey> Keys;
      std::unordered_map<std::string, std::string> HashToID; /* Hash -> ID lookup. */
      std::shared_mutex MutexValue;
+     std::mutex PersistenceMutex;
 
      /* Rate limiting tracking. */
 
@@ -268,5 +265,7 @@ class APIKeyManager
 
      /* Hash key for storage. */
 
-     std::string HashKey(const std::string& Key);
+     std::string HashKey(const std::string &Key);
+
+     bool SaveKeySnapshotToEncryptedFile(const std::string &FilePath, const std::vector<APIKey> &Snapshot);
 };

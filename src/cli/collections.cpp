@@ -74,7 +74,6 @@ nlohmann::json BuildCreatePayloadFromCollectionInfo(const nlohmann::json &source
      return create_payload;
 }
 
-
 /* Lists collections. */
 
 bool HLQueryCLI::CollectionExists(const std::string &collection_name)
@@ -995,8 +994,8 @@ void HLQueryCLI::MigrateCollection(const std::string &source_name, const std::st
           if (list_response.StatusCode == 400)
           {
                const std::string fallback_list_path = "/collections/" + hlquery_cli::UrlEncode(source_name) +
-                                                     "/documents?offset=" + std::to_string(offset) +
-                                                     "&limit=" + std::to_string(batch_size);
+                                                      "/documents?offset=" + std::to_string(offset) +
+                                                      "&limit=" + std::to_string(batch_size);
                list_response = MakeRequest("GET", fallback_list_path, "", DefaultTimeoutSeconds);
           }
 
@@ -1056,9 +1055,9 @@ void HLQueryCLI::MigrateCollection(const std::string &source_name, const std::st
                     }
 
                     HTTPResponse single_response = MakeRequest("POST",
-                                                              "/collections/" + hlquery_cli::UrlEncode(target_name) + "/documents",
-                                                              doc.dump(),
-                                                              DefaultTimeoutSeconds);
+                                                               "/collections/" + hlquery_cli::UrlEncode(target_name) + "/documents",
+                                                               doc.dump(),
+                                                               DefaultTimeoutSeconds);
 
                     if (single_response.StatusCode != 201)
                     {
@@ -1181,8 +1180,8 @@ void HLQueryCLI::CopyCollection(const std::string &source_name, const std::strin
           if (list_response.StatusCode == 400)
           {
                const std::string fallback_list_path = "/collections/" + hlquery_cli::UrlEncode(source_name) +
-                                                     "/documents?offset=" + std::to_string(offset) +
-                                                     "&limit=" + std::to_string(batch_size);
+                                                      "/documents?offset=" + std::to_string(offset) +
+                                                      "&limit=" + std::to_string(batch_size);
                list_response = MakeRequest("GET", fallback_list_path, "", DefaultTimeoutSeconds);
           }
 
@@ -1242,9 +1241,9 @@ void HLQueryCLI::CopyCollection(const std::string &source_name, const std::strin
                     }
 
                     HTTPResponse single_response = MakeRequest("POST",
-                                                              "/collections/" + hlquery_cli::UrlEncode(target_name) + "/documents",
-                                                              doc.dump(),
-                                                              DefaultTimeoutSeconds);
+                                                               "/collections/" + hlquery_cli::UrlEncode(target_name) + "/documents",
+                                                               doc.dump(),
+                                                               DefaultTimeoutSeconds);
 
                     if (single_response.StatusCode != 201)
                     {

@@ -29,11 +29,63 @@
 #include "utils/consolewriter.h"
 #include "utils/infos.h"
 
+/* Implements user authentication configuration and token validation. */
+
 constexpr size_t kMaxUserNameLen = 256;
 constexpr size_t kMaxUserTokenLen = 1024;
+constexpr size_t kMaxUserPasswordLen = 1024;
 constexpr size_t kMaxUserDescLen = 4096;
 constexpr uint32_t kMaxUserFlagsCount = 16;
 constexpr size_t kMaxUsersDatSize = 64 * 1024 * 1024;
+
+static int Base64Value(char Ch)
+{
+     if (Ch >= 'A' && Ch <= 'Z') return Ch - 'A';
+     if (Ch >= 'a' && Ch <= 'z') return Ch - 'a' + 26;
+     if (Ch >= '0' && Ch <= '9') return Ch - '0' + 52;
+     if (Ch == '+') return 62;
+     if (Ch == '/') return 63;
+     return -1;
+}
+
+static bool DecodeBase64(const std::string &Input, std::string &Output)
+{
+     Output.clear();
+
+     int Val = 0;
+     int ValBits = -8;
+
+     for (char Ch : Input)
+     {
+          if (Ch == '=')
+          {
+               break;
+          }
+
+          if (Ch == ' ' || Ch == '\t' || Ch == '\r' || Ch == '\n')
+          {
+               continue;
+          }
+
+          int Decoded = Base64Value(Ch);
+
+          if (Decoded < 0)
+          {
+               return false;
+          }
+
+          Val = (Val << 6) + Decoded;
+          ValBits += 6;
+
+          if (ValBits >= 0)
+          {
+               Output.push_back(static_cast<char>((Val >> ValBits) & 0xFF));
+               ValBits -= 8;
+          }
+     }
+
+     return true;
+}
 
 /* WriteFileAtomic writes data to a temp file, fsyncs, then renames into place. */
 
@@ -218,14 +270,15 @@ bool UserAuthManager::LoadUsersFromConfigReader(const ConfigReader &Reader)
      {
           std::string Name = UserTag->GetString("name", "");
           std::string Token = UserTag->GetString("token", "");
+          std::string Password = UserTag->GetString("password", "");
           std::string FlagsStr = UserTag->GetString("flags", "user");
           std::string Description = UserTag->GetString("description", "");
 
-          if (Token.empty())
+          if (Token.empty() && Password.empty())
           {
                if (Instance && Instance->Logs)
                {
-                    Instance->Logs->Normal("auth", "Skipping user with empty token.");
+                    Instance->Logs->Normal("auth", "Skipping user with empty token and password.");
                }
 
                continue;
@@ -233,11 +286,22 @@ bool UserAuthManager::LoadUsersFromConfigReader(const ConfigReader &Reader)
 
           if (Name.empty())
           {
-               Name = Token.substr(0, std::min(size_t(8), Token.size()));
-
-               if (Token.size() > 8)
+               if (!Token.empty())
                {
-                    Name += "...";
+                    Name = Token.substr(0, std::min(size_t(8), Token.size()));
+
+                    if (Token.size() > 8)
+                    {
+                         Name += "...";
+                    }
+               }
+               else
+               {
+                    if (Instance && Instance->Logs)
+                    {
+                         Instance->Logs->Normal("auth", "Skipping password user with empty name.");
+                    }
+                    continue;
                }
           }
 
@@ -245,10 +309,15 @@ bool UserAuthManager::LoadUsersFromConfigReader(const ConfigReader &Reader)
 
           UserObj.Name = Name;
           UserObj.Token = Token;
+          UserObj.Password = Password;
           UserObj.Description = Description;
           UserObj.Flags = ParseUserFlags(FlagsStr);
 
-          UsersByToken[Token] = UserObj;
+          if (!Token.empty())
+          {
+               UsersByToken[Token] = UserObj;
+          }
+
           UsersByName[Name] = UserObj;
      }
 
@@ -286,7 +355,16 @@ bool UserAuthManager::ParseConfigFile(const std::string &ConfigFile)
           else if (AuthEnabled && Line.find("<user") != std::string::npos)
           {
                CurrentUserEntry = Line;
-               InUserEntry = true;
+               if (Line.find(">") != std::string::npos)
+               {
+                    ParseUserEntry(CurrentUserEntry);
+                    CurrentUserEntry = "";
+                    InUserEntry = false;
+               }
+               else
+               {
+                    InUserEntry = true;
+               }
           }
           else if (AuthEnabled && InUserEntry)
           {
@@ -306,7 +384,7 @@ bool UserAuthManager::ParseConfigFile(const std::string &ConfigFile)
 
      if (AuthEnabled)
      {
-          print_info("Loaded {} users from config.", UsersByToken.size());
+          print_info("Loaded {} users from config.", UsersByName.size());
      }
 
      print_ok("Authentication {}.", AuthEnabled ? "enabled" : "disabled");
@@ -341,6 +419,7 @@ bool UserAuthManager::ParseUserEntry(const std::string &Line)
 {
      std::string Name;
      std::string Token;
+     std::string Password;
      std::string FlagsStr;
      std::string Description;
 
@@ -351,7 +430,15 @@ bool UserAuthManager::ParseUserEntry(const std::string &Line)
      {
           Token = Match[1].str();
      }
-     else
+
+     std::regex PasswordRegex("password=\"([^\"]+)\"");
+
+     if (std::regex_search(Line, Match, PasswordRegex))
+     {
+          Password = Match[1].str();
+     }
+
+     if (Token.empty() && Password.empty())
      {
           return false;
      }
@@ -364,6 +451,11 @@ bool UserAuthManager::ParseUserEntry(const std::string &Line)
      }
      else
      {
+          if (Token.empty())
+          {
+               return false;
+          }
+
           Name = Token.substr(0, std::min(size_t(8), Token.size()));
 
           if (Token.size() > 8)
@@ -375,6 +467,13 @@ bool UserAuthManager::ParseUserEntry(const std::string &Line)
      if (Token.size() > kMaxUserTokenLen)
      {
           print_info("ERROR: User token too long in config.");
+
+          return false;
+     }
+
+     if (Password.size() > kMaxUserPasswordLen)
+     {
+          print_info("ERROR: User password too long in config.");
 
           return false;
      }
@@ -413,9 +512,13 @@ bool UserAuthManager::ParseUserEntry(const std::string &Line)
 
      std::set<UserFlag> Flags = ParseUserFlags(FlagsStr);
 
-     User UserObj(Name, Token, Flags, Description);
+     User UserObj(Name, Token, Password, Flags, Description);
 
-     UsersByToken[Token] = UserObj;
+     if (!Token.empty())
+     {
+          UsersByToken[Token] = UserObj;
+     }
+
      UsersByName[Name] = UserObj;
 
      return true;
@@ -513,6 +616,42 @@ AuthResult UserAuthManager::AuthenticateToken(const std::string &Token)
 
 AuthResult UserAuthManager::AuthenticateRequest(const std::string &AuthHeader)
 {
+     if (AuthHeader.find("Basic ") == 0)
+     {
+          std::string Decoded;
+
+          if (!DecodeBase64(AuthHeader.substr(6), Decoded))
+          {
+               return AuthResult(false, User(), "Invalid basic authentication encoding.");
+          }
+
+          size_t Separator = Decoded.find(':');
+
+          if (Separator == std::string::npos)
+          {
+               return AuthResult(false, User(), "Invalid basic authentication payload.");
+          }
+
+          std::string Name = Decoded.substr(0, Separator);
+          std::string Password = Decoded.substr(Separator + 1);
+
+          if (Name.empty() || Password.empty())
+          {
+               return AuthResult(false, User(), "Empty basic authentication credentials.");
+          }
+
+          std::lock_guard<std::mutex> Lock(UsersMutex);
+
+          auto It = UsersByName.find(Name);
+
+          if (It == UsersByName.end() || It->second.Password.empty() || It->second.Password != Password)
+          {
+               return AuthResult(false, User(), "Invalid username or password.");
+          }
+
+          return AuthResult(true, It->second);
+     }
+
      std::string Token = ExtractTokenFromHeader(AuthHeader);
 
      if (Token.empty())
@@ -551,7 +690,11 @@ bool UserAuthManager::AddUser(const User &UserObj)
 {
      std::lock_guard<std::mutex> Lock(UsersMutex);
 
-     UsersByToken[UserObj.Token] = UserObj;
+     if (!UserObj.Token.empty())
+     {
+          UsersByToken[UserObj.Token] = UserObj;
+     }
+
      UsersByName[UserObj.Name] = UserObj;
 
      return true;
@@ -569,7 +712,11 @@ bool UserAuthManager::RemoveUser(const std::string &Name)
      {
           std::string Token = NameIt->second.Token;
 
-          UsersByToken.erase(Token);
+          if (!Token.empty())
+          {
+               UsersByToken.erase(Token);
+          }
+
           UsersByName.erase(NameIt);
 
           return true;
@@ -588,10 +735,17 @@ bool UserAuthManager::UpdateUser(const User &UserObj)
 
      if (NameIt != UsersByName.end())
      {
-          UsersByToken.erase(NameIt->second.Token);
+          if (!NameIt->second.Token.empty())
+          {
+               UsersByToken.erase(NameIt->second.Token);
+          }
      }
 
-     UsersByToken[UserObj.Token] = UserObj;
+     if (!UserObj.Token.empty())
+     {
+          UsersByToken[UserObj.Token] = UserObj;
+     }
+
      UsersByName[UserObj.Name] = UserObj;
 
      return true;
@@ -725,11 +879,11 @@ bool UserAuthManager::SaveUsersToEncryptedFile(const std::string &FilePath)
 {
      std::ostringstream OSS(std::ios::binary);
 
-     uint32_t UserCount = UsersByToken.size();
+     uint32_t UserCount = UsersByName.size();
 
      OSS.write(reinterpret_cast<const char *>(&UserCount), sizeof(UserCount));
 
-     for (const auto &Pair : UsersByToken)
+     for (const auto &Pair : UsersByName)
      {
           const User &UserObj = Pair.second;
 
@@ -982,7 +1136,11 @@ bool UserAuthManager::LoadUsersFromEncryptedFile(const std::string &FilePath)
                return false;
           }
 
-          UsersByToken[UserObj.Token] = UserObj;
+          if (!UserObj.Token.empty())
+          {
+               UsersByToken[UserObj.Token] = UserObj;
+          }
+
           UsersByName[UserObj.Name] = UserObj;
      }
 

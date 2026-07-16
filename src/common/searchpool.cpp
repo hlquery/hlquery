@@ -16,29 +16,29 @@
 #include <sched.h>
 #include <sstream>
 #include <unistd.h>
-     
+
 #if defined(__linux__)
-     
-     #include <sys/sysinfo.h>
-     
+
+#include <sys/sysinfo.h>
+
 #endif
 
 #include "common/searchpool.h"
 #include "core/hlquery.h"
 #include "runtime/threadlimit.h"
-#include "search/storageengine.h"
+#include "search/rocksdb_storage_engine.h"
 
 namespace
 {
-     std::chrono::steady_clock::time_point PoolNow()
+std::chrono::steady_clock::time_point PoolNow()
+{
+     if (Instance)
      {
-          if (Instance)
-          {
-               return Instance->Now();
-          }
-
-          return std::chrono::steady_clock::now();
+          return Instance->Now();
      }
+
+     return std::chrono::steady_clock::now();
+}
 }
 
 SearchThreadPool::SearchThreadPool(const ThreadPoolConfig &config)
@@ -132,7 +132,7 @@ void SearchThreadPool::Start()
      {
           /* Check thread limit before creating */
 
-          if (ThreadLimit::GetCurrentThreadCount() >= ThreadLimit::GetMaxThreads())
+          if (!ThreadLimit::TryAcquireThreadSlot())
           {
                if (Instance && Instance->Logs)
                {
@@ -150,10 +150,6 @@ void SearchThreadPool::Start()
                Workers.push_back(std::move(worker));
                ActiveWorkerCount.store(Workers.size(), std::memory_order_release);
           }
-
-          /* Register thread before creating to prevent exceeding limit */
-
-          ThreadLimit::IncrementThreadCount();
 
           try
           {
@@ -213,9 +209,16 @@ void SearchThreadPool::Start()
                break;
           }
 
-          if (Config.EnableCPUAffinity && !CPUCores.empty())
+          std::vector<int> CPUCoresSnapshot;
+
           {
-               int cpu_core = CPUCores[i % CPUCores.size()];
+               std::lock_guard<std::mutex> Lock(WorkersMutex);
+               CPUCoresSnapshot = CPUCores;
+          }
+
+          if (Config.EnableCPUAffinity && !CPUCoresSnapshot.empty())
+          {
+               int cpu_core = CPUCoresSnapshot[i % CPUCoresSnapshot.size()];
 
                SetThreadAffinity(worker_ptr->Thread, cpu_core);
 
@@ -392,11 +395,11 @@ void SearchThreadPool::ScaleDown(size_t threads_to_remove)
 
 void SearchThreadPool::SetCPUAffinity(const std::vector<int> &cpu_cores)
 {
-     CPUCores = cpu_cores;
-
      /* Apply affinity to existing threads */
 
      std::lock_guard<std::mutex> Lock(WorkersMutex);
+
+     CPUCores = cpu_cores;
 
      for (size_t i = 0; i < Workers.size() && i < CPUCores.size(); ++i)
      {
@@ -592,7 +595,7 @@ void SearchThreadPool::ScaleThreads(size_t target_threads)
 
                for (size_t i = CurrentThreads; i < target_threads; ++i)
                {
-                    if (ThreadLimit::GetCurrentThreadCount() >= ThreadLimit::GetMaxThreads())
+                    if (!ThreadLimit::TryAcquireThreadSlot())
                     {
                          if (Instance && Instance->Logs)
                          {
@@ -601,10 +604,6 @@ void SearchThreadPool::ScaleThreads(size_t target_threads)
 
                          break;
                     }
-
-                    /* Register thread before creating to prevent exceeding limit */
-
-                    ThreadLimit::IncrementThreadCount();
 
                     try
                     {
@@ -836,10 +835,10 @@ bool ThreadPoolManager::Initialize()
 
      if (Instance && Instance->Config)
      {
-          SearchThreads = static_cast<size_t>(Instance->Config->GetSearchPoolThreads());
-          HTTPThreads = static_cast<size_t>(Instance->Config->GetHTTPPoolThreads());
-          WriteThreads = static_cast<size_t>(Instance->Config->GetWritePoolThreads());
-          MgmtThreads = static_cast<size_t>(Instance->Config->GetManagementPoolThreads());
+          SearchThreads = static_cast<size_t>(Instance->Config->SearchPoolThreads);
+          HTTPThreads = static_cast<size_t>(Instance->Config->HTTPPoolThreads);
+          WriteThreads = static_cast<size_t>(Instance->Config->WritePoolThreads);
+          MgmtThreads = static_cast<size_t>(Instance->Config->ManagementPoolThreads);
      }
 
      /* If any pool is set to 0 (auto), calculate distribution */
@@ -1272,6 +1271,6 @@ std::vector<int> CPUAffinityManager::GetOptimalCoresForPool(SearchThreadPool::Po
 void CPUAffinityManager::EnableNUMAOptimization()
 {
      NUMAEnabled = true;
-     
+
      /* Additional NUMA optimization logic would go here */
 }

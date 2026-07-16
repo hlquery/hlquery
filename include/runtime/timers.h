@@ -28,7 +28,6 @@
 class CoreExport Timer
 {
    private:
-
      /* Timer clock type */
 
      using Clock = std::chrono::steady_clock;
@@ -50,7 +49,6 @@ class CoreExport Timer
      bool Repeating;
 
    public:
-
      /* Constructor */
 
      Timer();
@@ -106,7 +104,6 @@ class CoreExport Timer
 class CoreExport TimerManager
 {
    private:
-
      /* Active timers */
 
      std::vector<Timer> Entries;
@@ -116,7 +113,6 @@ class CoreExport TimerManager
      mutable std::shared_mutex MutexValue;
 
    public:
-
      /* Timer clock type */
 
      using Clock = std::chrono::steady_clock;

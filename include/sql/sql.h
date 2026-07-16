@@ -150,7 +150,6 @@ struct SQLTranslationResult
 class SQLService
 {
    public:
-
      /* Parses any supported SQL statement into a translation result. */
 
      SQLTranslationResult Parse(const std::string &sql_text) const;

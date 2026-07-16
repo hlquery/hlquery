@@ -192,9 +192,9 @@ void DaemonHandler::ProcessSocketEngineOptimization()
 
      /* Track activity levels based on socket event deltas */
 
-     int CurrentEventCount  =  SocketEngine::GetEventCount();
-     int LastCount          =  LastEventCount.load(std::memory_order_relaxed);
-     int EventsDelta        =  CurrentEventCount - LastCount;
+     int CurrentEventCount = SocketEngine::GetEventCount();
+     int LastCount = LastEventCount.load(std::memory_order_relaxed);
+     int EventsDelta = CurrentEventCount - LastCount;
 
      /* Any positive delta means the engine is still actively consuming socket work. */
 
@@ -272,7 +272,7 @@ void DaemonHandler::ProcessLazyOperations()
      }
 
      const bool HasPendingSocketWork = SocketEngine::HasPendingWork();
- 
+
      DaemonPressureSnapshot PressureSnapshot = BuildDaemonPressureSnapshot(HasPendingSocketWork);
      StageRuns[StageQueryPressure].fetch_add(1, std::memory_order_relaxed);
      PressureScore.store(PressureSnapshot.PressureScoreValue, std::memory_order_relaxed);

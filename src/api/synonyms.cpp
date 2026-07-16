@@ -43,15 +43,19 @@
 #include "core/hlquery.h"
 #include "core/socketengine.h"
 #include "runtime/threadlimit.h"
-#include "search/rfusion.h"
-#include "search/cstore.h"
-#include "search/lindex.h"
+#include "search/hybrid_rank_fusion.h"
+#include "search/document_collection_store.h"
+#include "search/lexical_inverted_index.h"
 #include "utils/consolewriter.h"
 #include "utils/protocol.h"
 #include "utils/wildcard.h"
 #include "vendor/json/json.hpp"
 
+/* Provides synonym API handlers for query expansion configuration. */
+
 static const char *kGlobalSynonymsCollection = "__global__";
+
+/* Checks whether global synonyms path applies. */
 
 static bool IsGlobalSynonymsPath(const std::string &Path)
 {
@@ -60,6 +64,8 @@ static bool IsGlobalSynonymsPath(const std::string &Path)
             Path == "/synonym_sets/global" ||
             Path.find("/synonym_sets/global/") == 0;
 }
+
+/* Extracts global synonym id values. */
 
 static std::string ExtractGlobalSynonymId(const std::string &Path)
 {
@@ -73,6 +79,8 @@ static std::string ExtractGlobalSynonymId(const std::string &Path)
 
      return "";
 }
+
+/* Resolves synonym scope values. */
 
 static bool ResolveSynonymScope(const std::string &Path,
                                 const std::string &ExtractedCollection,
@@ -103,6 +111,8 @@ static bool ResolveSynonymScope(const std::string &Path,
      return false;
 }
 
+/* Applies synonym pre check processing. */
+
 static HttpResponse ApplySynonymPreCheck(const ModulePreCheckResult &PreCheck)
 {
      if (PreCheck.Action == ModulePreCheckAction::Deny)
@@ -113,23 +123,14 @@ static HttpResponse ApplySynonymPreCheck(const ModulePreCheckResult &PreCheck)
      return HttpResponse(0, "", "");
 }
 
+/* Checks whether module pre check failure exists. */
+
 static bool HasModulePreCheckFailure(const HttpResponse &Response)
 {
      return Response.StatusCode != 0;
 }
 
-static std::string NormalizeSynonymTerm(const std::string &Value)
-{
-     std::string Result;
-     Result.reserve(Value.size());
-
-     for (unsigned char ch : Value)
-     {
-          Result.push_back(static_cast<char>(std::tolower(ch)));
-     }
-
-     return Result;
-}
+/* Implements the trim synonym term helper. */
 
 static std::string TrimSynonymTerm(const std::string &Value)
 {
@@ -144,6 +145,22 @@ static std::string TrimSynonymTerm(const std::string &Value)
      return Value.substr(Start, End - Start + 1);
 }
 
+/* Normalizes synonym term values. */
+
+static std::string NormalizeSynonymTerm(const std::string &Value)
+{
+     std::string Result = TrimSynonymTerm(Value);
+
+     for (char &Ch : Result)
+     {
+          Ch = static_cast<char>(std::tolower(static_cast<unsigned char>(Ch)));
+     }
+
+     return Result;
+}
+
+/* Returns synonym sort value values. */
+
 static std::string GetSynonymSortValue(const nlohmann::json &Synonym, const std::string &SortBy)
 {
      if (!Synonym.is_object() || !Synonym.contains(SortBy) || !Synonym[SortBy].is_string())
@@ -153,6 +170,8 @@ static std::string GetSynonymSortValue(const nlohmann::json &Synonym, const std:
 
      return NormalizeSynonymTerm(TrimSynonymTerm(Synonym[SortBy].get<std::string>()));
 }
+
+/* Returns synonym sort tie breaker values. */
 
 static std::string GetSynonymSortTieBreaker(const nlohmann::json &Synonym)
 {
@@ -258,13 +277,13 @@ HttpResponse SearchAPI::HandleListSynonyms(const HttpRequest &Request)
      }
 
      std::sort(SynonymsArray.begin(), SynonymsArray.end(), [&SortOptions](const nlohmann::json &Left, const nlohmann::json &Right)
-     {
-          return CompareLexicalSortValues(GetSynonymSortValue(Left, SortOptions.SortBy),
-                                          GetSynonymSortValue(Right, SortOptions.SortBy),
-                                          GetSynonymSortTieBreaker(Left),
-                                          GetSynonymSortTieBreaker(Right),
-                                          SortOptions.SortOrder);
-     });
+               {
+                    return CompareLexicalSortValues(GetSynonymSortValue(Left, SortOptions.SortBy),
+                                                    GetSynonymSortValue(Right, SortOptions.SortBy),
+                                                    GetSynonymSortTieBreaker(Left),
+                                                    GetSynonymSortTieBreaker(Right),
+                                                    SortOptions.SortOrder);
+               });
 
      Result["sort_by"] = SortOptions.SortBy;
      Result["sort_order"] = SortOptions.SortOrder;
@@ -324,7 +343,6 @@ HttpResponse SearchAPI::HandleListAllSynonyms(const HttpRequest &Request)
                }
                catch (const std::exception &)
                {
-               
                }
           }
 
@@ -544,7 +562,7 @@ HttpResponse SearchAPI::HandleCreateOrUpdateSynonym(const HttpRequest &Request)
                     Syn["root"] = SynonymData["root"];
                     Syn["synonyms"] = SynonymData["synonyms"];
                     Syn["updated_at"] = GetCurrentTimestamp();
-                
+
                     if (!Source.empty())
                     {
                          Syn["source"] = Source;
@@ -576,12 +594,12 @@ HttpResponse SearchAPI::HandleCreateOrUpdateSynonym(const HttpRequest &Request)
                NewSynonym["synonyms"] = SynonymData["synonyms"];
                NewSynonym["created_at"] = GetCurrentTimestamp();
                NewSynonym["updated_at"] = GetCurrentTimestamp();
-               
+
                if (!Source.empty())
                {
                     NewSynonym["source"] = Source;
                }
-               
+
                if (SynonymData.contains("confidence") && SynonymData["confidence"].is_number())
                {
                     NewSynonym["confidence"] = SynonymData["confidence"];
@@ -722,17 +740,6 @@ HttpResponse SearchAPI::HandleGetSynonym(const HttpRequest &Request)
      if (CollectionName.empty() || SynonymID.empty())
      {
           return HttpResponse(Status::BAD_REQUEST, StatusText(Status::BAD_REQUEST), "application/json");
-     }
-
-     if (Instance && Instance->Modules)
-     {
-          HttpResponse PreCheckResponse = ApplySynonymPreCheck(
-               RUN_MODULE_PRECHECK(OnPreDeleteSynonym, CollectionName, SynonymID, IsGlobalScope, Request.RemoteAddress, Request.APIKeyID, !Request.APIKeyID.empty()));
-
-          if (HasModulePreCheckFailure(PreCheckResponse))
-          {
-               return PreCheckResponse;
-          }
      }
 
      /* Check if collection exists. */
@@ -922,7 +929,8 @@ HttpResponse SearchAPI::HandleDeleteSynonym(const HttpRequest &Request)
                {
                     Matches = true;
                }
-               else if (SynIt->contains("root") && (*SynIt)["root"] == SynonymID)
+               else if (SynIt->contains("root") && (*SynIt)["root"].is_string() &&
+                        NormalizeSynonymTerm((*SynIt)["root"].get<std::string>()) == NormalizeSynonymTerm(SynonymID))
                {
                     Matches = true;
                }
@@ -1022,20 +1030,28 @@ HttpResponse SearchAPI::HandleDeleteSynonym(const HttpRequest &Request)
      }
 }
 
+/* Handles list global synonyms requests. */
+
 HttpResponse SearchAPI::HandleListGlobalSynonyms(const HttpRequest &Request)
 {
      return HandleListSynonyms(Request);
 }
+
+/* Handles create or update global synonym requests. */
 
 HttpResponse SearchAPI::HandleCreateOrUpdateGlobalSynonym(const HttpRequest &Request)
 {
      return HandleCreateOrUpdateSynonym(Request);
 }
 
+/* Handles get global synonym requests. */
+
 HttpResponse SearchAPI::HandleGetGlobalSynonym(const HttpRequest &Request)
 {
      return HandleGetSynonym(Request);
 }
+
+/* Handles delete global synonym requests. */
 
 HttpResponse SearchAPI::HandleDeleteGlobalSynonym(const HttpRequest &Request)
 {

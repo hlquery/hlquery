@@ -12,6 +12,8 @@
 
 #pragma once
 
+#include <cstddef>
+#include <cstdint>
 #include <ctime>
 #include <fstream>
 #include <memory>
@@ -31,27 +33,27 @@ enum class LogLevel
 {
      /* Disables log output. */
 
-     LOG_NONE       =  0,
+     LOG_NONE = 0,
 
      /* Reports failures that require immediate attention. */
 
-     LOG_CRITICAL   =  1,
+     LOG_CRITICAL = 1,
 
      /* Reports infrequent high-level events. */
 
-     LOG_SPARSE     =  2,
+     LOG_SPARSE = 2,
 
      /* Reports normal operational events. */
 
-     LOG_NORMAL     =  3,
+     LOG_NORMAL = 3,
 
      /* Reports detailed operational events. */
 
-     LOG_VERBOSE    =  4,
+     LOG_VERBOSE = 4,
 
      /* Reports diagnostic events. */
 
-     LOG_DEBUG      =  5
+     LOG_DEBUG = 5
 };
 
 /* Identifies the supported log output destinations. */
@@ -76,7 +78,7 @@ struct LogConfig
      std::string method;
 
      /* Filters messages by type, or accepts all types when set to an asterisk. */
-     
+
      std::string type;
 
      /* Sets the highest detail level accepted by the stream. */
@@ -84,7 +86,7 @@ struct LogConfig
      LogLevel level = LogLevel::LOG_NORMAL;
 
      /* Names the output file or console target. */
-     
+
      std::string target;
 
      /* Sets the size threshold that triggers file rotation. */
@@ -151,11 +153,11 @@ class CoreExport LogStream
 
      /* Formats a log line without terminal color sequences. */
 
-     std::string FormatLogLine(LogLevel level, const std::string& type, const std::string& message);
+     std::string FormatLogLine(LogLevel level, const std::string &type, const std::string &message);
 
      /* Formats a log line with optional terminal color sequences. */
 
-     std::string FormatLogLine(LogLevel level, const std::string& type, const std::string& message, bool use_colors);
+     std::string FormatLogLine(LogLevel level, const std::string &type, const std::string &message, bool use_colors);
 
      /* Retrieves a formatted timestamp string. */
 
@@ -189,7 +191,7 @@ class CoreExport LogStream
 
      /* Opens and prepares the destination described by the configuration. */
 
-     LogStream(const LogConfig& config);
+     LogStream(const LogConfig &config);
 
      /* Flushes and closes the destination. */
 
@@ -201,7 +203,7 @@ class CoreExport LogStream
 
      /* Formats and writes a log message to the configured destination. */
 
-     void WriteLog(LogLevel level, const std::string& type, const std::string& message);
+     void WriteLog(LogLevel level, const std::string &type, const std::string &message);
 
      /* Flushes buffered file output. */
 
@@ -251,7 +253,7 @@ class CoreExport LogManager
 
      /* Determines if a stream accepts a specific message. */
 
-     bool ShouldLog(const LogStream& stream, LogLevel level, const std::string& type);
+     bool ShouldLog(const LogStream &stream, LogLevel level, const std::string &type);
 
    public:
 
@@ -265,39 +267,39 @@ class CoreExport LogManager
 
      /* Creates and initializes a manager from server configuration. */
 
-     static std::unique_ptr<LogManager> CreateAndInitialize(class ServerConfig* config);
+     static std::unique_ptr<LogManager> CreateAndInitialize(class ServerConfig *config);
 
      /* Initializes the logging system from stream configurations and mode flags. */
 
-     bool Initialize(const std::vector<LogConfig>& log_configs, bool debug = false, bool nofork = false, bool verbose = false);
+     bool Initialize(const std::vector<LogConfig> &log_configs, bool debug = false, bool nofork = false, bool verbose = false);
 
      /* Routes a message according to its severity and type. */
 
-     void Log(LogLevel level, const std::string& type, const std::string& message);
+     void Log(LogLevel level, const std::string &type, const std::string &message);
 
      /* Convenience logging methods. */
 
-     void Critical(const std::string& type, const std::string& message);
+     void Critical(const std::string &type, const std::string &message);
 
-     void Sparse(const std::string& type, const std::string& message);
+     void Sparse(const std::string &type, const std::string &message);
 
-     void Normal(const std::string& type, const std::string& message);
+     void Normal(const std::string &type, const std::string &message);
 
-     void Verbose(const std::string& type, const std::string& message);
+     void Verbose(const std::string &type, const std::string &message);
 
-     void Debug(const std::string& type, const std::string& message);
+     void Debug(const std::string &type, const std::string &message);
 
      /* Safely logs through a manager pointer with fallback console output. */
 
-     static void SafeLog(LogManager* self, LogLevel level, const std::string& type, const std::string& message);
+     static void SafeLog(LogManager *self, LogLevel level, const std::string &type, const std::string &message);
 
      /* Creates the default log directory when it does not exist. */
 
-     static bool CreateLogsDirectory(const std::string& path = HLQUERY_LOG_DIR);
+     static bool CreateLogsDirectory(const std::string &path = HLQUERY_LOG_DIR);
 
      /* Converts a textual severity name to a logging level. */
 
-     static LogLevel StringToLogLevel(const std::string& level_str);
+     static LogLevel StringToLogLevel(const std::string &level_str);
 
      /* Flushes every active log stream. */
 

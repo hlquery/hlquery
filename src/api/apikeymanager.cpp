@@ -26,6 +26,8 @@
 #include "core/hlquery.h"
 #include "utils/infos.h"
 
+/* Implements API key persistence, validation, and rate limit bookkeeping. */
+
 constexpr size_t kMaxKeysDatSize = 64 * 1024 * 1024;
 constexpr uint32_t kMaxKeyCount = 100000;
 constexpr uint32_t kMaxScopeCount = 10000;
@@ -149,16 +151,23 @@ std::string APIKeyManager::CreateKey(APIKey &KeySpec)
      NewKey.HasExpiration = false;
      NewKey.ExpiresAt = std::chrono::system_clock::time_point();
 
+     std::unique_lock<std::mutex> PersistLock(PersistenceMutex);
      std::unique_lock<std::shared_mutex> Lock(MutexValue);
 
      Keys[NewKey.ID] = NewKey;
      HashToID[Hashed] = NewKey.ID;
+     std::vector<APIKey> Snapshot;
+     Snapshot.reserve(Keys.size());
+     for (const auto &Pair : Keys)
+     {
+          Snapshot.push_back(Pair.second);
+     }
 
      std::string KeysDat = std::string(HLQUERY_ADMIN_DIR) + "/keys.dat";
 
      Lock.unlock();
 
-     if (!SaveKeysToEncryptedFile(KeysDat))
+     if (!SaveKeySnapshotToEncryptedFile(KeysDat, Snapshot))
      {
           std::unique_lock<std::shared_mutex> RollbackLock(MutexValue);
           auto It = Keys.find(NewKey.ID);
@@ -255,6 +264,7 @@ std::vector<APIKey> APIKeyManager::ListKeys()
 
 bool APIKeyManager::DeleteKey(const std::string &KeyID)
 {
+     std::unique_lock<std::mutex> PersistLock(PersistenceMutex);
      std::unique_lock<std::shared_mutex> Lock(MutexValue);
 
      auto It = Keys.find(KeyID);
@@ -265,12 +275,18 @@ bool APIKeyManager::DeleteKey(const std::string &KeyID)
 
           HashToID.erase(Previous.KeyHash);
           Keys.erase(It);
+          std::vector<APIKey> Snapshot;
+          Snapshot.reserve(Keys.size());
+          for (const auto &Pair : Keys)
+          {
+               Snapshot.push_back(Pair.second);
+          }
 
           std::string KeysDat = std::string(HLQUERY_ADMIN_DIR) + "/keys.dat";
 
           Lock.unlock();
 
-          if (!SaveKeysToEncryptedFile(KeysDat))
+          if (!SaveKeySnapshotToEncryptedFile(KeysDat, Snapshot))
           {
                std::unique_lock<std::shared_mutex> RollbackLock(MutexValue);
                Keys[Previous.ID] = Previous;
@@ -289,6 +305,7 @@ bool APIKeyManager::DeleteKey(const std::string &KeyID)
 
 bool APIKeyManager::UpdateKey(const std::string &KeyID, const APIKey &KeySpec)
 {
+     std::unique_lock<std::mutex> PersistLock(PersistenceMutex);
      std::unique_lock<std::shared_mutex> Lock(MutexValue);
 
      auto It = Keys.find(KeyID);
@@ -308,12 +325,18 @@ bool APIKeyManager::UpdateKey(const std::string &KeyID, const APIKey &KeySpec)
      It->second.HasExpiration = false;
      It->second.RateLimitPerMinute = KeySpec.RateLimitPerMinute;
      It->second.AllowHanalyzer = KeySpec.AllowHanalyzer;
+     std::vector<APIKey> Snapshot;
+     Snapshot.reserve(Keys.size());
+     for (const auto &Pair : Keys)
+     {
+          Snapshot.push_back(Pair.second);
+     }
 
      std::string KeysDat = std::string(HLQUERY_ADMIN_DIR) + "/keys.dat";
 
      Lock.unlock();
 
-     if (!SaveKeysToEncryptedFile(KeysDat))
+     if (!SaveKeySnapshotToEncryptedFile(KeysDat, Snapshot))
      {
           std::unique_lock<std::shared_mutex> RollbackLock(MutexValue);
           Keys[KeyID] = Previous;
@@ -406,20 +429,16 @@ std::string APIKeyManager::HashKey(const std::string &Key)
 
 /* Persistence implementation. */
 
-bool APIKeyManager::SaveKeysToEncryptedFile(const std::string &FilePath)
+bool APIKeyManager::SaveKeySnapshotToEncryptedFile(const std::string &FilePath, const std::vector<APIKey> &Snapshot)
 {
-     std::shared_lock<std::shared_mutex> Lock(MutexValue);
-
      std::ostringstream OSS(std::ios::binary);
 
-     uint32_t KeyCount = static_cast<uint32_t>(Keys.size());
+     uint32_t KeyCount = static_cast<uint32_t>(Snapshot.size());
 
      OSS.write(reinterpret_cast<const char *>(&KeyCount), sizeof(KeyCount));
 
-     for (const auto &Pair : Keys)
+     for (const auto &KeyObj : Snapshot)
      {
-          const APIKey &KeyObj = Pair.second;
-
           auto WriteString = [&](const std::string &S)
           {
                uint32_t Len = static_cast<uint32_t>(S.size());
@@ -478,6 +497,27 @@ bool APIKeyManager::SaveKeysToEncryptedFile(const std::string &FilePath)
 
      return WriteFileAtomic(FilePath, Encrypted);
 }
+
+/* Saves keys to encrypted file data. */
+
+bool APIKeyManager::SaveKeysToEncryptedFile(const std::string &FilePath)
+{
+     std::vector<APIKey> Snapshot;
+     std::lock_guard<std::mutex> PersistLock(PersistenceMutex);
+
+     {
+          std::shared_lock<std::shared_mutex> Lock(MutexValue);
+          Snapshot.reserve(Keys.size());
+          for (const auto &Pair : Keys)
+          {
+               Snapshot.push_back(Pair.second);
+          }
+     }
+
+     return SaveKeySnapshotToEncryptedFile(FilePath, Snapshot);
+}
+
+/* Loads keys from encrypted file data. */
 
 bool APIKeyManager::LoadKeysFromEncryptedFile(const std::string &FilePath)
 {

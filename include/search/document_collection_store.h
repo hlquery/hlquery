@@ -130,14 +130,13 @@ struct LazyIndexState
 class HybridStorageManager
 {
    private:
-
      HybridStorageManager() = default;
 
      ~HybridStorageManager() = default;
 
-     HybridStorageManager(const HybridStorageManager&) = delete;
+     HybridStorageManager(const HybridStorageManager &) = delete;
 
-     HybridStorageManager& operator=(const HybridStorageManager&) = delete;
+     HybridStorageManager &operator=(const HybridStorageManager &) = delete;
 
      /* Initialized tracks initialization state. */
 
@@ -192,7 +191,7 @@ class HybridStorageManager
 
      /* UpdateCollectionMetadataCacheLocked refreshes one metadata row while CollectionsMutex is held. */
 
-     void UpdateCollectionMetadataCacheLocked(const std::string& name, size_t document_count, time_t created_at);
+     void UpdateCollectionMetadataCacheLocked(const std::string &name, size_t document_count, time_t created_at);
 
      /* CollectionsBeingIndexed tracks collections being indexed. */
 
@@ -252,17 +251,16 @@ class HybridStorageManager
 
      /* IndexCollectionInBackground builds indexes asynchronously. */
 
-     void IndexCollectionInBackground(const std::string& collection, const std::vector<std::string>& doc_keys);
+     void IndexCollectionInBackground(const std::string &collection, const std::vector<std::string> &doc_keys);
 
      /* MarkCollectionIndexDirty invalidates lazy index completion state after writes. */
 
-     void MarkCollectionIndexDirty(const std::string& collection);
+     void MarkCollectionIndexDirty(const std::string &collection);
 
    public:
-
      /* GetInstance returns the singleton manager. */
 
-     static HybridStorageManager& GetInstance();
+     static HybridStorageManager &GetInstance();
 
      /* Initialize initializes the storage manager. */
 
@@ -335,15 +333,15 @@ class HybridStorageManager
 
      /* CreateCollection creates a collection. */
 
-     bool CreateCollection(const std::string& name, const CollectionConfig& config);
+     bool CreateCollection(const std::string &name, const CollectionConfig &config);
 
      /* DeleteCollection deletes a collection. */
 
-     bool DeleteCollection(const std::string& name);
+     bool DeleteCollection(const std::string &name);
 
      /* CollectionExists checks for collection existence. */
 
-     bool CollectionExists(const std::string& name);
+     bool CollectionExists(const std::string &name);
 
      /* ListCollections lists collections. */
 
@@ -351,11 +349,11 @@ class HybridStorageManager
 
      /* GetCollectionConfig returns the stored collection configuration when available. */
 
-     bool GetCollectionConfig(const std::string& name, CollectionConfig& config);
+     bool GetCollectionConfig(const std::string &name, CollectionConfig &config);
 
      /* UpdateCollectionMetadata sets one underscore-prefixed metadata key for a collection. */
 
-     bool UpdateCollectionMetadata(const std::string& name, const std::string& key, const std::string& value);
+     bool UpdateCollectionMetadata(const std::string &name, const std::string &key, const std::string &value);
 
      /* FlushAll removes all collections and documents. */
 
@@ -363,31 +361,31 @@ class HybridStorageManager
 
      /* Get fetches a value by key. */
 
-     std::string Get(const std::string& key);
+     std::string Get(const std::string &key);
 
      /* Delete removes a value by key. */
 
-     bool Delete(const std::string& key);
+     bool Delete(const std::string &key);
 
      /* AddDocument adds a document to a collection. */
 
-     bool AddDocument(const std::string& collection, const Document& doc);
+     bool AddDocument(const std::string &collection, const Document &doc);
 
      /* AddDocumentsBatch inserts documents in bulk. */
 
-     size_t AddDocumentsBatch(const std::string& collection, const std::vector<Document>& documents, bool assume_new_documents = false);
+     size_t AddDocumentsBatch(const std::string &collection, const std::vector<Document> &documents, bool assume_new_documents = false);
 
      /* GetDocument retrieves a document by id. */
 
-     Document GetDocument(const std::string& collection, const std::string& document_id);
+     Document GetDocument(const std::string &collection, const std::string &document_id);
 
      /* ListDocuments lists documents in a collection. */
 
-     std::vector<Document> ListDocuments(const std::string& collection, int limit = 10, int offset = 0);
+     std::vector<Document> ListDocuments(const std::string &collection, int limit = 10, int offset = 0);
 
      /* DeleteDocument deletes a document by id. */
 
-     bool DeleteDocument(const std::string& collection, const std::string& document_id);
+     bool DeleteDocument(const std::string &collection, const std::string &document_id);
 
      /* GetPostDeleteCleanupFailures returns deletes that left secondary cleanup incomplete. */
 
@@ -398,68 +396,68 @@ class HybridStorageManager
 
      /* UpdateDocument updates a document atomically. */
 
-     bool UpdateDocument(const std::string& collection, const Document& new_doc);
+     bool UpdateDocument(const std::string &collection, const Document &new_doc);
 
      /* GetCollectionDocumentCount returns document count. */
 
-     size_t GetCollectionDocumentCount(const std::string& collection);
+     size_t GetCollectionDocumentCount(const std::string &collection);
 
      /* GetCollectionCreatedAt returns the persisted collection creation time. */
 
-     time_t GetCollectionCreatedAt(const std::string& collection);
+     time_t GetCollectionCreatedAt(const std::string &collection);
 
      /* CountStoredDocuments returns the exact number of persisted documents for a collection. */
 
-     size_t CountStoredDocuments(const std::string& collection);
+     size_t CountStoredDocuments(const std::string &collection);
 
      /* CheckCollectionIntegrity returns the current consistency state for one collection. */
 
-     CollectionIntegrityStatus CheckCollectionIntegrity(const std::string& collection);
+     CollectionIntegrityStatus CheckCollectionIntegrity(const std::string &collection);
 
      /* CheckIntegrity returns the current consistency state for one or all collections. */
 
-     IntegrityReport CheckIntegrity(const std::string& collection = "");
+     IntegrityReport CheckIntegrity(const std::string &collection = "");
 
      /* RebuildCollectionIndex recreates one collection's inverted index from persisted documents. */
 
-     bool RebuildCollectionIndex(const std::string& collection, size_t* reindexed_documents = nullptr, std::string* error_message = nullptr);
+     bool RebuildCollectionIndex(const std::string &collection, size_t *reindexed_documents = nullptr, std::string *error_message = nullptr);
 
      /* RepairCollection repairs metadata counters and optionally rebuilds one collection index. */
 
-     CollectionIntegrityStatus RepairCollection(const std::string& collection, bool rebuild_index);
+     CollectionIntegrityStatus RepairCollection(const std::string &collection, bool rebuild_index);
 
      /* RepairIntegrity repairs one or all collections and returns a summary report. */
 
-     IntegrityReport RepairIntegrity(const std::string& collection = "", bool rebuild_index = false);
+     IntegrityReport RepairIntegrity(const std::string &collection = "", bool rebuild_index = false);
 
      /* GetCollectionSize returns total collection size. */
 
-     size_t GetCollectionSize(const std::string& collection);
+     size_t GetCollectionSize(const std::string &collection);
 
      /* LazyLoadCollectionIndex loads index on demand. */
 
-     bool LazyLoadCollectionIndex(const std::string& collection);
+     bool LazyLoadCollectionIndex(const std::string &collection);
 
      /* IsCollectionIndexing reports whether a collection is currently being indexed. */
 
-     bool IsCollectionIndexing(const std::string& collection);
+     bool IsCollectionIndexing(const std::string &collection);
 
      /* IsCollectionIndexComplete reports whether lazy indexing finished for the current collection generation. */
 
-     bool IsCollectionIndexComplete(const std::string& collection, size_t expected_count);
+     bool IsCollectionIndexComplete(const std::string &collection, size_t expected_count);
 
      /* GetCollectionMutex returns the collection mutex. */
 
-     std::mutex& GetCollectionMutex(const std::string& collection)
+     std::mutex &GetCollectionMutex(const std::string &collection)
      {
           return CollectionsMutex;
      }
 
      /* GetKeyMutex returns or creates a mutex for a key. */
 
-     std::mutex& GetKeyMutex(const std::string& key);
+     std::mutex &GetKeyMutex(const std::string &key);
 };
 
 /* Free function for backward compatibility */
 
-HybridStorageManager& HybridStorageManagerInstance();
+HybridStorageManager &HybridStorageManagerInstance();

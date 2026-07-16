@@ -27,7 +27,9 @@
 #include "core/modules.h"
 #include "api/searchapi.h"
 
-/* Records one module hook failure without assuming logging is always initialized. */
+/* Records one module hook failure
+ * without assuming logging is initialized.
+ */
 
 static void LogModuleDispatchFailure(const RuntimeModule *Module, const char *EventName, const std::string &ErrorMessage)
 {
@@ -43,7 +45,9 @@ static void LogModuleDispatchFailure(const RuntimeModule *Module, const char *Ev
      std::cerr << Message << std::endl;
 }
 
-/* Fallback wrapper used when a module throws a non-standard exception type. */
+/* Handles module dispatch failures
+ * that do not expose a standard exception message.
+ */
 
 static void LogUnknownModuleDispatchFailure(const RuntimeModule *Module, const char *EventName)
 {
@@ -60,7 +64,9 @@ void ModuleManager::LogUnknownDispatchFailure(const RuntimeModule *Module, const
      LogUnknownModuleDispatchFailure(Module, EventName);
 }
 
-/* Appends one candidate path only once after normalizing path syntax. */
+/* Appends one candidate path once
+ * after normalizing its filesystem syntax.
+ */
 
 static void PushUniquePath(std::vector<std::filesystem::path> &Paths, const std::filesystem::path &PathValue)
 {
@@ -77,7 +83,9 @@ static void PushUniquePath(std::vector<std::filesystem::path> &Paths, const std:
      }
 }
 
-/* Normalizes one path and resolves it against the current process directory when needed. */
+/* Normalizes one path and resolves it
+ * against the current process directory when needed.
+ */
 
 static std::filesystem::path MakeAbsolutePath(std::filesystem::path PathValue)
 {
@@ -91,7 +99,9 @@ static std::filesystem::path MakeAbsolutePath(std::filesystem::path PathValue)
      return PathValue;
 }
 
-/* Resolves one relative module path from the active configuration file directory. */
+/* Resolves one relative module path
+ * from the active configuration file directory.
+ */
 
 static std::filesystem::path ResolveRelativeToConfig(const ServerConfig &Config, const std::filesystem::path &RelativePath)
 {
@@ -110,7 +120,9 @@ static bool ModuleRuntimeNameMatchesRequest(const RuntimeModule &Module, const s
      return Module.GetName() == RequestedName;
 }
 
-/* Stores the process-wide demo mode status derived from loaded modules. */
+/* Stores process-wide demo mode state
+ * derived from the loaded module set.
+ */
 
 void ModuleManager::SetDemoModeState(bool Active, const std::string &Message)
 {
@@ -131,7 +143,9 @@ void ModuleManager::SetDemoModeState(bool Active, const std::string &Message)
      }
 }
 
-/* Ensures unload notifications and handle teardown happen during destruction. */
+/* Ensures unload notifications and handle teardown
+ * happen during manager destruction.
+ */
 
 ModuleManager::~ModuleManager()
 {
@@ -159,7 +173,9 @@ bool ModuleManager::IsValidModuleName(const std::string &Name)
      return true;
 }
 
-/* Waits for shared storage before starting any runtime module. */
+/* Waits for shared storage availability
+ * before starting any runtime module.
+ */
 
 bool ModuleManager::LoadModules(const ServerConfig &Config, std::string &ErrorMessage)
 {
@@ -320,7 +336,6 @@ bool ModuleManager::LoadModule(const ServerConfig &Config,
           }
           catch (...)
           {
-
           }
 
           Module.reset();
@@ -351,7 +366,6 @@ bool ModuleManager::LoadModule(const ServerConfig &Config,
                }
                catch (...)
                {
-
                }
 
                Loaded.Instance.reset();
@@ -373,7 +387,9 @@ bool ModuleManager::LoadModule(const ServerConfig &Config,
      return true;
 }
 
-/* Finalizes retired modules once no external shared_ptr references remain. */
+/* Finalizes retired modules
+ * once external shared references are gone.
+ */
 
 void ModuleManager::ReapRetiredModules()
 {
@@ -407,7 +423,9 @@ void ModuleManager::ReapRetiredModules()
      }
 }
 
-/* Builds a stable copy of hook subscribers so callbacks can run without holding the registry lock. */
+/* Builds a stable subscriber snapshot
+ * so callbacks can run without holding the registry lock.
+ */
 
 ModuleManager::ModuleSnapshot ModuleManager::GetHookSnapshot(ModuleHook Hook) const
 {
@@ -461,6 +479,27 @@ void ModuleManager::EndModuleCallback(const ModuleReference &Module)
      Module.ExecutionState->Condition.notify_all();
 }
 
+ModuleManager::ModuleCallbackGuard::ModuleCallbackGuard(const ModuleReference &ModuleRef)
+    : Module(ModuleRef)
+{
+}
+
+ModuleManager::ModuleCallbackGuard::~ModuleCallbackGuard()
+{
+     Release();
+}
+
+void ModuleManager::ModuleCallbackGuard::Release()
+{
+     if (!Active)
+     {
+          return;
+     }
+
+     Active = false;
+     ModuleManager::EndModuleCallback(Module);
+}
+
 /* Blocks new callback entry and waits until all in-flight work for the module has drained. */
 
 void ModuleManager::QuiesceModuleCallbacks(const ModuleReference &Module)
@@ -499,9 +538,12 @@ void ModuleManager::RebuildHookRegistriesLocked()
           {
                const ModuleHook Hook = static_cast<ModuleHook>(HookIndex);
 
-               if (Loaded.Instance->HandlesHook(Hook))
+               for (RuntimeModule *Target : Loaded.Instance->GetHookTargets(Hook))
                {
-                    SubscribersByHook[HookIndex].push_back({Loaded.Instance, Loaded.ExecutionState});
+                    if (Target)
+                    {
+                         SubscribersByHook[HookIndex].push_back({Loaded.Instance, Target, Loaded.ExecutionState});
+                    }
                }
           }
      }
@@ -527,20 +569,20 @@ void ModuleManager::DispatchModuleEvent(const ModuleSnapshot &Modules,
                continue;
           }
 
+          ModuleCallbackGuard Guard(Module);
+
           try
           {
-               Invoke(*Module.Instance);
-               EndModuleCallback(Module);
+               RuntimeModule *Target = Module.Target ? Module.Target : Module.Instance.get();
+               Invoke(*Target);
           }
           catch (const std::exception &Ex)
           {
-               EndModuleCallback(Module);
-               LogModuleDispatchFailure(Module.Instance.get(), EventName, Ex.what());
+               LogModuleDispatchFailure(Module.Target ? Module.Target : Module.Instance.get(), EventName, Ex.what());
           }
           catch (...)
           {
-               EndModuleCallback(Module);
-               LogUnknownModuleDispatchFailure(Module.Instance.get(), EventName);
+               LogUnknownModuleDispatchFailure(Module.Target ? Module.Target : Module.Instance.get(), EventName);
           }
      }
 }
@@ -611,7 +653,7 @@ std::string ModuleManager::ResolveModulePath(const ServerConfig &Config, const S
           if (std::filesystem::exists(Candidate, EC))
           {
                return Candidate.string();
-       }
+          }
      }
 
      return Candidates.front().string();
@@ -649,7 +691,6 @@ bool ModuleManager::LoadConfiguredModules(const ServerConfig &Config, std::strin
                     }
                     catch (...)
                     {
-             
                     }
 
                     It->Instance.reset();
@@ -800,8 +841,8 @@ bool ModuleManager::LoadConfiguredModules(const ServerConfig &Config, std::strin
                Started = false;
           }
 
-         if (!Started)
-         {
+          if (!Started)
+          {
                if (Instance && Instance->Logs)
                {
                     const std::string StartMessage = StartError.empty() ? "unknown failure" : StartError;
@@ -813,7 +854,6 @@ bool ModuleManager::LoadConfiguredModules(const ServerConfig &Config, std::strin
                }
                catch (...)
                {
-
                }
 
                Module.reset();
@@ -822,20 +862,20 @@ bool ModuleManager::LoadConfiguredModules(const ServerConfig &Config, std::strin
                ErrorMessage = StartError.empty() ? "Module '" + ModuleName + "' failed to start." : StartError;
                RollbackStagedModules();
                return false;
-         }
+          }
 
-         if (Instance && Instance->Logs)
-         {
-              Instance->Logs->Normal("modules", "Loaded module '" + ModuleName + "' from " + ModulePath + ".");
-         }
+          if (Instance && Instance->Logs)
+          {
+               Instance->Logs->Normal("modules", "Loaded module '" + ModuleName + "' from " + ModulePath + ".");
+          }
 
-         LoadedModule Loaded;
-         Loaded.Name = ModuleName;
-         Loaded.Path = ModulePath;
-         Loaded.Handle = Handle;
-         Loaded.Instance = std::move(Module);
-         Loaded.ExecutionState = std::make_shared<ModuleExecutionState>();
-         Loaded.UnloadNotified = false;
+          LoadedModule Loaded;
+          Loaded.Name = ModuleName;
+          Loaded.Path = ModulePath;
+          Loaded.Handle = Handle;
+          Loaded.Instance = std::move(Module);
+          Loaded.ExecutionState = std::make_shared<ModuleExecutionState>();
+          Loaded.UnloadNotified = false;
 
           StagedModules.push_back(std::move(Loaded));
      }
@@ -881,10 +921,12 @@ float ModuleManager::ComputeSearchWeightMultiplier(const std::string &Collection
                continue;
           }
 
+          ModuleCallbackGuard Guard(Module);
+
           try
           {
-               const float module_multiplier = Module.Instance->ComputeSearchWeightMultiplier(Collection, Query, RankingMode, Hit, BaseScore);
-               EndModuleCallback(Module);
+               RuntimeModule *Target = Module.Target ? Module.Target : Module.Instance.get();
+               const float module_multiplier = Target->ComputeSearchWeightMultiplier(Collection, Query, RankingMode, Hit, BaseScore);
 
                if (std::isfinite(module_multiplier) && module_multiplier > 0.0f)
                {
@@ -893,13 +935,11 @@ float ModuleManager::ComputeSearchWeightMultiplier(const std::string &Collection
           }
           catch (const std::exception &Ex)
           {
-               EndModuleCallback(Module);
-               LogModuleDispatchFailure(Module.Instance.get(), "ComputeSearchWeightMultiplier", Ex.what());
+               LogModuleDispatchFailure(Module.Target ? Module.Target : Module.Instance.get(), "ComputeSearchWeightMultiplier", Ex.what());
           }
           catch (...)
           {
-               EndModuleCallback(Module);
-               LogUnknownModuleDispatchFailure(Module.Instance.get(), "ComputeSearchWeightMultiplier");
+               LogUnknownModuleDispatchFailure(Module.Target ? Module.Target : Module.Instance.get(), "ComputeSearchWeightMultiplier");
           }
      }
 
@@ -930,7 +970,7 @@ void ModuleManager::OnUnloadModules()
                }
 
                Loaded.UnloadNotified = true;
-               ModulesToNotify.push_back({Loaded.Instance, Loaded.ExecutionState});
+               ModulesToNotify.push_back({Loaded.Instance, Loaded.Instance.get(), Loaded.ExecutionState});
           }
      }
 
@@ -984,9 +1024,9 @@ bool ModuleManager::UnloadModule(const std::string &ModuleName, std::string &Err
           std::unique_lock<std::shared_mutex> Lock(ModulesMutex);
 
           auto It = std::find_if(Modules.begin(), Modules.end(), [&](const LoadedModule &Loaded)
-          {
-                return Loaded.Name == ModuleName;
-          });
+                                 {
+                                      return Loaded.Name == ModuleName;
+                                 });
 
           if (It == Modules.end())
           {
@@ -1010,7 +1050,7 @@ void ModuleManager::UnloadModuleList(std::vector<LoadedModule> ModulesToUnload)
 {
      for (auto It = ModulesToUnload.rbegin(); It != ModulesToUnload.rend(); ++It)
      {
-          ModuleReference ModuleRef{It->Instance, It->ExecutionState};
+          ModuleReference ModuleRef{It->Instance, It->Instance.get(), It->ExecutionState};
           QuiesceModuleCallbacks(ModuleRef);
           ModuleRef.Instance.reset();
           ModuleRef.ExecutionState.reset();
@@ -1041,7 +1081,6 @@ void ModuleManager::UnloadModuleList(std::vector<LoadedModule> ModulesToUnload)
                }
                catch (...)
                {
-      
                }
 
                if (It->Instance.use_count() > 1)
@@ -1156,6 +1195,7 @@ bool ModuleManager::GetModuleReference(const std::string &Name, ModuleReference 
           if (Loaded.Name == Name && Loaded.Instance)
           {
                Module->Instance = Loaded.Instance;
+               Module->Target = Loaded.Instance.get();
                Module->ExecutionState = Loaded.ExecutionState;
                return true;
           }
@@ -1183,7 +1223,7 @@ std::vector<ModuleAPIDescription> ModuleManager::GetModuleAPIDescriptions() cons
 
           for (const auto &Module : Modules)
           {
-               ModuleReference ModuleRef{Module.Instance, Module.ExecutionState};
+               ModuleReference ModuleRef{Module.Instance, Module.Instance.get(), Module.ExecutionState};
 
                if (!ModuleRef.Instance || !ModuleRef.Instance->IsAPIRouteEnabled())
                {
@@ -1211,23 +1251,22 @@ std::vector<ModuleAPIDescription> ModuleManager::GetModuleAPIDescriptions() cons
                continue;
           }
 
+          ModuleCallbackGuard Guard(ModuleRef);
+
           ModuleAPIDescription Description;
 
           try
           {
                Description = ModuleRef.Instance->GetAPIDescription();
                Description.RequirementFlags = ModuleRef.Instance->GetRequirementFlags();
-               EndModuleCallback(ModuleRef);
           }
           catch (const std::exception &Ex)
           {
-               EndModuleCallback(ModuleRef);
                LogModuleDispatchFailure(ModuleRef.Instance.get(), "GetAPIDescription", Ex.what());
                continue;
           }
           catch (...)
           {
-               EndModuleCallback(ModuleRef);
                LogUnknownModuleDispatchFailure(ModuleRef.Instance.get(), "GetAPIDescription");
                continue;
           }
@@ -1269,21 +1308,20 @@ bool ModuleManager::GetModuleAPIDescription(const std::string &ModuleName, Modul
           return false;
      }
 
+     ModuleCallbackGuard Guard(ModuleRef);
+
      try
      {
           *Description = ModuleRef.Instance->GetAPIDescription();
           Description->RequirementFlags = ModuleRef.Instance->GetRequirementFlags();
-          EndModuleCallback(ModuleRef);
      }
      catch (const std::exception &Ex)
      {
-          EndModuleCallback(ModuleRef);
           LogModuleDispatchFailure(ModuleRef.Instance.get(), "GetAPIDescription", Ex.what());
           return false;
      }
      catch (...)
      {
-          EndModuleCallback(ModuleRef);
           LogUnknownModuleDispatchFailure(ModuleRef.Instance.get(), "GetAPIDescription");
           return false;
      }
@@ -1322,20 +1360,19 @@ bool ModuleManager::GetModuleCommandSpecs(const std::string &ModuleName, std::ve
           return false;
      }
 
+     ModuleCallbackGuard Guard(ModuleRef);
+
      try
      {
           *Commands = ModuleRef.Instance->GetCommandSpecs();
-          EndModuleCallback(ModuleRef);
      }
      catch (const std::exception &Ex)
      {
-          EndModuleCallback(ModuleRef);
           LogModuleDispatchFailure(ModuleRef.Instance.get(), "GetCommandSpecs", Ex.what());
           return false;
      }
      catch (...)
      {
-          EndModuleCallback(ModuleRef);
           LogUnknownModuleDispatchFailure(ModuleRef.Instance.get(), "GetCommandSpecs");
           return false;
      }
@@ -1364,21 +1401,20 @@ bool ModuleManager::HandleModuleCommand(const std::string &ModuleName, const Mod
           return false;
      }
 
+     ModuleCallbackGuard Guard(Module);
+
      try
      {
           *Response = Module.Instance->HandleCommand(Request);
-          EndModuleCallback(Module);
           return true;
      }
      catch (const std::exception &Ex)
      {
-          EndModuleCallback(Module);
           LogModuleDispatchFailure(Module.Instance.get(), "HandleModuleCommand", Ex.what());
           return false;
      }
      catch (...)
      {
-          EndModuleCallback(Module);
           LogUnknownModuleDispatchFailure(Module.Instance.get(), "HandleModuleCommand");
           return false;
      }
@@ -1405,21 +1441,20 @@ HttpResponse ModuleManager::HandleModuleAPIRequest(const std::string &ModuleName
           return HttpResponse(503, "Service Unavailable", "application/json");
      }
 
+     ModuleCallbackGuard Guard(Module);
+
      try
      {
           HttpResponse Response = Module.Instance->HandleAPIRequest(Request, SubPath);
-          EndModuleCallback(Module);
           return Response;
      }
      catch (const std::exception &Ex)
      {
-          EndModuleCallback(Module);
           LogModuleDispatchFailure(Module.Instance.get(), "HandleModuleAPIRequest", Ex.what());
           return HttpResponse(500, "Internal Server Error", "application/json");
      }
      catch (...)
      {
-          EndModuleCallback(Module);
           LogUnknownModuleDispatchFailure(Module.Instance.get(), "HandleModuleAPIRequest");
           return HttpResponse(500, "Internal Server Error", "application/json");
      }

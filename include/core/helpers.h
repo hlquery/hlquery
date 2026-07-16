@@ -19,7 +19,7 @@
 class CoreHelpers
 {
    public:
-     
+
      CoreHelpers() = delete;
 
      /* Helper function to check if the main processing loop should terminate. */
@@ -41,7 +41,6 @@ class CoreHelpers
      /* Prints a startup section with one module name per line. */
 
      static void PrintStartupModuleList(const std::string &Heading, const std::vector<std::string> &ModuleNames);
-
 };
 
 /* Writes one newline without forcing an output flush. */

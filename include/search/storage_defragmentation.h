@@ -20,7 +20,6 @@
 class DefragmentationManager
 {
    private:
-
      /* Enabled controls whether defragmentation runs. */
 
      std::atomic<bool> Enabled;
@@ -38,7 +37,6 @@ class DefragmentationManager
      mutable std::mutex mutex;
 
    public:
-
      /* Constructor. */
 
      DefragmentationManager();
@@ -53,7 +51,7 @@ class DefragmentationManager
 
      /* DefragmentKey defragments a single key. */
 
-     bool DefragmentKey(int db_id, const std::string& key);
+     bool DefragmentKey(int db_id, const std::string &key);
 
      /* IsEnabled reports whether defragmentation is enabled. */
 
@@ -89,5 +87,5 @@ class DefragmentationManager
 
      /* ShouldDefragment checks whether a key should be defragmented. */
 
-     bool ShouldDefragment(const std::string& key, size_t value_size) const;
+     bool ShouldDefragment(const std::string &key, size_t value_size) const;
 };

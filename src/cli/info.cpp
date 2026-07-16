@@ -722,6 +722,7 @@ void HLQueryCLI::ShowHelp()
      std::cout << "    module <name> info      Show module routes and parameter info.\n";
      std::cout << "    module <name> syntax    Show module command syntax.\n";
      std::cout << "    module <name> <route> [--json] [--key=value] [args...]  Run one module command.\n";
+     std::cout << "    module <route> <name> [args...]  Alternate module route syntax.\n";
      std::cout << "    loadmodule <name>       Load one runtime module.\n";
      std::cout << "    unloadmodule <name>     Unload one runtime module.\n\n";
 

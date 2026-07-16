@@ -23,7 +23,11 @@
 #include "core/hlquery.h"
 #include "vendor/json/json.hpp"
 
+/* Provides user management API handlers for administrative clients. */
+
 using json = nlohmann::json;
+
+/* Implements the make JSON response helper. */
 
 static HttpResponse MakeJSONResponse(int Code, const std::string &Status, const std::string &Body)
 {
@@ -32,11 +36,15 @@ static HttpResponse MakeJSONResponse(int Code, const std::string &Status, const 
      return Resp;
 }
 
+/* Implements the generate user token helper. */
+
 static std::string GenerateUserToken()
 {
      std::vector<uint8_t> RandomBytesVal = RandomBytes(32);
      return Hex(RandomBytesVal);
 }
+
+/* Implements the mask token helper. */
 
 static std::string MaskToken(const std::string &Token)
 {
@@ -52,6 +60,8 @@ static std::string MaskToken(const std::string &Token)
 
      return std::string(Token.size() - 4, '*') + Token.substr(Token.size() - 4);
 }
+
+/* Implements the flags to strings helper. */
 
 static std::vector<std::string> FlagsToStrings(const std::set<UserFlag> &Flags)
 {
@@ -69,6 +79,8 @@ static std::vector<std::string> FlagsToStrings(const std::set<UserFlag> &Flags)
 
      return Result;
 }
+
+/* Parses flags input. */
 
 static std::set<UserFlag> ParseFlags(const json &FlagsValue, std::string &ErrorMsg)
 {
@@ -107,9 +119,9 @@ static std::set<UserFlag> ParseFlags(const json &FlagsValue, std::string &ErrorM
                {
                     continue;
                }
-           
+
                AddFlag(Item);
-           
+
                if (!ErrorMsg.empty())
                {
                     return {};
@@ -125,9 +137,9 @@ static std::set<UserFlag> ParseFlags(const json &FlagsValue, std::string &ErrorM
                     ErrorMsg = "Flags must be strings";
                     return {};
                }
-           
+
                AddFlag(FlagVal.get<std::string>());
-           
+
                if (!ErrorMsg.empty())
                {
                     return {};
@@ -148,6 +160,8 @@ static std::set<UserFlag> ParseFlags(const json &FlagsValue, std::string &ErrorM
      return Flags;
 }
 
+/* Implements the user to JSON helper. */
+
 static json UserToJSON(const User &UserObj, bool IncludeToken)
 {
      json Result;
@@ -165,6 +179,8 @@ static json UserToJSON(const User &UserObj, bool IncludeToken)
      return Result;
 }
 
+/* Extracts user name from path values. */
+
 static std::string ExtractUserNameFromPath(const std::string &Path)
 {
      std::regex UserRegex(R"(/users/([^/]+))");
@@ -177,6 +193,8 @@ static std::string ExtractUserNameFromPath(const std::string &Path)
 
      return "";
 }
+
+/* Handles list users requests. */
 
 HttpResponse SearchAPI::HandleListUsers(const HttpRequest &Request)
 {
@@ -206,6 +224,8 @@ HttpResponse SearchAPI::HandleListUsers(const HttpRequest &Request)
      Resp.Body = Response.dump();
      return Resp;
 }
+
+/* Handles create user requests. */
 
 HttpResponse SearchAPI::HandleCreateUser(const HttpRequest &Request)
 {
@@ -307,6 +327,8 @@ HttpResponse SearchAPI::HandleCreateUser(const HttpRequest &Request)
      return Resp;
 }
 
+/* Handles get user requests. */
+
 HttpResponse SearchAPI::HandleGetUser(const HttpRequest &Request)
 {
      if (!Instance || !Instance->Users)
@@ -331,6 +353,8 @@ HttpResponse SearchAPI::HandleGetUser(const HttpRequest &Request)
      Resp.Body = Response.dump();
      return Resp;
 }
+
+/* Handles delete user requests. */
 
 HttpResponse SearchAPI::HandleDeleteUser(const HttpRequest &Request)
 {
@@ -372,6 +396,8 @@ HttpResponse SearchAPI::HandleDeleteUser(const HttpRequest &Request)
      Resp.Body = "{\"deleted\":true}";
      return Resp;
 }
+
+/* Handles update user requests. */
 
 HttpResponse SearchAPI::HandleUpdateUser(const HttpRequest &Request)
 {
@@ -452,7 +478,7 @@ HttpResponse SearchAPI::HandleUpdateUser(const HttpRequest &Request)
                {
                     return MakeJSONResponse(409, "Conflict", "{\"error\":\"Token already in use\"}");
                }
-               
+
                Updated.Token = Token;
                IncludeToken = true;
           }

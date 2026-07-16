@@ -18,13 +18,13 @@
 #include <map>
 #include <netdb.h>
 #ifdef HLQUERY_HAS_OPENSSL
-/// $CompilerFlags: find_compiler_flags("openssl")
-/// $LinkerFlags: find_linker_flags("openssl")
-/// $PackageInfo: require_system("alpine") openssl-dev
-/// $PackageInfo: require_system("arch") openssl
-/// $PackageInfo: require_system("darwin") pkg-config openssl
-/// $PackageInfo: require_system("debian~") libssl-dev pkg-config
-/// $PackageInfo: require_system("rhel~") openssl-devel pkgconfig
+/* $CompilerFlags: find_compiler_flags("openssl") */
+/* $LinkerFlags: find_linker_flags("openssl") */
+/* $PackageInfo: require_system("alpine") openssl-dev */
+/* $PackageInfo: require_system("arch") openssl */
+/* $PackageInfo: require_system("darwin") pkg-config openssl */
+/* $PackageInfo: require_system("debian~") libssl-dev pkg-config */
+/* $PackageInfo: require_system("rhel~") openssl-devel pkgconfig */
 #include <openssl/err.h>
 #include <openssl/ssl.h>
 #include <openssl/x509_vfy.h>
@@ -40,6 +40,7 @@
 #include "common/searchpool.h"
 #include "core/config.h"
 #include "core/hlquery.h"
+#include "core/modulemanager.h"
 #include "modules/extra/m_analytics/analyticsmanager.h"
 #include "vendor/json/json.hpp"
 
@@ -270,9 +271,11 @@ void AnalyticsManager::Stop()
           {
                if (Instance && Instance->Logs)
                {
-                    Instance->Logs->Normal("analytics", "Analytics worker did not stop within 2 seconds; continuing shutdown.");
+                    Instance->Logs->Normal("analytics", "Analytics worker did not stop within 2 seconds; waiting for worker shutdown.");
                }
           }
+
+          WorkerFuture.wait();
      }
 }
 
@@ -625,8 +628,8 @@ void AnalyticsManager::WorkerLoop()
                if (Instance && Instance->Logs)
                {
                     Instance->Logs->Debug("analytics", "Analytics worker wakeup: exit=" + std::string(ShouldExit ? "true" : "false") +
-                                                           ", flush_now=" + std::string(FlushNowRequested ? "true" : "false") +
-                                                           ", flush_interval=" + std::to_string(FlushIntervalSeconds) + "s.");
+                                                            ", flush_now=" + std::string(FlushNowRequested ? "true" : "false") +
+                                                            ", flush_interval=" + std::to_string(FlushIntervalSeconds) + "s.");
                }
 
                (void)FlushStartupEvent();
@@ -734,7 +737,20 @@ void AnalyticsManager::FlushOnce()
           return;
      }
 
-     if (!PostPayload(Payload))
+     AnalyticsSnapshotEvent SnapshotEvent;
+     SnapshotEvent.Source = "analytics";
+     SnapshotEvent.WindowStartMS = SnapshotStartMS;
+     SnapshotEvent.WindowEndMS = SnapshotEndMS;
+     SnapshotEvent.BucketCount = Snapshot.size();
+     SnapshotEvent.QueryEventCount = QuerySnapshot.size();
+     SnapshotEvent.TotalRequests = TotalRequests;
+     SnapshotEvent.PayloadBytes = Payload.size();
+     SnapshotEvent.PayloadJSON = Payload;
+     FOREACH_MOD(OnSnapshot, SnapshotEvent);
+
+     const bool Posted = PostPayload(Payload);
+
+     if (!Posted)
      {
           std::lock_guard<std::mutex> Lock(BucketsMutex);
 
@@ -752,10 +768,14 @@ void AnalyticsManager::FlushOnce()
           }
      }
 
-     if (Instance && Instance->Logs)
+     if (Posted && Instance && Instance->Logs)
      {
           Instance->Logs->Normal("analytics", "Analytics usage flush sent: buckets=" + std::to_string(Snapshot.size()) +
-                                                  ", total_requests=" + std::to_string(TotalRequests) + ".");
+                                                   ", total_requests=" + std::to_string(TotalRequests) + ".");
+     }
+     else if (!Posted && Instance && Instance->Logs)
+     {
+          Instance->Logs->Normal("analytics", "Analytics usage flush failed and was requeued: buckets=" + std::to_string(Snapshot.size()) + ".");
      }
 }
 
@@ -971,36 +991,82 @@ AnalyticsManager::ParsedEndpoint AnalyticsManager::ParseEndpoint(const std::stri
           return Result;
      }
 
-     size_t PortPos = Authority.rfind(':');
-
-     if (PortPos != std::string::npos && Authority.find(']') == std::string::npos)
+     if (Authority.front() == '[')
      {
-          Result.Host = Authority.substr(0, PortPos);
+          const size_t BracketEnd = Authority.find(']');
 
-          try
+          if (BracketEnd == std::string::npos)
           {
-               int ParsedPort = std::stoi(Authority.substr(PortPos + 1));
+               return Result;
+          }
 
-               if (ParsedPort <= 0 || ParsedPort > 65535)
+          Result.Host = Authority.substr(1, BracketEnd - 1);
+
+          if (BracketEnd + 1 < Authority.size())
+          {
+               if (Authority[BracketEnd + 1] != ':')
                {
                     return Result;
                }
 
-               Result.Port = static_cast<uint16_t>(ParsedPort);
+               try
+               {
+                    int ParsedPort = std::stoi(Authority.substr(BracketEnd + 2));
+
+                    if (ParsedPort <= 0 || ParsedPort > 65535)
+                    {
+                         return Result;
+                    }
+
+                    Result.Port = static_cast<uint16_t>(ParsedPort);
+               }
+               catch (...)
+               {
+                    return Result;
+               }
           }
-          catch (...)
+          else
           {
-               return Result;
+               Result.Port = (Result.Scheme == "https") ? 443 : 80;
           }
+
+          Result.HostHeader = "[" + Result.Host + "]" + ((Result.Port == 443 && Result.Scheme == "https") || (Result.Port == 80 && Result.Scheme == "http") ? "" : ":" + std::to_string(Result.Port));
      }
      else
      {
-          Result.Host = Authority;
-          Result.Port = (Result.Scheme == "https") ? 443 : 80;
+          size_t PortPos = Authority.rfind(':');
+
+          if (PortPos != std::string::npos)
+          {
+               Result.Host = Authority.substr(0, PortPos);
+
+               try
+               {
+                    int ParsedPort = std::stoi(Authority.substr(PortPos + 1));
+
+                    if (ParsedPort <= 0 || ParsedPort > 65535)
+                    {
+                         return Result;
+                    }
+
+                    Result.Port = static_cast<uint16_t>(ParsedPort);
+               }
+               catch (...)
+               {
+                    return Result;
+               }
+          }
+          else
+          {
+               Result.Host = Authority;
+               Result.Port = (Result.Scheme == "https") ? 443 : 80;
+          }
+
+          Result.HostHeader = Result.Host + ((Result.Port == 443 && Result.Scheme == "https") || (Result.Port == 80 && Result.Scheme == "http") ? "" : ":" + std::to_string(Result.Port));
      }
 
      Result.Path = (PathStart == std::string::npos) ? "/" : URLValue.substr(PathStart);
-     Result.Valid = !Result.Host.empty() && !Result.Path.empty();
+     Result.Valid = !Result.Host.empty() && !Result.Path.empty() && Result.Port > 0;
 
      return Result;
 }
@@ -1079,7 +1145,7 @@ bool AnalyticsManager::PostPayload(const std::string &Body)
 
      std::ostringstream RequestStream;
      RequestStream << "POST " << Endpoint.Path << " HTTP/1.1\r\n"
-                   << "Host: " << Endpoint.Host << "\r\n"
+                   << "Host: " << Endpoint.HostHeader << "\r\n"
                    << "Content-Type: application/json\r\n";
 
      if (!APIToken.empty())
@@ -1261,7 +1327,7 @@ bool AnalyticsManager::PostPayload(const std::string &Body)
      if (!Success && Instance && Instance->Logs)
      {
           Instance->Logs->Normal("analytics", "Analytics flush failed: remote endpoint returned status " +
-                                                  std::to_string(StatusCode) + ".");
+                                                   std::to_string(StatusCode) + ".");
      }
 
      if (!Success)

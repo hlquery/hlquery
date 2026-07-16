@@ -19,10 +19,10 @@
 #include <sstream>
 
 #include "core/hlquery.h"
-#include "search/consistencychecker.h"
-#include "search/storageengine.h"
-#include "search/storagemaint.h"
-#include "search/performancemonitor.h"
+#include "search/database_consistency_auditor.h"
+#include "search/rocksdb_storage_engine.h"
+#include "search/storage_defragmentation.h"
+#include "search/operation_performance_monitor.h"
 
 /*
  * Build a consistency checker instance.

@@ -35,6 +35,8 @@
 #include "utils/protocol.h"
 #include "vendor/json/json.hpp"
 
+/* Provides search API handlers and request execution glue. */
+
 /* Stores the maybe-suggestion policy for a document search response. */
 
 struct DocumentMaybeSettings
@@ -70,6 +72,8 @@ static SearchEvent BuildSearchEvent(const std::string &Query,
      Event.Distributed = Distributed;
      return Event;
 }
+
+/* Reads cached search counts data. */
 
 static void ReadCachedSearchCounts(const HttpResponse &Response,
                                    uint64_t *Found,
@@ -109,13 +113,18 @@ static void ReadCachedSearchCounts(const HttpResponse &Response,
      }
 }
 
+/* Implements the search header value insensitive helper. */
+
 static std::string SearchHeaderValueInsensitive(const std::map<std::string, std::string> &Headers,
                                                 const std::string &Name)
 {
      auto Lower = [](std::string Value)
      {
           std::transform(Value.begin(), Value.end(), Value.begin(),
-                         [](unsigned char Ch) { return static_cast<char>(std::tolower(Ch)); });
+                         [](unsigned char Ch)
+                         {
+                              return static_cast<char>(std::tolower(Ch));
+                         });
           return Value;
      };
 
@@ -131,6 +140,8 @@ static std::string SearchHeaderValueInsensitive(const std::map<std::string, std:
 
      return "";
 }
+
+/* Implements the emit cached search analytics helper. */
 
 static void EmitCachedSearchAnalytics(const ComprehensiveSearchQuery &Query,
                                       const HttpRequest &Request,
@@ -219,6 +230,8 @@ static DocumentMaybeSettings ParseDocumentMaybeSettings(const std::unordered_map
      return Settings;
 }
 
+/* Parses scalar JSON value input. */
+
 static bool ParseScalarJSONValue(const std::string &Value, nlohmann::json *OutValue)
 {
      if (!OutValue)
@@ -264,6 +277,8 @@ static bool ParseScalarJSONValue(const std::string &Value, nlohmann::json *OutVa
      return true;
 }
 
+/* Implements the format timestamp milliseconds as ISO 8601 local helper. */
+
 static std::string FormatTimestampMsAsISO8601Local(std::uint64_t TimestampMs)
 {
      auto TimePoint = std::chrono::system_clock::time_point(std::chrono::milliseconds(TimestampMs));
@@ -285,6 +300,8 @@ static std::string FormatTimestampMsAsISO8601Local(std::uint64_t TimestampMs)
 
 static std::string BuildDistinctKey(const SearchHit &Hit, const SQLTranslationResult &SQLResult);
 
+/* Builds collection not found sqlresponse data. */
+
 static HttpResponse BuildCollectionNotFoundSQLResponse()
 {
      HttpResponse Response(Status::NOT_FOUND, StatusText(Status::NOT_FOUND), "application/json");
@@ -299,6 +316,8 @@ static HttpResponse BuildCollectionNotFoundSQLResponse()
      return Response;
 }
 
+/* Checks whether built in SQL field name applies. */
+
 static bool IsBuiltInSQLFieldName(const std::string &FieldName)
 {
      return FieldName == "id" || FieldName == "title" || FieldName == "content" ||
@@ -306,10 +325,14 @@ static bool IsBuiltInSQLFieldName(const std::string &FieldName)
             FieldName == "_text_match" || FieldName == "score";
 }
 
+/* Implements the SQL field exists in collection helper. */
+
 static bool SQLFieldExistsInCollection(const std::string &FieldName, const CollectionConfig &Config)
 {
      return IsBuiltInSQLFieldName(FieldName) || Config.Fields.find(FieldName) != Config.Fields.end();
 }
+
+/* Checks whether sqlprojected output field applies. */
 
 static bool IsSQLProjectedOutputField(const SQLTranslationResult &SQLResult, const std::string &FieldName)
 {
@@ -332,6 +355,8 @@ static bool IsSQLProjectedOutputField(const SQLTranslationResult &SQLResult, con
      return false;
 }
 
+/* Checks whether allowed sqlaggregate function applies. */
+
 static bool IsAllowedSQLAggregateFunction(const std::string &FunctionName)
 {
      return FunctionName == "COUNT" ||
@@ -340,6 +365,8 @@ static bool IsAllowedSQLAggregateFunction(const std::string &FunctionName)
             FunctionName == "MIN" ||
             FunctionName == "MAX";
 }
+
+/* Validates sqlrequested fields input. */
 
 static bool ValidateSQLRequestedFields(const SQLTranslationResult &SQLResult,
                                        const CollectionConfig &Config,
@@ -401,6 +428,8 @@ static bool ValidateSQLRequestedFields(const SQLTranslationResult &SQLResult,
 
      return true;
 }
+
+/* Validates sqlexecution policy input. */
 
 static bool ValidateSQLExecutionPolicy(const HttpRequest &Request,
                                        const SQLTranslationResult &SQLResult,
@@ -499,6 +528,8 @@ struct SQLRow
      std::size_t FirstSeen = 0;
 };
 
+/* Implements the try parse numeric value helper. */
+
 static bool TryParseNumericValue(const std::string &Value, double *OutValue)
 {
      if (!OutValue)
@@ -516,6 +547,8 @@ static bool TryParseNumericValue(const std::string &Value, double *OutValue)
      *OutValue = ParsedValue;
      return true;
 }
+
+/* Implements the jsonscalar to filter value helper. */
 
 static std::string JSONScalarToFilterValue(const nlohmann::json &Value)
 {
@@ -553,6 +586,8 @@ static std::string JSONScalarToFilterValue(const nlohmann::json &Value)
 
      return Value.dump();
 }
+
+/* Builds sqlrow value from hit data. */
 
 static bool BuildSQLRowValueFromHit(const SearchHit &Hit,
                                     const std::string &SourceField,
@@ -609,6 +644,8 @@ static bool BuildSQLRowValueFromHit(const SearchHit &Hit,
      return ParseScalarJSONValue(FieldIt->second, OutValue);
 }
 
+/* Builds sqlrows from hits data. */
+
 static std::vector<SQLRow> BuildSQLRowsFromHits(const SQLTranslationResult &SQLResult,
                                                 const ComprehensiveSearchQuery &Query,
                                                 const std::vector<SearchHit> &Hits)
@@ -660,6 +697,8 @@ static std::vector<SQLRow> BuildSQLRowsFromHits(const SQLTranslationResult &SQLR
 
      return Rows;
 }
+
+/* Computes sqlaggregate metric values. */
 
 static double ComputeSQLAggregateMetric(const SQLAggregateSpec &AggSpec, const std::vector<SearchHit> &Hits)
 {
@@ -765,6 +804,8 @@ static double ComputeSQLAggregateMetric(const SQLAggregateSpec &AggSpec, const s
      return 0.0;
 }
 
+/* Resolves sqlsort output field values. */
+
 static std::string ResolveSQLSortOutputField(const SQLTranslationResult &SQLResult, const std::string &SortField)
 {
      for (const auto &Field : SQLResult.SelectFields)
@@ -785,6 +826,8 @@ static std::string ResolveSQLSortOutputField(const SQLTranslationResult &SQLResu
 
      return SortField;
 }
+
+/* Implements the compare sqlJSON values helper. */
 
 static int CompareSQLJSONValues(const nlohmann::json &Left, const nlohmann::json &Right)
 {
@@ -827,6 +870,8 @@ static int CompareSQLJSONValues(const nlohmann::json &Left, const nlohmann::json
      return 0;
 }
 
+/* Sorts sqlrows values. */
+
 static void SortSQLRows(std::vector<SQLRow> &Rows, const SQLTranslationResult &SQLResult)
 {
      if (SQLResult.Query.SortBy.empty())
@@ -858,6 +903,8 @@ static void SortSQLRows(std::vector<SQLRow> &Rows, const SQLTranslationResult &S
                            return Left.FirstSeen < Right.FirstSeen;
                       });
 }
+
+/* Applies sqlhaving processing. */
 
 static void ApplySQLHaving(std::vector<SQLRow> &Rows, const SQLTranslationResult &SQLResult)
 {
@@ -909,6 +956,8 @@ static void ApplySQLHaving(std::vector<SQLRow> &Rows, const SQLTranslationResult
      Rows = std::move(FilteredRows);
 }
 
+/* Builds sqlrows response data. */
+
 static std::string BuildSQLRowsResponse(const std::vector<SQLRow> &Rows,
                                         int Found,
                                         int OutOf,
@@ -948,6 +997,8 @@ static std::string BuildSQLRowsResponse(const std::vector<SQLRow> &Rows,
 
      return Root.dump();
 }
+
+/* Builds show collections sqlresponse data. */
 
 static HttpResponse BuildShowCollectionsSQLResponse(const HttpRequest &Request)
 {
@@ -1048,6 +1099,8 @@ static HttpResponse BuildShowCollectionsSQLResponse(const HttpRequest &Request)
      return Response;
 }
 
+/* Builds distinct sqlresponse data. */
+
 static std::string BuildDistinctSQLResponse(const SQLTranslationResult &SQLResult,
                                             const ComprehensiveSearchQuery &Query,
                                             const ComprehensiveSearchResult &SearchResult)
@@ -1094,6 +1147,8 @@ static std::string BuildDistinctSQLResponse(const SQLTranslationResult &SQLResul
                                  false,
                                  {});
 }
+
+/* Builds aggregate only sqlresponse data. */
 
 static std::string BuildAggregateOnlySQLResponse(const SQLTranslationResult &SQLResult,
                                                  const ComprehensiveSearchQuery &Query,
@@ -1146,6 +1201,8 @@ static std::string BuildAggregateOnlySQLResponse(const SQLTranslationResult &SQL
      return Root.dump();
 }
 
+/* Builds select sqlresponse data. */
+
 static std::string BuildSelectSQLResponse(const SQLTranslationResult &SQLResult,
                                           const ComprehensiveSearchQuery &Query,
                                           const ComprehensiveSearchResult &SearchResult)
@@ -1175,6 +1232,8 @@ static std::string BuildSelectSQLResponse(const SQLTranslationResult &SQLResult,
                                  false,
                                  {});
 }
+
+/* Builds grouped sqlresponse data. */
 
 static std::string BuildGroupedSQLResponse(const SQLTranslationResult &SQLResult,
                                            const ComprehensiveSearchQuery &Query,
@@ -1530,6 +1589,8 @@ static SQLParamApplyResult ApplySQLSearchParams(std::unordered_map<std::string, 
      return Result;
 }
 
+/* Builds distinct key data. */
+
 static std::string BuildDistinctKey(const SearchHit &Hit, const SQLTranslationResult &SQLResult)
 {
      std::string Key;
@@ -1558,6 +1619,8 @@ static std::string BuildDistinctKey(const SearchHit &Hit, const SQLTranslationRe
 
      return Key;
 }
+
+/* Applies sqldistinct processing. */
 
 static void ApplySQLDistinct(ComprehensiveSearchResult &SearchResultObj, const SQLTranslationResult &SQLResult)
 {
@@ -1770,7 +1833,10 @@ HttpResponse SearchAPI::HandleSearch(const HttpRequest &Request)
      {
           std::string Value = RequestCacheIt->second;
           std::transform(Value.begin(), Value.end(), Value.begin(),
-                         [](unsigned char Ch) { return static_cast<char>(std::tolower(Ch)); });
+                         [](unsigned char Ch)
+                         {
+                              return static_cast<char>(std::tolower(Ch));
+                         });
           RequestCacheEnabled = Value == "1" || Value == "true" || Value == "yes" || Value == "on";
      }
      const bool IsGroupedSQLQuery = SQLApplyResult.Translation.Valid && SQLApplyResult.Translation.GroupedAggregates;
@@ -1840,13 +1906,26 @@ HttpResponse SearchAPI::HandleSearch(const HttpRequest &Request)
           }
      }
 
+     if (!SearchQueryObj.VectorQueryStr.empty() || !SearchQueryObj.Embedding.empty())
+     {
+          const std::string VectorPayload = !SearchQueryObj.VectorQueryStr.empty() ? SearchQueryObj.VectorQueryStr : SearchQueryObj.Embedding;
+          std::string VectorValidationError;
+          if (!ValidateVectorQueryPayload(VectorPayload, SearchQueryObj.PerPage, &VectorValidationError))
+          {
+               return BuildErrorResponse(Status::BAD_REQUEST,
+                                         Code::SEARCH_INVALID_PARAMETER,
+                                         "Invalid vector query.",
+                                         VectorValidationError);
+          }
+     }
+
      ComprehensiveSearchResult SearchResultObj;
      const DocumentMaybeSettings MaybeSettings = ParseDocumentMaybeSettings(Params);
      const auto DistributedOverrideIt = Request.QueryParams.find("distributed");
      const bool HasExplicitDistributedOverride = (DistributedOverrideIt != Request.QueryParams.end() &&
-                                                 !DistributedOverrideIt->second.empty());
+                                                  !DistributedOverrideIt->second.empty());
      const bool SupportsDistributedExecution = !IsSQLSelectQuery &&
-                                              (SearchQueryObj.Aggregations.empty() || HasExplicitDistributedOverride);
+                                               (SearchQueryObj.Aggregations.empty() || HasExplicitDistributedOverride);
 
      HttpResponse CachedResponse;
      const uint64_t SearchCacheGeneration = SearchResponseCache::GetGeneration(CollectionName);
@@ -2037,6 +2116,8 @@ HttpResponse SearchAPI::HandleSearch(const HttpRequest &Request)
 
      return Response;
 }
+
+/* Handles global search requests. */
 
 HttpResponse SearchAPI::HandleGlobalSearch(const HttpRequest &Request)
 {
@@ -2348,16 +2429,16 @@ HttpResponse SearchAPI::HandleGlobalSearch(const HttpRequest &Request)
 
           /* Stamp the source collection into each merged document before appending it. */
 
-	          if (AllHits.capacity() < AllHits.size() + CollectionResult.Hits.size())
-	          {
-	               AllHits.reserve(AllHits.size() + CollectionResult.Hits.size());
-	          }
+          if (AllHits.capacity() < AllHits.size() + CollectionResult.Hits.size())
+          {
+               AllHits.reserve(AllHits.size() + CollectionResult.Hits.size());
+          }
 
-	          for (auto Hit : CollectionResult.Hits)
-	          {
-	               Hit.Document["_collection"] = CollectionName;
-	               AllHits.push_back(std::move(Hit));
-	          }
+          for (auto Hit : CollectionResult.Hits)
+          {
+               Hit.Document["_collection"] = CollectionName;
+               AllHits.push_back(std::move(Hit));
+          }
 
           for (const auto &FacetPair : CollectionResult.Facets)
           {
@@ -2414,8 +2495,8 @@ HttpResponse SearchAPI::HandleGlobalSearch(const HttpRequest &Request)
      GlobalResult.SearchTimeMS = MaxSearchTime;
      GlobalResult.DistributedDiagnostics = std::move(GlobalDistributedDiagnostics);
      GlobalResult.OutOf = (AllHits.size() > static_cast<std::size_t>(std::numeric_limits<int>::max()))
-                              ? std::numeric_limits<int>::max()
-                              : static_cast<int>(AllHits.size());
+                               ? std::numeric_limits<int>::max()
+                               : static_cast<int>(AllHits.size());
      GlobalResult.Found = GlobalResult.OutOf;
 
      const std::size_t PageIndex = static_cast<std::size_t>(GlobalResult.Page - 1);
@@ -2792,8 +2873,8 @@ ComprehensiveSearchResult SearchAPI::PerformComprehensiveSearch(const std::strin
 
      const int MaxResultCount = std::numeric_limits<int>::max();
      ResultObj.Found = (Hits.size() > static_cast<std::size_t>(MaxResultCount))
-                           ? MaxResultCount
-                           : static_cast<int>(Hits.size());
+                            ? MaxResultCount
+                            : static_cast<int>(Hits.size());
      ResultObj.OutOf = ResultObj.Found;
 
      /* Collection and module weights are applied before sorting so custom ranking affects final order. */
@@ -2841,7 +2922,7 @@ ComprehensiveSearchResult SearchAPI::PerformComprehensiveSearch(const std::strin
           {
                Instance->Logs->Normal("search_api",
                                       "Capping facet/aggregation post-processing to " + std::to_string(MaxPostProcessingHits) +
-                                      " hits out of " + std::to_string(Hits.size()) + " for collection '" + Collection + "'.");
+                                           " hits out of " + std::to_string(Hits.size()) + " for collection '" + Collection + "'.");
           }
      }
 

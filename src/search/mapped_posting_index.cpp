@@ -16,183 +16,268 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <limits>
+#include <stdexcept>
 #include <unordered_map>
 #include <unordered_set>
 
 #include "core/hlquery.h"
-#include "search/lindex.h"
-#include "search/mindex.h"
+#include "search/lexical_inverted_index.h"
+#include "search/mapped_posting_index.h"
 #include "utils/wildcard.h"
 
 namespace
 {
-     constexpr uint32_t kMMapIndexVersion = 1;
-     constexpr uint32_t kMMapIndexEndianMarker = 0x01020304U;
-     constexpr size_t kMMapFileHeaderSize = 40;
-     constexpr uint64_t kFnv64Offset = 14695981039346656037ULL;
-     constexpr uint64_t kFnv64Prime = 1099511628211ULL;
-     constexpr uint32_t kFnv32Offset = 2166136261U;
-     constexpr uint32_t kFnv32Prime = 16777619U;
+/* The mmap index is split into several small files instead of one monolithic
+      * blob so each reader can map only the structures it needs. Every file uses
+      * the same fixed header, followed by a type-specific payload.
+      */
 
-     const std::array<uint8_t, 8> kTermsMagic = {'H', 'L', 'Q', 'T', 'E', 'R', 'M', '1'};
-     const std::array<uint8_t, 8> kTermMapMagic = {'H', 'L', 'Q', 'T', 'M', 'A', 'P', '1'};
-     const std::array<uint8_t, 8> kTermIndexMagic = {'H', 'L', 'Q', 'T', 'I', 'D', 'X', '1'};
-     const std::array<uint8_t, 8> kPostingsMagic = {'H', 'L', 'Q', 'P', 'O', 'S', 'T', '1'};
+constexpr uint32_t kMMapIndexVersion = 1;
+constexpr uint32_t kMMapIndexEndianMarker = 0x01020304U;
+constexpr size_t kMMapFileHeaderSize = 40;
+constexpr uint64_t kFnv64Offset = 14695981039346656037ULL;
+constexpr uint64_t kFnv64Prime = 1099511628211ULL;
+constexpr uint32_t kFnv32Offset = 2166136261U;
+constexpr uint32_t kFnv32Prime = 16777619U;
 
-     uint64_t StableChecksum64(const uint8_t *Data, size_t Length)
+const std::array<uint8_t, 8> kTermsMagic = {'H', 'L', 'Q', 'T', 'E', 'R', 'M', '1'};
+const std::array<uint8_t, 8> kTermMapMagic = {'H', 'L', 'Q', 'T', 'M', 'A', 'P', '1'};
+const std::array<uint8_t, 8> kTermIndexMagic = {'H', 'L', 'Q', 'T', 'I', 'D', 'X', '1'};
+const std::array<uint8_t, 8> kPostingsMagic = {'H', 'L', 'Q', 'P', 'O', 'S', 'T', '1'};
+
+/* StableChecksum64 computes a deterministic checksum over serialized bytes.
+      * The checksum is intentionally simple and portable because its purpose is
+      * corruption detection, not cryptographic validation.
+      */
+
+uint64_t StableChecksum64(const uint8_t *Data, size_t Length)
+{
+     uint64_t Hash = kFnv64Offset;
+
+     for (size_t I = 0; I < Length; ++I)
      {
-          uint64_t Hash = kFnv64Offset;
-
-          for (size_t I = 0; I < Length; ++I)
-          {
-               Hash ^= Data[I];
-               Hash *= kFnv64Prime;
-          }
-
-          return Hash;
+          Hash ^= Data[I];
+          Hash *= kFnv64Prime;
      }
 
-     uint32_t StableHash32(const std::string &Value)
+     return Hash;
+}
+
+/* StableHash32 produces the document hash used by postings delta encoding.
+      * The writer stores full document IDs too, so hash collisions only affect
+      * compression efficiency and not lookup correctness.
+      */
+
+uint32_t StableHash32(const std::string &Value)
+{
+     uint32_t Hash = kFnv32Offset;
+
+     for (unsigned char C : Value)
      {
-          uint32_t Hash = kFnv32Offset;
-
-          for (unsigned char C : Value)
-          {
-               Hash ^= C;
-               Hash *= kFnv32Prime;
-          }
-
-          return Hash;
+          Hash ^= C;
+          Hash *= kFnv32Prime;
      }
 
-     void AppendBytes(std::vector<uint8_t> &Buffer, const void *Data, size_t Length)
+     return Hash;
+}
+
+/* AppendBytes appends raw binary data to a serialization buffer. Callers are
+      * responsible for choosing values with stable sizes and explicit widths.
+      */
+
+void AppendBytes(std::vector<uint8_t> &Buffer, const void *Data, size_t Length)
+{
+     const uint8_t *Bytes = static_cast<const uint8_t *>(Data);
+     Buffer.insert(Buffer.end(), Bytes, Bytes + Length);
+}
+
+/* AppendValue stores a trivially copyable scalar in the native on-disk layout
+      * used by this index version.
+      */
+
+template <typename T>
+void AppendValue(std::vector<uint8_t> &Buffer, const T &Value)
+{
+     AppendBytes(Buffer, &Value, sizeof(Value));
+}
+
+/* WriteMMapFile writes the common file envelope:
+      * magic, version, header size, endian marker, reserved bytes, payload size,
+      * checksum, then the payload itself.
+      */
+
+bool WriteMMapFile(const std::string &Path, const std::array<uint8_t, 8> &Magic, const std::vector<uint8_t> &Payload)
+{
+     std::ofstream Out(Path, std::ios::binary);
+
+     if (!Out)
      {
-          const uint8_t *Bytes = static_cast<const uint8_t *>(Data);
-          Buffer.insert(Buffer.end(), Bytes, Bytes + Length);
+          return false;
      }
 
-     template <typename T>
-     void AppendValue(std::vector<uint8_t> &Buffer, const T &Value)
+     const uint32_t Version = kMMapIndexVersion;
+     const uint32_t HeaderSize = static_cast<uint32_t>(kMMapFileHeaderSize);
+     const uint32_t Endian = kMMapIndexEndianMarker;
+     const uint32_t Reserved = 0;
+     const uint64_t PayloadSize = static_cast<uint64_t>(Payload.size());
+     const uint64_t Checksum = StableChecksum64(Payload.data(), Payload.size());
+
+     Out.write(reinterpret_cast<const char *>(Magic.data()), Magic.size());
+     Out.write(reinterpret_cast<const char *>(&Version), sizeof(Version));
+     Out.write(reinterpret_cast<const char *>(&HeaderSize), sizeof(HeaderSize));
+     Out.write(reinterpret_cast<const char *>(&Endian), sizeof(Endian));
+     Out.write(reinterpret_cast<const char *>(&Reserved), sizeof(Reserved));
+     Out.write(reinterpret_cast<const char *>(&PayloadSize), sizeof(PayloadSize));
+     Out.write(reinterpret_cast<const char *>(&Checksum), sizeof(Checksum));
+
+     if (!Payload.empty())
      {
-          AppendBytes(Buffer, &Value, sizeof(Value));
+          Out.write(reinterpret_cast<const char *>(Payload.data()), Payload.size());
      }
 
-     bool WriteMMapFile(const std::string &Path, const std::array<uint8_t, 8> &Magic, const std::vector<uint8_t> &Payload)
+     return Out.good();
+}
+
+/* ReadValue copies a scalar from a mapped file only after checking that the
+      * requested byte range is fully contained in the mapped region.
+      */
+
+template <typename T>
+bool ReadValue(const uint8_t *Base, size_t Size, size_t Offset, T &Out)
+{
+     if (Offset > Size || sizeof(T) > Size - Offset)
      {
-          std::ofstream Out(Path, std::ios::binary);
-
-          if (!Out)
-          {
-               return false;
-          }
-
-          const uint32_t Version = kMMapIndexVersion;
-          const uint32_t HeaderSize = static_cast<uint32_t>(kMMapFileHeaderSize);
-          const uint32_t Endian = kMMapIndexEndianMarker;
-          const uint32_t Reserved = 0;
-          const uint64_t PayloadSize = static_cast<uint64_t>(Payload.size());
-          const uint64_t Checksum = StableChecksum64(Payload.data(), Payload.size());
-
-          Out.write(reinterpret_cast<const char *>(Magic.data()), Magic.size());
-          Out.write(reinterpret_cast<const char *>(&Version), sizeof(Version));
-          Out.write(reinterpret_cast<const char *>(&HeaderSize), sizeof(HeaderSize));
-          Out.write(reinterpret_cast<const char *>(&Endian), sizeof(Endian));
-          Out.write(reinterpret_cast<const char *>(&Reserved), sizeof(Reserved));
-          Out.write(reinterpret_cast<const char *>(&PayloadSize), sizeof(PayloadSize));
-          Out.write(reinterpret_cast<const char *>(&Checksum), sizeof(Checksum));
-
-          if (!Payload.empty())
-          {
-               Out.write(reinterpret_cast<const char *>(Payload.data()), Payload.size());
-          }
-
-          return Out.good();
+          return false;
      }
 
-     template <typename T>
-     bool ReadValue(const uint8_t *Base, size_t Size, size_t Offset, T &Out)
-     {
-          if (Offset > Size || sizeof(T) > Size - Offset)
-          {
-               return false;
-          }
+     std::memcpy(&Out, Base + Offset, sizeof(T));
+     return true;
+}
 
-          std::memcpy(&Out, Base + Offset, sizeof(T));
-          return true;
+/* ReadMappedTerm finds the next null terminator without reading past the
+      * mapped terms payload.
+      */
+
+bool ReadMappedTerm(const char *TermStartPtr, const char *TermsEndPtr, std::string &TermOut)
+{
+     if (!TermStartPtr || TermStartPtr >= TermsEndPtr)
+     {
+          return false;
      }
 
-     bool ValidateMMapFile(const uint8_t *Base,
-                           size_t FileSize,
-                           const std::array<uint8_t, 8> &Magic,
-                           const uint8_t *&Payload,
-                           size_t &PayloadSize,
-                           const std::string &Path)
+     const void *NullTerminator = std::memchr(TermStartPtr, '\0', static_cast<size_t>(TermsEndPtr - TermStartPtr));
+
+     if (!NullTerminator)
      {
-          if (!Base || FileSize < kMMapFileHeaderSize)
-          {
-               if (Instance && Instance->Logs)
-               {
-                    Instance->Logs->Normal("mmap_index", "Index file too small or missing header: " + Path + ".");
-               }
-               return false;
-          }
-
-          if (!std::equal(Magic.begin(), Magic.end(), Base))
-          {
-               if (Instance && Instance->Logs)
-               {
-                    Instance->Logs->Normal("mmap_index", "Invalid index file magic: " + Path + ".");
-               }
-               return false;
-          }
-
-          uint32_t Version = 0;
-          uint32_t HeaderSize = 0;
-          uint32_t Endian = 0;
-          uint64_t StoredPayloadSize = 0;
-          uint64_t StoredChecksum = 0;
-
-          if (!ReadValue(Base, FileSize, 8, Version) ||
-              !ReadValue(Base, FileSize, 12, HeaderSize) ||
-              !ReadValue(Base, FileSize, 16, Endian) ||
-              !ReadValue(Base, FileSize, 24, StoredPayloadSize) ||
-              !ReadValue(Base, FileSize, 32, StoredChecksum))
-          {
-               return false;
-          }
-
-          if (Version != kMMapIndexVersion || HeaderSize != kMMapFileHeaderSize || Endian != kMMapIndexEndianMarker)
-          {
-               if (Instance && Instance->Logs)
-               {
-                    Instance->Logs->Normal("mmap_index", "Unsupported index file header: " + Path + ".");
-               }
-               return false;
-          }
-
-          if (StoredPayloadSize > FileSize - HeaderSize)
-          {
-               if (Instance && Instance->Logs)
-               {
-                    Instance->Logs->Normal("mmap_index", "Invalid index payload size: " + Path + ".");
-               }
-               return false;
-          }
-
-          Payload = Base + HeaderSize;
-          PayloadSize = static_cast<size_t>(StoredPayloadSize);
-
-          if (StableChecksum64(Payload, PayloadSize) != StoredChecksum)
-          {
-               if (Instance && Instance->Logs)
-               {
-                    Instance->Logs->Normal("mmap_index", "Index checksum mismatch: " + Path + ".");
-               }
-               return false;
-          }
-
-          return true;
+          return false;
      }
+
+     const char *TermEndPtr = static_cast<const char *>(NullTerminator);
+
+     TermOut.assign(TermStartPtr, static_cast<size_t>(TermEndPtr - TermStartPtr));
+     return true;
+}
+
+/* HasMappedBytes checks whether a mapped pointer has enough bytes left
+      * without forming an out-of-range pointer first.
+      */
+
+bool HasMappedBytes(const uint8_t *Ptr, const uint8_t *EndPtr, size_t Length)
+{
+     if (!Ptr || !EndPtr || Ptr > EndPtr)
+     {
+          return false;
+     }
+
+     return Length <= static_cast<size_t>(EndPtr - Ptr);
+}
+
+/* ValidateMMapFile verifies the shared header before the reader trusts any
+      * payload pointer. This keeps malformed or partial files from being decoded
+      * as valid term or postings data.
+      */
+
+bool ValidateMMapFile(const uint8_t *Base,
+                      size_t FileSize,
+                      const std::array<uint8_t, 8> &Magic,
+                      const uint8_t *&Payload,
+                      size_t &PayloadSize,
+                      const std::string &Path)
+{
+     if (!Base || FileSize < kMMapFileHeaderSize)
+     {
+          if (Instance && Instance->Logs)
+          {
+               Instance->Logs->Normal("mmap_index", "Index file too small or missing header: " + Path + ".");
+          }
+          return false;
+     }
+
+     if (!std::equal(Magic.begin(), Magic.end(), Base))
+     {
+          if (Instance && Instance->Logs)
+          {
+               Instance->Logs->Normal("mmap_index", "Invalid index file magic: " + Path + ".");
+          }
+          return false;
+     }
+
+     uint32_t Version = 0;
+     uint32_t HeaderSize = 0;
+     uint32_t Endian = 0;
+     uint64_t StoredPayloadSize = 0;
+     uint64_t StoredChecksum = 0;
+
+     /* Header fields live at fixed byte offsets so mmap readers can validate
+           * files without constructing any temporary parser state.
+           */
+
+     if (!ReadValue(Base, FileSize, 8, Version) ||
+         !ReadValue(Base, FileSize, 12, HeaderSize) ||
+         !ReadValue(Base, FileSize, 16, Endian) ||
+         !ReadValue(Base, FileSize, 24, StoredPayloadSize) ||
+         !ReadValue(Base, FileSize, 32, StoredChecksum))
+     {
+          return false;
+     }
+
+     if (Version != kMMapIndexVersion || HeaderSize != kMMapFileHeaderSize || Endian != kMMapIndexEndianMarker)
+     {
+          if (Instance && Instance->Logs)
+          {
+               Instance->Logs->Normal("mmap_index", "Unsupported index file header: " + Path + ".");
+          }
+          return false;
+     }
+
+     if (StoredPayloadSize > FileSize - HeaderSize)
+     {
+          if (Instance && Instance->Logs)
+          {
+               Instance->Logs->Normal("mmap_index", "Invalid index payload size: " + Path + ".");
+          }
+          return false;
+     }
+
+     Payload = Base + HeaderSize;
+     PayloadSize = static_cast<size_t>(StoredPayloadSize);
+
+     /* The checksum covers only the payload. Header mutations are caught by
+           * explicit magic, version, size, and endian checks above.
+           */
+
+     if (StableChecksum64(Payload, PayloadSize) != StoredChecksum)
+     {
+          if (Instance && Instance->Logs)
+          {
+               Instance->Logs->Normal("mmap_index", "Index checksum mismatch: " + Path + ".");
+          }
+          return false;
+     }
+
+     return true;
+}
 }
 
 /*
@@ -301,6 +386,11 @@ void IndexWriter::WritePostings(std::vector<uint8_t> &PostingsBuffer, const std:
 
           /* Store document ID length and bytes for retrieval. */
 
+          if (Entry.Post.DocumentID.length() > std::numeric_limits<uint16_t>::max())
+          {
+               throw std::runtime_error("Document ID is too long for mmap postings format");
+          }
+
           uint16_t DocIDLen = static_cast<uint16_t>(Entry.Post.DocumentID.length());
 
           PostingsBuffer.insert(PostingsBuffer.end(), reinterpret_cast<const uint8_t *>(&DocIDLen), reinterpret_cast<const uint8_t *>(&DocIDLen) + sizeof(DocIDLen));
@@ -319,6 +409,11 @@ bool IndexWriter::WriteIndex(const std::unordered_map<std::string, std::unordere
 {
      try
      {
+          /* The writer receives the process-local inverted index grouped by
+           * collection and term. It flattens only the requested collection into
+           * mmap-friendly files.
+           */
+
           /* Collect and sort all terms for the target collection. */
 
           std::vector<std::string> Terms;
@@ -339,6 +434,35 @@ bool IndexWriter::WriteIndex(const std::unordered_map<std::string, std::unordere
 
           std::sort(Terms.begin(), Terms.end());
 
+          const auto &CollectionTermMap = CollectionIt->second;
+
+          for (const std::string &TermValue : Terms)
+          {
+               if (TermValue.length() > std::numeric_limits<uint16_t>::max())
+               {
+                    Instance->Logs->Normal("mmap_index", "Term is too long for mmap term map: " + TermValue + ".");
+
+                    return false;
+               }
+
+               auto TermIt = CollectionTermMap.find(TermValue);
+
+               if (TermIt == CollectionTermMap.end())
+               {
+                    continue;
+               }
+
+               for (const auto &Post : TermIt->second)
+               {
+                    if (Post.DocumentID.length() > std::numeric_limits<uint16_t>::max())
+                    {
+                         Instance->Logs->Normal("mmap_index", "Document ID is too long for mmap postings format: " + Post.DocumentID + ".");
+
+                         return false;
+                    }
+               }
+          }
+
           /* Write sorted terms to terms.bin as null-terminated strings. */
 
           std::string TermsFile = IndexDir + "/" + Collection + "/terms.bin";
@@ -346,6 +470,10 @@ bool IndexWriter::WriteIndex(const std::unordered_map<std::string, std::unordere
           std::filesystem::create_directories(std::filesystem::path(TermsFile).parent_path());
 
           std::vector<uint8_t> TermsBuffer;
+
+          /* Each term is stored as a null-terminated string. Keeping the terms
+           * sorted allows prefix and wildcard scans to walk a compact byte range.
+           */
 
           for (const auto &TermValue : Terms)
           {
@@ -371,7 +499,10 @@ bool IndexWriter::WriteIndex(const std::unordered_map<std::string, std::unordere
           uint64_t CurrentOffset = 0;
           const uint32_t IndexIntervalConst = 16;
 
-          const auto &CollectionTermMap = CollectionIt->second;
+          /* The postings file stores every term's postings back-to-back. The
+           * separate term map records where each term starts and how many bytes
+           * its encoded postings occupy.
+           */
 
           for (const std::string &TermValue : Terms)
           {
@@ -411,6 +542,10 @@ bool IndexWriter::WriteIndex(const std::unordered_map<std::string, std::unordere
           uint32_t TermCountValue = static_cast<uint32_t>(Terms.size());
 
           AppendValue(TermMapBuffer, TermCountValue);
+
+          /* The term map is the direct lookup structure:
+           * term length, term bytes, postings offset, and postings length.
+           */
 
           for (const std::string &TermValue : Terms)
           {
@@ -462,6 +597,11 @@ bool IndexWriter::WriteIndex(const std::unordered_map<std::string, std::unordere
 
           AppendValue(TermIndexBuffer, TermCountTotal);
           AppendValue(TermIndexBuffer, IndexIntervalConst);
+
+          /* The sparse term index samples every Nth term. It is smaller than the
+           * full term map and gives prefix search a future place to jump into the
+           * sorted term stream without scanning from the beginning.
+           */
 
           for (size_t I = 0; I < Terms.size(); I += IndexIntervalConst)
           {
@@ -583,6 +723,10 @@ bool MMapIndex::LoadIndex(const std::string &IndexDirParam, const std::string &C
 {
      try
      {
+          /* Loading maps files into the process address space and keeps raw
+           * payload pointers after each file header has been validated.
+           */
+
           /* Resolve file paths for the collection. */
 
           std::string CollectionDir = IndexDirParam + "/" + CollectionParam;
@@ -618,6 +762,10 @@ bool MMapIndex::LoadIndex(const std::string &IndexDirParam, const std::string &C
 
           TermsMappedSize = std::filesystem::file_size(TermsFile);
 
+          /* terms.bin is mapped first because term-oriented operations use it as
+           * the canonical sorted list of indexed terms.
+           */
+
           TermsMMap = mmap(nullptr, TermsMappedSize, PROT_READ, MAP_PRIVATE, TermsFd, 0);
 
           close(TermsFd);
@@ -635,6 +783,10 @@ bool MMapIndex::LoadIndex(const std::string &IndexDirParam, const std::string &C
           }
 
           int TermMapFd = open(TermMapFile.c_str(), O_RDONLY);
+
+          /* term_map.bin carries the exact postings offsets. Without it the
+           * reader cannot turn a term into a postings slice safely.
+           */
 
           if (TermMapFd >= 0)
           {
@@ -672,6 +824,10 @@ bool MMapIndex::LoadIndex(const std::string &IndexDirParam, const std::string &C
 
           if (HasTermIndex)
           {
+               /* term_index.bin is optional. The index remains usable without the
+                * sparse accelerator because exact term lookup relies on term_map.bin.
+                */
+
                int TermIndexFd = open(TermIndexFile.c_str(), O_RDONLY);
 
                if (TermIndexFd >= 0)
@@ -707,6 +863,10 @@ bool MMapIndex::LoadIndex(const std::string &IndexDirParam, const std::string &C
           }
 
           PostingsMappedSize = std::filesystem::file_size(PostingsFile);
+
+          /* postings.bin is mapped last because all previous structures only
+           * point into offsets inside this payload.
+           */
 
           PostingsMMap = mmap(nullptr, PostingsMappedSize, PROT_READ, MAP_PRIVATE, PostingsFd, 0);
 
@@ -781,6 +941,11 @@ std::vector<Posting> MMapIndex::DecodePostings(const uint8_t *DataParam, size_t 
      uint32_t DocCountValue = 0;
      std::memcpy(&DocCountValue, DataParam, sizeof(DocCountValue));
 
+     /* The postings payload starts with the number of encoded postings. Each
+      * following entry contains a delta-encoded document hash, score, document
+      * ID length, and document ID bytes.
+      */
+
      const uint8_t *Ptr = DataParam + sizeof(uint32_t);
      const uint8_t *EndPtr = DataParam + LengthParam;
 
@@ -790,6 +955,10 @@ std::vector<Posting> MMapIndex::DecodePostings(const uint8_t *DataParam, size_t 
      {
           uint32_t DeltaValue = 0;
           uint32_t ShiftValue = 0;
+
+          /* Decode one unsigned varint. A malformed varint stops growing after
+           * 32 bits so corrupted input cannot shift indefinitely.
+           */
 
           while (Ptr < EndPtr && (*Ptr & 0x80))
           {
@@ -812,9 +981,13 @@ std::vector<Posting> MMapIndex::DecodePostings(const uint8_t *DataParam, size_t 
 
           uint32_t DocHash = (PrevDocHash == 0) ? DeltaValue : PrevDocHash + DeltaValue;
 
+          /* The full document ID is stored below, so the reconstructed hash is
+           * used only to advance the delta stream consistently.
+           */
+
           PrevDocHash = DocHash;
 
-          if (Ptr + sizeof(float) > EndPtr)
+          if (!HasMappedBytes(Ptr, EndPtr, sizeof(float)))
           {
                break;
           }
@@ -824,7 +997,7 @@ std::vector<Posting> MMapIndex::DecodePostings(const uint8_t *DataParam, size_t 
 
           Ptr += sizeof(float);
 
-          if (Ptr + sizeof(uint16_t) > EndPtr)
+          if (!HasMappedBytes(Ptr, EndPtr, sizeof(uint16_t)))
           {
                break;
           }
@@ -834,10 +1007,14 @@ std::vector<Posting> MMapIndex::DecodePostings(const uint8_t *DataParam, size_t 
 
           Ptr += sizeof(uint16_t);
 
-          if (Ptr + DocIDLenVal > EndPtr)
+          if (!HasMappedBytes(Ptr, EndPtr, DocIDLenVal))
           {
                break;
           }
+
+          /* The document ID is copied out of the mmap region because callers own
+           * Posting values independently of the mapped file lifetime.
+           */
 
           std::string DocIDStr(reinterpret_cast<const char *>(Ptr), DocIDLenVal);
           Ptr += DocIDLenVal;
@@ -897,9 +1074,18 @@ std::vector<Posting> MMapIndex::SearchPrefix(const std::string &PrefixValue, int
 
      std::unordered_map<std::string, Posting> DocScores;
 
+     /* Prefix search walks terms.bin and aggregates scores for documents that
+      * appear under multiple matching terms.
+      */
+
      while (Ptr < End)
      {
-          std::string TermVal(Ptr);
+          std::string TermVal;
+
+          if (!ReadMappedTerm(Ptr, End, TermVal))
+          {
+               break;
+          }
 
           if (TermVal.length() >= PrefixValue.length() && TermVal.substr(0, PrefixValue.length()) == PrefixValue)
           {
@@ -927,6 +1113,10 @@ std::vector<Posting> MMapIndex::SearchPrefix(const std::string &PrefixValue, int
      {
           ResultsList.push_back(Post);
      }
+
+     /* Results are sorted after aggregation so the strongest combined document
+      * score wins, not just the strongest single term posting.
+      */
 
      std::sort(ResultsList.begin(), ResultsList.end(), [](const Posting &a, const Posting &b)
                {
@@ -965,9 +1155,18 @@ size_t MMapIndex::GetDocumentCount() const
      const char *Ptr = reinterpret_cast<const char *>(TermsData);
      const char *End = reinterpret_cast<const char *>(TermsData + TermsSize);
 
+     /* The mmap format does not store a standalone document table, so the unique
+      * document count is derived once from all postings and then cached.
+      */
+
      while (Ptr < End)
      {
-          std::string TermVal(Ptr);
+          std::string TermVal;
+
+          if (!ReadMappedTerm(Ptr, End, TermVal))
+          {
+               break;
+          }
 
           if (TermVal.empty())
           {
@@ -1007,9 +1206,18 @@ std::vector<Posting> MMapIndex::SearchWildcard(const std::string &PatternValue, 
      const char *End = reinterpret_cast<const char *>(TermsData + TermsSize);
      std::unordered_map<std::string, Posting> DocScores;
 
+     /* Wildcard search must inspect candidate terms directly because wildcard
+      * patterns are not guaranteed to share a fixed searchable prefix.
+      */
+
      while (Ptr < End)
      {
-          std::string TermVal(Ptr);
+          std::string TermVal;
+
+          if (!ReadMappedTerm(Ptr, End, TermVal))
+          {
+               break;
+          }
 
           if (Wildcard::Match(TermVal, PatternValue))
           {
@@ -1039,9 +1247,9 @@ std::vector<Posting> MMapIndex::SearchWildcard(const std::string &PatternValue, 
      }
 
      std::sort(ResultsList.begin(), ResultsList.end(), [](const Posting &A, const Posting &B)
-     {
-          return A.Score > B.Score;
-     });
+               {
+                    return A.Score > B.Score;
+               });
 
      if (LimitVal > 0)
      {

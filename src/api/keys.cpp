@@ -20,6 +20,8 @@
 #include "core/hlquery.h"
 #include "vendor/json/json.hpp"
 
+/* Provides API key management endpoints for administrative clients. */
+
 using json = nlohmann::json;
 
 /* ExtractKeyIDFromPath extracts key ID from path like /keys/{id}. */
@@ -127,6 +129,8 @@ static bool StringToAction(const std::string &S, APIKeyAction &OutAction)
      return false;
 }
 
+/* Parses action or throw input. */
+
 static APIKeyAction ParseActionOrThrow(const std::string &S)
 {
      APIKeyAction Action;
@@ -138,6 +142,8 @@ static APIKeyAction ParseActionOrThrow(const std::string &S)
 
      return Action;
 }
+
+/* Parses rate limit or throw input. */
 
 static int ParseRateLimitOrThrow(const json &Body)
 {

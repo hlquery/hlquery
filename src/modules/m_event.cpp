@@ -14,30 +14,35 @@
 #include <atomic>
 #include <chrono>
 #include <ctime>
+#include <iterator>
 #include <mutex>
 #include <string>
 #include <vector>
 
 #include "core/hlquery.h"
 #include "core/modules.h"
-#include "search/cstore.h"
+#include "search/document_collection_store.h"
 #include "vendor/json/json.hpp"
 
 /* Default prefix used for day-bucketed event collections. */
 
-static constexpr const char* DefaultEventPrefix = "events-";
+static constexpr const char *DefaultEventPrefix = "events-";
 
 /* Default prefix used for day-bucketed search collections. */
 
-static constexpr const char* DefaultSearchPrefix = "searches-";
+static constexpr const char *DefaultSearchPrefix = "searches-";
 
 /* Default number of queued records flushed in one batch. */
 
 static constexpr unsigned int DefaultBatchSize = 16;
 
+/* Maximum queued event records retained for retry. */
+
+static constexpr std::size_t MaxPendingRecords = 10000;
+
 /* Return whether one string starts with another string. */
 
-static bool StartsWith(const std::string& Value, const std::string& Prefix)
+static bool StartsWith(const std::string &Value, const std::string &Prefix)
 {
      return Value.size() >= Prefix.size() && Value.compare(0, Prefix.size(), Prefix) == 0;
 }
@@ -51,10 +56,9 @@ static std::string BoolString(bool Value)
 
 /* Runtime module that writes internal event documents into day-bucketed collections. */
 
-class EventRuntimeModule final : public AutoRuntimeModule<EventRuntimeModule>
+class EventRuntimeModule final : public AutoCompositeRuntimeModule<EventRuntimeModule>
 {
    private:
-
      /* One queued event or search record waiting for batch flush. */
 
      struct PendingRecord
@@ -131,14 +135,14 @@ class EventRuntimeModule final : public AutoRuntimeModule<EventRuntimeModule>
 
      /* Build the internal collection name for one day and storage prefix. */
 
-     std::string BuildStorageCollectionName(const std::string& Prefix, const std::string& Day) const
+     std::string BuildStorageCollectionName(const std::string &Prefix, const std::string &Day) const
      {
           return Prefix + Day;
      }
 
      /* Build one unique document identifier for a queued record. */
 
-     std::string BuildDocumentID(const std::string& Day)
+     std::string BuildDocumentID(const std::string &Day)
      {
           const uint64_t NowSeconds = static_cast<uint64_t>(Instance ? Instance->Time() : Time());
           const uint64_t LocalSequence = Sequence.fetch_add(1, std::memory_order_relaxed);
@@ -147,7 +151,7 @@ class EventRuntimeModule final : public AutoRuntimeModule<EventRuntimeModule>
 
      /* Build one unique batch tag shared by all records flushed together. */
 
-     std::string BuildBatchTag(const std::string& Day)
+     std::string BuildBatchTag(const std::string &Day)
      {
           const uint64_t LocalSequence = BatchSequence.fetch_add(1, std::memory_order_relaxed);
           return "batch-" + Day + "-" + std::to_string(LocalSequence);
@@ -155,14 +159,14 @@ class EventRuntimeModule final : public AutoRuntimeModule<EventRuntimeModule>
 
      /* Return whether one collection belongs to this module's internal storage. */
 
-     bool IsInternalStorageCollection(const std::string& Collection) const
+     bool IsInternalStorageCollection(const std::string &Collection) const
      {
           return StartsWith(Collection, EventPrefix) || StartsWith(Collection, SearchPrefix);
      }
 
      /* Ensure the target collection exists before inserting one flushed record. */
 
-     bool EnsureStorageCollection(const std::string& CollectionName, const std::string& StoragePrefix)
+     bool EnsureStorageCollection(const std::string &CollectionName, const std::string &StoragePrefix)
      {
           if (HybridStorageManagerInstance().CollectionExists(CollectionName))
           {
@@ -204,11 +208,13 @@ class EventRuntimeModule final : public AutoRuntimeModule<EventRuntimeModule>
 
      /* Persist one batch of queued records directly into storage. */
 
-     void FlushRecords(std::vector<PendingRecord>& Records)
+     std::vector<PendingRecord> FlushRecords(std::vector<PendingRecord> &Records)
      {
+          std::vector<PendingRecord> FailedRecords;
+
           if (Records.empty())
           {
-               return;
+               return FailedRecords;
           }
 
           const std::string Day = CurrentDayString();
@@ -217,11 +223,12 @@ class EventRuntimeModule final : public AutoRuntimeModule<EventRuntimeModule>
 
           for (std::size_t Index = 0; Index < Records.size(); ++Index)
           {
-               PendingRecord& Record = Records[Index];
+               PendingRecord &Record = Records[Index];
                const std::string CollectionName = BuildStorageCollectionName(Record.StoragePrefix, Day);
 
                if (!EnsureStorageCollection(CollectionName, Record.StoragePrefix))
                {
+                    FailedRecords.push_back(std::move(Record));
                     continue;
                }
 
@@ -251,7 +258,42 @@ class EventRuntimeModule final : public AutoRuntimeModule<EventRuntimeModule>
                Doc.Fields["batch_size"] = BatchSizeValue;
                Doc.Fields["batch_index"] = std::to_string(static_cast<unsigned long long>(Index));
 
-               (void)HybridStorageManagerInstance().AddDocument(CollectionName, Doc);
+               if (!HybridStorageManagerInstance().AddDocument(CollectionName, Doc))
+               {
+                    FailedRecords.push_back(std::move(Record));
+               }
+          }
+
+          if (!FailedRecords.empty() && Instance && Instance->Logs)
+          {
+               Instance->Logs->Normal("event", "Event module retained " + std::to_string(FailedRecords.size()) + " record(s) after storage write failure.");
+          }
+
+          return FailedRecords;
+     }
+
+     void RequeueFailedRecords(std::vector<PendingRecord> &Records)
+     {
+          if (Records.empty())
+          {
+               return;
+          }
+
+          std::lock_guard<std::mutex> Lock(QueueMutex);
+
+          const std::size_t SpaceLeft = PendingRecords.size() >= MaxPendingRecords ? 0 : MaxPendingRecords - PendingRecords.size();
+          const std::size_t RequeueCount = std::min(SpaceLeft, Records.size());
+
+          if (RequeueCount > 0)
+          {
+               PendingRecords.insert(PendingRecords.begin(),
+                                     std::make_move_iterator(Records.begin()),
+                                     std::make_move_iterator(Records.begin() + static_cast<std::vector<PendingRecord>::difference_type>(RequeueCount)));
+          }
+
+          if (RequeueCount < Records.size() && Instance && Instance->Logs)
+          {
+               Instance->Logs->Normal("event", "Event module dropped " + std::to_string(Records.size() - RequeueCount) + " record(s) because the retry queue is full.");
           }
      }
 
@@ -275,7 +317,8 @@ class EventRuntimeModule final : public AutoRuntimeModule<EventRuntimeModule>
                PendingRecords.erase(PendingRecords.begin(), PendingRecords.begin() + static_cast<std::vector<PendingRecord>::difference_type>(FlushCount));
           }
 
-          FlushRecords(Records);
+          std::vector<PendingRecord> FailedRecords = FlushRecords(Records);
+          RequeueFailedRecords(FailedRecords);
      }
 
      /* Flush all queued records regardless of the current queue length. */
@@ -295,15 +338,16 @@ class EventRuntimeModule final : public AutoRuntimeModule<EventRuntimeModule>
                Records.swap(PendingRecords);
           }
 
-          FlushRecords(Records);
+          std::vector<PendingRecord> FailedRecords = FlushRecords(Records);
+          RequeueFailedRecords(FailedRecords);
      }
 
      /* Queue one record for batched persistence. */
 
-     void QueueRecord(const std::string& StoragePrefix,
-                      const std::string& EventType,
-                      const std::string& SubjectCollection,
-                      const nlohmann::json& Payload)
+     void QueueRecord(const std::string &StoragePrefix,
+                      const std::string &EventType,
+                      const std::string &SubjectCollection,
+                      const nlohmann::json &Payload)
      {
           {
                std::lock_guard<std::mutex> Lock(QueueMutex);
@@ -315,6 +359,11 @@ class EventRuntimeModule final : public AutoRuntimeModule<EventRuntimeModule>
                Record.SubjectCollection = SubjectCollection;
                Record.Payload = Payload;
 
+               if (PendingRecords.size() >= MaxPendingRecords)
+               {
+                    PendingRecords.erase(PendingRecords.begin());
+               }
+
                PendingRecords.push_back(std::move(Record));
           }
 
@@ -323,10 +372,10 @@ class EventRuntimeModule final : public AutoRuntimeModule<EventRuntimeModule>
 
      /* Build the common payload fields used by all stored records. */
 
-     nlohmann::json BuildBasePayload(const std::string& EventType,
-                                     const std::string& SubjectCollection,
-                                     const std::string& RequesterIP,
-                                     const std::string& RequesterUser,
+     nlohmann::json BuildBasePayload(const std::string &EventType,
+                                     const std::string &SubjectCollection,
+                                     const std::string &RequesterIP,
+                                     const std::string &RequesterUser,
                                      bool Authenticated) const
      {
           nlohmann::json Payload = nlohmann::json::object();
@@ -342,18 +391,16 @@ class EventRuntimeModule final : public AutoRuntimeModule<EventRuntimeModule>
      }
 
    public:
-
      /* Construct the event runtime module. */
 
      EventRuntimeModule()
-          : AutoRuntimeModule("event", false)
+         : AutoCompositeRuntimeModule("event", false)
      {
-
      }
 
      /* Load event-module configuration. */
 
-     bool Start(const ServerConfig& Config, std::string&) override
+     bool Start(const ServerConfig &Config, std::string &) override
      {
           auto Tag = Config.GetConfigReader().GetTag("event");
 
@@ -375,7 +422,7 @@ class EventRuntimeModule final : public AutoRuntimeModule<EventRuntimeModule>
 
                if (ConfiguredBatchSize > 0)
                {
-                    BatchSize = static_cast<unsigned int>(ConfiguredBatchSize);
+                    BatchSize = static_cast<unsigned int>(std::clamp(ConfiguredBatchSize, 1, 10000));
                }
           }
 
@@ -398,9 +445,9 @@ class EventRuntimeModule final : public AutoRuntimeModule<EventRuntimeModule>
 
      /* Record successful collection-creation events. */
 
-     void OnCreateCollection(const std::string& Collection,
-                             const std::string& RequesterIP,
-                             const std::string& RequesterUser,
+     void OnCreateCollection(const std::string &Collection,
+                             const std::string &RequesterIP,
+                             const std::string &RequesterUser,
                              bool Authenticated) override
      {
           if (IsInternalStorageCollection(Collection))
@@ -415,9 +462,9 @@ class EventRuntimeModule final : public AutoRuntimeModule<EventRuntimeModule>
 
      /* Record successful collection-deletion events. */
 
-     void OnDeleteCollection(const std::string& Collection,
-                             const std::string& RequesterIP,
-                             const std::string& RequesterUser,
+     void OnDeleteCollection(const std::string &Collection,
+                             const std::string &RequesterIP,
+                             const std::string &RequesterUser,
                              bool Authenticated) override
      {
           if (IsInternalStorageCollection(Collection))
@@ -432,7 +479,7 @@ class EventRuntimeModule final : public AutoRuntimeModule<EventRuntimeModule>
 
      /* Record collection-search events in the search stream. */
 
-     void OnSearchCollection(const SearchEvent& Event) override
+     void OnSearchCollection(const SearchEvent &Event) override
      {
           if (IsInternalStorageCollection(Event.Collection))
           {
@@ -457,7 +504,7 @@ class EventRuntimeModule final : public AutoRuntimeModule<EventRuntimeModule>
 
      /* Record document-search events in the search stream. */
 
-     void OnSearchDocument(const SearchEvent& Event) override
+     void OnSearchDocument(const SearchEvent &Event) override
      {
           if (IsInternalStorageCollection(Event.Collection))
           {

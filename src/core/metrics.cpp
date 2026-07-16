@@ -22,7 +22,6 @@ HLQueryMetrics::MetricHistory::MetricHistory()
     : LastStorageTime(std::chrono::system_clock::time_point(std::chrono::milliseconds(NowMs()))),
       LastRetentionCheck(std::chrono::system_clock::time_point(std::chrono::milliseconds(NowMs())))
 {
-
 }
 
 std::chrono::system_clock::time_point HLQueryMetrics::MetricHistory::GetCurrentTime() const
@@ -74,16 +73,16 @@ std::vector<HLQueryMetrics::MetricPoint> HLQueryMetrics::MetricHistory::GetPoint
      std::vector<MetricPoint> ResultList;
 
      const auto FirstPoint = std::lower_bound(Points.begin(), Points.end(), StartTime,
-          [](const MetricPoint &PointItem, const auto &Timestamp)
-          {
-               return PointItem.Timestamp < Timestamp;
-          });
+                                              [](const MetricPoint &PointItem, const auto &Timestamp)
+                                              {
+                                                   return PointItem.Timestamp < Timestamp;
+                                              });
 
      const auto LastPoint = std::upper_bound(FirstPoint, Points.end(), EndTime,
-          [](const auto &Timestamp, const MetricPoint &PointItem)
-          {
-               return Timestamp < PointItem.Timestamp;
-          });
+                                             [](const auto &Timestamp, const MetricPoint &PointItem)
+                                             {
+                                                  return Timestamp < PointItem.Timestamp;
+                                             });
 
      ResultList.reserve(static_cast<std::size_t>(std::distance(FirstPoint, LastPoint)));
 
@@ -190,16 +189,16 @@ HLQueryMetrics::MetricWindowSummary HLQueryMetrics::MetricHistory::GetWindowSumm
      }
 
      const auto FirstPoint = std::lower_bound(Points.begin(), Points.end(), StartTime,
-          [](const MetricPoint &PointItem, const auto &Timestamp)
-          {
-               return PointItem.Timestamp < Timestamp;
-          });
+                                              [](const MetricPoint &PointItem, const auto &Timestamp)
+                                              {
+                                                   return PointItem.Timestamp < Timestamp;
+                                              });
 
      const auto LastPoint = std::upper_bound(FirstPoint, Points.end(), EndTime,
-          [](const auto &Timestamp, const MetricPoint &PointItem)
-          {
-               return Timestamp < PointItem.Timestamp;
-          });
+                                             [](const auto &Timestamp, const MetricPoint &PointItem)
+                                             {
+                                                  return Timestamp < PointItem.Timestamp;
+                                             });
 
      double TotalValue = 0.0;
 
@@ -275,7 +274,6 @@ void HLQueryMetrics::MetricHistory::PerformRetention()
 
 void HLQueryMetrics::MetricHistory::PerformRetentionUnlocked(std::chrono::system_clock::time_point NowTime)
 {
-
      if (Points.empty())
      {
           return;

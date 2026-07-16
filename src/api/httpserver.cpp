@@ -40,6 +40,8 @@
 #include "utils/jsonbuilder.h"
 #include "vendor/json/json.hpp"
 
+/* Implements HTTP request parsing, authorization, routing, and socket handling. */
+
 #define HTTP_MAX_HEADER_SIZE (64 * 1024)
 
 /* Maximum number of HTTP headers (1000) - Prevent DoS from too many headers. */
@@ -58,6 +60,7 @@ static std::string NormalizeRequestPath(const std::string &Path);
 static bool IsModuleControlRoutePath(const std::string &Path);
 static bool IsAuthorizedReplicationRequest(const HttpRequest &Request);
 static bool IsHealthLikePath(const std::string &Path);
+static bool IsDocumentIngestionRequest(const std::string &Method, const std::string &Path);
 
 struct RouteContext
 {
@@ -76,57 +79,32 @@ struct RouteContext
 
 static RouteContext BuildRouteContext(const HttpRequest &Request, SearchAPI *API = nullptr);
 
+/* Checks whether use async HTTP dispatch should be used. */
+
 static bool ShouldUseAsyncHttpDispatch()
 {
-     static const bool UseThreadPool = []
-     {
-          const char *EnvValue = std::getenv("HLQUERY_HTTP_USE_THREAD_POOL");
-
-          if (!EnvValue)
-          {
-               return false;
-          }
-
-          std::string Value(EnvValue);
-          std::transform(Value.begin(), Value.end(), Value.begin(), [](unsigned char c)
-                         { return static_cast<char>(std::tolower(c)); });
-
-          if (!(Value == "1" || Value == "true" || Value == "yes" || Value == "on"))
-          {
-               return false;
-          }
-
-          /*
-           * HttpConnection instances are owned by HttpServer::Connections and can be
-           * destroyed by the event loop. Until connection ownership is ref-counted,
-           * dispatching lambdas that capture `this` is unsafe.
-           */
-
-          const char *UnsafeValue = std::getenv("HLQUERY_HTTP_ALLOW_UNSAFE_ASYNC_CONNECTIONS");
-
-          if (!UnsafeValue)
-          {
-               return false;
-          }
-
-          std::string UnsafeFlag(UnsafeValue);
-          std::transform(UnsafeFlag.begin(), UnsafeFlag.end(), UnsafeFlag.begin(), [](unsigned char c)
-                         { return static_cast<char>(std::tolower(c)); });
-
-          return UnsafeFlag == "1" || UnsafeFlag == "true" || UnsafeFlag == "yes" || UnsafeFlag == "on";
-     }();
-
-     return UseThreadPool;
+     /*
+      * HttpConnection instances are owned by HttpServer::Connections while the
+      * socket engine stores raw EventHandler pointers. Dispatching request work
+      * to another thread captures `this` across event-loop cleanup, producing a
+      * possible use-after-free. Keep request execution on the event-loop thread
+      * until connection ownership is ref-counted end to end.
+      */
+     return false;
 }
 
 /* UrlDecode decodes a URL string. */
 
 std::string UrlDecode(const std::string &Str, bool DecodePlusAsSpace = true);
 
+/* Checks whether hex digit applies. */
+
 static bool IsHexDigit(char C)
 {
      return std::isxdigit(static_cast<unsigned char>(C)) != 0;
 }
+
+/* Implements the hex digit value helper. */
 
 static int HexDigitValue(char C)
 {
@@ -138,6 +116,8 @@ static int HexDigitValue(char C)
      C = static_cast<char>(std::tolower(static_cast<unsigned char>(C)));
      return 10 + (C - 'a');
 }
+
+/* Checks whether valid request framing headers exists. */
 
 static bool HasValidRequestFramingHeaders(const std::string &HeadersPart, std::string *Error)
 {
@@ -187,7 +167,9 @@ static bool HasValidRequestFramingHeaders(const std::string &HeadersPart, std::s
           }
           Name.erase(LastNameCharacter + 1);
           std::transform(Name.begin(), Name.end(), Name.begin(), [](unsigned char C)
-                         { return static_cast<char>(std::tolower(C)); });
+                         {
+                              return static_cast<char>(std::tolower(C));
+                         });
 
           if (Name == "content-length")
           {
@@ -229,6 +211,8 @@ static void LogAccessControl(const std::string &Reason, const HttpRequest &Reque
           Instance->Logs->Normal("access_control", Reason + " (endpoint: " + Request.Path + ", method: " + Request.Method + ", remote: " + Request.RemoteAddress + ":" + std::to_string(Request.RemotePort) + ").");
      }
 }
+
+/* Implements the authorize HTTP request helper. */
 
 static bool AuthorizeHttpRequest(HttpRequest &Request, HttpResponse &Response)
 {
@@ -300,17 +284,23 @@ static bool AuthorizeHttpRequest(HttpRequest &Request, HttpResponse &Response)
      return true;
 }
 
+/* Returns a request header value using case-insensitive lookup. */
+
 static std::string GetHeaderValueInsensitive(const std::map<std::string, std::string> &Headers, const std::string &Name)
 {
      std::string LowerName = Name;
      std::transform(LowerName.begin(), LowerName.end(), LowerName.begin(), [](unsigned char c)
-                    { return static_cast<char>(std::tolower(c)); });
+                    {
+                         return static_cast<char>(std::tolower(c));
+                    });
 
      for (const auto &Header : Headers)
      {
           std::string Key = Header.first;
           std::transform(Key.begin(), Key.end(), Key.begin(), [](unsigned char c)
-                         { return static_cast<char>(std::tolower(c)); });
+                         {
+                              return static_cast<char>(std::tolower(c));
+                         });
           if (Key == LowerName)
           {
                return Header.second;
@@ -319,6 +309,8 @@ static std::string GetHeaderValueInsensitive(const std::map<std::string, std::st
 
      return "";
 }
+
+/* Checks whether health like path applies. */
 
 static bool IsHealthLikePath(const std::string &Path)
 {
@@ -330,13 +322,30 @@ static bool IsHealthLikePath(const std::string &Path)
             Path == "/stats" || Path == "/stats/";
 }
 
+/* Checks whether document ingestion request applies. */
+
+static bool IsDocumentIngestionRequest(const std::string &Method, const std::string &Path)
+{
+     return Method == "POST" &&
+            Path.find("/collections/") == 0 &&
+            Path.find("/documents") != std::string::npos &&
+            Path.find("/documents/search") == std::string::npos &&
+            Path.find("/documents/facet_counts") == std::string::npos &&
+            Path.find("/documents/maybe") == std::string::npos &&
+            Path.find("/documents/export") == std::string::npos;
+}
+
+/* Checks whether replication hop request applies. */
+
 static bool IsReplicationHopRequest(const HttpRequest &Request)
 {
      for (const auto &Header : Request.Headers)
      {
           std::string Key = Header.first;
           std::transform(Key.begin(), Key.end(), Key.begin(), [](unsigned char c)
-                         { return static_cast<char>(std::tolower(c)); });
+                         {
+                              return static_cast<char>(std::tolower(c));
+                         });
           if (Key != "x-hlq-replication-hop")
           {
                continue;
@@ -344,12 +353,16 @@ static bool IsReplicationHopRequest(const HttpRequest &Request)
 
           std::string Value = Header.second;
           std::transform(Value.begin(), Value.end(), Value.begin(), [](unsigned char c)
-                         { return static_cast<char>(std::tolower(c)); });
+                         {
+                              return static_cast<char>(std::tolower(c));
+                         });
           return Value == "1" || Value == "true";
      }
 
      return false;
 }
+
+/* Checks whether authorized replication request applies. */
 
 static bool IsAuthorizedReplicationRequest(const HttpRequest &Request)
 {
@@ -374,8 +387,8 @@ static bool IsAuthorizedReplicationRequest(const HttpRequest &Request)
                std::string PrimaryToken;
                std::string SecondaryToken;
                const bool FoundTokens = UseSlaveTokens
-                                            ? Instance->Config->GetSlavePeerTokens(Endpoint, &PrimaryToken, &SecondaryToken)
-                                            : Instance->Config->GetClusterPeerTokens(Endpoint, &PrimaryToken, &SecondaryToken);
+                                             ? Instance->Config->GetSlavePeerTokens(Endpoint, &PrimaryToken, &SecondaryToken)
+                                             : Instance->Config->GetClusterPeerTokens(Endpoint, &PrimaryToken, &SecondaryToken);
                if (!FoundTokens)
                {
                     continue;
@@ -404,6 +417,8 @@ static bool IsAuthorizedReplicationRequest(const HttpRequest &Request)
      return false;
 }
 
+/* Implements the record analytics for response helper. */
+
 static void RecordAnalyticsForResponse(const HttpRequest &Request, const HttpResponse &Response, RouteAction ActionVal)
 {
      FOREACH_MOD(OnRequestAnalytics, Request, Response, ActionVal);
@@ -414,10 +429,14 @@ static void RecordAnalyticsForResponse(const HttpRequest &Request, const HttpRes
      }
 }
 
+/* Implements the record analytics for response helper. */
+
 static void RecordAnalyticsForResponse(const HttpRequest &Request, const HttpResponse &Response)
 {
      RecordAnalyticsForResponse(Request, Response, ResolveRouteWithFallback(Request));
 }
+
+/* Checks whether mutating request method applies. */
 
 static bool IsMutatingRequestMethod(const HttpRequest &Request)
 {
@@ -426,6 +445,8 @@ static bool IsMutatingRequestMethod(const HttpRequest &Request)
 
 static std::atomic<uint64_t> BackpressureConnectionRejects{0};
 static std::atomic<uint64_t> BackpressureQueueRejects{0};
+
+/* Builds backpressure response data. */
 
 static HttpResponse BuildBackpressureResponse(const std::string &Source, const std::string &Message)
 {
@@ -440,6 +461,8 @@ static HttpResponse BuildBackpressureResponse(const std::string &Source, const s
 
      return Response;
 }
+
+/* Builds backpressure raw response data. */
 
 static std::string BuildBackpressureRawResponse(const std::string &Source, const std::string &Message)
 {
@@ -460,6 +483,8 @@ static std::string BuildBackpressureRawResponse(const std::string &Source, const
      return Response;
 }
 
+/* Implements the trim HTTP field value helper. */
+
 static std::string TrimHTTPFieldValue(const std::string &Value)
 {
      size_t Start = Value.find_first_not_of(" \t");
@@ -472,6 +497,8 @@ static std::string TrimHTTPFieldValue(const std::string &Value)
      size_t End = Value.find_last_not_of(" \t");
      return Value.substr(Start, End - Start + 1);
 }
+
+/* Extracts auth token from request values. */
 
 static bool ExtractAuthTokenFromRequest(const HttpRequest &Request, std::string &OutAuthHeader, std::string &OutToken)
 {
@@ -552,7 +579,7 @@ HttpConnection::HttpConnection(int FDVal, const std::string &ClientIPVal, int Cl
 #ifdef HLQUERY_HAS_OPENSSL
 
      SSLValue = nullptr;
-     
+
 #endif
 }
 
@@ -1452,7 +1479,7 @@ void HttpConnection::OnEventHandlerWrite()
           SocketEngine::RegisterPendingWrite(this);
      }
 
-     if (Instance && Instance->Logs)
+     if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
      {
           Instance->Logs->Normal("http_server", "[OnEventHandlerWrite] Response complete, unregistered write (fd=" + std::to_string(GetFD()) + ", keep_alive=" + std::string(KeepAlive ? "true" : "false") + ").");
      }
@@ -1462,7 +1489,7 @@ void HttpConnection::OnEventHandlerWrite()
 
      if (!KeepAlive)
      {
-          if (Instance && Instance->Logs)
+          if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
           {
                Instance->Logs->Normal("http_server", "[OnEventHandlerWrite] Closing connection (keep-alive=false, fd=" + std::to_string(GetFD()) + ").");
           }
@@ -1484,7 +1511,7 @@ void HttpConnection::OnEventHandlerWrite()
 
                SetFD(-1);
 
-               if (Instance && Instance->Logs)
+               if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
                {
                     Instance->Logs->Normal("http_server", "[OnEventHandlerWrite] Connection closed and fd set to -1.");
                }
@@ -1492,7 +1519,7 @@ void HttpConnection::OnEventHandlerWrite()
      }
      else
      {
-          if (Instance && Instance->Logs)
+          if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
           {
                Instance->Logs->Normal("http_server", "[OnEventHandlerWrite] Keeping connection alive (fd=" + std::to_string(GetFD()) + ").");
           }
@@ -1653,6 +1680,8 @@ void HttpConnection::ProcessRequest()
 }
 
 /* SetAdvancedSocketOptions sets advanced socket options for performance. */
+
+/* Updates set advanced socket options values. */
 
 void HttpConnection::SetAdvancedSocketOptions(int FDValue)
 {
@@ -1944,7 +1973,7 @@ void HttpConnection::ProcessMultipleRequests()
           {
                if (ThreadPoolValue && !ShouldUseAsyncHttpDispatch() && Instance && Instance->Logs && Instance->Logs->GetDebugMode())
                {
-                    Instance->Logs->Debug("http_server", "ProcessMultipleRequests: HTTP pool available but disabled via HLQUERY_HTTP_USE_THREAD_POOL; processing inline.");
+                    Instance->Logs->Debug("http_server", "ProcessMultipleRequests: HTTP pool available but async connection dispatch is disabled until connection ownership is ref-counted; processing inline.");
                }
 
                ProcessSingleRequest(RequestStr);
@@ -2089,997 +2118,998 @@ void HttpConnection::ProcessSingleRequest(const std::string &RequestStr)
 
      try
      {
-
-     /* Block queries until collections are loaded after restart, but allow write operations. */
-     /* This ensures queries return accurate results with all collections available. */
-     /* Allow collection creation and document import during loading (needed for benchmarks). */
-
-     bool IsAnyServerLoading = false;
-
-     for (auto *ServerVal : Instance->HTTPServers)
-     {
-          if (ServerVal && ServerVal->IsLoading())
-          {
-               IsAnyServerLoading = true;
-               break;
-          }
-     }
-
-     if (Instance && IsAnyServerLoading)
-     {
-          if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
-          {
-               Instance->Logs->Debug("http_server", "ProcessSingleRequest: Server is loading, checking if request is allowed: " + Request.Method + " " + Request.Path + ".");
-          }
-
-          /* Allow health check endpoints during loading. */
-
-          bool IsHealthCheck = IsHealthLikePath(Request.Path);
-
-          /* Allow collection creation during loading (needed for benchmarks). */
-
-          bool IsCollectionCreation = (Request.Path == "/collections" && Request.Method == "POST");
-
-          /* Allow document import during loading (needed for benchmarks). */
-
-          bool IsDocumentImport = (Request.Method == "POST" &&
-                                   Request.Path.find("/collections/") == 0 &&
-                                   Request.Path.find("/documents/import") != std::string::npos);
-
-          /* Block queries (GET requests) until collections are loaded after restart. */
+          /* Block queries until collections are loaded after restart, but allow write operations. */
           /* This ensures queries return accurate results with all collections available. */
+          /* Allow collection creation and document import during loading (needed for benchmarks). */
 
-          bool IsQuery = (Request.Method == "GET");
+          bool IsAnyServerLoading = false;
 
-          /* Allow write operations (collection creation, document import) but block queries. */
+          for (auto *ServerVal : Instance->HTTPServers)
+          {
+               if (ServerVal && ServerVal->IsLoading())
+               {
+                    IsAnyServerLoading = true;
+                    break;
+               }
+          }
 
-          if (!IsHealthCheck && !IsCollectionCreation && !IsDocumentImport && IsQuery)
+          if (Instance && IsAnyServerLoading)
           {
                if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
                {
-                    Instance->Logs->Debug("http_server", "ProcessSingleRequest: Blocking query during loading: " + Request.Method + " " + Request.Path + ".");
+                    Instance->Logs->Debug("http_server", "ProcessSingleRequest: Server is loading, checking if request is allowed: " + Request.Method + " " + Request.Path + ".");
                }
 
-               Response = HttpResponse(503, "Service Unavailable", "application/json");
+               /* Allow health check endpoints during loading. */
 
-               Response.Body = "{\"error\":\"Server is loading data\",\"message\":\"Database is still loading collections after restart. Queries are blocked until all collections are loaded. Write operations (collection creation, document import) are allowed.\"}";
-               Response.Headers["Retry-After"] = "5";
+               bool IsHealthCheck = IsHealthLikePath(Request.Path);
 
-               SendResponse(Response);
+               /* Allow collection creation during loading (needed for benchmarks). */
 
-               return;
+               bool IsCollectionCreation = (Request.Path == "/collections" && Request.Method == "POST");
+
+               /* Allow document import during loading (needed for benchmarks). */
+
+               bool IsDocumentImport = IsDocumentIngestionRequest(Request.Method, Request.Path);
+
+               /* Block queries (GET requests) until collections are loaded after restart. */
+               /* This ensures queries return accurate results with all collections available. */
+
+               bool IsQuery = (Request.Method == "GET");
+
+               /* Allow write operations (collection creation, document import) but block queries. */
+
+               if (!IsHealthCheck && !IsCollectionCreation && !IsDocumentImport && IsQuery)
+               {
+                    if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
+                    {
+                         Instance->Logs->Debug("http_server", "ProcessSingleRequest: Blocking query during loading: " + Request.Method + " " + Request.Path + ".");
+                    }
+
+                    Response = HttpResponse(503, "Service Unavailable", "application/json");
+
+                    Response.Body = "{\"error\":\"Server is loading data\",\"message\":\"Database is still loading collections after restart. Queries are blocked until all collections are loaded. Write operations (collection creation, document import) are allowed.\"}";
+                    Response.Headers["Retry-After"] = "5";
+
+                    SendResponse(Response);
+
+                    return;
+               }
+               else if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
+               {
+                    Instance->Logs->Debug("http_server", "ProcessSingleRequest: Allowing request during loading: " + Request.Method + " ." + Request.Path + " (is_health=" + std::string(IsHealthCheck ? "true" : "false") + ", is_collection_creation=" + std::string(IsCollectionCreation ? "true" : "false") + ", is_document_import=" + std::string(IsDocumentImport ? "true" : "false") + ").");
+               }
           }
-          else if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
-          {
-               Instance->Logs->Debug("http_server", "ProcessSingleRequest: Allowing request during loading: " + Request.Method + " ." + Request.Path + " (is_health=" + std::string(IsHealthCheck ? "true" : "false") + ", is_collection_creation=" + std::string(IsCollectionCreation ? "true" : "false") + ", is_document_import=" + std::string(IsDocumentImport ? "true" : "false") + ").");
-          }
-     }
 
-     /* CRITICAL FIX: Block queries during database sync, but allow collection creation and document import. */
-     /* Collection creation and document import are safe during sync and needed for benchmarks. */
+          /* CRITICAL FIX: Block queries during database sync, but allow collection creation and document import. */
+          /* Collection creation and document import are safe during sync and needed for benchmarks. */
 
-     if (Instance && Instance->IsSyncInProgress())
-     {
-          if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
-          {
-               Instance->Logs->Debug("http_server", "ProcessSingleRequest: Database sync in progress, checking if request is allowed: " + Request.Method + " " + Request.Path + ".");
-          }
-
-          /* Allow health check endpoints during sync. */
-
-          bool IsHealthCheck = IsHealthLikePath(Request.Path);
-
-          /* Allow collection creation during sync - it's safe and needed for benchmarks. */
-
-          bool IsCollectionCreation = (Request.Path == "/collections" && Request.Method == "POST");
-
-          /* Allow document import during sync - it's safe and needed for benchmarks. */
-
-          bool IsDocumentImport = (Request.Method == "POST" &&
-                                   Request.Path.find("/collections/") == 0 &&
-                                   Request.Path.find("/documents/import") != std::string::npos);
-
-          /* Block queries and other write operations during sync. */
-
-          bool IsQuery = (Request.Method == "GET");
-
-          bool IsOtherWrite = (Request.Method == "POST" || Request.Method == "PUT" || Request.Method == "DELETE") &&
-                              !IsCollectionCreation && !IsDocumentImport;
-
-          if (!IsAuthorizedReplicationRequest(Request) && !IsHealthCheck && (IsQuery || IsOtherWrite))
+          if (Instance && Instance->IsSyncInProgress())
           {
                if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
                {
-                    Instance->Logs->Debug("http_server", "ProcessSingleRequest: Blocking request during sync: " + Request.Method + " " + Request.Path + ".");
+                    Instance->Logs->Debug("http_server", "ProcessSingleRequest: Database sync in progress, checking if request is allowed: " + Request.Method + " " + Request.Path + ".");
                }
 
-               Response = HttpResponse(503, "Service Unavailable", "application/json");
+               /* Allow health check endpoints during sync. */
 
-               Response.Body = "{\"error\":\"Database sync in progress\",\"message\":\"Database is currently syncing. Queries and most write operations are blocked until sync completes. Collection creation and document import are allowed.\"}";
-               Response.Headers["Retry-After"] = "5";
+               bool IsHealthCheck = IsHealthLikePath(Request.Path);
 
+               /* Allow collection creation during sync - it's safe and needed for benchmarks. */
+
+               bool IsCollectionCreation = (Request.Path == "/collections" && Request.Method == "POST");
+
+               /* Allow document import during sync - it's safe and needed for benchmarks. */
+
+               bool IsDocumentImport = IsDocumentIngestionRequest(Request.Method, Request.Path);
+
+               /* Block queries and other write operations during sync. */
+
+               bool IsQuery = (Request.Method == "GET");
+
+               bool IsOtherWrite = (Request.Method == "POST" || Request.Method == "PUT" || Request.Method == "DELETE") &&
+                                   !IsCollectionCreation && !IsDocumentImport;
+
+               if (!IsAuthorizedReplicationRequest(Request) && !IsHealthCheck && (IsQuery || IsOtherWrite))
+               {
+                    if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
+                    {
+                         Instance->Logs->Debug("http_server", "ProcessSingleRequest: Blocking request during sync: " + Request.Method + " " + Request.Path + ".");
+                    }
+
+                    Response = HttpResponse(503, "Service Unavailable", "application/json");
+
+                    Response.Body = "{\"error\":\"Database sync in progress\",\"message\":\"Database is currently syncing. Queries and most write operations are blocked until sync completes. Collection creation and document import are allowed.\"}";
+                    Response.Headers["Retry-After"] = "5";
+
+                    SendResponse(Response);
+
+                    return;
+               }
+               else if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
+               {
+                    Instance->Logs->Debug("http_server", "ProcessSingleRequest: Allowing request during sync: " + Request.Method + " ." + Request.Path + " (is_health=" + std::string(IsHealthCheck ? "true" : "false") + ", is_collection_creation=" + std::string(IsCollectionCreation ? "true" : "false") + ", is_document_import=" + std::string(IsDocumentImport ? "true" : "false") + ").");
+               }
+          }
+
+          if (!AuthorizeHttpRequest(Request, Response))
+          {
                SendResponse(Response);
-
                return;
           }
-          else if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
+
+          /* Check for keep-alive header. */
+
+          KeepAlive = (Request.Version == "HTTP/1.1");
+
+          auto ConnHeader = Request.Headers.find("connection");
+
+          if (ConnHeader != Request.Headers.end())
           {
-               Instance->Logs->Debug("http_server", "ProcessSingleRequest: Allowing request during sync: " + Request.Method + " ." + Request.Path + " (is_health=" + std::string(IsHealthCheck ? "true" : "false") + ", is_collection_creation=" + std::string(IsCollectionCreation ? "true" : "false") + ", is_document_import=" + std::string(IsDocumentImport ? "true" : "false") + ").");
+               std::string ConnectionValue = ConnHeader->second;
+               std::transform(ConnectionValue.begin(), ConnectionValue.end(), ConnectionValue.begin(), [](unsigned char C)
+                              {
+                                   return static_cast<char>(std::tolower(C));
+                              });
+               if (ConnectionValue == "close")
+               {
+                    KeepAlive = false;
+               }
+               else if (ConnectionValue == "keep-alive")
+               {
+                    KeepAlive = true;
+               }
           }
-     }
 
-     if (!AuthorizeHttpRequest(Request, Response))
-     {
-          SendResponse(Response);
-          return;
-     }
+          RequestsProcessed++;
 
-     /* Check for keep-alive header. */
-
-     KeepAlive = (Request.Version == "HTTP/1.1");
-
-     auto ConnHeader = Request.Headers.find("connection");
-
-     if (ConnHeader != Request.Headers.end())
-     {
-          std::string ConnectionValue = ConnHeader->second;
-          std::transform(ConnectionValue.begin(), ConnectionValue.end(), ConnectionValue.begin(), [](unsigned char C)
-                         { return static_cast<char>(std::tolower(C)); });
-          if (ConnectionValue == "close")
+          if (RequestsProcessed >= HTTP_MAX_REQUESTS_PER_CONNECTION && RequestBuffer.empty())
           {
                KeepAlive = false;
           }
-          else if (ConnectionValue == "keep-alive")
+
+          /* Route to search API handlers. */
+
+          SearchAPI &API = SearchAPI::GetInstance();
+
+          /* API Key and Admin permission check. */
+
+          bool IsAdminVal = false;
+          std::string TokenVal = "";
+
+          auto AuthIt = Request.Headers.find("authorization");
+
+          if (AuthIt != Request.Headers.end())
           {
-               KeepAlive = true;
-          }
-     }
-
-     RequestsProcessed++;
-
-     if (RequestsProcessed >= HTTP_MAX_REQUESTS_PER_CONNECTION && RequestBuffer.empty())
-     {
-          KeepAlive = false;
-     }
-
-     /* Route to search API handlers. */
-
-     SearchAPI &API = SearchAPI::GetInstance();
-
-     /* API Key and Admin permission check. */
-
-     bool IsAdminVal = false;
-     std::string TokenVal = "";
-
-     auto AuthIt = Request.Headers.find("authorization");
-
-     if (AuthIt != Request.Headers.end())
-     {
-          TokenVal = AuthIt->second;
-     }
-     else
-     {
-          auto APIKeyIt = Request.Headers.find("x-api-key");
-
-          if (APIKeyIt != Request.Headers.end())
-          {
-               TokenVal = APIKeyIt->second;
+               TokenVal = AuthIt->second;
           }
           else
           {
-               APIKeyIt = Request.Headers.find("x-typesense-api-key");
+               auto APIKeyIt = Request.Headers.find("x-api-key");
 
                if (APIKeyIt != Request.Headers.end())
                {
                     TokenVal = APIKeyIt->second;
                }
-          }
-     }
-
-     if (TokenVal.find("Bearer ") == 0)
-     {
-          TokenVal = TokenVal.substr(7);
-     }
-
-     /* Scoped Key metadata. */
-
-     std::string KeyIDVal;
-     std::string KeyEmbeddedFilters;
-     bool AuthenticatedRequest = false;
-
-     RouteContext Context = BuildRouteContext(Request, &API);
-     RouteAction ActionVal = Context.ActionVal;
-     const std::string &NormalizedPath = Context.NormalizedPath;
-
-     if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
-     {
-          Instance->Logs->Debug("http_server", "ProcessSingleRequest: route_resolved=" + std::string(RouteActionName(ActionVal)) + ", method=" + Request.Method + ", path=" + Request.Path + ", version=" + Request.Version + ", requests_processed_total=" + std::to_string(RequestsProcessed) + ".");
-     }
-
-     APIKey KeyObj;
-
-     if (APIKeyManager::Instance().ValidateKey(TokenVal, &KeyObj))
-     {
-          if (!APIKeyManager::Instance().CheckRateLimit(KeyObj.ID))
-          {
-               Response = HttpResponse(429, "Too Many Requests", "application/json");
-               Response.Body = "{\"error\":\"Rate limit exceeded\"}";
-               SendResponse(Response);
-               return;
-          }
-
-          APIKeyAction ReqAction = MapRouteToKeyAction(ActionVal);
-          std::string ColNameVal = Context.CollectionName;
-
-          /* Handle /multi_search and system endpoints. */
-
-          if (!Context.IsPublic && ColNameVal.empty())
-          {
-               if (ActionVal == RouteAction::MultiSearch || ActionVal == RouteAction::GlobalSearch)
-               {
-                    /* Allowed at this level, HandleMultiSearch will check individual collections. */
-               }
                else
                {
-                    /* System-wide endpoint (e.g. /stats, /health, etc.) - check for wildcard scope. */
+                    APIKeyIt = Request.Headers.find("x-typesense-api-key");
 
-                    if (!KeyObj.CanAccessCollection("*"))
+                    if (APIKeyIt != Request.Headers.end())
                     {
-                         Response = HttpResponse(403, "Forbidden", "application/json");
-                         Response.Body = "{\"error\":\"Access to system endpoints not allowed for this key\"}";
-                         LogAccessControl("Forbidden: key '" + KeyObj.ID + "' cannot access system endpoints", Request);
-                         SendResponse(Response);
-                         return;
+                         TokenVal = APIKeyIt->second;
                     }
-
-                    if (!KeyObj.HasAction("*", ReqAction))
-                    {
-                         Response = HttpResponse(403, "Forbidden", "application/json");
-                         Response.Body = "{\"error\":\"Action not allowed for system endpoints with this key\"}";
-                         LogAccessControl("Forbidden: key '" + KeyObj.ID + "' action not allowed for system endpoints", Request);
-                         SendResponse(Response);
-                         return;
-                    }
-
-                    ColNameVal = "*";
                }
           }
-          else if (!Context.IsPublic)
+
+          if (TokenVal.find("Bearer ") == 0)
           {
-               if (!KeyObj.CanAccessCollection(ColNameVal))
+               TokenVal = TokenVal.substr(7);
+          }
+
+          /* Scoped Key metadata. */
+
+          std::string KeyIDVal;
+          std::string KeyEmbeddedFilters;
+          bool AuthenticatedRequest = false;
+
+          RouteContext Context = BuildRouteContext(Request, &API);
+          RouteAction ActionVal = Context.ActionVal;
+          const std::string &NormalizedPath = Context.NormalizedPath;
+
+          if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
+          {
+               Instance->Logs->Debug("http_server", "ProcessSingleRequest: route_resolved=" + std::string(RouteActionName(ActionVal)) + ", method=" + Request.Method + ", path=" + Request.Path + ", version=" + Request.Version + ", requests_processed_total=" + std::to_string(RequestsProcessed) + ".");
+          }
+
+          APIKey KeyObj;
+
+          if (APIKeyManager::Instance().ValidateKey(TokenVal, &KeyObj))
+          {
+               if (!APIKeyManager::Instance().CheckRateLimit(KeyObj.ID))
                {
-                    Response = HttpResponse(403, "Forbidden", "application/json");
-
-                    nlohmann::json ErrorJSON;
-                    ErrorJSON["error"] = "Access to collection not allowed for this key";
-                    ErrorJSON["collection"] = ColNameVal;
-                    Response.Body = ErrorJSON.dump();
-
-                    LogAccessControl("Forbidden: key '" + KeyObj.ID + "' cannot access collection '" + ColNameVal + "'", Request);
+                    Response = HttpResponse(http_code::TOO_MANY_REQUESTS, StatusText(http_code::TOO_MANY_REQUESTS), "application/json");
+                    Response.Body = "{\"error\":\"Rate limit exceeded\"}";
                     SendResponse(Response);
                     return;
                }
 
-               if (!KeyObj.HasAction(ColNameVal, ReqAction))
-               {
-                    Response = HttpResponse(403, "Forbidden", "application/json");
-                    Response.Body = "{\"error\":\"Action not allowed for this collection with this key\"}";
-                    LogAccessControl("Forbidden: key '" + KeyObj.ID + "' action not allowed for collection '" + ColNameVal + "'", Request);
-                    SendResponse(Response);
-                    return;
-               }
-          }
+               APIKeyAction ReqAction = MapRouteToKeyAction(ActionVal);
+               std::string ColNameVal = Context.CollectionName;
 
-          APIKeyManager::Instance().UpdateLastUsed(KeyObj.ID);
-          KeyIDVal = KeyObj.ID;
-          KeyEmbeddedFilters = KeyObj.GetEmbeddedFilters(ColNameVal);
-          IsAdminVal = false;
-          AuthenticatedRequest = true;
-     }
-     else
-     {
-          if (Instance && Instance->Users && Instance->Users->IsAuthEnabled())
-          {
-               IsAdminVal = Instance->Users->IsAdmin(TokenVal);
+               /* Handle /multi_search and system endpoints. */
+
+               if (!Context.IsPublic && ColNameVal.empty())
+               {
+                    if (ActionVal == RouteAction::MultiSearch || ActionVal == RouteAction::GlobalSearch)
+                    {
+                         /* Allowed at this level, HandleMultiSearch will check individual collections. */
+                    }
+                    else
+                    {
+                         /* System-wide endpoint (e.g. /stats, /health, etc.) - check for wildcard scope. */
+
+                         if (!KeyObj.CanAccessCollection("*"))
+                         {
+                              Response = HttpResponse(http_code::FORBIDDEN, StatusText(http_code::FORBIDDEN), "application/json");
+                              Response.Body = "{\"error\":\"Access to system endpoints not allowed for this key\"}";
+                              LogAccessControl("Forbidden: key '" + KeyObj.ID + "' cannot access system endpoints", Request);
+                              SendResponse(Response);
+                              return;
+                         }
+
+                         if (!KeyObj.HasAction("*", ReqAction))
+                         {
+                              Response = HttpResponse(http_code::FORBIDDEN, StatusText(http_code::FORBIDDEN), "application/json");
+                              Response.Body = "{\"error\":\"Action not allowed for system endpoints with this key\"}";
+                              LogAccessControl("Forbidden: key '" + KeyObj.ID + "' action not allowed for system endpoints", Request);
+                              SendResponse(Response);
+                              return;
+                         }
+
+                         ColNameVal = "*";
+                    }
+               }
+               else if (!Context.IsPublic)
+               {
+                    if (!KeyObj.CanAccessCollection(ColNameVal))
+                    {
+                         Response = HttpResponse(http_code::FORBIDDEN, StatusText(http_code::FORBIDDEN), "application/json");
+
+                         nlohmann::json ErrorJSON;
+                         ErrorJSON["error"] = "Access to collection not allowed for this key";
+                         ErrorJSON["collection"] = ColNameVal;
+                         Response.Body = ErrorJSON.dump();
+
+                         LogAccessControl("Forbidden: key '" + KeyObj.ID + "' cannot access collection '" + ColNameVal + "'", Request);
+                         SendResponse(Response);
+                         return;
+                    }
+
+                    if (!KeyObj.HasAction(ColNameVal, ReqAction))
+                    {
+                         Response = HttpResponse(http_code::FORBIDDEN, StatusText(http_code::FORBIDDEN), "application/json");
+                         Response.Body = "{\"error\":\"Action not allowed for this collection with this key\"}";
+                         LogAccessControl("Forbidden: key '" + KeyObj.ID + "' action not allowed for collection '" + ColNameVal + "'", Request);
+                         SendResponse(Response);
+                         return;
+                    }
+               }
+
+               APIKeyManager::Instance().UpdateLastUsed(KeyObj.ID);
+               KeyIDVal = KeyObj.ID;
+               KeyEmbeddedFilters = KeyObj.GetEmbeddedFilters(ColNameVal);
+               IsAdminVal = false;
+               AuthenticatedRequest = true;
           }
           else
           {
-               IsAdminVal = true;
+               if (Instance && Instance->Users && Instance->Users->IsAuthEnabled())
+               {
+                    IsAdminVal = Instance->Users->IsAdmin(TokenVal);
+               }
+               else
+               {
+                    IsAdminVal = true;
+               }
+
+               if (!TokenVal.empty() && IsAdminVal)
+               {
+                    AuthenticatedRequest = true;
+               }
           }
 
-          if (!TokenVal.empty() && IsAdminVal)
+          /* Admin-only routes. */
+
+          if (Context.IsAdminOnly)
           {
-               AuthenticatedRequest = true;
+               if (!IsAdminVal)
+               {
+                    Response = HttpResponse(http_code::FORBIDDEN, StatusText(http_code::FORBIDDEN), "application/json");
+                    Response.Body = "{\"error\":\"Only administrators can access this endpoint\"}";
+                    SendResponse(Response);
+                    return;
+               }
           }
-     }
 
-     /* Admin-only routes. */
-
-     if (Context.IsAdminOnly)
-     {
-          if (!IsAdminVal)
+          if (Context.IsModuleControl && !IsAdminVal)
           {
-               Response = HttpResponse(403, "Forbidden", "application/json");
+               Response = HttpResponse(http_code::FORBIDDEN, StatusText(http_code::FORBIDDEN), "application/json");
                Response.Body = "{\"error\":\"Only administrators can access this endpoint\"}";
                SendResponse(Response);
                return;
           }
-     }
 
-     if (Context.IsModuleControl && !IsAdminVal)
-     {
-          Response = HttpResponse(403, "Forbidden", "application/json");
-          Response.Body = "{\"error\":\"Only administrators can access this endpoint\"}";
-          SendResponse(Response);
-          return;
-     }
+          /* Scoped search: inject key metadata into request. */
 
-     /* Scoped search: inject key metadata into request. */
-
-     if (!KeyIDVal.empty() || AuthenticatedRequest)
-     {
-          HttpRequest &ModRequest = const_cast<HttpRequest &>(Request);
-
-          if (!KeyIDVal.empty())
+          if (!KeyIDVal.empty() || AuthenticatedRequest)
           {
-               ModRequest.APIKeyID = KeyIDVal;
-               ModRequest.EmbeddedFilters = KeyEmbeddedFilters;
+               HttpRequest &ModRequest = const_cast<HttpRequest &>(Request);
+
+               if (!KeyIDVal.empty())
+               {
+                    ModRequest.APIKeyID = KeyIDVal;
+                    ModRequest.EmbeddedFilters = KeyEmbeddedFilters;
+               }
+
+               if (AuthenticatedRequest)
+               {
+                    ModRequest.Authenticated = true;
+               }
           }
 
-          if (AuthenticatedRequest)
+          /* Handle /ping route in ProcessSingleRequest BEFORE setting 404. */
+
+          if (Request.Path == "/ping" && Request.Method == "GET")
           {
-               ModRequest.Authenticated = true;
-          }
-     }
+               if (Instance && Instance->Logs)
+               {
+                    Instance->Logs->Normal("http_server", " Direct /ping route match in ProcessSingleRequest - calling HandlePing.");
+               }
 
-     /* Handle /ping route in ProcessSingleRequest BEFORE setting 404. */
+               Response = API.HandlePing(Request);
 
-     if (Request.Path == "/ping" && Request.Method == "GET")
-     {
-          if (Instance && Instance->Logs)
-          {
-               Instance->Logs->Normal("http_server", " Direct /ping route match in ProcessSingleRequest - calling HandlePing.");
-          }
+               SendResponse(Response);
 
-          Response = API.HandlePing(Request);
-
-          SendResponse(Response);
-
-          return;
-     }
-
-     /* WORKAROUND: Handle /etc route in ProcessSingleRequest BEFORE setting 404. */
-     /* Ensure /etc route is caught early and reliably (protocol codes for API communication). */
-
-     if (ActionVal == RouteAction::Etc)
-     {
-          if (Instance && Instance->Logs)
-          {
-               Instance->Logs->Debug("http_server", " Direct /etc route match in ProcessSingleRequest (backup) - calling HandleEtc.");
-          }
-
-          Response = API.HandleEtc(Request);
-
-          SendResponse(Response);
-
-          return;
-     }
-
-     /* WORKAROUND: Handle /connections in ProcessSingleRequest BEFORE setting 404. */
-
-     if (Request.Path == "/connections" && Request.Method == "GET")
-     {
-          if (Instance && Instance->Logs)
-          {
-               Instance->Logs->Debug("http_server", " Direct /connections route match in ProcessSingleRequest - calling HandleConnections.");
-          }
-
-          Response = API.HandleConnections(Request);
-
-          SendResponse(Response);
-
-          return;
-     }
-
-     /* WORKAROUND: Handle /rocksdb and /_rocksdb in ProcessSingleRequest BEFORE setting 404. */
-
-     if ((Request.Path == "/rocksdb" || Request.Path == "/_rocksdb") && Request.Method == "GET")
-     {
-          if (Instance && Instance->Logs)
-          {
-               Instance->Logs->Debug("http_server", " Direct /rocksdb route match in ProcessSingleRequest - calling HandleRocksDB.");
-          }
-
-          Response = API.HandleRocksDB(Request);
-
-          SendResponse(Response);
-
-          return;
-     }
-
-     /* WORKAROUND: Handle /startup and /boot-status in ProcessSingleRequest BEFORE setting 404. */
-
-     if ((Request.Path == "/startup" || Request.Path == "/boot-status") && Request.Method == "GET")
-     {
-          if (Instance && Instance->Logs)
-          {
-               Instance->Logs->Debug("http_server", " Direct /startup route match in ProcessSingleRequest - calling HandleStartup.");
-          }
-
-          Response = API.HandleStartup(Request);
-
-          SendResponse(Response);
-
-          return;
-     }
-
-     /* WORKAROUND: Handle /integrity and /consistency in ProcessSingleRequest BEFORE setting 404. */
-
-     if ((Request.Path == "/integrity" || Request.Path == "/consistency") && Request.Method == "GET")
-     {
-          if (Instance && Instance->Logs)
-          {
-               Instance->Logs->Debug("http_server", " Direct /integrity route match in ProcessSingleRequest - calling HandleIntegrity.");
-          }
-
-          Response = API.HandleIntegrity(Request);
-
-          SendResponse(Response);
-
-          return;
-     }
-
-     /* WORKAROUND: Handle /self-check in ProcessSingleRequest BEFORE setting 404. */
-
-     if (Request.Path == "/self-check" && Request.Method == "GET")
-     {
-          if (Instance && Instance->Logs)
-          {
-               Instance->Logs->Debug("http_server", " Direct /self-check route match in ProcessSingleRequest - calling HandleSelfCheck.");
-          }
-
-          Response = API.HandleSelfCheck(Request);
-
-          SendResponse(Response);
-
-          return;
-     }
-
-     /* Handle /flush route in ProcessSingleRequest BEFORE setting 404. */
-
-     if (Request.Method == "POST" && (Request.Path == "/flush" || Request.Path == "/flush/"))
-     {
-          HttpResponse DedupResponse = API.CheckReplicationOperationDedup(Request, "POST /flush");
-          if (DedupResponse.StatusCode != 0)
-          {
-               SendResponse(DedupResponse);
                return;
           }
 
-          HttpResponse ReadOnlyResponse = API.CheckReadOnlyMode(Request, "POST /flush");
-          if (ReadOnlyResponse.StatusCode != 0)
+          /* WORKAROUND: Handle /etc route in ProcessSingleRequest BEFORE setting 404. */
+          /* Ensure /etc route is caught early and reliably (protocol codes for API communication). */
+
+          if (ActionVal == RouteAction::Etc)
           {
-               SendResponse(ReadOnlyResponse);
+               if (Instance && Instance->Logs)
+               {
+                    Instance->Logs->Debug("http_server", " Direct /etc route match in ProcessSingleRequest (backup) - calling HandleEtc.");
+               }
+
+               Response = API.HandleEtc(Request);
+
+               SendResponse(Response);
+
                return;
           }
 
-          if (Instance && Instance->Logs)
+          /* WORKAROUND: Handle /connections in ProcessSingleRequest BEFORE setting 404. */
+
+          if (Request.Path == "/connections" && Request.Method == "GET")
           {
-               Instance->Logs->Normal("http_server", " FLUSH ROUTE CAUGHT IN ProcessSingleRequest (before 404) - calling HandleFlush.");
+               if (Instance && Instance->Logs)
+               {
+                    Instance->Logs->Debug("http_server", " Direct /connections route match in ProcessSingleRequest - calling HandleConnections.");
+               }
+
+               Response = API.HandleConnections(Request);
+
+               SendResponse(Response);
+
+               return;
           }
 
-          Response = API.HandleFlush(Request);
+          /* WORKAROUND: Handle /rocksdb and /_rocksdb in ProcessSingleRequest BEFORE setting 404. */
+
+          if ((Request.Path == "/rocksdb" || Request.Path == "/_rocksdb") && Request.Method == "GET")
+          {
+               if (Instance && Instance->Logs)
+               {
+                    Instance->Logs->Debug("http_server", " Direct /rocksdb route match in ProcessSingleRequest - calling HandleRocksDB.");
+               }
+
+               Response = API.HandleRocksDB(Request);
+
+               SendResponse(Response);
+
+               return;
+          }
+
+          /* WORKAROUND: Handle /startup and /boot-status in ProcessSingleRequest BEFORE setting 404. */
+
+          if ((Request.Path == "/startup" || Request.Path == "/boot-status") && Request.Method == "GET")
+          {
+               if (Instance && Instance->Logs)
+               {
+                    Instance->Logs->Debug("http_server", " Direct /startup route match in ProcessSingleRequest - calling HandleStartup.");
+               }
+
+               Response = API.HandleStartup(Request);
+
+               SendResponse(Response);
+
+               return;
+          }
+
+          /* WORKAROUND: Handle /integrity and /consistency in ProcessSingleRequest BEFORE setting 404. */
+
+          if ((Request.Path == "/integrity" || Request.Path == "/consistency") && Request.Method == "GET")
+          {
+               if (Instance && Instance->Logs)
+               {
+                    Instance->Logs->Debug("http_server", " Direct /integrity route match in ProcessSingleRequest - calling HandleIntegrity.");
+               }
+
+               Response = API.HandleIntegrity(Request);
+
+               SendResponse(Response);
+
+               return;
+          }
+
+          /* WORKAROUND: Handle /self-check in ProcessSingleRequest BEFORE setting 404. */
+
+          if (Request.Path == "/self-check" && Request.Method == "GET")
+          {
+               if (Instance && Instance->Logs)
+               {
+                    Instance->Logs->Debug("http_server", " Direct /self-check route match in ProcessSingleRequest - calling HandleSelfCheck.");
+               }
+
+               Response = API.HandleSelfCheck(Request);
+
+               SendResponse(Response);
+
+               return;
+          }
+
+          /* Handle /flush route in ProcessSingleRequest BEFORE setting 404. */
+
+          if (Request.Method == "POST" && (Request.Path == "/flush" || Request.Path == "/flush/"))
+          {
+               HttpResponse DedupResponse = API.CheckReplicationOperationDedup(Request, "POST /flush");
+               if (DedupResponse.StatusCode != 0)
+               {
+                    SendResponse(DedupResponse);
+                    return;
+               }
+
+               HttpResponse ReadOnlyResponse = API.CheckReadOnlyMode(Request, "POST /flush");
+               if (ReadOnlyResponse.StatusCode != 0)
+               {
+                    SendResponse(ReadOnlyResponse);
+                    return;
+               }
+
+               if (Instance && Instance->Logs)
+               {
+                    Instance->Logs->Normal("http_server", " FLUSH ROUTE CAUGHT IN ProcessSingleRequest (before 404) - calling HandleFlush.");
+               }
+
+               Response = API.HandleFlush(Request);
+               API.FinalizeReplicationOperation(Request, Response);
+               API.FinalizeReplicationResyncRequest(Request, Response);
+
+               SendResponse(Response);
+
+               return;
+          }
+
+          bool MutatingMethod = IsMutatingRequestMethod(Request);
+          if (MutatingMethod)
+          {
+               std::string Operation = Request.Method + " " + Request.Path;
+               HttpResponse DedupResponse = API.CheckReplicationOperationDedup(Request, Operation);
+               if (DedupResponse.StatusCode != 0)
+               {
+                    SendResponse(DedupResponse);
+                    return;
+               }
+
+               HttpResponse ReadOnlyResponse = API.CheckReadOnlyMode(Request, Operation);
+               if (ReadOnlyResponse.StatusCode != 0)
+               {
+                    SendResponse(ReadOnlyResponse);
+                    return;
+               }
+          }
+
+          /* The structured resolver is authoritative. Do not let the legacy
+      * substring dispatcher reinterpret malformed or unsupported paths. */
+
+          if (ActionVal == RouteAction::NotFound)
+          {
+               Response = BuildRouteNotFoundResponse(Request.Path);
+               RecordAnalyticsForResponse(Request, Response, ActionVal);
+               SendResponse(Response);
+               return;
+          }
+
+          Response = BuildRouteNotFoundResponse(Request.Path);
+
+          if (Instance && Instance->Logs)
+          {
+               bool HasDocuments = (Request.Path.find("/documents") != std::string::npos);
+
+               bool HasDocumentsSlash = (Request.Path.find("/documents/") != std::string::npos);
+
+               bool HasCollectionsPrefix = (Request.Path.find("/collections/") == 0);
+
+               bool ShouldRouteDocs = HasCollectionsPrefix && HasDocuments && !HasDocumentsSlash && Request.Method == "GET";
+
+               if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
+               {
+                    Instance->Logs->Debug("http_server", "ProcessRequestWithAPI: method=" + Request.Method + " (len=" + std::to_string(Request.Method.size()) + ") path=" + Request.Path + " has_collections_prefix=" + std::string(HasCollectionsPrefix ? "true" : "false") + " has_documents=" + std::string(HasDocuments ? "true" : "false") + " has_documents_slash=" + std::string(HasDocumentsSlash ? "true" : "false") + " should_route_docs=" + std::string(ShouldRouteDocs ? "true" : "false") + ".");
+               }
+          }
+
+          bool VectorSearchAlias = false;
+
+          if (NormalizedPath.find("/collections/") == 0 && NormalizedPath.find("/documents") == std::string::npos)
+          {
+               if (NormalizedPath.size() >= 7 && NormalizedPath.rfind("/search") == NormalizedPath.size() - 7)
+               {
+                    VectorSearchAlias = true;
+               }
+          }
+
+          /* Route to specific API handlers. */
+
+          if (NormalizedPath == "/users" && Request.Method == "GET")
+          {
+               Response = API.HandleListUsers(Request);
+          }
+          else if (NormalizedPath == "/users" && Request.Method == "POST")
+          {
+               Response = API.HandleCreateUser(Request);
+          }
+          else if (NormalizedPath.find("/users/") == 0 && Request.Method == "GET")
+          {
+               Response = API.HandleGetUser(Request);
+          }
+          else if (NormalizedPath.find("/users/") == 0 && Request.Method == "DELETE")
+          {
+               Response = API.HandleDeleteUser(Request);
+          }
+          else if (NormalizedPath.find("/users/") == 0 && Request.Method == "PUT")
+          {
+               Response = API.HandleUpdateUser(Request);
+          }
+          else if (NormalizedPath == "/keys" && Request.Method == "GET")
+          {
+               Response = API.HandleListKeys(Request);
+          }
+          else if (NormalizedPath == "/keys" && Request.Method == "POST")
+          {
+               Response = API.HandleCreateKey(Request);
+          }
+          else if (NormalizedPath.find("/keys/") == 0 && Request.Method == "GET")
+          {
+               Response = API.HandleGetKey(Request);
+          }
+          else if (NormalizedPath.find("/keys/") == 0 && Request.Method == "DELETE")
+          {
+               Response = API.HandleDeleteKey(Request);
+          }
+          else if (NormalizedPath.find("/keys/") == 0 && Request.Method == "PUT")
+          {
+               Response = API.HandleUpdateKey(Request);
+          }
+          else if (NormalizedPath == "/presets" && Request.Method == "GET")
+          {
+               Response = API.HandleListPresets(Request);
+          }
+          else if (NormalizedPath.find("/presets/") == 0 && (Request.Method == "POST" || Request.Method == "PUT"))
+          {
+               Response = API.HandleCreateOrUpdatePreset(Request);
+          }
+          else if (NormalizedPath.find("/presets/") == 0 && Request.Method == "GET")
+          {
+               Response = API.HandleGetPreset(Request);
+          }
+          else if (NormalizedPath.find("/presets/") == 0 && Request.Method == "DELETE")
+          {
+               Response = API.HandleDeletePreset(Request);
+          }
+
+          /* Check for synonyms/stopwords/overrides FIRST before search to avoid false matches. */
+          /* Check synonyms BEFORE search, because synonym IDs might contain "search". */
+          /* Example: /collections/books/synonyms/search_test_syn_123 should NOT match search route. */
+
+          if (Request.Path.find("/collections/") == 0 && Request.Path.find("/synonyms") != std::string::npos && Request.Path.find("/synonyms/") != std::string::npos && (Request.Method == "POST" || Request.Method == "PUT"))
+          {
+               Response = API.HandleCreateOrUpdateSynonym(Request);
+          }
+          else if (Request.Path.find("/collections/") == 0 && Request.Path.find("/synonyms") != std::string::npos && Request.Path.find("/synonyms/") == std::string::npos && Request.Method == "GET")
+          {
+               Response = API.HandleListSynonyms(Request);
+          }
+          else if (Request.Path.find("/collections/") == 0 && Request.Path.find("/synonyms/") != std::string::npos && Request.Method == "GET")
+          {
+               Response = API.HandleGetSynonym(Request);
+          }
+          else if (Request.Path.find("/collections/") == 0 && Request.Path.find("/synonyms/") != std::string::npos && Request.Method == "DELETE")
+          {
+               Response = API.HandleDeleteSynonym(Request);
+          }
+          else if (Request.Path.find("/collections/") == 0 && Request.Path.find("/stopwords") != std::string::npos && Request.Path.find("/stopwords/") == std::string::npos && Request.Method == "GET")
+          {
+               Response = API.HandleListStopwords(Request);
+          }
+          else if (Request.Path.find("/collections/") == 0 && Request.Path.find("/stopwords") != std::string::npos && Request.Path.find("/stopwords/") == std::string::npos && Request.Method == "POST")
+          {
+               Response = API.HandleCreateStopword(Request);
+          }
+          else if (Request.Path.find("/collections/") == 0 && Request.Path.find("/stopwords/") != std::string::npos && Request.Method == "DELETE")
+          {
+               Response = API.HandleDeleteStopword(Request);
+          }
+          else if (Request.Path.find("/collections/") == 0 && Request.Path.find("/documents/search") != std::string::npos && (Request.Method == "GET" || Request.Method == "POST"))
+          {
+               /* Check for search endpoints before general POST /documents. */
+               /* Otherwise /documents/search gets routed to HandleAddDocument. */
+
+               if (Instance && Instance->Logs)
+               {
+                    Instance->Logs->Debug("http_server", "Routing to HandleSearch for path: " + Request.Path + ".");
+               }
+
+               Response = API.HandleSearch(Request);
+          }
+          else if (Request.Path == "/sql" && (Request.Method == "GET" || Request.Method == "POST"))
+          {
+               if (Instance && Instance->Logs)
+               {
+                    Instance->Logs->Debug("http_server", "Routing to HandleSearch for direct SQL path: " + Request.Path + ".");
+               }
+
+               Response = API.HandleSearch(Request);
+          }
+          else if (Request.Path.find("/collections/") == 0 && NormalizedPath.find("/search") != std::string::npos && NormalizedPath.find("/documents") == std::string::npos && NormalizedPath.find("/synonyms") == std::string::npos && NormalizedPath.find("/stopwords") == std::string::npos && (Request.Method == "GET" || Request.Method == "POST"))
+          {
+               /* Handle /collections/{name}/search endpoint (without /documents). */
+               /* BUT exclude paths with /synonyms or /stopwords to avoid false matches. */
+
+               if (Instance && Instance->Logs)
+               {
+                    Instance->Logs->Debug("http_server", "Routing to HandleSearch for path: " + Request.Path + ".");
+               }
+
+               Response = API.HandleSearch(Request);
+          }
+          else if (Request.Path.find("/collections/") == 0 && Request.Path.find("/documents/facet_counts") != std::string::npos && (Request.Method == "GET" || Request.Method == "POST"))
+          {
+               Response = API.HandleFacetCounts(Request);
+          }
+          else if (Request.Path.find("/collections/") == 0 && Request.Path.find("/documents/maybe") != std::string::npos && (Request.Method == "GET" || Request.Method == "POST"))
+          {
+               Response = API.HandleMaybe(Request);
+          }
+          else if (Request.Path.find("/collections/") == 0 && Request.Path.find("/documents/") != std::string::npos && Request.Path.find("/context") != std::string::npos && Request.Method == "GET")
+          {
+               Response = API.HandleGetDocumentContext(Request);
+          }
+          else if (Request.Path.find("/collections/") == 0 && Request.Path.find("/documents/export") != std::string::npos && (Request.Method == "GET" || Request.Method == "POST"))
+          {
+               Response = API.HandleExportDocuments(Request);
+          }
+          else if (Request.Method == "POST" && Request.Path.find("/collections/") == 0 && Request.Path.find("/documents") != std::string::npos)
+          {
+               /* Check if this is a bulk import request. */
+
+               if (Request.Path.find("/documents/import") != std::string::npos)
+               {
+                    if (Instance && Instance->Logs)
+                    {
+                         Instance->Logs->Normal("http_server", "ROUTING TO HandleBulkImportDocuments for path: " + Request.Path + ".");
+                    }
+
+                    Response = API.HandleBulkImportDocuments(Request);
+
+                    if (Instance && Instance->Logs)
+                    {
+                         Instance->Logs->Normal("http_server", "HandleBulkImportDocuments returned status: " + std::to_string(Response.StatusCode) + ".");
+                    }
+               }
+               else
+               {
+                    /* Single document insert. */
+
+                    if (Instance && Instance->Logs)
+                    {
+                         Instance->Logs->Normal("http_server", "SIMPLIFIED ROUTING TO HandleAddDocument for path: " + Request.Path + ".");
+                    }
+
+                    Response = API.HandleAddDocument(Request);
+
+                    if (Instance && Instance->Logs)
+                    {
+                         Instance->Logs->Normal("http_server", "HandleAddDocument returned status: " + std::to_string(Response.StatusCode) + ".");
+                    }
+               }
+          }
+          else if ((Request.Path == "/status" || Request.Path == "/query") && Request.Method == "GET")
+          {
+               Response = API.HandleStatus(Request);
+          }
+          else if (Request.Path == "/search-config" && Request.Method == "GET")
+          {
+               Response = API.HandleSearchConfig(Request);
+          }
+          else if (Request.Path == "/config-files" && Request.Method == "GET")
+          {
+               Response = API.HandleConfigFiles(Request);
+          }
+          else if (Request.Path == "/synonyms" && Request.Method == "GET")
+          {
+               Response = API.HandleListAllSynonyms(Request);
+          }
+          else if (Request.Path == "/synonym_sets" && Request.Method == "GET")
+          {
+               Response = API.HandleListAllSynonyms(Request);
+          }
+          else if ((Request.Path == "/synonyms/global" || Request.Path == "/synonym_sets/global") && Request.Method == "GET")
+          {
+               Response = API.HandleListGlobalSynonyms(Request);
+          }
+          else if ((Request.Path.find("/synonyms/global/") == 0 || Request.Path.find("/synonym_sets/global/") == 0) && (Request.Method == "POST" || Request.Method == "PUT"))
+          {
+               Response = API.HandleCreateOrUpdateGlobalSynonym(Request);
+          }
+          else if ((Request.Path.find("/synonyms/global/") == 0 || Request.Path.find("/synonym_sets/global/") == 0) && Request.Method == "GET")
+          {
+               Response = API.HandleGetGlobalSynonym(Request);
+          }
+          else if ((Request.Path.find("/synonyms/global/") == 0 || Request.Path.find("/synonym_sets/global/") == 0) && Request.Method == "DELETE")
+          {
+               Response = API.HandleDeleteGlobalSynonym(Request);
+          }
+          else if (Request.Path == "/stopwords" && Request.Method == "GET")
+          {
+               Response = API.HandleListAllStopwords(Request);
+          }
+          else if (Request.Path == "/stopword_sets" && Request.Method == "GET")
+          {
+               Response = API.HandleListAllStopwords(Request);
+          }
+          else if ((Request.Path == "/stopwords/global" || Request.Path == "/stopword_sets/global") && Request.Method == "GET")
+          {
+               Response = API.HandleListGlobalStopwords(Request);
+          }
+          else if ((Request.Path == "/stopwords/global" || Request.Path == "/stopword_sets/global") && Request.Method == "POST")
+          {
+               Response = API.HandleCreateGlobalStopword(Request);
+          }
+          else if ((Request.Path.find("/stopwords/global/") == 0 || Request.Path.find("/stopword_sets/global/") == 0) && Request.Method == "DELETE")
+          {
+               Response = API.HandleDeleteGlobalStopword(Request);
+          }
+          else if (Request.Path == "/links" && Request.Method == "GET")
+          {
+               Response = API.HandleLinksList(Request);
+          }
+          else if (Request.Path == "/links/ping" && Request.Method == "GET")
+          {
+               Response = API.HandleLinksPing(Request);
+          }
+          else if (Request.Path == "/links/connect" && Request.Method == "POST")
+          {
+               Response = API.HandleLinksConnect(Request);
+          }
+          else if (Request.Path == "/links/disconnect" && Request.Method == "POST")
+          {
+               Response = API.HandleLinksDisconnect(Request);
+          }
+          else if (Request.Path == "/collections/distributed" && Request.Method == "GET")
+          {
+               Response = API.HandleListCollectionsDistributed(Request);
+          }
+          else if (Request.Path == "/collections" && Request.Method == "GET")
+          {
+               Response = API.HandleListCollections(Request);
+          }
+          else if (Request.Path == "/collections" && Request.Method == "POST")
+          {
+               Response = API.HandleCreateCollection(Request);
+          }
+          else if (Request.Path == "/admin/storage_status" && Request.Method == "GET")
+          {
+               Response = API.HandleStorageStatus(Request);
+          }
+          else if (Request.Path.find("/collections/") == 0 && (Request.Path.find("/vector_search") != std::string::npos || VectorSearchAlias) && (Request.Method == "GET" || Request.Method == "POST"))
+          {
+               Response = API.HandleVectorSearch(Request);
+          }
+          else if (Request.Path.find("/collections/") == 0 &&
+                   NormalizedPath.size() > std::string("/collections/").size() &&
+                   NormalizedPath.rfind("/lang") == (NormalizedPath.size() - std::string("/lang").size()) &&
+                   Request.Method == "GET")
+          {
+               Response = API.HandleGetCollectionLanguage(Request);
+          }
+          else if (Request.Path.find("/collections/") == 0 && NormalizedPath.find("/search") == std::string::npos && Request.Path.find("/documents") == std::string::npos && Request.Path.find("/synonyms") == std::string::npos && Request.Path.find("/stopwords") == std::string::npos && Request.Path.find("/overrides") == std::string::npos && Request.Path.find("/curations") == std::string::npos && Request.Path.find("/curation_sets") == std::string::npos && Request.Path.find("/aliases") == std::string::npos && Request.Method == "GET")
+          {
+               Response = API.HandleGetCollection(Request);
+          }
+          else if (Request.Path.find("/collections/") == 0 && Request.Path.find("/documents") == std::string::npos && Request.Path.find("/synonyms") == std::string::npos && Request.Path.find("/stopwords") == std::string::npos && Request.Path.find("/overrides") == std::string::npos && Request.Path.find("/curations") == std::string::npos && Request.Path.find("/curation_sets") == std::string::npos && Request.Path.find("/aliases") == std::string::npos && Request.Method == "DELETE")
+          {
+               Response = API.HandleDeleteCollection(Request);
+          }
+          else if (Request.Path.find("/collections/") == 0 && Request.Path.find("/update") != std::string::npos && Request.Method == "POST")
+          {
+               Response = API.HandleUpdateCollection(Request);
+          }
+          else if (Request.Path.find("/collections/") == 0 && Request.Path.find("/documents") != std::string::npos && Request.Path.find("/documents/") == std::string::npos && Request.Path.find("/search") == std::string::npos && Request.Path.find("/facet_counts") == std::string::npos && Request.Path.find("/export") == std::string::npos && Request.Path.find("/import") == std::string::npos && Request.Method == "GET")
+          {
+               if (Instance && Instance->Logs)
+               {
+                    Instance->Logs->Debug("http_server", "Routing to HandleListDocuments (legacy dispatcher) for path: " + Request.Path + ".");
+               }
+
+               Response = API.HandleListDocuments(Request);
+          }
+          else if (Request.Path.find("/collections/") == 0 && Request.Path.find("/documents/") != std::string::npos && Request.Path.find("/search") == std::string::npos && Request.Path.find("/facet_counts") == std::string::npos && Request.Path.find("/export") == std::string::npos && Request.Path.find("/maybe") == std::string::npos && Request.Method == "GET")
+          {
+               if (Instance && Instance->Logs)
+               {
+                    Instance->Logs->Normal("http_server", "ROUTING TO HandleGetDocument for path: " + Request.Path + ".");
+               }
+
+               Response = API.HandleGetDocument(Request);
+
+               if (Instance && Instance->Logs)
+               {
+                    Instance->Logs->Normal("http_server", "HandleGetDocument returned status: " + std::to_string(Response.StatusCode) + ".");
+               }
+          }
+          else if (Request.Path.find("/collections/") == 0 && Request.Path.find("/documents/") != std::string::npos && Request.Path.find("/search") == std::string::npos && Request.Path.find("/facet_counts") == std::string::npos && Request.Path.find("/export") == std::string::npos && Request.Path.find("/maybe") == std::string::npos && Request.Method == "PUT")
+          {
+               Response = API.HandleUpdateDocument(Request);
+          }
+          else if (Request.Path.find("/collections/") == 0 && Request.Path.find("/documents/") != std::string::npos && Request.Path.find("/search") == std::string::npos && Request.Path.find("/facet_counts") == std::string::npos && Request.Path.find("/export") == std::string::npos && Request.Path.find("/maybe") == std::string::npos && Request.Method == "DELETE")
+          {
+               Response = API.HandleDeleteDocument(Request);
+          }
+          else if (Request.Path.find("/collections/") == 0 && Request.Path.find("/documents") != std::string::npos && Request.Path.find("/documents/") == std::string::npos && Request.Method == "DELETE")
+          {
+               Response = API.HandleDeleteDocumentsByFilter(Request);
+          }
+          else if (Request.Path == "/multi_search" && (Request.Method == "GET" || Request.Method == "POST"))
+          {
+               Response = API.HandleMultiSearch(Request);
+          }
+          else if (Request.Path == "/search" && (Request.Method == "GET" || Request.Method == "POST"))
+          {
+               Response = API.HandleGlobalSearch(Request);
+          }
+          else if (Request.Path.find("/collections/") == 0 && Request.Path.find("/overrides") != std::string::npos && Request.Path.find("/overrides/") == std::string::npos && Request.Method == "GET")
+          {
+               Response = API.HandleListOverrides(Request);
+          }
+          else if (Request.Path.find("/collections/") == 0 && (Request.Path.find("/curations") != std::string::npos || Request.Path.find("/curation_sets") != std::string::npos) && Request.Path.find("/curations/") == std::string::npos && Request.Path.find("/curation_sets/") == std::string::npos && Request.Method == "GET")
+          {
+               Response = API.HandleListOverrides(Request);
+          }
+          else if (Request.Path.find("/collections/") == 0 && Request.Path.find("/overrides/") != std::string::npos && (Request.Method == "POST" || Request.Method == "PUT"))
+          {
+               Response = API.HandleCreateOrUpdateOverride(Request);
+          }
+          else if (Request.Path.find("/collections/") == 0 && (Request.Path.find("/curations/") != std::string::npos || Request.Path.find("/curation_sets/") != std::string::npos) && (Request.Method == "POST" || Request.Method == "PUT"))
+          {
+               Response = API.HandleCreateOrUpdateOverride(Request);
+          }
+          else if (Request.Path.find("/collections/") == 0 && Request.Path.find("/overrides/") != std::string::npos && Request.Method == "GET")
+          {
+               Response = API.HandleGetOverride(Request);
+          }
+          else if (Request.Path.find("/collections/") == 0 && (Request.Path.find("/curations/") != std::string::npos || Request.Path.find("/curation_sets/") != std::string::npos) && Request.Method == "GET")
+          {
+               Response = API.HandleGetOverride(Request);
+          }
+          else if (Request.Path.find("/collections/") == 0 && Request.Path.find("/overrides/") != std::string::npos && Request.Method == "DELETE")
+          {
+               Response = API.HandleDeleteOverride(Request);
+          }
+          else if (Request.Path.find("/collections/") == 0 && (Request.Path.find("/curations/") != std::string::npos || Request.Path.find("/curation_sets/") != std::string::npos) && Request.Method == "DELETE")
+          {
+               Response = API.HandleDeleteOverride(Request);
+          }
+          else if (Request.Path.find("/collections/") == 0 && NormalizedPath.rfind("/aliases") == NormalizedPath.size() - 8 && Request.Method == "GET")
+          {
+               Response = API.HandleListAliases(Request);
+          }
+          else if (Request.Path == "/aliases" && Request.Method == "GET")
+          {
+               Response = API.HandleListAliases(Request);
+          }
+          else if (Request.Path == "/modules" && Request.Method == "GET")
+          {
+               Response = API.HandleListModules(Request);
+          }
+          else if (Request.Path.find("/modules/") == 0 && NormalizedPath.rfind("/syntax") == NormalizedPath.size() - 7 && Request.Method == "GET")
+          {
+               Response = API.HandleModuleSyntax(Request);
+          }
+          else if (Request.Path.find("/modules/") == 0)
+          {
+               Response = API.HandleModuleAPI(Request);
+          }
+          else if (Request.Path.find("/aliases/") == 0 && (Request.Method == "POST" || Request.Method == "PUT"))
+          {
+               Response = API.HandleCreateOrUpdateAlias(Request);
+          }
+          else if (Request.Path.find("/aliases/") == 0 && Request.Method == "GET")
+          {
+               Response = API.HandleGetAlias(Request);
+          }
+          else if (Request.Path.find("/aliases/") == 0 && Request.Method == "DELETE")
+          {
+               Response = API.HandleDeleteAlias(Request);
+          }
+          else if (Request.Path == "/health" && Request.Method == "GET")
+          {
+               Response = API.HandleHealth(Request);
+          }
+          else if (Request.Path == "/ready" && Request.Method == "GET")
+          {
+               Response = API.HandleReady(Request);
+          }
+          else if ((Request.Path == "/metrics" || Request.Path == "/metrics.json") && Request.Method == "GET")
+          {
+               Response = API.HandleMetrics(Request);
+          }
+          else if (Request.Path == "/stats" && Request.Method == "GET")
+          {
+               Response = API.HandleStats(Request);
+          }
+          else if (Request.Path == "/doctotal" && Request.Method == "GET")
+          {
+               Response = API.HandleDocTotal(Request);
+          }
+          else if (Request.Path == "/update-counters" && (Request.Method == "GET" || Request.Method == "POST"))
+          {
+               Response = API.HandleUpdateCounters(Request);
+          }
+          else if (Request.Path == "/repair" && (Request.Method == "GET" || Request.Method == "POST"))
+          {
+               Response = API.HandleRepair(Request);
+          }
+          else if (Request.Path == "/admin/storage_status" && Request.Method == "GET")
+          {
+               Response = API.HandleStorageStatus(Request);
+          }
+          else if (Request.Path == "/" && Request.Method == "GET")
+          {
+               /* Root endpoint - same as /status. */
+
+               Response = API.HandleStatus(Request);
+          }
+
+          RecordAnalyticsForResponse(Request, Response, ActionVal);
           API.FinalizeReplicationOperation(Request, Response);
           API.FinalizeReplicationResyncRequest(Request, Response);
 
-          SendResponse(Response);
-
-          return;
-     }
-
-     bool MutatingMethod = IsMutatingRequestMethod(Request);
-     if (MutatingMethod)
-     {
-          std::string Operation = Request.Method + " " + Request.Path;
-          HttpResponse DedupResponse = API.CheckReplicationOperationDedup(Request, Operation);
-          if (DedupResponse.StatusCode != 0)
+          if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
           {
-               SendResponse(DedupResponse);
-               return;
+               Instance->Logs->Debug("http_server", "ProcessSingleRequest: response_ready=true status=" + std::to_string(Response.StatusCode) + " route=" + std::string(RouteActionName(ActionVal)) + " keep_alive=" + std::string(KeepAlive ? "true" : "false") + " body_size=" + std::to_string(Response.Body.size()) + ".");
           }
 
-          HttpResponse ReadOnlyResponse = API.CheckReadOnlyMode(Request, Operation);
-          if (ReadOnlyResponse.StatusCode != 0)
-          {
-               SendResponse(ReadOnlyResponse);
-               return;
-          }
-     }
-
-     /* The structured resolver is authoritative. Do not let the legacy
-      * substring dispatcher reinterpret malformed or unsupported paths. */
-
-     if (ActionVal == RouteAction::NotFound)
-     {
-          Response = BuildRouteNotFoundResponse(Request.Path);
-          RecordAnalyticsForResponse(Request, Response, ActionVal);
           SendResponse(Response);
-          return;
-     }
 
-     Response = BuildRouteNotFoundResponse(Request.Path);
-
-     if (Instance && Instance->Logs)
-     {
-          bool HasDocuments = (Request.Path.find("/documents") != std::string::npos);
-
-          bool HasDocumentsSlash = (Request.Path.find("/documents/") != std::string::npos);
-
-          bool HasCollectionsPrefix = (Request.Path.find("/collections/") == 0);
-
-          bool ShouldRouteDocs = HasCollectionsPrefix && HasDocuments && !HasDocumentsSlash && Request.Method == "GET";
+          LastActivity = Instance->Now();
 
           if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
           {
-               Instance->Logs->Debug("http_server", "ProcessRequestWithAPI: method=" + Request.Method + " (len=" + std::to_string(Request.Method.size()) + ") path=" + Request.Path + " has_collections_prefix=" + std::string(HasCollectionsPrefix ? "true" : "false") + " has_documents=" + std::string(HasDocuments ? "true" : "false") + " has_documents_slash=" + std::string(HasDocumentsSlash ? "true" : "false") + " should_route_docs=" + std::string(ShouldRouteDocs ? "true" : "false") + ".");
+               Instance->Logs->Debug("http_server", "ProcessSingleRequest: SendResponse invoked - " + std::to_string(Response.StatusCode) + " " + Response.StatusText + " (body_size: " + std::to_string(Response.Body.size()) + ", path: " + Request.Path + ", fd=" + std::to_string(GetFD()) + ").");
           }
-     }
-
-     bool VectorSearchAlias = false;
-
-     if (NormalizedPath.find("/collections/") == 0 && NormalizedPath.find("/documents") == std::string::npos)
-     {
-          if (NormalizedPath.size() >= 7 && NormalizedPath.rfind("/search") == NormalizedPath.size() - 7)
-          {
-               VectorSearchAlias = true;
-          }
-     }
-
-     /* Route to specific API handlers. */
-
-     if (NormalizedPath == "/users" && Request.Method == "GET")
-     {
-          Response = API.HandleListUsers(Request);
-     }
-     else if (NormalizedPath == "/users" && Request.Method == "POST")
-     {
-          Response = API.HandleCreateUser(Request);
-     }
-     else if (NormalizedPath.find("/users/") == 0 && Request.Method == "GET")
-     {
-          Response = API.HandleGetUser(Request);
-     }
-     else if (NormalizedPath.find("/users/") == 0 && Request.Method == "DELETE")
-     {
-          Response = API.HandleDeleteUser(Request);
-     }
-     else if (NormalizedPath.find("/users/") == 0 && Request.Method == "PUT")
-     {
-          Response = API.HandleUpdateUser(Request);
-     }
-     else if (NormalizedPath == "/keys" && Request.Method == "GET")
-     {
-          Response = API.HandleListKeys(Request);
-     }
-     else if (NormalizedPath == "/keys" && Request.Method == "POST")
-     {
-          Response = API.HandleCreateKey(Request);
-     }
-     else if (NormalizedPath.find("/keys/") == 0 && Request.Method == "GET")
-     {
-          Response = API.HandleGetKey(Request);
-     }
-     else if (NormalizedPath.find("/keys/") == 0 && Request.Method == "DELETE")
-     {
-          Response = API.HandleDeleteKey(Request);
-     }
-     else if (NormalizedPath.find("/keys/") == 0 && Request.Method == "PUT")
-     {
-          Response = API.HandleUpdateKey(Request);
-     }
-     else if (NormalizedPath == "/presets" && Request.Method == "GET")
-     {
-          Response = API.HandleListPresets(Request);
-     }
-     else if (NormalizedPath.find("/presets/") == 0 && (Request.Method == "POST" || Request.Method == "PUT"))
-     {
-          Response = API.HandleCreateOrUpdatePreset(Request);
-     }
-     else if (NormalizedPath.find("/presets/") == 0 && Request.Method == "GET")
-     {
-          Response = API.HandleGetPreset(Request);
-     }
-     else if (NormalizedPath.find("/presets/") == 0 && Request.Method == "DELETE")
-     {
-          Response = API.HandleDeletePreset(Request);
-     }
-
-     /* Check for synonyms/stopwords/overrides FIRST before search to avoid false matches. */
-     /* Check synonyms BEFORE search, because synonym IDs might contain "search". */
-     /* Example: /collections/books/synonyms/search_test_syn_123 should NOT match search route. */
-
-     if (Request.Path.find("/collections/") == 0 && Request.Path.find("/synonyms") != std::string::npos && Request.Path.find("/synonyms/") != std::string::npos && (Request.Method == "POST" || Request.Method == "PUT"))
-     {
-          Response = API.HandleCreateOrUpdateSynonym(Request);
-     }
-     else if (Request.Path.find("/collections/") == 0 && Request.Path.find("/synonyms") != std::string::npos && Request.Path.find("/synonyms/") == std::string::npos && Request.Method == "GET")
-     {
-          Response = API.HandleListSynonyms(Request);
-     }
-     else if (Request.Path.find("/collections/") == 0 && Request.Path.find("/synonyms/") != std::string::npos && Request.Method == "GET")
-     {
-          Response = API.HandleGetSynonym(Request);
-     }
-     else if (Request.Path.find("/collections/") == 0 && Request.Path.find("/synonyms/") != std::string::npos && Request.Method == "DELETE")
-     {
-          Response = API.HandleDeleteSynonym(Request);
-     }
-     else if (Request.Path.find("/collections/") == 0 && Request.Path.find("/stopwords") != std::string::npos && Request.Path.find("/stopwords/") == std::string::npos && Request.Method == "GET")
-     {
-          Response = API.HandleListStopwords(Request);
-     }
-     else if (Request.Path.find("/collections/") == 0 && Request.Path.find("/stopwords") != std::string::npos && Request.Path.find("/stopwords/") == std::string::npos && Request.Method == "POST")
-     {
-          Response = API.HandleCreateStopword(Request);
-     }
-     else if (Request.Path.find("/collections/") == 0 && Request.Path.find("/stopwords/") != std::string::npos && Request.Method == "DELETE")
-     {
-          Response = API.HandleDeleteStopword(Request);
-     }
-     else if (Request.Path.find("/collections/") == 0 && Request.Path.find("/documents/search") != std::string::npos && (Request.Method == "GET" || Request.Method == "POST"))
-     {
-          /* Check for search endpoints before general POST /documents. */
-          /* Otherwise /documents/search gets routed to HandleAddDocument. */
-
-          if (Instance && Instance->Logs)
-          {
-               Instance->Logs->Debug("http_server", "Routing to HandleSearch for path: " + Request.Path + ".");
-          }
-
-          Response = API.HandleSearch(Request);
-     }
-     else if (Request.Path == "/sql" && (Request.Method == "GET" || Request.Method == "POST"))
-     {
-          if (Instance && Instance->Logs)
-          {
-               Instance->Logs->Debug("http_server", "Routing to HandleSearch for direct SQL path: " + Request.Path + ".");
-          }
-
-          Response = API.HandleSearch(Request);
-     }
-     else if (Request.Path.find("/collections/") == 0 && NormalizedPath.find("/search") != std::string::npos && NormalizedPath.find("/documents") == std::string::npos && NormalizedPath.find("/synonyms") == std::string::npos && NormalizedPath.find("/stopwords") == std::string::npos && (Request.Method == "GET" || Request.Method == "POST"))
-     {
-          /* Handle /collections/{name}/search endpoint (without /documents). */
-          /* BUT exclude paths with /synonyms or /stopwords to avoid false matches. */
-
-          if (Instance && Instance->Logs)
-          {
-               Instance->Logs->Debug("http_server", "Routing to HandleSearch for path: " + Request.Path + ".");
-          }
-
-          Response = API.HandleSearch(Request);
-     }
-     else if (Request.Path.find("/collections/") == 0 && Request.Path.find("/documents/facet_counts") != std::string::npos && (Request.Method == "GET" || Request.Method == "POST"))
-     {
-          Response = API.HandleFacetCounts(Request);
-     }
-     else if (Request.Path.find("/collections/") == 0 && Request.Path.find("/documents/maybe") != std::string::npos && (Request.Method == "GET" || Request.Method == "POST"))
-     {
-          Response = API.HandleMaybe(Request);
-     }
-     else if (Request.Path.find("/collections/") == 0 && Request.Path.find("/documents/") != std::string::npos && Request.Path.find("/context") != std::string::npos && Request.Method == "GET")
-     {
-          Response = API.HandleGetDocumentContext(Request);
-     }
-     else if (Request.Path.find("/collections/") == 0 && Request.Path.find("/documents/export") != std::string::npos && (Request.Method == "GET" || Request.Method == "POST"))
-     {
-          Response = API.HandleExportDocuments(Request);
-     }
-     else if (Request.Method == "POST" && Request.Path.find("/collections/") == 0 && Request.Path.find("/documents") != std::string::npos)
-     {
-          /* Check if this is a bulk import request. */
-
-          if (Request.Path.find("/documents/import") != std::string::npos)
-          {
-               if (Instance && Instance->Logs)
-               {
-                    Instance->Logs->Normal("http_server", "ROUTING TO HandleBulkImportDocuments for path: " + Request.Path + ".");
-               }
-
-               Response = API.HandleBulkImportDocuments(Request);
-
-               if (Instance && Instance->Logs)
-               {
-                    Instance->Logs->Normal("http_server", "HandleBulkImportDocuments returned status: " + std::to_string(Response.StatusCode) + ".");
-               }
-          }
-          else
-          {
-               /* Single document insert. */
-
-               if (Instance && Instance->Logs)
-               {
-                    Instance->Logs->Normal("http_server", "SIMPLIFIED ROUTING TO HandleAddDocument for path: " + Request.Path + ".");
-               }
-
-               Response = API.HandleAddDocument(Request);
-
-               if (Instance && Instance->Logs)
-               {
-                    Instance->Logs->Normal("http_server", "HandleAddDocument returned status: " + std::to_string(Response.StatusCode) + ".");
-               }
-          }
-     }
-     else if ((Request.Path == "/status" || Request.Path == "/query") && Request.Method == "GET")
-     {
-          Response = API.HandleStatus(Request);
-     }
-     else if (Request.Path == "/search-config" && Request.Method == "GET")
-     {
-          Response = API.HandleSearchConfig(Request);
-     }
-     else if (Request.Path == "/synonyms" && Request.Method == "GET")
-     {
-          Response = API.HandleListAllSynonyms(Request);
-     }
-     else if (Request.Path == "/synonym_sets" && Request.Method == "GET")
-     {
-          Response = API.HandleListAllSynonyms(Request);
-     }
-     else if ((Request.Path == "/synonyms/global" || Request.Path == "/synonym_sets/global") && Request.Method == "GET")
-     {
-          Response = API.HandleListGlobalSynonyms(Request);
-     }
-     else if ((Request.Path.find("/synonyms/global/") == 0 || Request.Path.find("/synonym_sets/global/") == 0) && (Request.Method == "POST" || Request.Method == "PUT"))
-     {
-          Response = API.HandleCreateOrUpdateGlobalSynonym(Request);
-     }
-     else if ((Request.Path.find("/synonyms/global/") == 0 || Request.Path.find("/synonym_sets/global/") == 0) && Request.Method == "GET")
-     {
-          Response = API.HandleGetGlobalSynonym(Request);
-     }
-     else if ((Request.Path.find("/synonyms/global/") == 0 || Request.Path.find("/synonym_sets/global/") == 0) && Request.Method == "DELETE")
-     {
-          Response = API.HandleDeleteGlobalSynonym(Request);
-     }
-     else if (Request.Path == "/stopwords" && Request.Method == "GET")
-     {
-          Response = API.HandleListAllStopwords(Request);
-     }
-     else if (Request.Path == "/stopword_sets" && Request.Method == "GET")
-     {
-          Response = API.HandleListAllStopwords(Request);
-     }
-     else if ((Request.Path == "/stopwords/global" || Request.Path == "/stopword_sets/global") && Request.Method == "GET")
-     {
-          Response = API.HandleListGlobalStopwords(Request);
-     }
-     else if ((Request.Path == "/stopwords/global" || Request.Path == "/stopword_sets/global") && Request.Method == "POST")
-     {
-          Response = API.HandleCreateGlobalStopword(Request);
-     }
-     else if ((Request.Path.find("/stopwords/global/") == 0 || Request.Path.find("/stopword_sets/global/") == 0) && Request.Method == "DELETE")
-     {
-          Response = API.HandleDeleteGlobalStopword(Request);
-     }
-     else if (Request.Path == "/links" && Request.Method == "GET")
-     {
-          Response = API.HandleLinksList(Request);
-     }
-     else if (Request.Path == "/links/ping" && Request.Method == "GET")
-     {
-          Response = API.HandleLinksPing(Request);
-     }
-     else if (Request.Path == "/links/connect" && Request.Method == "POST")
-     {
-          Response = API.HandleLinksConnect(Request);
-     }
-     else if (Request.Path == "/links/disconnect" && Request.Method == "POST")
-     {
-          Response = API.HandleLinksDisconnect(Request);
-     }
-     else if (Request.Path == "/collections/distributed" && Request.Method == "GET")
-     {
-          Response = API.HandleListCollectionsDistributed(Request);
-     }
-     else if (Request.Path == "/collections" && Request.Method == "GET")
-     {
-          Response = API.HandleListCollections(Request);
-     }
-     else if (Request.Path == "/collections" && Request.Method == "POST")
-     {
-          Response = API.HandleCreateCollection(Request);
-     }
-     else if (Request.Path == "/admin/storage_status" && Request.Method == "GET")
-     {
-          Response = API.HandleStorageStatus(Request);
-     }
-     else if (Request.Path.find("/collections/") == 0 && (Request.Path.find("/vector_search") != std::string::npos || VectorSearchAlias) && (Request.Method == "GET" || Request.Method == "POST"))
-     {
-          Response = API.HandleVectorSearch(Request);
-     }
-     else if (Request.Path.find("/collections/") == 0 &&
-              NormalizedPath.size() > std::string("/collections/").size() &&
-              NormalizedPath.rfind("/lang") == (NormalizedPath.size() - std::string("/lang").size()) &&
-              Request.Method == "GET")
-     {
-          Response = API.HandleGetCollectionLanguage(Request);
-     }
-     else if (Request.Path.find("/collections/") == 0 && NormalizedPath.find("/search") == std::string::npos && Request.Path.find("/documents") == std::string::npos && Request.Path.find("/synonyms") == std::string::npos && Request.Path.find("/stopwords") == std::string::npos && Request.Path.find("/overrides") == std::string::npos && Request.Path.find("/curations") == std::string::npos && Request.Path.find("/curation_sets") == std::string::npos && Request.Path.find("/aliases") == std::string::npos && Request.Method == "GET")
-     {
-          Response = API.HandleGetCollection(Request);
-     }
-     else if (Request.Path.find("/collections/") == 0 && Request.Path.find("/documents") == std::string::npos && Request.Path.find("/synonyms") == std::string::npos && Request.Path.find("/stopwords") == std::string::npos && Request.Path.find("/overrides") == std::string::npos && Request.Path.find("/curations") == std::string::npos && Request.Path.find("/curation_sets") == std::string::npos && Request.Path.find("/aliases") == std::string::npos && Request.Method == "DELETE")
-     {
-          Response = API.HandleDeleteCollection(Request);
-     }
-     else if (Request.Path.find("/collections/") == 0 && Request.Path.find("/update") != std::string::npos && Request.Method == "POST")
-     {
-          Response = API.HandleUpdateCollection(Request);
-     }
-     else if (Request.Path.find("/collections/") == 0 && Request.Path.find("/documents") != std::string::npos && Request.Path.find("/documents/") == std::string::npos && Request.Path.find("/search") == std::string::npos && Request.Path.find("/facet_counts") == std::string::npos && Request.Path.find("/export") == std::string::npos && Request.Path.find("/import") == std::string::npos && Request.Method == "GET")
-     {
-          if (Instance && Instance->Logs)
-          {
-               Instance->Logs->Debug("http_server", "Routing to HandleListDocuments (legacy dispatcher) for path: " + Request.Path + ".");
-          }
-
-          Response = API.HandleListDocuments(Request);
-     }
-     else if (Request.Path.find("/collections/") == 0 && Request.Path.find("/documents/") != std::string::npos && Request.Path.find("/search") == std::string::npos && Request.Path.find("/facet_counts") == std::string::npos && Request.Path.find("/export") == std::string::npos && Request.Path.find("/maybe") == std::string::npos && Request.Method == "GET")
-     {
-          if (Instance && Instance->Logs)
-          {
-               Instance->Logs->Normal("http_server", "ROUTING TO HandleGetDocument for path: " + Request.Path + ".");
-          }
-
-          Response = API.HandleGetDocument(Request);
-
-          if (Instance && Instance->Logs)
-          {
-               Instance->Logs->Normal("http_server", "HandleGetDocument returned status: " + std::to_string(Response.StatusCode) + ".");
-          }
-     }
-     else if (Request.Path.find("/collections/") == 0 && Request.Path.find("/documents/") != std::string::npos && Request.Path.find("/search") == std::string::npos && Request.Path.find("/facet_counts") == std::string::npos && Request.Path.find("/export") == std::string::npos && Request.Path.find("/maybe") == std::string::npos && Request.Method == "PUT")
-     {
-          Response = API.HandleUpdateDocument(Request);
-     }
-     else if (Request.Path.find("/collections/") == 0 && Request.Path.find("/documents/") != std::string::npos && Request.Path.find("/search") == std::string::npos && Request.Path.find("/facet_counts") == std::string::npos && Request.Path.find("/export") == std::string::npos && Request.Path.find("/maybe") == std::string::npos && Request.Method == "DELETE")
-     {
-          Response = API.HandleDeleteDocument(Request);
-     }
-     else if (Request.Path.find("/collections/") == 0 && Request.Path.find("/documents") != std::string::npos && Request.Path.find("/documents/") == std::string::npos && Request.Method == "DELETE")
-     {
-          Response = API.HandleDeleteDocumentsByFilter(Request);
-     }
-     else if (Request.Path == "/multi_search" && (Request.Method == "GET" || Request.Method == "POST"))
-     {
-          Response = API.HandleMultiSearch(Request);
-     }
-     else if (Request.Path == "/search" && (Request.Method == "GET" || Request.Method == "POST"))
-     {
-          Response = API.HandleGlobalSearch(Request);
-     }
-     else if (Request.Path.find("/collections/") == 0 && Request.Path.find("/overrides") != std::string::npos && Request.Path.find("/overrides/") == std::string::npos && Request.Method == "GET")
-     {
-          Response = API.HandleListOverrides(Request);
-     }
-     else if (Request.Path.find("/collections/") == 0 && (Request.Path.find("/curations") != std::string::npos || Request.Path.find("/curation_sets") != std::string::npos) && Request.Path.find("/curations/") == std::string::npos && Request.Path.find("/curation_sets/") == std::string::npos && Request.Method == "GET")
-     {
-          Response = API.HandleListOverrides(Request);
-     }
-     else if (Request.Path.find("/collections/") == 0 && Request.Path.find("/overrides/") != std::string::npos && (Request.Method == "POST" || Request.Method == "PUT"))
-     {
-          Response = API.HandleCreateOrUpdateOverride(Request);
-     }
-     else if (Request.Path.find("/collections/") == 0 && (Request.Path.find("/curations/") != std::string::npos || Request.Path.find("/curation_sets/") != std::string::npos) && (Request.Method == "POST" || Request.Method == "PUT"))
-     {
-          Response = API.HandleCreateOrUpdateOverride(Request);
-     }
-     else if (Request.Path.find("/collections/") == 0 && Request.Path.find("/overrides/") != std::string::npos && Request.Method == "GET")
-     {
-          Response = API.HandleGetOverride(Request);
-     }
-     else if (Request.Path.find("/collections/") == 0 && (Request.Path.find("/curations/") != std::string::npos || Request.Path.find("/curation_sets/") != std::string::npos) && Request.Method == "GET")
-     {
-          Response = API.HandleGetOverride(Request);
-     }
-     else if (Request.Path.find("/collections/") == 0 && Request.Path.find("/overrides/") != std::string::npos && Request.Method == "DELETE")
-     {
-          Response = API.HandleDeleteOverride(Request);
-     }
-     else if (Request.Path.find("/collections/") == 0 && (Request.Path.find("/curations/") != std::string::npos || Request.Path.find("/curation_sets/") != std::string::npos) && Request.Method == "DELETE")
-     {
-          Response = API.HandleDeleteOverride(Request);
-     }
-     else if (Request.Path.find("/collections/") == 0 && NormalizedPath.rfind("/aliases") == NormalizedPath.size() - 8 && Request.Method == "GET")
-     {
-          Response = API.HandleListAliases(Request);
-     }
-     else if (Request.Path == "/aliases" && Request.Method == "GET")
-     {
-          Response = API.HandleListAliases(Request);
-     }
-     else if (Request.Path == "/modules" && Request.Method == "GET")
-     {
-          Response = API.HandleListModules(Request);
-     }
-     else if (Request.Path.find("/modules/") == 0 && NormalizedPath.rfind("/syntax") == NormalizedPath.size() - 7 && Request.Method == "GET")
-     {
-          Response = API.HandleModuleSyntax(Request);
-     }
-     else if (Request.Path.find("/modules/") == 0)
-     {
-          Response = API.HandleModuleAPI(Request);
-     }
-     else if (Request.Path.find("/aliases/") == 0 && (Request.Method == "POST" || Request.Method == "PUT"))
-     {
-          Response = API.HandleCreateOrUpdateAlias(Request);
-     }
-     else if (Request.Path.find("/aliases/") == 0 && Request.Method == "GET")
-     {
-          Response = API.HandleGetAlias(Request);
-     }
-     else if (Request.Path.find("/aliases/") == 0 && Request.Method == "DELETE")
-     {
-          Response = API.HandleDeleteAlias(Request);
-     }
-     else if (Request.Path == "/health" && Request.Method == "GET")
-     {
-          Response = API.HandleHealth(Request);
-     }
-     else if (Request.Path == "/ready" && Request.Method == "GET")
-     {
-          Response = API.HandleReady(Request);
-     }
-     else if ((Request.Path == "/metrics" || Request.Path == "/metrics.json") && Request.Method == "GET")
-     {
-          Response = API.HandleMetrics(Request);
-     }
-     else if (Request.Path == "/stats" && Request.Method == "GET")
-     {
-          Response = API.HandleStats(Request);
-     }
-     else if (Request.Path == "/doctotal" && Request.Method == "GET")
-     {
-          Response = API.HandleDocTotal(Request);
-     }
-     else if (Request.Path == "/update-counters" && (Request.Method == "GET" || Request.Method == "POST"))
-     {
-          Response = API.HandleUpdateCounters(Request);
-     }
-     else if (Request.Path == "/repair" && (Request.Method == "GET" || Request.Method == "POST"))
-     {
-          Response = API.HandleRepair(Request);
-     }
-     else if (Request.Path == "/admin/storage_status" && Request.Method == "GET")
-     {
-          Response = API.HandleStorageStatus(Request);
-     }
-     else if (Request.Path == "/" && Request.Method == "GET")
-     {
-          /* Root endpoint - same as /status. */
-
-          Response = API.HandleStatus(Request);
-     }
-
-     RecordAnalyticsForResponse(Request, Response, ActionVal);
-     API.FinalizeReplicationOperation(Request, Response);
-     API.FinalizeReplicationResyncRequest(Request, Response);
-
-     if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
-     {
-          Instance->Logs->Debug("http_server", "ProcessSingleRequest: response_ready=true status=" + std::to_string(Response.StatusCode) + " route=" + std::string(RouteActionName(ActionVal)) + " keep_alive=" + std::string(KeepAlive ? "true" : "false") + " body_size=" + std::to_string(Response.Body.size()) + ".");
-     }
-
-     SendResponse(Response);
-
-     LastActivity = Instance->Now();
-
-     if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
-     {
-          Instance->Logs->Debug("http_server", "ProcessSingleRequest: SendResponse invoked - " + std::to_string(Response.StatusCode) + " " + Response.StatusText + " (body_size: " + std::to_string(Response.Body.size()) + ", path: " + Request.Path + ", fd=" + std::to_string(GetFD()) + ").");
-      }
      }
      catch (const std::exception &E)
      {
@@ -3341,8 +3371,9 @@ void HttpConnection::CleanupConnection()
 
           return;
      }
-
 }
+
+/* Forces the HTTP connection to close. */
 
 void HttpConnection::ForceClose()
 {
@@ -3804,7 +3835,7 @@ void HttpConnection::ParseHeaders(const std::string &HeaderLines, std::map<std::
                     }
                }
 
-    /*
+               /*
      * Sanitize header key - convert to lowercase and trim whitespace.
      * This prevents case-sensitivity issues and header smuggling.
      */
@@ -3874,6 +3905,8 @@ HttpServer::HttpServer(const BindConfig &Conf) : Config(Conf), Running(false)
                         return Resp;
                    });
 }
+
+/* Releases HTTP server resources on shutdown. */
 
 HttpServer::~HttpServer()
 {
@@ -3971,9 +4004,21 @@ bool HttpServer::Start()
 
      struct sockaddr_in Address;
 
+     memset(&Address, 0, sizeof(Address));
      Address.sin_family = AF_INET;
-     Address.sin_addr.s_addr = inet_addr(Config.address.c_str());
      Address.sin_port = htons(Config.port);
+
+     if (inet_pton(AF_INET, Config.address.c_str(), &Address.sin_addr) != 1)
+     {
+          if (Instance && Instance->Logs)
+          {
+               Instance->Logs->Critical("httpserver", "Invalid bind address '" + Config.address + "' for port " + std::to_string(Config.port) + ".");
+          }
+
+          close(ServerFD);
+
+          return false;
+     }
 
      if (bind(ServerFD, reinterpret_cast<struct sockaddr *>(&Address), sizeof(Address)) < 0)
      {
@@ -4010,20 +4055,88 @@ bool HttpServer::Start()
 
           /* Set SSL protocols. */
 
-          if (Config.ssl_protocols.find("TLSv1.3") != std::string::npos)
+          const bool AllowTLS12 = Config.ssl_protocols.find("TLSv1.2") != std::string::npos;
+          const bool AllowTLS13 = Config.ssl_protocols.find("TLSv1.3") != std::string::npos;
+
+          int MinProtocol = 0;
+          int MaxProtocol = 0;
+
+          if (AllowTLS12 && AllowTLS13)
           {
-               SSL_CTX_set_min_proto_version(SSLCtx, TLS1_3_VERSION);
+               MinProtocol = TLS1_2_VERSION;
+               MaxProtocol = TLS1_3_VERSION;
           }
-          else if (Config.ssl_protocols.find("TLSv1.2") != std::string::npos)
+          else if (AllowTLS12)
           {
-               SSL_CTX_set_min_proto_version(SSLCtx, TLS1_2_VERSION);
+               MinProtocol = TLS1_2_VERSION;
+               MaxProtocol = TLS1_2_VERSION;
+          }
+          else if (AllowTLS13)
+          {
+               MinProtocol = TLS1_3_VERSION;
+               MaxProtocol = TLS1_3_VERSION;
+          }
+          else
+          {
+               if (Instance && Instance->Logs)
+               {
+                    Instance->Logs->Critical("http_server", "SSL protocols must include TLSv1.2 or TLSv1.3.");
+               }
+
+               SSL_CTX_free(SSLCtx);
+               SSLCtx = nullptr;
+               close(ServerFD);
+
+               return false;
+          }
+
+          if (SSL_CTX_set_min_proto_version(SSLCtx, MinProtocol) != 1)
+          {
+               if (Instance && Instance->Logs)
+               {
+                    Instance->Logs->Critical("http_server", "Failed to configure SSL minimum protocol from: " + Config.ssl_protocols + ".");
+               }
+
+               SSL_CTX_free(SSLCtx);
+               SSLCtx = nullptr;
+               close(ServerFD);
+
+               return false;
+          }
+
+          if (SSL_CTX_set_max_proto_version(SSLCtx, MaxProtocol) != 1)
+          {
+               if (Instance && Instance->Logs)
+               {
+                    Instance->Logs->Critical("http_server", "Failed to configure SSL maximum protocol from: " + Config.ssl_protocols + ".");
+               }
+
+               SSL_CTX_free(SSLCtx);
+               SSLCtx = nullptr;
+               close(ServerFD);
+
+               return false;
           }
 
           /* Set cipher list. */
 
           if (!Config.ssl_ciphers.empty())
           {
-               SSL_CTX_set_cipher_list(SSLCtx, Config.ssl_ciphers.c_str());
+               if (SSL_CTX_set_cipher_list(SSLCtx, Config.ssl_ciphers.c_str()) != 1)
+               {
+                    if (Instance && Instance->Logs)
+                    {
+                         Instance->Logs->Critical("http_server", "Failed to configure SSL cipher list: " + Config.ssl_ciphers + ".");
+                    }
+
+                    ConsoleWriter::WriteError("[FATAL] Failed to configure SSL cipher list: " + Config.ssl_ciphers, true);
+
+                    SSL_CTX_free(SSLCtx);
+                    SSLCtx = nullptr;
+                    close(ServerFD);
+
+                    return false;
+               }
           }
 
           /* Load certificate and private key. */
@@ -4206,6 +4319,8 @@ bool HttpServer::Start()
 
 /* SetReadyToAccept sets ready to accept flag. */
 
+/* Updates set ready to accept values. */
+
 void HttpServer::SetReadyToAccept(bool Ready)
 {
      bool OldValue = ReadyToAcceptValue.load();
@@ -4219,6 +4334,8 @@ void HttpServer::SetReadyToAccept(bool Ready)
 }
 
 /* SetLoading sets loading flag. */
+
+/* Updates set loading values. */
 
 void HttpServer::SetLoading(bool Loading)
 {
@@ -4366,6 +4483,8 @@ HttpResponse HttpServer::HandleHealth(const HttpRequest &Request)
 
      return Builder.Build();
 }
+
+/* Handles ready requests. */
 
 HttpResponse HttpServer::HandleReady(const HttpRequest &Request)
 {
@@ -4915,10 +5034,14 @@ APIKeyAction MapRouteToKeyAction(RouteAction ActionVal)
      }
 }
 
+/* Resolves route with fallback values. */
+
 static RouteAction ResolveRouteWithFallback(const HttpRequest &Request)
 {
      return BuildRouteContext(Request).ActionVal;
 }
+
+/* Checks whether public route action applies. */
 
 static bool IsPublicRouteAction(RouteAction ActionVal)
 {
@@ -4931,6 +5054,8 @@ static bool IsPublicRouteAction(RouteAction ActionVal)
              ActionVal == RouteAction::LinksPing);
 }
 
+/* Checks whether admin only route action applies. */
+
 static bool IsAdminOnlyRouteAction(RouteAction ActionVal)
 {
      return (ActionVal == RouteAction::ListKeys ||
@@ -4938,6 +5063,7 @@ static bool IsAdminOnlyRouteAction(RouteAction ActionVal)
              ActionVal == RouteAction::GetKey ||
              ActionVal == RouteAction::DeleteKey ||
              ActionVal == RouteAction::UpdateKey ||
+             ActionVal == RouteAction::ConfigFiles ||
              ActionVal == RouteAction::ListPresets ||
              ActionVal == RouteAction::UpsertPreset ||
              ActionVal == RouteAction::GetPreset ||
@@ -4957,6 +5083,8 @@ static bool IsAdminOnlyRouteAction(RouteAction ActionVal)
              ActionVal == RouteAction::StorageStatus);
 }
 
+/* Normalizes request path values. */
+
 static std::string NormalizeRequestPath(const std::string &Path)
 {
      std::string NormalizedPath = Path;
@@ -4975,6 +5103,8 @@ static std::string NormalizeRequestPath(const std::string &Path)
      return NormalizedPath;
 }
 
+/* Checks whether module control route path applies. */
+
 static bool IsModuleControlRoutePath(const std::string &Path)
 {
      return Path == "/loadmodule" ||
@@ -4987,6 +5117,8 @@ static bool IsModuleControlRoutePath(const std::string &Path)
             Path.rfind("/modules/unload/", 0) == 0;
 }
 
+/* Builds route context data. */
+
 static RouteContext BuildRouteContext(const HttpRequest &Request, SearchAPI *API)
 {
      RouteContext Context;
@@ -4997,7 +5129,9 @@ static RouteContext BuildRouteContext(const HttpRequest &Request, SearchAPI *API
      Context.IsModuleControl = IsModuleControlRoutePath(Context.NormalizedPath);
      Context.IsHealthCheck = IsHealthLikePath(Context.NormalizedPath);
      Context.IsCollectionCreation = Context.ActionVal == RouteAction::CreateCollection;
-     Context.IsDocumentImport = Context.ActionVal == RouteAction::BulkImportDocuments;
+     Context.IsDocumentImport = Context.ActionVal == RouteAction::AddDocument ||
+                                Context.ActionVal == RouteAction::BulkImportDocuments ||
+                                IsDocumentIngestionRequest(Request.Method, Context.NormalizedPath);
      Context.IsListDocuments = Context.ActionVal == RouteAction::ListDocuments;
      Context.IsExpensiveQuery = Context.ActionVal == RouteAction::DocumentSearch ||
                                 Context.ActionVal == RouteAction::VectorSearch ||
@@ -5095,14 +5229,14 @@ HttpResponse ProcessRequestWithAPI(SearchAPI &API, const HttpRequest &Request)
                if (!IsAdminVal)
                {
                     LogAccessControl("Forbidden: non-admin attempted admin-only operation", Request);
-                    return HttpResponse(403, "Forbidden", "{\"error\":\"Only administrators can access this endpoint\"}");
+                    return HttpResponse(http_code::FORBIDDEN, StatusText(http_code::FORBIDDEN), "{\"error\":\"Only administrators can access this endpoint\"}");
                }
           }
 
           if (Context.IsModuleControl && !IsAdminVal)
           {
                LogAccessControl("Forbidden: non-admin attempted module control operation", Request);
-               return HttpResponse(403, "Forbidden", "{\"error\":\"Only administrators can access this endpoint\"}");
+               return HttpResponse(http_code::FORBIDDEN, StatusText(http_code::FORBIDDEN), "{\"error\":\"Only administrators can access this endpoint\"}");
           }
 
           if (!IsAdminVal && !Context.IsPublic)
@@ -5113,7 +5247,7 @@ HttpResponse ProcessRequestWithAPI(SearchAPI &API, const HttpRequest &Request)
                {
                     if (!APIKeyManager::Instance().CheckRateLimit(KeyObj.ID))
                     {
-                         return HttpResponse(429, "Too Many Requests", "{\"error\":\"Rate limit exceeded\"}");
+                         return HttpResponse(http_code::TOO_MANY_REQUESTS, StatusText(http_code::TOO_MANY_REQUESTS), "{\"error\":\"Rate limit exceeded\"}");
                     }
 
                     APIKeyAction ReqAction = MapRouteToKeyAction(ActionVal);
@@ -5134,13 +5268,13 @@ HttpResponse ProcessRequestWithAPI(SearchAPI &API, const HttpRequest &Request)
                               if (!KeyObj.CanAccessCollection("*"))
                               {
                                    LogAccessControl("Forbidden: key '" + KeyObj.ID + "' cannot access system endpoints", Request);
-                                   return HttpResponse(403, "Forbidden", "{\"error\":\"Access to system endpoints not allowed for this key\"}");
+                                   return HttpResponse(http_code::FORBIDDEN, StatusText(http_code::FORBIDDEN), "{\"error\":\"Access to system endpoints not allowed for this key\"}");
                               }
 
                               if (!KeyObj.HasAction("*", ReqAction))
                               {
                                    LogAccessControl("Forbidden: key '" + KeyObj.ID + "' action not allowed for system endpoints", Request);
-                                   return HttpResponse(403, "Forbidden", "{\"error\":\"Action not allowed for system endpoints with this key\"}");
+                                   return HttpResponse(http_code::FORBIDDEN, StatusText(http_code::FORBIDDEN), "{\"error\":\"Action not allowed for system endpoints with this key\"}");
                               }
 
                               ColNameVal = "*";
@@ -5151,13 +5285,13 @@ HttpResponse ProcessRequestWithAPI(SearchAPI &API, const HttpRequest &Request)
                          if (!KeyObj.CanAccessCollection(ColNameVal))
                          {
                               LogAccessControl("Forbidden: key '" + KeyObj.ID + "' cannot access collection '" + ColNameVal + "'", Request);
-                              return HttpResponse(403, "Forbidden", "{\"error\":\"Access to collection '" + ColNameVal + "' not allowed for this key\"}");
+                              return HttpResponse(http_code::FORBIDDEN, StatusText(http_code::FORBIDDEN), "{\"error\":\"Access to collection '" + ColNameVal + "' not allowed for this key\"}");
                          }
 
                          if (!KeyObj.HasAction(ColNameVal, ReqAction))
                          {
                               LogAccessControl("Forbidden: key '" + KeyObj.ID + "' action not allowed for collection '" + ColNameVal + "'", Request);
-                              return HttpResponse(403, "Forbidden", "{\"error\":\"Action not allowed for this collection with this key\"}");
+                              return HttpResponse(http_code::FORBIDDEN, StatusText(http_code::FORBIDDEN), "{\"error\":\"Action not allowed for this collection with this key\"}");
                          }
                     }
 
@@ -5174,7 +5308,7 @@ HttpResponse ProcessRequestWithAPI(SearchAPI &API, const HttpRequest &Request)
                     if (!Instance->Users->IsUser(TokenVal))
                     {
                          LogAccessControl("Unauthorized: invalid token", Request);
-                         return HttpResponse(401, "Unauthorized", "{\"error\":\"Invalid token\"}");
+                         return HttpResponse(http_code::UNAUTHORIZED, StatusText(http_code::UNAUTHORIZED), "{\"error\":\"Invalid token\"}");
                     }
                }
           }
@@ -5258,6 +5392,9 @@ HttpResponse ProcessRequestWithAPI(SearchAPI &API, const HttpRequest &Request)
 
                case RouteAction::SearchConfig:
                     return API.HandleSearchConfig(Request);
+
+               case RouteAction::ConfigFiles:
+                    return API.HandleConfigFiles(Request);
 
                case RouteAction::LinksList:
                     return API.HandleLinksList(Request);

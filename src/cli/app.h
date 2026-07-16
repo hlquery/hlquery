@@ -22,7 +22,6 @@
 class HLQueryCLI
 {
    public:
-
      /* HTTPResponse struct represents a response from the server. */
 
      struct HTTPResponse
@@ -318,7 +317,6 @@ class HLQueryCLI
      void PrintTable(const std::vector<std::string> &headers, const std::vector<std::vector<std::string>> &rows);
 
    private:
-
      std::string BaseURL;
 
      int Port;

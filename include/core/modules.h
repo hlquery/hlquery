@@ -13,6 +13,7 @@
 #pragma once
 
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <ctime>
 #include <functional>
@@ -283,6 +284,43 @@ struct SearchEvent
      bool Distributed = false;
 };
 
+/* Shared payload emitted when analytics creates a flush snapshot. */
+
+struct AnalyticsSnapshotEvent
+{
+     /* Module or subsystem that produced the snapshot. */
+
+     std::string Source;
+
+     /* Inclusive snapshot window start in Unix epoch milliseconds. */
+
+     uint64_t WindowStartMS = 0;
+
+     /* Exclusive snapshot window end in Unix epoch milliseconds. */
+
+     uint64_t WindowEndMS = 0;
+
+     /* Number of aggregate buckets included in the snapshot. */
+
+     uint64_t BucketCount = 0;
+
+     /* Number of individual query/click rows included in the snapshot. */
+
+     uint64_t QueryEventCount = 0;
+
+     /* Total counted requests represented by the aggregate buckets. */
+
+     uint64_t TotalRequests = 0;
+
+     /* Serialized payload size in bytes, when available. */
+
+     uint64_t PayloadBytes = 0;
+
+     /* Serialized analytics payload, when the producing module exposes one. */
+
+     std::string PayloadJSON;
+};
+
 /* Describes whether a pre-check hook permits or blocks an operation. */
 
 enum class ModulePreCheckAction
@@ -394,6 +432,7 @@ enum class ModuleHook : size_t
      OnLinksDisconnect,
      OnRepair,
      OnAnalyticsClick,
+     OnSnapshot,
 
      /* Sentinel used to size hook tracking storage. */
 
@@ -420,7 +459,7 @@ class RuntimeModule
 
      /* Marks which hooks this module explicitly handles. */
 
-     std::array<bool, static_cast<size_t>(ModuleHook::OnCount)> attached_hooks {};
+     std::array<bool, static_cast<size_t>(ModuleHook::OnCount)> attached_hooks{};
 
    protected:
 
@@ -573,6 +612,8 @@ class RuntimeModule
                !std::is_same_v<decltype(&Derived::OnRepair), decltype(&RuntimeModule::OnRepair)>;
           Hooks[static_cast<size_t>(ModuleHook::OnAnalyticsClick)] =
                !std::is_same_v<decltype(&Derived::OnAnalyticsClick), decltype(&RuntimeModule::OnAnalyticsClick)>;
+          Hooks[static_cast<size_t>(ModuleHook::OnSnapshot)] =
+               !std::is_same_v<decltype(&Derived::OnSnapshot), decltype(&RuntimeModule::OnSnapshot)>;
 
           return Hooks;
      }
@@ -586,17 +627,15 @@ class RuntimeModule
      }
 
    public:
-
      /* Public module interface begins here. */
 
      /* Constructs a runtime module with a fixed exported name. */
 
-     explicit RuntimeModule(const std::string& Name, bool EnableAPIRoute = false, uint32_t RequirementFlags = ModuleRequirementNone)
-          : module_name(Name),
-            api_route_enabled(EnableAPIRoute),
-            requirement_flags(RequirementFlags)
+     explicit RuntimeModule(const std::string &Name, bool EnableAPIRoute = false, uint32_t RequirementFlags = ModuleRequirementNone)
+         : module_name(Name),
+           api_route_enabled(EnableAPIRoute),
+           requirement_flags(RequirementFlags)
      {
-
      }
 
      /* Virtual destructor for safe unloading through base pointers. */
@@ -605,7 +644,7 @@ class RuntimeModule
 
      /* Returns the configured module name. */
 
-     const std::string& GetName() const
+     const std::string &GetName() const
      {
           return module_name;
      }
@@ -624,6 +663,24 @@ class RuntimeModule
           return attached_hooks[static_cast<size_t>(Hook)];
      }
 
+     /*
+      * Returns the concrete objects that should receive one hook.
+      * Composite modules override this to expose owned subcomponents while
+      * the loader still treats the shared object as one configured module.
+      */
+
+     virtual std::vector<RuntimeModule *> GetHookTargets(ModuleHook Hook)
+     {
+          std::vector<RuntimeModule *> Targets;
+
+          if (HandlesHook(Hook))
+          {
+               Targets.push_back(this);
+          }
+
+          return Targets;
+     }
+
      /* Returns hard requirements that must be satisfied before the module starts. */
 
      virtual uint32_t GetRequirementFlags() const
@@ -637,23 +694,23 @@ class RuntimeModule
 
      /* Builds one fully-qualified storage key for this module. */
 
-     std::string MakeStorageKey(const std::string& Key) const;
+     std::string MakeStorageKey(const std::string &Key) const;
 
      /* Stores one module-scoped value in the shared database. */
 
-     bool SetStorageValue(const std::string& Key, const std::string& Value) const;
+     bool SetStorageValue(const std::string &Key, const std::string &Value) const;
 
      /* Retrieves one module-scoped value from the shared database. */
 
-     std::string GetStorageValue(const std::string& Key) const;
+     std::string GetStorageValue(const std::string &Key) const;
 
      /* Deletes one module-scoped value from the shared database. */
 
-     bool DeleteStorageValue(const std::string& Key) const;
+     bool DeleteStorageValue(const std::string &Key) const;
 
      /* Lists module-scoped keys relative to the module namespace. */
 
-     std::vector<std::string> ListStorageKeys(const std::string& Pattern = "*") const;
+     std::vector<std::string> ListStorageKeys(const std::string &Pattern = "*") const;
 
      /* Deletes every stored key owned by this module. */
 
@@ -661,7 +718,7 @@ class RuntimeModule
 
      /* Starts the module after configuration has been loaded. */
 
-     virtual bool Start(const ServerConfig& Config, std::string& ErrorMessage)
+     virtual bool Start(const ServerConfig &Config, std::string &ErrorMessage)
      {
           (void)Config;
           (void)ErrorMessage;
@@ -678,28 +735,24 @@ class RuntimeModule
 
      virtual void OnUnloadModule()
      {
-
      }
 
      /* Called once after initialization completes and before the main loop starts. */
 
      virtual void OnStartup()
      {
-
      }
 
      /* Called once shared thread pools are initialized and ready for use. */
 
      virtual void OnThreadPoolsReady()
      {
-
      }
 
      /* Called once per wall-clock minute from the main loop. */
 
      virtual void OnEveryOneMinute()
      {
-
      }
 
      /* Called every idle tick (main loop wakeup) with the current timestamp. */
@@ -720,75 +773,72 @@ class RuntimeModule
 
      /* Called after an HTTP request has completed so modules can observe request activity. */
 
-     virtual void OnRequestAnalytics(const HttpRequest&, const HttpResponse&, RouteAction)
+     virtual void OnRequestAnalytics(const HttpRequest &, const HttpResponse &, RouteAction)
      {
-
      }
 
      /* Called after an authenticated request has completed so modules can inspect auth usage. */
 
-     virtual void OnAuthenticatedRequest(const HttpRequest&, RouteAction)
+     virtual void OnAuthenticatedRequest(const HttpRequest &, RouteAction)
      {
 
      }
 
      /* Called after a ping request has been handled successfully. */
 
-     virtual void OnPingRequest(const HttpRequest&)
+     virtual void OnPingRequest(const HttpRequest &)
      {
 
      }
 
      /* Called after a database status request has been handled successfully. */
 
-     virtual void OnDBRequest(const HttpRequest&)
+     virtual void OnDBRequest(const HttpRequest &)
      {
 
      }
 
      /* Called after a stats request has been handled successfully. */
 
-     virtual void OnStatsRequest(const HttpRequest&)
+     virtual void OnStatsRequest(const HttpRequest &)
      {
 
      }
 
      /* Called after a metrics request has been handled successfully. */
 
-     virtual void OnMetricsRequest(const HttpRequest&)
+     virtual void OnMetricsRequest(const HttpRequest &)
      {
-
      }
 
      /* Called after a cache-inspection request has been handled successfully. */
 
-     virtual void OnCacheRequest(const HttpRequest&)
+     virtual void OnCacheRequest(const HttpRequest &)
      {
-
      }
 
      /* Search observation hooks begin here. */
 
      /* Called after a collection-level search has completed successfully. */
 
-     virtual void OnSearchCollection(const SearchEvent& Event)
+     virtual void OnSearchCollection(const SearchEvent &Event)
      {
           (void)Event;
      }
 
      /* Called after a document or vector search has completed successfully. */
 
-     virtual void OnSearchDocument(const SearchEvent& Event)
+     virtual void OnSearchDocument(const SearchEvent &Event)
      {
           (void)Event;
      }
 
      /* Returns a multiplier used to adjust one hit after retrieval and before final ranking. */
 
-     virtual float ComputeSearchWeightMultiplier(const std::string& Collection,
-                                                 const std::string& Query,
-                                                 const std::string& RankingMode,
-                                                 const SearchHit&,
+     virtual float ComputeSearchWeightMultiplier(const std::string &Collection,
+                                                 const std::string &Query,
+                                                 const std::string &RankingMode,
+                                                 const SearchHit &,
                                                  float BaseScore)
      {
           (void)Collection;
@@ -802,196 +852,196 @@ class RuntimeModule
 
      /* Called before a collection is created. */
 
-     virtual ModulePreCheckResult OnPreCreateCollection(const std::string&, const std::string&, const std::string&, bool)
+     virtual ModulePreCheckResult OnPreCreateCollection(const std::string &, const std::string &, const std::string &, bool)
      {
           return ModulePreCheckResult();
      }
 
      /* Called before a collection has been updated. */
 
-     virtual ModulePreCheckResult OnPreUpdateCollection(const std::string&, const std::string&, const std::string&, bool)
+     virtual ModulePreCheckResult OnPreUpdateCollection(const std::string &, const std::string &, const std::string &, bool)
      {
           return ModulePreCheckResult();
      }
 
      /* Called before a collection has been deleted. */
 
-     virtual ModulePreCheckResult OnPreDeleteCollection(const std::string&, const std::string&, const std::string&, bool)
+     virtual ModulePreCheckResult OnPreDeleteCollection(const std::string &, const std::string &, const std::string &, bool)
      {
           return ModulePreCheckResult();
      }
 
      /* Called before a document has been added. */
 
-     virtual ModulePreCheckResult OnPreAddDocument(const std::string&, const Document&, const std::string&, const std::string&, bool)
+     virtual ModulePreCheckResult OnPreAddDocument(const std::string &, const Document &, const std::string &, const std::string &, bool)
      {
           return ModulePreCheckResult();
      }
 
      /* Called before a document has been updated. */
 
-     virtual ModulePreCheckResult OnPreUpdateDocument(const std::string&, const Document&, const std::string&, const std::string&, bool)
+     virtual ModulePreCheckResult OnPreUpdateDocument(const std::string &, const Document &, const std::string &, const std::string &, bool)
      {
           return ModulePreCheckResult();
      }
 
      /* Called before documents have been bulk imported. */
 
-     virtual ModulePreCheckResult OnPreBulkImportDocuments(const std::string&, uint64_t, const std::string&, const std::string&, bool)
+     virtual ModulePreCheckResult OnPreBulkImportDocuments(const std::string &, uint64_t, const std::string &, const std::string &, bool)
      {
           return ModulePreCheckResult();
      }
 
      /* Called before a document has been deleted. */
 
-     virtual ModulePreCheckResult OnPreDeleteDocument(const std::string&, const std::string&, const std::string&, const std::string&, bool)
+     virtual ModulePreCheckResult OnPreDeleteDocument(const std::string &, const std::string &, const std::string &, const std::string &, bool)
      {
           return ModulePreCheckResult();
      }
 
      /* Called before multiple documents have been deleted. */
 
-     virtual ModulePreCheckResult OnPreDeleteDocuments(const std::string&, const std::string&, const std::string&, bool)
+     virtual ModulePreCheckResult OnPreDeleteDocuments(const std::string &, const std::string &, const std::string &, bool)
      {
           return ModulePreCheckResult();
      }
 
      /* Called before update-by-query operations. */
 
-     virtual ModulePreCheckResult OnPreUpdateByQuery(const std::string&, const std::string&, const std::string&, bool)
+     virtual ModulePreCheckResult OnPreUpdateByQuery(const std::string &, const std::string &, const std::string &, bool)
      {
           return ModulePreCheckResult();
      }
 
      /* Called before delete-by-query operations. */
 
-     virtual ModulePreCheckResult OnPreDeleteByQuery(const std::string&, const std::string&, const std::string&, bool)
+     virtual ModulePreCheckResult OnPreDeleteByQuery(const std::string &, const std::string &, const std::string &, bool)
      {
           return ModulePreCheckResult();
      }
 
      /* Called before an alias has been created or updated. */
 
-     virtual ModulePreCheckResult OnPreUpsertAlias(const std::string&, const std::string&, const std::string&, bool)
+     virtual ModulePreCheckResult OnPreUpsertAlias(const std::string &, const std::string &, const std::string &, bool)
      {
           return ModulePreCheckResult();
      }
 
      /* Called before an alias has been deleted. */
 
-     virtual ModulePreCheckResult OnPreDeleteAlias(const std::string&, const std::string&, const std::string&, bool)
+     virtual ModulePreCheckResult OnPreDeleteAlias(const std::string &, const std::string &, const std::string &, bool)
      {
           return ModulePreCheckResult();
      }
 
      /* Called before a synonym group has been created or updated. */
 
-     virtual ModulePreCheckResult OnPreUpsertSynonym(const std::string&, const std::string&, bool, const std::string&, const std::string&, bool)
+     virtual ModulePreCheckResult OnPreUpsertSynonym(const std::string &, const std::string &, bool, const std::string &, const std::string &, bool)
      {
           return ModulePreCheckResult();
      }
 
      /* Called before a synonym group has been deleted. */
 
-     virtual ModulePreCheckResult OnPreDeleteSynonym(const std::string&, const std::string&, bool, const std::string&, const std::string&, bool)
+     virtual ModulePreCheckResult OnPreDeleteSynonym(const std::string &, const std::string &, bool, const std::string &, const std::string &, bool)
      {
           return ModulePreCheckResult();
      }
 
      /* Called before one or more stopwords have been added. */
 
-     virtual ModulePreCheckResult OnPreCreateStopword(const std::string&, const std::vector<std::string>&, bool, const std::string&, const std::string&, bool)
+     virtual ModulePreCheckResult OnPreCreateStopword(const std::string &, const std::vector<std::string> &, bool, const std::string &, const std::string &, bool)
      {
           return ModulePreCheckResult();
      }
 
      /* Called before one stopword has been deleted. */
 
-     virtual ModulePreCheckResult OnPreDeleteStopword(const std::string&, const std::string&, bool, const std::string&, const std::string&, bool)
+     virtual ModulePreCheckResult OnPreDeleteStopword(const std::string &, const std::string &, bool, const std::string &, const std::string &, bool)
      {
           return ModulePreCheckResult();
      }
 
      /* Called before an override has been created or updated. */
 
-     virtual ModulePreCheckResult OnPreUpsertOverride(const std::string&, const std::string&, const std::string&, const std::string&, bool)
+     virtual ModulePreCheckResult OnPreUpsertOverride(const std::string &, const std::string &, const std::string &, const std::string &, bool)
      {
           return ModulePreCheckResult();
      }
 
      /* Called before an override has been deleted. */
 
-     virtual ModulePreCheckResult OnPreDeleteOverride(const std::string&, const std::string&, const std::string&, const std::string&, bool)
+     virtual ModulePreCheckResult OnPreDeleteOverride(const std::string &, const std::string &, const std::string &, const std::string &, bool)
      {
           return ModulePreCheckResult();
      }
 
      /* Called before a user has been created. */
 
-     virtual ModulePreCheckResult OnPreCreateUser(const std::string&, const std::string&, const std::string&, bool)
+     virtual ModulePreCheckResult OnPreCreateUser(const std::string &, const std::string &, const std::string &, bool)
      {
           return ModulePreCheckResult();
      }
 
      /* Called before a user has been updated. */
 
-     virtual ModulePreCheckResult OnPreUpdateUser(const std::string&, const std::string&, const std::string&, bool)
+     virtual ModulePreCheckResult OnPreUpdateUser(const std::string &, const std::string &, const std::string &, bool)
      {
           return ModulePreCheckResult();
      }
 
      /* Called before a user has been deleted. */
 
-     virtual ModulePreCheckResult OnPreDeleteUser(const std::string&, const std::string&, const std::string&, bool)
+     virtual ModulePreCheckResult OnPreDeleteUser(const std::string &, const std::string &, const std::string &, bool)
      {
           return ModulePreCheckResult();
      }
 
      /* Called before an API key has been created. */
 
-     virtual ModulePreCheckResult OnPreCreateKey(const std::string&, const std::string&, bool)
+     virtual ModulePreCheckResult OnPreCreateKey(const std::string &, const std::string &, bool)
      {
           return ModulePreCheckResult();
      }
 
      /* Called before an API key has been updated. */
 
-     virtual ModulePreCheckResult OnPreUpdateKey(const std::string&, const std::string&, const std::string&, bool)
+     virtual ModulePreCheckResult OnPreUpdateKey(const std::string &, const std::string &, const std::string &, bool)
      {
           return ModulePreCheckResult();
      }
 
      /* Called before an API key has been deleted. */
 
-     virtual ModulePreCheckResult OnPreDeleteKey(const std::string&, const std::string&, const std::string&, bool)
+     virtual ModulePreCheckResult OnPreDeleteKey(const std::string &, const std::string &, const std::string &, bool)
      {
           return ModulePreCheckResult();
      }
 
      /* Called before runtime link changes. */
 
-     virtual ModulePreCheckResult OnPreLinksConnect(const std::string&, const std::string&, const std::string&, bool)
+     virtual ModulePreCheckResult OnPreLinksConnect(const std::string &, const std::string &, const std::string &, bool)
      {
           return ModulePreCheckResult();
      }
 
      /* Called before runtime links are disconnected. */
 
-     virtual ModulePreCheckResult OnPreLinksDisconnect(const std::string&, const std::string&, const std::string&, bool)
+     virtual ModulePreCheckResult OnPreLinksDisconnect(const std::string &, const std::string &, const std::string &, bool)
      {
           return ModulePreCheckResult();
      }
 
      /* Called before maintenance actions. */
 
-     virtual ModulePreCheckResult OnPreFlush(const std::string&, const std::string&, bool)
+     virtual ModulePreCheckResult OnPreFlush(const std::string &, const std::string &, bool)
      {
           return ModulePreCheckResult();
      }
 
      /* Called before repair actions. */
 
-     virtual ModulePreCheckResult OnPreRepair(const std::string&, const std::string&, bool)
+     virtual ModulePreCheckResult OnPreRepair(const std::string &, const std::string &, bool)
      {
           return ModulePreCheckResult();
      }
@@ -1014,7 +1064,7 @@ class RuntimeModule
 
      /* Called after a collection has been created successfully. */
 
-     virtual void OnCreateCollection(const std::string& Collection, const std::string& RequesterIP, const std::string& RequesterUser, bool Authenticated)
+     virtual void OnCreateCollection(const std::string &Collection, const std::string &RequesterIP, const std::string &RequesterUser, bool Authenticated)
      {
           (void)Collection;
           (void)RequesterIP;
@@ -1024,7 +1074,7 @@ class RuntimeModule
 
      /* Called after a collection has been updated successfully. */
 
-     virtual void OnUpdateCollection(const std::string& Collection, const std::string& RequesterIP, const std::string& RequesterUser, bool Authenticated)
+     virtual void OnUpdateCollection(const std::string &Collection, const std::string &RequesterIP, const std::string &RequesterUser, bool Authenticated)
      {
           (void)Collection;
           (void)RequesterIP;
@@ -1034,7 +1084,7 @@ class RuntimeModule
 
      /* Called after a collection has been deleted successfully. */
 
-     virtual void OnDeleteCollection(const std::string& Collection, const std::string& RequesterIP, const std::string& RequesterUser, bool Authenticated)
+     virtual void OnDeleteCollection(const std::string &Collection, const std::string &RequesterIP, const std::string &RequesterUser, bool Authenticated)
      {
           (void)Collection;
           (void)RequesterIP;
@@ -1044,7 +1094,7 @@ class RuntimeModule
 
      /* Called after a document has been added successfully. */
 
-     virtual void OnAddDocument(const std::string& Collection, const std::string& DocumentID, const std::string& RequesterIP, const std::string& RequesterUser, bool Authenticated)
+     virtual void OnAddDocument(const std::string &Collection, const std::string &DocumentID, const std::string &RequesterIP, const std::string &RequesterUser, bool Authenticated)
      {
           (void)Collection;
           (void)DocumentID;
@@ -1055,7 +1105,7 @@ class RuntimeModule
 
      /* Called after a document has been updated successfully. */
 
-     virtual void OnUpdateDocument(const std::string& Collection, const std::string& DocumentID, const std::string& RequesterIP, const std::string& RequesterUser, bool Authenticated)
+     virtual void OnUpdateDocument(const std::string &Collection, const std::string &DocumentID, const std::string &RequesterIP, const std::string &RequesterUser, bool Authenticated)
      {
           (void)Collection;
           (void)DocumentID;
@@ -1066,7 +1116,7 @@ class RuntimeModule
 
      /* Called after a document has been deleted successfully. */
 
-     virtual void OnDeleteDocument(const std::string& Collection, const std::string& DocumentID, const std::string& RequesterIP, const std::string& RequesterUser, bool Authenticated)
+     virtual void OnDeleteDocument(const std::string &Collection, const std::string &DocumentID, const std::string &RequesterIP, const std::string &RequesterUser, bool Authenticated)
      {
           (void)Collection;
           (void)DocumentID;
@@ -1077,7 +1127,7 @@ class RuntimeModule
 
      /* Called after multiple documents have been deleted successfully. */
 
-     virtual void OnDeleteDocuments(const std::string& Collection, uint64_t Count, const std::string& RequesterIP, const std::string& RequesterUser, bool Authenticated)
+     virtual void OnDeleteDocuments(const std::string &Collection, uint64_t Count, const std::string &RequesterIP, const std::string &RequesterUser, bool Authenticated)
      {
           (void)Collection;
           (void)Count;
@@ -1088,7 +1138,7 @@ class RuntimeModule
 
      /* Called after a bulk document import has completed successfully. */
 
-     virtual void OnBulkImportDocuments(const std::string& Collection, uint64_t ImportedCount, const std::string& RequesterIP, const std::string& RequesterUser, bool Authenticated)
+     virtual void OnBulkImportDocuments(const std::string &Collection, uint64_t ImportedCount, const std::string &RequesterIP, const std::string &RequesterUser, bool Authenticated)
      {
           (void)Collection;
           (void)ImportedCount;
@@ -1099,10 +1149,10 @@ class RuntimeModule
 
      /* Called after an update-by-query operation has completed successfully. */
 
-     virtual void OnUpdateByQuery(const std::string& Collection,
+     virtual void OnUpdateByQuery(const std::string &Collection,
                                   uint64_t UpdatedCount,
-                                  const std::string& RequesterIP,
-                                  const std::string& RequesterUser,
+                                  const std::string &RequesterIP,
+                                  const std::string &RequesterUser,
                                   bool Authenticated)
      {
           (void)Collection;
@@ -1114,10 +1164,10 @@ class RuntimeModule
 
      /* Called after a delete-by-query operation has completed successfully. */
 
-     virtual void OnDeleteByQuery(const std::string& Collection,
+     virtual void OnDeleteByQuery(const std::string &Collection,
                                   uint64_t DeletedCount,
-                                  const std::string& RequesterIP,
-                                  const std::string& RequesterUser,
+                                  const std::string &RequesterIP,
+                                  const std::string &RequesterUser,
                                   bool Authenticated)
      {
           (void)Collection;
@@ -1129,9 +1179,9 @@ class RuntimeModule
 
      /* Called after a global synonym group has been created or updated successfully. */
 
-     virtual void OnGlobalSynAdd(const std::string& SynonymID,
-                                 const std::string& RequesterIP,
-                                 const std::string& RequesterUser,
+     virtual void OnGlobalSynAdd(const std::string &SynonymID,
+                                 const std::string &RequesterIP,
+                                 const std::string &RequesterUser,
                                  bool Authenticated)
      {
           (void)SynonymID;
@@ -1142,9 +1192,9 @@ class RuntimeModule
 
      /* Called after a global synonym group has been deleted successfully. */
 
-     virtual void OnGlobalSynDel(const std::string& SynonymID,
-                                 const std::string& RequesterIP,
-                                 const std::string& RequesterUser,
+     virtual void OnGlobalSynDel(const std::string &SynonymID,
+                                 const std::string &RequesterIP,
+                                 const std::string &RequesterUser,
                                  bool Authenticated)
      {
           (void)SynonymID;
@@ -1155,11 +1205,11 @@ class RuntimeModule
 
      /* Called after a synonym group has been created or updated successfully. */
 
-     virtual void OnUpsertSynonym(const std::string& Collection,
-                                  const std::string& SynonymID,
+     virtual void OnUpsertSynonym(const std::string &Collection,
+                                  const std::string &SynonymID,
                                   bool GlobalScope,
-                                  const std::string& RequesterIP,
-                                  const std::string& RequesterUser,
+                                  const std::string &RequesterIP,
+                                  const std::string &RequesterUser,
                                   bool Authenticated)
      {
           (void)Collection;
@@ -1172,11 +1222,11 @@ class RuntimeModule
 
      /* Called after a synonym group has been deleted successfully. */
 
-     virtual void OnDeleteSynonym(const std::string& Collection,
-                                  const std::string& SynonymID,
+     virtual void OnDeleteSynonym(const std::string &Collection,
+                                  const std::string &SynonymID,
                                   bool GlobalScope,
-                                  const std::string& RequesterIP,
-                                  const std::string& RequesterUser,
+                                  const std::string &RequesterIP,
+                                  const std::string &RequesterUser,
                                   bool Authenticated)
      {
           (void)Collection;
@@ -1190,8 +1240,8 @@ class RuntimeModule
      /* Called after one or more global stopwords have been added successfully. */
 
      virtual void OnGlobalStopwordAdd(uint64_t Count,
-                                      const std::string& RequesterIP,
-                                      const std::string& RequesterUser,
+                                      const std::string &RequesterIP,
+                                      const std::string &RequesterUser,
                                       bool Authenticated)
      {
           (void)Count;
@@ -1202,11 +1252,11 @@ class RuntimeModule
 
      /* Called after one or more stopwords have been added successfully. */
 
-     virtual void OnCreateStopword(const std::string& Collection,
+     virtual void OnCreateStopword(const std::string &Collection,
                                    uint64_t Count,
                                    bool GlobalScope,
-                                   const std::string& RequesterIP,
-                                   const std::string& RequesterUser,
+                                   const std::string &RequesterIP,
+                                   const std::string &RequesterUser,
                                    bool Authenticated)
      {
           (void)Collection;
@@ -1219,11 +1269,11 @@ class RuntimeModule
 
      /* Called after a stopword has been deleted successfully. */
 
-     virtual void OnDeleteStopword(const std::string& Collection,
-                                   const std::string& Word,
+     virtual void OnDeleteStopword(const std::string &Collection,
+                                   const std::string &Word,
                                    bool GlobalScope,
-                                   const std::string& RequesterIP,
-                                   const std::string& RequesterUser,
+                                   const std::string &RequesterIP,
+                                   const std::string &RequesterUser,
                                    bool Authenticated)
      {
           (void)Collection;
@@ -1236,10 +1286,10 @@ class RuntimeModule
 
      /* Called after an override has been created or updated successfully. */
 
-     virtual void OnUpsertOverride(const std::string& Collection,
-                                   const std::string& OverrideID,
-                                   const std::string& RequesterIP,
-                                   const std::string& RequesterUser,
+     virtual void OnUpsertOverride(const std::string &Collection,
+                                   const std::string &OverrideID,
+                                   const std::string &RequesterIP,
+                                   const std::string &RequesterUser,
                                    bool Authenticated)
      {
           (void)Collection;
@@ -1251,10 +1301,10 @@ class RuntimeModule
 
      /* Called after an override has been deleted successfully. */
 
-     virtual void OnDeleteOverride(const std::string& Collection,
-                                   const std::string& OverrideID,
-                                   const std::string& RequesterIP,
-                                   const std::string& RequesterUser,
+     virtual void OnDeleteOverride(const std::string &Collection,
+                                   const std::string &OverrideID,
+                                   const std::string &RequesterIP,
+                                   const std::string &RequesterUser,
                                    bool Authenticated)
      {
           (void)Collection;
@@ -1266,10 +1316,10 @@ class RuntimeModule
 
      /* Called after an alias has been created or updated successfully. */
 
-     virtual void OnUpsertAlias(const std::string& AliasName,
-                                const std::string& TargetCollection,
-                                const std::string& RequesterIP,
-                                const std::string& RequesterUser,
+     virtual void OnUpsertAlias(const std::string &AliasName,
+                                const std::string &TargetCollection,
+                                const std::string &RequesterIP,
+                                const std::string &RequesterUser,
                                 bool Authenticated)
      {
           (void)AliasName;
@@ -1281,9 +1331,9 @@ class RuntimeModule
 
      /* Called after an alias has been deleted successfully. */
 
-     virtual void OnDeleteAlias(const std::string& AliasName,
-                                const std::string& RequesterIP,
-                                const std::string& RequesterUser,
+     virtual void OnDeleteAlias(const std::string &AliasName,
+                                const std::string &RequesterIP,
+                                const std::string &RequesterUser,
                                 bool Authenticated)
      {
           (void)AliasName;
@@ -1294,7 +1344,7 @@ class RuntimeModule
 
      /* Called after a full database flush has completed successfully. */
 
-     virtual void OnFlush(uint64_t CollectionsDeleted, const std::string& RequesterIP, const std::string& RequesterUser, bool Authenticated)
+     virtual void OnFlush(uint64_t CollectionsDeleted, const std::string &RequesterIP, const std::string &RequesterUser, bool Authenticated)
      {
           (void)CollectionsDeleted;
           (void)RequesterIP;
@@ -1304,9 +1354,9 @@ class RuntimeModule
 
      /* Called after a runtime cluster link has been added successfully. */
 
-     virtual void OnLinksConnect(const std::string& Endpoint,
-                                 const std::string& RequesterIP,
-                                 const std::string& RequesterUser,
+     virtual void OnLinksConnect(const std::string &Endpoint,
+                                 const std::string &RequesterIP,
+                                 const std::string &RequesterUser,
                                  bool Authenticated)
      {
           (void)Endpoint;
@@ -1317,9 +1367,9 @@ class RuntimeModule
 
      /* Called after a runtime cluster link has been removed successfully. */
 
-     virtual void OnLinksDisconnect(const std::string& Endpoint,
-                                    const std::string& RequesterIP,
-                                    const std::string& RequesterUser,
+     virtual void OnLinksDisconnect(const std::string &Endpoint,
+                                    const std::string &RequesterIP,
+                                    const std::string &RequesterUser,
                                     bool Authenticated)
      {
           (void)Endpoint;
@@ -1330,8 +1380,8 @@ class RuntimeModule
 
      /* Called after a repair action has completed successfully. */
 
-     virtual void OnRepair(const std::string& RequesterIP,
-                           const std::string& RequesterUser,
+     virtual void OnRepair(const std::string &RequesterIP,
+                           const std::string &RequesterUser,
                            bool Authenticated)
      {
           (void)RequesterIP;
@@ -1341,12 +1391,12 @@ class RuntimeModule
 
      /* Called when the analytics click endpoint records a click event. */
 
-     virtual void OnAnalyticsClick(const std::string& Collection,
-                                   const std::string& Query,
-                                   const std::string& DocumentID,
+     virtual void OnAnalyticsClick(const std::string &Collection,
+                                   const std::string &Query,
+                                   const std::string &DocumentID,
                                    signed int Rank,
-                                   const std::string& RequesterIP,
-                                   const std::string& RequesterUser,
+                                   const std::string &RequesterIP,
+                                   const std::string &RequesterUser,
                                    bool Authenticated)
      {
           (void)Collection;
@@ -1356,6 +1406,13 @@ class RuntimeModule
           (void)RequesterIP;
           (void)RequesterUser;
           (void)Authenticated;
+     }
+
+     /* Called when a module produces a durable analytics snapshot. */
+
+     virtual void OnSnapshot(const AnalyticsSnapshotEvent &Event)
+     {
+          (void)Event;
      }
 
      /* Returns metadata for the module HTTP API surface. */
@@ -1380,7 +1437,7 @@ class RuntimeModule
 
      /* Handles one shared module command. */
 
-     virtual ModuleCommandResponse HandleCommand(const ModuleCommandRequest&)
+     virtual ModuleCommandResponse HandleCommand(const ModuleCommandRequest &)
      {
           ModuleCommandResponse Response;
 
@@ -1394,18 +1451,57 @@ class RuntimeModule
 
      /* Handles a module HTTP API request. */
 
-     virtual HttpResponse HandleAPIRequest(const HttpRequest&, const std::string&) const;
+     virtual HttpResponse HandleAPIRequest(const HttpRequest &, const std::string &) const;
 };
 
 template <typename Derived>
 class AutoRuntimeModule : public RuntimeModule
 {
    protected:
-
      /* Constructs a module that automatically marks overridden hooks. */
 
-     explicit AutoRuntimeModule(const std::string& Name, bool EnableAPIRoute = false, uint32_t RequirementFlags = ModuleRequirementNone)
-          : RuntimeModule(Name, EnableAPIRoute, RequirementFlags)
+     explicit AutoRuntimeModule(const std::string &Name, bool EnableAPIRoute = false, uint32_t RequirementFlags = ModuleRequirementNone)
+         : RuntimeModule(Name, EnableAPIRoute, RequirementFlags)
+     {
+          this->template AutoAttachHooks<Derived>();
+     }
+};
+
+class CompositeRuntimeModule : public RuntimeModule
+{
+   private:
+     std::vector<RuntimeModule *> Components;
+
+   protected:
+     /*
+      * Registers an owned component for hook and lifecycle forwarding.
+      * The composite does not take ownership; components should normally be
+      * member fields declared before the parent constructor body registers them.
+      */
+
+     void AddComponent(RuntimeModule &Component);
+
+   public:
+     explicit CompositeRuntimeModule(const std::string &Name, bool EnableAPIRoute = false, uint32_t RequirementFlags = ModuleRequirementNone)
+         : RuntimeModule(Name, EnableAPIRoute, RequirementFlags)
+     {
+     }
+
+     std::vector<RuntimeModule *> GetHookTargets(ModuleHook Hook) override;
+
+     bool Start(const ServerConfig &Config, std::string &ErrorMessage) override;
+     void Stop() override;
+     void OnUnloadModule() override;
+};
+
+template <typename Derived>
+class AutoCompositeRuntimeModule : public CompositeRuntimeModule
+{
+   protected:
+     /* Constructs a composite module that automatically marks overridden hooks. */
+
+     explicit AutoCompositeRuntimeModule(const std::string &Name, bool EnableAPIRoute = false, uint32_t RequirementFlags = ModuleRequirementNone)
+         : CompositeRuntimeModule(Name, EnableAPIRoute, RequirementFlags)
      {
           this->template AutoAttachHooks<Derived>();
      }
@@ -1413,12 +1509,12 @@ class AutoRuntimeModule : public RuntimeModule
 
 /* Signature exported by shared modules for runtime construction. */
 
-using CreateRuntimeModuleFn = RuntimeModule* (*)();
+using CreateRuntimeModuleFn = RuntimeModule *(*)();
 
 /* Exports the standard module factory symbol expected by the loader. */
 
-#define MODULE_LOAD(ModuleType)                                       \
-     extern "C" RuntimeModule* CreateRuntimeModule()                  \
-     {                                                                \
-          return new ModuleType();                                    \
+#define MODULE_LOAD(ModuleType)                      \
+     extern "C" RuntimeModule *CreateRuntimeModule() \
+     {                                               \
+          return new ModuleType();                   \
      }

@@ -38,7 +38,6 @@
 class SearchThreadPool
 {
    public:
-
      /* Identifies the workload category served by a pool. */
 
      enum class PoolType
@@ -86,7 +85,7 @@ class SearchThreadPool
 
      /* Construct the thread pool with one configuration block. */
 
-     explicit SearchThreadPool(const ThreadPoolConfig& config);
+     explicit SearchThreadPool(const ThreadPoolConfig &config);
 
      /* Destroy the thread pool and release worker resources. */
 
@@ -98,7 +97,7 @@ class SearchThreadPool
       */
 
      template <typename F, typename... Args>
-     auto Submit(F&& f, Args&&... args) -> std::future<decltype(f(args...))>
+     auto Submit(F &&f, Args &&...args) -> std::future<decltype(f(args...))>
      {
           using ReturnType = decltype(f(args...));
           auto task = std::make_shared<std::packaged_task<ReturnType()>>(
@@ -202,14 +201,13 @@ class SearchThreadPool
 
      /* Assign a preferred CPU core list for future worker placement. */
 
-     void SetCPUAffinity(const std::vector<int>& cpu_cores);
+     void SetCPUAffinity(const std::vector<int> &cpu_cores);
 
      /* Enable NUMA-aware runtime optimizations for this pool. */
 
      void EnableNUMAOptimization();
 
    private:
-
      /* One queued work item plus its scheduling metadata. */
 
      struct Task
@@ -245,7 +243,7 @@ class SearchThreadPool
 
           /* Assigned CPU core or -1 when no affinity is applied */
 
-          int CPUCore{-1};
+          std::atomic<int> CPUCore{-1};
 
           /* Time point of the most recent completed work */
 
@@ -286,7 +284,7 @@ class SearchThreadPool
 
      /* Shared priority queue for submitted tasks */
 
-     std::priority_queue<Task, std::vector<Task>, std::function<bool(const Task&, const Task&)>> TaskQueue;
+     std::priority_queue<Task, std::vector<Task>, std::function<bool(const Task &, const Task &)>> TaskQueue;
 
      /* Protects access to the shared task queue */
 
@@ -338,15 +336,15 @@ class SearchThreadPool
 
      /* Apply CPU affinity to one thread when supported by the platform. */
 
-     void SetThreadAffinity(std::thread& thread, int cpu_core);
+     void SetThreadAffinity(std::thread &thread, int cpu_core);
 
      /* Attempt to steal work from another worker-local queue. */
 
-     bool TryStealWork(size_t worker_id, Task& task);
+     bool TryStealWork(size_t worker_id, Task &task);
 
      /* Record execution statistics for a completed task interval. */
 
-     void UpdateStatistics(const std::chrono::steady_clock::time_point& start, const std::chrono::steady_clock::time_point& end);
+     void UpdateStatistics(const std::chrono::steady_clock::time_point &start, const std::chrono::steady_clock::time_point &end);
 
      /* Resize the pool toward a target number of workers. */
 
@@ -365,10 +363,9 @@ class SearchThreadPool
 class ThreadPoolManager
 {
    public:
-
      /* Access the singleton thread pool manager instance. */
 
-     static ThreadPoolManager& GetInstance();
+     static ThreadPoolManager &GetInstance();
 
      /* Initialize all configured thread pools. */
 
@@ -380,19 +377,19 @@ class ThreadPoolManager
 
      /* Access the HTTP request worker pool. */
 
-     SearchThreadPool& GetHTTPPool();
+     SearchThreadPool &GetHTTPPool();
 
      /* Access the search execution worker pool. */
 
-     SearchThreadPool& GetSearchPool();
+     SearchThreadPool &GetSearchPool();
 
      /* Access the indexing and write worker pool. */
 
-     SearchThreadPool& GetWritePool();
+     SearchThreadPool &GetWritePool();
 
      /* Access the management and maintenance worker pool. */
 
-     SearchThreadPool& GetManagementPool();
+     SearchThreadPool &GetManagementPool();
 
      /* Combined statistics across all managed pools. */
 
@@ -436,7 +433,6 @@ class ThreadPoolManager
      bool IsInitialized() const;
 
    private:
-
      /* Constructor is private because this manager is a singleton. */
 
      ThreadPoolManager() = default;
@@ -479,15 +475,14 @@ template <typename T>
 class HighPerformanceTask
 {
    public:
-
      /* Construct the wrapper around one callable task object. */
 
-     explicit HighPerformanceTask(T&& task) : TaskObj(std::forward<T>(task))
+     explicit HighPerformanceTask(T &&task) : TaskObj(std::forward<T>(task))
      {
      }
 
      template <typename... Args>
-     auto operator()(Args&&... args) -> decltype(TaskObj(args...))
+     auto operator()(Args &&...args) -> decltype(TaskObj(args...))
      {
           /* Enable SIMD optimizations if available */
 
@@ -511,7 +506,6 @@ class HighPerformanceTask
      }
 
    private:
-
      /* Wrapped task object */
 
      T TaskObj;
@@ -538,7 +532,6 @@ class HighPerformanceTask
 class CPUAffinityManager
 {
    public:
-
      /* Default constructor */
 
      CPUAffinityManager() = default;
@@ -549,8 +542,8 @@ class CPUAffinityManager
 
      /* Delete copy constructor and assignment to prevent copying */
 
-     CPUAffinityManager(const CPUAffinityManager&) = delete;
-     CPUAffinityManager& operator=(const CPUAffinityManager&) = delete;
+     CPUAffinityManager(const CPUAffinityManager &) = delete;
+     CPUAffinityManager &operator=(const CPUAffinityManager &) = delete;
 
      /* Describes detected CPU and NUMA topology data. */
 
@@ -601,7 +594,6 @@ class CPUAffinityManager
      }
 
    private:
-
      /* Cached CPU topology information */
 
      CPUTopology Topology;

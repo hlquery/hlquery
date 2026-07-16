@@ -21,7 +21,7 @@
 #include <unordered_set>
 #include <vector>
 
-#include "search/mindex.h"
+#include "search/mapped_posting_index.h"
 
 /* Forward declarations */
 
@@ -41,7 +41,7 @@ struct Posting
 
      std::vector<size_t> Positions;
 
-     bool operator<(const Posting& other) const
+     bool operator<(const Posting &other) const
      {
           if (Score != other.Score)
           {
@@ -60,18 +60,17 @@ struct Posting
 class InvertedIndex
 {
    private:
+     InvertedIndex(const InvertedIndex &) = delete;
 
-     InvertedIndex(const InvertedIndex&) = delete;
-
-     InvertedIndex& operator=(const InvertedIndex&) = delete;
+     InvertedIndex &operator=(const InvertedIndex &) = delete;
 
      /* ExtractTerms splits input text into normalized terms. */
 
-     std::vector<std::string> ExtractTerms(const std::string& Text);
+     std::vector<std::string> ExtractTerms(const std::string &Text);
 
      /* NormalizeTerm normalizes a term for indexing. */
 
-     std::string NormalizeTerm(const std::string& Term);
+     std::string NormalizeTerm(const std::string &Term);
 
      /* Index maps collection -> term -> postings list. */
 
@@ -123,7 +122,7 @@ class InvertedIndex
 
      /* MarkCollectionDirtyLocked records a collection mutation while IndexMutex is held. */
 
-     void MarkCollectionDirtyLocked(const std::string& Collection);
+     void MarkCollectionDirtyLocked(const std::string &Collection);
 
      /* SelectFlushCollectionsLocked chooses dirty collections old enough to flush. */
 
@@ -131,27 +130,27 @@ class InvertedIndex
 
      /* FlushCollectionToDiskLocked writes one collection while IndexMutex is held. */
 
-     bool FlushCollectionToDiskLocked(const std::string& IndexDir, const std::string& Collection);
+     bool FlushCollectionToDiskLocked(const std::string &IndexDir, const std::string &Collection);
 
      /* RemoveDocumentFromIndex removes a document from term postings. */
 
-     void RemoveDocumentFromIndex(const std::string& Collection, const std::string& DocID);
+     void RemoveDocumentFromIndex(const std::string &Collection, const std::string &DocID);
 
      /* EnsureCollectionTotalLengthLocked initializes total length while IndexMutex is held. */
 
-     size_t EnsureCollectionTotalLengthLocked(const std::string& Collection);
+     size_t EnsureCollectionTotalLengthLocked(const std::string &Collection);
 
      /* RefreshCollectionStatsFromTotalLocked refreshes derived stats while IndexMutex is held. */
 
-     void RefreshCollectionStatsFromTotalLocked(const std::string& Collection);
+     void RefreshCollectionStatsFromTotalLocked(const std::string &Collection);
 
      /* TouchCollectionLocked records collection use while IndexMutex is held. */
 
-     void TouchCollectionLocked(const std::string& Collection);
+     void TouchCollectionLocked(const std::string &Collection);
 
      /* EstimateCollectionMemoryLocked returns approximate loaded bytes for one collection. */
 
-     size_t EstimateCollectionMemoryLocked(const std::string& Collection) const;
+     size_t EstimateCollectionMemoryLocked(const std::string &Collection) const;
 
      /* EstimateLoadedMemoryLocked returns approximate bytes held by loaded indexes. */
 
@@ -179,49 +178,48 @@ class InvertedIndex
 
      /* CalculateTermFrequency computes a term frequency for a doc. */
 
-     size_t CalculateTermFrequency(const std::string& Collection, const std::string& DocID, const std::string& Term) const;
+     size_t CalculateTermFrequency(const std::string &Collection, const std::string &DocID, const std::string &Term) const;
 
      /* CalculateDocumentFrequency computes document frequency. */
 
-     size_t CalculateDocumentFrequency(const std::string& Collection, const std::string& Term) const;
+     size_t CalculateDocumentFrequency(const std::string &Collection, const std::string &Term) const;
 
      /* UpdateCollectionStatistics refreshes collection stats. */
 
-     void UpdateCollectionStatistics(const std::string& Collection);
+     void UpdateCollectionStatistics(const std::string &Collection);
 
      /* CalculateProximityBoost computes proximity boost for query terms. */
 
-     double CalculateProximityBoost(const std::vector<std::string>& QueryTerms, const std::vector<Posting>& Postings, const std::string& DocID) const;
+     double CalculateProximityBoost(const std::vector<std::string> &QueryTerms, const std::vector<Posting> &Postings, const std::string &DocID) const;
 
    public:
-
      /* AddDocument indexes a document. */
 
-     bool AddDocument(const std::string& Collection, const Document& Doc);
+     bool AddDocument(const std::string &Collection, const Document &Doc);
 
      /* DeleteDocument removes a document from the index. */
 
-     bool DeleteDocument(const std::string& Collection, const std::string& DocID);
+     bool DeleteDocument(const std::string &Collection, const std::string &DocID);
 
      /* UpdateDocument updates index entries for a document. */
 
-     bool UpdateDocument(const std::string& Collection, const Document& OldDoc, const Document& NewDoc);
+     bool UpdateDocument(const std::string &Collection, const Document &OldDoc, const Document &NewDoc);
 
      /* Search performs a search query over a collection. */
 
-     std::vector<Posting> Search(const std::string& Collection, const std::string& Query, int Limit = 100, const std::vector<std::string>& QueryFields = {});
+     std::vector<Posting> Search(const std::string &Collection, const std::string &Query, int Limit = 100, const std::vector<std::string> &QueryFields = {});
 
      /* SearchTerm searches for a single term. */
 
-     std::vector<Posting> SearchTerm(const std::string& Collection, const std::string& Term);
+     std::vector<Posting> SearchTerm(const std::string &Collection, const std::string &Term);
 
      /* SearchPrefix searches for a prefix. */
 
-     std::vector<Posting> SearchPrefix(const std::string& Collection, const std::string& Prefix, int Limit = 100);
+     std::vector<Posting> SearchPrefix(const std::string &Collection, const std::string &Prefix, int Limit = 100);
 
      /* DeleteCollection removes all index data for a collection. */
 
-     void DeleteCollection(const std::string& Collection);
+     void DeleteCollection(const std::string &Collection);
 
      /* Clear clears all index data. */
 
@@ -229,35 +227,35 @@ class InvertedIndex
 
      /* InvalidateDocumentCache removes cached doc data. */
 
-     void InvalidateDocumentCache(const std::string& Collection, const std::string& DocID);
+     void InvalidateDocumentCache(const std::string &Collection, const std::string &DocID);
 
      /* InvalidateCollectionCache removes cached collection data. */
 
-     void InvalidateCollectionCache(const std::string& Collection);
+     void InvalidateCollectionCache(const std::string &Collection);
 
      /* GetTermCount returns number of terms in a collection. */
 
-     size_t GetTermCount(const std::string& Collection) const;
+     size_t GetTermCount(const std::string &Collection) const;
 
-    /* GetDocumentCount returns number of documents in a collection. */
+     /* GetDocumentCount returns number of documents in a collection. */
 
-    size_t GetDocumentCount(const std::string& Collection) const;
+     size_t GetDocumentCount(const std::string &Collection) const;
 
-    /* FlushToDisk writes dirty mmap index data to disk. */
+     /* FlushToDisk writes dirty mmap index data to disk. */
 
-    size_t FlushToDisk(const std::string& IndexDir, uint64_t MinDirtyAgeSeconds = 0, size_t MaxCollections = 0);
+     size_t FlushToDisk(const std::string &IndexDir, uint64_t MinDirtyAgeSeconds = 0, size_t MaxCollections = 0);
 
-    /* Returns true if the in-memory index contains documents for the collection. */
+     /* Returns true if the in-memory index contains documents for the collection. */
 
-    bool HasInMemoryIndex(const std::string& Collection) const;
+     bool HasInMemoryIndex(const std::string &Collection) const;
 
-    /* LoadFromDisk loads mmap index data from disk. */
+     /* LoadFromDisk loads mmap index data from disk. */
 
-    void LoadFromDisk(const std::string& IndexDir);
+     void LoadFromDisk(const std::string &IndexDir);
 
-    /* HasMMapIndex checks whether an mmap index exists. */
+     /* HasMMapIndex checks whether an mmap index exists. */
 
-     bool HasMMapIndex(const std::string& Collection) const;
+     bool HasMMapIndex(const std::string &Collection) const;
 
      /* EvictLoadedCollectionsIfNeeded unloads clean LRU indexes above the memory cap. */
 

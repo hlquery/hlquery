@@ -111,9 +111,17 @@ struct RocksDBOptions
 
      int BloomFilterBitsPerKey = 10;
 
-     /* Toggle bloom filter usage. */
+     /* Toggle table filter usage. */
 
      bool EnableBloomFilter = true;
+
+     /* Filter implementation: bloom or ribbon. */
+
+     std::string FilterPolicy = "bloom";
+
+     /* Level threshold for Ribbon hybrid mode; see RocksDB NewRibbonFilterPolicy. */
+
+     int RibbonBloomBeforeLevel = 0;
 
      /* WAL settings */
 
@@ -247,7 +255,7 @@ struct RocksDBOptions
 
      /* Loads RocksDB options from a config reader. */
 
-     static RocksDBOptions LoadFromConfigReader(const ConfigReader& reader);
+     static RocksDBOptions LoadFromConfigReader(const ConfigReader &reader);
 };
 
 /* Command line arguments structure */
@@ -259,7 +267,7 @@ struct CommandLine
      int argc = 0;
      /* Argument vector. */
 
-     char** argv = nullptr;
+     char **argv = nullptr;
 };
 
 /* Bind configuration for a single port */
@@ -305,7 +313,6 @@ struct BindConfig
 class ServerConfig
 {
    public:
-
      struct ModuleLoadEntry
      {
           std::string Name;
@@ -326,7 +333,7 @@ class ServerConfig
 
      /* Initializes configuration with optional command line args. */
 
-     ServerConfig(int argc = 0, char** argv = nullptr);
+     ServerConfig(int argc = 0, char **argv = nullptr);
 
      /* Destructor */
 
@@ -338,7 +345,7 @@ class ServerConfig
 
      /* Loads configuration from config file path. */
 
-     bool LoadConfig(const std::string& config_file = HLQUERY_CONFIG_DIR "/hlquery.conf");
+     bool LoadConfig(const std::string &config_file = HLQUERY_CONFIG_DIR "/hlquery.conf");
 
      /* Check if configuration is valid */
 
@@ -353,7 +360,7 @@ class ServerConfig
 
      /* Returns configuration error message. */
 
-     const std::string& GetError() const
+     const std::string &GetError() const
      {
           return ErrorMsg;
      }
@@ -394,7 +401,7 @@ class ServerConfig
 
      /* Returns all bind configurations. */
 
-     const std::vector<BindConfig>& GetBindConfigs() const
+     const std::vector<BindConfig> &GetBindConfigs() const
      {
           return Binds;
      }
@@ -475,93 +482,55 @@ class ServerConfig
           return MaxConnections;
      }
 
-     /* Thread pool settings */
-
-     /* Search pool thread count */
-
-     /* Returns search pool thread count. */
-
-     int GetSearchPoolThreads() const
+     const std::vector<ModuleLoadEntry> &GetModuleLoads() const
      {
-          return SearchPoolThreads;
+          return ModuleLoads;
      }
 
-     /* HTTP pool thread count */
-
-     /* Returns HTTP pool thread count. */
-
-     int GetHTTPPoolThreads() const
+     const std::string &GetAIModelsDirectory() const
      {
-          return HTTPPoolThreads;
+          return AIModelsDirectory;
      }
 
-     /* Write pool thread count */
-
-     /* Returns write pool thread count. */
-
-     int GetWritePoolThreads() const
+     std::string GetConfigDirectory() const
      {
-          return WritePoolThreads;
+          std::filesystem::path ConfigPath(ConfigFile);
+          std::error_code Ec;
+
+          if (ConfigPath.empty())
+          {
+               return "";
+          }
+
+          if (!ConfigPath.is_absolute())
+          {
+               ConfigPath = std::filesystem::absolute(ConfigPath, Ec);
+          }
+
+          const auto ParentPath = ConfigPath.parent_path();
+
+          return ParentPath.empty() ? "" : ParentPath.string();
      }
 
-     /* Management pool thread count */
-
-     /* Returns management pool thread count. */
-
-     int GetManagementPoolThreads() const
+     const std::string &GetAIModelName() const
      {
-          return ManagementPoolThreads;
+          return AIModelName;
      }
 
-    const std::vector<ModuleLoadEntry>& GetModuleLoads() const
-    {
-         return ModuleLoads;
-    }
+     bool GetAIEnabled() const
+     {
+          return AIEnabled;
+     }
 
-    const std::string& GetAIModelsDirectory() const
-    {
-         return AIModelsDirectory;
-    }
+     const std::vector<AIModelDescriptor> &GetAIModelCatalog() const
+     {
+          return AIModelCatalog;
+     }
 
-    std::string GetConfigDirectory() const
-    {
-         std::filesystem::path ConfigPath(ConfigFile);
-         std::error_code Ec;
-
-         if (ConfigPath.empty())
-         {
-              return "";
-         }
-
-         if (!ConfigPath.is_absolute())
-         {
-              ConfigPath = std::filesystem::absolute(ConfigPath, Ec);
-         }
-
-         const auto ParentPath = ConfigPath.parent_path();
-
-         return ParentPath.empty() ? "" : ParentPath.string();
-    }
-
-    const std::string& GetAIModelName() const
-    {
-         return AIModelName;
-    }
-
-    bool GetAIEnabled() const
-    {
-         return AIEnabled;
-    }
-
-    const std::vector<AIModelDescriptor>& GetAIModelCatalog() const
-    {
-         return AIModelCatalog;
-    }
-
-    const std::string& GetAIModelPath() const
-    {
-         return AIModelPath;
-    }
+     const std::string &GetAIModelPath() const
+     {
+          return AIModelPath;
+     }
      /* Search settings */
 
      /* Returns default ranking name. */
@@ -1126,7 +1095,7 @@ class ServerConfig
 
      /* Returns log configuration list. */
 
-     const std::vector<LogConfig>& GetLogConfigs() const
+     const std::vector<LogConfig> &GetLogConfigs() const
      {
           return LogConfigs;
      }
@@ -1144,7 +1113,7 @@ class ServerConfig
 
      /* Returns captured command line arguments. */
 
-     const CommandLine& GetCommandLine() const
+     const CommandLine &GetCommandLine() const
      {
           return CmdLine;
      }
@@ -1153,14 +1122,14 @@ class ServerConfig
 
      /* Sets config file path. */
 
-     void SetConfigFile(const std::string& config_file)
+     void SetConfigFile(const std::string &config_file)
      {
           ConfigFile = config_file;
      }
 
      /* Returns config file path. */
 
-     const std::string& GetConfigFile() const
+     const std::string &GetConfigFile() const
      {
           return ConfigFile;
      }
@@ -1169,7 +1138,7 @@ class ServerConfig
 
      /* Returns raw config reader. */
 
-     const ConfigReader& GetConfigReader() const
+     const ConfigReader &GetConfigReader() const
      {
           return ConfigReaderValue;
      }
@@ -1181,7 +1150,7 @@ class ServerConfig
 
      /* Returns RocksDB options (lazy-loaded). */
 
-     const RocksDBOptions& GetRocksDBOptions() const;
+     const RocksDBOptions &GetRocksDBOptions() const;
 
      /* IP Allow settings */
 
@@ -1314,7 +1283,7 @@ class ServerConfig
 
      /* Returns how global and collection lexical resources are combined. */
 
-     const std::string& GetQuerySettingsLexicalScopePreference() const
+     const std::string &GetQuerySettingsLexicalScopePreference() const
      {
           return QuerySettingsLexicalScopePreference;
      }
@@ -1675,11 +1644,19 @@ class ServerConfig
 
      /* Adds a cluster node endpoint at runtime (in-memory only). */
 
-     bool AddClusterNode(const std::string& Endpoint, std::string* OutError = nullptr);
+     bool AddClusterNode(const std::string &Endpoint, std::string *OutError = nullptr);
 
      /* Removes a cluster node endpoint at runtime (in-memory only). */
 
-     bool RemoveClusterNode(const std::string& Endpoint, std::string* OutError = nullptr);
+     bool RemoveClusterNode(const std::string &Endpoint, std::string *OutError = nullptr);
+
+     /* Adds a replication slave endpoint at runtime (in-memory only). */
+
+     bool AddSlaveNode(const std::string &Endpoint, std::string *OutError = nullptr);
+
+     /* Removes a replication slave endpoint at runtime (in-memory only). */
+
+     bool RemoveSlaveNode(const std::string &Endpoint, std::string *OutError = nullptr);
 
      /* Clears all cluster nodes at runtime (in-memory only). */
 
@@ -1727,6 +1704,20 @@ class ServerConfig
           return DistributedTransportBurst;
      }
 
+     /* Returns max persistent peer sockets kept per remote node. */
+
+     int GetDistributedConnectionsPerPeer() const
+     {
+          return DistributedConnectionsPerPeer;
+     }
+
+     /* Returns idle peer socket lifetime in milliseconds. */
+
+     int GetDistributedTransportIdleMS() const
+     {
+          return DistributedTransportIdleMS;
+     }
+
      /* Returns whether peer sockets should auto-reconnect with timer backoff. */
 
      bool GetDistributedAutoReconnect() const
@@ -1746,21 +1737,20 @@ class ServerConfig
      * Endpoint must be normalized host:port.
      */
 
-     bool GetClusterPeerTokens(const std::string& Endpoint,
-                               std::string* OutPrimaryToken,
-                               std::string* OutSecondaryToken) const;
+     bool GetClusterPeerTokens(const std::string &Endpoint,
+                               std::string *OutPrimaryToken,
+                               std::string *OutSecondaryToken) const;
 
      /*
      * Returns configured replica auth tokens for endpoint.
      * Endpoint must be normalized host:port.
      */
 
-     bool GetSlavePeerTokens(const std::string& Endpoint,
-                             std::string* OutPrimaryToken,
-                             std::string* OutSecondaryToken) const;
+     bool GetSlavePeerTokens(const std::string &Endpoint,
+                             std::string *OutPrimaryToken,
+                             std::string *OutSecondaryToken) const;
 
    private:
-
      /* Whether configuration is valid. */
 
      bool Valid;
@@ -1782,7 +1772,6 @@ class ServerConfig
      std::string ConfigFile = HLQUERY_CONFIG_DIR "/hlquery.conf";
 
    public:
-
      /* Configuration values with defaults */
 
      /* Default server name. */
@@ -2178,7 +2167,6 @@ class ServerConfig
      int MaxResults = 1000;
 
    private:
-
      /* Applies derived configuration values. */
 
      void ApplyConfiguration();
@@ -2208,7 +2196,6 @@ class ServerConfig
      bool AlgorithmMessagePrinted = false;
 
    public:
-
      /* IP Allow settings */
 
      /* IP allowlist string. */
@@ -2506,7 +2493,15 @@ class ServerConfig
 
      /* Number of requests per persistent peer socket before reconnect. */
 
-     int DistributedTransportBurst = 32;
+     int DistributedTransportBurst = 256;
+
+     /* Number of reusable HTTP sockets to keep warm per peer. */
+
+     int DistributedConnectionsPerPeer = 4;
+
+     /* Idle lifetime for reusable peer sockets. */
+
+     int DistributedTransportIdleMS = 30000;
 
      /* Whether failed peer sockets should reconnect automatically with timer backoff. */
 

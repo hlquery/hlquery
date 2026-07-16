@@ -106,7 +106,9 @@ std::string SQLToUpperASCII(std::string value)
      /* Converts ASCII letters to upper-case for keyword matching. */
 
      std::transform(value.begin(), value.end(), value.begin(), [](unsigned char character)
-                    { return static_cast<char>(std::toupper(character)); });
+                    {
+                         return static_cast<char>(std::toupper(character));
+                    });
      return value;
 }
 

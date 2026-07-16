@@ -19,7 +19,11 @@
 #include "core/logmanager.h"
 #include "utils/consolewriter.h"
 
+/* Initializes HTTP listener instances and validates TLS listener configuration. */
+
 #ifdef HLQUERY_HAS_OPENSSL
+/* Implements the ensure OpenSSL initialized helper. */
+
 void EnsureOpenSSLInitialized()
 {
      static bool OpenSSLInitialized = false;

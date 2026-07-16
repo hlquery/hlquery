@@ -13,9 +13,12 @@
 #pragma once
 
 #include <atomic>
+#include <cstddef>
+#include <cstdint>
 #include <ctime>
 #include <mutex>
 #include <string>
+#include <vector>
 
 #include "runtime/startup.h"
 
@@ -60,7 +63,7 @@ class ServerStats
 
      /* Sets the health status */
 
-     void SetHealthDegraded(bool degraded, const std::string& reason = "");
+     void SetHealthDegraded(bool degraded, const std::string &reason = "");
 
      /* Returns true if health is degraded */
 
@@ -96,11 +99,11 @@ class ServerStats
 
      /* Updates the startup state snapshot */
 
-     void SetStartupState(const StartupState& state);
+     void SetStartupState(const StartupState &state);
 
      /* Updates startup state collections info */
 
-     void UpdateStartupStateCollections(const std::vector<std::string>& failed_collections,
+     void UpdateStartupStateCollections(const std::vector<std::string> &failed_collections,
                                         size_t loaded_count, size_t expected_count);
 
      /* Startup state snapshot */

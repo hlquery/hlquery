@@ -40,13 +40,12 @@ int main(int argc, char **argv)
      /* Supported short and long command-line options. */
 
      static struct option long_options[] =
-     {
-          {"host", required_argument, nullptr, 'H'},
-          {"port", required_argument, nullptr, 'p'},
-          {"command", required_argument, nullptr, 'c'},
-          {"help", no_argument, nullptr, 'h'},
-          {nullptr, 0, nullptr, 0}
-     };
+          {
+               {"host", required_argument, nullptr, 'H'},
+               {"port", required_argument, nullptr, 'p'},
+               {"command", required_argument, nullptr, 'c'},
+               {"help", no_argument, nullptr, 'h'},
+               {nullptr, 0, nullptr, 0}};
 
      /* Silence getopt diagnostics because this entry point prints its own messages. */
 
@@ -61,44 +60,44 @@ int main(int argc, char **argv)
      {
           switch (option)
           {
-          case 'H':
-               host = optarg;
-               break;
+               case 'H':
+                    host = optarg;
+                    break;
 
-          case 'p':
-               port = optarg;
-               break;
+               case 'p':
+                    port = optarg;
+                    break;
 
-          case 'c':
-               command_to_run = optarg;
-               break;
+               case 'c':
+                    command_to_run = optarg;
+                    break;
 
-          case 'h':
-               std::cout << "Usage: " << program_name << " [--host HOST] [--port PORT] [-c COMMAND]\n";
-               std::cout << "Default endpoint: http://localhost:9200\n\n";
-               PrintHelp();
-               return 0;
+               case 'h':
+                    std::cout << "Usage: " << program_name << " [--host HOST] [--port PORT] [-c COMMAND]\n";
+                    std::cout << "Default endpoint: http://localhost:9200\n\n";
+                    PrintHelp();
+                    return 0;
 
-          case '?':
-               if (optopt == 'H' || optopt == 'p' || optopt == 'c')
-               {
-                    std::cerr << "Option requires a value: -" << static_cast<char>(optopt) << "\n";
-               }
-               else if (optind > 0 && optind <= argc && argv[optind - 1] != nullptr)
-               {
-                    std::cerr << "Unknown argument: " << argv[optind - 1] << "\n";
-               }
-               else
-               {
-                    std::cerr << "Unknown argument.\n";
-               }
+               case '?':
+                    if (optopt == 'H' || optopt == 'p' || optopt == 'c')
+                    {
+                         std::cerr << "Option requires a value: -" << static_cast<char>(optopt) << "\n";
+                    }
+                    else if (optind > 0 && optind <= argc && argv[optind - 1] != nullptr)
+                    {
+                         std::cerr << "Unknown argument: " << argv[optind - 1] << "\n";
+                    }
+                    else
+                    {
+                         std::cerr << "Unknown argument.\n";
+                    }
 
-               std::cerr << "Use --help to see available options.\n";
-               return 1;
+                    std::cerr << "Use --help to see available options.\n";
+                    return 1;
 
-          default:
-               std::cerr << "Use --help to see available options.\n";
-               return 1;
+               default:
+                    std::cerr << "Use --help to see available options.\n";
+                    return 1;
           }
      }
 

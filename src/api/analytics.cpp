@@ -17,6 +17,8 @@
 #include "utils/protocol.h"
 #include "vendor/json/json.hpp"
 
+/* Provides analytics endpoints that record user interaction events. */
+
 HttpResponse SearchAPI::HandleAnalyticsClick(const HttpRequest &Request)
 {
      if (Request.Method != "POST")

@@ -23,11 +23,9 @@
 class CoreExport Wildcard
 {
    private:
-
-     static bool MatchInternal(const char* Str, const char* Pattern);
+     static bool MatchInternal(const char *Str, const char *Pattern);
 
    public:
-
      /*
       * Match a string against a wildcard pattern
       * @param Str The string to match
@@ -35,8 +33,8 @@ class CoreExport Wildcard
       * @return true if the string matches the pattern
       */
 
-     static bool Match(const std::string& Str, const std::string& Pattern);
-     static bool MatchCaseSensitive(const std::string& Str, const std::string& Pattern);
+     static bool Match(const std::string &Str, const std::string &Pattern);
+     static bool MatchCaseSensitive(const std::string &Str, const std::string &Pattern);
 
      /*
       * Match a C-string against a wildcard pattern
@@ -45,8 +43,8 @@ class CoreExport Wildcard
       * @return true if the string matches the pattern
       */
 
-     static bool Match(const char* Str, const char* Pattern);
-     static bool MatchCaseSensitive(const char* Str, const char* Pattern);
+     static bool Match(const char *Str, const char *Pattern);
+     static bool MatchCaseSensitive(const char *Str, const char *Pattern);
 
      /*
       * Filter a vector of strings using wildcard pattern
@@ -55,5 +53,5 @@ class CoreExport Wildcard
       * @return vector of strings that match the pattern
       */
 
-     static std::vector<std::string> Filter(const std::vector<std::string>& Strings, const std::string& Pattern);
+     static std::vector<std::string> Filter(const std::vector<std::string> &Strings, const std::string &Pattern);
 };

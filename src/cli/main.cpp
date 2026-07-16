@@ -83,7 +83,9 @@ static std::string NormalizeHostValue(const std::string &value)
      std::string normalized = TrimWhitespace(value);
 
      std::transform(normalized.begin(), normalized.end(), normalized.begin(), [](unsigned char character)
-                    { return static_cast<char>(std::tolower(character)); });
+                    {
+                         return static_cast<char>(std::tolower(character));
+                    });
 
      return normalized;
 }
@@ -1088,6 +1090,7 @@ int main(int argc, char *argv[])
                std::cout << "  " << program_name << " module <name> info      # Show module routes and parameter info\n";
                std::cout << "  " << program_name << " module <name> syntax    # Show module command syntax\n";
                std::cout << "  " << program_name << " module <name> <route> [--json] [--key=value] [args...]    # Run a module command\n";
+               std::cout << "  " << program_name << " module <route> <name> [args...]    # Alternate module route syntax\n";
                std::cout << "  " << program_name << " module <name> <free text prompt> [--json]    # For natural-language modules, bare text is passed as arguments when it is not a declared route\n";
                std::cout << "  " << program_name << " loadmodule <name>      # Load one runtime module\n";
                std::cout << "  " << program_name << " unloadmodule <name>    # Unload one runtime module\n";
@@ -1516,11 +1519,13 @@ int main(int argc, char *argv[])
                if (args_vec.size() < 2)
                {
                     ConsoleWriter::WriteError("Error: 'module' command requires a module name.", true);
-                    ConsoleWriter::WriteError("Usage: " + program_name + " module info | module <name> [info|syntax|<route>|<free text>] [--key=value] [args...].", true);
+                    ConsoleWriter::WriteError("Usage: " + program_name + " module info | module <name> [info|syntax|<route>|<free text>] [--key=value] [args...] | module <route> <name> [args...].", true);
                     return 1;
                }
 
-               const std::string module_name = args_vec[1];
+               std::string module_name = args_vec[1];
+               std::string route_str;
+               size_t module_args_start = 3;
 
                if (module_name == "info" && args_vec.size() == 2)
                {
@@ -1530,16 +1535,40 @@ int main(int argc, char *argv[])
                {
                     cli_instance.RunModuleCommand("dump", "dump", {});
                }
+               else if (args_vec.size() >= 3 &&
+                        (args_vec[1] == "syntax" || args_vec[1] == "info" || args_vec[1] == "routes" ||
+                         args_vec[1] == "last" || args_vec[1] == "snapshots"))
+               {
+                    route_str = args_vec[1];
+                    module_name = args_vec[2];
+                    module_args_start = 3;
+
+                    if (route_str == "syntax" || route_str == "info")
+                    {
+                         cli_instance.ShowModuleSyntax(module_name);
+                    }
+                    else
+                    {
+                         std::vector<std::string> module_args;
+
+                         for (size_t i = module_args_start; i < args_vec.size(); ++i)
+                         {
+                              module_args.push_back(args_vec[i]);
+                         }
+
+                         cli_instance.RunModuleCommand(module_name, route_str, module_args);
+                    }
+               }
                else if (args_vec.size() == 2 || args_vec[2] == "syntax" || args_vec[2] == "info")
                {
                     cli_instance.ShowModuleSyntax(module_name);
                }
                else
                {
-                    const std::string route_str = args_vec[2];
+                    route_str = args_vec[2];
                     std::vector<std::string> module_args;
 
-                    for (size_t i = 3; i < args_vec.size(); ++i)
+                    for (size_t i = module_args_start; i < args_vec.size(); ++i)
                     {
                          module_args.push_back(args_vec[i]);
                     }
@@ -1763,7 +1792,7 @@ int main(int argc, char *argv[])
 
                     ParseSearchCLIOptions(args_vec, options_start_index, opts);
                     opts.All = true;
-                }
+               }
                else if (args_vec.size() >= 3)
                {
                     collection_str = args_vec[1];
@@ -2050,7 +2079,6 @@ int main(int argc, char *argv[])
                          try
                          {
                               nlohmann::json health_json = nlohmann::json::parse(health_resp.Body);
-
                          }
                          catch (...)
                          {
@@ -2074,8 +2102,8 @@ int main(int argc, char *argv[])
                          ConsoleWriter::WriteError("  /stats returned: " + std::to_string(stats_resp.StatusCode), false);
                     }
 
-                   return 2;
-              }
+                    return 2;
+               }
           }
           else if (command_str == "doctor")
           {

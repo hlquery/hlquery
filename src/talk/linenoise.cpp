@@ -30,505 +30,504 @@
 
 namespace
 {
-     /* Shared command history for the local REPL session. */
+/* Shared command history for the local REPL session. */
 
-     std::vector<std::string> History;
-     linenoiseCompletionCallback CompletionCallback = nullptr;
-     bool LastReadWasControlD = false;
-     bool LastReadWasInterrupted = false;
-     size_t LastRefreshRows = 1;
-     size_t LastCursorRow = 0;
-     constexpr size_t MaxHistoryEntries = 500;
+std::vector<std::string> History;
+linenoiseCompletionCallback CompletionCallback = nullptr;
+bool LastReadWasControlD = false;
+bool LastReadWasInterrupted = false;
+size_t LastRefreshRows = 1;
+size_t LastCursorRow = 0;
+constexpr size_t MaxHistoryEntries = 500;
 
-     enum class EscapeKey
+enum class EscapeKey
+{
+     None,
+     ArrowUp,
+     ArrowDown,
+     ArrowRight,
+     ArrowLeft,
+     Home,
+     End,
+     Delete
+};
+
+enum class EditorReadAction
+{
+     None,
+     Interrupted,
+     EndOfInput
+};
+
+struct EditorState
+{
+     std::string Line;
+     std::string PendingLine;
+     size_t HistoryIndex = 0;
+     size_t CursorPosition = 0;
+};
+
+class RawModeGuard
+{
+   public:
+     RawModeGuard() = default;
+
+     explicit RawModeGuard(const termios &original)
+         : Original(original),
+           Active(true)
      {
-          None,
-          ArrowUp,
-          ArrowDown,
-          ArrowRight,
-          ArrowLeft,
-          Home,
-          End,
-          Delete
-     };
-
-     enum class EditorReadAction
-     {
-          None,
-          Interrupted,
-          EndOfInput
-     };
-
-     struct EditorState
-     {
-          std::string Line;
-          std::string PendingLine;
-          size_t HistoryIndex = 0;
-          size_t CursorPosition = 0;
-     };
-
-     class RawModeGuard
-     {
-        public:
-          RawModeGuard() = default;
-
-          explicit RawModeGuard(const termios &original)
-              : Original(original),
-                Active(true)
-          {
- 
-          }
-
-          RawModeGuard(const RawModeGuard &) = delete;
-          RawModeGuard &operator=(const RawModeGuard &) = delete;
-
-          ~RawModeGuard()
-          {
-               Restore();
-          }
-
-          void Restore()
-          {
-               if (Active)
-               {
-                    tcsetattr(STDIN_FILENO, TCSAFLUSH, &Original);
-                    Active = false;
-               }
-          }
-
-        private:
-          termios Original {};
-          bool Active = false;
-     };
-
-     size_t GetTerminalColumns()
-     {
-          struct winsize window_size;
-
-          if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &window_size) == 0 && window_size.ws_col > 0)
-          {
-               return static_cast<size_t>(window_size.ws_col);
-          }
-
-          return 80;
      }
 
-     void TrimHistoryToLimit()
-     {
-          if (History.size() <= MaxHistoryEntries)
-          {
-               return;
-          }
+     RawModeGuard(const RawModeGuard &) = delete;
+     RawModeGuard &operator=(const RawModeGuard &) = delete;
 
-          History.erase(History.begin(),
-                        History.begin() + static_cast<std::ptrdiff_t>(History.size() - MaxHistoryEntries));
+     ~RawModeGuard()
+     {
+          Restore();
      }
 
-     bool IsAsciiPrintable(char character)
+     void Restore()
      {
-          const unsigned char value = static_cast<unsigned char>(character);
-
-          return value >= 32 && value <= 126;
+          if (Active)
+          {
+               tcsetattr(STDIN_FILENO, TCSAFLUSH, &Original);
+               Active = false;
+          }
      }
 
-     size_t CountCursorRows(size_t character_count, size_t terminal_columns)
-     {
-          if (terminal_columns == 0)
-          {
-               return 0;
-          }
+   private:
+     termios Original{};
+     bool Active = false;
+};
 
-          return character_count / terminal_columns;
+size_t GetTerminalColumns()
+{
+     struct winsize window_size;
+
+     if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &window_size) == 0 && window_size.ws_col > 0)
+     {
+          return static_cast<size_t>(window_size.ws_col);
      }
 
-     size_t CountOccupiedRows(size_t character_count, size_t terminal_columns)
+     return 80;
+}
+
+void TrimHistoryToLimit()
+{
+     if (History.size() <= MaxHistoryEntries)
      {
-          if (terminal_columns == 0)
-          {
-               return 1;
-          }
+          return;
+     }
 
-          if (character_count == 0)
-          {
-               return 1;
-          }
+     History.erase(History.begin(),
+                   History.begin() + static_cast<std::ptrdiff_t>(History.size() - MaxHistoryEntries));
+}
 
-          /*
+bool IsAsciiPrintable(char character)
+{
+     const unsigned char value = static_cast<unsigned char>(character);
+
+     return value >= 32 && value <= 126;
+}
+
+size_t CountCursorRows(size_t character_count, size_t terminal_columns)
+{
+     if (terminal_columns == 0)
+     {
+          return 0;
+     }
+
+     return character_count / terminal_columns;
+}
+
+size_t CountOccupiedRows(size_t character_count, size_t terminal_columns)
+{
+     if (terminal_columns == 0)
+     {
+          return 1;
+     }
+
+     if (character_count == 0)
+     {
+          return 1;
+     }
+
+     /*
            * When the rendered text lands exactly on a terminal column boundary,
            * the cursor advances to column zero on the following physical row.
            * RefreshLine() needs to clear that extra row as well before redrawing,
            * otherwise history navigation can walk back into already printed output.
            */
 
-          return CountCursorRows(character_count, terminal_columns) + 1;
+     return CountCursorRows(character_count, terminal_columns) + 1;
+}
+
+/* Redraw the current prompt and editable line buffer. */
+
+void RefreshLine(const char *prompt, const std::string &line, size_t cursor_position)
+{
+     const size_t terminal_columns = GetTerminalColumns();
+     const size_t prompt_length = prompt != nullptr ? std::strlen(prompt) : 0;
+     const size_t line_length = line.size();
+     const size_t rendered_length = prompt_length + line_length;
+     const size_t cursor_length = prompt_length + cursor_position;
+
+     std::cout << '\r';
+
+     if (LastCursorRow > 0)
+     {
+          std::cout << "\x1b[" << LastCursorRow << 'A';
      }
 
-     /* Redraw the current prompt and editable line buffer. */
-
-     void RefreshLine(const char *prompt, const std::string &line, size_t cursor_position)
-     {
-          const size_t terminal_columns = GetTerminalColumns();
-          const size_t prompt_length = prompt != nullptr ? std::strlen(prompt) : 0;
-          const size_t line_length = line.size();
-          const size_t rendered_length = prompt_length + line_length;
-          const size_t cursor_length = prompt_length + cursor_position;
-
-          std::cout << '\r';
-
-          if (LastCursorRow > 0)
-          {
-               std::cout << "\x1b[" << LastCursorRow << 'A';
-          }
-
-          std::cout << '\r';
-          /*
+     std::cout << '\r';
+     /*
            * Clearing row-by-row with EL can leave wrapped prompt/input state behind
            * on some terminals. Jump to the start of the previously rendered block
            * and clear everything below before painting the new buffer.
            */
-          std::cout << "\x1b[J";
+     std::cout << "\x1b[J";
 
-          if (prompt != nullptr)
-          {
-               std::cout << prompt;
-          }
-
-          std::cout << line << "\x1b[K";
-
-          const size_t rendered_cursor_row = CountCursorRows(rendered_length, terminal_columns);
-          const size_t target_cursor_row = CountCursorRows(cursor_length, terminal_columns);
-          const size_t target_cursor_col = terminal_columns == 0 ? 0 : (cursor_length % terminal_columns);
-
-          if (rendered_cursor_row > target_cursor_row)
-          {
-               std::cout << "\x1b[" << (rendered_cursor_row - target_cursor_row) << 'A';
-          }
-
-          std::cout << '\r';
-
-          if (target_cursor_col > 0)
-          {
-               std::cout << "\x1b[" << target_cursor_col << 'C';
-          }
-
-          LastRefreshRows = CountOccupiedRows(rendered_length, terminal_columns);
-          LastCursorRow = target_cursor_row;
-
-          std::cout.flush();
+     if (prompt != nullptr)
+     {
+          std::cout << prompt;
      }
 
-     /* Enable raw terminal mode for interactive editing. */
+     std::cout << line << "\x1b[K";
 
-     bool EnableRawMode(termios &original)
+     const size_t rendered_cursor_row = CountCursorRows(rendered_length, terminal_columns);
+     const size_t target_cursor_row = CountCursorRows(cursor_length, terminal_columns);
+     const size_t target_cursor_col = terminal_columns == 0 ? 0 : (cursor_length % terminal_columns);
+
+     if (rendered_cursor_row > target_cursor_row)
      {
-          if (!isatty(STDIN_FILENO) || tcgetattr(STDIN_FILENO, &original) == -1)
-          {
-               return false;
-          }
-
-          termios raw = original;
-
-          raw.c_iflag &= static_cast<unsigned long>(~(BRKINT | ICRNL | INPCK | ISTRIP | IXON));
-          raw.c_oflag &= static_cast<unsigned long>(~(OPOST));
-          raw.c_cflag |= CS8;
-          raw.c_lflag &= static_cast<unsigned long>(~(ECHO | ICANON | IEXTEN | ISIG));
-          raw.c_cc[VMIN] = 1;
-          raw.c_cc[VTIME] = 0;
-
-          return tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw) != -1;
+          std::cout << "\x1b[" << (rendered_cursor_row - target_cursor_row) << 'A';
      }
 
-     EscapeKey ReadEscapeKey()
+     std::cout << '\r';
+
+     if (target_cursor_col > 0)
      {
-          char prefix = '\0';
-
-          if (read(STDIN_FILENO, &prefix, 1) != 1)
-          {
-               return EscapeKey::None;
-          }
-
-          if (prefix == 'O')
-          {
-               char final = '\0';
-
-               if (read(STDIN_FILENO, &final, 1) != 1)
-               {
-                    return EscapeKey::None;
-               }
-
-               switch (final)
-               {
-                    case 'A':
-                         return EscapeKey::ArrowUp;
-                    case 'B':
-                         return EscapeKey::ArrowDown;
-                    case 'C':
-                         return EscapeKey::ArrowRight;
-                    case 'D':
-                         return EscapeKey::ArrowLeft;
-                    case 'H':
-                         return EscapeKey::Home;
-                    case 'F':
-                         return EscapeKey::End;
-                    default:
-                         return EscapeKey::None;
-               }
-          }
-
-          if (prefix != '[')
-          {
-               return EscapeKey::None;
-          }
-
-          std::string sequence;
-
-          while (sequence.size() < 8)
-          {
-               char next = '\0';
-
-               if (read(STDIN_FILENO, &next, 1) != 1)
-               {
-                    return EscapeKey::None;
-               }
-
-               sequence.push_back(next);
-
-               if (next >= '@' && next <= '~')
-               {
-                    break;
-               }
-          }
-
-          if (sequence.empty())
-          {
-               return EscapeKey::None;
-          }
-
-          if (sequence == "A")
-          {
-               return EscapeKey::ArrowUp;
-          }
-
-          if (sequence == "B")
-          {
-               return EscapeKey::ArrowDown;
-          }
-
-          if (sequence == "C")
-          {
-               return EscapeKey::ArrowRight;
-          }
-
-          if (sequence == "D")
-          {
-               return EscapeKey::ArrowLeft;
-          }
-
-          if (sequence == "H" || sequence == "1~" || sequence == "7~")
-          {
-               return EscapeKey::Home;
-          }
-
-          if (sequence == "F" || sequence == "4~" || sequence == "8~")
-          {
-               return EscapeKey::End;
-          }
-
-          if (sequence == "3~")
-          {
-               return EscapeKey::Delete;
-          }
-
-          return EscapeKey::None;
+          std::cout << "\x1b[" << target_cursor_col << 'C';
      }
 
-     bool ApplyBackspace(EditorState &state)
+     LastRefreshRows = CountOccupiedRows(rendered_length, terminal_columns);
+     LastCursorRow = target_cursor_row;
+
+     std::cout.flush();
+}
+
+/* Enable raw terminal mode for interactive editing. */
+
+bool EnableRawMode(termios &original)
+{
+     if (!isatty(STDIN_FILENO) || tcgetattr(STDIN_FILENO, &original) == -1)
      {
-          if (state.CursorPosition == 0 || state.Line.empty())
-          {
-               return false;
-          }
-
-          state.Line.erase(state.CursorPosition - 1, 1);
-          --state.CursorPosition;
-          state.HistoryIndex = History.size();
-
-          return true;
-     }
-
-     bool ApplyCursorControl(EditorState &state, char character)
-     {
-          if (character != 1 && character != 2 && character != 5 && character != 6)
-          {
-               return false;
-          }
-
-          if (character == 1)
-          {
-               state.CursorPosition = 0;
-          }
-          else if (character == 5)
-          {
-               state.CursorPosition = state.Line.size();
-          }
-          else if (character == 2)
-          {
-               if (state.CursorPosition > 0)
-               {
-                    --state.CursorPosition;
-               }
-          }
-          else if (character == 6)
-          {
-               if (state.CursorPosition < state.Line.size())
-               {
-                    ++state.CursorPosition;
-               }
-          }
-
-          return true;
-     }
-
-     EditorReadAction ApplyControlCharacter(EditorState &state, char character)
-     {
-          if (character == 3)
-          {
-               return EditorReadAction::Interrupted;
-          }
-
-          if (character != 4)
-          {
-               return EditorReadAction::None;
-          }
-
-          if (state.Line.empty())
-          {
-               return EditorReadAction::EndOfInput;
-          }
-
-          if (state.CursorPosition < state.Line.size())
-          {
-               state.Line.erase(state.CursorPosition, 1);
-               state.HistoryIndex = History.size();
-          }
-
-          return EditorReadAction::None;
-     }
-
-     bool ApplyEscapeKey(EditorState &state, EscapeKey key)
-     {
-          switch (key)
-          {
-               case EscapeKey::ArrowUp:
-                    if (!History.empty() && state.HistoryIndex > 0)
-                    {
-                         if (state.HistoryIndex == History.size())
-                         {
-                              state.PendingLine = state.Line;
-                         }
-
-                         --state.HistoryIndex;
-                         state.Line = History[state.HistoryIndex];
-                         state.CursorPosition = state.Line.size();
-                         return true;
-                    }
-
-                    return false;
-               case EscapeKey::ArrowDown:
-                    if (state.HistoryIndex < History.size())
-                    {
-                         ++state.HistoryIndex;
-
-                         if (state.HistoryIndex == History.size())
-                         {
-                              state.Line = state.PendingLine;
-                         }
-                         else
-                         {
-                              state.Line = History[state.HistoryIndex];
-                         }
-
-                         state.CursorPosition = state.Line.size();
-                         return true;
-                    }
-
-                    return false;
-               case EscapeKey::ArrowRight:
-                    if (state.CursorPosition < state.Line.size())
-                    {
-                         ++state.CursorPosition;
-                         return true;
-                    }
-
-                    return false;
-               case EscapeKey::ArrowLeft:
-                    if (state.CursorPosition > 0)
-                    {
-                         --state.CursorPosition;
-                         return true;
-                    }
-
-                    return false;
-               case EscapeKey::Home:
-                    state.CursorPosition = 0;
-                    return true;
-               case EscapeKey::End:
-                    state.CursorPosition = state.Line.size();
-                    return true;
-               case EscapeKey::Delete:
-                    if (state.CursorPosition < state.Line.size())
-                    {
-                         state.Line.erase(state.CursorPosition, 1);
-                         state.HistoryIndex = History.size();
-                         return true;
-                    }
-
-                    return false;
-               case EscapeKey::None:
-                    return false;
-          }
-
           return false;
      }
 
-     bool ApplyPrintableCharacter(EditorState &state, char character)
+     termios raw = original;
+
+     raw.c_iflag &= static_cast<unsigned long>(~(BRKINT | ICRNL | INPCK | ISTRIP | IXON));
+     raw.c_oflag &= static_cast<unsigned long>(~(OPOST));
+     raw.c_cflag |= CS8;
+     raw.c_lflag &= static_cast<unsigned long>(~(ECHO | ICANON | IEXTEN | ISIG));
+     raw.c_cc[VMIN] = 1;
+     raw.c_cc[VTIME] = 0;
+
+     return tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw) != -1;
+}
+
+EscapeKey ReadEscapeKey()
+{
+     char prefix = '\0';
+
+     if (read(STDIN_FILENO, &prefix, 1) != 1)
      {
-          if (!IsAsciiPrintable(character))
-          {
-               return false;
-          }
-
-          state.Line.insert(state.CursorPosition, 1, character);
-          ++state.CursorPosition;
-          state.HistoryIndex = History.size();
-
-          return true;
+          return EscapeKey::None;
      }
 
-     bool ApplyCompletion(EditorState &state)
+     if (prefix == 'O')
      {
-          if (CompletionCallback == nullptr)
+          char final = '\0';
+
+          if (read(STDIN_FILENO, &final, 1) != 1)
           {
-               return false;
+               return EscapeKey::None;
           }
 
-          std::vector<char> completion_buffer(state.Line.size() + 256, '\0');
-
-          if (completion_buffer.empty())
+          switch (final)
           {
-               return false;
+               case 'A':
+                    return EscapeKey::ArrowUp;
+               case 'B':
+                    return EscapeKey::ArrowDown;
+               case 'C':
+                    return EscapeKey::ArrowRight;
+               case 'D':
+                    return EscapeKey::ArrowLeft;
+               case 'H':
+                    return EscapeKey::Home;
+               case 'F':
+                    return EscapeKey::End;
+               default:
+                    return EscapeKey::None;
+          }
+     }
+
+     if (prefix != '[')
+     {
+          return EscapeKey::None;
+     }
+
+     std::string sequence;
+
+     while (sequence.size() < 8)
+     {
+          char next = '\0';
+
+          if (read(STDIN_FILENO, &next, 1) != 1)
+          {
+               return EscapeKey::None;
           }
 
-          if (CompletionCallback(state.Line.c_str(), completion_buffer.data(), completion_buffer.size()) == 0)
-          {
-               return false;
-          }
+          sequence.push_back(next);
 
-          state.Line.assign(completion_buffer.data());
+          if (next >= '@' && next <= '~')
+          {
+               break;
+          }
+     }
+
+     if (sequence.empty())
+     {
+          return EscapeKey::None;
+     }
+
+     if (sequence == "A")
+     {
+          return EscapeKey::ArrowUp;
+     }
+
+     if (sequence == "B")
+     {
+          return EscapeKey::ArrowDown;
+     }
+
+     if (sequence == "C")
+     {
+          return EscapeKey::ArrowRight;
+     }
+
+     if (sequence == "D")
+     {
+          return EscapeKey::ArrowLeft;
+     }
+
+     if (sequence == "H" || sequence == "1~" || sequence == "7~")
+     {
+          return EscapeKey::Home;
+     }
+
+     if (sequence == "F" || sequence == "4~" || sequence == "8~")
+     {
+          return EscapeKey::End;
+     }
+
+     if (sequence == "3~")
+     {
+          return EscapeKey::Delete;
+     }
+
+     return EscapeKey::None;
+}
+
+bool ApplyBackspace(EditorState &state)
+{
+     if (state.CursorPosition == 0 || state.Line.empty())
+     {
+          return false;
+     }
+
+     state.Line.erase(state.CursorPosition - 1, 1);
+     --state.CursorPosition;
+     state.HistoryIndex = History.size();
+
+     return true;
+}
+
+bool ApplyCursorControl(EditorState &state, char character)
+{
+     if (character != 1 && character != 2 && character != 5 && character != 6)
+     {
+          return false;
+     }
+
+     if (character == 1)
+     {
+          state.CursorPosition = 0;
+     }
+     else if (character == 5)
+     {
           state.CursorPosition = state.Line.size();
-          state.HistoryIndex = History.size();
-          return true;
      }
+     else if (character == 2)
+     {
+          if (state.CursorPosition > 0)
+          {
+               --state.CursorPosition;
+          }
+     }
+     else if (character == 6)
+     {
+          if (state.CursorPosition < state.Line.size())
+          {
+               ++state.CursorPosition;
+          }
+     }
+
+     return true;
+}
+
+EditorReadAction ApplyControlCharacter(EditorState &state, char character)
+{
+     if (character == 3)
+     {
+          return EditorReadAction::Interrupted;
+     }
+
+     if (character != 4)
+     {
+          return EditorReadAction::None;
+     }
+
+     if (state.Line.empty())
+     {
+          return EditorReadAction::EndOfInput;
+     }
+
+     if (state.CursorPosition < state.Line.size())
+     {
+          state.Line.erase(state.CursorPosition, 1);
+          state.HistoryIndex = History.size();
+     }
+
+     return EditorReadAction::None;
+}
+
+bool ApplyEscapeKey(EditorState &state, EscapeKey key)
+{
+     switch (key)
+     {
+          case EscapeKey::ArrowUp:
+               if (!History.empty() && state.HistoryIndex > 0)
+               {
+                    if (state.HistoryIndex == History.size())
+                    {
+                         state.PendingLine = state.Line;
+                    }
+
+                    --state.HistoryIndex;
+                    state.Line = History[state.HistoryIndex];
+                    state.CursorPosition = state.Line.size();
+                    return true;
+               }
+
+               return false;
+          case EscapeKey::ArrowDown:
+               if (state.HistoryIndex < History.size())
+               {
+                    ++state.HistoryIndex;
+
+                    if (state.HistoryIndex == History.size())
+                    {
+                         state.Line = state.PendingLine;
+                    }
+                    else
+                    {
+                         state.Line = History[state.HistoryIndex];
+                    }
+
+                    state.CursorPosition = state.Line.size();
+                    return true;
+               }
+
+               return false;
+          case EscapeKey::ArrowRight:
+               if (state.CursorPosition < state.Line.size())
+               {
+                    ++state.CursorPosition;
+                    return true;
+               }
+
+               return false;
+          case EscapeKey::ArrowLeft:
+               if (state.CursorPosition > 0)
+               {
+                    --state.CursorPosition;
+                    return true;
+               }
+
+               return false;
+          case EscapeKey::Home:
+               state.CursorPosition = 0;
+               return true;
+          case EscapeKey::End:
+               state.CursorPosition = state.Line.size();
+               return true;
+          case EscapeKey::Delete:
+               if (state.CursorPosition < state.Line.size())
+               {
+                    state.Line.erase(state.CursorPosition, 1);
+                    state.HistoryIndex = History.size();
+                    return true;
+               }
+
+               return false;
+          case EscapeKey::None:
+               return false;
+     }
+
+     return false;
+}
+
+bool ApplyPrintableCharacter(EditorState &state, char character)
+{
+     if (!IsAsciiPrintable(character))
+     {
+          return false;
+     }
+
+     state.Line.insert(state.CursorPosition, 1, character);
+     ++state.CursorPosition;
+     state.HistoryIndex = History.size();
+
+     return true;
+}
+
+bool ApplyCompletion(EditorState &state)
+{
+     if (CompletionCallback == nullptr)
+     {
+          return false;
+     }
+
+     std::vector<char> completion_buffer(state.Line.size() + 256, '\0');
+
+     if (completion_buffer.empty())
+     {
+          return false;
+     }
+
+     if (CompletionCallback(state.Line.c_str(), completion_buffer.data(), completion_buffer.size()) == 0)
+     {
+          return false;
+     }
+
+     state.Line.assign(completion_buffer.data());
+     state.CursorPosition = state.Line.size();
+     state.HistoryIndex = History.size();
+     return true;
+}
 }
 
 /* Read one line, using raw mode when attached to a terminal. */

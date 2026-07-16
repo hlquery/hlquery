@@ -94,6 +94,7 @@ AUTO_BUILD_JOBS ?= $(shell cpu="$(CPU_COUNT)"; mem="$(MEMORY_MB)"; [ "$$cpu" -gt
 BUILD_JOBS ?= $(AUTO_BUILD_JOBS)
 ROCKSDB_JOBS ?= $(AUTO_BUILD_JOBS)
 ROCKSDB_BUILD_PARALLEL := --parallel $(ROCKSDB_JOBS)
+ROCKSDB_CMAKE_LOG_LEVEL ?= VERBOSE
 ROCKSDB_INCLUDE = $(if $(wildcard $(ROCKSDB_DIR)/include),-I$(ROCKSDB_DIR)/include,)
 
 # Base compiler flags
@@ -305,6 +306,12 @@ VENDOR_DIR  = vendor
 RUN_DIR     = run
 HLQUERY_WRAPPER_TEMPLATE = make/hlquery.tpl
 
+ifeq ($(SKIP_PREPARE),1)
+  PREPARE_PREREQ :=
+else
+  PREPARE_PREREQ := prepare
+endif
+
 # SOURCE FILE DISCOVERY
 
 # Source files discovery with explicit exclusions
@@ -341,13 +348,14 @@ SRCS_TOP += $(SQL_SRCS)
 
 # Runtime-loadable modules
 CORE_MODULE_SRCS := $(wildcard $(SRC_DIR)/modules/core_*.cpp) $(wildcard $(SRC_DIR)/modules/m_core_*.cpp)
-MODULE_SIMPLE_SRCS := $(CORE_MODULE_SRCS) $(filter-out $(CORE_MODULE_SRCS),$(wildcard $(SRC_DIR)/modules/m*.cpp))
 EXTRA_MODULE_SIMPLE_SRCS := ${EXTRA_MODULE_SIMPLE_SRCS}
 EXTRA_MODULE_DIR_SRCS := ${EXTRA_MODULE_DIR_SRCS}
 EXTRA_MODULE_LIBS := ${EXTRA_MODULE_LIBS}
 EXTRA_MODULE_KNOWN_NAMES := ${EXTRA_MODULE_KNOWN_NAMES}
 EXTRA_MODULE_ENABLED_NAMES := ${EXTRA_MODULE_ENABLED_NAMES}
-MODULE_DIRS := $(filter-out $(EXTRA_MODULE_ENABLED_NAMES),$(notdir $(shell find -L $(SRC_DIR)/modules -mindepth 1 -maxdepth 1 -type d -name 'm_*' 2>/dev/null)))
+EXTRA_MODULE_SIMPLE_LINKS := $(addprefix $(SRC_DIR)/modules/,$(addsuffix .cpp,$(EXTRA_MODULE_KNOWN_NAMES)))
+MODULE_SIMPLE_SRCS := $(CORE_MODULE_SRCS) $(filter-out $(CORE_MODULE_SRCS) $(EXTRA_MODULE_SIMPLE_LINKS),$(wildcard $(SRC_DIR)/modules/m*.cpp))
+MODULE_DIRS := $(filter-out $(EXTRA_MODULE_KNOWN_NAMES),$(notdir $(shell find -L $(SRC_DIR)/modules -mindepth 1 -maxdepth 1 -type d -name 'm_*' 2>/dev/null)))
 MODULE_DIR_SRCS := $(foreach mod,$(MODULE_DIRS),$(wildcard $(SRC_DIR)/modules/$(mod)/*.cpp))
 MODULE_SIMPLE_SRCS += $(EXTRA_MODULE_SIMPLE_SRCS)
 MODULE_DIR_SRCS += $(EXTRA_MODULE_DIR_SRCS)
@@ -360,8 +368,17 @@ HTTP_SRCS := $(SRC_DIR)/api/httpserver.cpp $(SRC_DIR)/api/searchapi.cpp $(filter
 
 # Socket engine sources
 SOCKETENGINE_FILE := ${SOCKETENGINE_FILE}
+UNAME_S := $(shell uname -s 2>/dev/null)
 ifeq ($(SOCKETENGINE_FILE),)
+ifeq ($(UNAME_S),Linux)
 SOCKETENGINE_FILE := epoll.cpp
+else ifeq ($(UNAME_S),Darwin)
+SOCKETENGINE_FILE := kqueue.cpp
+else ifneq (,$(filter $(UNAME_S),FreeBSD NetBSD OpenBSD DragonFly))
+SOCKETENGINE_FILE := kqueue.cpp
+else
+SOCKETENGINE_FILE := poll.cpp
+endif
 endif
 SOCKETENGINE_SRC := $(SRC_DIR)/socketengines/$(SOCKETENGINE_FILE)
 
@@ -402,7 +419,13 @@ ALL_OBJS = $(REGULAR_ALL_OBJS) $(HTTP_OBJS)
 
 # BUILD TARGETS
 
-prepare: rocksdb-check rocksdb-preflight binary-compat-check $(ROCKSDB_LIB) prune-disabled-extra-modules
+prepare:
+	@$(MAKE) --no-print-directory rocksdb-check
+	@$(MAKE) --no-print-directory rocksdb-preflight
+	@$(MAKE) --no-print-directory binary-compat-check
+	@$(MAKE) --no-print-directory -q $(ROCKSDB_LIB) || $(MAKE) --no-print-directory $(ROCKSDB_LIB)
+	@$(MAKE) --no-print-directory rocksdb-smoke
+	@$(MAKE) --no-print-directory prune-disabled-extra-modules
 	@mkdir -p $(OBJ_DIR) $(BIN_DIR)
 	@mkdir -p $(OBJ_DIR)/core $(OBJ_DIR)/runtime $(OBJ_DIR)/utils $(OBJ_DIR)/api $(OBJ_DIR)/search $(OBJ_DIR)/sql $(OBJ_DIR)/socketengines $(OBJ_DIR)/timers $(OBJ_DIR)/cli $(OBJ_DIR)/talk $(OBJ_DIR)/modules $(OBJ_DIR)/vendor/fmt $(OBJ_DIR)/vendor/sha2 $(OBJ_DIR)/vendor/md5
 	@mkdir -p $(RUN_DIR)/bin $(RUN_DIR)/conf $(RUN_DIR)/data $(RUN_DIR)/logs $(RUN_DIR)/modules $(RUN_DIR)/pid
@@ -492,9 +515,11 @@ $(ROCKSDB_LIB):
 				ROCKSDB_WARN_FLAGS="-Wno-uninitialized -Wno-unknown-warning-option -Wno-error=unknown-warning-option"; \
 			fi; \
 			echo "$(CYAN)RocksDB build jobs: $(ROCKSDB_JOBS) (detected $(MEMORY_MB) MB RAM, $(CPU_COUNT) CPU; override with ROCKSDB_JOBS=N)$(NC)"; \
-			cmake --log-level=NOTICE -S $(ROCKSDB_DIR) -B $(ROCKSDB_BUILD_DIR) -DCMAKE_BUILD_TYPE=Release \
-			      -DCMAKE_CXX_COMPILER="$(CXX)" \
-			      -DWITH_TESTS=OFF \
+			echo "$(CYAN)Configuring RocksDB with CMake (log level: $(ROCKSDB_CMAKE_LOG_LEVEL))$(NC)"; \
+			echo "+ cmake --log-level=$(ROCKSDB_CMAKE_LOG_LEVEL) -S $(ROCKSDB_DIR) -B $(ROCKSDB_BUILD_DIR) -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=\"$(CXX)\" -DWITH_TESTS=OFF -DWITH_TOOLS=OFF -DWITH_BENCHMARK_TOOLS=OFF -DROCKSDB_BUILD_SHARED=OFF -DPORTABLE=ON -DUSE_RTTI=ON -DFAIL_ON_WARNINGS=OFF -DWITH_GFLAGS=OFF -DWITH_JEMALLOC=OFF -DWITH_LIBURING=OFF -DWITH_TBB=OFF -DWITH_SNAPPY=OFF -DWITH_LZ4=OFF -DWITH_ZSTD=OFF -DWITH_BZ2=OFF -DCMAKE_CXX_FLAGS=\"-fPIC -Wno-error $$ROCKSDB_WARN_FLAGS\""; \
+			cmake --log-level=$(ROCKSDB_CMAKE_LOG_LEVEL) -S $(ROCKSDB_DIR) -B $(ROCKSDB_BUILD_DIR) -DCMAKE_BUILD_TYPE=Release \
+				      -DCMAKE_CXX_COMPILER="$(CXX)" \
+				      -DWITH_TESTS=OFF \
 		      -DWITH_TOOLS=OFF \
 		      -DWITH_BENCHMARK_TOOLS=OFF \
 		      -DROCKSDB_BUILD_SHARED=OFF \
@@ -538,6 +563,35 @@ $(ROCKSDB_LIB):
 		chown $$(id -u):$$(id -g) librocksdb.a 2>/dev/null || true && \
 		echo "$(GREEN)✓ RocksDB compiled successfully$(NC)"; \
 	fi
+
+rocksdb-smoke: $(ROCKSDB_LIB) | $(BIN_DIR)
+	@mkdir -p build
+	@printf '%s\n' \
+		'#include <cassert>' \
+		'#include <memory>' \
+		'#include <string>' \
+		'#include <rocksdb/db.h>' \
+		'#include <rocksdb/options.h>' \
+		'int main() {' \
+		'  const std::string path = "build/rocksdb-smoke-db";' \
+		'  rocksdb::Options options;' \
+		'  options.create_if_missing = true;' \
+		'  rocksdb::DestroyDB(path, options);' \
+		'  std::unique_ptr<rocksdb::DB> db;' \
+		'  rocksdb::Status status = rocksdb::DB::Open(options, path, &db);' \
+		'  if (!status.ok()) return 1;' \
+		'  status = db->Put(rocksdb::WriteOptions(), "hlquery", "rocksdb");' \
+		'  if (!status.ok()) return 2;' \
+		'  std::string value;' \
+		'  status = db->Get(rocksdb::ReadOptions(), "hlquery", &value);' \
+		'  db.reset();' \
+		'  rocksdb::DestroyDB(path, options);' \
+		'  return status.ok() && value == "rocksdb" ? 0 : 3;' \
+		'}' > build/rocksdb-smoke.cpp
+	@$(CXX) $(BASE_CXXFLAGS) build/rocksdb-smoke.cpp -o build/rocksdb-smoke $(ROCKSDB_LIB) $(CONFIGURE_LDFLAGS) $(BASE_LDFLAGS)
+	@./build/rocksdb-smoke
+	@rm -rf build/rocksdb-smoke build/rocksdb-smoke.cpp build/rocksdb-smoke-db
+	@echo "$(GREEN)[OK] RocksDB smoke test passed$(NC)"
 
 # Vendor object files (use less strict warnings for third-party code)
 $(FMT_OBJ): $(VENDOR_DIR)/fmt/format.cc | $(OBJ_DIR)
@@ -624,7 +678,7 @@ $(OBJ_DIR)/vendor/md5/md5.o: $(VENDOR_DIR)/md5/md5.c | $(OBJ_DIR)
 
 -include $(DEPS)
 
-.PHONY: all prepare rocksdb-check rocksdb-preflight binary-compat-check prune-disabled-extra-modules clean install uninstall debug create_ssl help build-info synonyms-sync synonyms-check package package-all package-deb package-rpm
+.PHONY: all build-products prepare rocksdb-check rocksdb-preflight rocksdb-smoke binary-compat-check prune-disabled-extra-modules test clean install uninstall debug create_ssl help build-info synonyms-sync synonyms-check package package-all package-deb package-rpm
 
 prune-disabled-extra-modules:
 	@mkdir -p $(RUN_DIR)/modules
@@ -811,7 +865,7 @@ synonyms-check:
 # Explicitly depend on ALL_OBJS and ROCKSDB_LIB to ensure proper dependency tracking
 # This prevents the linker from starting before all object files are compiled AND RocksDB is built
 # Note: ALL_OBJS includes REGULAR_OBJS, HTTP_OBJS, FMT_OBJ, SHA2_OBJ, MD5_OBJ, CLD2_OBJS
-$(BIN_DIR)/hlquery: $(REGULAR_OBJS) $(HTTP_OBJS) $(FMT_OBJ) $(SHA2_OBJ) $(MD5_OBJ) $(CLD2_OBJS) | $(ROCKSDB_LIB)
+$(BIN_DIR)/hlquery: $(REGULAR_OBJS) $(HTTP_OBJS) $(FMT_OBJ) $(SHA2_OBJ) $(MD5_OBJ) $(CLD2_OBJS) $(ROCKSDB_LIB)
 	@mkdir -p $(BIN_DIR)
 	@echo "$(CYAN)Linking hlquery...$(NC)"
 	$(CXX) $(CXXFLAGS) \
@@ -856,11 +910,11 @@ TALK_OBJS := $(CLI_SUPPORT_OBJS) \
              $(OBJ_DIR)/talk/main.o \
              $(OBJ_DIR)/runtime/exitmanager.o
 
-$(ALL_OBJS) $(CLI_OBJS) $(BENCHMARK_OBJ) $(TALK_OBJS): | prepare
+$(ALL_OBJS) $(CLI_OBJS) $(BENCHMARK_OBJ) $(TALK_OBJS): | $(PREPARE_PREREQ)
 
 # CLI binary
 # Note: CLI doesn't need RocksDB, but we ensure it waits for prepare target
-$(BIN_DIR)/hlquery-cli: $(CLI_OBJS) | prepare
+$(BIN_DIR)/hlquery-cli: $(CLI_OBJS) | $(PREPARE_PREREQ)
 	@mkdir -p $(BIN_DIR)
 	$(CXX) $(CXXFLAGS) \
 		$(CLI_OBJS) \
@@ -869,14 +923,14 @@ $(BIN_DIR)/hlquery-cli: $(CLI_OBJS) | prepare
 
 # Benchmark binary
 # Note: Benchmark doesn't need RocksDB, but we ensure it waits for prepare target
-$(BIN_DIR)/hlquery-benchmark: $(BENCHMARK_OBJ) | prepare
+$(BIN_DIR)/hlquery-benchmark: $(BENCHMARK_OBJ) | $(PREPARE_PREREQ)
 	@mkdir -p $(BIN_DIR)
 	$(CXX) $(CXXFLAGS) \
 		$(BENCHMARK_OBJ) \
 		-o $@ \
 		$(LDFLAGS)
 
-$(BIN_DIR)/hlquery-talk: $(TALK_OBJS) | prepare
+$(BIN_DIR)/hlquery-talk: $(TALK_OBJS) | $(PREPARE_PREREQ)
 	@mkdir -p $(BIN_DIR) $(RUN_DIR)/bin
 	$(CXX) $(CXXFLAGS) \
 		$(TALK_OBJS) \
@@ -886,8 +940,13 @@ $(BIN_DIR)/hlquery-talk: $(TALK_OBJS) | prepare
 
 $(REGULAR_OBJS) $(HTTP_OBJS) $(CLI_OBJS) $(BENCHMARK_OBJ) $(TALK_OBJS) $(MODULE_OBJS): $(CONFIG_HEADER)
 
-# Main build target
-all: prepare $(BIN_DIR)/hlquery $(BIN_DIR)/hlquery-cli $(BIN_DIR)/hlquery-benchmark $(BIN_DIR)/hlquery-talk $(MODULE_LIBS)
+# Main build target. Keep dependency/configuration work in a separate phase so a
+# RocksDB configure/build failure stops before any hlquery compilation starts.
+all:
+	@$(MAKE) --no-print-directory prepare
+	@$(MAKE) --no-print-directory SKIP_PREPARE=1 build-products
+
+build-products: $(BIN_DIR)/hlquery $(BIN_DIR)/hlquery-cli $(BIN_DIR)/hlquery-benchmark $(BIN_DIR)/hlquery-talk $(MODULE_LIBS)
 	@echo ""
 	@echo "$(GREEN)  Build complete!$(NC)"
 	@echo "$(BLUE)   Server: build/bin/hlquery$(NC)"
@@ -899,6 +958,13 @@ all: prepare $(BIN_DIR)/hlquery $(BIN_DIR)/hlquery-cli $(BIN_DIR)/hlquery-benchm
 	@echo ""
 
 # UTILITY TARGETS
+
+test: rocksdb-smoke
+	@if [ -x "$(RUN_DIR)/test/run_tests.sh" ]; then \
+		"$(RUN_DIR)/test/run_tests.sh"; \
+	else \
+		echo "$(YELLOW)Test runner not found; run ./configure first$(NC)"; \
+	fi
 
 help:
 	@echo "$(BOLD)HLQuery Build System$(NC)"
@@ -916,9 +982,11 @@ help:
 	@echo "  make USE_PGO=1           - Enable Profile-Guided Optimization (generation)"
 	@echo "  make USE_PGO=2           - Use PGO profile data for optimization"
 	@echo "  make USE_CLANG_TIDY=1    - Enable clang-tidy static analysis"
+	@echo "  make ROCKSDB_CMAKE_LOG_LEVEL=STATUS - Override RocksDB CMake configure verbosity"
 	@echo ""
 	@echo "$(BOLD)Common Targets:$(NC)"
 	@echo "  make                      - Build everything (release mode)"
+	@echo "  make test                 - Run generated tests and RocksDB smoke check"
 	@echo "  make clean                 - Remove build artifacts"
 	@echo "  make clean-all            - Remove all generated files"
 	@echo "  make install              - Build LLM runtime tools and install binaries to run/bin/"
@@ -946,6 +1014,7 @@ build-info:
 	@echo "  Memory:         $(MEMORY_MB) MB"
 	@echo "  Parallel Jobs:  $(BUILD_JOBS)"
 	@echo "  RocksDB Jobs:   $(ROCKSDB_JOBS)"
+	@echo "  RocksDB CMake:  $(ROCKSDB_CMAKE_LOG_LEVEL)"
 	@echo "  jemalloc:       $(if $(filter 1,$(WITH_JEMALLOC)),enabled,disabled)"
 	@echo "  tcmalloc:       $(if $(filter 1,$(WITH_TCMALLOC)),enabled,disabled)"
 	@echo "  PGO:            $(if $(USE_PGO),enabled ($(USE_PGO)),disabled)"

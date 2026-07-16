@@ -21,7 +21,7 @@
 #include <vector>
 
 #include "runtime/serverconfig.h"
-#include "search/segmentmanifest.h"
+#include "search/segment_catalog.h"
 
 class SegmentManager
 {
@@ -36,26 +36,26 @@ class SegmentManager
           uint64_t ManifestGeneration = 0;
      };
 
-     SegmentManager(const std::string& data_dir,
-                    rocksdb::DB* system_db,
-                    const rocksdb::Options& options,
-                    const rocksdb::WriteOptions& write_options,
-                    const RocksDBOptions& storage_options);
+     SegmentManager(const std::string &data_dir,
+                    rocksdb::DB *system_db,
+                    const rocksdb::Options &options,
+                    const rocksdb::WriteOptions &write_options,
+                    const RocksDBOptions &storage_options);
 
      bool Initialize();
      void Shutdown();
 
-     bool SetDocument(const std::string& key, const std::string& value);
-     size_t BatchSetDocuments(const std::vector<std::pair<std::string, std::string>>& key_values);
-     std::string GetDocument(const std::string& key);
-     int DeleteDocument(const std::string& key);
-     size_t DeleteDocumentRange(const std::string& start_key, const std::string& end_key);
-     bool ExistsDocument(const std::string& key);
-     std::vector<std::string> Keys(const std::string& pattern);
-     size_t CountKeys(const std::string& prefix);
-     std::vector<std::string> PrefixKeys(const std::string& prefix, size_t offset, size_t limit);
-     bool ForEachPrefixKeySnapshot(const std::string& prefix, size_t limit, const std::function<bool(const std::string&)>& callback);
-     size_t GetPrefixTotalSize(const std::string& prefix);
+     bool SetDocument(const std::string &key, const std::string &value);
+     size_t BatchSetDocuments(const std::vector<std::pair<std::string, std::string>> &key_values);
+     std::string GetDocument(const std::string &key);
+     int DeleteDocument(const std::string &key);
+     size_t DeleteDocumentRange(const std::string &start_key, const std::string &end_key);
+     bool ExistsDocument(const std::string &key);
+     std::vector<std::string> Keys(const std::string &pattern);
+     size_t CountKeys(const std::string &prefix);
+     std::vector<std::string> PrefixKeys(const std::string &prefix, size_t offset, size_t limit);
+     bool ForEachPrefixKeySnapshot(const std::string &prefix, size_t limit, const std::function<bool(const std::string &)> &callback);
+     size_t GetPrefixTotalSize(const std::string &prefix);
 
      bool Flush();
      bool FlushAndSync();
@@ -85,7 +85,7 @@ class SegmentManager
      std::string StorageDir;
      std::string SegmentsDir;
      std::string ManifestPath;
-     rocksdb::DB* SystemDB;
+     rocksdb::DB *SystemDB;
      rocksdb::Options OptionsValue;
      rocksdb::WriteOptions WriteOptionsValue;
      RocksDBOptions StorageOptions;
@@ -97,28 +97,28 @@ class SegmentManager
      std::shared_ptr<SegmentSnapshot> CurrentSnapshot;
      std::array<std::mutex, 4096> KeyMutexes;
 
-     static bool IsDocKey(const std::string& key);
-     static bool ParseDocKey(const std::string& key, std::string& collection, std::string& doc_id);
-     static std::string DocLocationKey(const std::string& collection, const std::string& doc_id);
-     static std::string TombstoneKey(const std::string& collection, const std::string& doc_id);
+     static bool IsDocKey(const std::string &key);
+     static bool ParseDocKey(const std::string &key, std::string &collection, std::string &doc_id);
+     static std::string DocLocationKey(const std::string &collection, const std::string &doc_id);
+     static std::string TombstoneKey(const std::string &collection, const std::string &doc_id);
      static uint64_t NowMs();
-     static uint64_t DirectorySize(const std::string& path, uint64_t* sst_files = nullptr);
+     static uint64_t DirectorySize(const std::string &path, uint64_t *sst_files = nullptr);
      static std::string FormatSegmentId(uint64_t value);
 
-     std::mutex& GetKeyMutex(const std::string& key);
+     std::mutex &GetKeyMutex(const std::string &key);
      std::shared_ptr<SegmentSnapshot> Snapshot() const;
      void PublishSnapshotLocked();
      bool LoadOrCreateManifest();
      bool OpenManifestSegments();
-     std::shared_ptr<SegmentHandle> OpenSegment(const SegmentMetadata& metadata);
+     std::shared_ptr<SegmentHandle> OpenSegment(const SegmentMetadata &metadata);
      bool CreateActiveSegmentLocked();
      bool PersistManifestLocked();
-     bool PersistSegmentMetadata(const std::shared_ptr<SegmentHandle>& segment) const;
+     bool PersistSegmentMetadata(const std::shared_ptr<SegmentHandle> &segment) const;
      bool ShouldRotateActiveLocked() const;
      bool SealActiveSegmentAndCreateNewLocked();
-     std::shared_ptr<SegmentHandle> FindSegment(const std::string& segment_id, const std::shared_ptr<SegmentSnapshot>& snapshot) const;
-     bool GetSystemValue(const std::string& key, std::string& value) const;
-     bool PutDocLocation(const std::string& key, const std::string& segment_id, uint64_t timestamp_ms);
-     bool RepairDocLocation(const std::string& key, const std::string& segment_id);
-     bool IsTombstoned(const std::string& collection, const std::string& doc_id) const;
+     std::shared_ptr<SegmentHandle> FindSegment(const std::string &segment_id, const std::shared_ptr<SegmentSnapshot> &snapshot) const;
+     bool GetSystemValue(const std::string &key, std::string &value) const;
+     bool PutDocLocation(const std::string &key, const std::string &segment_id, uint64_t timestamp_ms);
+     bool RepairDocLocation(const std::string &key, const std::string &segment_id);
+     bool IsTombstoned(const std::string &collection, const std::string &doc_id) const;
 };

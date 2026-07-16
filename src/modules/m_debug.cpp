@@ -17,7 +17,7 @@
 #include "api/httpserver.h"
 #include "core/hlquery.h"
 #include "core/modules.h"
-#include "search/cstore.h"
+#include "search/document_collection_store.h"
 #include "utils/consolewriter.h"
 #include "utils/jsonbuilder.h"
 #include "vendor/json/json.hpp"
@@ -59,10 +59,9 @@ void Trace(const std::string &Message)
 
 /* Runtime module used to print extensive debug information for module callbacks. */
 
-class DebugRuntimeModule final : public AutoRuntimeModule<DebugRuntimeModule>
+class DebugRuntimeModule final : public AutoCompositeRuntimeModule<DebugRuntimeModule>
 {
    private:
-
      /* Build the shared command summary payload. */
 
      nlohmann::json BuildCommandsJSON() const
@@ -115,9 +114,9 @@ class DebugRuntimeModule final : public AutoRuntimeModule<DebugRuntimeModule>
 
    public:
 
-     DebugRuntimeModule()
-         : AutoRuntimeModule("debug", true)
+     DebugRuntimeModule() : AutoCompositeRuntimeModule("debug", true)
      {
+
      }
 
      bool Start(const ServerConfig &, std::string &) override
@@ -138,7 +137,6 @@ class DebugRuntimeModule final : public AutoRuntimeModule<DebugRuntimeModule>
 
      void OnEveryOneMinute() override
      {
-//          Trace("every one minute tick");
      }
 
      void OnNewTimer(uint64_t DelayMS, bool Repeating, size_t TotalTimers) override
@@ -550,10 +548,10 @@ class DebugRuntimeModule final : public AutoRuntimeModule<DebugRuntimeModule>
                ModuleCommandResponse Response;
                Response.Success = true;
                Response.Body = JsonBuilder()
-                    .Add("module", "debug")
-                    .Add("message", "Available debug module commands.")
-                    .Add("commands", BuildCommandsJSON())
-                    .ToString();
+                                    .Add("module", "debug")
+                                    .Add("message", "Available debug module commands.")
+                                    .Add("commands", BuildCommandsJSON())
+                                    .ToString();
                return Response;
           }
 
@@ -564,9 +562,9 @@ class DebugRuntimeModule final : public AutoRuntimeModule<DebugRuntimeModule>
                ModuleCommandResponse Response;
                Response.Success = true;
                Response.Body = JsonBuilder()
-                    .Add("module", "debug")
-                    .Add("message", "Hello world from the debug module.")
-                    .ToString();
+                                    .Add("module", "debug")
+                                    .Add("message", "Hello world from the debug module.")
+                                    .ToString();
                return Response;
           }
 

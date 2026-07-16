@@ -32,7 +32,6 @@
 class PerformanceCounters
 {
    private:
-
      struct Counter
      {
           std::atomic<uint64_t> count{0};
@@ -47,7 +46,6 @@ class PerformanceCounters
      mutable std::mutex CountersMutex;
 
    public:
-
      /* Increments a specific performance counter by its name */
 
      void IncrementCounter(const std::string &Name)
@@ -166,7 +164,6 @@ class PerformanceCounters
 class SystemResourceMonitor
 {
    private:
-
      std::atomic<uint64_t> CPUUsagePercent{0};
 
      std::atomic<uint64_t> MemoryUsageBytes{0};
@@ -184,7 +181,6 @@ class SystemResourceMonitor
      std::mutex ShutdownMutex;
 
    public:
-
      /* Constructor that initiates the background resource monitoring thread */
 
      SystemResourceMonitor()
@@ -231,7 +227,6 @@ class SystemResourceMonitor
                     MonitorDiskIO();
 
                     MonitorNetworkIO();
-
                }
                catch (const std::exception &e)
                {
@@ -250,7 +245,6 @@ class SystemResourceMonitor
      }
 
    private:
-
      /* Samples CPU utilization by parsing the /proc/stat system file */
 
      void MonitorCPUUsage()
@@ -265,11 +259,17 @@ class SystemResourceMonitor
 
                std::string CPULabel;
 
-               uint64_t UserVal, NiceVal, SystemVal, IdleVal, IOWaitVal, IRQVal, SoftIRQVal, StealVal;
+               uint64_t UserVal = 0;
+               uint64_t NiceVal = 0;
+               uint64_t SystemVal = 0;
+               uint64_t IdleVal = 0;
+               uint64_t IOWaitVal = 0;
+               uint64_t IRQVal = 0;
+               uint64_t SoftIRQVal = 0;
+               uint64_t StealVal = 0;
 
-               Iss >> CPULabel >> UserVal >> NiceVal >> SystemVal >> IdleVal >> IOWaitVal >> IRQVal >> SoftIRQVal >> StealVal;
-
-               if (CPULabel == "cpu")
+               if (Iss >> CPULabel >> UserVal >> NiceVal >> SystemVal >> IdleVal >> IOWaitVal >> IRQVal >> SoftIRQVal >> StealVal &&
+                   CPULabel == "cpu")
                {
                     uint64_t TotalIdleTime = IdleVal + IOWaitVal;
 
@@ -281,7 +281,7 @@ class SystemResourceMonitor
 
                     static uint64_t PrevIdleTime = 0;
 
-                    if (PrevTotalTime > 0)
+                    if (PrevTotalTime > 0 && TotalTime >= PrevTotalTime && TotalIdleTime >= PrevIdleTime)
                     {
                          uint64_t TotalDelta = TotalTime - PrevTotalTime;
 
@@ -340,7 +340,12 @@ class SystemResourceMonitor
 
           if (TotalMemoryValue > 0)
           {
-               uint64_t UsedMemoryBytes = TotalMemoryValue - AvailableMemoryValue;
+               uint64_t UsedMemoryBytes = 0;
+
+               if (AvailableMemoryValue < TotalMemoryValue)
+               {
+                    UsedMemoryBytes = TotalMemoryValue - AvailableMemoryValue;
+               }
 
                MemoryUsageBytes.store(UsedMemoryBytes);
           }
@@ -388,8 +393,8 @@ class SystemResourceMonitor
                                      });
 
                     const bool IsNVMeNamespace = DeviceName.rfind("nvme", 0) == 0 &&
-                                                  DeviceName.find('n', 4) != std::string::npos &&
-                                                  DeviceName.find('p', 4) == std::string::npos;
+                                                 DeviceName.find('n', 4) != std::string::npos &&
+                                                 DeviceName.find('p', 4) == std::string::npos;
 
                     if (IsLetterSuffixedDisk || IsNVMeNamespace)
                     {
@@ -468,7 +473,6 @@ class SystemResourceMonitor
      }
 
    public:
-
      /* Aggregated resource statistics structure */
 
      struct ResourceStats
@@ -511,13 +515,11 @@ struct PerformanceProfileEntry
 class PerformanceProfiler
 {
    private:
-
      std::unordered_map<std::string, PerformanceProfileEntry> Profiles;
 
      mutable std::mutex ProfilesMutex;
 
    public:
-
      using ProfileEntry = PerformanceProfileEntry;
 
      /* Begins a profiling session for a named function */

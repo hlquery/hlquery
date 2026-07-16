@@ -17,86 +17,83 @@
 
 namespace hlquery_cli
 {
-     /* HTTPResponse struct represents a response from the server. */
+/* HTTPResponse struct represents a response from the server. */
 
-     struct HTTPResponse
+struct HTTPResponse
+{
+     /* HTTP status code returned by the server. */
+
+     int StatusCode;
+
+     /* HTTP status text returned by the server. */
+
+     std::string StatusText;
+
+     /* HTTP response headers as key/value pairs. */
+
+     std::map<std::string, std::string> Headers;
+
+     /* Response body payload. */
+
+     std::string Body;
+
+     /* Constructor for HTTPResponse. */
+
+     HTTPResponse() : StatusCode(-1)
      {
-          /* HTTP status code returned by the server. */
+     }
+};
 
-          int StatusCode;
+/* HTTPClient class for making requests. */
 
-          /* HTTP status text returned by the server. */
+class HTTPClient
+{
+   private:
+     /* Base URL for requests, including scheme and host. */
 
-          std::string StatusText;
+     std::string BaseURL;
 
-          /* HTTP response headers as key/value pairs. */
+     /* Hostname extracted from the base URL. */
 
-          std::map<std::string, std::string> Headers;
+     std::string Host;
 
-          /* Response body payload. */
+     /* Port extracted from the base URL (or default). */
 
-          std::string Body;
+     int Port;
 
-          /* Constructor for HTTPResponse. */
+     /* If true, keep raw server output without formatting. */
 
-          HTTPResponse() : StatusCode(-1)
-          {
+     bool RawMode;
 
-          }
-     };
+     /* Bearer or API token used for Authorization header. */
 
-     /* HTTPClient class for making requests. */
+     std::string AuthToken;
 
-     class HTTPClient
+     /* Parses a URL. */
+
+     void ParseURL(const std::string &url);
+
+   public:
+     /* Constructor for HTTPClient. */
+
+     HTTPClient(const std::string &base_url, bool raw_mode = false, const std::string &auth_token = "");
+
+     /* Makes a request to the server. */
+
+     HTTPResponse MakeRequest(const std::string &method, const std::string &path, const std::string &body = "");
+
+     /* Sets raw mode. */
+
+     void SetRawMode(bool raw)
      {
-        private:
+          RawMode = raw;
+     }
 
-          /* Base URL for requests, including scheme and host. */
+     /* Sets auth token. */
 
-          std::string BaseURL;
-
-          /* Hostname extracted from the base URL. */
-
-          std::string Host;
-
-          /* Port extracted from the base URL (or default). */
-
-          int Port;
-
-          /* If true, keep raw server output without formatting. */
-
-          bool RawMode;
-
-          /* Bearer or API token used for Authorization header. */
-
-          std::string AuthToken;
-
-          /* Parses a URL. */
-
-          void ParseURL(const std::string &url);
-
-     public:
-
-          /* Constructor for HTTPClient. */
-
-          HTTPClient(const std::string &base_url, bool raw_mode = false, const std::string &auth_token = "");
-
-          /* Makes a request to the server. */
-
-          HTTPResponse MakeRequest(const std::string &method, const std::string &path, const std::string &body = "");
-
-          /* Sets raw mode. */
-
-          void SetRawMode(bool raw)
-          {
-               RawMode = raw;
-          }
-
-          /* Sets auth token. */
-
-          void SetAuthToken(const std::string &token)
-          {
-               AuthToken = token;
-          }
-     };
+     void SetAuthToken(const std::string &token)
+     {
+          AuthToken = token;
+     }
+};
 }

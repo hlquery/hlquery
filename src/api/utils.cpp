@@ -30,6 +30,8 @@
 #include "utils/wildcard.h"
 #include "vendor/json/json.hpp"
 
+/* Provides shared API utility helpers used by multiple handlers. */
+
 std::string TrimRankMetadataValue(const std::string &Value)
 {
      const size_t Start = Value.find_first_not_of(" \t\r\n");
@@ -42,6 +44,8 @@ std::string TrimRankMetadataValue(const std::string &Value)
      return Value.substr(Start, End - Start + 1);
 }
 
+/* Implements the lower rank metadata value helper. */
+
 std::string LowerRankMetadataValue(std::string Value)
 {
      std::transform(Value.begin(), Value.end(), Value.begin(), [](unsigned char C)
@@ -50,6 +54,8 @@ std::string LowerRankMetadataValue(std::string Value)
                     });
      return Value;
 }
+
+/* Implements the try parse double value helper. */
 
 bool TryParseDoubleValue(const std::string &Value, double *Out)
 {
@@ -82,12 +88,330 @@ bool TryParseDoubleValue(const std::string &Value, double *Out)
      }
 }
 
+/* Implements the split geo args helper. */
+
+static std::vector<std::string> SplitGeoArgs(const std::string &Input)
+{
+     std::vector<std::string> Args;
+     std::string Current;
+     int BracketDepth = 0;
+     int BraceDepth = 0;
+     int ParenDepth = 0;
+
+     auto Trim = [](std::string Value) -> std::string
+     {
+          const size_t Start = Value.find_first_not_of(" \t\r\n");
+          if (Start == std::string::npos)
+          {
+               return "";
+          }
+
+          const size_t End = Value.find_last_not_of(" \t\r\n");
+          Value = Value.substr(Start, End - Start + 1);
+          if (Value.size() >= 2 && ((Value.front() == '"' && Value.back() == '"') || (Value.front() == '\'' && Value.back() == '\'')))
+          {
+               Value = Value.substr(1, Value.size() - 2);
+          }
+          return Value;
+     };
+
+     for (char C : Input)
+     {
+          if (C == '[')
+          {
+               ++BracketDepth;
+          }
+          else if (C == ']' && BracketDepth > 0)
+          {
+               --BracketDepth;
+          }
+          else if (C == '{')
+          {
+               ++BraceDepth;
+          }
+          else if (C == '}' && BraceDepth > 0)
+          {
+               --BraceDepth;
+          }
+          else if (C == '(')
+          {
+               ++ParenDepth;
+          }
+          else if (C == ')' && ParenDepth > 0)
+          {
+               --ParenDepth;
+          }
+
+          if (C == ',' && BracketDepth == 0 && BraceDepth == 0 && ParenDepth == 0)
+          {
+               Args.push_back(Trim(Current));
+               Current.clear();
+               continue;
+          }
+
+          Current.push_back(C);
+     }
+
+     if (!Current.empty())
+     {
+          Args.push_back(Trim(Current));
+     }
+
+     return Args;
+}
+
+/* Implements the try parse geo distance km helper. */
+
+static bool TryParseGeoDistanceKM(const std::string &Value, double *OutKM)
+{
+     if (!OutKM)
+     {
+          return false;
+     }
+
+     std::string Text = LowerRankMetadataValue(TrimRankMetadataValue(Value));
+     if (Text.empty())
+     {
+          return false;
+     }
+
+     double Multiplier = 1.0;
+     auto EndsWith = [&Text](const std::string &Suffix)
+     {
+          return Text.size() >= Suffix.size() && Text.compare(Text.size() - Suffix.size(), Suffix.size(), Suffix) == 0;
+     };
+
+     if (EndsWith("km"))
+     {
+          Text = Text.substr(0, Text.size() - 2);
+     }
+     else if (EndsWith("mi") || EndsWith("mile") || EndsWith("miles"))
+     {
+          const size_t TrimBy = EndsWith("miles") ? 5 : (EndsWith("mile") ? 4 : 2);
+          Text = Text.substr(0, Text.size() - TrimBy);
+          Multiplier = 1.609344;
+     }
+     else if (EndsWith("m"))
+     {
+          Text = Text.substr(0, Text.size() - 1);
+          Multiplier = 0.001;
+     }
+
+     double Parsed = 0.0;
+     if (!TryParseDoubleValue(Text, &Parsed) || Parsed < 0.0)
+     {
+          return false;
+     }
+
+     *OutKM = Parsed * Multiplier;
+     return true;
+}
+
+/* Checks whether valid geo coordinates applies. */
+
+static bool IsValidGeoCoordinates(double Lat, double Lon)
+{
+     return std::isfinite(Lat) && std::isfinite(Lon) &&
+            Lat >= -90.0 && Lat <= 90.0 &&
+            Lon >= -180.0 && Lon <= 180.0;
+}
+
+/* Implements the try parse geo point value helper. */
+
+static bool TryParseGeoPointValue(const std::string &Value, GeoPoint *OutPoint)
+{
+     if (!OutPoint)
+     {
+          return false;
+     }
+
+     const std::string Trimmed = TrimRankMetadataValue(Value);
+     if (Trimmed.empty())
+     {
+          return false;
+     }
+
+     auto AssignIfValid = [OutPoint](double Lat, double Lon) -> bool
+     {
+          if (!IsValidGeoCoordinates(Lat, Lon))
+          {
+               return false;
+          }
+
+          OutPoint->Latitude = Lat;
+          OutPoint->Longitude = Lon;
+          return true;
+     };
+
+     try
+     {
+          const nlohmann::json Parsed = nlohmann::json::parse(Trimmed);
+          if (Parsed.is_array() && Parsed.size() >= 2 && Parsed[0].is_number() && Parsed[1].is_number())
+          {
+               return AssignIfValid(Parsed[0].get<double>(), Parsed[1].get<double>());
+          }
+
+          if (Parsed.is_object())
+          {
+               const char *LatKeys[] = {"lat", "latitude"};
+               const char *LonKeys[] = {"lon", "lng", "longitude"};
+               bool HasLat = false;
+               bool HasLon = false;
+               double Lat = 0.0;
+               double Lon = 0.0;
+
+               for (const char *Key : LatKeys)
+               {
+                    if (Parsed.contains(Key) && Parsed[Key].is_number())
+                    {
+                         Lat = Parsed[Key].get<double>();
+                         HasLat = true;
+                         break;
+                    }
+               }
+
+               for (const char *Key : LonKeys)
+               {
+                    if (Parsed.contains(Key) && Parsed[Key].is_number())
+                    {
+                         Lon = Parsed[Key].get<double>();
+                         HasLon = true;
+                         break;
+                    }
+               }
+
+               if (HasLat && HasLon)
+               {
+                    return AssignIfValid(Lat, Lon);
+               }
+          }
+     }
+     catch (...)
+     {
+          /* Fall through to simple string parsing. */
+     }
+
+     std::string Normalized = Trimmed;
+     std::replace(Normalized.begin(), Normalized.end(), ';', ',');
+     std::replace(Normalized.begin(), Normalized.end(), ' ', ',');
+     const std::vector<std::string> Parts = SplitGeoArgs(Normalized);
+     if (Parts.size() < 2)
+     {
+          return false;
+     }
+
+     double Lat = 0.0;
+     double Lon = 0.0;
+     if (!TryParseDoubleValue(Parts[0], &Lat) || !TryParseDoubleValue(Parts[1], &Lon))
+     {
+          return false;
+     }
+
+     return AssignIfValid(Lat, Lon);
+}
+
+/* Implements the try get geo point from document helper. */
+
+static bool TryGetGeoPointFromDocument(const std::map<std::string, std::string> &Document, const std::string &Field, GeoPoint *OutPoint)
+{
+     const auto It = Document.find(Field);
+     if (It != Document.end() && TryParseGeoPointValue(It->second, OutPoint))
+     {
+          return true;
+     }
+
+     const auto FieldsIt = Document.find("fields");
+     if (FieldsIt == Document.end() || FieldsIt->second.empty())
+     {
+          return false;
+     }
+
+     try
+     {
+          const nlohmann::json FieldsJSON = nlohmann::json::parse(FieldsIt->second);
+          if (FieldsJSON.is_object() && FieldsJSON.contains(Field) && !FieldsJSON[Field].is_null())
+          {
+               return TryParseGeoPointValue(FieldsJSON[Field].is_string() ? FieldsJSON[Field].get<std::string>() : FieldsJSON[Field].dump(), OutPoint);
+          }
+     }
+     catch (...)
+     {
+     }
+
+     return false;
+}
+
+/* Implements the try parse geo distance sort helper. */
+
+static bool TryParseGeoDistanceSort(const std::string &SortSpec, std::string *OutField, GeoPoint *OutOrigin, bool *OutDescending)
+{
+     const std::string Prefix = "_geo_distance";
+     if (SortSpec.compare(0, Prefix.size(), Prefix) != 0)
+     {
+          return false;
+     }
+
+     const size_t Open = SortSpec.find('(');
+     const size_t Close = SortSpec.find(')', Open == std::string::npos ? 0 : Open + 1);
+     if (Open == std::string::npos || Close == std::string::npos || Close <= Open + 1)
+     {
+          return false;
+     }
+
+     const std::vector<std::string> Args = SplitGeoArgs(SortSpec.substr(Open + 1, Close - Open - 1));
+     if (Args.size() < 3)
+     {
+          return false;
+     }
+
+     double Lat = 0.0;
+     double Lon = 0.0;
+     if (!TryParseDoubleValue(Args[1], &Lat) || !TryParseDoubleValue(Args[2], &Lon))
+     {
+          return false;
+     }
+
+     GeoPoint Origin;
+     Origin.Latitude = Lat;
+     Origin.Longitude = Lon;
+     if (Origin.Latitude < -90.0 || Origin.Latitude > 90.0 || Origin.Longitude < -180.0 || Origin.Longitude > 180.0)
+     {
+          return false;
+     }
+
+     bool Desc = false;
+     const size_t Colon = SortSpec.find(':', Close + 1);
+     if (Colon != std::string::npos)
+     {
+          std::string Direction = LowerRankMetadataValue(TrimRankMetadataValue(SortSpec.substr(Colon + 1)));
+          Desc = Direction == "desc" || Direction == "descending";
+     }
+
+     if (OutField)
+     {
+          *OutField = Args[0];
+     }
+     if (OutOrigin)
+     {
+          *OutOrigin = Origin;
+     }
+     if (OutDescending)
+     {
+          *OutDescending = Desc;
+     }
+     return true;
+}
+
+/* Implements the format rank signal value helper. */
+
 std::string FormatRankSignalValue(double Value)
 {
      std::ostringstream Stream;
      Stream << std::fixed << std::setprecision(6) << std::clamp(Value, 0.0, 1.0);
      return Stream.str();
 }
+
+/* Implements the compare rank tie break helper. */
 
 bool CompareRankTieBreak(const SearchHit &A, const SearchHit &B)
 {
@@ -120,6 +444,8 @@ bool CompareRankTieBreak(const SearchHit &A, const SearchHit &B)
      const auto BId = B.Document.find("id");
      return (AId == A.Document.end() ? "" : AId->second) < (BId == B.Document.end() ? "" : BId->second);
 }
+
+/* Implements the try parse ISO 8601 timestamp to milliseconds helper. */
 
 bool TryParseISO8601TimestampToMs(const std::string &value, std::uint64_t *parsed_ms)
 {
@@ -224,6 +550,8 @@ bool TryParseISO8601TimestampToMs(const std::string &value, std::uint64_t *parse
      return has_timezone || trimmed.size() >= 19;
 }
 
+/* Implements the format timestamp milliseconds as ISO 8601 helper. */
+
 std::string FormatTimestampMsAsISO8601(std::uint64_t timestamp_ms)
 {
      auto time_point = std::chrono::system_clock::time_point(std::chrono::milliseconds(timestamp_ms));
@@ -263,7 +591,7 @@ class FilterExpressionParser
 {
    public:
      explicit FilterExpressionParser(const std::string &input)
-          : Input(input)
+         : Input(input)
      {
      }
 
@@ -430,6 +758,53 @@ class FilterExpressionParser
      {
           SkipWhitespace();
 
+          if (Input.compare(Position, 11, "_geo_radius") == 0 ||
+              Input.compare(Position, 8, "_geo_box") == 0)
+          {
+               const bool is_radius = Input.compare(Position, 11, "_geo_radius") == 0;
+               const size_t name_len = is_radius ? 11 : 8;
+               Position += name_len;
+               SkipWhitespace();
+
+               if (Position >= Input.size() || Input[Position] != '(')
+               {
+                    return false;
+               }
+
+               ++Position;
+               const size_t args_start = Position;
+               int depth = 1;
+
+               while (Position < Input.size() && depth > 0)
+               {
+                    if (Input[Position] == '(')
+                    {
+                         ++depth;
+                    }
+                    else if (Input[Position] == ')')
+                    {
+                         --depth;
+                         if (depth == 0)
+                         {
+                              break;
+                         }
+                    }
+
+                    ++Position;
+               }
+
+               if (Position >= Input.size() || Input[Position] != ')')
+               {
+                    return false;
+               }
+
+               filter.Field = is_radius ? "_geo_radius" : "_geo_box";
+               filter.Op = is_radius ? "GEO_RADIUS" : "GEO_BOX";
+               filter.Value = Trim(Input.substr(args_start, Position - args_start));
+               ++Position;
+               return true;
+          }
+
           const size_t field_start = Position;
           while (Position < Input.size() &&
                  (std::isalnum(static_cast<unsigned char>(Input[Position])) != 0 || Input[Position] == '_'))
@@ -562,6 +937,74 @@ class FilterExpressionParser
      }
 };
 
+/* Calculates geo distance values. */
+
+double SearchAPI::CalculateGeoDistance(const GeoPoint &P1, const GeoPoint &P2)
+{
+     constexpr double EarthRadiusKM = 6371.0088;
+     constexpr double Pi = 3.14159265358979323846;
+     auto ToRadians = [](double Degrees) -> double
+     {
+          return Degrees * Pi / 180.0;
+     };
+
+     const double Lat1 = ToRadians(P1.Latitude);
+     const double Lat2 = ToRadians(P2.Latitude);
+     const double DeltaLat = ToRadians(P2.Latitude - P1.Latitude);
+     const double DeltaLon = ToRadians(P2.Longitude - P1.Longitude);
+
+     const double RawA = std::sin(DeltaLat / 2.0) * std::sin(DeltaLat / 2.0) +
+                         std::cos(Lat1) * std::cos(Lat2) *
+                              std::sin(DeltaLon / 2.0) * std::sin(DeltaLon / 2.0);
+     const double A = std::clamp(RawA, 0.0, 1.0);
+     const double C = 2.0 * std::atan2(std::sqrt(A), std::sqrt(1.0 - A));
+
+     return EarthRadiusKM * C;
+}
+
+/* Checks whether within geo radius applies. */
+
+bool SearchAPI::IsWithinGeoRadius(const GeoPoint &Point, const GeoRadius &Radius)
+{
+     if (!Radius.Enabled || Radius.RadiusKM < 0.0)
+     {
+          return false;
+     }
+
+     GeoPoint Origin;
+     Origin.Latitude = Radius.Lat;
+     Origin.Longitude = Radius.Lon;
+     return CalculateGeoDistance(Point, Origin) <= Radius.RadiusKM;
+}
+
+/* Checks whether within geo box applies. */
+
+bool SearchAPI::IsWithinGeoBox(const GeoPoint &Point, const GeoBox &Box)
+{
+     if (!Box.Enabled)
+     {
+          return false;
+     }
+
+     const double North = std::max(Box.TopLeftLat, Box.BottomRightLat);
+     const double South = std::min(Box.TopLeftLat, Box.BottomRightLat);
+     const bool LatMatches = Point.Latitude <= North && Point.Latitude >= South;
+
+     if (!LatMatches)
+     {
+          return false;
+     }
+
+     const double West = Box.TopLeftLon;
+     const double East = Box.BottomRightLon;
+
+     if (West <= East)
+     {
+          return Point.Longitude >= West && Point.Longitude <= East;
+     }
+
+     return Point.Longitude >= West || Point.Longitude <= East;
+}
 
 /* ApplyFilters filters search hits based on filter conditions. */
 
@@ -576,7 +1019,7 @@ std::vector<SearchHit> SearchAPI::ApplyFilters(const std::vector<SearchHit> &Hit
           auto Conditions = ParseFilters(FilterBy);
           if (Conditions.empty())
           {
-               return Hits;
+               return FilterBy.empty() ? Hits : FilteredHits;
           }
 
           for (const auto &HitObj : Hits)
@@ -614,7 +1057,7 @@ std::vector<SearchHit> SearchAPI::ApplyFilters(const std::vector<SearchHit> &Hit
      }
 
      std::function<bool(const std::map<std::string, std::string> &, const FilterExpressionNode *)> EvaluateExpression =
-         [&](const std::map<std::string, std::string> &Document, const FilterExpressionNode *Node) -> bool
+          [&](const std::map<std::string, std::string> &Document, const FilterExpressionNode *Node) -> bool
      {
           if (!Node)
           {
@@ -665,6 +1108,78 @@ bool SearchAPI::EvaluateFilterCondition(const std::map<std::string, std::string>
                          });
           return Value;
      };
+
+     if (Condition.Op == "GEO_RADIUS")
+     {
+          const std::vector<std::string> Args = SplitGeoArgs(Condition.Value);
+          if (Args.size() < 4)
+          {
+               return false;
+          }
+
+          double Lat = 0.0;
+          double Lon = 0.0;
+          double RadiusKM = 0.0;
+          if (!TryParseDoubleValue(Args[1], &Lat) ||
+              !TryParseDoubleValue(Args[2], &Lon) ||
+              !TryParseGeoDistanceKM(Args[3], &RadiusKM))
+          {
+               return false;
+          }
+
+          if (!IsValidGeoCoordinates(Lat, Lon))
+          {
+               return false;
+          }
+
+          GeoPoint Point;
+          if (!TryGetGeoPointFromDocument(Document, Args[0], &Point))
+          {
+               return false;
+          }
+
+          GeoRadius Radius;
+          Radius.Field = Args[0];
+          Radius.Lat = Lat;
+          Radius.Lon = Lon;
+          Radius.RadiusKM = RadiusKM;
+          Radius.Enabled = true;
+          return IsWithinGeoRadius(Point, Radius);
+     }
+
+     if (Condition.Op == "GEO_BOX")
+     {
+          const std::vector<std::string> Args = SplitGeoArgs(Condition.Value);
+          if (Args.size() < 5)
+          {
+               return false;
+          }
+
+          GeoBox Box;
+          Box.Field = Args[0];
+          Box.Enabled = true;
+          if (!TryParseDoubleValue(Args[1], &Box.TopLeftLat) ||
+              !TryParseDoubleValue(Args[2], &Box.TopLeftLon) ||
+              !TryParseDoubleValue(Args[3], &Box.BottomRightLat) ||
+              !TryParseDoubleValue(Args[4], &Box.BottomRightLon))
+          {
+               return false;
+          }
+
+          if (!IsValidGeoCoordinates(Box.TopLeftLat, Box.TopLeftLon) ||
+              !IsValidGeoCoordinates(Box.BottomRightLat, Box.BottomRightLon))
+          {
+               return false;
+          }
+
+          GeoPoint Point;
+          if (!TryGetGeoPointFromDocument(Document, Args[0], &Point))
+          {
+               return false;
+          }
+
+          return IsWithinGeoBox(Point, Box);
+     }
 
      auto DocumentIt = Document.find(Condition.Field);
      std::string DerivedFieldValue;
@@ -943,6 +1458,35 @@ std::vector<SearchHit> SearchAPI::ApplySorting(const std::vector<SearchHit> &Hit
                {
                     for (const auto &SortFieldVal : SortBy)
                     {
+                         std::string GeoField;
+                         GeoPoint GeoOrigin;
+                         bool GeoDescending = false;
+                         if (TryParseGeoDistanceSort(SortFieldVal, &GeoField, &GeoOrigin, &GeoDescending))
+                         {
+                              GeoPoint APoint;
+                              GeoPoint BPoint;
+                              const bool HasA = TryGetGeoPointFromDocument(A.Document, GeoField, &APoint);
+                              const bool HasB = TryGetGeoPointFromDocument(B.Document, GeoField, &BPoint);
+
+                              if (HasA != HasB)
+                              {
+                                   return HasA;
+                              }
+
+                              if (HasA && HasB)
+                              {
+                                   const double ADistance = CalculateGeoDistance(APoint, GeoOrigin);
+                                   const double BDistance = CalculateGeoDistance(BPoint, GeoOrigin);
+
+                                   if (ADistance != BDistance)
+                                   {
+                                        return GeoDescending ? ADistance > BDistance : ADistance < BDistance;
+                                   }
+                              }
+
+                              continue;
+                         }
+
                          std::string FieldName = SortFieldVal;
                          bool Descending = false;
 
@@ -1003,6 +1547,32 @@ std::vector<SearchHit> SearchAPI::ApplySorting(const std::vector<SearchHit> &Hit
                     return CompareRankTieBreak(A, B);
                });
 
+     for (const auto &SortFieldVal : SortBy)
+     {
+          std::string GeoField;
+          GeoPoint GeoOrigin;
+          bool GeoDescending = false;
+          if (!TryParseGeoDistanceSort(SortFieldVal, &GeoField, &GeoOrigin, &GeoDescending))
+          {
+               continue;
+          }
+
+          for (auto &HitObj : SortedHits)
+          {
+               GeoPoint Point;
+               if (!TryGetGeoPointFromDocument(HitObj.Document, GeoField, &Point))
+               {
+                    continue;
+               }
+
+               std::ostringstream DistanceStream;
+               DistanceStream << std::fixed << std::setprecision(6) << CalculateGeoDistance(Point, GeoOrigin);
+               HitObj.Document["_geo_distance_km"] = DistanceStream.str();
+          }
+
+          break;
+     }
+
      return SortedHits;
 }
 
@@ -1056,6 +1626,8 @@ std::vector<std::string> SearchAPI::ResolveDefaultCollectionSortBy(const std::st
      return {SortFieldName + ":" + SortOrder};
 }
 
+/* Applies module weights processing. */
+
 void SearchAPI::ApplyModuleWeights(std::vector<SearchHit> &Hits,
                                    const std::string &Collection,
                                    const ComprehensiveSearchQuery &Query,
@@ -1077,6 +1649,8 @@ void SearchAPI::ApplyModuleWeights(std::vector<SearchHit> &Hits,
           }
      }
 }
+
+/* Applies collection rank weights processing. */
 
 void SearchAPI::ApplyCollectionRankWeights(std::vector<SearchHit> &Hits, const std::string &Collection)
 {
@@ -1207,8 +1781,8 @@ void SearchAPI::ApplyCollectionRankWeights(std::vector<SearchHit> &Hits, const s
           if (Range > 0.0)
           {
                Signal = Descending
-                    ? ((Parsed.Value - MinRank) / Range)
-                    : ((MaxRank - Parsed.Value) / Range);
+                             ? ((Parsed.Value - MinRank) / Range)
+                             : ((MaxRank - Parsed.Value) / Range);
           }
 
           Parsed.Signal = std::clamp(Signal, 0.0, 1.0);
@@ -1385,23 +1959,23 @@ std::vector<SearchHit> SearchAPI::ApplyGrouping(const std::vector<SearchHit> &Hi
      std::size_t GroupLimitSize = static_cast<std::size_t>(GroupLimit);
      std::map<std::string, std::vector<std::size_t>> Groups;
 
-	     for (std::size_t HitIndex = 0; HitIndex < Hits.size(); ++HitIndex)
-	     {
-	          const auto &HitObj = Hits[HitIndex];
-	          std::string Key;
+     for (std::size_t HitIndex = 0; HitIndex < Hits.size(); ++HitIndex)
+     {
+          const auto &HitObj = Hits[HitIndex];
+          std::string Key;
 
-	          for (const auto &Field : GroupBy)
-	          {
-	               auto FieldIt = HitObj.Document.find(Field);
-	               if (FieldIt != HitObj.Document.end())
-	               {
-	                    Key += FieldIt->second;
-	               }
-	          }
+          for (const auto &Field : GroupBy)
+          {
+               auto FieldIt = HitObj.Document.find(Field);
+               if (FieldIt != HitObj.Document.end())
+               {
+                    Key += FieldIt->second;
+               }
+          }
 
-	          if (Groups[Key].size() < GroupLimitSize)
-	          {
-	               Groups[Key].push_back(HitIndex);
+          if (Groups[Key].size() < GroupLimitSize)
+          {
+               Groups[Key].push_back(HitIndex);
           }
      }
 

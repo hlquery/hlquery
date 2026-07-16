@@ -20,13 +20,13 @@
 #include "core/modules.h"
 #include "modules/extra/m_analytics/analyticsmanager.h"
 #include "utils/jsonbuilder.h"
+#include "vendor/json/json.hpp"
 
 /* Runtime module that forwards events into the analytics manager. */
 
-class AnalyticsRuntimeModule final : public AutoRuntimeModule<AnalyticsRuntimeModule>
+class AnalyticsRuntimeModule final : public AutoCompositeRuntimeModule<AnalyticsRuntimeModule>
 {
    private:
-
      /* Owns the analytics manager while the module is active. */
 
      std::unique_ptr<AnalyticsManager> manager;
@@ -42,10 +42,9 @@ class AnalyticsRuntimeModule final : public AutoRuntimeModule<AnalyticsRuntimeMo
      }
 
    public:
-
      /* Initialize the analytics runtime module. */
 
-     AnalyticsRuntimeModule() : AutoRuntimeModule("analytics", true)
+     AnalyticsRuntimeModule() : AutoCompositeRuntimeModule("analytics", true)
      {
      }
 
@@ -458,11 +457,12 @@ class AnalyticsRuntimeModule final : public AutoRuntimeModule<AnalyticsRuntimeMo
           ModuleAPIDescription description;
           description.Name = "analytics";
           description.Summary = "Exposes runtime analytics module status and flush control.";
-          description.Syntax = "GET /modules/analytics | POST /modules/analytics/flush";
+          description.Syntax = "GET /modules/analytics | POST /modules/analytics/flush | POST /modules/analytics/force";
           description.MinParameters = 0;
           description.MaxParameters = 0;
           description.Examples.push_back("curl http://localhost:9200/modules/analytics");
           description.Examples.push_back("curl -X POST http://localhost:9200/modules/analytics/flush");
+          description.Examples.push_back("curl -X POST http://localhost:9200/modules/analytics/force");
 
           return description;
      }
@@ -479,11 +479,26 @@ class AnalyticsRuntimeModule final : public AutoRuntimeModule<AnalyticsRuntimeMo
           status_command.Syntax = "module analytics status";
           commands.push_back(status_command);
 
+          ModuleCommandSpec routes_command;
+          routes_command.Route = "routes";
+          routes_command.Summary = "Lists analytics module routes, descriptions, parameters, and examples.";
+          routes_command.Syntax = "module analytics routes [route]";
+          routes_command.MinParameters = 0;
+          routes_command.MaxParameters = 1;
+          routes_command.Parameters.push_back({"route", "string", "Optional route name to filter by.", false});
+          commands.push_back(routes_command);
+
           ModuleCommandSpec flush_command;
           flush_command.Route = "flush";
-          flush_command.Summary = "Flushes analytics immediately.";
+          flush_command.Summary = "Schedules an analytics flush on the background worker.";
           flush_command.Syntax = "module analytics flush";
           commands.push_back(flush_command);
+
+          ModuleCommandSpec force_command;
+          force_command.Route = "force";
+          force_command.Summary = "Forces an analytics snapshot synchronously and dispatches OnSnapshot to loaded modules.";
+          force_command.Syntax = "module analytics force";
+          commands.push_back(force_command);
 
           return commands;
      }
@@ -520,6 +535,96 @@ class AnalyticsRuntimeModule final : public AutoRuntimeModule<AnalyticsRuntimeMo
                return response;
           }
 
+          if (route == "routes")
+          {
+               const std::string route_filter = Request.PositionalParameters.empty() ? "" : Request.PositionalParameters.front();
+               nlohmann::json commands = nlohmann::json::array();
+
+               for (const ModuleCommandSpec &command : GetCommandSpecs())
+               {
+                    if (!route_filter.empty() && command.Route != route_filter)
+                    {
+                         continue;
+                    }
+
+                    nlohmann::json command_json;
+                    command_json["route"] = command.Route;
+                    command_json["summary"] = command.Summary;
+                    command_json["syntax"] = command.Syntax;
+                    command_json["min_parameters"] = command.MinParameters;
+                    command_json["max_parameters"] = command.MaxParameters;
+                    command_json["parameters"] = nlohmann::json::array();
+                    command_json["examples"] = nlohmann::json::array();
+
+                    for (const ModuleCommandParameterSpec &parameter : command.Parameters)
+                    {
+                         command_json["parameters"].push_back({{"name", parameter.Name},
+                                                               {"type", parameter.Type},
+                                                               {"description", parameter.Description},
+                                                               {"required", parameter.Required}});
+                    }
+
+                    for (const std::string &example : command.Examples)
+                    {
+                         command_json["examples"].push_back(example);
+                    }
+
+                    commands.push_back(command_json);
+               }
+
+               nlohmann::json body;
+               body["module"] = "analytics";
+               body["route"] = "routes";
+               body["commands"] = commands;
+
+               if (!route_filter.empty())
+               {
+                    body["filter"] = route_filter;
+               }
+
+               ModuleCommandResponse response;
+               response.Success = true;
+               response.Body = body.dump();
+               return response;
+          }
+
+          if (route == "force")
+          {
+               if (!manager)
+               {
+                    ModuleCommandResponse response;
+                    response.Success = false;
+                    response.StatusCode = 409;
+                    response.Body = JsonBuilder().Add("error", "Analytics manager is not available.").ToString();
+                    return response;
+               }
+
+               EnsureStarted();
+
+               if (!manager->IsEnabled())
+               {
+                    ModuleCommandResponse response;
+                    response.Success = false;
+                    response.StatusCode = 503;
+                    response.Body = JsonBuilder().Add("error", "Analytics manager is disabled.").ToString();
+                    return response;
+               }
+
+               const uint64_t buffered_buckets_before = manager->GetBufferedBucketCount();
+               manager->FlushNow();
+
+               ModuleCommandResponse response;
+               response.Success = true;
+               response.Body = JsonBuilder()
+                                    .Add("module", "analytics")
+                                    .Add("route", "force")
+                                    .Add("message", "Analytics snapshot forced.")
+                                    .Add("buffered_buckets_before", static_cast<unsigned long long>(buffered_buckets_before))
+                                    .Add("buffered_buckets_after", static_cast<unsigned long long>(manager->GetBufferedBucketCount()))
+                                    .ToString();
+               return response;
+          }
+
           if (route == "flush")
           {
                if (!manager)
@@ -543,9 +648,9 @@ class AnalyticsRuntimeModule final : public AutoRuntimeModule<AnalyticsRuntimeMo
                ModuleCommandResponse response;
                response.Success = true;
                response.Body = JsonBuilder()
-                    .Add("module", "analytics")
-                    .Add("message", "Analytics flush scheduled.")
-                    .ToString();
+                                    .Add("module", "analytics")
+                                    .Add("message", "Analytics flush scheduled.")
+                                    .ToString();
                return response;
           }
 
