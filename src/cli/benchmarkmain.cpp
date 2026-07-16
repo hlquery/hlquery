@@ -226,12 +226,16 @@ static std::pair<double, double> FakeBenchmarkCollectionCenter(const std::string
      static const std::unordered_map<std::string, std::pair<double, double>> centers = {
           {"art", {40.7614, -73.9776}},
           {"books", {42.3601, -71.0589}},
+          {"ecommerce", {47.6062, -122.3321}},
+          {"fashion", {48.8566, 2.3522}},
+          {"finance", {40.7069, -74.0113}},
           {"food", {40.7306, -73.9352}},
           {"history", {38.8895, -77.0353}},
           {"math", {42.3736, -71.1097}},
           {"movies", {34.0522, -118.2437}},
           {"music", {36.1627, -86.7816}},
           {"people", {41.8781, -87.6298}},
+          {"saas", {37.7749, -122.4194}},
           {"science", {37.7749, -122.4194}},
           {"sports", {39.9526, -75.1652}},
           {"stocks", {40.7069, -74.0113}},
@@ -267,12 +271,16 @@ static std::string BuildFakeBenchmarkLocationName(const std::string &collection)
      static const std::unordered_map<std::string, std::string> names = {
           {"art", "New York gallery district"},
           {"books", "Boston reading district"},
+          {"ecommerce", "Seattle ecommerce district"},
+          {"fashion", "Paris fashion district"},
+          {"finance", "New York financial district"},
           {"food", "New York restaurant district"},
           {"history", "Washington monument district"},
           {"math", "Cambridge academic district"},
           {"movies", "Los Angeles studio district"},
           {"music", "Nashville music district"},
           {"people", "Chicago community district"},
+          {"saas", "San Francisco software district"},
           {"science", "San Francisco research district"},
           {"sports", "Philadelphia stadium district"},
           {"stocks", "New York financial district"},
@@ -1009,6 +1017,24 @@ static const std::unordered_map<std::string, std::vector<FakeSynonymSeed>> kFake
            {"author", {"writer", "novelist", "essayist", "editor"}},
            {"story", {"narrative", "plot", "chapter", "series"}},
       }},
+     {"ecommerce",
+      {
+           {"store", {"shop", "marketplace", "catalog", "retailer"}},
+           {"product", {"item", "listing", "sku", "merchandise"}},
+           {"checkout", {"cart", "payment", "purchase", "order"}},
+      }},
+     {"fashion",
+      {
+           {"fashion", {"style", "apparel", "clothing", "wardrobe"}},
+           {"outfit", {"look", "ensemble", "attire", "clothes"}},
+           {"designer", {"brand", "label", "couturier", "maker"}},
+      }},
+     {"finance",
+      {
+           {"finance", {"banking", "capital", "money", "funding"}},
+           {"investment", {"asset", "holding", "allocation", "position"}},
+           {"payment", {"transaction", "transfer", "settlement", "remittance"}},
+      }},
      {"food",
       {
            {"food", {"dish", "meal", "plate", "course"}},
@@ -1038,6 +1064,12 @@ static const std::unordered_map<std::string, std::vector<FakeSynonymSeed>> kFake
            {"person", {"individual", "profile", "contact", "name"}},
            {"biography", {"bio", "profile", "background", "summary"}},
            {"occupation", {"profession", "career", "role", "work"}},
+      }},
+     {"saas",
+      {
+           {"software", {"platform", "application", "service", "product"}},
+           {"subscription", {"plan", "billing", "license", "membership"}},
+           {"customer", {"account", "tenant", "user", "client"}},
       }},
      {"music",
       {
@@ -1094,6 +1126,9 @@ static const std::unordered_map<std::string, std::vector<FakeSynonymSeed>> kFake
 static const std::unordered_map<std::string, std::vector<std::string>> kFakeCollectionStopwordProfiles = {
      {"art", {"art", "studio", "artwork", "creative"}},
      {"books", {"reader", "page", "literary", "review"}},
+     {"ecommerce", {"catalog", "cart", "shipping", "retail"}},
+     {"fashion", {"collection", "season", "runway", "garment"}},
+     {"finance", {"account", "ledger", "currency", "transaction"}},
      {"food", {"menu", "ingredient", "kitchen", "flavor"}},
      {"history", {"era", "museum", "source", "heritage"}},
      {"math", {"math", "numeric", "logic", "sequence"}},
@@ -1101,6 +1136,7 @@ static const std::unordered_map<std::string, std::vector<std::string>> kFakeColl
      {"movies", {"cinema", "screen", "audience", "theater"}},
      {"people", {"community", "fictional", "identity", "background"}},
      {"music", {"audio", "stage", "genre", "concert"}},
+     {"saas", {"tenant", "dashboard", "workflow", "subscription"}},
      {"science", {"method", "lab", "data", "theory"}},
      {"sports", {"score", "venue", "training", "season"}},
      {"technology", {"tech", "system", "infrastructure", "interface"}},
@@ -1360,6 +1396,10 @@ bool CreateFakeCollections(const std::string &base_url, const std::string &auth_
           {"science", {"research", "experiment", "physics", "biology", "chemistry", "astronomy", "lab", "discovery", "theory", "data"}},
           {"history", {"era", "archive", "ancient", "modern", "war", "empire", "documentary", "timeline", "heritage", "biography"}},
           {"technology", {"software", "hardware", "ai", "network", "security", "startup", "gadget", "cloud", "robotics", "mobile"}},
+          {"saas", {"subscription", "tenant", "onboarding", "billing", "analytics", "automation", "integration", "dashboard", "retention", "workflow"}},
+          {"finance", {"banking", "investment", "portfolio", "payment", "credit", "insurance", "budget", "lending", "wealth", "compliance"}},
+          {"fashion", {"apparel", "designer", "runway", "streetwear", "accessories", "footwear", "collection", "sustainable", "luxury", "seasonal"}},
+          {"ecommerce", {"product", "catalog", "checkout", "marketplace", "shipping", "inventory", "order", "conversion", "storefront", "retail"}},
           {"math", {"algebra", "geometry", "calculus", "probability", "prime", "matrix", "vector", "theorem", "equation", "integral"}},
           {"stocks", {"spy", "qqq", "dia", "iwm", "tlt", "gld", "uso", "aapl", "msft", "nvda"}},
           {"universities", {"california", "michigan", "ohio", "texas", "washington", "florida", "illinois", "georgia", "pennsylvania", "massachusetts"}},
@@ -1504,7 +1544,8 @@ bool CreateFakeCollections(const std::string &base_url, const std::string &auth_
                LogOutput("  ↳ Collection '" + collection_name + "' is ready; importing fake documents...\n");
           }
 
-          const size_t docs_to_create = spec.Name == "universities" ? GetUniversityBenchmarkSeeds().size() : ((spec.Name == "people" || spec.Name == "anomalies") ? 100U : 10U);
+          const bool is_fifty_item_collection = spec.Name == "saas" || spec.Name == "finance" || spec.Name == "fashion" || spec.Name == "ecommerce";
+          const size_t docs_to_create = spec.Name == "universities" ? GetUniversityBenchmarkSeeds().size() : ((spec.Name == "people" || spec.Name == "anomalies") ? 100U : (is_fifty_item_collection ? 50U : 10U));
           std::vector<std::tuple<std::string, std::string, std::string>> docs;
           docs.reserve(docs_to_create);
           std::vector<nlohmann::json> enriched_docs;
@@ -2424,7 +2465,7 @@ static void PrintBenchmarkHelp(const char *program_name)
                << "                    and functionalities (includes --advanced)\n"
                << "  --Search           Run search benchmark on previously inserted data\n"
                << "  --dump             Dump all collections and their documents\n"
-               << "  --fake             Insert realistic sample data plus local/global synonyms and stopwords for testing\n"
+               << "  --fake             Insert realistic sample data, including 50-item SaaS, finance, fashion, and ecommerce collections\n"
                << "  --flood            Flood server with continuous random data generation for stress testing\n"
                << "                    (runs until stopped with Ctrl+C, randomly creates collections and documents)\n"
                << "  --id ID            Run UUID/ID for correlation (default: auto-generated)\n"
