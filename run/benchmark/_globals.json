@@ -1,0 +1,7 @@
+{
+  "synonyms": [
+    {"id": "benchmark_global_demo", "root": "demo", "synonyms": ["sample", "fixture", "synthetic"]},
+    {"id": "benchmark_global_guide", "root": "guide", "synonyms": ["tutorial", "walkthrough", "reference"]}
+  ],
+  "stopwords": ["benchmark", "collection", "document", "content", "inserted"]
+}

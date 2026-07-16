@@ -1,0 +1,5 @@
+{
+  "collection":"music","count":10,"tags":["album","artist","live","studio","playlist","symphony","jazz","rock","pop","indie"],
+  "content_template":"Document {index} in Collection music profiles a {tag} artist band song album and live studio recording. Lorem ipsum dolor sit amet consectetur adipiscing elit inserted by benchmark thread.",
+  "synonyms":[{"id":"music_syn_music","root":"music","synonyms":["song","melody","track","tune"]}]
+}

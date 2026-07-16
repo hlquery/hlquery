@@ -1,0 +1,7 @@
+{
+  "collection": "anomalies",
+  "count": 100,
+  "tags": ["telemetry", "security", "business", "external", "rollback", "fraud", "audit", "outlier", "baseline"],
+  "content_template": "Document {index} in Collection anomalies contains {tag} telemetry. The observed signal is a synthetic anomaly outlier compared with the expected baseline. Lorem ipsum dolor sit amet consectetur adipiscing elit inserted by benchmark thread.",
+  "stopwords": ["the", "and"]
+}

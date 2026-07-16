@@ -1,0 +1,10 @@
+{
+  "collection":"universities","count":100,
+  "tags":["engineering","computer science","public research","student admissions","faculty","cambridge boston","greater boston","bay area","twin cities"],
+  "fields":[{"name":"state","type":"string"},{"name":"city","type":"string"},{"name":"city_aliases","type":"string"},{"name":"institution_type","type":"string"},{"name":"rank","type":"int32"},{"name":"rank_signal","type":"float"},{"name":"webometrics_world_rank","type":"int32"}],
+  "default_sorting_field":"webometrics_world_rank",
+  "metadata":{"_rank_field":"webometrics_world_rank","_rank_order":"asc","_rank_scope":"benchmark","_rank_edition":"January 2026"},
+  "document_defaults":{"state":"Massachusetts","city":"Cambridge","city_aliases":"Cambridge | Boston | Greater Boston | Bay Area | Twin Cities","institution_type":"research_university"},
+  "sequence_fields":{"rank":{"start":1,"step":1,"integer":true},"rank_signal":{"start":1,"step":-0.01},"webometrics_world_rank":{"start":1,"step":1,"integer":true}},
+  "content_template":"Document {index} in Collection universities profiles a {tag} university campus with research faculty student admissions in Cambridge Boston Greater Boston Bay Area and Twin Cities."
+}

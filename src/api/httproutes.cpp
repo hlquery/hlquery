@@ -269,6 +269,8 @@ static const std::unordered_map<std::string_view, RouteAction> &GetExactPostRout
           {"/links/disconnect", RouteAction::LinksDisconnect},
           {"/loadmodule", RouteAction::ModuleLoad},
           {"/multi_search", RouteAction::MultiSearch},
+          {"/modules/load", RouteAction::ModuleLoad},
+          {"/modules/unload", RouteAction::ModuleUnload},
           {"/repair", RouteAction::Repair},
           {"/search", RouteAction::GlobalSearch},
           {"/sql", RouteAction::DocumentSearch},
@@ -331,31 +333,37 @@ RouteAction ResolveHttpRoute(const HttpRequest &Request)
                return ExactAction;
           }
 
-          if (PrefixRoute(Path, Method, "/loadmodule/", {"POST"}))
+          if (SingleChildRoute(Path, Method, "/loadmodule/", {"POST"}))
           {
                return RouteAction::ModuleLoad;
           }
 
-          if (PrefixRoute(Path, Method, "/unloadmodule/", {"POST"}))
+          if (SingleChildRoute(Path, Method, "/unloadmodule/", {"POST"}))
           {
                return RouteAction::ModuleUnload;
           }
 
           if (PrefixRoute(Path, Method, "/modules/", {"GET", "POST", "PUT", "DELETE", "PATCH"}))
           {
-               if (Path.rfind("/syntax") == Path.size() - 7 && Method == "GET")
+               const std::vector<std::string_view> ModuleSegments = SplitRouteSegments(Path);
+
+               if (ModuleSegments.size() == 3 && ModuleSegments[2] == "syntax" && Method == "GET")
                {
                     return RouteAction::GetModuleSyntax;
                }
 
-               if (PrefixRoute(Path, Method, "/modules/load/", {"POST"}))
+               if (Path.rfind("/modules/load/", 0) == 0 && Method == "POST")
                {
-                    return RouteAction::ModuleLoad;
+                    return SingleChildRoute(Path, Method, "/modules/load/", {"POST"})
+                                ? RouteAction::ModuleLoad
+                                : RouteAction::NotFound;
                }
 
-               if (PrefixRoute(Path, Method, "/modules/unload/", {"POST"}))
+               if (Path.rfind("/modules/unload/", 0) == 0 && Method == "POST")
                {
-                    return RouteAction::ModuleUnload;
+                    return SingleChildRoute(Path, Method, "/modules/unload/", {"POST"})
+                                ? RouteAction::ModuleUnload
+                                : RouteAction::NotFound;
                }
 
                return RouteAction::ModuleAPI;

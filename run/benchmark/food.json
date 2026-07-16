@@ -1,0 +1,6 @@
+{
+  "collection":"food","count":10,
+  "tags":["recipe","cuisine","flavor","restaurant","dessert","spice","vegan","grill","street","seasonal"],
+  "fields":[{"name":"ingredients","type":"string"},{"name":"cuisine","type":"string"},{"name":"dish","type":"string"}],
+  "document_defaults":{"ingredients":"olive oil | sea salt | garlic","cuisine":"benchmark cuisine","dish":"{tag} dish"}
+}

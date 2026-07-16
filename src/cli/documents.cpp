@@ -846,7 +846,7 @@ void HLQueryCLI::SearchDocuments(const std::string &collection_name, const std::
 
           std::string path = "/collections/" + collection_name + "/documents/search";
 
-          std::string fields_to_search = "title,content";
+          std::string fields_to_search = highlight_fields.empty() ? "title,content" : highlight_fields;
 
           std::string query_string = "q=" + hlquery_cli::UrlEncode(query) + "&limit=" + std::to_string(page_limit) + "&offset=" + std::to_string(current_offset);
 
@@ -1677,7 +1677,13 @@ void HLQueryCLI::SearchAcrossCollections(const std::string &query, const std::ve
 
           std::string query_string = "q=" + hlquery_cli::UrlEncode(query) + "&limit=" + std::to_string(page_limit) + "&offset=" + std::to_string(current_offset);
 
-          query_string += "&query_by=" + hlquery_cli::UrlEncode("title,content");
+          /* Global collections often have different schemas. Let the server search
+           * each collection's searchable fields unless --fields was supplied. */
+
+          if (!highlight_fields.empty())
+          {
+               query_string += "&query_by=" + hlquery_cli::UrlEncode(highlight_fields);
+          }
 
           if (!sort.empty())
           {

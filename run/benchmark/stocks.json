@@ -1,0 +1,6 @@
+{
+  "collection":"stocks","count":10,"tags":["SPY","QQQ","DIA","IWM","TLT","GLD","USO","AAPL","MSFT","NVDA"],
+  "fields":[{"name":"ticker","type":"string"},{"name":"cashtag","type":"string"},{"name":"asset_class","type":"string"},{"name":"watchlist","type":"string"},{"name":"source","type":"string"}],
+  "document_defaults":{"ticker":"{tag}","cashtag":"${tag}","asset_class":"synthetic_asset","watchlist":"stocks tickers cashtags finance demo","source":"synthetic_demo_news"},
+  "content_template":"Document {index} in Collection stocks is a synthetic market note for ${tag}, ticker {tag}, cashtag ${tag}, portfolio and finance search testing."
+}

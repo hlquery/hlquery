@@ -1,0 +1,7 @@
+{
+  "collection": "books",
+  "count": 10,
+  "tags": ["novel", "fiction", "author", "series", "paperback", "fantasy", "mystery", "classic"],
+  "content_template": "Document {index} in Collection books is a {tag} book and literary story profile for readers and authors. Lorem ipsum dolor sit amet consectetur adipiscing elit inserted by benchmark thread.",
+  "synonyms": [{"id":"books_syn_book","root":"book","synonyms":["novel","volume","paperback","title"]}]
+}

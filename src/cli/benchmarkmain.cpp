@@ -28,6 +28,7 @@
 #include <vendor/json/json.hpp>
 
 #include "benchmarkclient.h"
+#include "benchmarkfixtures.h"
 #include "runtime/clock.h"
 
 /* Signal and stat helpers. */
@@ -1266,6 +1267,12 @@ static std::string BuildCollectionSynonymDocHint(const std::string &collection_n
 
 bool CreateFakeCollections(const std::string &base_url, const std::string &auth_token, bool reuse_collections, bool verbose)
 {
+     const BenchmarkFixtureLoadResult fixture_result = LoadBenchmarkFixtures(base_url, auth_token, reuse_collections, verbose);
+     if (fixture_result != BenchmarkFixtureLoadResult::NotFound)
+     {
+          return fixture_result == BenchmarkFixtureLoadResult::Loaded;
+     }
+
      static const std::unordered_map<std::string, std::vector<RealDocSeed>> RealSeeds = {
           {"books",
            {
@@ -2465,7 +2472,8 @@ static void PrintBenchmarkHelp(const char *program_name)
                << "                    and functionalities (includes --advanced)\n"
                << "  --Search           Run search benchmark on previously inserted data\n"
                << "  --dump             Dump all collections and their documents\n"
-               << "  --fake             Insert realistic sample data, including 50-item SaaS, finance, fashion, and ecommerce collections\n"
+               << "  --fake             Load sample collections from run/benchmark/*.json\n"
+               << "                    (override directory with HLQUERY_BENCHMARK_DIR)\n"
                << "  --flood            Flood server with continuous random data generation for stress testing\n"
                << "                    (runs until stopped with Ctrl+C, randomly creates collections and documents)\n"
                << "  --id ID            Run UUID/ID for correlation (default: auto-generated)\n"
@@ -2492,6 +2500,8 @@ int main(int argc, char *argv[])
 {
      try
      {
+          SetBenchmarkFixtureExecutable(argc > 0 && argv[0] != nullptr ? argv[0] : "");
+
           /* Install signal handlers to allow graceful shutdown. */
 
           signal(SIGINT, BenchmarkSignalHandler);

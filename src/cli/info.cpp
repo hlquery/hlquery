@@ -695,7 +695,7 @@ void HLQueryCLI::ShowHelp()
      std::cout << "    docs <collection> [offset] [limit]  List documents (default: 10k).\n";
      std::cout << "    search <col> <query> [limit] [offset] [sort] [--all] [--exact] [--highlight] [--fields=field1,field2] [--maybe=min,limit] [--json].\n";
      std::cout << "    search --all <query> [limit] [offset] [sort] [--exact] [--highlight] [--collections=col1,col2] [--fields=field1,field2] [--maybe=min,limit] [--json].\n";
-     std::cout << "          Limit/offset/sort control pagination, --exact prioritizes exact matches, --highlight prints snippets, --fields shows specific columns, and --maybe adds suggestions when results are below min.\n";
+     std::cout << "          Limit/offset/sort apply to the merged page; --exact prioritizes exact matches, --highlight prints snippets, --fields limits query/highlight fields, and --maybe adds suggestions when results are below min.\n";
      std::cout << "          Without --all, search stays local to the selected server. Use --all to fan out across cluster search nodes only; slaves configured for replication are not query targets here.\n";
      std::cout << "    vector-search <col> <vector> [field] [limit] [--json].\n";
      std::cout << "          Run vector similarity search against one collection (default field: embedding).\n";

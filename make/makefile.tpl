@@ -428,7 +428,7 @@ prepare:
 	@$(MAKE) --no-print-directory prune-disabled-extra-modules
 	@mkdir -p $(OBJ_DIR) $(BIN_DIR)
 	@mkdir -p $(OBJ_DIR)/core $(OBJ_DIR)/runtime $(OBJ_DIR)/utils $(OBJ_DIR)/api $(OBJ_DIR)/search $(OBJ_DIR)/sql $(OBJ_DIR)/socketengines $(OBJ_DIR)/timers $(OBJ_DIR)/cli $(OBJ_DIR)/talk $(OBJ_DIR)/modules $(OBJ_DIR)/vendor/fmt $(OBJ_DIR)/vendor/sha2 $(OBJ_DIR)/vendor/md5
-	@mkdir -p $(RUN_DIR)/bin $(RUN_DIR)/conf $(RUN_DIR)/data $(RUN_DIR)/logs $(RUN_DIR)/modules $(RUN_DIR)/pid
+	@mkdir -p $(RUN_DIR)/benchmark $(RUN_DIR)/bin $(RUN_DIR)/conf $(RUN_DIR)/data $(RUN_DIR)/logs $(RUN_DIR)/modules $(RUN_DIR)/pid
 	@mkdir -p $(INC_DIR)
 	@# Fix permissions for Docker volume mounts - ensure entire build tree is writable
 	@if [ -d "$(OBJ_DIR)" ]; then \
@@ -678,7 +678,7 @@ $(OBJ_DIR)/vendor/md5/md5.o: $(VENDOR_DIR)/md5/md5.c | $(OBJ_DIR)
 
 -include $(DEPS)
 
-.PHONY: all build-products prepare rocksdb-check rocksdb-preflight rocksdb-smoke binary-compat-check prune-disabled-extra-modules test clean install uninstall debug create_ssl help build-info synonyms-sync synonyms-check package package-all package-deb package-rpm
+.PHONY: all build-products prepare rocksdb-check rocksdb-preflight rocksdb-smoke binary-compat-check prune-disabled-extra-modules test test-http-routes clean install uninstall debug create_ssl help build-info synonyms-sync synonyms-check package package-all package-deb package-rpm
 
 prune-disabled-extra-modules:
 	@mkdir -p $(RUN_DIR)/modules
@@ -762,6 +762,7 @@ install:
 			exit 1; \
 		fi
 	@$(INSTALL) -d "$(STAGED_RUN_DIR)/bin"
+	@$(INSTALL) -d "$(STAGED_RUN_DIR)/benchmark"
 	@$(INSTALL) -d "$(STAGED_RUN_DIR)/modules"
 	@$(INSTALL) -d "$(STAGED_RUN_DIR)"
 	@$(INSTALL) -m 0755 $(BIN_DIR)/hlquery "$(STAGED_RUN_DIR)/bin/hlquery"
@@ -771,6 +772,9 @@ install:
 	fi
 	@if [ -f "$(BIN_DIR)/hlquery-talk" ]; then \
 		$(INSTALL) -m 0755 $(BIN_DIR)/hlquery-talk "$(STAGED_RUN_DIR)/bin/hlquery-talk"; \
+	fi
+	@if [ -d "$(RUN_DIR)/benchmark" ] && { [ "$(STAGED_RUN_DIR)" != "$(RUN_DIR)" ] || [ -n "$(DESTDIR)" ]; }; then \
+		cp -R "$(RUN_DIR)/benchmark/." "$(STAGED_RUN_DIR)/benchmark/"; \
 	fi
 	@if [ -n "$(MODULE_LIBS)" ]; then \
 		if [ -z "$(DESTDIR)" ] && [ "$(STAGED_RUN_DIR)" = "$(RUN_DIR)" ]; then \
@@ -897,6 +901,7 @@ BENCHMARK_OBJ := $(CLI_SUPPORT_OBJS) \
                  $(OBJ_DIR)/cli/benchmarkmodes.o \
                  $(OBJ_DIR)/cli/benchmarkreport.o \
                  $(OBJ_DIR)/cli/benchmarkdata.o \
+                 $(OBJ_DIR)/cli/benchmarkfixtures.o \
                  $(OBJ_DIR)/cli/benchmarkmain.o \
                  $(OBJ_DIR)/cli/modules.o \
                  $(OBJ_DIR)/runtime/exitmanager.o
@@ -959,7 +964,16 @@ build-products: $(BIN_DIR)/hlquery $(BIN_DIR)/hlquery-cli $(BIN_DIR)/hlquery-ben
 
 # UTILITY TARGETS
 
-test: rocksdb-smoke
+HTTP_ROUTES_TEST_BIN := build/test/http_routes
+
+$(HTTP_ROUTES_TEST_BIN): tests/http_routes.cpp src/api/httproutes.cpp
+	@mkdir -p $(dir $@)
+	$(CXX) $(CONFIGURE_CXXFLAGS) -std=c++20 -Iinclude -Iinclude/common -I. -Isrc -Ivendor -Ibuild/include $^ -o $@
+
+test-http-routes: $(HTTP_ROUTES_TEST_BIN)
+	@$(HTTP_ROUTES_TEST_BIN)
+
+test: rocksdb-smoke test-http-routes
 	@if [ -x "$(RUN_DIR)/test/run_tests.sh" ]; then \
 		"$(RUN_DIR)/test/run_tests.sh"; \
 	else \
@@ -1067,6 +1081,10 @@ install-system: all
 	@if [ -d "run/conf" ]; then \
 		$(INSTALL) -d "$(DESTDIR)$(CONFDIR)"; \
 		cp -r run/conf/* "$(DESTDIR)$(CONFDIR)/"; \
+	fi
+	@if [ -d "run/benchmark" ]; then \
+		$(INSTALL) -d "$(DESTDIR)$(PREFIX)/share/hlquery/benchmark"; \
+		cp -R run/benchmark/. "$(DESTDIR)$(PREFIX)/share/hlquery/benchmark/"; \
 	fi
 	@if [ -n "$(SYSTEMD_UNIT_DIR)" ] && [ -f "etc/package-builder/hlquery.service" ]; then \
 		$(INSTALL) -d "$(DESTDIR)$(SYSTEMD_UNIT_DIR)"; \

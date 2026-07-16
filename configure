@@ -217,7 +217,7 @@ my %config = (
 sub create_required_directories {
     # Runtime directories (in project root)
     my @runtime_dirs = qw(
-        run/admin run/bin run/conf run/data run/logs
+        run/admin run/benchmark run/bin run/conf run/data run/logs
         run/pid run/ssl
     );
     

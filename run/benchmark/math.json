@@ -1,0 +1,7 @@
+{
+  "collection":"math","count":10,"tags":["algebra","geometry","calculus","probability","prime","matrix","vector","theorem","equation","integral"],
+  "fields":[{"name":"topic","type":"string"},{"name":"value","type":"float"},{"name":"equation_index","type":"int32"}],
+  "default_sorting_field":"value",
+  "document_defaults":{"topic":"{tag}"},
+  "sequence_fields":{"value":{"start":11,"step":11},"equation_index":{"start":7,"step":7,"integer":true}}
+}

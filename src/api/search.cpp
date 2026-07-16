@@ -2217,6 +2217,42 @@ HttpResponse SearchAPI::HandleGlobalSearch(const HttpRequest &Request)
           RequestedCollections.push_back(SQLApplyResult.Collection);
      }
 
+     /* Treat the documented all-collection selectors as an unrestricted target set.
+      * This keeps GET collection=*, JSON collections:["*"], and the CLI --all
+      * behavior consistent without requiring callers to omit the field entirely. */
+
+     if (!RequestedCollections.empty())
+     {
+          bool SelectAllCollections = false;
+          for (const auto &Collection : RequestedCollections)
+          {
+               std::string Selector = Collection;
+               Selector.erase(Selector.begin(), std::find_if(Selector.begin(), Selector.end(), [](unsigned char Ch)
+                                                            { return !std::isspace(Ch); }));
+               Selector.erase(std::find_if(Selector.rbegin(), Selector.rend(), [](unsigned char Ch)
+                                           { return !std::isspace(Ch); })
+                                   .base(),
+                              Selector.end());
+               std::transform(Selector.begin(), Selector.end(), Selector.begin(), [](unsigned char Ch)
+                              { return static_cast<char>(std::tolower(Ch)); });
+
+               if (Selector == "*" || Selector == "all")
+               {
+                    SelectAllCollections = true;
+                    break;
+               }
+          }
+
+          if (SelectAllCollections)
+          {
+               RequestedCollections.clear();
+               if (!SQLApplyResult.Collection.empty())
+               {
+                    RequestedCollections.push_back(SQLApplyResult.Collection);
+               }
+          }
+     }
+
      const bool UseDistributedCollections = ShouldAttemptDistributedSearch(Request) &&
                                             ParseTruthyFlag(Params, "distributed_collections", false);
      const auto AvailableCollections = HybridStorageManagerInstance().ListCollections();
@@ -2307,6 +2343,22 @@ HttpResponse SearchAPI::HandleGlobalSearch(const HttpRequest &Request)
 
      ComprehensiveSearchQuery BaseQuery = ParseComprehensiveSearchQuery(Params);
 
+     const std::size_t GlobalPerPage = static_cast<std::size_t>(std::max(1, BaseQuery.PerPage));
+     const std::size_t GlobalOffset = BaseQuery.Offset > 0
+                                          ? static_cast<std::size_t>(BaseQuery.Offset)
+                                          : static_cast<std::size_t>(std::max(0, BaseQuery.Page - 1)) * GlobalPerPage;
+     constexpr std::size_t MaxGlobalResultWindow = 10000;
+
+     if (GlobalOffset > MaxGlobalResultWindow || GlobalPerPage > MaxGlobalResultWindow - GlobalOffset)
+     {
+          return BuildErrorResponse(Status::BAD_REQUEST,
+                                    Code::SEARCH_INVALID_PARAMETER,
+                                    "Global search result window is too large.",
+                                    "offset + limit/per_page must not exceed 10000 for cross-collection search.");
+     }
+
+     const std::size_t MergeWindow = GlobalOffset + GlobalPerPage;
+
      const size_t MaxQueryBytes = 8192;
      const size_t MaxFilterBytes = 8192;
      const size_t MaxFieldBytes = 128;
@@ -2345,10 +2397,13 @@ HttpResponse SearchAPI::HandleGlobalSearch(const HttpRequest &Request)
      std::map<std::string, std::map<std::string, int>> FacetCounts;
      bool IndexingInProgress = false;
      bool PartialResults = false;
-     float MaxSearchTime = 0.0f;
      size_t ExecutedCollections = 0;
+     std::vector<std::string> ExecutedCollectionNames;
+     std::uint64_t TotalFound = 0;
+     std::uint64_t TotalOutOf = 0;
      std::string DistributedError;
      std::vector<std::map<std::string, std::string>> GlobalDistributedDiagnostics;
+     const auto GlobalSearchStart = Instance->Now();
 
      /* Execute one collection at a time, then merge hits and facet counts into a global view. */
 
@@ -2356,6 +2411,28 @@ HttpResponse SearchAPI::HandleGlobalSearch(const HttpRequest &Request)
      {
           ComprehensiveSearchQuery QueryForCollection = BaseQuery;
           QueryForCollection.AllowScanFallback = (TargetCollections.size() == 1);
+
+          /* Fetch each collection's leading merge window. Applying the caller's
+           * page/offset inside every collection and again after merging loses
+           * globally top-ranked hits and produces incorrect deep pages. */
+
+          QueryForCollection.Page = 1;
+          QueryForCollection.Offset = 0;
+          QueryForCollection.PerPage = static_cast<int>(MergeWindow);
+
+          /* Collection-specific default sorts (for example a catalog rank) must
+           * not truncate candidates before the global score merge. Explicit
+           * caller sort rules are preserved; otherwise fetch by effective score. */
+
+          if (BaseQuery.SortBy.empty())
+          {
+               QueryForCollection.SortBy = {"_text_match:desc"};
+          }
+
+          if (!BaseQuery.FacetBy.empty())
+          {
+               QueryForCollection.MaxFacetValues = 1000;
+          }
 
           std::string FiltersToApply = Request.EmbeddedFilters;
 
@@ -2453,8 +2530,10 @@ HttpResponse SearchAPI::HandleGlobalSearch(const HttpRequest &Request)
 
           IndexingInProgress = IndexingInProgress || CollectionResult.IndexingInProgress;
           PartialResults = PartialResults || CollectionResult.PartialResults;
-          MaxSearchTime = std::max(MaxSearchTime, CollectionResult.SearchTimeMS);
           ExecutedCollections++;
+          ExecutedCollectionNames.push_back(CollectionName);
+          TotalFound += static_cast<std::uint64_t>(std::max(0, CollectionResult.Found));
+          TotalOutOf += static_cast<std::uint64_t>(std::max(0, CollectionResult.OutOf));
      }
 
      /* Strict distributed mode only succeeds when at least one remote-capable execution completed. */
@@ -2466,6 +2545,14 @@ HttpResponse SearchAPI::HandleGlobalSearch(const HttpRequest &Request)
                                     Code::SEARCH_INVALID_PARAMETER,
                                     "Distributed search unavailable.",
                                     Details);
+     }
+
+     if (ExecutedCollections == 0)
+     {
+          return BuildErrorResponse(Status::NOT_FOUND,
+                                    Code::COLLECTION_NOT_FOUND,
+                                    "Collection not found.",
+                                    "No requested collections were accessible for global search.");
      }
 
      /* Global hit ordering uses explicit sort rules first, then normalized search scores. */
@@ -2492,29 +2579,23 @@ HttpResponse SearchAPI::HandleGlobalSearch(const HttpRequest &Request)
      {
           GlobalResult.PartialReason = "one_or_more_collections_partial";
      }
-     GlobalResult.SearchTimeMS = MaxSearchTime;
+     GlobalResult.SearchTimeMS = std::chrono::duration<float, std::milli>(Instance->Now() - GlobalSearchStart).count();
      GlobalResult.DistributedDiagnostics = std::move(GlobalDistributedDiagnostics);
-     GlobalResult.OutOf = (AllHits.size() > static_cast<std::size_t>(std::numeric_limits<int>::max()))
+     GlobalResult.OutOf = TotalOutOf > static_cast<std::uint64_t>(std::numeric_limits<int>::max())
                                ? std::numeric_limits<int>::max()
-                               : static_cast<int>(AllHits.size());
-     GlobalResult.Found = GlobalResult.OutOf;
-
-     const std::size_t PageIndex = static_cast<std::size_t>(GlobalResult.Page - 1);
-     const std::size_t PerPageSize = static_cast<std::size_t>(GlobalResult.PerPage);
+                               : static_cast<int>(TotalOutOf);
+     GlobalResult.Found = TotalFound > static_cast<std::uint64_t>(std::numeric_limits<int>::max())
+                              ? std::numeric_limits<int>::max()
+                              : static_cast<int>(TotalFound);
 
      /* Pagination is applied after the full merged result set has been sorted. */
 
-     if (PageIndex <= (std::numeric_limits<std::size_t>::max() / PerPageSize))
+     if (GlobalOffset < AllHits.size())
      {
-          const std::size_t Start = PageIndex * PerPageSize;
-
-          if (Start < AllHits.size())
-          {
-               const std::size_t End = std::min(AllHits.size(), Start + PerPageSize);
-               GlobalResult.Hits.insert(GlobalResult.Hits.end(),
-                                        AllHits.begin() + static_cast<std::vector<SearchHit>::difference_type>(Start),
-                                        AllHits.begin() + static_cast<std::vector<SearchHit>::difference_type>(End));
-          }
+          const std::size_t End = std::min(AllHits.size(), GlobalOffset + GlobalPerPage);
+          GlobalResult.Hits.insert(GlobalResult.Hits.end(),
+                                   AllHits.begin() + static_cast<std::vector<SearchHit>::difference_type>(GlobalOffset),
+                                   AllHits.begin() + static_cast<std::vector<SearchHit>::difference_type>(End));
      }
 
      for (const auto &FacetPair : FacetCounts)
@@ -2528,12 +2609,32 @@ HttpResponse SearchAPI::HandleGlobalSearch(const HttpRequest &Request)
                Count.Count = CountPair.second;
                Result.Counts.push_back(Count);
           }
+
+          std::stable_sort(Result.Counts.begin(), Result.Counts.end(), [](const FacetCount &A, const FacetCount &B)
+                           {
+                                if (A.Count != B.Count)
+                                {
+                                     return A.Count > B.Count;
+                                }
+                                return A.Value < B.Value;
+                           });
+          if (Result.Counts.size() > static_cast<std::size_t>(BaseQuery.MaxFacetValues))
+          {
+               Result.Counts.resize(static_cast<std::size_t>(BaseQuery.MaxFacetValues));
+          }
           GlobalResult.Facets[FacetPair.first] = Result;
      }
 
      HttpResponse Response(Status::OK, StatusText(Status::OK), "application/json");
      Response.Headers["X-HLQ-Execution-Mode"] = ShouldAttemptDistributedSearch(Request) ? "distributed-global" : "global";
-     Response.Body = GenerateComprehensiveSearchResponse(GlobalResult, BaseQuery);
+     nlohmann::json ResponseJSON = nlohmann::json::parse(GenerateComprehensiveSearchResponse(GlobalResult, BaseQuery));
+     ResponseJSON["offset"] = GlobalOffset;
+     ResponseJSON["page"] = (GlobalOffset / GlobalPerPage) + 1;
+     ResponseJSON["has_prev_page"] = GlobalOffset > 0;
+     ResponseJSON["has_next_page"] = GlobalOffset + GlobalResult.Hits.size() < TotalFound;
+     ResponseJSON["searched_collection_count"] = ExecutedCollectionNames.size();
+     ResponseJSON["searched_collections"] = ExecutedCollectionNames;
+     Response.Body = ResponseJSON.dump();
      AttachSearchResponseMeta(Response, BaseQuery, Request, "*");
 
      /* Collection-search analytics report a wildcard collection because the scope is merged. */

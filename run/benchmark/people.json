@@ -1,0 +1,6 @@
+{
+  "collection":"people","count":100,"tags":["librarian","software engineer","urban planner","science teacher","curator","business owner","public health analyst","civil engineer","editor","food writer"],
+  "fields":[{"name":"first_name","type":"string"},{"name":"middle_name","type":"string"},{"name":"last_name","type":"string"},{"name":"full_name","type":"string"},{"name":"biography","type":"string"}],
+  "document_defaults":{"first_name":"Adrian","middle_name":"Alexis","last_name":"Anderson","full_name":"Adrian Alexis Anderson","biography":"A fictional biography for a {tag} and community profile."},
+  "content_template":"Adrian Alexis Anderson has a fictional biography as a {tag} working with the community. Document {index} in Collection people."
+}
