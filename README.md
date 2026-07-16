@@ -148,6 +148,10 @@ Official client libraries are available for popular programming languages:
 
 For complete API documentation, visit [docs.hlquery.com](https://docs.hlquery.com/).
 
+### Research Notes
+
+HLQuery keeps short citation-oriented design notes in [`etc/research`](etc/research/README.md). They map implementation areas such as BM25/BM25+ ranking, hybrid rank fusion, RocksDB Bloom/Ribbon filters, and daemon scheduling to the academic papers that motivate those choices.
+
 ### Create a Collection
 
 ```bash

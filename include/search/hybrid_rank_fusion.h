@@ -32,7 +32,7 @@ class HybridSearchEngine
 
      static float CombineScores(float LexicalScore, float VectorScore, float Alpha);
 
-     /* ReciprocalRankFusion combines results using RRF. */
+     /* ReciprocalRankFusion combines results using Cormack-Clarke-Buettcher RRF. */
 
      static float ReciprocalRankFusion(int LexicalRank, int VectorRank, int K = 60);
 };

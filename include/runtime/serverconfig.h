@@ -111,9 +111,17 @@ struct RocksDBOptions
 
      int BloomFilterBitsPerKey = 10;
 
-     /* Toggle bloom filter usage. */
+     /* Toggle table filter usage. */
 
      bool EnableBloomFilter = true;
+
+     /* Filter implementation: bloom or ribbon. */
+
+     std::string FilterPolicy = "bloom";
+
+     /* Level threshold for Ribbon hybrid mode; see RocksDB NewRibbonFilterPolicy. */
+
+     int RibbonBloomBeforeLevel = 0;
 
      /* WAL settings */
 

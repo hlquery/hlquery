@@ -2729,7 +2729,7 @@ int main(int argc, char *argv[])
                }
           }
 
-          PrintBenchmarkTitle("HLQuery Benchmark");
+          PrintBenchmarkTitle("hlquery Benchmark");
           PrintBenchmarkSection("Preflight");
 
           if (!skip_auth_check)

@@ -29,6 +29,9 @@ float HybridSearchEngine::CombineScores(float LexicalScore, float VectorScore, f
 
 /*
  * HybridSearchEngine::ReciprocalRankFusion - Merges ranked lists using reciprocal rank fusion.
+ *
+ * Based on Cormack, Clarke, and Buettcher, "Reciprocal Rank Fusion
+ * Outperforms Condorcet and Individual Rank Learning Methods", SIGIR 2009.
  */
 
 float HybridSearchEngine::ReciprocalRankFusion(int LexicalRank, int VectorRank, int K)

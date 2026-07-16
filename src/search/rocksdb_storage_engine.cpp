@@ -382,7 +382,14 @@ bool DBManager::Initialize()
 
                     if (rocksdb_opts.EnableBloomFilter)
                     {
-                         table_options.filter_policy.reset(rocksdb::NewBloomFilterPolicy(rocksdb_opts.BloomFilterBitsPerKey, false));
+                         if (rocksdb_opts.FilterPolicy == "ribbon")
+                         {
+                              table_options.filter_policy.reset(rocksdb::NewRibbonFilterPolicy(rocksdb_opts.BloomFilterBitsPerKey, rocksdb_opts.RibbonBloomBeforeLevel));
+                         }
+                         else
+                         {
+                              table_options.filter_policy.reset(rocksdb::NewBloomFilterPolicy(rocksdb_opts.BloomFilterBitsPerKey, false));
+                         }
                     }
 
                     table_options.block_cache = rocksdb::NewLRUCache(rocksdb_opts.BlockCacheSize);

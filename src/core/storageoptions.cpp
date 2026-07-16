@@ -198,8 +198,20 @@ RocksDBOptions RocksDBOptions::LoadFromConfigReader(const ConfigReader &ReaderIn
      OptionsResult.BlockCacheSize = RocksDBSettingsTag->GetSize("block_cache_size", OptionsResult.BlockCacheSize);
 
      OptionsResult.BloomFilterBitsPerKey = RocksDBSettingsTag->GetInt("bloom_filter_bits_per_key", OptionsResult.BloomFilterBitsPerKey);
+     OptionsResult.BloomFilterBitsPerKey = RocksDBSettingsTag->GetInt("bloom_filter_bits", OptionsResult.BloomFilterBitsPerKey);
 
      OptionsResult.EnableBloomFilter = RocksDBSettingsTag->GetBool("enable_bloom_filter", OptionsResult.EnableBloomFilter);
+
+     std::string FilterPolicyStr = RocksDBSettingsTag->GetString("filter_policy", OptionsResult.FilterPolicy);
+
+     std::transform(FilterPolicyStr.begin(), FilterPolicyStr.end(), FilterPolicyStr.begin(), ToLower);
+
+     if (FilterPolicyStr == "bloom" || FilterPolicyStr == "ribbon")
+     {
+          OptionsResult.FilterPolicy = FilterPolicyStr;
+     }
+
+     OptionsResult.RibbonBloomBeforeLevel = RocksDBSettingsTag->GetInt("ribbon_bloom_before_level", OptionsResult.RibbonBloomBeforeLevel);
 
      /* Configure Write-Ahead Log (WAL) parameters */
 
@@ -303,7 +315,7 @@ RocksDBOptions RocksDBOptions::LoadFromConfigReader(const ConfigReader &ReaderIn
                ThreadInfoStr += " [limited by global MaxThreads=" + std::to_string(GlobalMaxThreadsValue) + "]";
           }
 
-          Instance->Logs->Normal("rocksdb_config", "RocksDB options loaded: write_buffer=" + std::to_string(OptionsResult.WriteBufferSize / (1024 * 1024)) + "MB, " + "block_cache=" + std::to_string(OptionsResult.BlockCacheSize / (1024 * 1024)) + "MB, " + ThreadInfoStr + ", compression=" + OptionsResult.Compression + ".");
+          Instance->Logs->Normal("rocksdb_config", "RocksDB options loaded: write_buffer=" + std::to_string(OptionsResult.WriteBufferSize / (1024 * 1024)) + "MB, " + "block_cache=" + std::to_string(OptionsResult.BlockCacheSize / (1024 * 1024)) + "MB, " + ThreadInfoStr + ", compression=" + OptionsResult.Compression + ", filter_policy=" + OptionsResult.FilterPolicy + ".");
      }
 
      return OptionsResult;
