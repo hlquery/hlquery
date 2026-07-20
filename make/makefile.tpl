@@ -982,7 +982,7 @@ build-products: $(BIN_DIR)/hlquery $(BIN_DIR)/hlquery-cli $(BIN_DIR)/hlquery-ben
 
 module-linkage-check: $(BIN_DIR)/hlquery $(MODULE_LIBS)
 ifeq ($(OS_NAME),Linux)
-	@etc/scripts/module_linkage.sh check $(BIN_DIR)/hlquery $(MODULE_LIBS)
+	@etc/scripts/module_linkage.sh check $(BIN_DIR)/hlquery $(MODULE_EXPORT_ALLOWLIST) $(MODULE_LIBS)
 else
 	@echo "$(YELLOW)Module linkage validation is not available on $(OS_NAME); skipping.$(NC)"
 endif

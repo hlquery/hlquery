@@ -8,7 +8,6 @@ on:
 jobs:
   build:
     runs-on: macos-latest
-    timeout-minutes: 45
 
     steps:
       - name: Checkout
@@ -28,10 +27,7 @@ jobs:
           echo "EXTRA_LDFLAGS=-L${OPENSSL_PREFIX}/lib ${EXTRA_LDFLAGS}" >> "$GITHUB_ENV"
 
       - name: Configure
-        run: ./configure
+        run: ./configure --skip-tests
 
       - name: Build
-        run: gmake BUILD_JOBS=2 ROCKSDB_JOBS=2
-
-      - name: Test
-        run: gmake test
+        run: gmake

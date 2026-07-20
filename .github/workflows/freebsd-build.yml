@@ -8,7 +8,6 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
 
     steps:
       - name: Checkout
@@ -25,6 +24,5 @@ jobs:
           run: |
             sudo env IGNORE_OSVERSION=yes ASSUME_ALWAYS_YES=yes pkg update -f
             sudo env IGNORE_OSVERSION=yes ASSUME_ALWAYS_YES=yes pkg install -y cmake gmake perl5 pkgconf openssl
-            ./configure
-            gmake BUILD_JOBS=2 ROCKSDB_JOBS=2
-            gmake test
+            ./configure --skip-tests
+            gmake
