@@ -815,26 +815,26 @@ sub check_rocksdb_vendor {
     my $rocksdb_lib = catfile($rocksdb_dir, 'build', 'librocksdb.a');
 
     if (!-d $rocksdb_dir || !-f $rocksdb_cmake || !-f $rocksdb_include) {
-        print_error('Vendored RocksDB', 'missing or incomplete');
-        print_error('Expected RocksDB source', $rocksdb_dir);
-        die "Error: vendored RocksDB source is required under vendor/rocksdb\n";
+        print_error('Vendored rocksdb', 'missing or incomplete');
+        print_error('Expected rocksdb source', $rocksdb_dir);
+        die "Error: vendored rocksdb source is required under vendor/rocksdb\n";
     }
 
-    print_success('Vendored RocksDB source', 'found');
+    print_success('Vendored rocksdb source', 'found');
 
     if (!-f $rocksdb_lib) {
-        print_status('SKIP', 'Vendored RocksDB library', 'not built yet (make will build it)');
+        print_status('SKIP', 'Vendored rocksdb library', 'not built yet (make will build it)');
         return 1;
     }
 
     if (!-s $rocksdb_lib) {
-        print_error('Vendored RocksDB library', 'empty archive');
-        die "Error: RocksDB archive exists but is empty: $rocksdb_lib\n";
+        print_error('Vendored rocksdb library', 'empty archive');
+        die "Error: rocksdb archive exists but is empty: $rocksdb_lib\n";
     }
 
     my $test_src = catfile($base_path, 'build', "rocksdb_configure_test_$$.cpp");
     my $test_bin = catfile($base_path, 'build', "rocksdb_configure_test_$$");
-    open my $tfh, '>', $test_src or die "Cannot write RocksDB test file: $!\n";
+    open my $tfh, '>', $test_src or die "Cannot write rocksdb test file: $!\n";
     print $tfh <<'EOF';
 #include <rocksdb/db.h>
 #include <rocksdb/options.h>
@@ -859,12 +859,12 @@ EOF
     unlink $test_bin if -f $test_bin;
 
     if ($result == 0) {
-        print_success('Vendored RocksDB library', 'compiled and linkable');
+        print_success('Vendored rocksdb library', 'compiled and linkable');
         return 1;
     }
 
-    print_error('Vendored RocksDB library', 'link check failed');
-    die "Error: RocksDB archive failed configure link check. Try: rm -rf vendor/rocksdb/build && make rocksdb-smoke\n";
+    print_error('Vendored rocksdb library', 'link check failed');
+    die "Error: rocksdb archive failed configure link check. Try: rm -rf vendor/rocksdb/build && make rocksdb-smoke\n";
 }
 
 sub check_fmt_vendor {

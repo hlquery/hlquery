@@ -136,7 +136,7 @@ Official client libraries are available for popular programming languages:
 | Client | Description |
 | --- | --- |
 | **[C++](https://github.com/hlquery/cpp-api)** | Native C++ client library for low-level and embedded integrations. |
-| **[Go](https://github.com/hlquery/go-api)** | Idiomatic Go client for indexing, search, and service backends. |
+| **[Go](https://github.com/hlquery/go-api)** | Go client for indexing, search, and service backends. |
 | **[Java](https://github.com/hlquery/java-api)** | JVM client for Java applications and server-side integrations. |
 | **[Node.js](https://github.com/hlquery/node-api)** | Async JavaScript client for Node.js services and tools. |
 | **[Perl](https://github.com/hlquery/perl-api)** | Perl client library for scripts and existing Perl services. |

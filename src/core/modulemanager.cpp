@@ -200,6 +200,8 @@ bool ModuleManager::LoadModule(const ServerConfig &Config,
                                std::string &ErrorMessage,
                                const std::string &ExplicitPath)
 {
+     std::lock_guard<std::mutex> LifecycleLock(LifecycleMutex);
+
      if (ModuleName.empty())
      {
           ErrorMessage = "Module name is required.";
@@ -444,6 +446,15 @@ bool ModuleManager::BeginModuleCallback(const ModuleReference &Module)
 
      std::unique_lock<std::mutex> Lock(Module.ExecutionState->Mutex);
 
+     const std::thread::id CurrentThread = std::this_thread::get_id();
+
+     if (Module.ExecutionState->DispatchInProgress &&
+         Module.ExecutionState->DispatchOwner == CurrentThread)
+     {
+          ++Module.ExecutionState->ActiveCallbacks;
+          return true;
+     }
+
      while (Module.ExecutionState->DispatchInProgress && !Module.ExecutionState->Stopping)
      {
           Module.ExecutionState->Condition.wait(Lock);
@@ -455,6 +466,7 @@ bool ModuleManager::BeginModuleCallback(const ModuleReference &Module)
      }
 
      Module.ExecutionState->DispatchInProgress = true;
+     Module.ExecutionState->DispatchOwner = CurrentThread;
      ++Module.ExecutionState->ActiveCallbacks;
      return true;
 }
@@ -475,8 +487,12 @@ void ModuleManager::EndModuleCallback(const ModuleReference &Module)
           --Module.ExecutionState->ActiveCallbacks;
      }
 
-     Module.ExecutionState->DispatchInProgress = false;
-     Module.ExecutionState->Condition.notify_all();
+     if (Module.ExecutionState->ActiveCallbacks == 0)
+     {
+          Module.ExecutionState->DispatchInProgress = false;
+          Module.ExecutionState->DispatchOwner = std::thread::id();
+          Module.ExecutionState->Condition.notify_all();
+     }
 }
 
 ModuleManager::ModuleCallbackGuard::ModuleCallbackGuard(const ModuleReference &ModuleRef)
@@ -663,6 +679,8 @@ std::string ModuleManager::ResolveModulePath(const ServerConfig &Config, const S
 
 bool ModuleManager::LoadConfiguredModules(const ServerConfig &Config, std::string &ErrorMessage)
 {
+     std::lock_guard<std::mutex> LifecycleLock(LifecycleMutex);
+
      std::vector<LoadedModule> StagedModules;
 
      {
@@ -955,6 +973,8 @@ float ModuleManager::ComputeSearchWeightMultiplier(const std::string &Collection
 
 void ModuleManager::OnUnloadModules()
 {
+     std::lock_guard<std::mutex> LifecycleLock(LifecycleMutex);
+
      ModuleSnapshot ModulesToNotify;
 
      {
@@ -997,6 +1017,8 @@ void ModuleManager::OnUnloadModules()
 
 void ModuleManager::UnloadAll()
 {
+     std::lock_guard<std::mutex> LifecycleLock(LifecycleMutex);
+
      std::vector<LoadedModule> ModulesToUnload;
 
      {
@@ -1012,6 +1034,8 @@ void ModuleManager::UnloadAll()
 
 bool ModuleManager::UnloadModule(const std::string &ModuleName, std::string &ErrorMessage)
 {
+     std::lock_guard<std::mutex> LifecycleLock(LifecycleMutex);
+
      if (ModuleName.empty())
      {
           ErrorMessage = "Module name is required.";

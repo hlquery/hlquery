@@ -13,8 +13,12 @@
 #pragma once
 
 #include <chrono>
+#include <condition_variable>
+#include <cstdint>
 #include <functional>
 #include <shared_mutex>
+#include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "core/config.h"
@@ -47,6 +51,10 @@ class CoreExport Timer
      /* Whether the timer repeats */
 
      bool Repeating;
+
+     /* Manager-assigned identity used for cancellation and draining. */
+
+     uint64_t Identifier = 0;
 
    public:
      /* Constructor */
@@ -90,6 +98,16 @@ class CoreExport Timer
 
      bool IsRetired() const;
 
+     /* Returns or assigns the manager-owned timer identifier. */
+
+     uint64_t GetIdentifier() const;
+
+     void SetIdentifier(uint64_t IdentifierValue);
+
+     /* Releases the callback while its defining module is still loaded. */
+
+     void ClearCallback();
+
      /* Returns the next execution time */
 
      Clock::time_point GetNextRun() const;
@@ -112,6 +130,16 @@ class CoreExport TimerManager
 
      mutable std::shared_mutex MutexValue;
 
+     /* Coordinates cancellation with callbacks already selected by Tick(). */
+
+     std::condition_variable_any TimerCondition;
+
+     uint64_t NextIdentifier = 1;
+
+     std::unordered_map<uint64_t, size_t> ActiveTimers;
+
+     std::unordered_set<uint64_t> CancelledTimers;
+
    public:
      /* Timer clock type */
 
@@ -132,11 +160,15 @@ class CoreExport TimerManager
       * when the timer is configured to execute repeatedly.
       */
 
-     void Add(std::function<void()> callback, std::chrono::milliseconds delay, bool repeating = false);
+     uint64_t Add(std::function<void()> callback, std::chrono::milliseconds delay, bool repeating = false);
 
      /* Add one preconstructed timer entry. */
 
-     void Add(Timer entry);
+     uint64_t Add(Timer entry);
+
+     /* Cancels a timer and waits for any selected callback copy to be destroyed. */
+
+     bool CancelAndWait(uint64_t Identifier);
 
      /* 
       * Execute due timers.

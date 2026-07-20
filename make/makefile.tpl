@@ -965,15 +965,23 @@ build-products: $(BIN_DIR)/hlquery $(BIN_DIR)/hlquery-cli $(BIN_DIR)/hlquery-ben
 # UTILITY TARGETS
 
 HTTP_ROUTES_TEST_BIN := build/test/http_routes
+TIMER_CONCURRENCY_TEST_BIN := build/test/timer_concurrency
 
 $(HTTP_ROUTES_TEST_BIN): tests/http_routes.cpp src/api/httproutes.cpp
 	@mkdir -p $(dir $@)
-	$(CXX) $(CONFIGURE_CXXFLAGS) -std=c++20 -Iinclude -Iinclude/common -I. -Isrc -Ivendor -Ibuild/include $^ -o $@
+	$(CXX) $(CONFIGURE_CXXFLAGS) -std=c++20 -Iinclude -Iinclude/common -I. -Isrc -Ivendor -Ibuild/include -Ivendor/rocksdb/include $^ -o $@
 
 test-http-routes: $(HTTP_ROUTES_TEST_BIN)
 	@$(HTTP_ROUTES_TEST_BIN)
 
-test: rocksdb-smoke test-http-routes
+$(TIMER_CONCURRENCY_TEST_BIN): tests/timer_concurrency.cpp src/runtime/timers.cpp
+	@mkdir -p $(dir $@)
+	$(CXX) $(CONFIGURE_CXXFLAGS) -std=c++20 -pthread -Iinclude -Iinclude/common -I. -Isrc -Ivendor -Ibuild/include $^ -o $@
+
+test-timer-concurrency: $(TIMER_CONCURRENCY_TEST_BIN)
+	@$(TIMER_CONCURRENCY_TEST_BIN)
+
+test: rocksdb-smoke test-http-routes test-timer-concurrency
 	@if [ -x "$(RUN_DIR)/test/run_tests.sh" ]; then \
 		"$(RUN_DIR)/test/run_tests.sh"; \
 	else \
