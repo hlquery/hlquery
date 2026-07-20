@@ -1,0 +1,29 @@
+name: Fuzz smoke test
+
+on:
+  pull_request:
+    paths:
+      - "src/api/httproutes.cpp"
+      - "include/api/httpserver.h"
+      - "tests/fuzz/**"
+      - ".github/workflows/fuzz.yml"
+  schedule:
+    - cron: "23 2 * * 4"
+
+jobs:
+  http-routes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - name: Configure generated headers
+        run: ./configure --skip-tests
+      - name: Build fuzzer
+        run: |
+          clang++ -std=c++20 -g -O1 -fsanitize=fuzzer,address,undefined \
+            -Iinclude -Iinclude/common -I. -Isrc -Ivendor -Ibuild/include \
+            tests/fuzz/http_routes_fuzz.cpp src/api/httproutes.cpp \
+            -o build/test/http_routes_fuzz
+      - name: Fuzz
+        run: build/test/http_routes_fuzz -max_total_time=30 -timeout=5
+

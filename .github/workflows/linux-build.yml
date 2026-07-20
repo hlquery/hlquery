@@ -8,6 +8,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
 
     steps:
       - name: Checkout
@@ -16,10 +17,16 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential cmake perl
+          sudo apt-get install -y build-essential cmake libssl-dev liburing-dev perl pkg-config
 
       - name: Configure
-        run: ./configure --skip-tests
+        run: ./configure
 
       - name: Build
-        run: make
+        run: make BUILD_JOBS=2 ROCKSDB_JOBS=2
+
+      - name: Test
+        run: make test
+
+      - name: Verify production configuration
+        run: etc/scripts/production_check.sh --repository

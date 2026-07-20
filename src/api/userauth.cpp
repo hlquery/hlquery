@@ -38,6 +38,47 @@ constexpr size_t kMaxUserDescLen = 4096;
 constexpr uint32_t kMaxUserFlagsCount = 16;
 constexpr size_t kMaxUsersDatSize = 64 * 1024 * 1024;
 
+static std::string ReadSecret(const char *ValueEnv, const char *FileEnv, size_t MaxLength)
+{
+     const char *Value = std::getenv(ValueEnv);
+
+     if (Value && *Value)
+     {
+          return std::string(Value);
+     }
+
+     const char *FilePath = std::getenv(FileEnv);
+
+     if (!FilePath || !*FilePath)
+     {
+          return {};
+     }
+
+     std::ifstream SecretFile(FilePath, std::ios::binary);
+
+     if (!SecretFile.is_open())
+     {
+          return {};
+     }
+
+     std::string Secret;
+     Secret.resize(MaxLength + 1);
+     SecretFile.read(Secret.data(), static_cast<std::streamsize>(Secret.size()));
+     Secret.resize(static_cast<size_t>(SecretFile.gcount()));
+
+     while (!Secret.empty() && (Secret.back() == '\n' || Secret.back() == '\r'))
+     {
+          Secret.pop_back();
+     }
+
+     if (Secret.size() > MaxLength)
+     {
+          return {};
+     }
+
+     return Secret;
+}
+
 static int Base64Value(char Ch)
 {
      if (Ch >= 'A' && Ch <= 'Z') return Ch - 'A';
@@ -152,11 +193,13 @@ static bool WriteFileAtomic(const std::string &FilePath, const std::string &Cont
 
 std::string GetUsersEncryptionKey()
 {
-     const char *EnvKey = std::getenv("HLQUERY_USERS_ENCRYPTION_KEY");
+     const std::string EnvKey = ReadSecret("HLQUERY_USERS_ENCRYPTION_KEY",
+                                           "HLQUERY_USERS_ENCRYPTION_KEY_FILE",
+                                           4096);
 
-     if (EnvKey && *EnvKey)
+     if (!EnvKey.empty())
      {
-          return std::string(EnvKey);
+          return EnvKey;
      }
 
      static bool Warned = false;
@@ -185,9 +228,13 @@ bool UserAuthManager::Initialize()
      {
           const ConfigReader &Reader = Instance->Config->GetConfigReader();
 
-          if (LoadUsersFromConfigReader(Reader))
+          /* An explicit auth tag is authoritative. In particular, a malformed
+           * or empty enabled configuration must fail closed instead of falling
+           * through to the legacy "no auth files means disabled" behavior. */
+
+          if (Reader.GetTag("auth"))
           {
-               return true;
+               return LoadUsersFromConfigReader(Reader);
           }
      }
 
@@ -319,6 +366,34 @@ bool UserAuthManager::LoadUsersFromConfigReader(const ConfigReader &Reader)
           }
 
           UsersByName[Name] = UserObj;
+     }
+
+     /* Production deployments can inject the initial administrator token
+      * without writing a secret into a world-readable configuration file. */
+
+     if (UsersByToken.empty())
+     {
+          const std::string AdminToken = ReadSecret("HLQUERY_ADMIN_TOKEN",
+                                                    "HLQUERY_ADMIN_TOKEN_FILE",
+                                                    kMaxUserTokenLen);
+
+          if (!AdminToken.empty())
+          {
+               User AdminUser;
+               AdminUser.Name = "root";
+               AdminUser.Token = AdminToken;
+               AdminUser.Description = "Environment-provisioned administrator.";
+               AdminUser.Flags = {UserFlag::ADMIN, UserFlag::USER};
+
+               UsersByToken[AdminToken] = AdminUser;
+               UsersByName[AdminUser.Name] = AdminUser;
+          }
+     }
+
+     if (UsersByToken.empty())
+     {
+          ConsoleWriter::WriteError("Authentication is enabled but no usable users are configured. Add a <user> entry or set HLQUERY_ADMIN_TOKEN.", true);
+          return false;
      }
 
      return true;
