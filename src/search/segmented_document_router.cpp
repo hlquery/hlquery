@@ -64,7 +64,7 @@ uint64_t SegmentOrdinal(const std::string &segment_id)
           return 0;
      }
 }
-}
+} // namespace
 
 SegmentManager::SegmentManager(const std::string &data_dir,
                                rocksdb::DB *system_db,
@@ -125,14 +125,18 @@ bool SegmentManager::Initialize()
      }
 
      std::string existing_generation;
-     if (!GetSystemValue(ManifestGenerationKey, existing_generation))
+     if (!GetSystemValue(ManifestGenerationKey, existing_generation) ||
+         existing_generation != std::to_string(Manifest.Generation))
      {
           rebuild_docloc = true;
      }
 
      if (rebuild_docloc)
      {
-          RebuildDocLocationMap();
+          if (!RebuildDocLocationMap())
+          {
+               return false;
+          }
      }
 
      return true;
@@ -282,8 +286,12 @@ bool SegmentManager::LoadOrCreateManifest()
                     }
 
                     SegmentMetadata metadata;
-                    if (SegmentMetadata::Load((entry.path() / "segment.json").string(), metadata) &&
-                        metadata.State != "deleted")
+                    if (!SegmentMetadata::Load((entry.path() / "segment.json").string(), metadata))
+                    {
+                         return false;
+                    }
+
+                    if (metadata.State != "deleted")
                     {
                          discovered.push_back(metadata);
                     }
@@ -310,6 +318,11 @@ bool SegmentManager::LoadOrCreateManifest()
 
           if (metadata.State == "active")
           {
+               if (!Manifest.Active.empty())
+               {
+                    Manifest.Sealed.push_back(Manifest.Active);
+               }
+
                Manifest.Active = metadata.Id;
           }
           else
@@ -327,24 +340,37 @@ bool SegmentManager::LoadOrCreateManifest()
      return PersistManifestLocked();
 }
 
-std::shared_ptr<SegmentManager::SegmentHandle> SegmentManager::OpenSegment(const SegmentMetadata &metadata)
+std::shared_ptr<SegmentManager::SegmentHandle> SegmentManager::OpenSegment(const SegmentMetadata &metadata, bool create_if_missing)
 {
      auto handle = std::make_shared<SegmentHandle>();
      handle->Metadata = metadata;
      handle->Directory = SegmentsDir + "/" + metadata.Id;
      handle->RocksDBPath = handle->Directory + "/rocksdb";
 
-     try
+     if (create_if_missing)
      {
-          std::filesystem::create_directories(handle->RocksDBPath);
+          try
+          {
+               std::filesystem::create_directories(handle->RocksDBPath);
+          }
+          catch (...)
+          {
+               return nullptr;
+          }
      }
-     catch (...)
+     else
      {
-          return nullptr;
+          std::error_code error;
+          if (!std::filesystem::is_directory(handle->RocksDBPath, error) || error)
+          {
+               return nullptr;
+          }
      }
 
+     rocksdb::Options open_options = OptionsValue;
+     open_options.create_if_missing = create_if_missing;
      std::unique_ptr<rocksdb::DB> db_ptr;
-     rocksdb::Status status = rocksdb::DB::Open(OptionsValue, handle->RocksDBPath, &db_ptr);
+     rocksdb::Status status = rocksdb::DB::Open(open_options, handle->RocksDBPath, &db_ptr);
 
      if (!status.ok() || !db_ptr)
      {
@@ -363,24 +389,59 @@ bool SegmentManager::OpenManifestSegments()
      for (const auto &segment_id : Manifest.Sealed)
      {
           SegmentMetadata metadata;
-          if (!SegmentMetadata::Load(SegmentsDir + "/" + segment_id + "/segment.json", metadata))
+          if (!SegmentMetadata::Load(SegmentsDir + "/" + segment_id + "/segment.json", metadata) ||
+              metadata.Id != segment_id)
           {
-               continue;
+               return false;
+          }
+
+          if (metadata.State != "sealed")
+          {
+               metadata.State = "sealed";
+               if (metadata.SealedAtMs == 0)
+               {
+                    metadata.SealedAtMs = NowMs();
+               }
+
+               if (!metadata.SaveAtomic(SegmentsDir + "/" + segment_id + "/segment.json"))
+               {
+                    return false;
+               }
           }
 
           auto handle = OpenSegment(metadata);
-          if (handle)
+          if (!handle)
           {
-               SealedSegments.push_back(handle);
+               return false;
           }
+
+          SealedSegments.push_back(handle);
      }
 
      if (!Manifest.Active.empty())
      {
           SegmentMetadata metadata;
-          if (SegmentMetadata::Load(SegmentsDir + "/" + Manifest.Active + "/segment.json", metadata))
+          if (!SegmentMetadata::Load(SegmentsDir + "/" + Manifest.Active + "/segment.json", metadata) ||
+              metadata.Id != Manifest.Active)
           {
-               ActiveSegment = OpenSegment(metadata);
+               return false;
+          }
+
+          if (metadata.State != "active")
+          {
+               metadata.State = "active";
+               metadata.SealedAtMs = 0;
+
+               if (!metadata.SaveAtomic(SegmentsDir + "/" + Manifest.Active + "/segment.json"))
+               {
+                    return false;
+               }
+          }
+
+          ActiveSegment = OpenSegment(metadata);
+          if (!ActiveSegment)
+          {
+               return false;
           }
      }
 
@@ -389,6 +450,8 @@ bool SegmentManager::OpenManifestSegments()
 
 bool SegmentManager::CreateActiveSegmentLocked()
 {
+     const SegmentManifest previous_manifest = Manifest;
+     const std::shared_ptr<SegmentHandle> previous_active = ActiveSegment;
      uint64_t next_id = Manifest.Generation + 1;
      std::set<std::string> used(Manifest.Sealed.begin(), Manifest.Sealed.end());
 
@@ -424,7 +487,7 @@ bool SegmentManager::CreateActiveSegmentLocked()
           return false;
      }
 
-     auto handle = OpenSegment(metadata);
+     auto handle = OpenSegment(metadata, true);
      if (!handle)
      {
           return false;
@@ -432,19 +495,31 @@ bool SegmentManager::CreateActiveSegmentLocked()
 
      ActiveSegment = handle;
      Manifest.Active = segment_id;
-     Manifest.Generation++;
-     return PersistManifestLocked();
+     Manifest.Generation = SegmentOrdinal(segment_id);
+
+     if (!PersistManifestLocked())
+     {
+          ActiveSegment = previous_active;
+          Manifest = previous_manifest;
+          return false;
+     }
+
+     return true;
 }
 
 bool SegmentManager::PersistManifestLocked()
 {
-     if (!Manifest.SaveAtomic(ManifestPath))
+     /* Write the rebuild marker first. If the manifest commit does not follow,
+      * startup observes a generation mismatch and rebuilds document locations.
+      */
+
+     rocksdb::Status status = SystemDB->Put(WriteOptionsValue, ManifestGenerationKey, std::to_string(Manifest.Generation));
+     if (!status.ok())
      {
           return false;
      }
 
-     rocksdb::Status status = SystemDB->Put(WriteOptionsValue, ManifestGenerationKey, std::to_string(Manifest.Generation));
-     return status.ok();
+     return Manifest.SaveAtomic(ManifestPath);
 }
 
 bool SegmentManager::PersistSegmentMetadata(const std::shared_ptr<SegmentHandle> &segment) const
@@ -487,14 +562,24 @@ bool SegmentManager::SealActiveSegmentAndCreateNewLocked()
           return CreateActiveSegmentLocked();
      }
 
-     ActiveSegment->DB->Flush(rocksdb::FlushOptions());
-     ActiveSegment->DB->SyncWAL();
+     if (!ActiveSegment->DB->Flush(rocksdb::FlushOptions()).ok() ||
+         !ActiveSegment->DB->SyncWAL().ok())
+     {
+          return false;
+     }
+
+     const SegmentManifest previous_manifest = Manifest;
+     const SegmentMetadata previous_metadata = ActiveSegment->Metadata;
+     const std::shared_ptr<SegmentHandle> previous_active = ActiveSegment;
+     const size_t previous_sealed_count = SealedSegments.size();
+
      ActiveSegment->Metadata.State = "sealed";
      ActiveSegment->Metadata.SealedAtMs = NowMs();
      ActiveSegment->Metadata.BytesEstimate = DirectorySize(ActiveSegment->Directory);
 
      if (!PersistSegmentMetadata(ActiveSegment))
      {
+          ActiveSegment->Metadata = previous_metadata;
           return false;
      }
 
@@ -505,6 +590,11 @@ bool SegmentManager::SealActiveSegmentAndCreateNewLocked()
 
      if (!CreateActiveSegmentLocked())
      {
+          Manifest = previous_manifest;
+          ActiveSegment = previous_active;
+          SealedSegments.resize(previous_sealed_count);
+          ActiveSegment->Metadata = previous_metadata;
+          PersistSegmentMetadata(ActiveSegment);
           return false;
      }
 
@@ -580,6 +670,7 @@ bool SegmentManager::SetDocument(const std::string &key, const std::string &valu
      }
 
      std::lock_guard<std::mutex> key_lock(GetKeyMutex(key));
+     std::lock_guard<std::mutex> write_lock(WriteMutex);
      std::shared_ptr<SegmentHandle> active;
 
      {
@@ -616,11 +707,17 @@ bool SegmentManager::SetDocument(const std::string &key, const std::string &valu
           {
                ActiveSegment->Metadata.DocCountEstimate++;
                ActiveSegment->Metadata.BytesEstimate += key.size() + value.size();
-               PersistSegmentMetadata(ActiveSegment);
+               if (!PersistSegmentMetadata(ActiveSegment))
+               {
+                    return false;
+               }
 
                if (ShouldRotateActiveLocked())
                {
-                    SealActiveSegmentAndCreateNewLocked();
+                    if (!SealActiveSegmentAndCreateNewLocked())
+                    {
+                         return false;
+                    }
                }
                else
                {
@@ -639,6 +736,7 @@ size_t SegmentManager::BatchSetDocuments(const std::vector<std::pair<std::string
           return 0;
      }
 
+     std::lock_guard<std::mutex> write_lock(WriteMutex);
      std::shared_ptr<SegmentHandle> active;
 
      {
@@ -699,11 +797,17 @@ size_t SegmentManager::BatchSetDocuments(const std::vector<std::pair<std::string
           {
                ActiveSegment->Metadata.DocCountEstimate += key_values.size();
                ActiveSegment->Metadata.BytesEstimate += bytes;
-               PersistSegmentMetadata(ActiveSegment);
+               if (!PersistSegmentMetadata(ActiveSegment))
+               {
+                    return 0;
+               }
 
                if (ShouldRotateActiveLocked())
                {
-                    SealActiveSegmentAndCreateNewLocked();
+                    if (!SealActiveSegmentAndCreateNewLocked())
+                    {
+                         return 0;
+                    }
                }
                else
                {
@@ -778,6 +882,7 @@ int SegmentManager::DeleteDocument(const std::string &key)
      }
 
      std::lock_guard<std::mutex> key_lock(GetKeyMutex(key));
+     std::lock_guard<std::mutex> write_lock(WriteMutex);
 
      rocksdb::WriteBatch batch;
      batch.Put(TombstoneKey(collection, doc_id), std::to_string(NowMs()));
@@ -809,6 +914,7 @@ size_t SegmentManager::DeleteDocumentRange(const std::string &start_key, const s
           return 0;
      }
 
+     std::lock_guard<std::mutex> write_lock(WriteMutex);
      const std::string loc_prefix = LocationPrefixFromDocPrefix(start_key);
      rocksdb::WriteBatch batch;
      size_t deleted = 0;

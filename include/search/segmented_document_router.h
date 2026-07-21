@@ -90,6 +90,8 @@ class SegmentManager
      rocksdb::WriteOptions WriteOptionsValue;
      RocksDBOptions StorageOptions;
 
+     /* Serializes document mutations with active-segment rollover. */
+     std::mutex WriteMutex;
      mutable std::mutex SegmentMutex;
      std::shared_ptr<SegmentHandle> ActiveSegment;
      std::vector<std::shared_ptr<SegmentHandle>> SealedSegments;
@@ -110,7 +112,7 @@ class SegmentManager
      void PublishSnapshotLocked();
      bool LoadOrCreateManifest();
      bool OpenManifestSegments();
-     std::shared_ptr<SegmentHandle> OpenSegment(const SegmentMetadata &metadata);
+     std::shared_ptr<SegmentHandle> OpenSegment(const SegmentMetadata &metadata, bool create_if_missing = false);
      bool CreateActiveSegmentLocked();
      bool PersistManifestLocked();
      bool PersistSegmentMetadata(const std::shared_ptr<SegmentHandle> &segment) const;
