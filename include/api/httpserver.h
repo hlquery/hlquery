@@ -21,6 +21,7 @@
 #include <mutex>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 #include "core/config.h"
 
@@ -206,6 +207,19 @@ enum class RouteAction
      NotFound
 };
 
+/* Stable metadata used by both route resolution and API discovery. */
+
+struct HttpRouteDescription
+{
+     RouteAction Action;
+     std::string Name;
+     std::vector<std::string> Methods;
+     std::vector<std::string> Paths;
+     std::string Access;
+     std::string RequestContentType;
+     std::string ResponseContentType;
+};
+
 /*
  * Identifies the resolved action for one incoming HTTP request.
  * Each value maps a parsed route to the handler logic used by the server.
@@ -214,6 +228,23 @@ enum class RouteAction
 /* Resolve the route action for one parsed HTTP request. */
 
 RouteAction ResolveHttpRoute(const HttpRequest &Request);
+
+/* Return the complete built-in HTTP route catalog. */
+
+const std::vector<HttpRouteDescription> &GetHttpRouteDescriptions();
+
+/* Return methods supported by a concrete request path. */
+
+std::vector<std::string> GetAllowedHttpMethods(const std::string &Path);
+
+/* Build the JSON route portion of the discovery document. */
+
+nlohmann::json BuildHttpRouteDiscoveryJSON();
+
+/* Report whether a route is public or restricted to administrators. */
+
+bool IsPublicHttpRouteAction(RouteAction ActionVal);
+bool IsAdminOnlyHttpRouteAction(RouteAction ActionVal);
 
 /* Return the human-readable name for one route action value. */
 

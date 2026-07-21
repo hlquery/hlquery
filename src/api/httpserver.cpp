@@ -51,6 +51,10 @@
 /* ProcessRequestWithAPI handles API calls. */
 
 HttpResponse ProcessRequestWithAPI(SearchAPI &API, const HttpRequest &Request);
+
+/* Dispatch an already resolved route without repeating transport/auth checks. */
+
+static HttpResponse DispatchResolvedRoute(SearchAPI &API, const HttpRequest &Request, RouteAction ActionVal);
 static bool ExtractAuthTokenFromRequest(const HttpRequest &Request, std::string &OutAuthHeader, std::string &OutToken);
 
 static RouteAction ResolveRouteWithFallback(const HttpRequest &Request);
@@ -314,12 +318,36 @@ static std::string GetHeaderValueInsensitive(const std::map<std::string, std::st
 
 static bool IsHealthLikePath(const std::string &Path)
 {
-     return Path == "/health" || Path == "/health/" ||
-            Path == "/ready" || Path == "/ready/" ||
-            Path == "/status" || Path == "/status/" ||
-            Path == "/query" || Path == "/query/" ||
-            Path == "/ping" || Path == "/ping/" ||
-            Path == "/stats" || Path == "/stats/";
+     std::string Normalized = Path.substr(0, Path.find('?'));
+     if (Normalized.size() > 1 && Normalized.back() == '/') Normalized.pop_back();
+
+     return Normalized == "/health" || Normalized == "/ready" ||
+            Normalized == "/status" || Normalized == "/query" ||
+            Normalized == "/ping" || Normalized == "/stats" ||
+            Normalized == "/etc";
+}
+
+static HttpResponse BuildMethodNotAllowedResponse(const HttpRequest &Request)
+{
+     const std::vector<std::string> Methods = GetAllowedHttpMethods(Request.Path);
+     if (Methods.empty()) return BuildRouteNotFoundResponse(Request.Path, Request.Method);
+
+     std::string Allow;
+     for (const std::string &Method : Methods)
+     {
+          if (!Allow.empty()) Allow += ", ";
+          Allow += Method;
+     }
+
+     HttpResponse Response(http_code::METHOD_NOT_ALLOWED, StatusText(http_code::METHOD_NOT_ALLOWED), "application/json");
+     Response.Headers["Allow"] = Allow;
+     nlohmann::json Body;
+     Body["error"] = "Method not allowed";
+     Body["method"] = Request.Method;
+     Body["path"] = Request.Path;
+     Body["allowed_methods"] = Methods;
+     Response.Body = Body.dump();
+     return Response;
 }
 
 /* Checks whether document ingestion request applies. */
@@ -2458,151 +2486,6 @@ void HttpConnection::ProcessSingleRequest(const std::string &RequestStr)
                }
           }
 
-          /* Handle /ping route in ProcessSingleRequest BEFORE setting 404. */
-
-          if (Request.Path == "/ping" && Request.Method == "GET")
-          {
-               if (Instance && Instance->Logs)
-               {
-                    Instance->Logs->Normal("http_server", " Direct /ping route match in ProcessSingleRequest - calling HandlePing.");
-               }
-
-               Response = API.HandlePing(Request);
-
-               SendResponse(Response);
-
-               return;
-          }
-
-          /* WORKAROUND: Handle /etc route in ProcessSingleRequest BEFORE setting 404. */
-          /* Ensure /etc route is caught early and reliably (protocol codes for API communication). */
-
-          if (ActionVal == RouteAction::Etc)
-          {
-               if (Instance && Instance->Logs)
-               {
-                    Instance->Logs->Debug("http_server", " Direct /etc route match in ProcessSingleRequest (backup) - calling HandleEtc.");
-               }
-
-               Response = API.HandleEtc(Request);
-
-               SendResponse(Response);
-
-               return;
-          }
-
-          /* WORKAROUND: Handle /connections in ProcessSingleRequest BEFORE setting 404. */
-
-          if (Request.Path == "/connections" && Request.Method == "GET")
-          {
-               if (Instance && Instance->Logs)
-               {
-                    Instance->Logs->Debug("http_server", " Direct /connections route match in ProcessSingleRequest - calling HandleConnections.");
-               }
-
-               Response = API.HandleConnections(Request);
-
-               SendResponse(Response);
-
-               return;
-          }
-
-          /* WORKAROUND: Handle /rocksdb and /_rocksdb in ProcessSingleRequest BEFORE setting 404. */
-
-          if ((Request.Path == "/rocksdb" || Request.Path == "/_rocksdb") && Request.Method == "GET")
-          {
-               if (Instance && Instance->Logs)
-               {
-                    Instance->Logs->Debug("http_server", " Direct /rocksdb route match in ProcessSingleRequest - calling HandleRocksDB.");
-               }
-
-               Response = API.HandleRocksDB(Request);
-
-               SendResponse(Response);
-
-               return;
-          }
-
-          /* WORKAROUND: Handle /startup and /boot-status in ProcessSingleRequest BEFORE setting 404. */
-
-          if ((Request.Path == "/startup" || Request.Path == "/boot-status") && Request.Method == "GET")
-          {
-               if (Instance && Instance->Logs)
-               {
-                    Instance->Logs->Debug("http_server", " Direct /startup route match in ProcessSingleRequest - calling HandleStartup.");
-               }
-
-               Response = API.HandleStartup(Request);
-
-               SendResponse(Response);
-
-               return;
-          }
-
-          /* WORKAROUND: Handle /integrity and /consistency in ProcessSingleRequest BEFORE setting 404. */
-
-          if ((Request.Path == "/integrity" || Request.Path == "/consistency") && Request.Method == "GET")
-          {
-               if (Instance && Instance->Logs)
-               {
-                    Instance->Logs->Debug("http_server", " Direct /integrity route match in ProcessSingleRequest - calling HandleIntegrity.");
-               }
-
-               Response = API.HandleIntegrity(Request);
-
-               SendResponse(Response);
-
-               return;
-          }
-
-          /* WORKAROUND: Handle /self-check in ProcessSingleRequest BEFORE setting 404. */
-
-          if (Request.Path == "/self-check" && Request.Method == "GET")
-          {
-               if (Instance && Instance->Logs)
-               {
-                    Instance->Logs->Debug("http_server", " Direct /self-check route match in ProcessSingleRequest - calling HandleSelfCheck.");
-               }
-
-               Response = API.HandleSelfCheck(Request);
-
-               SendResponse(Response);
-
-               return;
-          }
-
-          /* Handle /flush route in ProcessSingleRequest BEFORE setting 404. */
-
-          if (Request.Method == "POST" && (Request.Path == "/flush" || Request.Path == "/flush/"))
-          {
-               HttpResponse DedupResponse = API.CheckReplicationOperationDedup(Request, "POST /flush");
-               if (DedupResponse.StatusCode != 0)
-               {
-                    SendResponse(DedupResponse);
-                    return;
-               }
-
-               HttpResponse ReadOnlyResponse = API.CheckReadOnlyMode(Request, "POST /flush");
-               if (ReadOnlyResponse.StatusCode != 0)
-               {
-                    SendResponse(ReadOnlyResponse);
-                    return;
-               }
-
-               if (Instance && Instance->Logs)
-               {
-                    Instance->Logs->Normal("http_server", " FLUSH ROUTE CAUGHT IN ProcessSingleRequest (before 404) - calling HandleFlush.");
-               }
-
-               Response = API.HandleFlush(Request);
-               API.FinalizeReplicationOperation(Request, Response);
-               API.FinalizeReplicationResyncRequest(Request, Response);
-
-               SendResponse(Response);
-
-               return;
-          }
-
           bool MutatingMethod = IsMutatingRequestMethod(Request);
           if (MutatingMethod)
           {
@@ -2627,13 +2510,38 @@ void HttpConnection::ProcessSingleRequest(const std::string &RequestStr)
 
           if (ActionVal == RouteAction::NotFound)
           {
-               Response = BuildRouteNotFoundResponse(Request.Path);
+               Response = BuildMethodNotAllowedResponse(Request);
                RecordAnalyticsForResponse(Request, Response, ActionVal);
                SendResponse(Response);
                return;
           }
 
-          Response = BuildRouteNotFoundResponse(Request.Path);
+          bool CentrallyDispatched = false;
+          switch (ActionVal)
+          {
+               case RouteAction::Ping:
+               case RouteAction::Connections:
+               case RouteAction::RocksDB:
+               case RouteAction::Startup:
+               case RouteAction::Integrity:
+               case RouteAction::SelfCheck:
+               case RouteAction::Flush:
+               case RouteAction::MetricsHistory:
+               case RouteAction::Cache:
+               case RouteAction::DebugCounters:
+               case RouteAction::Etc:
+               case RouteAction::AnalyticsClick:
+                    Response = DispatchResolvedRoute(API, Request, ActionVal);
+                    CentrallyDispatched = true;
+                    break;
+
+               default:
+                    break;
+          }
+
+          if (!CentrallyDispatched)
+          {
+               Response = BuildRouteNotFoundResponse(Request.Path);
 
           if (Instance && Instance->Logs)
           {
@@ -3091,6 +2999,8 @@ void HttpConnection::ProcessSingleRequest(const std::string &RequestStr)
                /* Root endpoint - same as /status. */
 
                Response = API.HandleStatus(Request);
+          }
+
           }
 
           RecordAnalyticsForResponse(Request, Response, ActionVal);
@@ -5045,42 +4955,14 @@ static RouteAction ResolveRouteWithFallback(const HttpRequest &Request)
 
 static bool IsPublicRouteAction(RouteAction ActionVal)
 {
-     return (ActionVal == RouteAction::Health ||
-             ActionVal == RouteAction::Ready ||
-             ActionVal == RouteAction::Status ||
-             ActionVal == RouteAction::SearchConfig ||
-             ActionVal == RouteAction::Ping ||
-             ActionVal == RouteAction::LinksList ||
-             ActionVal == RouteAction::LinksPing);
+     return IsPublicHttpRouteAction(ActionVal);
 }
 
 /* Checks whether admin only route action applies. */
 
 static bool IsAdminOnlyRouteAction(RouteAction ActionVal)
 {
-     return (ActionVal == RouteAction::ListKeys ||
-             ActionVal == RouteAction::CreateKey ||
-             ActionVal == RouteAction::GetKey ||
-             ActionVal == RouteAction::DeleteKey ||
-             ActionVal == RouteAction::UpdateKey ||
-             ActionVal == RouteAction::ConfigFiles ||
-             ActionVal == RouteAction::ListPresets ||
-             ActionVal == RouteAction::UpsertPreset ||
-             ActionVal == RouteAction::GetPreset ||
-             ActionVal == RouteAction::DeletePreset ||
-             ActionVal == RouteAction::ListUsers ||
-             ActionVal == RouteAction::CreateUser ||
-             ActionVal == RouteAction::GetUser ||
-             ActionVal == RouteAction::DeleteUser ||
-             ActionVal == RouteAction::UpdateUser ||
-             ActionVal == RouteAction::LinksConnect ||
-             ActionVal == RouteAction::LinksDisconnect ||
-             ActionVal == RouteAction::Flush ||
-             ActionVal == RouteAction::Repair ||
-             ActionVal == RouteAction::Cache ||
-             ActionVal == RouteAction::ModuleLoad ||
-             ActionVal == RouteAction::ModuleUnload ||
-             ActionVal == RouteAction::StorageStatus);
+     return IsAdminOnlyHttpRouteAction(ActionVal);
 }
 
 /* Normalizes request path values. */
@@ -5336,6 +5218,11 @@ HttpResponse ProcessRequestWithAPI(SearchAPI &API, const HttpRequest &Request)
           ActionVal = RouteAction::NotFound;
      }
 
+     if (ActionVal == RouteAction::NotFound)
+     {
+          return BuildMethodNotAllowedResponse(Request);
+     }
+
      /* Block requests that need accurate data until collections are loaded. */
      /* Block queries until collections are loaded after restart, but allow write operations. */
      /* This ensures queries return accurate results with all collections available. */
@@ -5382,6 +5269,14 @@ HttpResponse ProcessRequestWithAPI(SearchAPI &API, const HttpRequest &Request)
                return ResponseVal;
           }
      }
+
+     return DispatchResolvedRoute(API, Request, ActionVal);
+}
+
+/* Invoke the handler associated with a route that has already been resolved. */
+
+static HttpResponse DispatchResolvedRoute(SearchAPI &API, const HttpRequest &Request, RouteAction ActionVal)
+{
 
      try
      {

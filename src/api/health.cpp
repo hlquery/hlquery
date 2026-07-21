@@ -1512,7 +1512,7 @@ HttpResponse SearchAPI::HandleHealth(const HttpRequest &Request)
      HealthJSON["engine"] = SOCKETENGINE_NAME;
      HealthJSON["socket_engine"] = SOCKETENGINE_NAME;
      HealthJSON["server"] = "hlquery";
-     HealthJSON["version"] = "1.0";
+     HealthJSON["version"] = HLQUERY_VERSION;
      HealthJSON["health_degraded"] = HealthDegraded;
      HealthJSON["auth_enabled"] = AuthEnabled;
      HealthJSON["auth_required"] = AuthEnabled;
@@ -1651,47 +1651,113 @@ HttpResponse SearchAPI::HandleMetrics(const HttpRequest &Request)
 
 HttpResponse SearchAPI::HandleEtc(const HttpRequest &Request)
 {
-     (void)Request;
+     std::unordered_set<std::string> Sections;
+     const auto IncludeIt = Request.QueryParams.find("include");
+     if (IncludeIt != Request.QueryParams.end())
+     {
+          std::stringstream Stream(IncludeIt->second);
+          std::string Section;
+          while (std::getline(Stream, Section, ','))
+          {
+               Section = HealthTrimWhitespace(Section);
+               std::transform(Section.begin(), Section.end(), Section.begin(), [](unsigned char C)
+                              { return static_cast<char>(std::tolower(C)); });
+               if (!Section.empty()) Sections.insert(Section);
+          }
+     }
+
+     static const std::unordered_set<std::string> ValidSections = {
+          "all", "metadata", "routes", "protocol", "http_status_codes", "protocol_codes"};
+     for (const auto &Section : Sections)
+     {
+          if (ValidSections.find(Section) == ValidSections.end())
+          {
+               nlohmann::json Error;
+               Error["error"] = "Invalid include section";
+               Error["section"] = Section;
+               Error["allowed"] = {"all", "metadata", "routes", "protocol", "http_status_codes", "protocol_codes"};
+               return BuildJSONResponse(Status::BAD_REQUEST, Error);
+          }
+     }
+
+     const bool IncludeAll = Sections.empty() || Sections.find("all") != Sections.end();
+     const auto Includes = [&](const char *Section)
+     {
+          return IncludeAll || Sections.find(Section) != Sections.end() ||
+                 (std::string(Section) != "routes" && Sections.find("protocol") != Sections.end());
+     };
 
      nlohmann::json ProtocolCodes;
 
      ProtocolCodes["protocol_name"] = "hlquery";
-     ProtocolCodes["version"] = 1;
-     ProtocolCodes["routes"] = {
-          {"etc", {{"method", "GET"}, {"path", "/etc"}}},
-          {"health", {{"method", "GET"}, {"path", "/health"}}},
-          {"info", {{"method", "GET"}, {"path", "/"}}},
-          {"ping", {{"method", "GET"}, {"path", "/ping"}}},
-          {"ready", {{"method", "GET"}, {"path", "/ready"}}},
-          {"status", {{"method", "GET"}, {"paths", {"/status", "/query"}}}},
-          {"stats", {{"method", "GET"}, {"path", "/stats"}}},
-          {"flush", {{"method", "POST"}, {"path", "/flush"}}}};
+     ProtocolCodes["schema_version"] = 2;
+     ProtocolCodes["version"] = 2;
+     ProtocolCodes["server_version"] = HLQUERY_VERSION;
 
-     ProtocolCodes["http_status_codes"] = {
+     if (Includes("routes"))
+     {
+          ProtocolCodes["routes"] = BuildHttpRouteDiscoveryJSON();
+     }
+
+     if (Includes("http_status_codes"))
+     {
+          ProtocolCodes["http_status_codes"] = {
           {"OK", Status::OK},
           {"CREATED", Status::CREATED},
           {"ACCEPTED", Status::ACCEPTED},
           {"NO_CONTENT", Status::NO_CONTENT},
+          {"PARTIAL_CONTENT", HttpCodes::code::PARTIAL_CONTENT},
           {"MULTI_STATUS", Status::MULTI_STATUS},
           {"MOVED_PERMANENTLY", Status::MOVED_PERMANENTLY},
           {"FOUND", Status::FOUND},
+          {"SEE_OTHER", HttpCodes::code::SEE_OTHER},
           {"NOT_MODIFIED", Status::NOT_MODIFIED},
+          {"TEMPORARY_REDIRECT", HttpCodes::code::TEMPORARY_REDIRECT},
+          {"PERMANENT_REDIRECT", HttpCodes::code::PERMANENT_REDIRECT},
           {"BAD_REQUEST", Status::BAD_REQUEST},
           {"UNAUTHORIZED", Status::UNAUTHORIZED},
+          {"PAYMENT_REQUIRED", HttpCodes::code::PAYMENT_REQUIRED},
           {"FORBIDDEN", Status::FORBIDDEN},
           {"NOT_FOUND", Status::NOT_FOUND},
           {"METHOD_NOT_ALLOWED", Status::METHOD_NOT_ALLOWED},
+          {"NOT_ACCEPTABLE", HttpCodes::code::NOT_ACCEPTABLE},
+          {"PROXY_AUTHENTICATION_REQUIRED", HttpCodes::code::PROXY_AUTHENTICATION_REQUIRED},
+          {"REQUEST_TIMEOUT", HttpCodes::code::REQUEST_TIMEOUT},
           {"CONFLICT", Status::CONFLICT},
+          {"GONE", HttpCodes::code::GONE},
+          {"LENGTH_REQUIRED", HttpCodes::code::LENGTH_REQUIRED},
+          {"PRECONDITION_FAILED", HttpCodes::code::PRECONDITION_FAILED},
           {"PAYLOAD_TOO_LARGE", Status::PAYLOAD_TOO_LARGE},
+          {"URI_TOO_LONG", HttpCodes::code::URI_TOO_LONG},
+          {"UNSUPPORTED_MEDIA_TYPE", HttpCodes::code::UNSUPPORTED_MEDIA_TYPE},
+          {"RANGE_NOT_SATISFIABLE", HttpCodes::code::RANGE_NOT_SATISFIABLE},
+          {"EXPECTATION_FAILED", HttpCodes::code::EXPECTATION_FAILED},
+          {"IM_A_TEAPOT", HttpCodes::code::IM_A_TEAPOT},
           {"UNPROCESSABLE_ENTITY", Status::UNPROCESSABLE_ENTITY},
+          {"LOCKED", HttpCodes::code::LOCKED},
+          {"FAILED_DEPENDENCY", HttpCodes::code::FAILED_DEPENDENCY},
+          {"TOO_EARLY", HttpCodes::code::TOO_EARLY},
+          {"UPGRADE_REQUIRED", HttpCodes::code::UPGRADE_REQUIRED},
+          {"PRECONDITION_REQUIRED", HttpCodes::code::PRECONDITION_REQUIRED},
           {"TOO_MANY_REQUESTS", Status::TOO_MANY_REQUESTS},
+          {"REQUEST_HEADER_FIELDS_TOO_LARGE", HttpCodes::code::REQUEST_HEADER_FIELDS_TOO_LARGE},
+          {"UNAVAILABLE_FOR_LEGAL_REASONS", HttpCodes::code::UNAVAILABLE_FOR_LEGAL_REASONS},
           {"INTERNAL_SERVER_ERROR", Status::INTERNAL_SERVER_ERROR},
           {"NOT_IMPLEMENTED", Status::NOT_IMPLEMENTED},
           {"BAD_GATEWAY", Status::BAD_GATEWAY},
           {"SERVICE_UNAVAILABLE", Status::SERVICE_UNAVAILABLE},
-          {"GATEWAY_TIMEOUT", Status::GATEWAY_TIMEOUT}};
+          {"GATEWAY_TIMEOUT", Status::GATEWAY_TIMEOUT},
+          {"HTTP_VERSION_NOT_SUPPORTED", HttpCodes::code::HTTP_VERSION_NOT_SUPPORTED},
+          {"VARIANT_ALSO_NEGOTIATES", HttpCodes::code::VARIANT_ALSO_NEGOTIATES},
+          {"INSUFFICIENT_STORAGE", HttpCodes::code::INSUFFICIENT_STORAGE},
+          {"LOOP_DETECTED", HttpCodes::code::LOOP_DETECTED},
+          {"NOT_EXTENDED", HttpCodes::code::NOT_EXTENDED},
+          {"NETWORK_AUTHENTICATION_REQUIRED", HttpCodes::code::NETWORK_AUTHENTICATION_REQUIRED}};
+     }
 
-     ProtocolCodes["protocol_codes"] = {
+     if (Includes("protocol_codes"))
+     {
+          ProtocolCodes["protocol_codes"] = {
           {"SUCCESS", Code::SUCCESS},
           {"OPERATION_COMPLETE", Code::OPERATION_COMPLETE},
           {"COLLECTION_NOT_FOUND", Code::COLLECTION_NOT_FOUND},
@@ -1760,10 +1826,12 @@ HttpResponse SearchAPI::HandleEtc(const HttpRequest &Request)
           {"MODULE_ROUTE_NOT_FOUND", Code::MODULE_ROUTE_NOT_FOUND},
           {"MODULE_UNAVAILABLE", Code::MODULE_UNAVAILABLE},
           {"RATE_LIMIT_EXCEEDED", Code::RATE_LIMIT_EXCEEDED}};
+     }
 
      HttpResponse Response(Status::OK, StatusText(Status::OK), "application/json");
 
-     Response.Body = ProtocolCodes.dump(2);
+     Response.Headers["Cache-Control"] = "public, max-age=300";
+     Response.Body = ProtocolCodes.dump();
 
      return Response;
 }

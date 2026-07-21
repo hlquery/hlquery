@@ -2217,7 +2217,7 @@ void PrintHelp()
      std::cout << "  unalias NAME  Remove one command alias\n";
      std::cout << "  stats    Show server status and metrics\n";
      std::cout << "  ping     Measure server latency in ms\n";
-     std::cout << "  uptime   Show server uptime\n";
+     std::cout << "  uptime [-d]   Show server uptime (-d uses detailed format)\n";
      std::cout << "  help     Show this help\n";
      std::cout << "  exit     Quit the shell\n";
      std::cout << "  quit     Quit the shell\n";
@@ -4052,13 +4052,13 @@ bool ExecuteTalkCommand(const std::string &line,
 
      if (command == "uptime")
      {
-          if (parts.size() != 1)
+          if (parts.size() > 2 || (parts.size() == 2 && parts[1] != "-d"))
           {
-               TalkPrintError("Usage: uptime");
+               TalkPrintError("Usage: uptime [-d]");
                return true;
           }
 
-          cli.ShowUptime(false);
+          cli.ShowUptime(parts.size() == 2);
           return true;
      }
 
