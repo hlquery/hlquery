@@ -264,8 +264,6 @@ ifeq ($(OS_NAME),Darwin)
   STRIP_FLAGS =
   RDYNAMIC ?= -Wl,-export_dynamic
   MODULE_SHARED_LDFLAGS = -Wl,-undefined,dynamic_lookup
-else ifeq ($(OS_NAME),Linux)
-  RDYNAMIC ?= -Wl,--export-dynamic-symbol-list=$(MODULE_EXPORT_LIST)
 else
   RDYNAMIC ?= -rdynamic
 endif
@@ -408,8 +406,6 @@ MODULE_OBJS := $(MODULE_SIMPLE_OBJS) $(MODULE_DIR_OBJS)
 MODULE_SIMPLE_LIBS := $(patsubst $(SRC_DIR)/modules/%.cpp,$(RUN_DIR)/modules/%.so,$(MODULE_SIMPLE_SRCS))
 MODULE_DIR_LIBS := $(foreach mod,$(MODULE_DIRS),$(RUN_DIR)/modules/$(mod).so)
 MODULE_LIBS := $(MODULE_SIMPLE_LIBS) $(MODULE_DIR_LIBS) $(EXTRA_MODULE_LIBS)
-MODULE_EXPORT_LIST := $(OBJ_DIR)/module-exports.list
-MODULE_EXPORT_ALLOWLIST := make/module_exports.allowlist
 DEPS += $(MODULE_OBJS:.o=.d)
 
 # Vendor/allocator objects
@@ -659,10 +655,6 @@ ${EXTRA_MODULE_BUILD_RULES}
 
 $(foreach mod,$(MODULE_DIRS),$(eval $(call MODULE_DIR_RULE,$(mod))))
 
-$(MODULE_EXPORT_LIST): $(MODULE_OBJS) $(MODULE_EXPORT_ALLOWLIST) etc/scripts/module_linkage.sh
-	@mkdir -p $(dir $@)
-	@etc/scripts/module_linkage.sh exports $@ $(MODULE_EXPORT_ALLOWLIST) $(MODULE_OBJS)
-
 # Create all object directories as order-only prerequisites
 $(OBJ_DIR):
 	@mkdir -p $(OBJ_DIR)/core $(OBJ_DIR)/runtime $(OBJ_DIR)/utils $(OBJ_DIR)/api $(OBJ_DIR)/search $(OBJ_DIR)/socketengines $(OBJ_DIR)/timers $(OBJ_DIR)/cli $(OBJ_DIR)/talk $(OBJ_DIR)/modules $(OBJ_DIR)/vendor/fmt $(OBJ_DIR)/vendor/sha2 $(OBJ_DIR)/vendor/md5 || \
@@ -695,7 +687,7 @@ $(OBJ_DIR)/vendor/md5/md5.o: $(VENDOR_DIR)/md5/md5.c | $(OBJ_DIR)
 
 -include $(DEPS)
 
-.PHONY: all build-products module-linkage-check prepare rocksdb-check rocksdb-preflight rocksdb-smoke binary-compat-check prune-disabled-extra-modules test test-http-routes test-timer-concurrency test-core-stats-metrics test-segmented-storage test-backup-restore test-auth-fail-closed test-docker-production-mode clean install uninstall debug create_ssl help build-info synonyms-sync synonyms-check package package-all package-deb package-rpm
+.PHONY: all build-products prepare rocksdb-check rocksdb-preflight rocksdb-smoke binary-compat-check prune-disabled-extra-modules test test-http-routes test-timer-concurrency test-core-stats-metrics test-segmented-storage test-backup-restore test-auth-fail-closed test-docker-production-mode clean install uninstall debug create_ssl help build-info synonyms-sync synonyms-check package package-all package-deb package-rpm
 
 prune-disabled-extra-modules:
 	@mkdir -p $(RUN_DIR)/modules
@@ -887,7 +879,7 @@ synonyms-check:
 # Explicitly depend on ALL_OBJS and ROCKSDB_LIB to ensure proper dependency tracking
 # This prevents the linker from starting before all object files are compiled AND RocksDB is built
 # Note: ALL_OBJS includes REGULAR_OBJS, HTTP_OBJS, FMT_OBJ, SHA2_OBJ, MD5_OBJ, CLD2_OBJS
-$(BIN_DIR)/hlquery: $(REGULAR_OBJS) $(HTTP_OBJS) $(FMT_OBJ) $(SHA2_OBJ) $(MD5_OBJ) $(CLD2_OBJS) $(ROCKSDB_LIB) $(MODULE_EXPORT_LIST)
+$(BIN_DIR)/hlquery: $(REGULAR_OBJS) $(HTTP_OBJS) $(FMT_OBJ) $(SHA2_OBJ) $(MD5_OBJ) $(CLD2_OBJS) $(ROCKSDB_LIB)
 	@mkdir -p $(BIN_DIR)
 	@echo "$(CYAN)Linking hlquery...$(NC)"
 	$(CXX) $(CXXFLAGS) \
@@ -969,7 +961,7 @@ all:
 	@$(MAKE) --no-print-directory prepare
 	@$(MAKE) --no-print-directory SKIP_PREPARE=1 build-products
 
-build-products: $(BIN_DIR)/hlquery $(BIN_DIR)/hlquery-cli $(BIN_DIR)/hlquery-benchmark $(BIN_DIR)/hlquery-talk $(MODULE_LIBS) module-linkage-check
+build-products: $(BIN_DIR)/hlquery $(BIN_DIR)/hlquery-cli $(BIN_DIR)/hlquery-benchmark $(BIN_DIR)/hlquery-talk $(MODULE_LIBS)
 	@echo ""
 	@echo "$(GREEN)  Build complete!$(NC)"
 	@echo "$(BLUE)   Server: build/bin/hlquery$(NC)"
@@ -979,13 +971,6 @@ build-products: $(BIN_DIR)/hlquery $(BIN_DIR)/hlquery-cli $(BIN_DIR)/hlquery-ben
 	@echo ""
 	@echo "$(NC)$(BOLD)Done!$(NC)"
 	@echo ""
-
-module-linkage-check: $(BIN_DIR)/hlquery $(MODULE_LIBS)
-ifeq ($(OS_NAME),Linux)
-	@etc/scripts/module_linkage.sh check $(BIN_DIR)/hlquery $(MODULE_EXPORT_ALLOWLIST) $(MODULE_LIBS)
-else
-	@echo "$(YELLOW)Module linkage validation is not available on $(OS_NAME); skipping.$(NC)"
-endif
 
 # UTILITY TARGETS
 
