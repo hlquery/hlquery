@@ -29,6 +29,7 @@ class ConfigTag;
 class ConfigReader
 {
    public:
+
      /* Constructor */
 
      ConfigReader();
@@ -181,6 +182,7 @@ class ConfigTag
      void SetAttribute(const std::string &key, const std::string &value);
 
    private:
+
      std::string Name;
 
      std::unordered_map<std::string, std::string> Attributes;

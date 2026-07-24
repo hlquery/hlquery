@@ -46,6 +46,7 @@ bool ResolveAliasedTalkTarget(const TalkState &state,
                               std::string &resolved_target,
                               bool &target_is_collection,
                               std::string &error_message);
+
 bool ExecuteTalkCommand(const std::string &line,
                         HLQueryCLI &cli,
                         TalkState &state,

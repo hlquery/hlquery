@@ -22,6 +22,7 @@
 class HLQueryCLI
 {
    public:
+
      /* HTTPResponse struct represents a response from the server. */
 
      struct HTTPResponse

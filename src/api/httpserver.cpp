@@ -771,6 +771,7 @@ void HttpConnection::OnEventHandlerRead()
      ssize_t BytesRead = 0;
 
 #ifdef HLQUERY_HAS_OPENSSL
+
      if (SSLValue && !SSLHandshaked)
      {
           int Ret = SSL_accept(SSLValue);
@@ -822,7 +823,9 @@ void HttpConnection::OnEventHandlerRead()
           BytesRead = SSL_read(SSLValue, Buffer, sizeof(Buffer) - 1);
      }
      else
+
 #endif
+
      {
           BytesRead = recv(GetFD(), Buffer, sizeof(Buffer) - 1, MSG_DONTWAIT);
      }
@@ -836,7 +839,9 @@ void HttpConnection::OnEventHandlerRead()
      {
           if (BytesRead <= 0)
           {
+
 #ifdef HLQUERY_HAS_OPENSSL
+
                if (SSLValue)
                {
                     int Err = SSL_get_error(SSLValue, BytesRead);
@@ -863,6 +868,7 @@ void HttpConnection::OnEventHandlerRead()
                }
                else
 #endif
+
                {
                     if (BytesRead == 0 || errno == ECONNRESET)
                     {
@@ -2146,9 +2152,11 @@ void HttpConnection::ProcessSingleRequest(const std::string &RequestStr)
 
      try
      {
-          /* Block queries until collections are loaded after restart, but allow write operations. */
-          /* This ensures queries return accurate results with all collections available. */
-          /* Allow collection creation and document import during loading (needed for benchmarks). */
+          /* 
+           * Block queries until collections are loaded after restart, but allow write operations. 
+           * This ensures queries return accurate results with all collections available. 
+           * Allow collection creation and document import during loading (needed for benchmarks). 
+           */
 
           bool IsAnyServerLoading = false;
 

@@ -40,6 +40,7 @@ ConfigReader::ConfigReader() : Valid(false),
 
 ConfigReader::~ConfigReader()
 {
+
 }
 
 /* Helper function to format file size in human-readable format */
@@ -47,9 +48,7 @@ ConfigReader::~ConfigReader()
 static std::string FormatFileSize(size_t Bytes)
 {
      const char *Units[] = {"B", "KB", "MB", "GB", "TB"};
-
      size_t UnitIndex = 0;
-
      double Size = static_cast<double>(Bytes);
 
      while (Size >= 1024.0 && UnitIndex < 4)

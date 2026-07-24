@@ -65,7 +65,7 @@ $ sudo pkg install gmake cmake openssl
 
 ### Installation
 
-```bash
+```
 $ wget https://github.com/hlquery/hlquery/archive/refs/heads/unstable.zip
 $ cd hlquery/
 $ ./configure
@@ -80,16 +80,16 @@ $ make install
 
 On FreeBSD, use GNU make for the build and install steps:
 
-```bash
+```
 $ gmake -j4
 $ gmake install
 ```
 
 ### Running hlquery
 
-**Start the server:**
+**Start the server**
 
-```bash
+```
 $ ./run/hlquery start
 [ OK ] Starting hlquery: [Jul-12 - 12:37:59]
 ...
@@ -97,34 +97,38 @@ $ ./run/hlquery start
 
 > **Note**: hlquery uses port **9200** by default. Ensure this port is available and not blocked by your firewall.
 
-**Stop the server:**
+**Stop the server**
 
-```bash
+```
 $ ./run/hlquery stop
 [ INFO ] Stopping hlquery (PID: 27008) ...
 [ OK ] hlquery stopped successfully.
 ```
 
-**Stop the server as JSON:**
+**Stop the server as JSON**
 
-```bash
+```
 $ ./run/hlquery stop --json
 {"action":"stop","stopped_pid":206773,"success":true}
 ```
 
 **Run in foreground (for debugging):**
 
-```bash
+```
 $ ./run/hlquery start --nofork
 ...
 ```
 
-**Run the interactive shell:**
+**Run the interactive shell**
 
-```text
+```
 $ ./run/hlquery talk
 localhost:9200> use art
 Using collection 'art'.
+```
+
+**Checking uptime's**
+```
 localhost:9200|art> uptime
 Server up for 3 days, 1h 0m 31s
 ```
@@ -212,7 +216,7 @@ $ hlquery-cli add products prod_laptop_001 "Laptop Computer" "High-performance l
 Document 'prod_laptop_001' added to collection 'products'
 ```
 
-**Using the Node API:**
+**Using the Node API**
 
 ```js
 const Client = require('hlquery-node-client');
@@ -248,7 +252,7 @@ Found 1 document(s) (showing 1-1 of 1)
 +---+-----------------+----------+-----------------+---------------------------------------+
 ```
 
-**Using the C++ API:**
+**Using the C++ API**
 
 ```cpp
 #include "hlquery/client.h"
@@ -311,8 +315,8 @@ Distributed search fans a query out to linked search nodes and merges the result
 
 ```text
 $ ./run/hlquery talk
-localhost:9200> sql: select title from music where content like 'madonna%' or content like 'nirvana%';
-SQL rows for `select title from music where content like 'madonna%' or content like 'nirvana%';`:
+localhost:9200> sql: select title from music where content like 'madon%' or content like 'nirva%';
+SQL rows for `select title from music where content like 'madon%' or content like 'nirva%';`:
 +-------------------------+
 | title                   |
 +-------------------------+
