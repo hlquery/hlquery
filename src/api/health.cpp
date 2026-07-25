@@ -884,8 +884,24 @@ static bool NormalizeLinkRuntimeRole(const std::string &RawRole, LinkRuntimeRole
 
 /* Extracts link endpoint values. */
 
-static bool ExtractLinkEndpoint(const HttpRequest &Request, std::string &OutEndpoint, LinkRuntimeRole *OutRole, std::string &OutError)
+static bool ExtractLinkEndpoint(const HttpRequest &Request,
+                                std::string &OutEndpoint,
+                                LinkRuntimeRole *OutRole,
+                                std::string &OutPrimaryToken,
+                                std::string &OutSecondaryToken,
+                                std::string &OutError)
 {
+     OutPrimaryToken.clear();
+     OutSecondaryToken.clear();
+
+     auto ReadToken = [](const nlohmann::json &Body, const char *Name, std::string &Out)
+     {
+          if (Body.contains(Name) && Body[Name].is_string())
+          {
+               Out = HealthTrimWhitespace(Body[Name].get<std::string>());
+          }
+     };
+
      if (OutRole)
      {
           *OutRole = LinkRuntimeRole::Distributed;
@@ -894,6 +910,17 @@ static bool ExtractLinkEndpoint(const HttpRequest &Request, std::string &OutEndp
           {
                return false;
           }
+     }
+
+     auto QueryToken = Request.QueryParams.find("token");
+     if (QueryToken != Request.QueryParams.end())
+     {
+          OutPrimaryToken = HealthTrimWhitespace(QueryToken->second);
+     }
+     QueryToken = Request.QueryParams.find("token2");
+     if (QueryToken != Request.QueryParams.end())
+     {
+          OutSecondaryToken = HealthTrimWhitespace(QueryToken->second);
      }
 
      auto It = Request.QueryParams.find("endpoint");
@@ -931,6 +958,14 @@ static bool ExtractLinkEndpoint(const HttpRequest &Request, std::string &OutEndp
                OutError = "Invalid JSON body";
                return false;
           }
+
+          ReadToken(BodyJSON, "token", OutPrimaryToken);
+          if (OutPrimaryToken.empty()) ReadToken(BodyJSON, "api_key", OutPrimaryToken);
+          if (OutPrimaryToken.empty()) ReadToken(BodyJSON, "pass", OutPrimaryToken);
+          if (OutPrimaryToken.empty()) ReadToken(BodyJSON, "password", OutPrimaryToken);
+          if (OutPrimaryToken.empty()) ReadToken(BodyJSON, "passwd", OutPrimaryToken);
+          ReadToken(BodyJSON, "token2", OutSecondaryToken);
+          if (OutSecondaryToken.empty()) ReadToken(BodyJSON, "pass2", OutSecondaryToken);
 
           if (BodyJSON.contains("endpoint") && BodyJSON["endpoint"].is_string())
           {
@@ -2388,8 +2423,10 @@ HttpResponse SearchAPI::HandleLinksPing(const HttpRequest &Request)
      if (HasEndpointParam)
      {
           std::string Endpoint;
+          std::string IgnoredPrimaryToken;
+          std::string IgnoredSecondaryToken;
           std::string Error;
-          if (!ExtractLinkEndpoint(Request, Endpoint, nullptr, Error))
+          if (!ExtractLinkEndpoint(Request, Endpoint, nullptr, IgnoredPrimaryToken, IgnoredSecondaryToken, Error))
           {
                return BuildLinksErrorResponse(Status::BAD_REQUEST, "Invalid request", Error);
           }
@@ -2405,9 +2442,11 @@ HttpResponse SearchAPI::HandleLinksPing(const HttpRequest &Request)
 HttpResponse SearchAPI::HandleLinksConnect(const HttpRequest &Request)
 {
      std::string Endpoint;
+     std::string PrimaryToken;
+     std::string SecondaryToken;
      LinkRuntimeRole Role = LinkRuntimeRole::Distributed;
      std::string Error;
-     if (!ExtractLinkEndpoint(Request, Endpoint, &Role, Error))
+     if (!ExtractLinkEndpoint(Request, Endpoint, &Role, PrimaryToken, SecondaryToken, Error))
      {
           return BuildLinksErrorResponse(Status::BAD_REQUEST, "Invalid request", Error);
      }
@@ -2462,8 +2501,8 @@ HttpResponse SearchAPI::HandleLinksConnect(const HttpRequest &Request)
 
      std::string AddError;
      const bool Added = Role == LinkRuntimeRole::Slave
-                             ? Instance->Config->AddSlaveNode(Endpoint, &AddError)
-                             : Instance->Config->AddClusterNode(Endpoint, &AddError);
+                             ? Instance->Config->AddSlaveNode(Endpoint, &AddError, PrimaryToken, SecondaryToken)
+                             : Instance->Config->AddClusterNode(Endpoint, &AddError, PrimaryToken, SecondaryToken);
      if (!Added)
      {
           return BuildLinksErrorResponse(Status::BAD_REQUEST, "Failed to add link", AddError);
@@ -2488,7 +2527,9 @@ HttpResponse SearchAPI::HandleLinksDisconnect(const HttpRequest &Request)
      std::string Endpoint;
      LinkRuntimeRole Role = LinkRuntimeRole::Distributed;
      std::string Error;
-     if (!ExtractLinkEndpoint(Request, Endpoint, &Role, Error))
+     std::string IgnoredPrimaryToken;
+     std::string IgnoredSecondaryToken;
+     if (!ExtractLinkEndpoint(Request, Endpoint, &Role, IgnoredPrimaryToken, IgnoredSecondaryToken, Error))
      {
           return BuildLinksErrorResponse(Status::BAD_REQUEST, "Invalid request", Error);
      }

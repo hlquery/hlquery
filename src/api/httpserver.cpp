@@ -4036,6 +4036,9 @@ bool HttpServer::Start()
                return false;
           }
 
+          /* Disable legacy TLS compression and prefer the server cipher order. */
+          SSL_CTX_set_options(SSLCtx, SSL_OP_NO_COMPRESSION | SSL_OP_CIPHER_SERVER_PREFERENCE);
+
           /* Set cipher list. */
 
           if (!Config.ssl_ciphers.empty())

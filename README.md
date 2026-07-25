@@ -33,6 +33,14 @@ hlquery is built for teams that want strong search without the operational weigh
 
 You can use hlquery for full-text search, hybrid retrieval, vector similarity, and AI-assisted workflows while keeping deployment straightforward. It ships with client libraries, command-line tools, and modular runtime extensions for local development and production services.
 
+### Data organization
+
+hlquery organizes data into **collections**. A collection is a logical group of related records, such as products, articles, users, or events, and its schema defines the fields that can be indexed, searched, filtered, sorted, or used for faceting.
+
+Each collection contains **documents**. A document is a JSON record identified by a unique ID and made up of fields such as `title`, `content`, `category`, or `price`. Documents in the same collection follow the same general schema, while each document stores its own values.
+
+For example, a `products` collection can contain one document per product. You can then search the text fields, filter by structured fields such as category or price, and return only the fields needed by your application. Collections keep different types of data organized while allowing each type to have its own schema and search behavior.
+
 ### Prerequisites
 
 **Debian/Ubuntu:**
@@ -325,6 +333,13 @@ SQL rows for `select title from music where content like 'madon%' or content lik
 +-------------------------+
 2 results shown.
 Search completed in 19 ms.
+```
+
+Runtime links use the same role split. Use `role="master"` (or `distributed`) for a query link and `role="slave"` (or `replica`) for a replication target. If the link is authenticated, include `token` and optionally `token2` in the JSON body; runtime-added links are in-memory and must be added again after restart:
+
+```text
+POST /links/connect
+{"host":"127.0.0.1","port":9202,"role":"slave","token":"shared-secret"}
 ```
 
 ### GitHub Repositories & Branch Structure

@@ -22,6 +22,7 @@
 #include <sstream>
 #include <string>
 #include <thread>
+#include <unistd.h>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -4104,29 +4105,26 @@ int main(int argc, char *argv[])
 
 /* Signal handler for Ctrl+C. */
 
-void BenchmarkSignalHandler(int signal)
+void BenchmarkSignalHandler(int signal_number)
 {
-     (void)signal;
+     (void)signal_number;
+
+     static volatile sig_atomic_t interrupt_count = 0;
+
+     if (interrupt_count > 0)
+     {
+          _exit(130);
+     }
+
+     interrupt_count = 1;
 
      g_benchmark_should_stop.store(true);
 
-     if (log_file_stream && log_file_stream->is_open())
-     {
-          try
-          {
-               log_file_stream->close();
+     signal(SIGINT, SIG_DFL);
 
-               delete log_file_stream;
+     const char message[] = "\n[INTERRUPT] Ctrl+C received - stopping benchmark...\n";
 
-               log_file_stream = nullptr;
-          }
-          catch (...)
-          {
-               /* Ignore. */
-          }
-     }
-
-     std::cerr << "\n[INTERRUPT] Ctrl+C received - stopping benchmark...\n";
+     write(STDERR_FILENO, message, sizeof(message) - 1);
 }
 
 /* Reset global statistics. */

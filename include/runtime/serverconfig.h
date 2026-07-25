@@ -1644,7 +1644,10 @@ class ServerConfig
 
      /* Adds a cluster node endpoint at runtime (in-memory only). */
 
-     bool AddClusterNode(const std::string &Endpoint, std::string *OutError = nullptr);
+     bool AddClusterNode(const std::string &Endpoint,
+                         std::string *OutError = nullptr,
+                         const std::string &PrimaryToken = std::string(),
+                         const std::string &SecondaryToken = std::string());
 
      /* Removes a cluster node endpoint at runtime (in-memory only). */
 
@@ -1652,7 +1655,10 @@ class ServerConfig
 
      /* Adds a replication slave endpoint at runtime (in-memory only). */
 
-     bool AddSlaveNode(const std::string &Endpoint, std::string *OutError = nullptr);
+     bool AddSlaveNode(const std::string &Endpoint,
+                       std::string *OutError = nullptr,
+                       const std::string &PrimaryToken = std::string(),
+                       const std::string &SecondaryToken = std::string());
 
      /* Removes a replication slave endpoint at runtime (in-memory only). */
 

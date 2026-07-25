@@ -10,11 +10,10 @@
  * For more details, please visit: https://docs.hlquery.com
  */
 
-#include "sql/internal.h"
-
 #include <algorithm>
 #include <cctype>
 #include <cstdlib>
+#include "sql/internal.h"
 
 /* Hard safety limits for tokenization and basic syntax sanity checks. */
 

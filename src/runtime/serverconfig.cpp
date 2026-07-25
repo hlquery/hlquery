@@ -2276,7 +2276,10 @@ static std::string NormalizeClusterEndpoint(const std::string &Raw, std::string 
      return Host + ":" + std::to_string(Port);
 }
 
-bool ServerConfig::AddClusterNode(const std::string &Endpoint, std::string *OutError)
+bool ServerConfig::AddClusterNode(const std::string &Endpoint,
+                                  std::string *OutError,
+                                  const std::string &PrimaryToken,
+                                  const std::string &SecondaryToken)
 {
      std::string Error;
      std::string Normalized = NormalizeClusterEndpoint(Endpoint, &Error);
@@ -2295,6 +2298,10 @@ bool ServerConfig::AddClusterNode(const std::string &Endpoint, std::string *OutE
      {
           if (NormalizeClusterEndpoint(Existing, nullptr) == Normalized)
           {
+               if (!PrimaryToken.empty() || !SecondaryToken.empty())
+               {
+                    ClusterPeerTokens[Normalized] = std::make_pair(PrimaryToken, SecondaryToken);
+               }
                ClusterEnabled = true;
                return true;
           }
@@ -2303,6 +2310,10 @@ bool ServerConfig::AddClusterNode(const std::string &Endpoint, std::string *OutE
      ClusterNodes.push_back(Normalized);
      std::sort(ClusterNodes.begin(), ClusterNodes.end());
      ClusterNodes.erase(std::unique(ClusterNodes.begin(), ClusterNodes.end()), ClusterNodes.end());
+     if (!PrimaryToken.empty() || !SecondaryToken.empty())
+     {
+          ClusterPeerTokens[Normalized] = std::make_pair(PrimaryToken, SecondaryToken);
+     }
      ClusterEnabled = true;
      return true;
 }
@@ -2357,7 +2368,10 @@ bool ServerConfig::RemoveClusterNode(const std::string &Endpoint, std::string *O
      return Removed;
 }
 
-bool ServerConfig::AddSlaveNode(const std::string &Endpoint, std::string *OutError)
+bool ServerConfig::AddSlaveNode(const std::string &Endpoint,
+                                std::string *OutError,
+                                const std::string &PrimaryToken,
+                                const std::string &SecondaryToken)
 {
      std::string Error;
      std::string Normalized = NormalizeClusterEndpoint(Endpoint, &Error);
@@ -2376,6 +2390,10 @@ bool ServerConfig::AddSlaveNode(const std::string &Endpoint, std::string *OutErr
      {
           if (NormalizeClusterEndpoint(Existing, nullptr) == Normalized)
           {
+               if (!PrimaryToken.empty() || !SecondaryToken.empty())
+               {
+                    SlavePeerTokens[Normalized] = std::make_pair(PrimaryToken, SecondaryToken);
+               }
                ReplicationEnabled = true;
                return true;
           }
@@ -2384,6 +2402,10 @@ bool ServerConfig::AddSlaveNode(const std::string &Endpoint, std::string *OutErr
      SlaveNodes.push_back(Normalized);
      std::sort(SlaveNodes.begin(), SlaveNodes.end());
      SlaveNodes.erase(std::unique(SlaveNodes.begin(), SlaveNodes.end()), SlaveNodes.end());
+     if (!PrimaryToken.empty() || !SecondaryToken.empty())
+     {
+          SlavePeerTokens[Normalized] = std::make_pair(PrimaryToken, SecondaryToken);
+     }
      ReplicationEnabled = true;
      return true;
 }

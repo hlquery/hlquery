@@ -141,6 +141,7 @@ class CoreExport TimerManager
      std::unordered_set<uint64_t> CancelledTimers;
 
    public:
+
      /* Timer clock type */
 
      using Clock = std::chrono::steady_clock;

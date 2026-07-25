@@ -7,8 +7,6 @@
  * This file is part of hlquery, released under the BSD License version 3.
  */
 
-#include "search/segment_catalog.h"
-
 #include <cerrno>
 #include <fcntl.h>
 #include <filesystem>
@@ -16,21 +14,24 @@
 #include <unistd.h>
 #include <utility>
 
+#include "search/segment_catalog.h"
 #include "vendor/json/json.hpp"
 
-namespace
-{
 bool FsyncPath(const std::filesystem::path &path, bool directory)
 {
      int flags = O_RDONLY;
 
 #ifdef O_DIRECTORY
+
      if (directory)
      {
           flags |= O_DIRECTORY;
      }
+
 #else
+
      (void)directory;
+
 #endif
 
      const int fd = ::open(path.c_str(), flags);
@@ -96,7 +97,6 @@ bool SaveJsonAtomic(const std::string &path, const nlohmann::json &json_value)
           return false;
      }
 }
-} // namespace
 
 bool SegmentManifest::Load(const std::string &path, SegmentManifest &out_manifest)
 {

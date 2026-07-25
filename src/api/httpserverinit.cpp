@@ -12,6 +12,7 @@
 
 #include <filesystem>
 #include <memory>
+#include <mutex>
 
 #include "api/httpserver.h"
 #include "common/searchpool.h"
@@ -26,18 +27,13 @@
 
 void EnsureOpenSSLInitialized()
 {
-     static bool OpenSSLInitialized = false;
-
-     if (!OpenSSLInitialized)
+     static std::once_flag OpenSSLInitFlag;
+     std::call_once(OpenSSLInitFlag, []()
      {
           SSL_library_init();
-
           SSL_load_error_strings();
-
           OpenSSL_add_all_algorithms();
-
-          OpenSSLInitialized = true;
-     }
+     });
 }
 #endif
 /* Validate SSL settings without binding sockets (preflight). */
@@ -93,18 +89,50 @@ bool ValidateSSLConfig(const BindConfig &Config, std::string *ErrorMsg)
           return false;
      }
 
-     if (Config.ssl_protocols.find("TLSv1.3") != std::string::npos)
+     const bool AllowTLS12 = Config.ssl_protocols.find("TLSv1.2") != std::string::npos;
+     const bool AllowTLS13 = Config.ssl_protocols.find("TLSv1.3") != std::string::npos;
+
+     if (!AllowTLS12 && !AllowTLS13)
      {
-          SSL_CTX_set_min_proto_version(SSLCtx, TLS1_3_VERSION);
+          if (ErrorMsg)
+          {
+               *ErrorMsg = "SSL protocols must include TLSv1.2 or TLSv1.3.";
+          }
+
+          SSL_CTX_free(SSLCtx);
+          return false;
      }
-     else if (Config.ssl_protocols.find("TLSv1.2") != std::string::npos)
+
+     const int MinProtocol = AllowTLS12 ? TLS1_2_VERSION : TLS1_3_VERSION;
+     const int MaxProtocol = AllowTLS13 ? TLS1_3_VERSION : TLS1_2_VERSION;
+
+     if (SSL_CTX_set_min_proto_version(SSLCtx, MinProtocol) != 1 ||
+         SSL_CTX_set_max_proto_version(SSLCtx, MaxProtocol) != 1)
      {
-          SSL_CTX_set_min_proto_version(SSLCtx, TLS1_2_VERSION);
+          if (ErrorMsg)
+          {
+               *ErrorMsg = "Failed to configure SSL protocol range from: " + Config.ssl_protocols + ".";
+          }
+
+          SSL_CTX_free(SSLCtx);
+          return false;
      }
+
+     /* Disable legacy compression and prefer the server's cipher order. */
+     SSL_CTX_set_options(SSLCtx, SSL_OP_NO_COMPRESSION | SSL_OP_CIPHER_SERVER_PREFERENCE);
 
      if (!Config.ssl_ciphers.empty())
      {
-          SSL_CTX_set_cipher_list(SSLCtx, Config.ssl_ciphers.c_str());
+          if (SSL_CTX_set_cipher_list(SSLCtx, Config.ssl_ciphers.c_str()) != 1)
+          {
+               if (ErrorMsg)
+               {
+                    *ErrorMsg = "Failed to configure SSL cipher list: " + Config.ssl_ciphers + ".";
+               }
+
+               SSL_CTX_free(SSLCtx);
+               return false;
+          }
      }
 
      if (SSL_CTX_use_certificate_chain_file(SSLCtx, Config.ssl_cert.c_str()) <= 0)

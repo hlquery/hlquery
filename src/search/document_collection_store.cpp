@@ -1218,16 +1218,20 @@ bool HybridStorageManager::DeleteCollection(const std::string &name)
           }
      }
 
-     /* Delete all documents in the collection before deleting metadata */
-     /* This prevents document accumulation when collections are deleted and recreated */
-     /* PERFORMANCE: Use DeleteRange for bulk deletion - much faster than Keys() + Del() loops */
+     /* 
+      * Delete all documents in the collection before deleting metadata 
+      * This prevents document accumulation when collections are deleted and recreated 
+      * PERFORMANCE: Use DeleteRange for bulk deletion - much faster than Keys() + Del() loops 
+      */
 
      if (Instance && Instance->Database)
      {
           size_t deleted_count = 0;
 
-          /* Use DeleteRange for efficient bulk deletion of documents */
-          /* Range: "doc:name:" to "doc:name;" (semicolon is after colon in ASCII, covers all doc:name:* keys) */
+          /*
+           * Use DeleteRange for efficient bulk deletion of documents 
+           * Range: "doc:name:" to "doc:name;" (semicolon is after colon in ASCII, covers all doc:name:* keys) 
+           */
 
           try
           {
