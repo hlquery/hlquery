@@ -59,11 +59,11 @@ ${HLQUERY_SSL_DEFINES}
 /* Connection limits and throttling */
 /* Maximum concurrent connections (increased for benchmarking) */
 
-#define MAX_CONNECTIONS 1000
+#define MAX_CONNECTIONS 8192
 
 /* Maximum queued connections (increased for benchmarking) */
 
-#define MAX_PENDING_CONNECTIONS 100
+#define MAX_PENDING_CONNECTIONS 1024
 
 /* User timeout configuration */
 /* User timeout in seconds - more aggressive for dead connections */
@@ -77,11 +77,11 @@ ${HLQUERY_SSL_DEFINES}
 /* Performance and Processing Configuration */
 /* Maximum connections processed per tick (increased for benchmarking) */
 
-#define MAX_PROCESS_PER_TICK 10
+#define MAX_PROCESS_PER_TICK 256
 
 /* Maximum connections accepted per tick (increased for benchmarking) */
 
-#define MAX_CONNECTIONS_PER_TICK 10
+#define MAX_CONNECTIONS_PER_TICK 256
 
 /* Circuit Breaker and Error Handling Configuration */
 /* Maximum consecutive errors before circuit breaker triggers */
@@ -473,12 +473,24 @@ ${HLQUERY_SSL_DEFINES}
 
 #define ROCKSDB_DEFAULT_MAX_BACKGROUND_JOBS 4
 
+/* Maximum concurrent memtable flush workers */
+
+#define ROCKSDB_DEFAULT_MAX_BACKGROUND_FLUSHES 1
+
+/* Maximum concurrent compaction workers */
+
+#define ROCKSDB_DEFAULT_MAX_BACKGROUND_COMPACTIONS 3
+
 /* Write buffer size in bytes (64MB) */
 
 #define ROCKSDB_DEFAULT_WRITE_BUFFER_SIZE (64 * 1024 * 1024)
 /* Maximum write buffer number */
 
 #define ROCKSDB_DEFAULT_MAX_WRITE_BUFFER_NUMBER 3
+
+/* Minimum write buffers merged during a flush */
+
+#define ROCKSDB_DEFAULT_MIN_WRITE_BUFFER_NUMBER_TO_MERGE 1
 
 /* Target file size base in bytes (64MB) */
 
@@ -487,3 +499,12 @@ ${HLQUERY_SSL_DEFINES}
 /* Maximum bytes for level base in bytes (256MB) */
 
 #define ROCKSDB_DEFAULT_MAX_BYTES_FOR_LEVEL_BASE (256 * 1024 * 1024)
+
+/* LSM level size multiplier */
+
+#define ROCKSDB_DEFAULT_MAX_BYTES_FOR_LEVEL_MULTIPLIER 10
+
+/* L0 write-flow control thresholds */
+
+#define ROCKSDB_DEFAULT_LEVEL0_SLOWDOWN_WRITES_TRIGGER 20
+#define ROCKSDB_DEFAULT_LEVEL0_STOP_WRITES_TRIGGER 36

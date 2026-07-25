@@ -49,47 +49,47 @@ struct RocksDBOptions
 
      /* Maximum number of write buffers. */
 
-     int MaxWriteBufferNumber = 3;
+     int MaxWriteBufferNumber = ROCKSDB_DEFAULT_MAX_WRITE_BUFFER_NUMBER;
 
      /* Minimum buffers to merge during flush. */
 
-     int MinWriteBufferNumberToMerge = 1;
+     int MinWriteBufferNumberToMerge = ROCKSDB_DEFAULT_MIN_WRITE_BUFFER_NUMBER_TO_MERGE;
 
      /* Background jobs */
 
      /* Total background jobs for compaction/flush. */
 
-     int MaxBackgroundJobs = 4;
+     int MaxBackgroundJobs = ROCKSDB_DEFAULT_MAX_BACKGROUND_JOBS;
 
      /* Maximum background flush threads. */
 
-     int MaxBackgroundFlushes = 1;
+     int MaxBackgroundFlushes = ROCKSDB_DEFAULT_MAX_BACKGROUND_FLUSHES;
 
      /* Maximum background compaction threads. */
 
-     int MaxBackgroundCompactions = 3;
+     int MaxBackgroundCompactions = ROCKSDB_DEFAULT_MAX_BACKGROUND_COMPACTIONS;
 
      /* Level and compaction settings */
 
      /* Base target file size for compaction. */
 
-     size_t TargetFileSizeBase = 64 * 1024 * 1024; /* 64MB */
+     size_t TargetFileSizeBase = ROCKSDB_DEFAULT_TARGET_FILE_SIZE_BASE;
 
      /* Base max bytes for level 1. */
 
-     size_t MaxBytesForLevelBase = 256 * 1024 * 1024; /* 256MB */
+     size_t MaxBytesForLevelBase = ROCKSDB_DEFAULT_MAX_BYTES_FOR_LEVEL_BASE;
 
      /* Size multiplier per level. */
 
-     int MaxBytesForLevelMultiplier = 10;
+     int MaxBytesForLevelMultiplier = ROCKSDB_DEFAULT_MAX_BYTES_FOR_LEVEL_MULTIPLIER;
 
      /* L0 file count to start slowing writes. */
 
-     int Level0SlowdownWritesTrigger = 20;
+     int Level0SlowdownWritesTrigger = ROCKSDB_DEFAULT_LEVEL0_SLOWDOWN_WRITES_TRIGGER;
 
      /* L0 file count to stop writes. */
 
-     int Level0StopWritesTrigger = 36;
+     int Level0StopWritesTrigger = ROCKSDB_DEFAULT_LEVEL0_STOP_WRITES_TRIGGER;
 
      /* Compression */
 
@@ -102,6 +102,10 @@ struct RocksDBOptions
      /* Compression for bottommost level. */
 
      std::string BottommostCompression = "none";
+
+     /* Enable automatic flush and compaction work. */
+
+     bool EnableCompaction = true;
 
      /* Block cache size in bytes. */
 
