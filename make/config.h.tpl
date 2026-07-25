@@ -389,7 +389,7 @@ ${HLQUERY_SSL_DEFINES}
 /* Socket Engine Configuration Constants */
 /* Epoll batch size for high-speed writes */
 
-#define EPOLL_BATCH_SIZE 64
+#define EPOLL_BATCH_SIZE 256
 
 /* Number of reusable zero-copy buffers maintained by the epoll backend */
 
@@ -415,7 +415,7 @@ ${HLQUERY_SSL_DEFINES}
 
 /* Poll batch size */
 
-#define POLL_BATCH_SIZE 1
+#define POLL_BATCH_SIZE 256
 
 /* Kqueue batch size for high-speed writes */
 
@@ -450,7 +450,7 @@ ${HLQUERY_SSL_DEFINES}
 /* HTTP Server Buffer Configuration Constants */
 /* HTTP read buffer size in bytes (increased from 4096) */
 
-#define HTTP_READ_BUFFER_SIZE 8192
+#define HTTP_READ_BUFFER_SIZE (64 * 1024)
 
 /* Kernel send/receive socket buffer size in bytes (8MB) */
 

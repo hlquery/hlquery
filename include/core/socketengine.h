@@ -138,7 +138,9 @@ class SocketEngine
     
      /* Increased from 1024 to handle high-throughput scenarios */
 
-     static const int MAX_EVENTS = 16384;
+     /* Shared event capacity for epoll, poll, and kqueue backends. */
+
+     static const int MAX_EVENTS = 32768;
 
      /* Main interface */
 
