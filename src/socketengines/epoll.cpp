@@ -81,6 +81,10 @@ static std::atomic<size_t> ZeroCopyBufferIndex{0};
 
 static std::atomic<bool> ZeroCopyBuffersAllocated{false};
 
+/* Protects lazy zero-copy buffer initialization and teardown. */
+
+static std::mutex ZeroCopyBuffersMutex;
+
 static int GetTimedWorkWakeupMs()
 {
      if (Instance && Instance->Timers)
@@ -260,6 +264,8 @@ void SocketEngine::InitializeZeroCopyBuffers()
 
 void SocketEngine::CleanupZeroCopyBuffers()
 {
+     std::lock_guard<std::mutex> Lock(ZeroCopyBuffersMutex);
+
      for (auto &buffer : ZeroCopyBuffers)
      {
           if (buffer)
@@ -268,6 +274,8 @@ void SocketEngine::CleanupZeroCopyBuffers()
                buffer = nullptr;
           }
      }
+
+     ZeroCopyBuffersAllocated.store(false, std::memory_order_release);
 }
 
 /* Initializes adaptive timeout */
@@ -344,62 +352,61 @@ void SocketEngine::SetOptimalSocketOptions()
 
 void *SocketEngine::GetZeroCopyBuffer()
 {
-     bool expected = false;
-
-     if (ZeroCopyBuffersAllocated.compare_exchange_strong(expected, true))
+     if (!ZeroCopyBuffersAllocated.load(std::memory_order_acquire))
      {
-          /* First call - allocate all buffers now */
+          std::lock_guard<std::mutex> Lock(ZeroCopyBuffersMutex);
 
-          bool AllocationFailed = false;
-          size_t AllocatedCount = 0;
-
-          for (size_t i = 0; i < ZeroCopyBuffers.size(); ++i)
+          if (!ZeroCopyBuffersAllocated.load(std::memory_order_relaxed))
           {
-               ZeroCopyBuffers[i] = std::aligned_alloc(EPOLL_ZERO_COPY_BUFFER_ALIGNMENT, EPOLL_ZERO_COPY_BUFFER_SIZE);
+               /* First call - allocate all buffers now */
 
-               if (!ZeroCopyBuffers[i])
+               bool AllocationFailed = false;
+               size_t AllocatedCount = 0;
+
+               for (size_t i = 0; i < ZeroCopyBuffers.size(); ++i)
                {
-                    if (Instance && Instance->Logs)
+                    ZeroCopyBuffers[i] = std::aligned_alloc(EPOLL_ZERO_COPY_BUFFER_ALIGNMENT, EPOLL_ZERO_COPY_BUFFER_SIZE);
+
+                    if (!ZeroCopyBuffers[i])
                     {
-                         Instance->Logs->Critical("socketengine", "Failed to allocate zero-copy buffer " + std::to_string(i) + ".");
+                         if (Instance && Instance->Logs)
+                         {
+                              Instance->Logs->Critical("socketengine", "Failed to allocate zero-copy buffer " + std::to_string(i) + ".");
+                         }
+
+                         AllocationFailed = true;
+
+                         /* Stop allocation on first failure. */
+
+                         break;
                     }
 
-                    AllocationFailed = true;
-
-                    /* Stop allocation on first failure. */
-
-                    break;
+                    AllocatedCount++;
                }
 
-               AllocatedCount++;
-          }
+               /* If allocation failed partway through, clean up and leave the
+                * state uninitialized so a later call can retry. */
 
-          /* If allocation failed partway through, clean up and reset flag */
-
-          if (AllocationFailed)
-          {
-               /* Free any buffers we already allocated */
-
-               for (size_t j = 0; j < AllocatedCount; ++j)
+               if (AllocationFailed)
                {
-                    if (ZeroCopyBuffers[j])
+                    for (size_t j = 0; j < AllocatedCount; ++j)
                     {
-                         std::free(ZeroCopyBuffers[j]);
-                         ZeroCopyBuffers[j] = nullptr;
+                         if (ZeroCopyBuffers[j])
+                         {
+                              std::free(ZeroCopyBuffers[j]);
+                              ZeroCopyBuffers[j] = nullptr;
+                         }
                     }
+
+                    return nullptr;
                }
 
-               /* Reset flag so other threads can retry (or we can retry later) */
-
-               ZeroCopyBuffersAllocated.store(false);
-
-               /* Return null on allocation failure. */
-
-               return nullptr;
+               /* Publish only after every buffer is ready. */
+               ZeroCopyBuffersAllocated.store(true, std::memory_order_release);
           }
      }
 
-     if (!ZeroCopyBuffersAllocated.load())
+     if (!ZeroCopyBuffersAllocated.load(std::memory_order_acquire))
      {
           /* Allocation failed. */
 

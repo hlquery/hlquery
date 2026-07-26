@@ -295,6 +295,12 @@ bool APIKeyManager::DeleteKey(const std::string &KeyID)
                return false;
           }
 
+          /* Drop the deleted key's request window to avoid stale state growth. */
+          {
+               std::lock_guard<std::mutex> RateLock(RateLimitMutex);
+               RateLimits.erase(KeyID);
+          }
+
           return true;
      }
 
@@ -321,8 +327,9 @@ bool APIKeyManager::UpdateKey(const std::string &KeyID, const APIKey &KeySpec)
 
      It->second.Description = KeySpec.Description;
      It->second.Scopes = KeySpec.Scopes;
-     It->second.ExpiresAt = std::chrono::system_clock::time_point();
-     It->second.HasExpiration = false;
+     /* Preserve the expiration supplied by the caller. */
+     It->second.ExpiresAt = KeySpec.ExpiresAt;
+     It->second.HasExpiration = KeySpec.HasExpiration;
      It->second.RateLimitPerMinute = KeySpec.RateLimitPerMinute;
      It->second.AllowHanalyzer = KeySpec.AllowHanalyzer;
      std::vector<APIKey> Snapshot;
