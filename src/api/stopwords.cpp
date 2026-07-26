@@ -598,7 +598,7 @@ HttpResponse SearchAPI::HandleCreateStopword(const HttpRequest &Request)
           }
 
           std::string ReplicationError;
-          if (!ReplicateWriteRequest(Request, "create_stopword", &ReplicationError))
+          if (!ReplicateWriteRequest(Request, "create_stopword", &ReplicationError, ReplicationOutboxID))
           {
                return BuildErrorResponse(Status::SERVICE_UNAVAILABLE,
                                          Code::SEARCH_INVALID_PARAMETER,
@@ -606,7 +606,7 @@ HttpResponse SearchAPI::HandleCreateStopword(const HttpRequest &Request)
                                          ReplicationError.empty() ? "Stopword was written locally but replica acknowledgement failed." : ReplicationError);
           }
 
-          ClearReplicationOutboxRecord(ReplicationOutboxID);
+          FinalizeReplicationOutboxRecord(ReplicationOutboxID);
           return Response;
      }
      catch (const std::exception &)
@@ -799,7 +799,7 @@ HttpResponse SearchAPI::HandleDeleteStopword(const HttpRequest &Request)
           FOREACH_MOD(OnDeleteStopword, CollectionName, WordStr, IsGlobalScope, Request.RemoteAddress, Request.APIKeyID, !Request.APIKeyID.empty());
 
           std::string ReplicationError;
-          if (!ReplicateWriteRequest(Request, "delete_stopword", &ReplicationError))
+          if (!ReplicateWriteRequest(Request, "delete_stopword", &ReplicationError, ReplicationOutboxID))
           {
                return BuildErrorResponse(Status::SERVICE_UNAVAILABLE,
                                          Code::SEARCH_INVALID_PARAMETER,
@@ -807,7 +807,7 @@ HttpResponse SearchAPI::HandleDeleteStopword(const HttpRequest &Request)
                                          ReplicationError.empty() ? "Stopword was deleted locally but replica acknowledgement failed." : ReplicationError);
           }
 
-          ClearReplicationOutboxRecord(ReplicationOutboxID);
+          FinalizeReplicationOutboxRecord(ReplicationOutboxID);
           return Response;
      }
      catch (const std::exception &)

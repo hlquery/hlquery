@@ -361,6 +361,12 @@ struct ReplicationStatusSnapshot
      uint64_t LastErrorTimestampMS = 0;
 };
 
+struct PendingReplicationRecord
+{
+     HttpRequest Request;
+     std::string StorageKey;
+};
+
 struct PeerReconnectDiagnostics
 {
      bool HasState = false;
@@ -396,6 +402,8 @@ class SearchAPI
      mutable std::string LastReplicationError;
      mutable uint64_t LastReplicationErrorTimestampMS = 0;
      mutable std::mutex ReplicationSlaveStateMutex;
+     /* Coordinates the resync transition with in-flight replication sends. */
+     mutable std::mutex ReplicationResyncFenceMutex;
      mutable std::unordered_set<std::string> ReplicationDirtySlaves;
      mutable std::unordered_set<std::string> ReplicationResyncInProgress;
      mutable std::unordered_map<std::string, uint64_t> ReplicationLastReachableTimestampMS;
@@ -627,6 +635,14 @@ class SearchAPI
 
      void ClearReplicationOutboxRecord(const std::string &EntryID) const;
 
+     void FinalizeReplicationOutboxRecord(const std::string &EntryID) const;
+
+     /* Replays committed replication intents left behind by a crash. */
+     void ReplayCommittedReplicationOutbox() const;
+
+     /* Returns whether async replication must retain its durable intent. */
+     bool IsAsyncReplicationMode() const;
+
      void PersistReplicationSlaveState(const std::string &Endpoint) const;
 
      bool RestoreReplicationSlaveState(const std::string &Endpoint) const;
@@ -635,7 +651,7 @@ class SearchAPI
                                   const HttpRequest &Request,
                                   bool AllowOverflow,
                                   std::string *OutError = nullptr) const;
-     std::vector<HttpRequest> TakePendingReplications(const std::string &Endpoint) const;
+     std::vector<PendingReplicationRecord> TakePendingReplications(const std::string &Endpoint) const;
      bool ReplayPendingReplications(const std::string &Endpoint, const std::string &Host, int Port) const;
 
      void EnsureReplicationMonitorStarted() const;
@@ -660,7 +676,8 @@ class SearchAPI
 
      bool ReplicateWriteRequest(const HttpRequest &Request,
                                 const std::string &OperationLabel,
-                                std::string *OutError) const;
+                                std::string *OutError,
+                                const std::string &OutboxEntryID = std::string()) const;
 
      void RecordReplicationFailure(const std::string &ErrorMessage) const;
 

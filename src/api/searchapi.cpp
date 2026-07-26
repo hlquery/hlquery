@@ -56,7 +56,6 @@ static constexpr const char *kReplicationOutboxPrefix = "replication_outbox:";
 static constexpr const char *kReplicationAppliedPrefix = "replication_applied:";
 static constexpr const char *kReplicationResyncStateKey = "replication_resync:active";
 static constexpr const char *kReplicationResyncCollectionsPrefix = "replication_resync:collections:";
-static constexpr size_t kReplicationOutboxStoredBodyLimit = 64 * 1024;
 
 /* Returns a lowercase copy of the input string. */
 
@@ -285,31 +284,29 @@ static nlohmann::json SerializeReplicationOutboxRecord(const std::string &EntryI
                                                        uint64_t TimestampMS,
                                                        const HttpRequest &Request)
 {
+     HttpRequest JournalRequest = Request;
+     if (JournalRequest.Headers.find("X-HLQ-Replication-Op") == JournalRequest.Headers.end())
+     {
+          JournalRequest.Headers["X-HLQ-Replication-Op"] = EntryID;
+     }
+
      nlohmann::json Record;
      Record["id"] = EntryID;
      Record["state"] = State;
      Record["operation"] = OperationLabel;
      Record["timestamp_ms"] = TimestampMS;
-     Record["method"] = Request.Method;
-     Record["path"] = Request.Path;
-     Record["version"] = Request.Version;
-     if (Request.Body.size() <= kReplicationOutboxStoredBodyLimit)
-     {
-          Record["body"] = Request.Body;
-          Record["body_truncated"] = false;
-     }
-     else
-     {
-          Record["body"] = Request.Body.substr(0, kReplicationOutboxStoredBodyLimit);
-          Record["body_truncated"] = true;
-          Record["body_original_size"] = Request.Body.size();
-     }
-     Record["remote_address"] = Request.RemoteAddress;
-     Record["remote_port"] = Request.RemotePort;
-     Record["api_key_id"] = Request.APIKeyID;
-     Record["authenticated"] = Request.Authenticated;
-     Record["headers"] = Request.Headers;
-     Record["query_params"] = Request.QueryParams;
+     Record["method"] = JournalRequest.Method;
+     Record["path"] = JournalRequest.Path;
+     Record["version"] = JournalRequest.Version;
+     Record["operation_id"] = GetHeaderValueInsensitive(JournalRequest.Headers, "X-HLQ-Replication-Op");
+     Record["body"] = JournalRequest.Body;
+     Record["body_truncated"] = false;
+     Record["remote_address"] = JournalRequest.RemoteAddress;
+     Record["remote_port"] = JournalRequest.RemotePort;
+     Record["api_key_id"] = JournalRequest.APIKeyID;
+     Record["authenticated"] = JournalRequest.Authenticated;
+     Record["headers"] = JournalRequest.Headers;
+     Record["query_params"] = JournalRequest.QueryParams;
      return Record;
 }
 
@@ -534,6 +531,8 @@ bool SearchAPI::Initialize()
           return false;
      }
 
+     ReplayCommittedReplicationOutbox();
+
      return true;
 }
 
@@ -742,6 +741,123 @@ void SearchAPI::ClearReplicationOutboxRecord(const std::string &EntryID) const
      const std::string Key = BuildReplicationOutboxKey(EntryID);
      Instance->Database->Del(Key);
      Instance->Database->SyncWAL();
+}
+
+void SearchAPI::FinalizeReplicationOutboxRecord(const std::string &EntryID) const
+{
+     if (!IsAsyncReplicationMode())
+     {
+          ClearReplicationOutboxRecord(EntryID);
+     }
+}
+
+bool SearchAPI::IsAsyncReplicationMode() const
+{
+     return Instance && Instance->Config && Instance->Config->GetReplicationMode() == "async";
+}
+
+void SearchAPI::ReplayCommittedReplicationOutbox() const
+{
+     if (!Instance || !Instance->Database || !Instance->Config || !Instance->Config->GetReplicationEnabled())
+     {
+          return;
+     }
+
+     const std::vector<std::string> Keys = Instance->Database->Keys(kReplicationOutboxPrefix + std::string("*"), true);
+     for (const auto &Key : Keys)
+     {
+          const std::string RawRecord = Instance->Database->Get(Key);
+          if (RawRecord.empty())
+          {
+               continue;
+          }
+
+          try
+          {
+               const nlohmann::json Record = nlohmann::json::parse(RawRecord);
+               const std::string State = Record.value("state", std::string());
+               if (State == "prepared")
+               {
+                    /* A crash may have happened before the commit marker. The local
+                     * write is authoritative, so a full resync closes either outcome. */
+                    for (const auto &Endpoint : Instance->Config->GetSlaveNodes())
+                    {
+                         MarkSlaveDirty(Endpoint);
+                    }
+                    const std::string PreparedEntryID = Record.value("id", std::string());
+                    if (!PreparedEntryID.empty())
+                    {
+                         ClearReplicationOutboxRecord(PreparedEntryID);
+                    }
+                    continue;
+               }
+               if (State != "committed")
+               {
+                    continue;
+               }
+
+               const std::string EntryID = Record.value("id", std::string());
+               if (EntryID.empty())
+               {
+                    continue;
+               }
+
+               if (Record.value("body_truncated", false))
+               {
+                    /* The local database is authoritative; force a full resync instead of replaying corrupt JSON. */
+                    for (const auto &Endpoint : Instance->Config->GetSlaveNodes())
+                    {
+                         MarkSlaveDirty(Endpoint);
+                    }
+                    ClearReplicationOutboxRecord(EntryID);
+                    continue;
+               }
+
+               HttpRequest Request;
+               Request.Method = Record.value("method", std::string());
+               Request.Path = Record.value("path", std::string());
+               Request.Version = Record.value("version", std::string("HTTP/1.1"));
+               Request.Body = Record.value("body", std::string());
+               Request.RemoteAddress = Record.value("remote_address", std::string());
+               Request.RemotePort = Record.value("remote_port", 0);
+               Request.APIKeyID = Record.value("api_key_id", std::string());
+               Request.Authenticated = Record.value("authenticated", false);
+               if (Record.contains("headers") && Record["headers"].is_object())
+               {
+                    Request.Headers = Record["headers"].get<std::map<std::string, std::string>>();
+               }
+               if (Record.contains("query_params") && Record["query_params"].is_object())
+               {
+                    Request.QueryParams = Record["query_params"].get<std::map<std::string, std::string>>();
+               }
+               Request.Headers["X-HLQ-Replication-Op"] = Record.value("operation_id", EntryID);
+
+               std::string Error;
+               const bool Replayed = ReplicateWriteRequest(Request,
+                                                            Record.value("operation", std::string("recovered")),
+                                                            &Error,
+                                                            EntryID);
+               if (Replayed && !IsAsyncReplicationMode())
+               {
+                    bool AnyDirty = false;
+                    for (const auto &Endpoint : Instance->Config->GetSlaveNodes())
+                    {
+                         bool Dirty = false;
+                         bool Resync = false;
+                         (void)GetReplicationNodeState(Endpoint, nullptr, nullptr, &Dirty, &Resync);
+                         AnyDirty = AnyDirty || Dirty || Resync;
+                    }
+                    if (!AnyDirty)
+                    {
+                         ClearReplicationOutboxRecord(EntryID);
+                    }
+               }
+          }
+          catch (...)
+          {
+               RecordReplicationFailure("Invalid replication outbox record: " + Key);
+          }
+     }
 }
 
 HttpResponse SearchAPI::CheckReplicationOperationDedup(const HttpRequest &Request,

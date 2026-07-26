@@ -673,7 +673,7 @@ HttpResponse SearchAPI::HandleCreateOrUpdateSynonym(const HttpRequest &Request)
 
           std::string ReplicationError;
 
-          if (!ReplicateWriteRequest(Request, "upsert_synonym", &ReplicationError))
+          if (!ReplicateWriteRequest(Request, "upsert_synonym", &ReplicationError, ReplicationOutboxID))
           {
                return BuildErrorResponse(Status::SERVICE_UNAVAILABLE,
                                          Code::SEARCH_INVALID_PARAMETER,
@@ -681,7 +681,7 @@ HttpResponse SearchAPI::HandleCreateOrUpdateSynonym(const HttpRequest &Request)
                                          ReplicationError.empty() ? "Synonym was written locally but replica acknowledgement failed." : ReplicationError);
           }
 
-          ClearReplicationOutboxRecord(ReplicationOutboxID);
+          FinalizeReplicationOutboxRecord(ReplicationOutboxID);
           return Response;
      }
      catch (const nlohmann::json::parse_error &e)
@@ -1013,7 +1013,7 @@ HttpResponse SearchAPI::HandleDeleteSynonym(const HttpRequest &Request)
           FOREACH_MOD(OnDeleteSynonym, CollectionName, SynonymID, IsGlobalScope, Request.RemoteAddress, Request.APIKeyID, !Request.APIKeyID.empty());
 
           std::string ReplicationError;
-          if (!ReplicateWriteRequest(Request, "delete_synonym", &ReplicationError))
+          if (!ReplicateWriteRequest(Request, "delete_synonym", &ReplicationError, ReplicationOutboxID))
           {
                return BuildErrorResponse(Status::SERVICE_UNAVAILABLE,
                                          Code::SEARCH_INVALID_PARAMETER,
@@ -1021,7 +1021,7 @@ HttpResponse SearchAPI::HandleDeleteSynonym(const HttpRequest &Request)
                                          ReplicationError.empty() ? "Synonym was deleted locally but replica acknowledgement failed." : ReplicationError);
           }
 
-          ClearReplicationOutboxRecord(ReplicationOutboxID);
+          FinalizeReplicationOutboxRecord(ReplicationOutboxID);
           return Response;
      }
      catch (const std::exception &)
