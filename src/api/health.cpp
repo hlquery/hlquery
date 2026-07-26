@@ -166,9 +166,9 @@ static bool HealthBindMatchesHost(const std::string &BindAddress, const std::str
 
 /* Implements the health is local HTTP bind helper. */
 
-static bool HealthIsLocalHttpBind(const std::string &Host, int Port)
+static bool HealthIsLocalHttpBind(const std::string &Host, int Port, bool UseSSL)
 {
-     if (Port <= 0 || !Instance || !Instance->Config)
+     if (UseSSL || Port <= 0 || !Instance || !Instance->Config)
      {
           return false;
      }
@@ -249,10 +249,17 @@ static LinkEndpointInfo HealthBuildEndpointInfo(const std::string &RawEndpoint)
 
      Info.IsValid = true;
      Info.UseSSL = (Info.Scheme == "https");
-     const std::string EndpointHost = HealthFormatEndpointHost(Info.Host);
+     std::string NormalizedHost = Info.Host;
+     if (HealthIsLoopbackHost(NormalizedHost) || NormalizedHost == "0.0.0.0")
+     {
+          /* Keep endpoint membership consistent with ServerConfig normalization. */
+          NormalizedHost = "127.0.0.1";
+     }
+
+     const std::string EndpointHost = HealthFormatEndpointHost(NormalizedHost);
      Info.NormalizedEndpoint = Info.UseSSL ? "https://" + EndpointHost + ":" + std::to_string(Info.Port)
                                            : EndpointHost + ":" + std::to_string(Info.Port);
-     Info.IsLocal = HealthIsLocalHttpBind(Info.Host, Info.Port);
+     Info.IsLocal = HealthIsLocalHttpBind(Info.Host, Info.Port, Info.UseSSL);
      return Info;
 }
 

@@ -51,7 +51,8 @@ bool ExecuteTalkCommand(const std::string &line,
                         HLQueryCLI &cli,
                         TalkState &state,
                         std::string &host,
-                        std::string &port);
+                        std::string &port,
+                        std::string &scheme);
 
 /* Search command runtime flags. */
 
@@ -545,15 +546,19 @@ bool IsValidHostValue(const std::string &value)
      return IsValidIPAddress(value) || IsValidHostnameValue(value);
 }
 
-std::string BuildBaseURL(const std::string &host, const std::string &port)
+std::string BuildBaseURL(const std::string &host, const std::string &port, const std::string &scheme = "http")
 {
-     return "http://" + host + ":" + port;
+     return scheme + "://" + host + ":" + port;
 }
 
-bool ParseEndpointValue(const std::string &value, std::string &host_out, std::string &port_out)
+bool ParseEndpointValue(const std::string &value,
+                        std::string &host_out,
+                        std::string &port_out,
+                        std::string &scheme_out)
 {
      host_out.clear();
      port_out.clear();
+     scheme_out = "http";
 
      std::string normalized = TrimWhitespace(value);
      if (normalized.empty())
@@ -565,10 +570,12 @@ bool ParseEndpointValue(const std::string &value, std::string &host_out, std::st
      const std::string https_prefix = "https://";
      if (normalized.rfind(http_prefix, 0) == 0)
      {
+          scheme_out = "http";
           normalized = normalized.substr(http_prefix.size());
      }
      else if (normalized.rfind(https_prefix, 0) == 0)
      {
+          scheme_out = "https";
           normalized = normalized.substr(https_prefix.size());
      }
 
@@ -618,23 +625,31 @@ bool IsHealthyTalkEndpoint(const std::string &host, const std::string &port)
      return response.StatusCode == 200 || response.StatusCode == 503;
 }
 
-std::vector<std::pair<std::string, std::string>> FetchTalkCandidateEndpoints(HLQueryCLI &cli,
-                                                                             const std::string &current_host,
-                                                                             const std::string &current_port)
+struct TalkEndpoint
 {
-     std::vector<std::pair<std::string, std::string>> endpoints;
+     std::string Host;
+     std::string Port;
+     std::string Scheme = "http";
+};
+
+std::vector<TalkEndpoint> FetchTalkCandidateEndpoints(HLQueryCLI &cli,
+                                                      const std::string &current_host,
+                                                      const std::string &current_port,
+                                                      const std::string &current_scheme)
+{
+     std::vector<TalkEndpoint> endpoints;
      std::set<std::string> seen;
 
-     const auto add_endpoint = [&](const std::string &host, const std::string &port)
+     const auto add_endpoint = [&](const std::string &host, const std::string &port, const std::string &scheme)
      {
-          const std::string key = host + ":" + port;
+          const std::string key = scheme + "://" + host + ":" + port;
           if (!host.empty() && !port.empty() && seen.insert(key).second)
           {
-               endpoints.emplace_back(host, port);
+               endpoints.push_back({host, port, scheme});
           }
      };
 
-     add_endpoint(current_host, current_port);
+     add_endpoint(current_host, current_port, current_scheme);
 
      const HLQueryCLI::HTTPResponse response = cli.MakeRequest("GET", "/links");
      if (response.StatusCode != 200)
@@ -662,9 +677,10 @@ std::vector<std::pair<std::string, std::string>> FetchTalkCandidateEndpoints(HLQ
 
                     std::string host;
                     std::string port;
-                    if (ParseEndpointValue(entry["endpoint"].get<std::string>(), host, port))
+                    std::string scheme;
+                    if (ParseEndpointValue(entry["endpoint"].get<std::string>(), host, port, scheme))
                     {
-                         add_endpoint(host, port);
+                         add_endpoint(host, port, scheme);
                     }
                }
           };
@@ -682,17 +698,23 @@ std::vector<std::pair<std::string, std::string>> FetchTalkCandidateEndpoints(HLQ
 bool ConnectTalkToEndpoint(HLQueryCLI &cli,
                            const std::string &target_host,
                            const std::string &target_port,
+                           const std::string &target_scheme,
                            std::string &current_host,
-                           std::string &current_port)
+                           std::string &current_port,
+                           std::string &current_scheme)
 {
-     if (!IsHealthyTalkEndpoint(target_host, target_port))
+     HLQueryCLI probe_cli(BuildBaseURL(target_host, target_port, target_scheme), false, "", "talk");
+     probe_cli.SetDefaultTimeoutSeconds(1);
+     const HLQueryCLI::HTTPResponse response = probe_cli.MakeRequest("GET", "/health", "", 1);
+     if (response.StatusCode != 200 && response.StatusCode != 503)
      {
           return false;
      }
 
      current_host = target_host;
      current_port = target_port;
-     cli.ReconfigureConnection(BuildBaseURL(current_host, current_port));
+     current_scheme = target_scheme;
+     cli.ReconfigureConnection(BuildBaseURL(current_host, current_port, current_scheme));
      cli.SetDefaultTimeoutSeconds(30);
      return true;
 }
@@ -1120,7 +1142,9 @@ static bool ExtractSearchTalkQuery(const std::vector<std::string> &parts,
 
      size_t query_token_count = positional.size();
 
-     if (query_token_count >= 3)
+     if (query_token_count >= 3 &&
+         IsUnsignedInteger(positional[query_token_count - 2]) &&
+         IsUnsignedInteger(positional[query_token_count - 1]))
      {
           query_token_count -= 3;
      }
@@ -2573,7 +2597,8 @@ bool ExecuteTalkCommand(const std::string &line,
                         HLQueryCLI &cli,
                         TalkState &state,
                         std::string &host,
-                        std::string &port)
+                        std::string &port,
+                        std::string &scheme)
 {
      std::string explicit_sql;
 
@@ -2719,7 +2744,7 @@ bool ExecuteTalkCommand(const std::string &line,
 
           for (int iteration = 0; iteration < repeat_count; ++iteration)
           {
-               if (!ExecuteTalkCommand(nested_command, cli, state, host, port))
+               if (!ExecuteTalkCommand(nested_command, cli, state, host, port, scheme))
                {
                     return false;
                }
@@ -2785,7 +2810,7 @@ bool ExecuteTalkCommand(const std::string &line,
           std::string error_message;
 
           std::cout << "endpoint: " << host << ":" << port << "\n";
-          std::cout << "url: " << BuildBaseURL(host, port) << "\n";
+          std::cout << "url: " << BuildBaseURL(host, port, scheme) << "\n";
 
           if (!FetchServerIdentity(cli, server_name, server_id, error_message))
           {
@@ -2810,7 +2835,7 @@ bool ExecuteTalkCommand(const std::string &line,
 
           std::cout << "session_id: " << (state.SessionID.empty() ? "-" : state.SessionID) << "\n";
           std::cout << "connected_to: " << host << ":" << port << "\n";
-          std::cout << "url: " << BuildBaseURL(host, port) << "\n";
+          std::cout << "url: " << BuildBaseURL(host, port, scheme) << "\n";
           std::cout << "location: " << GetCurrentLocation(state) << "\n";
           std::cout << "active_collection: " << (state.CurrentCollection.empty() ? "-" : state.CurrentCollection) << "\n";
           std::cout << "cached_collections: " << state.LastListedCollections.size() << "\n";
@@ -2826,23 +2851,24 @@ bool ExecuteTalkCommand(const std::string &line,
                return true;
           }
 
-          std::vector<std::pair<std::string, std::string>> candidates;
+          std::vector<TalkEndpoint> candidates;
 
           if (parts.size() == 2)
           {
                std::string target_host;
                std::string target_port;
-               if (!ParseEndpointValue(parts[1], target_host, target_port))
+               std::string target_scheme;
+               if (!ParseEndpointValue(parts[1], target_host, target_port, target_scheme))
                {
                     TalkPrintError("Invalid endpoint. Use host:port or http://host:port");
                     return true;
                }
 
-               candidates.emplace_back(target_host, target_port);
+               candidates.push_back({target_host, target_port, target_scheme});
           }
           else
           {
-               candidates = FetchTalkCandidateEndpoints(cli, host, port);
+               candidates = FetchTalkCandidateEndpoints(cli, host, port, scheme);
           }
 
           if (candidates.empty())
@@ -2855,7 +2881,7 @@ bool ExecuteTalkCommand(const std::string &line,
 
           for (const auto &candidate : candidates)
           {
-               if (ConnectTalkToEndpoint(cli, candidate.first, candidate.second, host, port))
+               if (ConnectTalkToEndpoint(cli, candidate.Host, candidate.Port, candidate.Scheme, host, port, scheme))
                {
                     connected = true;
                     break;
