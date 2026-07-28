@@ -300,14 +300,6 @@ void hlquery::Run()
      time_t old_time = Time();
      time_t LastMinuteRun = (old_time > 0) ? (old_time / 60) : -1;
 
-     if (!hlquery::WritePID())
-     {
-          print_error("Failed to acquire PID file lock.");
-          print_error("Another daemon instance may already be starting, or the PID path is not writable.");
-
-          ExitManager::Exit(1);
-     }
-
      if (!Logs)
      {
           print_error("Logs unique_ptr is null in Run() - LogManager failed to initialize.");

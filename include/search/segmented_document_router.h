@@ -17,6 +17,7 @@
 #include <rocksdb/db.h>
 #include <rocksdb/options.h>
 #include <rocksdb/write_batch.h>
+#include <shared_mutex>
 #include <string>
 #include <vector>
 
@@ -61,6 +62,7 @@ class SegmentManager
      bool FlushAndSync();
      bool SyncWAL();
      void Compact();
+     bool ClearAllDocuments();
 
      bool RebuildDocLocationMap();
      SegmentStats GetStats() const;
@@ -90,14 +92,22 @@ class SegmentManager
      rocksdb::WriteOptions WriteOptionsValue;
      RocksDBOptions StorageOptions;
 
-     /* Serializes document mutations with active-segment rollover. */
-     std::mutex WriteMutex;
+     /*
+      * Normal document writes share the active segment. Rollover, flush and
+      * range deletion take this mutex exclusively.
+      */
+     std::shared_mutex WriteMutex;
      mutable std::mutex SegmentMutex;
      std::shared_ptr<SegmentHandle> ActiveSegment;
      std::vector<std::shared_ptr<SegmentHandle>> SealedSegments;
      SegmentManifest Manifest;
      std::shared_ptr<SegmentSnapshot> CurrentSnapshot;
      std::array<std::mutex, 4096> KeyMutexes;
+     uint64_t ActiveReservedDocuments = 0;
+     uint64_t ActiveReservedBytes = 0;
+     uint64_t ActiveMetadataDirtyDocuments = 0;
+     uint64_t ActiveMetadataDirtyBytes = 0;
+     uint64_t LastMetadataPersistMs = 0;
 
      static bool IsDocKey(const std::string &key);
      static bool ParseDocKey(const std::string &key, std::string &collection, std::string &doc_id);
@@ -116,8 +126,12 @@ class SegmentManager
      bool CreateActiveSegmentLocked();
      bool PersistManifestLocked();
      bool PersistSegmentMetadata(const std::shared_ptr<SegmentHandle> &segment) const;
+     bool PersistActiveMetadataIfNeededLocked(bool force);
+     bool ActiveSegmentHasCapacityLocked(uint64_t documents, uint64_t bytes) const;
+     bool EnsureActiveSegmentCapacity(uint64_t documents, uint64_t bytes);
      bool ShouldRotateActiveLocked() const;
      bool SealActiveSegmentAndCreateNewLocked();
+     bool RotateActiveSegmentIfNeeded();
      std::shared_ptr<SegmentHandle> FindSegment(const std::string &segment_id, const std::shared_ptr<SegmentSnapshot> &snapshot) const;
      bool GetSystemValue(const std::string &key, std::string &value) const;
      bool PutDocLocation(const std::string &key, const std::string &segment_id, uint64_t timestamp_ms);

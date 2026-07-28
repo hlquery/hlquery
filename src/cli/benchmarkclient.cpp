@@ -73,12 +73,39 @@ void BenchmarkClient::SetGlobalSSLAuthMode(bool enabled)
      g_benchmark_ssl_auth_mode.store(enabled);
 }
 
+/* Waits in short intervals so Ctrl+C cancels retry backoff promptly. */
+
+static bool WaitForBenchmarkRetry(int milliseconds)
+{
+     const int poll_interval_ms = 20;
+     int remaining_ms = std::max(0, milliseconds);
+
+     while (remaining_ms > 0)
+     {
+          if (g_benchmark_should_stop.load())
+          {
+               return false;
+          }
+
+          const int wait_ms = std::min(remaining_ms, poll_interval_ms);
+          std::this_thread::sleep_for(std::chrono::milliseconds(wait_ms));
+          remaining_ms -= wait_ms;
+     }
+
+     return !g_benchmark_should_stop.load();
+}
+
 /* Connects a socket with retry. */
 
 bool BenchmarkClient::ConnectSocket(int &sock, int max_retries, int connect_timeout_sec)
 {
      for (int retry = 0; retry < max_retries; retry++)
      {
+          if (g_benchmark_should_stop.load())
+          {
+               return false;
+          }
+
           struct addrinfo hints, *res, *p;
 
           memset(&hints, 0, sizeof(hints));
@@ -92,7 +119,11 @@ bool BenchmarkClient::ConnectSocket(int &sock, int max_retries, int connect_time
           {
                if (retry < max_retries - 1)
                {
-                    std::this_thread::sleep_for(std::chrono::milliseconds(10 * (1 << retry)));
+                    if (!WaitForBenchmarkRetry(10 * (1 << retry)))
+                    {
+                         return false;
+                    }
+
                     continue;
                }
 
@@ -101,6 +132,11 @@ bool BenchmarkClient::ConnectSocket(int &sock, int max_retries, int connect_time
 
           for (p = res; p != NULL; p = p->ai_next)
           {
+               if (g_benchmark_should_stop.load())
+               {
+                    break;
+               }
+
                if ((sock = socket(p->ai_family, p->ai_socktype, p->ai_protocol)) == -1)
                {
                     continue;
@@ -136,14 +172,32 @@ bool BenchmarkClient::ConnectSocket(int &sock, int max_retries, int connect_time
 
                          struct timeval select_timeout;
 
-                         select_timeout.tv_sec = connect_timeout_sec;
-                         select_timeout.tv_usec = 0;
+                         const auto connect_start = Now();
+                         int select_result = 0;
 
-                         int select_result = select(sock + 1, NULL, &write_fds, NULL, &select_timeout);
-
-                         if (select_result <= 0)
+                         do
                          {
-                              close(sock);
+                              if (g_benchmark_should_stop.load())
+                              {
+                                   close(sock);
+                                   sock = -1;
+                                   break;
+                              }
+
+                              FD_ZERO(&write_fds);
+                              FD_SET(sock, &write_fds);
+                              select_timeout.tv_sec = 0;
+                              select_timeout.tv_usec = 100000;
+                              select_result = select(sock + 1, NULL, &write_fds, NULL, &select_timeout);
+                         } while (select_result == 0 && ElapsedMs(connect_start) < connect_timeout_sec * 1000LL);
+
+                         if (sock < 0 || select_result <= 0)
+                         {
+                              if (sock >= 0)
+                              {
+                                   close(sock);
+                              }
+
                               continue;
                          }
 
@@ -175,7 +229,11 @@ bool BenchmarkClient::ConnectSocket(int &sock, int max_retries, int connect_time
           {
                if (retry < max_retries - 1)
                {
-                    std::this_thread::sleep_for(std::chrono::milliseconds(10 * (1 << retry)));
+                    if (!WaitForBenchmarkRetry(10 * (1 << retry)))
+                    {
+                         return false;
+                    }
+
                     continue;
                }
 
@@ -306,6 +364,14 @@ HTTPResponse BenchmarkClient::MakeRequest(const std::string &method, const std::
 {
      HTTPResponse response;
 
+     if (g_benchmark_should_stop.load())
+     {
+          response.StatusCode = -1;
+          response.ErrorMessage = "Interrupted by user (Ctrl+C).";
+
+          return response;
+     }
+
 #ifndef HLQUERY_HAS_OPENSSL
      if (UseSSL)
      {
@@ -344,6 +410,15 @@ HTTPResponse BenchmarkClient::MakeRequest(const std::string &method, const std::
 
      for (int attempt = 0; attempt < max_retries; attempt++)
      {
+          if (g_benchmark_should_stop.load())
+          {
+               CloseSocket();
+               response.StatusCode = -1;
+               response.ErrorMessage = "Interrupted by user (Ctrl+C).";
+
+               return response;
+          }
+
           if (attempt > 0)
           {
                CloseSocket();
@@ -447,6 +522,15 @@ HTTPResponse BenchmarkClient::MakeRequest(const std::string &method, const std::
 
           while (sent < request_str.length())
           {
+               if (g_benchmark_should_stop.load())
+               {
+                    CloseSocket();
+                    response.StatusCode = -1;
+                    response.ErrorMessage = "Interrupted by user (Ctrl+C).";
+
+                    return response;
+               }
+
                if (ElapsedMs(write_start) > timeout_ms)
                {
                     CloseSocket();
@@ -1071,7 +1155,7 @@ void BenchmarkClient::SleepBeforeWriteRetry(int attempt) const
      const int capped_attempt = std::max(0, std::min(attempt, 6));
      const int sleep_ms = 150 * (1 << capped_attempt);
 
-     std::this_thread::sleep_for(std::chrono::milliseconds(sleep_ms));
+     WaitForBenchmarkRetry(sleep_ms);
 }
 
 HTTPResponse BenchmarkClient::MakeWriteRequestWithRetry(const std::string &method,
@@ -1086,14 +1170,30 @@ HTTPResponse BenchmarkClient::MakeWriteRequestWithRetry(const std::string &metho
 
      for (int attempt = 0; attempt < attempts; ++attempt)
      {
+          if (g_benchmark_should_stop.load())
+          {
+               response.StatusCode = -1;
+               response.ErrorMessage = "Interrupted by user (Ctrl+C).";
+
+               return response;
+          }
+
           response = MakeRequest(method, path, body, 1, use_keep_alive, timeout_ms);
 
-          if (!IsRetryableWriteResponse(response) || attempt + 1 >= attempts)
+          if (g_benchmark_should_stop.load() || !IsRetryableWriteResponse(response) || attempt + 1 >= attempts)
           {
                return response;
           }
 
           SleepBeforeWriteRetry(attempt);
+
+          if (g_benchmark_should_stop.load())
+          {
+               response.StatusCode = -1;
+               response.ErrorMessage = "Interrupted by user (Ctrl+C).";
+
+               return response;
+          }
      }
 
      return response;
@@ -2070,12 +2170,12 @@ void BenchmarkClient::SleepBeforeBulkRetry(int attempt, int split_depth) const
      const int capped_split_depth = std::max(0, std::min(split_depth, 8));
      const int sleep_ms = 150 * (1 << capped_attempt) + (capped_split_depth * 75);
 
-     std::this_thread::sleep_for(std::chrono::milliseconds(sleep_ms));
+     WaitForBenchmarkRetry(sleep_ms);
 }
 
 int BenchmarkClient::InsertDocumentsBulkInternal(const std::string &collection, const std::vector<std::tuple<std::string, std::string, std::string>> &docs, int split_depth)
 {
-     if (docs.empty())
+     if (docs.empty() || g_benchmark_should_stop.load())
      {
           return 0;
      }
@@ -2084,6 +2184,11 @@ int BenchmarkClient::InsertDocumentsBulkInternal(const std::string &collection, 
 
      for (int attempt = 0; attempt < 3; ++attempt)
      {
+          if (g_benchmark_should_stop.load())
+          {
+               return 0;
+          }
+
           const int inserted = InsertDocumentsBulkRequest(collection, docs, response);
 
           if (inserted > 0 || (response.StatusCode == 200 || response.StatusCode == 201) || IsLocalWriteCommittedDespiteReplicationError(response))
@@ -2098,9 +2203,14 @@ int BenchmarkClient::InsertDocumentsBulkInternal(const std::string &collection, 
 
           ResetConnection();
           SleepBeforeBulkRetry(attempt, split_depth);
+
+          if (g_benchmark_should_stop.load())
+          {
+               return 0;
+          }
      }
 
-     if (IsRetryableBulkInsertResponse(response) && docs.size() > 1)
+     if (!g_benchmark_should_stop.load() && IsRetryableBulkInsertResponse(response) && docs.size() > 1)
      {
           const size_t midpoint = docs.size() / 2;
           std::vector<std::tuple<std::string, std::string, std::string>> left(docs.begin(), docs.begin() + midpoint);
@@ -2115,6 +2225,12 @@ int BenchmarkClient::InsertDocumentsBulkInternal(const std::string &collection, 
           }
 
           const int left_inserted = InsertDocumentsBulkInternal(collection, left, split_depth + 1);
+
+          if (g_benchmark_should_stop.load())
+          {
+               return left_inserted;
+          }
+
           const int right_inserted = InsertDocumentsBulkInternal(collection, right, split_depth + 1);
 
           return left_inserted + right_inserted;

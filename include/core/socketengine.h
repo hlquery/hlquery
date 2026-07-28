@@ -30,6 +30,7 @@
 struct epoll_event
 {
      uint32_t events;
+
      union
      {
           int fd;

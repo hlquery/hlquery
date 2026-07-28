@@ -73,6 +73,54 @@ bool IsBenchmarkCollectionNameForCurrentPrefix(const std::string &collection_nam
      return true;
 }
 
+bool IsGeneratedBenchmarkCollectionName(const std::string &collection_name)
+{
+     static const std::string prefix = "bench_";
+
+     if (collection_name.rfind(prefix, 0) != 0)
+     {
+          return false;
+     }
+
+     const std::string suffix = collection_name.substr(prefix.size());
+
+     if (suffix.size() == 3 &&
+         std::all_of(suffix.begin(), suffix.end(), [](unsigned char value)
+                     { return std::isdigit(value) != 0; }))
+     {
+          return true;
+     }
+
+     size_t group_start = 0;
+     int group_count = 0;
+
+     while (group_start < suffix.size())
+     {
+          const size_t separator = suffix.find('_', group_start);
+          const size_t group_end = separator == std::string::npos ? suffix.size() : separator;
+
+          if (group_end == group_start ||
+              !std::all_of(suffix.begin() + group_start,
+                           suffix.begin() + group_end,
+                           [](unsigned char value)
+                           { return std::isdigit(value) != 0; }))
+          {
+               return false;
+          }
+
+          group_count++;
+
+          if (separator == std::string::npos)
+          {
+               break;
+          }
+
+          group_start = separator + 1;
+     }
+
+     return group_count == 3;
+}
+
 bool verbose_mode = false;
 
 std::atomic<int> spinner_index{0};

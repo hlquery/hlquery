@@ -182,6 +182,10 @@ class DBManager
 
      size_t DeleteRange(const std::string &start_key, const std::string &end_key);
 
+     /* ClearDocumentStorage removes all document payloads from every storage segment. */
+
+     bool ClearDocumentStorage();
+
      /* Exists checks whether a key exists. */
 
      bool Exists(const std::string &key);

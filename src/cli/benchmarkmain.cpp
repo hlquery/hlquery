@@ -3309,7 +3309,7 @@ int main(int argc, char *argv[])
 
                     for (const auto &col : existing_set_val)
                     {
-                         if (IsBenchmarkCollectionNameForCurrentPrefix(col) || col.find("random_") == 0)
+                         if (IsGeneratedBenchmarkCollectionName(col) || col.find("random_") == 0)
                          {
                               bench_collections_val.insert(col);
                          }
@@ -3320,8 +3320,37 @@ int main(int argc, char *argv[])
                          if (verbose_mode)
                          {
                               std::cout << "  Found " << bench_collections_val.size() << " existing benchmark collections.\n";
-                              std::cout << "  Note: Skipping bulk deletion (too slow - scans all LSM keys).\n";
-                              std::cout << "  Collections will be deleted individually during creation if needed.\n";
+                         }
+
+                         int deleted_collections_val = 0;
+
+                         for (const auto &collection_name_val : bench_collections_val)
+                         {
+                              if (g_benchmark_should_stop.load())
+                              {
+                                   std::cerr << "\n[INTERRUPT] Benchmark interrupted during cleanup.\n";
+                                   return 130;
+                              }
+
+                              BenchmarkClient cleanup_client(base_url, auth_token);
+
+                              if (cleanup_client.DeleteCollection(collection_name_val))
+                              {
+                                   deleted_collections_val++;
+                              }
+                              else if (verbose_mode)
+                              {
+                                   std::cerr << "  [WARN] Could not delete old benchmark collection '" << collection_name_val << "'.\n";
+                              }
+                         }
+
+                         if (verbose_mode)
+                         {
+                              std::cout << "  Deleted " << deleted_collections_val << " old benchmark collections.\n";
+                         }
+                         else
+                         {
+                              PrintBenchmarkValue("Previous runs", "cleaned " + std::to_string(deleted_collections_val) + " collection(s)");
                          }
                     }
                     else if (verbose_mode)
@@ -3360,7 +3389,7 @@ int main(int argc, char *argv[])
           if (g_benchmark_should_stop.load())
           {
                std::cerr << "\n[INTERRUPT] Benchmark interrupted before Phase 1.\n";
-               return 1;
+               return 130;
           }
 
           std::vector<std::thread> collection_threads_vec;
@@ -3387,21 +3416,14 @@ int main(int argc, char *argv[])
                {
                     if (t.joinable())
                     {
-                         if (g_benchmark_should_stop.load())
-                         {
-                              t.detach();
-                         }
-                         else
-                         {
-                              t.join();
-                         }
+                         t.join();
                     }
                }
 
                if (g_benchmark_should_stop.load())
                {
                     std::cerr << "\n[INTERRUPT] Benchmark interrupted during Phase 1.\n";
-                    return 1;
+                    return 130;
                }
           }
           catch (const std::exception &e)
@@ -3478,7 +3500,7 @@ int main(int argc, char *argv[])
           if (g_benchmark_should_stop.load())
           {
                std::cerr << "\n[INTERRUPT] Benchmark interrupted before Phase 2.\n";
-               return 1;
+               return 130;
           }
 
           ResetProgressBar();
@@ -3530,21 +3552,14 @@ int main(int argc, char *argv[])
                {
                     if (t.joinable())
                     {
-                         if (g_benchmark_should_stop.load())
-                         {
-                              t.detach();
-                         }
-                         else
-                         {
-                              t.join();
-                         }
+                         t.join();
                     }
                }
 
                if (g_benchmark_should_stop.load())
                {
                     std::cerr << "\n[INTERRUPT] Benchmark interrupted during Phase 2.\n";
-                    return 1;
+                    return 130;
                }
           }
           catch (const std::exception &e)
@@ -3614,7 +3629,7 @@ int main(int argc, char *argv[])
           if (g_benchmark_should_stop.load())
           {
                std::cerr << "\n[INTERRUPT] Benchmark interrupted before Phase 2b.\n";
-               return 1;
+               return 130;
           }
 
           int additional_docs_per_collection_val = 0;
@@ -3649,21 +3664,14 @@ int main(int argc, char *argv[])
                     {
                          if (t.joinable())
                          {
-                              if (g_benchmark_should_stop.load())
-                              {
-                                   t.detach();
-                              }
-                              else
-                              {
-                                   t.join();
-                              }
+                              t.join();
                          }
                     }
 
                     if (g_benchmark_should_stop.load())
                     {
                          std::cerr << "\n[INTERRUPT] Benchmark interrupted during Phase 2b.\n";
-                         return 1;
+                         return 130;
                     }
                }
                catch (const std::exception &e)
@@ -4119,8 +4127,6 @@ void BenchmarkSignalHandler(int signal_number)
      interrupt_count = 1;
 
      g_benchmark_should_stop.store(true);
-
-     signal(SIGINT, SIG_DFL);
 
      const char message[] = "\n[INTERRUPT] Ctrl+C received - stopping benchmark...\n";
 

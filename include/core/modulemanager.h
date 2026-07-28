@@ -467,16 +467,16 @@ class ModuleManager
      bool IsDemoModeEnabled() const;
 
      /* 
-     * Returns the current demo mode message.
-     * The message explains why demo mode is active or what it affects.
-     */
+      * Returns the current demo mode message.
+      * The message explains why demo mode is active or what it affects.
+      */
 
      std::string GetDemoModeMessage() const;
 
      /* 
-     * Updates the current demo mode state and message.
-     * Modules can use this to publish centralized demo mode restrictions.
-     */
+      * Updates the current demo mode state and message.
+      * Modules can use this to publish centralized demo mode restrictions.
+      */
 
      void SetDemoModeState(bool Active, const std::string &Message);
 

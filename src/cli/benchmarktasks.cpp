@@ -208,6 +208,11 @@ void InsertAdditionalDocumentsThread(const std::string &base_url, const std::str
                     batch.push_back(std::make_tuple(doc_id, title, content));
                }
 
+               if (g_benchmark_should_stop.load())
+               {
+                    return;
+               }
+
                auto batch_start_time = Now();
 
                int inserted = 0;
@@ -304,6 +309,11 @@ void InsertDocumentsThread(const std::string &base_url, const std::string &auth_
                     std::string content = GenerateContentWithSynonymsAndStopwords(doc_idx, thread_id, col_idx, Tools::GetRNG());
 
                     batch.push_back(std::make_tuple(doc_id, title, content));
+               }
+
+               if (g_benchmark_should_stop.load())
+               {
+                    return;
                }
 
                auto batch_start_time = Now();

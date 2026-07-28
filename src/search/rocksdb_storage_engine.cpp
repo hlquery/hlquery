@@ -878,6 +878,26 @@ size_t DBManager::DeleteRange(const std::string &start_key, const std::string &e
      return status.ok() ? 1 : 0;
 }
 
+bool DBManager::ClearDocumentStorage()
+{
+     if (!DBValue)
+     {
+          return false;
+     }
+
+     if (SegmentedStorageEnabled && SegmentManagerValue)
+     {
+          return SegmentManagerValue->ClearAllDocuments();
+     }
+
+     rocksdb::Status status = DBValue->DeleteRange(GetWriteOptions(),
+                                                   DBValue->DefaultColumnFamily(),
+                                                   "doc:",
+                                                   "doc;");
+
+     return status.ok();
+}
+
 /* Check if key exists */
 
 bool DBManager::Exists(const std::string &key)

@@ -4202,7 +4202,6 @@ bool HybridStorageManager::FlushAll()
      try
      {
           const std::vector<std::pair<std::string, std::string>> ranges = {
-               {"doc:", "doc;"},
                {"idx:", "idx;"},
                {"collection_meta:", "collection_meta;"},
                {"collection_config:", "collection_config;"},
@@ -4214,7 +4213,9 @@ bool HybridStorageManager::FlushAll()
                {"session:", "session;"},
                {"spotlight:", "spotlight;"},
                {"trends:", "trends;"},
-               {"flush_pending:", "flush_pending;"}};
+               {"flush_pending:", "flush_pending;"},
+               {"__hlq_docloc:", "__hlq_docloc;"},
+               {"__hlq_tombstone:", "__hlq_tombstone;"}};
 
           for (const auto &range : ranges)
           {
@@ -4223,7 +4224,7 @@ bool HybridStorageManager::FlushAll()
 
           if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
           {
-               Instance->Logs->Debug("hybrid_storage", "FlushAll: Used DeleteRange to delete known storage prefixes, including collection_config:, module_data:, synonyms:, and stopwords:.");
+               Instance->Logs->Debug("hybrid_storage", "FlushAll: Used DeleteRange to delete known storage prefixes, including segmented document routes and tombstones.");
           }
      }
      catch (const std::exception &e)
@@ -4281,6 +4282,35 @@ bool HybridStorageManager::FlushAll()
           {
                Instance->Logs->Normal("hybrid_storage", "FlushAll: Error during residual key sweep: " + std::string(e.what()) + ".");
           }
+     }
+
+     /*
+      * Step 4c: Clear physical document payloads after the system database
+      * sweep. Segmented storage keeps documents in separate RocksDB instances,
+      * so deleting only routing keys would allow startup recovery to resurrect
+      * flushed documents.
+      */
+
+     try
+     {
+          if (!Instance->Database->ClearDocumentStorage())
+          {
+               if (Instance && Instance->Logs)
+               {
+                    Instance->Logs->Normal("hybrid_storage", "FlushAll: Failed to clear physical document storage.");
+               }
+
+               return false;
+          }
+     }
+     catch (const std::exception &e)
+     {
+          if (Instance && Instance->Logs)
+          {
+               Instance->Logs->Normal("hybrid_storage", "FlushAll: Error clearing physical document storage: " + std::string(e.what()) + ".");
+          }
+
+          return false;
      }
 
      /* Step 5: Clear mmap index files from disk */

@@ -26,13 +26,6 @@
 #include "search/mapped_posting_index.h"
 #include "utils/wildcard.h"
 
-namespace
-{
-/* The mmap index is split into several small files instead of one monolithic
-      * blob so each reader can map only the structures it needs. Every file uses
-      * the same fixed header, followed by a type-specific payload.
-      */
-
 constexpr uint32_t kMMapIndexVersion = 1;
 constexpr uint32_t kMMapIndexEndianMarker = 0x01020304U;
 constexpr size_t kMMapFileHeaderSize = 40;
@@ -46,10 +39,11 @@ const std::array<uint8_t, 8> kTermMapMagic = {'H', 'L', 'Q', 'T', 'M', 'A', 'P',
 const std::array<uint8_t, 8> kTermIndexMagic = {'H', 'L', 'Q', 'T', 'I', 'D', 'X', '1'};
 const std::array<uint8_t, 8> kPostingsMagic = {'H', 'L', 'Q', 'P', 'O', 'S', 'T', '1'};
 
-/* StableChecksum64 computes a deterministic checksum over serialized bytes.
-      * The checksum is intentionally simple and portable because its purpose is
-      * corruption detection, not cryptographic validation.
-      */
+/*
+ * StableChecksum64 computes a deterministic checksum over serialized bytes.
+ * The checksum is intentionally simple and portable because its purpose is
+ * corruption detection, not cryptographic validation.
+ */
 
 uint64_t StableChecksum64(const uint8_t *Data, size_t Length)
 {
@@ -64,10 +58,11 @@ uint64_t StableChecksum64(const uint8_t *Data, size_t Length)
      return Hash;
 }
 
-/* StableHash32 produces the document hash used by postings delta encoding.
-      * The writer stores full document IDs too, so hash collisions only affect
-      * compression efficiency and not lookup correctness.
-      */
+/* 
+ * StableHash32 produces the document hash used by postings delta encoding.
+ * The writer stores full document IDs too, so hash collisions only affect
+ * compression efficiency and not lookup correctness.
+ */
 
 uint32_t StableHash32(const std::string &Value)
 {
@@ -82,9 +77,10 @@ uint32_t StableHash32(const std::string &Value)
      return Hash;
 }
 
-/* AppendBytes appends raw binary data to a serialization buffer. Callers are
-      * responsible for choosing values with stable sizes and explicit widths.
-      */
+/*
+ * AppendBytes appends raw binary data to a serialization buffer. Callers are
+ * responsible for choosing values with stable sizes and explicit widths.
+ */
 
 void AppendBytes(std::vector<uint8_t> &Buffer, const void *Data, size_t Length)
 {
@@ -92,9 +88,10 @@ void AppendBytes(std::vector<uint8_t> &Buffer, const void *Data, size_t Length)
      Buffer.insert(Buffer.end(), Bytes, Bytes + Length);
 }
 
-/* AppendValue stores a trivially copyable scalar in the native on-disk layout
-      * used by this index version.
-      */
+/*
+ * AppendValue stores a trivially copyable scalar in the native on-disk layout
+ * used by this index version.
+ */
 
 template <typename T>
 void AppendValue(std::vector<uint8_t> &Buffer, const T &Value)
@@ -102,10 +99,11 @@ void AppendValue(std::vector<uint8_t> &Buffer, const T &Value)
      AppendBytes(Buffer, &Value, sizeof(Value));
 }
 
-/* WriteMMapFile writes the common file envelope:
-      * magic, version, header size, endian marker, reserved bytes, payload size,
-      * checksum, then the payload itself.
-      */
+/* 
+ * WriteMMapFile writes the common file envelope:
+ * magic, version, header size, endian marker, reserved bytes, payload size,
+ * checksum, then the payload itself.
+ */
 
 bool WriteMMapFile(const std::string &Path, const std::array<uint8_t, 8> &Magic, const std::vector<uint8_t> &Payload)
 {
@@ -139,9 +137,10 @@ bool WriteMMapFile(const std::string &Path, const std::array<uint8_t, 8> &Magic,
      return Out.good();
 }
 
-/* ReadValue copies a scalar from a mapped file only after checking that the
-      * requested byte range is fully contained in the mapped region.
-      */
+/* 
+ * ReadValue copies a scalar from a mapped file only after checking that the
+ * requested byte range is fully contained in the mapped region.
+ */
 
 template <typename T>
 bool ReadValue(const uint8_t *Base, size_t Size, size_t Offset, T &Out)
@@ -155,9 +154,10 @@ bool ReadValue(const uint8_t *Base, size_t Size, size_t Offset, T &Out)
      return true;
 }
 
-/* ReadMappedTerm finds the next null terminator without reading past the
-      * mapped terms payload.
-      */
+/* 
+ * ReadMappedTerm finds the next null terminator without reading past the
+ * mapped terms payload.
+ */
 
 bool ReadMappedTerm(const char *TermStartPtr, const char *TermsEndPtr, std::string &TermOut)
 {
@@ -179,9 +179,10 @@ bool ReadMappedTerm(const char *TermStartPtr, const char *TermsEndPtr, std::stri
      return true;
 }
 
-/* HasMappedBytes checks whether a mapped pointer has enough bytes left
-      * without forming an out-of-range pointer first.
-      */
+/*
+ * HasMappedBytes checks whether a mapped pointer has enough bytes left
+ * without forming an out-of-range pointer first.
+ */
 
 bool HasMappedBytes(const uint8_t *Ptr, const uint8_t *EndPtr, size_t Length)
 {
@@ -193,10 +194,11 @@ bool HasMappedBytes(const uint8_t *Ptr, const uint8_t *EndPtr, size_t Length)
      return Length <= static_cast<size_t>(EndPtr - Ptr);
 }
 
-/* ValidateMMapFile verifies the shared header before the reader trusts any
-      * payload pointer. This keeps malformed or partial files from being decoded
-      * as valid term or postings data.
-      */
+/* 
+ * ValidateMMapFile verifies the shared header before the reader trusts any
+ * payload pointer. This keeps malformed or partial files from being decoded
+ * as valid term or postings data.
+ */
 
 bool ValidateMMapFile(const uint8_t *Base,
                       size_t FileSize,
@@ -229,9 +231,10 @@ bool ValidateMMapFile(const uint8_t *Base,
      uint64_t StoredPayloadSize = 0;
      uint64_t StoredChecksum = 0;
 
-     /* Header fields live at fixed byte offsets so mmap readers can validate
-           * files without constructing any temporary parser state.
-           */
+     /* 
+      * Header fields live at fixed byte offsets so mmap readers can validate
+      * files without constructing any temporary parser state.
+      */
 
      if (!ReadValue(Base, FileSize, 8, Version) ||
          !ReadValue(Base, FileSize, 12, HeaderSize) ||
@@ -263,9 +266,10 @@ bool ValidateMMapFile(const uint8_t *Base,
      Payload = Base + HeaderSize;
      PayloadSize = static_cast<size_t>(StoredPayloadSize);
 
-     /* The checksum covers only the payload. Header mutations are caught by
-           * explicit magic, version, size, and endian checks above.
-           */
+     /* 
+      * The checksum covers only the payload. Header mutations are caught by
+      * explicit magic, version, size, and endian checks above.
+      */
 
      if (StableChecksum64(Payload, PayloadSize) != StoredChecksum)
      {
@@ -277,7 +281,6 @@ bool ValidateMMapFile(const uint8_t *Base,
      }
 
      return true;
-}
 }
 
 /*
@@ -409,7 +412,8 @@ bool IndexWriter::WriteIndex(const std::unordered_map<std::string, std::unordere
 {
      try
      {
-          /* The writer receives the process-local inverted index grouped by
+          /* 
+           * The writer receives the process-local inverted index grouped by
            * collection and term. It flattens only the requested collection into
            * mmap-friendly files.
            */
