@@ -26,6 +26,7 @@
 
 #include "vendor/json/json.hpp"
 #include "api/httpserver.h"
+#include "search/adaptive/search_execution_trace.h"
 #include "search/document_collection_store.h"
 #include "search/lexical_inverted_index.h"
 
@@ -268,6 +269,12 @@ struct ComprehensiveSearchQuery
      /* IncludeVectorDistance controls whether `_vector_distance` is emitted per hit. */
 
      bool IncludeVectorDistance = false;
+
+     /* Optional search execution trace controls. */
+
+     bool IncludeSearchExecution = true;
+     bool IncludeSearchExecutionExplicit = false;
+     bool IncludeSearchQueryText = false;
 };
 
 struct SearchHit
@@ -349,6 +356,7 @@ struct ComprehensiveSearchResult
 
      std::string Error;
      std::vector<std::map<std::string, std::string>> DistributedDiagnostics;
+     SearchExecutionTrace ExecutionTrace;
 };
 
 struct ReplicationStatusSnapshot
@@ -464,7 +472,9 @@ class SearchAPI
 
      /* PerformComprehensiveSearch runs lexical, vector, or hybrid search. */
 
-     ComprehensiveSearchResult PerformComprehensiveSearch(const std::string &Collection, const ComprehensiveSearchQuery &Query);
+     ComprehensiveSearchResult PerformComprehensiveSearch(const std::string &Collection,
+                                                          const ComprehensiveSearchQuery &Query,
+                                                          SearchExecutionTrace ExecutionTrace = SearchExecutionTrace());
 
      /* GenerateComprehensiveSearchResponse builds the JSON response payload. */
 
@@ -488,7 +498,9 @@ class SearchAPI
 
      /* ProcessHybridSearch merges lexical and vector results. */
 
-     std::vector<SearchHit> ProcessHybridSearch(const std::string &Collection, const ComprehensiveSearchQuery &Query);
+     std::vector<SearchHit> ProcessHybridSearch(const std::string &Collection,
+                                                const ComprehensiveSearchQuery &Query,
+                                                SearchExecutionTrace *ExecutionTrace = nullptr);
 
      /* ApplyFilters filters hits using the filter_by expression. */
 

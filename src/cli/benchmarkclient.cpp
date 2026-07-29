@@ -23,6 +23,7 @@
 #include <netdb.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
+#include <poll.h>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -95,6 +96,59 @@ static bool WaitForBenchmarkRetry(int milliseconds)
      return !g_benchmark_should_stop.load();
 }
 
+enum class BenchmarkSocketWaitResult
+{
+     Ready,
+     TimedOut,
+     Interrupted,
+     Failed
+};
+
+/* Waits for non-blocking socket I/O in short, Ctrl+C-aware intervals. */
+
+static BenchmarkSocketWaitResult WaitForBenchmarkSocket(int sock,
+                                                        short events,
+                                                        const std::chrono::steady_clock::time_point &start,
+                                                        int timeout_ms)
+{
+     while (ElapsedMs(start) <= timeout_ms)
+     {
+          if (g_benchmark_should_stop.load())
+          {
+               return BenchmarkSocketWaitResult::Interrupted;
+          }
+
+          const int64_t remaining_ms = std::max<int64_t>(0, timeout_ms - ElapsedMs(start));
+          const int poll_timeout_ms = static_cast<int>(std::min<int64_t>(100, remaining_ms));
+          struct pollfd descriptor;
+          descriptor.fd = sock;
+          descriptor.events = events;
+          descriptor.revents = 0;
+
+          const int poll_result = poll(&descriptor, 1, poll_timeout_ms);
+
+          if (poll_result > 0)
+          {
+               if ((descriptor.revents & events) != 0)
+               {
+                    return BenchmarkSocketWaitResult::Ready;
+               }
+
+               if ((descriptor.revents & (POLLERR | POLLHUP | POLLNVAL)) != 0)
+               {
+                    return BenchmarkSocketWaitResult::Failed;
+               }
+          }
+          else if (poll_result < 0 && errno != EINTR)
+          {
+               return BenchmarkSocketWaitResult::Failed;
+          }
+     }
+
+     return g_benchmark_should_stop.load() ? BenchmarkSocketWaitResult::Interrupted
+                                           : BenchmarkSocketWaitResult::TimedOut;
+}
+
 /* Connects a socket with retry. */
 
 bool BenchmarkClient::ConnectSocket(int &sock, int max_retries, int connect_timeout_sec)
@@ -152,7 +206,12 @@ bool BenchmarkClient::ConnectSocket(int &sock, int max_retries, int connect_time
 
                int flags = fcntl(sock, F_GETFL, 0);
 
-               fcntl(sock, F_SETFL, flags | O_NONBLOCK);
+               if (flags < 0 || fcntl(sock, F_SETFL, flags | O_NONBLOCK) < 0)
+               {
+                    close(sock);
+                    sock = -1;
+                    continue;
+               }
 
                int opt = 1;
 
@@ -217,8 +276,6 @@ bool BenchmarkClient::ConnectSocket(int &sock, int max_retries, int connect_time
                          continue;
                     }
                }
-
-               fcntl(sock, F_SETFL, flags);
 
                break;
           }
@@ -460,10 +517,57 @@ HTTPResponse BenchmarkClient::MakeRequest(const std::string &method, const std::
 
                SSL_set_fd(SSLObj, sock);
 
-               if (SSL_connect(SSLObj) != 1)
-               {
-                    CloseSocket();
+               const auto handshake_start = Now();
+               bool handshake_complete = false;
 
+               while (!handshake_complete)
+               {
+                    if (g_benchmark_should_stop.load())
+                    {
+                         CloseSocket();
+                         response.StatusCode = -1;
+                         response.ErrorMessage = "Interrupted by user (Ctrl+C).";
+
+                         return response;
+                    }
+
+                    const int connect_result = SSL_connect(SSLObj);
+                    if (connect_result == 1)
+                    {
+                         handshake_complete = true;
+                         break;
+                    }
+
+                    const int ssl_error = SSL_get_error(SSLObj, connect_result);
+                    if (ssl_error == SSL_ERROR_WANT_READ || ssl_error == SSL_ERROR_WANT_WRITE)
+                    {
+                         const short events = ssl_error == SSL_ERROR_WANT_WRITE ? POLLOUT : POLLIN;
+                         const auto wait_result = WaitForBenchmarkSocket(sock, events, handshake_start, timeout_ms);
+
+                         if (wait_result == BenchmarkSocketWaitResult::Ready)
+                         {
+                              continue;
+                         }
+
+                         CloseSocket();
+
+                         if (wait_result == BenchmarkSocketWaitResult::Interrupted)
+                         {
+                              response.StatusCode = -1;
+                              response.ErrorMessage = "Interrupted by user (Ctrl+C).";
+
+                              return response;
+                         }
+
+                         break;
+                    }
+
+                    CloseSocket();
+                    break;
+               }
+
+               if (!handshake_complete)
+               {
                     if (attempt == max_retries - 1)
                     {
                          response.StatusCode = -1;
@@ -541,6 +645,7 @@ HTTPResponse BenchmarkClient::MakeRequest(const std::string &method, const std::
                }
 
                int write_result = 0;
+               int ssl_write_error = 0;
 
                if (UseSSL)
                {
@@ -549,6 +654,10 @@ HTTPResponse BenchmarkClient::MakeRequest(const std::string &method, const std::
                     write_result = SSL_write(SSLObj,
                                              request_str.c_str() + sent,
                                              static_cast<int>(request_str.length() - sent));
+                    if (write_result <= 0)
+                    {
+                         ssl_write_error = SSL_get_error(SSLObj, write_result);
+                    }
 #else
                     write_result = -1;
 #endif
@@ -558,7 +667,11 @@ HTTPResponse BenchmarkClient::MakeRequest(const std::string &method, const std::
                     write_result = static_cast<int>(send(sock,
                                                          request_str.c_str() + sent,
                                                          request_str.length() - sent,
+#ifdef MSG_NOSIGNAL
+                                                         MSG_NOSIGNAL));
+#else
                                                          0));
+#endif
                }
 
                if (write_result > 0)
@@ -569,6 +682,27 @@ HTTPResponse BenchmarkClient::MakeRequest(const std::string &method, const std::
 
                if (write_result < 0)
                {
+#ifdef HLQUERY_HAS_OPENSSL
+                    if (UseSSL && (ssl_write_error == SSL_ERROR_WANT_READ || ssl_write_error == SSL_ERROR_WANT_WRITE))
+                    {
+                         const short events = ssl_write_error == SSL_ERROR_WANT_WRITE ? POLLOUT : POLLIN;
+                         const auto wait_result = WaitForBenchmarkSocket(sock, events, write_start, timeout_ms);
+
+                         if (wait_result == BenchmarkSocketWaitResult::Ready)
+                         {
+                              continue;
+                         }
+
+                         CloseSocket();
+                         response.StatusCode = -1;
+                         response.ErrorMessage = wait_result == BenchmarkSocketWaitResult::Interrupted
+                                                      ? "Interrupted by user (Ctrl+C)."
+                                                      : "Timed out while writing HTTPS request to server.";
+
+                         return response;
+                    }
+#endif
+
                     int write_errno = errno;
 
                     if (write_errno == EINTR)
@@ -586,16 +720,15 @@ HTTPResponse BenchmarkClient::MakeRequest(const std::string &method, const std::
                     {
 
 #endif
-                         fd_set write_fds;
-                         FD_ZERO(&write_fds);
-                         FD_SET(sock, &write_fds);
+                         const auto wait_result = WaitForBenchmarkSocket(sock, POLLOUT, write_start, timeout_ms);
 
-                         struct timeval write_timeout;
-                         write_timeout.tv_sec = 0;
-                         write_timeout.tv_usec = 100000;
+                         if (wait_result == BenchmarkSocketWaitResult::Ready)
+                         {
+                              continue;
+                         }
 
-                         int select_result = select(sock + 1, NULL, &write_fds, NULL, &write_timeout);
-                         if (select_result < 0 && errno != EINTR)
+                         if (wait_result != BenchmarkSocketWaitResult::Interrupted &&
+                             wait_result != BenchmarkSocketWaitResult::TimedOut)
                          {
                               CloseSocket();
                               response.StatusCode = -1;
@@ -604,7 +737,13 @@ HTTPResponse BenchmarkClient::MakeRequest(const std::string &method, const std::
                               return response;
                          }
 
-                         continue;
+                         CloseSocket();
+                         response.StatusCode = -1;
+                         response.ErrorMessage = wait_result == BenchmarkSocketWaitResult::Interrupted
+                                                      ? "Interrupted by user (Ctrl+C)."
+                                                      : "Timed out while writing HTTP request to server.";
+
+                         return response;
                     }
                }
 
@@ -681,19 +820,23 @@ HTTPResponse BenchmarkClient::MakeRequest(const std::string &method, const std::
 
                if (!UseSSL)
                {
-                    fd_set read_fds;
+                    const auto wait_result = WaitForBenchmarkSocket(sock, POLLIN, read_start, timeout_ms);
 
-                    FD_ZERO(&read_fds);
-                    FD_SET(sock, &read_fds);
+                    if (wait_result == BenchmarkSocketWaitResult::Interrupted)
+                    {
+                         if (sock_flags >= 0)
+                         {
+                              fcntl(sock, F_SETFL, sock_flags);
+                         }
 
-                    struct timeval select_timeout;
+                         CloseSocket();
+                         response.StatusCode = -1;
+                         response.ErrorMessage = "Interrupted by user (Ctrl+C).";
 
-                    select_timeout.tv_sec = 0;
-                    select_timeout.tv_usec = 100000;
+                         return response;
+                    }
 
-                    int select_result = select(sock + 1, &read_fds, NULL, NULL, &select_timeout);
-
-                    if (select_result < 0 && errno != EINTR)
+                    if (wait_result == BenchmarkSocketWaitResult::TimedOut)
                     {
                          if (sock_flags >= 0)
                          {
@@ -708,22 +851,37 @@ HTTPResponse BenchmarkClient::MakeRequest(const std::string &method, const std::
                          }
 
                          response.StatusCode = -1;
+                         response.ErrorMessage = "Timed out waiting for HTTP response from server.";
 
                          return response;
                     }
 
-                    if (select_result == 0 || !FD_ISSET(sock, &read_fds))
+                    if (wait_result == BenchmarkSocketWaitResult::Failed)
                     {
-                         continue;
+                         if (sock_flags >= 0)
+                         {
+                              fcntl(sock, F_SETFL, sock_flags);
+                         }
+
+                         CloseSocket();
+                         response.StatusCode = -1;
+                         response.ErrorMessage = "Failed while waiting for HTTP response from server.";
+
+                         return response;
                     }
                }
 
                int bytes = 0;
+               int ssl_read_error = 0;
 
                if (UseSSL)
                {
 #ifdef HLQUERY_HAS_OPENSSL
                     bytes = SSL_read(SSLObj, buffer, sizeof(buffer) - 1);
+                    if (bytes <= 0)
+                    {
+                         ssl_read_error = SSL_get_error(SSLObj, bytes);
+                    }
 #else
                     bytes = -1;
 #endif
@@ -751,6 +909,33 @@ HTTPResponse BenchmarkClient::MakeRequest(const std::string &method, const std::
 #endif
                     }
                }
+
+#ifdef HLQUERY_HAS_OPENSSL
+               if (UseSSL && bytes <= 0 &&
+                   (ssl_read_error == SSL_ERROR_WANT_READ || ssl_read_error == SSL_ERROR_WANT_WRITE))
+               {
+                    const short events = ssl_read_error == SSL_ERROR_WANT_WRITE ? POLLOUT : POLLIN;
+                    const auto wait_result = WaitForBenchmarkSocket(sock, events, read_start, timeout_ms);
+
+                    if (wait_result == BenchmarkSocketWaitResult::Ready)
+                    {
+                         continue;
+                    }
+
+                    if (sock_flags >= 0)
+                    {
+                         fcntl(sock, F_SETFL, sock_flags);
+                    }
+
+                    CloseSocket();
+                    response.StatusCode = -1;
+                    response.ErrorMessage = wait_result == BenchmarkSocketWaitResult::Interrupted
+                                                 ? "Interrupted by user (Ctrl+C)."
+                                                 : "Timed out waiting for HTTPS response from server.";
+
+                    return response;
+               }
+#endif
 
                if (g_benchmark_should_stop.load())
                {
@@ -2044,35 +2229,103 @@ bool BenchmarkClient::AddGlobalStopword(const std::string &word)
 
 /* Inserts documents in bulk. */
 
+static void AppendBenchmarkJSONString(std::string &output, const std::string &value)
+{
+     static constexpr char HEX[] = "0123456789abcdef";
+
+     output.push_back('"');
+
+     for (const unsigned char ch : value)
+     {
+          switch (ch)
+          {
+               case '"':
+                    output += "\\\"";
+                    break;
+               case '\\':
+                    output += "\\\\";
+                    break;
+               case '\b':
+                    output += "\\b";
+                    break;
+               case '\f':
+                    output += "\\f";
+                    break;
+               case '\n':
+                    output += "\\n";
+                    break;
+               case '\r':
+                    output += "\\r";
+                    break;
+               case '\t':
+                    output += "\\t";
+                    break;
+               default:
+                    if (ch < 0x20)
+                    {
+                         output += "\\u00";
+                         output.push_back(HEX[(ch >> 4) & 0x0f]);
+                         output.push_back(HEX[ch & 0x0f]);
+                    }
+                    else
+                    {
+                         output.push_back(static_cast<char>(ch));
+                    }
+                    break;
+          }
+     }
+
+     output.push_back('"');
+}
+
 int BenchmarkClient::InsertDocumentsBulkRequest(const std::string &collection, const std::vector<std::tuple<std::string, std::string, std::string>> &docs, HTTPResponse &response)
 {
-     nlohmann::json payload;
-
-     payload["documents"] = nlohmann::json::array();
+     size_t estimated_size = 32;
 
      for (const auto &doc_tuple : docs)
      {
-          nlohmann::json doc;
-
-          doc["id"] = std::get<0>(doc_tuple);
-          doc["title"] = std::get<1>(doc_tuple);
-          doc["content"] = std::get<2>(doc_tuple);
-          AddBenchmarkDocumentIdValue(doc);
-
-          payload["documents"].push_back(doc);
+          estimated_size += std::get<0>(doc_tuple).size() * 2;
+          estimated_size += std::get<1>(doc_tuple).size();
+          estimated_size += std::get<2>(doc_tuple).size();
+          estimated_size += 64;
      }
 
-     std::string json_str = payload.dump();
+     std::string json_str;
+     json_str.reserve(estimated_size);
+     json_str += "{\"documents\":[";
+
+     for (size_t i = 0; i < docs.size(); ++i)
+     {
+          if (i > 0)
+          {
+               json_str.push_back(',');
+          }
+
+          const auto &doc_tuple = docs[i];
+          const std::string &doc_id = std::get<0>(doc_tuple);
+
+          json_str += "{\"id\":";
+          AppendBenchmarkJSONString(json_str, doc_id);
+          json_str += ",\"document_id\":";
+          AppendBenchmarkJSONString(json_str, doc_id);
+          json_str += ",\"title\":";
+          AppendBenchmarkJSONString(json_str, std::get<1>(doc_tuple));
+          json_str += ",\"content\":";
+          AppendBenchmarkJSONString(json_str, std::get<2>(doc_tuple));
+          json_str.push_back('}');
+     }
+
+     json_str += "]}";
 
      std::string encoded_collection = UrlEncode(collection);
 
-     const int import_timeout_ms = std::max(5000, static_cast<int>(docs.size()) * 100);
+     const int import_timeout_ms = std::clamp(static_cast<int>(docs.size()) * 10, 5000, 60000);
 
      response = MakeRequest("POST",
                             "/collections/" + encoded_collection + "/documents/import?assume_new=true&batch_size=" + std::to_string(docs.size()),
                             json_str,
                             3,
-                            false,
+                            true,
                             import_timeout_ms);
 
      if (response.StatusCode == 401 || response.StatusCode == 403)

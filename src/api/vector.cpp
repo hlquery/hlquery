@@ -2021,10 +2021,46 @@ std::vector<SearchHit> SearchAPI::ProcessVectorSearch(const std::string &Collect
  * SearchAPI::ProcessHybridSearch implementation.
  */
 
-std::vector<SearchHit> SearchAPI::ProcessHybridSearch(const std::string &Collection, const ComprehensiveSearchQuery &Query)
+std::vector<SearchHit> SearchAPI::ProcessHybridSearch(const std::string &Collection,
+                                                      const ComprehensiveSearchQuery &Query,
+                                                      SearchExecutionTrace *ExecutionTrace)
 {
+     SearchExecutionTrace DisabledTrace;
+     SearchExecutionTrace &Trace = ExecutionTrace ? *ExecutionTrace : DisabledTrace;
+
+     const auto LexicalStartTime = SearchExecutionRecorder::Start(Trace);
      std::vector<SearchHit> LexicalHits = ProcessLexicalSearch(Collection, Query);
+
+     SearchExecutionRecorder::Append(
+          ExecutionTrace,
+          "lexical_retrieval",
+          "retrieval",
+          "executed",
+          "lexical_index",
+          "",
+          LexicalStartTime,
+          0,
+          LexicalHits.size(),
+          Query.Q);
+
+     const auto VectorStartTime = SearchExecutionRecorder::Start(Trace);
      std::vector<SearchHit> VectorHits = ProcessVectorSearch(Collection, Query);
+
+     if (Trace.Enabled)
+     {
+          SearchExecutionRecorder::Append(
+               ExecutionTrace,
+               "vector_retrieval",
+               "retrieval",
+               "executed",
+               "brute_force",
+               "",
+               VectorStartTime,
+               0,
+               VectorHits.size(),
+               "",
+               {{"backend", "brute_force"}});
+     }
 
      std::string MergeMethod = "linear";
      std::string NormalizationMethod = "minmax";
@@ -2078,6 +2114,8 @@ std::vector<SearchHit> SearchAPI::ProcessHybridSearch(const std::string &Collect
                Alpha = AlphaMedium;
           }
      }
+
+     const auto CandidateMergeStartTime = SearchExecutionRecorder::Start(Trace);
 
      std::unordered_map<std::string, SearchHit> LexicalHitByID;
      std::unordered_map<std::string, SearchHit> VectorHitByID;
@@ -2134,6 +2172,19 @@ std::vector<SearchHit> SearchAPI::ProcessHybridSearch(const std::string &Collect
                CombinedMap[Pair.first] = Pair.second;
           }
      }
+
+     SearchExecutionRecorder::Append(
+          ExecutionTrace,
+          "candidate_merge",
+          "fusion",
+          "executed",
+          "document_id_union",
+          "",
+          CandidateMergeStartTime,
+          LexicalHits.size() + VectorHits.size(),
+          CombinedMap.size());
+
+     const auto FusionStartTime = SearchExecutionRecorder::Start(Trace);
 
      for (auto &Pair : CombinedMap)
      {
@@ -2196,8 +2247,28 @@ std::vector<SearchHit> SearchAPI::ProcessHybridSearch(const std::string &Collect
                     return A.HybridScore > B.HybridScore;
                });
 
+     if (Trace.Enabled)
+     {
+          SearchExecutionRecorder::Append(
+               ExecutionTrace,
+               "fusion",
+               "fusion",
+               "executed",
+               MergeMethod,
+               DynamicAlphaEnabled ? "legacy_dynamic_alpha" : "configured_hybrid_alpha",
+               FusionStartTime,
+               CombinedMap.size(),
+               Result.size(),
+               "",
+               {
+                    {"alpha", std::to_string(Alpha)},
+                    {"component_normalization", NormalizeComponentScores ? NormalizationMethod : "none"},
+                    {"rrf_k", std::to_string(RrfK)}});
+     }
+
      if (RerankEnabled && !Result.empty())
      {
+          const auto RerankStartTime = SearchExecutionRecorder::Start(Trace);
           int EffectiveTopK = std::min(RerankTopK, static_cast<int>(Result.size()));
           std::vector<float> TopKLexicalScores;
           std::vector<float> TopKVectorScores;
@@ -2226,6 +2297,30 @@ std::vector<SearchHit> SearchAPI::ProcessHybridSearch(const std::string &Collect
                            {
                                 return A.HybridScore > B.HybridScore;
                            });
+
+          if (Trace.Enabled)
+          {
+               SearchExecutionRecorder::Append(
+                    ExecutionTrace,
+                    "rerank",
+                    "ranking",
+                    "executed",
+                    "legacy_deterministic",
+                    "",
+                    RerankStartTime,
+                    static_cast<std::size_t>(EffectiveTopK),
+                    static_cast<std::size_t>(EffectiveTopK),
+                    "",
+                    {{"top_k", std::to_string(EffectiveTopK)}});
+          }
+     }
+     else
+     {
+          SearchExecutionRecorder::AppendSkipped(
+               ExecutionTrace,
+               "rerank",
+               "ranking",
+               RerankEnabled ? "no_candidates" : "disabled");
      }
 
      return Result;

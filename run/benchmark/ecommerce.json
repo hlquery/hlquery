@@ -1,1 +1,992 @@
-{"collection":"ecommerce","count":50,"tags":["product","catalog","checkout","marketplace","shipping","inventory","order","conversion","storefront","retail"]}
+{
+  "fixture_version": 2,
+  "fixture_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+  "collection": "ecommerce",
+  "count": 50,
+  "tags": [
+    "product catalog quality",
+    "checkout reliability",
+    "inventory synchronization",
+    "shipping estimate design",
+    "returns workflow",
+    "marketplace seller review",
+    "search merchandising",
+    "conversion experiment",
+    "order support timeline",
+    "storefront accessibility"
+  ],
+  "documents": [
+    {
+      "id": "ecommerce_001",
+      "title": "Product Catalog Quality — Discovery (Demo Record 01)",
+      "content": "This synthetic ecommerce record covers product catalog quality during the discovery stage. Checks fictional titles, attributes, imagery notes, variants, and category consistency. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic ecommerce demo record: Product Catalog Quality — Discovery (Demo Record 01).",
+      "labels": [
+        "ecommerce",
+        "demo",
+        "synthetic",
+        "product catalog quality",
+        "discovery"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "commerce_topic": "product catalog quality",
+      "lifecycle_stage": "discovery",
+      "channel": "web",
+      "status": "planned"
+    },
+    {
+      "id": "ecommerce_002",
+      "title": "Checkout Reliability — Discovery (Demo Record 02)",
+      "content": "This synthetic ecommerce record covers checkout reliability during the discovery stage. Maps cart, address, shipping, payment, confirmation, retry, and idempotency behavior. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic ecommerce demo record: Checkout Reliability — Discovery (Demo Record 02).",
+      "labels": [
+        "ecommerce",
+        "demo",
+        "synthetic",
+        "checkout reliability",
+        "discovery"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "commerce_topic": "checkout reliability",
+      "lifecycle_stage": "discovery",
+      "channel": "mobile",
+      "status": "active"
+    },
+    {
+      "id": "ecommerce_003",
+      "title": "Inventory Synchronization — Discovery (Demo Record 03)",
+      "content": "This synthetic ecommerce record covers inventory synchronization during the discovery stage. Tracks synthetic stock changes across a warehouse, storefront, and reservation queue. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic ecommerce demo record: Inventory Synchronization — Discovery (Demo Record 03).",
+      "labels": [
+        "ecommerce",
+        "demo",
+        "synthetic",
+        "inventory synchronization",
+        "discovery"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "commerce_topic": "inventory synchronization",
+      "lifecycle_stage": "discovery",
+      "channel": "marketplace demo",
+      "status": "reviewing"
+    },
+    {
+      "id": "ecommerce_004",
+      "title": "Shipping Estimate Design — Discovery (Demo Record 04)",
+      "content": "This synthetic ecommerce record covers shipping estimate design during the discovery stage. Explains transparent ranges, cutoff assumptions, and delay communication using demo orders. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic ecommerce demo record: Shipping Estimate Design — Discovery (Demo Record 04).",
+      "labels": [
+        "ecommerce",
+        "demo",
+        "synthetic",
+        "shipping estimate design",
+        "discovery"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "commerce_topic": "shipping estimate design",
+      "lifecycle_stage": "discovery",
+      "channel": "web",
+      "status": "planned"
+    },
+    {
+      "id": "ecommerce_005",
+      "title": "Returns Workflow — Discovery (Demo Record 05)",
+      "content": "This synthetic ecommerce record covers returns workflow during the discovery stage. Documents eligibility, labels, inspection, refund status, and customer-visible updates. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic ecommerce demo record: Returns Workflow — Discovery (Demo Record 05).",
+      "labels": [
+        "ecommerce",
+        "demo",
+        "synthetic",
+        "returns workflow",
+        "discovery"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "commerce_topic": "returns workflow",
+      "lifecycle_stage": "discovery",
+      "channel": "mobile",
+      "status": "active"
+    },
+    {
+      "id": "ecommerce_006",
+      "title": "Marketplace Seller Review — Discovery (Demo Record 06)",
+      "content": "This synthetic ecommerce record covers marketplace seller review during the discovery stage. Uses fictional seller records to demonstrate verification, catalog quality, and support history. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic ecommerce demo record: Marketplace Seller Review — Discovery (Demo Record 06).",
+      "labels": [
+        "ecommerce",
+        "demo",
+        "synthetic",
+        "marketplace seller review",
+        "discovery"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "commerce_topic": "marketplace seller review",
+      "lifecycle_stage": "discovery",
+      "channel": "marketplace demo",
+      "status": "reviewing"
+    },
+    {
+      "id": "ecommerce_007",
+      "title": "Search Merchandising — Discovery (Demo Record 07)",
+      "content": "This synthetic ecommerce record covers search merchandising during the discovery stage. Combines relevance, availability, explicit promotions, and clear disclosure in a demo storefront. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic ecommerce demo record: Search Merchandising — Discovery (Demo Record 07).",
+      "labels": [
+        "ecommerce",
+        "demo",
+        "synthetic",
+        "search merchandising",
+        "discovery"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "commerce_topic": "search merchandising",
+      "lifecycle_stage": "discovery",
+      "channel": "web",
+      "status": "planned"
+    },
+    {
+      "id": "ecommerce_008",
+      "title": "Conversion Experiment — Discovery (Demo Record 08)",
+      "content": "This synthetic ecommerce record covers conversion experiment during the discovery stage. Defines a synthetic hypothesis, guardrails, sample metrics, and stopping rules. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic ecommerce demo record: Conversion Experiment — Discovery (Demo Record 08).",
+      "labels": [
+        "ecommerce",
+        "demo",
+        "synthetic",
+        "conversion experiment",
+        "discovery"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "commerce_topic": "conversion experiment",
+      "lifecycle_stage": "discovery",
+      "channel": "mobile",
+      "status": "active"
+    },
+    {
+      "id": "ecommerce_009",
+      "title": "Order Support Timeline — Discovery (Demo Record 09)",
+      "content": "This synthetic ecommerce record covers order support timeline during the discovery stage. Unifies fictional order events and customer contacts without exposing private data. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic ecommerce demo record: Order Support Timeline — Discovery (Demo Record 09).",
+      "labels": [
+        "ecommerce",
+        "demo",
+        "synthetic",
+        "order support timeline",
+        "discovery"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "commerce_topic": "order support timeline",
+      "lifecycle_stage": "discovery",
+      "channel": "marketplace demo",
+      "status": "reviewing"
+    },
+    {
+      "id": "ecommerce_010",
+      "title": "Storefront Accessibility — Discovery (Demo Record 10)",
+      "content": "This synthetic ecommerce record covers storefront accessibility during the discovery stage. Reviews keyboard navigation, labels, focus, errors, color contrast, and readable content. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic ecommerce demo record: Storefront Accessibility — Discovery (Demo Record 10).",
+      "labels": [
+        "ecommerce",
+        "demo",
+        "synthetic",
+        "storefront accessibility",
+        "discovery"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "commerce_topic": "storefront accessibility",
+      "lifecycle_stage": "discovery",
+      "channel": "web",
+      "status": "planned"
+    },
+    {
+      "id": "ecommerce_011",
+      "title": "Product Catalog Quality — Setup (Demo Record 11)",
+      "content": "This synthetic ecommerce record covers product catalog quality during the setup stage. Checks fictional titles, attributes, imagery notes, variants, and category consistency. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic ecommerce demo record: Product Catalog Quality — Setup (Demo Record 11).",
+      "labels": [
+        "ecommerce",
+        "demo",
+        "synthetic",
+        "product catalog quality",
+        "setup"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "commerce_topic": "product catalog quality",
+      "lifecycle_stage": "setup",
+      "channel": "mobile",
+      "status": "active"
+    },
+    {
+      "id": "ecommerce_012",
+      "title": "Checkout Reliability — Setup (Demo Record 12)",
+      "content": "This synthetic ecommerce record covers checkout reliability during the setup stage. Maps cart, address, shipping, payment, confirmation, retry, and idempotency behavior. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic ecommerce demo record: Checkout Reliability — Setup (Demo Record 12).",
+      "labels": [
+        "ecommerce",
+        "demo",
+        "synthetic",
+        "checkout reliability",
+        "setup"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "commerce_topic": "checkout reliability",
+      "lifecycle_stage": "setup",
+      "channel": "marketplace demo",
+      "status": "reviewing"
+    },
+    {
+      "id": "ecommerce_013",
+      "title": "Inventory Synchronization — Setup (Demo Record 13)",
+      "content": "This synthetic ecommerce record covers inventory synchronization during the setup stage. Tracks synthetic stock changes across a warehouse, storefront, and reservation queue. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic ecommerce demo record: Inventory Synchronization — Setup (Demo Record 13).",
+      "labels": [
+        "ecommerce",
+        "demo",
+        "synthetic",
+        "inventory synchronization",
+        "setup"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "commerce_topic": "inventory synchronization",
+      "lifecycle_stage": "setup",
+      "channel": "web",
+      "status": "planned"
+    },
+    {
+      "id": "ecommerce_014",
+      "title": "Shipping Estimate Design — Setup (Demo Record 14)",
+      "content": "This synthetic ecommerce record covers shipping estimate design during the setup stage. Explains transparent ranges, cutoff assumptions, and delay communication using demo orders. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic ecommerce demo record: Shipping Estimate Design — Setup (Demo Record 14).",
+      "labels": [
+        "ecommerce",
+        "demo",
+        "synthetic",
+        "shipping estimate design",
+        "setup"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "commerce_topic": "shipping estimate design",
+      "lifecycle_stage": "setup",
+      "channel": "mobile",
+      "status": "active"
+    },
+    {
+      "id": "ecommerce_015",
+      "title": "Returns Workflow — Setup (Demo Record 15)",
+      "content": "This synthetic ecommerce record covers returns workflow during the setup stage. Documents eligibility, labels, inspection, refund status, and customer-visible updates. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic ecommerce demo record: Returns Workflow — Setup (Demo Record 15).",
+      "labels": [
+        "ecommerce",
+        "demo",
+        "synthetic",
+        "returns workflow",
+        "setup"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "commerce_topic": "returns workflow",
+      "lifecycle_stage": "setup",
+      "channel": "marketplace demo",
+      "status": "reviewing"
+    },
+    {
+      "id": "ecommerce_016",
+      "title": "Marketplace Seller Review — Setup (Demo Record 16)",
+      "content": "This synthetic ecommerce record covers marketplace seller review during the setup stage. Uses fictional seller records to demonstrate verification, catalog quality, and support history. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic ecommerce demo record: Marketplace Seller Review — Setup (Demo Record 16).",
+      "labels": [
+        "ecommerce",
+        "demo",
+        "synthetic",
+        "marketplace seller review",
+        "setup"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "commerce_topic": "marketplace seller review",
+      "lifecycle_stage": "setup",
+      "channel": "web",
+      "status": "planned"
+    },
+    {
+      "id": "ecommerce_017",
+      "title": "Search Merchandising — Setup (Demo Record 17)",
+      "content": "This synthetic ecommerce record covers search merchandising during the setup stage. Combines relevance, availability, explicit promotions, and clear disclosure in a demo storefront. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic ecommerce demo record: Search Merchandising — Setup (Demo Record 17).",
+      "labels": [
+        "ecommerce",
+        "demo",
+        "synthetic",
+        "search merchandising",
+        "setup"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "commerce_topic": "search merchandising",
+      "lifecycle_stage": "setup",
+      "channel": "mobile",
+      "status": "active"
+    },
+    {
+      "id": "ecommerce_018",
+      "title": "Conversion Experiment — Setup (Demo Record 18)",
+      "content": "This synthetic ecommerce record covers conversion experiment during the setup stage. Defines a synthetic hypothesis, guardrails, sample metrics, and stopping rules. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic ecommerce demo record: Conversion Experiment — Setup (Demo Record 18).",
+      "labels": [
+        "ecommerce",
+        "demo",
+        "synthetic",
+        "conversion experiment",
+        "setup"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "commerce_topic": "conversion experiment",
+      "lifecycle_stage": "setup",
+      "channel": "marketplace demo",
+      "status": "reviewing"
+    },
+    {
+      "id": "ecommerce_019",
+      "title": "Order Support Timeline — Setup (Demo Record 19)",
+      "content": "This synthetic ecommerce record covers order support timeline during the setup stage. Unifies fictional order events and customer contacts without exposing private data. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic ecommerce demo record: Order Support Timeline — Setup (Demo Record 19).",
+      "labels": [
+        "ecommerce",
+        "demo",
+        "synthetic",
+        "order support timeline",
+        "setup"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "commerce_topic": "order support timeline",
+      "lifecycle_stage": "setup",
+      "channel": "web",
+      "status": "planned"
+    },
+    {
+      "id": "ecommerce_020",
+      "title": "Storefront Accessibility — Setup (Demo Record 20)",
+      "content": "This synthetic ecommerce record covers storefront accessibility during the setup stage. Reviews keyboard navigation, labels, focus, errors, color contrast, and readable content. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic ecommerce demo record: Storefront Accessibility — Setup (Demo Record 20).",
+      "labels": [
+        "ecommerce",
+        "demo",
+        "synthetic",
+        "storefront accessibility",
+        "setup"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "commerce_topic": "storefront accessibility",
+      "lifecycle_stage": "setup",
+      "channel": "mobile",
+      "status": "active"
+    },
+    {
+      "id": "ecommerce_021",
+      "title": "Product Catalog Quality — Active Use (Demo Record 21)",
+      "content": "This synthetic ecommerce record covers product catalog quality during the active use stage. Checks fictional titles, attributes, imagery notes, variants, and category consistency. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic ecommerce demo record: Product Catalog Quality — Active Use (Demo Record 21).",
+      "labels": [
+        "ecommerce",
+        "demo",
+        "synthetic",
+        "product catalog quality",
+        "active use"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "commerce_topic": "product catalog quality",
+      "lifecycle_stage": "active use",
+      "channel": "marketplace demo",
+      "status": "reviewing"
+    },
+    {
+      "id": "ecommerce_022",
+      "title": "Checkout Reliability — Active Use (Demo Record 22)",
+      "content": "This synthetic ecommerce record covers checkout reliability during the active use stage. Maps cart, address, shipping, payment, confirmation, retry, and idempotency behavior. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic ecommerce demo record: Checkout Reliability — Active Use (Demo Record 22).",
+      "labels": [
+        "ecommerce",
+        "demo",
+        "synthetic",
+        "checkout reliability",
+        "active use"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "commerce_topic": "checkout reliability",
+      "lifecycle_stage": "active use",
+      "channel": "web",
+      "status": "planned"
+    },
+    {
+      "id": "ecommerce_023",
+      "title": "Inventory Synchronization — Active Use (Demo Record 23)",
+      "content": "This synthetic ecommerce record covers inventory synchronization during the active use stage. Tracks synthetic stock changes across a warehouse, storefront, and reservation queue. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic ecommerce demo record: Inventory Synchronization — Active Use (Demo Record 23).",
+      "labels": [
+        "ecommerce",
+        "demo",
+        "synthetic",
+        "inventory synchronization",
+        "active use"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "commerce_topic": "inventory synchronization",
+      "lifecycle_stage": "active use",
+      "channel": "mobile",
+      "status": "active"
+    },
+    {
+      "id": "ecommerce_024",
+      "title": "Shipping Estimate Design — Active Use (Demo Record 24)",
+      "content": "This synthetic ecommerce record covers shipping estimate design during the active use stage. Explains transparent ranges, cutoff assumptions, and delay communication using demo orders. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic ecommerce demo record: Shipping Estimate Design — Active Use (Demo Record 24).",
+      "labels": [
+        "ecommerce",
+        "demo",
+        "synthetic",
+        "shipping estimate design",
+        "active use"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "commerce_topic": "shipping estimate design",
+      "lifecycle_stage": "active use",
+      "channel": "marketplace demo",
+      "status": "reviewing"
+    },
+    {
+      "id": "ecommerce_025",
+      "title": "Returns Workflow — Active Use (Demo Record 25)",
+      "content": "This synthetic ecommerce record covers returns workflow during the active use stage. Documents eligibility, labels, inspection, refund status, and customer-visible updates. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic ecommerce demo record: Returns Workflow — Active Use (Demo Record 25).",
+      "labels": [
+        "ecommerce",
+        "demo",
+        "synthetic",
+        "returns workflow",
+        "active use"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "commerce_topic": "returns workflow",
+      "lifecycle_stage": "active use",
+      "channel": "web",
+      "status": "planned"
+    },
+    {
+      "id": "ecommerce_026",
+      "title": "Marketplace Seller Review — Active Use (Demo Record 26)",
+      "content": "This synthetic ecommerce record covers marketplace seller review during the active use stage. Uses fictional seller records to demonstrate verification, catalog quality, and support history. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic ecommerce demo record: Marketplace Seller Review — Active Use (Demo Record 26).",
+      "labels": [
+        "ecommerce",
+        "demo",
+        "synthetic",
+        "marketplace seller review",
+        "active use"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "commerce_topic": "marketplace seller review",
+      "lifecycle_stage": "active use",
+      "channel": "mobile",
+      "status": "active"
+    },
+    {
+      "id": "ecommerce_027",
+      "title": "Search Merchandising — Active Use (Demo Record 27)",
+      "content": "This synthetic ecommerce record covers search merchandising during the active use stage. Combines relevance, availability, explicit promotions, and clear disclosure in a demo storefront. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic ecommerce demo record: Search Merchandising — Active Use (Demo Record 27).",
+      "labels": [
+        "ecommerce",
+        "demo",
+        "synthetic",
+        "search merchandising",
+        "active use"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "commerce_topic": "search merchandising",
+      "lifecycle_stage": "active use",
+      "channel": "marketplace demo",
+      "status": "reviewing"
+    },
+    {
+      "id": "ecommerce_028",
+      "title": "Conversion Experiment — Active Use (Demo Record 28)",
+      "content": "This synthetic ecommerce record covers conversion experiment during the active use stage. Defines a synthetic hypothesis, guardrails, sample metrics, and stopping rules. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic ecommerce demo record: Conversion Experiment — Active Use (Demo Record 28).",
+      "labels": [
+        "ecommerce",
+        "demo",
+        "synthetic",
+        "conversion experiment",
+        "active use"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "commerce_topic": "conversion experiment",
+      "lifecycle_stage": "active use",
+      "channel": "web",
+      "status": "planned"
+    },
+    {
+      "id": "ecommerce_029",
+      "title": "Order Support Timeline — Active Use (Demo Record 29)",
+      "content": "This synthetic ecommerce record covers order support timeline during the active use stage. Unifies fictional order events and customer contacts without exposing private data. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic ecommerce demo record: Order Support Timeline — Active Use (Demo Record 29).",
+      "labels": [
+        "ecommerce",
+        "demo",
+        "synthetic",
+        "order support timeline",
+        "active use"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "commerce_topic": "order support timeline",
+      "lifecycle_stage": "active use",
+      "channel": "mobile",
+      "status": "active"
+    },
+    {
+      "id": "ecommerce_030",
+      "title": "Storefront Accessibility — Active Use (Demo Record 30)",
+      "content": "This synthetic ecommerce record covers storefront accessibility during the active use stage. Reviews keyboard navigation, labels, focus, errors, color contrast, and readable content. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic ecommerce demo record: Storefront Accessibility — Active Use (Demo Record 30).",
+      "labels": [
+        "ecommerce",
+        "demo",
+        "synthetic",
+        "storefront accessibility",
+        "active use"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "commerce_topic": "storefront accessibility",
+      "lifecycle_stage": "active use",
+      "channel": "marketplace demo",
+      "status": "reviewing"
+    },
+    {
+      "id": "ecommerce_031",
+      "title": "Product Catalog Quality — Review (Demo Record 31)",
+      "content": "This synthetic ecommerce record covers product catalog quality during the review stage. Checks fictional titles, attributes, imagery notes, variants, and category consistency. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic ecommerce demo record: Product Catalog Quality — Review (Demo Record 31).",
+      "labels": [
+        "ecommerce",
+        "demo",
+        "synthetic",
+        "product catalog quality",
+        "review"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "commerce_topic": "product catalog quality",
+      "lifecycle_stage": "review",
+      "channel": "web",
+      "status": "planned"
+    },
+    {
+      "id": "ecommerce_032",
+      "title": "Checkout Reliability — Review (Demo Record 32)",
+      "content": "This synthetic ecommerce record covers checkout reliability during the review stage. Maps cart, address, shipping, payment, confirmation, retry, and idempotency behavior. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic ecommerce demo record: Checkout Reliability — Review (Demo Record 32).",
+      "labels": [
+        "ecommerce",
+        "demo",
+        "synthetic",
+        "checkout reliability",
+        "review"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "commerce_topic": "checkout reliability",
+      "lifecycle_stage": "review",
+      "channel": "mobile",
+      "status": "active"
+    },
+    {
+      "id": "ecommerce_033",
+      "title": "Inventory Synchronization — Review (Demo Record 33)",
+      "content": "This synthetic ecommerce record covers inventory synchronization during the review stage. Tracks synthetic stock changes across a warehouse, storefront, and reservation queue. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic ecommerce demo record: Inventory Synchronization — Review (Demo Record 33).",
+      "labels": [
+        "ecommerce",
+        "demo",
+        "synthetic",
+        "inventory synchronization",
+        "review"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "commerce_topic": "inventory synchronization",
+      "lifecycle_stage": "review",
+      "channel": "marketplace demo",
+      "status": "reviewing"
+    },
+    {
+      "id": "ecommerce_034",
+      "title": "Shipping Estimate Design — Review (Demo Record 34)",
+      "content": "This synthetic ecommerce record covers shipping estimate design during the review stage. Explains transparent ranges, cutoff assumptions, and delay communication using demo orders. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic ecommerce demo record: Shipping Estimate Design — Review (Demo Record 34).",
+      "labels": [
+        "ecommerce",
+        "demo",
+        "synthetic",
+        "shipping estimate design",
+        "review"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "commerce_topic": "shipping estimate design",
+      "lifecycle_stage": "review",
+      "channel": "web",
+      "status": "planned"
+    },
+    {
+      "id": "ecommerce_035",
+      "title": "Returns Workflow — Review (Demo Record 35)",
+      "content": "This synthetic ecommerce record covers returns workflow during the review stage. Documents eligibility, labels, inspection, refund status, and customer-visible updates. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic ecommerce demo record: Returns Workflow — Review (Demo Record 35).",
+      "labels": [
+        "ecommerce",
+        "demo",
+        "synthetic",
+        "returns workflow",
+        "review"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "commerce_topic": "returns workflow",
+      "lifecycle_stage": "review",
+      "channel": "mobile",
+      "status": "active"
+    },
+    {
+      "id": "ecommerce_036",
+      "title": "Marketplace Seller Review — Review (Demo Record 36)",
+      "content": "This synthetic ecommerce record covers marketplace seller review during the review stage. Uses fictional seller records to demonstrate verification, catalog quality, and support history. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic ecommerce demo record: Marketplace Seller Review — Review (Demo Record 36).",
+      "labels": [
+        "ecommerce",
+        "demo",
+        "synthetic",
+        "marketplace seller review",
+        "review"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "commerce_topic": "marketplace seller review",
+      "lifecycle_stage": "review",
+      "channel": "marketplace demo",
+      "status": "reviewing"
+    },
+    {
+      "id": "ecommerce_037",
+      "title": "Search Merchandising — Review (Demo Record 37)",
+      "content": "This synthetic ecommerce record covers search merchandising during the review stage. Combines relevance, availability, explicit promotions, and clear disclosure in a demo storefront. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic ecommerce demo record: Search Merchandising — Review (Demo Record 37).",
+      "labels": [
+        "ecommerce",
+        "demo",
+        "synthetic",
+        "search merchandising",
+        "review"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "commerce_topic": "search merchandising",
+      "lifecycle_stage": "review",
+      "channel": "web",
+      "status": "planned"
+    },
+    {
+      "id": "ecommerce_038",
+      "title": "Conversion Experiment — Review (Demo Record 38)",
+      "content": "This synthetic ecommerce record covers conversion experiment during the review stage. Defines a synthetic hypothesis, guardrails, sample metrics, and stopping rules. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic ecommerce demo record: Conversion Experiment — Review (Demo Record 38).",
+      "labels": [
+        "ecommerce",
+        "demo",
+        "synthetic",
+        "conversion experiment",
+        "review"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "commerce_topic": "conversion experiment",
+      "lifecycle_stage": "review",
+      "channel": "mobile",
+      "status": "active"
+    },
+    {
+      "id": "ecommerce_039",
+      "title": "Order Support Timeline — Review (Demo Record 39)",
+      "content": "This synthetic ecommerce record covers order support timeline during the review stage. Unifies fictional order events and customer contacts without exposing private data. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic ecommerce demo record: Order Support Timeline — Review (Demo Record 39).",
+      "labels": [
+        "ecommerce",
+        "demo",
+        "synthetic",
+        "order support timeline",
+        "review"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "commerce_topic": "order support timeline",
+      "lifecycle_stage": "review",
+      "channel": "marketplace demo",
+      "status": "reviewing"
+    },
+    {
+      "id": "ecommerce_040",
+      "title": "Storefront Accessibility — Review (Demo Record 40)",
+      "content": "This synthetic ecommerce record covers storefront accessibility during the review stage. Reviews keyboard navigation, labels, focus, errors, color contrast, and readable content. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic ecommerce demo record: Storefront Accessibility — Review (Demo Record 40).",
+      "labels": [
+        "ecommerce",
+        "demo",
+        "synthetic",
+        "storefront accessibility",
+        "review"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "commerce_topic": "storefront accessibility",
+      "lifecycle_stage": "review",
+      "channel": "web",
+      "status": "planned"
+    },
+    {
+      "id": "ecommerce_041",
+      "title": "Product Catalog Quality — Improvement (Demo Record 41)",
+      "content": "This synthetic ecommerce record covers product catalog quality during the improvement stage. Checks fictional titles, attributes, imagery notes, variants, and category consistency. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic ecommerce demo record: Product Catalog Quality — Improvement (Demo Record 41).",
+      "labels": [
+        "ecommerce",
+        "demo",
+        "synthetic",
+        "product catalog quality",
+        "improvement"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "commerce_topic": "product catalog quality",
+      "lifecycle_stage": "improvement",
+      "channel": "mobile",
+      "status": "active"
+    },
+    {
+      "id": "ecommerce_042",
+      "title": "Checkout Reliability — Improvement (Demo Record 42)",
+      "content": "This synthetic ecommerce record covers checkout reliability during the improvement stage. Maps cart, address, shipping, payment, confirmation, retry, and idempotency behavior. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic ecommerce demo record: Checkout Reliability — Improvement (Demo Record 42).",
+      "labels": [
+        "ecommerce",
+        "demo",
+        "synthetic",
+        "checkout reliability",
+        "improvement"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "commerce_topic": "checkout reliability",
+      "lifecycle_stage": "improvement",
+      "channel": "marketplace demo",
+      "status": "reviewing"
+    },
+    {
+      "id": "ecommerce_043",
+      "title": "Inventory Synchronization — Improvement (Demo Record 43)",
+      "content": "This synthetic ecommerce record covers inventory synchronization during the improvement stage. Tracks synthetic stock changes across a warehouse, storefront, and reservation queue. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic ecommerce demo record: Inventory Synchronization — Improvement (Demo Record 43).",
+      "labels": [
+        "ecommerce",
+        "demo",
+        "synthetic",
+        "inventory synchronization",
+        "improvement"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "commerce_topic": "inventory synchronization",
+      "lifecycle_stage": "improvement",
+      "channel": "web",
+      "status": "planned"
+    },
+    {
+      "id": "ecommerce_044",
+      "title": "Shipping Estimate Design — Improvement (Demo Record 44)",
+      "content": "This synthetic ecommerce record covers shipping estimate design during the improvement stage. Explains transparent ranges, cutoff assumptions, and delay communication using demo orders. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic ecommerce demo record: Shipping Estimate Design — Improvement (Demo Record 44).",
+      "labels": [
+        "ecommerce",
+        "demo",
+        "synthetic",
+        "shipping estimate design",
+        "improvement"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "commerce_topic": "shipping estimate design",
+      "lifecycle_stage": "improvement",
+      "channel": "mobile",
+      "status": "active"
+    },
+    {
+      "id": "ecommerce_045",
+      "title": "Returns Workflow — Improvement (Demo Record 45)",
+      "content": "This synthetic ecommerce record covers returns workflow during the improvement stage. Documents eligibility, labels, inspection, refund status, and customer-visible updates. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic ecommerce demo record: Returns Workflow — Improvement (Demo Record 45).",
+      "labels": [
+        "ecommerce",
+        "demo",
+        "synthetic",
+        "returns workflow",
+        "improvement"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "commerce_topic": "returns workflow",
+      "lifecycle_stage": "improvement",
+      "channel": "marketplace demo",
+      "status": "reviewing"
+    },
+    {
+      "id": "ecommerce_046",
+      "title": "Marketplace Seller Review — Improvement (Demo Record 46)",
+      "content": "This synthetic ecommerce record covers marketplace seller review during the improvement stage. Uses fictional seller records to demonstrate verification, catalog quality, and support history. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic ecommerce demo record: Marketplace Seller Review — Improvement (Demo Record 46).",
+      "labels": [
+        "ecommerce",
+        "demo",
+        "synthetic",
+        "marketplace seller review",
+        "improvement"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "commerce_topic": "marketplace seller review",
+      "lifecycle_stage": "improvement",
+      "channel": "web",
+      "status": "planned"
+    },
+    {
+      "id": "ecommerce_047",
+      "title": "Search Merchandising — Improvement (Demo Record 47)",
+      "content": "This synthetic ecommerce record covers search merchandising during the improvement stage. Combines relevance, availability, explicit promotions, and clear disclosure in a demo storefront. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic ecommerce demo record: Search Merchandising — Improvement (Demo Record 47).",
+      "labels": [
+        "ecommerce",
+        "demo",
+        "synthetic",
+        "search merchandising",
+        "improvement"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "commerce_topic": "search merchandising",
+      "lifecycle_stage": "improvement",
+      "channel": "mobile",
+      "status": "active"
+    },
+    {
+      "id": "ecommerce_048",
+      "title": "Conversion Experiment — Improvement (Demo Record 48)",
+      "content": "This synthetic ecommerce record covers conversion experiment during the improvement stage. Defines a synthetic hypothesis, guardrails, sample metrics, and stopping rules. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic ecommerce demo record: Conversion Experiment — Improvement (Demo Record 48).",
+      "labels": [
+        "ecommerce",
+        "demo",
+        "synthetic",
+        "conversion experiment",
+        "improvement"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "commerce_topic": "conversion experiment",
+      "lifecycle_stage": "improvement",
+      "channel": "marketplace demo",
+      "status": "reviewing"
+    },
+    {
+      "id": "ecommerce_049",
+      "title": "Order Support Timeline — Improvement (Demo Record 49)",
+      "content": "This synthetic ecommerce record covers order support timeline during the improvement stage. Unifies fictional order events and customer contacts without exposing private data. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic ecommerce demo record: Order Support Timeline — Improvement (Demo Record 49).",
+      "labels": [
+        "ecommerce",
+        "demo",
+        "synthetic",
+        "order support timeline",
+        "improvement"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "commerce_topic": "order support timeline",
+      "lifecycle_stage": "improvement",
+      "channel": "web",
+      "status": "planned"
+    },
+    {
+      "id": "ecommerce_050",
+      "title": "Storefront Accessibility — Improvement (Demo Record 50)",
+      "content": "This synthetic ecommerce record covers storefront accessibility during the improvement stage. Reviews keyboard navigation, labels, focus, errors, color contrast, and readable content. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic ecommerce demo record: Storefront Accessibility — Improvement (Demo Record 50).",
+      "labels": [
+        "ecommerce",
+        "demo",
+        "synthetic",
+        "storefront accessibility",
+        "improvement"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "commerce_topic": "storefront accessibility",
+      "lifecycle_stage": "improvement",
+      "channel": "mobile",
+      "status": "active"
+    }
+  ],
+  "fields": [
+    {
+      "name": "commerce_topic",
+      "type": "string"
+    },
+    {
+      "name": "lifecycle_stage",
+      "type": "string"
+    },
+    {
+      "name": "channel",
+      "type": "string"
+    },
+    {
+      "name": "status",
+      "type": "string"
+    }
+  ],
+  "metadata": {
+    "_fixture_kind": "synthetic_demo",
+    "_fixture_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market."
+  }
+}

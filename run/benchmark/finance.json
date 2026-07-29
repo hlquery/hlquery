@@ -1,1 +1,992 @@
-{"collection":"finance","count":50,"tags":["banking","investment","portfolio","payment","credit","insurance","budget","lending","wealth","compliance"]}
+{
+  "fixture_version": 2,
+  "fixture_notice": "Synthetic demo scenario using no live market data; it is not investment, financial, legal, or trading advice.",
+  "collection": "finance",
+  "count": 50,
+  "tags": [
+    "household budget scenario",
+    "small-business cash-flow scenario",
+    "loan affordability worksheet",
+    "insurance comparison worksheet",
+    "payment operations review",
+    "fraud-monitoring scenario",
+    "compliance checklist",
+    "portfolio learning example",
+    "emergency-fund planner",
+    "invoice aging report"
+  ],
+  "documents": [
+    {
+      "id": "finance_001",
+      "title": "Household Budget Scenario — Discovery (Demo Record 01)",
+      "content": "This synthetic finance record covers household budget scenario during the discovery stage. Groups fictional income and expenses to demonstrate categories, filters, and monthly comparisons. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic finance demo record: Household Budget Scenario — Discovery (Demo Record 01).",
+      "labels": [
+        "finance",
+        "demo",
+        "synthetic",
+        "household budget scenario",
+        "discovery"
+      ],
+      "data_notice": "Synthetic demo scenario using no live market data; it is not investment, financial, legal, or trading advice.",
+      "is_synthetic": true,
+      "scenario": "household budget scenario",
+      "lifecycle_stage": "discovery",
+      "risk_level": "low demo",
+      "source": "synthetic_finance_scenario"
+    },
+    {
+      "id": "finance_002",
+      "title": "Small-Business Cash-Flow Scenario — Discovery (Demo Record 02)",
+      "content": "This synthetic finance record covers small-business cash-flow scenario during the discovery stage. Uses generated invoices and expenses to explain timing, reserves, and reconciliation. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic finance demo record: Small-Business Cash-Flow Scenario — Discovery (Demo Record 02).",
+      "labels": [
+        "finance",
+        "demo",
+        "synthetic",
+        "small-business cash-flow scenario",
+        "discovery"
+      ],
+      "data_notice": "Synthetic demo scenario using no live market data; it is not investment, financial, legal, or trading advice.",
+      "is_synthetic": true,
+      "scenario": "small-business cash-flow scenario",
+      "lifecycle_stage": "discovery",
+      "risk_level": "medium demo",
+      "source": "synthetic_finance_scenario"
+    },
+    {
+      "id": "finance_003",
+      "title": "Loan Affordability Worksheet — Discovery (Demo Record 03)",
+      "content": "This synthetic finance record covers loan affordability worksheet during the discovery stage. Demonstrates principal, rate, term, and sensitivity without recommending a real loan. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic finance demo record: Loan Affordability Worksheet — Discovery (Demo Record 03).",
+      "labels": [
+        "finance",
+        "demo",
+        "synthetic",
+        "loan affordability worksheet",
+        "discovery"
+      ],
+      "data_notice": "Synthetic demo scenario using no live market data; it is not investment, financial, legal, or trading advice.",
+      "is_synthetic": true,
+      "scenario": "loan affordability worksheet",
+      "lifecycle_stage": "discovery",
+      "risk_level": "high demo",
+      "source": "synthetic_finance_scenario"
+    },
+    {
+      "id": "finance_004",
+      "title": "Insurance Comparison Worksheet — Discovery (Demo Record 04)",
+      "content": "This synthetic finance record covers insurance comparison worksheet during the discovery stage. Compares fictional premiums, deductibles, exclusions, and service factors without advice. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic finance demo record: Insurance Comparison Worksheet — Discovery (Demo Record 04).",
+      "labels": [
+        "finance",
+        "demo",
+        "synthetic",
+        "insurance comparison worksheet",
+        "discovery"
+      ],
+      "data_notice": "Synthetic demo scenario using no live market data; it is not investment, financial, legal, or trading advice.",
+      "is_synthetic": true,
+      "scenario": "insurance comparison worksheet",
+      "lifecycle_stage": "discovery",
+      "risk_level": "low demo",
+      "source": "synthetic_finance_scenario"
+    },
+    {
+      "id": "finance_005",
+      "title": "Payment Operations Review — Discovery (Demo Record 05)",
+      "content": "This synthetic finance record covers payment operations review during the discovery stage. Tracks synthetic authorization, settlement, refund, and reconciliation events. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic finance demo record: Payment Operations Review — Discovery (Demo Record 05).",
+      "labels": [
+        "finance",
+        "demo",
+        "synthetic",
+        "payment operations review",
+        "discovery"
+      ],
+      "data_notice": "Synthetic demo scenario using no live market data; it is not investment, financial, legal, or trading advice.",
+      "is_synthetic": true,
+      "scenario": "payment operations review",
+      "lifecycle_stage": "discovery",
+      "risk_level": "medium demo",
+      "source": "synthetic_finance_scenario"
+    },
+    {
+      "id": "finance_006",
+      "title": "Fraud-Monitoring Scenario — Discovery (Demo Record 06)",
+      "content": "This synthetic finance record covers fraud-monitoring scenario during the discovery stage. Uses invented signals and explicit review steps without exposing real detection thresholds. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic finance demo record: Fraud-Monitoring Scenario — Discovery (Demo Record 06).",
+      "labels": [
+        "finance",
+        "demo",
+        "synthetic",
+        "fraud-monitoring scenario",
+        "discovery"
+      ],
+      "data_notice": "Synthetic demo scenario using no live market data; it is not investment, financial, legal, or trading advice.",
+      "is_synthetic": true,
+      "scenario": "fraud-monitoring scenario",
+      "lifecycle_stage": "discovery",
+      "risk_level": "high demo",
+      "source": "synthetic_finance_scenario"
+    },
+    {
+      "id": "finance_007",
+      "title": "Compliance Checklist — Discovery (Demo Record 07)",
+      "content": "This synthetic finance record covers compliance checklist during the discovery stage. Demonstrates ownership, evidence, review dates, and exception tracking; it is not legal guidance. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic finance demo record: Compliance Checklist — Discovery (Demo Record 07).",
+      "labels": [
+        "finance",
+        "demo",
+        "synthetic",
+        "compliance checklist",
+        "discovery"
+      ],
+      "data_notice": "Synthetic demo scenario using no live market data; it is not investment, financial, legal, or trading advice.",
+      "is_synthetic": true,
+      "scenario": "compliance checklist",
+      "lifecycle_stage": "discovery",
+      "risk_level": "low demo",
+      "source": "synthetic_finance_scenario"
+    },
+    {
+      "id": "finance_008",
+      "title": "Portfolio Learning Example — Discovery (Demo Record 08)",
+      "content": "This synthetic finance record covers portfolio learning example during the discovery stage. Uses fictional allocations to demonstrate sorting and arithmetic, not investment recommendations. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic finance demo record: Portfolio Learning Example — Discovery (Demo Record 08).",
+      "labels": [
+        "finance",
+        "demo",
+        "synthetic",
+        "portfolio learning example",
+        "discovery"
+      ],
+      "data_notice": "Synthetic demo scenario using no live market data; it is not investment, financial, legal, or trading advice.",
+      "is_synthetic": true,
+      "scenario": "portfolio learning example",
+      "lifecycle_stage": "discovery",
+      "risk_level": "medium demo",
+      "source": "synthetic_finance_scenario"
+    },
+    {
+      "id": "finance_009",
+      "title": "Emergency-Fund Planner — Discovery (Demo Record 09)",
+      "content": "This synthetic finance record covers emergency-fund planner during the discovery stage. Shows generated savings scenarios and uncertainty without prescribing a personal target. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic finance demo record: Emergency-Fund Planner — Discovery (Demo Record 09).",
+      "labels": [
+        "finance",
+        "demo",
+        "synthetic",
+        "emergency-fund planner",
+        "discovery"
+      ],
+      "data_notice": "Synthetic demo scenario using no live market data; it is not investment, financial, legal, or trading advice.",
+      "is_synthetic": true,
+      "scenario": "emergency-fund planner",
+      "lifecycle_stage": "discovery",
+      "risk_level": "high demo",
+      "source": "synthetic_finance_scenario"
+    },
+    {
+      "id": "finance_010",
+      "title": "Invoice Aging Report — Discovery (Demo Record 10)",
+      "content": "This synthetic finance record covers invoice aging report during the discovery stage. Uses synthetic receivables to demonstrate due-date ranges and follow-up workflows. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic finance demo record: Invoice Aging Report — Discovery (Demo Record 10).",
+      "labels": [
+        "finance",
+        "demo",
+        "synthetic",
+        "invoice aging report",
+        "discovery"
+      ],
+      "data_notice": "Synthetic demo scenario using no live market data; it is not investment, financial, legal, or trading advice.",
+      "is_synthetic": true,
+      "scenario": "invoice aging report",
+      "lifecycle_stage": "discovery",
+      "risk_level": "low demo",
+      "source": "synthetic_finance_scenario"
+    },
+    {
+      "id": "finance_011",
+      "title": "Household Budget Scenario — Setup (Demo Record 11)",
+      "content": "This synthetic finance record covers household budget scenario during the setup stage. Groups fictional income and expenses to demonstrate categories, filters, and monthly comparisons. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic finance demo record: Household Budget Scenario — Setup (Demo Record 11).",
+      "labels": [
+        "finance",
+        "demo",
+        "synthetic",
+        "household budget scenario",
+        "setup"
+      ],
+      "data_notice": "Synthetic demo scenario using no live market data; it is not investment, financial, legal, or trading advice.",
+      "is_synthetic": true,
+      "scenario": "household budget scenario",
+      "lifecycle_stage": "setup",
+      "risk_level": "medium demo",
+      "source": "synthetic_finance_scenario"
+    },
+    {
+      "id": "finance_012",
+      "title": "Small-Business Cash-Flow Scenario — Setup (Demo Record 12)",
+      "content": "This synthetic finance record covers small-business cash-flow scenario during the setup stage. Uses generated invoices and expenses to explain timing, reserves, and reconciliation. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic finance demo record: Small-Business Cash-Flow Scenario — Setup (Demo Record 12).",
+      "labels": [
+        "finance",
+        "demo",
+        "synthetic",
+        "small-business cash-flow scenario",
+        "setup"
+      ],
+      "data_notice": "Synthetic demo scenario using no live market data; it is not investment, financial, legal, or trading advice.",
+      "is_synthetic": true,
+      "scenario": "small-business cash-flow scenario",
+      "lifecycle_stage": "setup",
+      "risk_level": "high demo",
+      "source": "synthetic_finance_scenario"
+    },
+    {
+      "id": "finance_013",
+      "title": "Loan Affordability Worksheet — Setup (Demo Record 13)",
+      "content": "This synthetic finance record covers loan affordability worksheet during the setup stage. Demonstrates principal, rate, term, and sensitivity without recommending a real loan. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic finance demo record: Loan Affordability Worksheet — Setup (Demo Record 13).",
+      "labels": [
+        "finance",
+        "demo",
+        "synthetic",
+        "loan affordability worksheet",
+        "setup"
+      ],
+      "data_notice": "Synthetic demo scenario using no live market data; it is not investment, financial, legal, or trading advice.",
+      "is_synthetic": true,
+      "scenario": "loan affordability worksheet",
+      "lifecycle_stage": "setup",
+      "risk_level": "low demo",
+      "source": "synthetic_finance_scenario"
+    },
+    {
+      "id": "finance_014",
+      "title": "Insurance Comparison Worksheet — Setup (Demo Record 14)",
+      "content": "This synthetic finance record covers insurance comparison worksheet during the setup stage. Compares fictional premiums, deductibles, exclusions, and service factors without advice. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic finance demo record: Insurance Comparison Worksheet — Setup (Demo Record 14).",
+      "labels": [
+        "finance",
+        "demo",
+        "synthetic",
+        "insurance comparison worksheet",
+        "setup"
+      ],
+      "data_notice": "Synthetic demo scenario using no live market data; it is not investment, financial, legal, or trading advice.",
+      "is_synthetic": true,
+      "scenario": "insurance comparison worksheet",
+      "lifecycle_stage": "setup",
+      "risk_level": "medium demo",
+      "source": "synthetic_finance_scenario"
+    },
+    {
+      "id": "finance_015",
+      "title": "Payment Operations Review — Setup (Demo Record 15)",
+      "content": "This synthetic finance record covers payment operations review during the setup stage. Tracks synthetic authorization, settlement, refund, and reconciliation events. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic finance demo record: Payment Operations Review — Setup (Demo Record 15).",
+      "labels": [
+        "finance",
+        "demo",
+        "synthetic",
+        "payment operations review",
+        "setup"
+      ],
+      "data_notice": "Synthetic demo scenario using no live market data; it is not investment, financial, legal, or trading advice.",
+      "is_synthetic": true,
+      "scenario": "payment operations review",
+      "lifecycle_stage": "setup",
+      "risk_level": "high demo",
+      "source": "synthetic_finance_scenario"
+    },
+    {
+      "id": "finance_016",
+      "title": "Fraud-Monitoring Scenario — Setup (Demo Record 16)",
+      "content": "This synthetic finance record covers fraud-monitoring scenario during the setup stage. Uses invented signals and explicit review steps without exposing real detection thresholds. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic finance demo record: Fraud-Monitoring Scenario — Setup (Demo Record 16).",
+      "labels": [
+        "finance",
+        "demo",
+        "synthetic",
+        "fraud-monitoring scenario",
+        "setup"
+      ],
+      "data_notice": "Synthetic demo scenario using no live market data; it is not investment, financial, legal, or trading advice.",
+      "is_synthetic": true,
+      "scenario": "fraud-monitoring scenario",
+      "lifecycle_stage": "setup",
+      "risk_level": "low demo",
+      "source": "synthetic_finance_scenario"
+    },
+    {
+      "id": "finance_017",
+      "title": "Compliance Checklist — Setup (Demo Record 17)",
+      "content": "This synthetic finance record covers compliance checklist during the setup stage. Demonstrates ownership, evidence, review dates, and exception tracking; it is not legal guidance. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic finance demo record: Compliance Checklist — Setup (Demo Record 17).",
+      "labels": [
+        "finance",
+        "demo",
+        "synthetic",
+        "compliance checklist",
+        "setup"
+      ],
+      "data_notice": "Synthetic demo scenario using no live market data; it is not investment, financial, legal, or trading advice.",
+      "is_synthetic": true,
+      "scenario": "compliance checklist",
+      "lifecycle_stage": "setup",
+      "risk_level": "medium demo",
+      "source": "synthetic_finance_scenario"
+    },
+    {
+      "id": "finance_018",
+      "title": "Portfolio Learning Example — Setup (Demo Record 18)",
+      "content": "This synthetic finance record covers portfolio learning example during the setup stage. Uses fictional allocations to demonstrate sorting and arithmetic, not investment recommendations. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic finance demo record: Portfolio Learning Example — Setup (Demo Record 18).",
+      "labels": [
+        "finance",
+        "demo",
+        "synthetic",
+        "portfolio learning example",
+        "setup"
+      ],
+      "data_notice": "Synthetic demo scenario using no live market data; it is not investment, financial, legal, or trading advice.",
+      "is_synthetic": true,
+      "scenario": "portfolio learning example",
+      "lifecycle_stage": "setup",
+      "risk_level": "high demo",
+      "source": "synthetic_finance_scenario"
+    },
+    {
+      "id": "finance_019",
+      "title": "Emergency-Fund Planner — Setup (Demo Record 19)",
+      "content": "This synthetic finance record covers emergency-fund planner during the setup stage. Shows generated savings scenarios and uncertainty without prescribing a personal target. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic finance demo record: Emergency-Fund Planner — Setup (Demo Record 19).",
+      "labels": [
+        "finance",
+        "demo",
+        "synthetic",
+        "emergency-fund planner",
+        "setup"
+      ],
+      "data_notice": "Synthetic demo scenario using no live market data; it is not investment, financial, legal, or trading advice.",
+      "is_synthetic": true,
+      "scenario": "emergency-fund planner",
+      "lifecycle_stage": "setup",
+      "risk_level": "low demo",
+      "source": "synthetic_finance_scenario"
+    },
+    {
+      "id": "finance_020",
+      "title": "Invoice Aging Report — Setup (Demo Record 20)",
+      "content": "This synthetic finance record covers invoice aging report during the setup stage. Uses synthetic receivables to demonstrate due-date ranges and follow-up workflows. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic finance demo record: Invoice Aging Report — Setup (Demo Record 20).",
+      "labels": [
+        "finance",
+        "demo",
+        "synthetic",
+        "invoice aging report",
+        "setup"
+      ],
+      "data_notice": "Synthetic demo scenario using no live market data; it is not investment, financial, legal, or trading advice.",
+      "is_synthetic": true,
+      "scenario": "invoice aging report",
+      "lifecycle_stage": "setup",
+      "risk_level": "medium demo",
+      "source": "synthetic_finance_scenario"
+    },
+    {
+      "id": "finance_021",
+      "title": "Household Budget Scenario — Active Use (Demo Record 21)",
+      "content": "This synthetic finance record covers household budget scenario during the active use stage. Groups fictional income and expenses to demonstrate categories, filters, and monthly comparisons. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic finance demo record: Household Budget Scenario — Active Use (Demo Record 21).",
+      "labels": [
+        "finance",
+        "demo",
+        "synthetic",
+        "household budget scenario",
+        "active use"
+      ],
+      "data_notice": "Synthetic demo scenario using no live market data; it is not investment, financial, legal, or trading advice.",
+      "is_synthetic": true,
+      "scenario": "household budget scenario",
+      "lifecycle_stage": "active use",
+      "risk_level": "high demo",
+      "source": "synthetic_finance_scenario"
+    },
+    {
+      "id": "finance_022",
+      "title": "Small-Business Cash-Flow Scenario — Active Use (Demo Record 22)",
+      "content": "This synthetic finance record covers small-business cash-flow scenario during the active use stage. Uses generated invoices and expenses to explain timing, reserves, and reconciliation. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic finance demo record: Small-Business Cash-Flow Scenario — Active Use (Demo Record 22).",
+      "labels": [
+        "finance",
+        "demo",
+        "synthetic",
+        "small-business cash-flow scenario",
+        "active use"
+      ],
+      "data_notice": "Synthetic demo scenario using no live market data; it is not investment, financial, legal, or trading advice.",
+      "is_synthetic": true,
+      "scenario": "small-business cash-flow scenario",
+      "lifecycle_stage": "active use",
+      "risk_level": "low demo",
+      "source": "synthetic_finance_scenario"
+    },
+    {
+      "id": "finance_023",
+      "title": "Loan Affordability Worksheet — Active Use (Demo Record 23)",
+      "content": "This synthetic finance record covers loan affordability worksheet during the active use stage. Demonstrates principal, rate, term, and sensitivity without recommending a real loan. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic finance demo record: Loan Affordability Worksheet — Active Use (Demo Record 23).",
+      "labels": [
+        "finance",
+        "demo",
+        "synthetic",
+        "loan affordability worksheet",
+        "active use"
+      ],
+      "data_notice": "Synthetic demo scenario using no live market data; it is not investment, financial, legal, or trading advice.",
+      "is_synthetic": true,
+      "scenario": "loan affordability worksheet",
+      "lifecycle_stage": "active use",
+      "risk_level": "medium demo",
+      "source": "synthetic_finance_scenario"
+    },
+    {
+      "id": "finance_024",
+      "title": "Insurance Comparison Worksheet — Active Use (Demo Record 24)",
+      "content": "This synthetic finance record covers insurance comparison worksheet during the active use stage. Compares fictional premiums, deductibles, exclusions, and service factors without advice. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic finance demo record: Insurance Comparison Worksheet — Active Use (Demo Record 24).",
+      "labels": [
+        "finance",
+        "demo",
+        "synthetic",
+        "insurance comparison worksheet",
+        "active use"
+      ],
+      "data_notice": "Synthetic demo scenario using no live market data; it is not investment, financial, legal, or trading advice.",
+      "is_synthetic": true,
+      "scenario": "insurance comparison worksheet",
+      "lifecycle_stage": "active use",
+      "risk_level": "high demo",
+      "source": "synthetic_finance_scenario"
+    },
+    {
+      "id": "finance_025",
+      "title": "Payment Operations Review — Active Use (Demo Record 25)",
+      "content": "This synthetic finance record covers payment operations review during the active use stage. Tracks synthetic authorization, settlement, refund, and reconciliation events. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic finance demo record: Payment Operations Review — Active Use (Demo Record 25).",
+      "labels": [
+        "finance",
+        "demo",
+        "synthetic",
+        "payment operations review",
+        "active use"
+      ],
+      "data_notice": "Synthetic demo scenario using no live market data; it is not investment, financial, legal, or trading advice.",
+      "is_synthetic": true,
+      "scenario": "payment operations review",
+      "lifecycle_stage": "active use",
+      "risk_level": "low demo",
+      "source": "synthetic_finance_scenario"
+    },
+    {
+      "id": "finance_026",
+      "title": "Fraud-Monitoring Scenario — Active Use (Demo Record 26)",
+      "content": "This synthetic finance record covers fraud-monitoring scenario during the active use stage. Uses invented signals and explicit review steps without exposing real detection thresholds. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic finance demo record: Fraud-Monitoring Scenario — Active Use (Demo Record 26).",
+      "labels": [
+        "finance",
+        "demo",
+        "synthetic",
+        "fraud-monitoring scenario",
+        "active use"
+      ],
+      "data_notice": "Synthetic demo scenario using no live market data; it is not investment, financial, legal, or trading advice.",
+      "is_synthetic": true,
+      "scenario": "fraud-monitoring scenario",
+      "lifecycle_stage": "active use",
+      "risk_level": "medium demo",
+      "source": "synthetic_finance_scenario"
+    },
+    {
+      "id": "finance_027",
+      "title": "Compliance Checklist — Active Use (Demo Record 27)",
+      "content": "This synthetic finance record covers compliance checklist during the active use stage. Demonstrates ownership, evidence, review dates, and exception tracking; it is not legal guidance. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic finance demo record: Compliance Checklist — Active Use (Demo Record 27).",
+      "labels": [
+        "finance",
+        "demo",
+        "synthetic",
+        "compliance checklist",
+        "active use"
+      ],
+      "data_notice": "Synthetic demo scenario using no live market data; it is not investment, financial, legal, or trading advice.",
+      "is_synthetic": true,
+      "scenario": "compliance checklist",
+      "lifecycle_stage": "active use",
+      "risk_level": "high demo",
+      "source": "synthetic_finance_scenario"
+    },
+    {
+      "id": "finance_028",
+      "title": "Portfolio Learning Example — Active Use (Demo Record 28)",
+      "content": "This synthetic finance record covers portfolio learning example during the active use stage. Uses fictional allocations to demonstrate sorting and arithmetic, not investment recommendations. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic finance demo record: Portfolio Learning Example — Active Use (Demo Record 28).",
+      "labels": [
+        "finance",
+        "demo",
+        "synthetic",
+        "portfolio learning example",
+        "active use"
+      ],
+      "data_notice": "Synthetic demo scenario using no live market data; it is not investment, financial, legal, or trading advice.",
+      "is_synthetic": true,
+      "scenario": "portfolio learning example",
+      "lifecycle_stage": "active use",
+      "risk_level": "low demo",
+      "source": "synthetic_finance_scenario"
+    },
+    {
+      "id": "finance_029",
+      "title": "Emergency-Fund Planner — Active Use (Demo Record 29)",
+      "content": "This synthetic finance record covers emergency-fund planner during the active use stage. Shows generated savings scenarios and uncertainty without prescribing a personal target. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic finance demo record: Emergency-Fund Planner — Active Use (Demo Record 29).",
+      "labels": [
+        "finance",
+        "demo",
+        "synthetic",
+        "emergency-fund planner",
+        "active use"
+      ],
+      "data_notice": "Synthetic demo scenario using no live market data; it is not investment, financial, legal, or trading advice.",
+      "is_synthetic": true,
+      "scenario": "emergency-fund planner",
+      "lifecycle_stage": "active use",
+      "risk_level": "medium demo",
+      "source": "synthetic_finance_scenario"
+    },
+    {
+      "id": "finance_030",
+      "title": "Invoice Aging Report — Active Use (Demo Record 30)",
+      "content": "This synthetic finance record covers invoice aging report during the active use stage. Uses synthetic receivables to demonstrate due-date ranges and follow-up workflows. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic finance demo record: Invoice Aging Report — Active Use (Demo Record 30).",
+      "labels": [
+        "finance",
+        "demo",
+        "synthetic",
+        "invoice aging report",
+        "active use"
+      ],
+      "data_notice": "Synthetic demo scenario using no live market data; it is not investment, financial, legal, or trading advice.",
+      "is_synthetic": true,
+      "scenario": "invoice aging report",
+      "lifecycle_stage": "active use",
+      "risk_level": "high demo",
+      "source": "synthetic_finance_scenario"
+    },
+    {
+      "id": "finance_031",
+      "title": "Household Budget Scenario — Review (Demo Record 31)",
+      "content": "This synthetic finance record covers household budget scenario during the review stage. Groups fictional income and expenses to demonstrate categories, filters, and monthly comparisons. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic finance demo record: Household Budget Scenario — Review (Demo Record 31).",
+      "labels": [
+        "finance",
+        "demo",
+        "synthetic",
+        "household budget scenario",
+        "review"
+      ],
+      "data_notice": "Synthetic demo scenario using no live market data; it is not investment, financial, legal, or trading advice.",
+      "is_synthetic": true,
+      "scenario": "household budget scenario",
+      "lifecycle_stage": "review",
+      "risk_level": "low demo",
+      "source": "synthetic_finance_scenario"
+    },
+    {
+      "id": "finance_032",
+      "title": "Small-Business Cash-Flow Scenario — Review (Demo Record 32)",
+      "content": "This synthetic finance record covers small-business cash-flow scenario during the review stage. Uses generated invoices and expenses to explain timing, reserves, and reconciliation. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic finance demo record: Small-Business Cash-Flow Scenario — Review (Demo Record 32).",
+      "labels": [
+        "finance",
+        "demo",
+        "synthetic",
+        "small-business cash-flow scenario",
+        "review"
+      ],
+      "data_notice": "Synthetic demo scenario using no live market data; it is not investment, financial, legal, or trading advice.",
+      "is_synthetic": true,
+      "scenario": "small-business cash-flow scenario",
+      "lifecycle_stage": "review",
+      "risk_level": "medium demo",
+      "source": "synthetic_finance_scenario"
+    },
+    {
+      "id": "finance_033",
+      "title": "Loan Affordability Worksheet — Review (Demo Record 33)",
+      "content": "This synthetic finance record covers loan affordability worksheet during the review stage. Demonstrates principal, rate, term, and sensitivity without recommending a real loan. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic finance demo record: Loan Affordability Worksheet — Review (Demo Record 33).",
+      "labels": [
+        "finance",
+        "demo",
+        "synthetic",
+        "loan affordability worksheet",
+        "review"
+      ],
+      "data_notice": "Synthetic demo scenario using no live market data; it is not investment, financial, legal, or trading advice.",
+      "is_synthetic": true,
+      "scenario": "loan affordability worksheet",
+      "lifecycle_stage": "review",
+      "risk_level": "high demo",
+      "source": "synthetic_finance_scenario"
+    },
+    {
+      "id": "finance_034",
+      "title": "Insurance Comparison Worksheet — Review (Demo Record 34)",
+      "content": "This synthetic finance record covers insurance comparison worksheet during the review stage. Compares fictional premiums, deductibles, exclusions, and service factors without advice. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic finance demo record: Insurance Comparison Worksheet — Review (Demo Record 34).",
+      "labels": [
+        "finance",
+        "demo",
+        "synthetic",
+        "insurance comparison worksheet",
+        "review"
+      ],
+      "data_notice": "Synthetic demo scenario using no live market data; it is not investment, financial, legal, or trading advice.",
+      "is_synthetic": true,
+      "scenario": "insurance comparison worksheet",
+      "lifecycle_stage": "review",
+      "risk_level": "low demo",
+      "source": "synthetic_finance_scenario"
+    },
+    {
+      "id": "finance_035",
+      "title": "Payment Operations Review — Review (Demo Record 35)",
+      "content": "This synthetic finance record covers payment operations review during the review stage. Tracks synthetic authorization, settlement, refund, and reconciliation events. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic finance demo record: Payment Operations Review — Review (Demo Record 35).",
+      "labels": [
+        "finance",
+        "demo",
+        "synthetic",
+        "payment operations review",
+        "review"
+      ],
+      "data_notice": "Synthetic demo scenario using no live market data; it is not investment, financial, legal, or trading advice.",
+      "is_synthetic": true,
+      "scenario": "payment operations review",
+      "lifecycle_stage": "review",
+      "risk_level": "medium demo",
+      "source": "synthetic_finance_scenario"
+    },
+    {
+      "id": "finance_036",
+      "title": "Fraud-Monitoring Scenario — Review (Demo Record 36)",
+      "content": "This synthetic finance record covers fraud-monitoring scenario during the review stage. Uses invented signals and explicit review steps without exposing real detection thresholds. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic finance demo record: Fraud-Monitoring Scenario — Review (Demo Record 36).",
+      "labels": [
+        "finance",
+        "demo",
+        "synthetic",
+        "fraud-monitoring scenario",
+        "review"
+      ],
+      "data_notice": "Synthetic demo scenario using no live market data; it is not investment, financial, legal, or trading advice.",
+      "is_synthetic": true,
+      "scenario": "fraud-monitoring scenario",
+      "lifecycle_stage": "review",
+      "risk_level": "high demo",
+      "source": "synthetic_finance_scenario"
+    },
+    {
+      "id": "finance_037",
+      "title": "Compliance Checklist — Review (Demo Record 37)",
+      "content": "This synthetic finance record covers compliance checklist during the review stage. Demonstrates ownership, evidence, review dates, and exception tracking; it is not legal guidance. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic finance demo record: Compliance Checklist — Review (Demo Record 37).",
+      "labels": [
+        "finance",
+        "demo",
+        "synthetic",
+        "compliance checklist",
+        "review"
+      ],
+      "data_notice": "Synthetic demo scenario using no live market data; it is not investment, financial, legal, or trading advice.",
+      "is_synthetic": true,
+      "scenario": "compliance checklist",
+      "lifecycle_stage": "review",
+      "risk_level": "low demo",
+      "source": "synthetic_finance_scenario"
+    },
+    {
+      "id": "finance_038",
+      "title": "Portfolio Learning Example — Review (Demo Record 38)",
+      "content": "This synthetic finance record covers portfolio learning example during the review stage. Uses fictional allocations to demonstrate sorting and arithmetic, not investment recommendations. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic finance demo record: Portfolio Learning Example — Review (Demo Record 38).",
+      "labels": [
+        "finance",
+        "demo",
+        "synthetic",
+        "portfolio learning example",
+        "review"
+      ],
+      "data_notice": "Synthetic demo scenario using no live market data; it is not investment, financial, legal, or trading advice.",
+      "is_synthetic": true,
+      "scenario": "portfolio learning example",
+      "lifecycle_stage": "review",
+      "risk_level": "medium demo",
+      "source": "synthetic_finance_scenario"
+    },
+    {
+      "id": "finance_039",
+      "title": "Emergency-Fund Planner — Review (Demo Record 39)",
+      "content": "This synthetic finance record covers emergency-fund planner during the review stage. Shows generated savings scenarios and uncertainty without prescribing a personal target. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic finance demo record: Emergency-Fund Planner — Review (Demo Record 39).",
+      "labels": [
+        "finance",
+        "demo",
+        "synthetic",
+        "emergency-fund planner",
+        "review"
+      ],
+      "data_notice": "Synthetic demo scenario using no live market data; it is not investment, financial, legal, or trading advice.",
+      "is_synthetic": true,
+      "scenario": "emergency-fund planner",
+      "lifecycle_stage": "review",
+      "risk_level": "high demo",
+      "source": "synthetic_finance_scenario"
+    },
+    {
+      "id": "finance_040",
+      "title": "Invoice Aging Report — Review (Demo Record 40)",
+      "content": "This synthetic finance record covers invoice aging report during the review stage. Uses synthetic receivables to demonstrate due-date ranges and follow-up workflows. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic finance demo record: Invoice Aging Report — Review (Demo Record 40).",
+      "labels": [
+        "finance",
+        "demo",
+        "synthetic",
+        "invoice aging report",
+        "review"
+      ],
+      "data_notice": "Synthetic demo scenario using no live market data; it is not investment, financial, legal, or trading advice.",
+      "is_synthetic": true,
+      "scenario": "invoice aging report",
+      "lifecycle_stage": "review",
+      "risk_level": "low demo",
+      "source": "synthetic_finance_scenario"
+    },
+    {
+      "id": "finance_041",
+      "title": "Household Budget Scenario — Improvement (Demo Record 41)",
+      "content": "This synthetic finance record covers household budget scenario during the improvement stage. Groups fictional income and expenses to demonstrate categories, filters, and monthly comparisons. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic finance demo record: Household Budget Scenario — Improvement (Demo Record 41).",
+      "labels": [
+        "finance",
+        "demo",
+        "synthetic",
+        "household budget scenario",
+        "improvement"
+      ],
+      "data_notice": "Synthetic demo scenario using no live market data; it is not investment, financial, legal, or trading advice.",
+      "is_synthetic": true,
+      "scenario": "household budget scenario",
+      "lifecycle_stage": "improvement",
+      "risk_level": "medium demo",
+      "source": "synthetic_finance_scenario"
+    },
+    {
+      "id": "finance_042",
+      "title": "Small-Business Cash-Flow Scenario — Improvement (Demo Record 42)",
+      "content": "This synthetic finance record covers small-business cash-flow scenario during the improvement stage. Uses generated invoices and expenses to explain timing, reserves, and reconciliation. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic finance demo record: Small-Business Cash-Flow Scenario — Improvement (Demo Record 42).",
+      "labels": [
+        "finance",
+        "demo",
+        "synthetic",
+        "small-business cash-flow scenario",
+        "improvement"
+      ],
+      "data_notice": "Synthetic demo scenario using no live market data; it is not investment, financial, legal, or trading advice.",
+      "is_synthetic": true,
+      "scenario": "small-business cash-flow scenario",
+      "lifecycle_stage": "improvement",
+      "risk_level": "high demo",
+      "source": "synthetic_finance_scenario"
+    },
+    {
+      "id": "finance_043",
+      "title": "Loan Affordability Worksheet — Improvement (Demo Record 43)",
+      "content": "This synthetic finance record covers loan affordability worksheet during the improvement stage. Demonstrates principal, rate, term, and sensitivity without recommending a real loan. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic finance demo record: Loan Affordability Worksheet — Improvement (Demo Record 43).",
+      "labels": [
+        "finance",
+        "demo",
+        "synthetic",
+        "loan affordability worksheet",
+        "improvement"
+      ],
+      "data_notice": "Synthetic demo scenario using no live market data; it is not investment, financial, legal, or trading advice.",
+      "is_synthetic": true,
+      "scenario": "loan affordability worksheet",
+      "lifecycle_stage": "improvement",
+      "risk_level": "low demo",
+      "source": "synthetic_finance_scenario"
+    },
+    {
+      "id": "finance_044",
+      "title": "Insurance Comparison Worksheet — Improvement (Demo Record 44)",
+      "content": "This synthetic finance record covers insurance comparison worksheet during the improvement stage. Compares fictional premiums, deductibles, exclusions, and service factors without advice. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic finance demo record: Insurance Comparison Worksheet — Improvement (Demo Record 44).",
+      "labels": [
+        "finance",
+        "demo",
+        "synthetic",
+        "insurance comparison worksheet",
+        "improvement"
+      ],
+      "data_notice": "Synthetic demo scenario using no live market data; it is not investment, financial, legal, or trading advice.",
+      "is_synthetic": true,
+      "scenario": "insurance comparison worksheet",
+      "lifecycle_stage": "improvement",
+      "risk_level": "medium demo",
+      "source": "synthetic_finance_scenario"
+    },
+    {
+      "id": "finance_045",
+      "title": "Payment Operations Review — Improvement (Demo Record 45)",
+      "content": "This synthetic finance record covers payment operations review during the improvement stage. Tracks synthetic authorization, settlement, refund, and reconciliation events. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic finance demo record: Payment Operations Review — Improvement (Demo Record 45).",
+      "labels": [
+        "finance",
+        "demo",
+        "synthetic",
+        "payment operations review",
+        "improvement"
+      ],
+      "data_notice": "Synthetic demo scenario using no live market data; it is not investment, financial, legal, or trading advice.",
+      "is_synthetic": true,
+      "scenario": "payment operations review",
+      "lifecycle_stage": "improvement",
+      "risk_level": "high demo",
+      "source": "synthetic_finance_scenario"
+    },
+    {
+      "id": "finance_046",
+      "title": "Fraud-Monitoring Scenario — Improvement (Demo Record 46)",
+      "content": "This synthetic finance record covers fraud-monitoring scenario during the improvement stage. Uses invented signals and explicit review steps without exposing real detection thresholds. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic finance demo record: Fraud-Monitoring Scenario — Improvement (Demo Record 46).",
+      "labels": [
+        "finance",
+        "demo",
+        "synthetic",
+        "fraud-monitoring scenario",
+        "improvement"
+      ],
+      "data_notice": "Synthetic demo scenario using no live market data; it is not investment, financial, legal, or trading advice.",
+      "is_synthetic": true,
+      "scenario": "fraud-monitoring scenario",
+      "lifecycle_stage": "improvement",
+      "risk_level": "low demo",
+      "source": "synthetic_finance_scenario"
+    },
+    {
+      "id": "finance_047",
+      "title": "Compliance Checklist — Improvement (Demo Record 47)",
+      "content": "This synthetic finance record covers compliance checklist during the improvement stage. Demonstrates ownership, evidence, review dates, and exception tracking; it is not legal guidance. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic finance demo record: Compliance Checklist — Improvement (Demo Record 47).",
+      "labels": [
+        "finance",
+        "demo",
+        "synthetic",
+        "compliance checklist",
+        "improvement"
+      ],
+      "data_notice": "Synthetic demo scenario using no live market data; it is not investment, financial, legal, or trading advice.",
+      "is_synthetic": true,
+      "scenario": "compliance checklist",
+      "lifecycle_stage": "improvement",
+      "risk_level": "medium demo",
+      "source": "synthetic_finance_scenario"
+    },
+    {
+      "id": "finance_048",
+      "title": "Portfolio Learning Example — Improvement (Demo Record 48)",
+      "content": "This synthetic finance record covers portfolio learning example during the improvement stage. Uses fictional allocations to demonstrate sorting and arithmetic, not investment recommendations. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic finance demo record: Portfolio Learning Example — Improvement (Demo Record 48).",
+      "labels": [
+        "finance",
+        "demo",
+        "synthetic",
+        "portfolio learning example",
+        "improvement"
+      ],
+      "data_notice": "Synthetic demo scenario using no live market data; it is not investment, financial, legal, or trading advice.",
+      "is_synthetic": true,
+      "scenario": "portfolio learning example",
+      "lifecycle_stage": "improvement",
+      "risk_level": "high demo",
+      "source": "synthetic_finance_scenario"
+    },
+    {
+      "id": "finance_049",
+      "title": "Emergency-Fund Planner — Improvement (Demo Record 49)",
+      "content": "This synthetic finance record covers emergency-fund planner during the improvement stage. Shows generated savings scenarios and uncertainty without prescribing a personal target. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic finance demo record: Emergency-Fund Planner — Improvement (Demo Record 49).",
+      "labels": [
+        "finance",
+        "demo",
+        "synthetic",
+        "emergency-fund planner",
+        "improvement"
+      ],
+      "data_notice": "Synthetic demo scenario using no live market data; it is not investment, financial, legal, or trading advice.",
+      "is_synthetic": true,
+      "scenario": "emergency-fund planner",
+      "lifecycle_stage": "improvement",
+      "risk_level": "low demo",
+      "source": "synthetic_finance_scenario"
+    },
+    {
+      "id": "finance_050",
+      "title": "Invoice Aging Report — Improvement (Demo Record 50)",
+      "content": "This synthetic finance record covers invoice aging report during the improvement stage. Uses synthetic receivables to demonstrate due-date ranges and follow-up workflows. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic finance demo record: Invoice Aging Report — Improvement (Demo Record 50).",
+      "labels": [
+        "finance",
+        "demo",
+        "synthetic",
+        "invoice aging report",
+        "improvement"
+      ],
+      "data_notice": "Synthetic demo scenario using no live market data; it is not investment, financial, legal, or trading advice.",
+      "is_synthetic": true,
+      "scenario": "invoice aging report",
+      "lifecycle_stage": "improvement",
+      "risk_level": "medium demo",
+      "source": "synthetic_finance_scenario"
+    }
+  ],
+  "fields": [
+    {
+      "name": "scenario",
+      "type": "string"
+    },
+    {
+      "name": "lifecycle_stage",
+      "type": "string"
+    },
+    {
+      "name": "risk_level",
+      "type": "string"
+    },
+    {
+      "name": "source",
+      "type": "string"
+    }
+  ],
+  "metadata": {
+    "_fixture_kind": "synthetic_demo",
+    "_fixture_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market."
+  }
+}

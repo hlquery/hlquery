@@ -176,35 +176,20 @@ require_once __DIR__ . '/vendor/autoload.php';
 use Hlquery\Client;
 
 $client = new Client('http://localhost:9200');
-
-/* Get the collections service from the client. */
-
-$collections = $client->collections;
-
-/* Build the schema payload sent to hlquery. */
+$collections = $client->collections();
 
 $schema = [
     'fields' => [
-        /* Keep the main product title searchable.     */
-
         ['name' => 'title', 'type' => 'string'],
-
-        /* Index the longer product description text.  */
-
         ['name' => 'content', 'type' => 'string'],
-
-        /* Keep product identifiers as exact, non-fuzzy values. */
-
         ['name' => 'sku', 'type' => 'keyword'],
-
-        /* Save a numeric price for filters and sorts. */
-
         ['name' => 'price', 'type' => 'float'],
     ],
 ];
 
 $response = $collections->create('products', $schema);
 $body = $response->getBody();
+echo json_encode($body, JSON_PRETTY_PRINT) . PHP_EOL;
 
 $client->documents->add('products', [
     'id' => 'prod_keyboard_001',
@@ -212,6 +197,11 @@ $client->documents->add('products', [
     'content' => 'Compact Bluetooth keyboard for daily work.',
     'price' => 49.99,
 ]);
+
+$listBody = $collections->list(0, 100)->getBody();
+foreach ($listBody['collections'] ?? [] as $collection) {
+    echo (is_array($collection) ? ($collection['name'] ?? '') : $collection) . PHP_EOL;
+}
 
 ```
 

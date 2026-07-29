@@ -1709,7 +1709,7 @@ HttpResponse SearchAPI::HandleEtc(const HttpRequest &Request)
      }
 
      static const std::unordered_set<std::string> ValidSections = {
-          "all", "metadata", "routes", "protocol", "http_status_codes", "protocol_codes"};
+          "all", "metadata", "routes", "protocol", "http_status_codes", "protocol_codes", "search_capabilities"};
      for (const auto &Section : Sections)
      {
           if (ValidSections.find(Section) == ValidSections.end())
@@ -1717,7 +1717,7 @@ HttpResponse SearchAPI::HandleEtc(const HttpRequest &Request)
                nlohmann::json Error;
                Error["error"] = "Invalid include section";
                Error["section"] = Section;
-               Error["allowed"] = {"all", "metadata", "routes", "protocol", "http_status_codes", "protocol_codes"};
+               Error["allowed"] = {"all", "metadata", "routes", "protocol", "http_status_codes", "protocol_codes", "search_capabilities"};
                return BuildJSONResponse(Status::BAD_REQUEST, Error);
           }
      }
@@ -1735,6 +1735,29 @@ HttpResponse SearchAPI::HandleEtc(const HttpRequest &Request)
      ProtocolCodes["schema_version"] = 2;
      ProtocolCodes["version"] = 2;
      ProtocolCodes["server_version"] = HLQUERY_VERSION;
+
+     if (Includes("search_capabilities") &&
+         Instance &&
+         Instance->Config &&
+         Instance->Config->GetAdaptiveSearchExposeCapabilities())
+     {
+          nlohmann::json SearchCapabilities;
+          SearchCapabilities["schema_version"] = 1;
+          SearchCapabilities["adaptive_search_available"] = false;
+          SearchCapabilities["adaptive_search_enabled"] = false;
+          SearchCapabilities["adaptive_search_configured"] = Instance->Config->GetAdaptiveSearchEnabled();
+          SearchCapabilities["execution_trace_available"] = true;
+          SearchCapabilities["execution_trace_enabled"] = Instance->Config->GetAdaptiveSearchExecutionTrace();
+          SearchCapabilities["query_text_trace_available"] = Instance->Config->GetAdaptiveSearchIncludeQueryText();
+          SearchCapabilities["request_disable_allowed"] = Instance->Config->GetAdaptiveSearchAllowRequestDisable();
+          SearchCapabilities["supported_planners"] = {"legacy"};
+          SearchCapabilities["supported_fusion_methods"] = {"linear", "rrf"};
+          SearchCapabilities["supported_normalization_methods"] = {"none", "minmax", "zscore"};
+          SearchCapabilities["vector_backends_available"] = {"brute_force"};
+          SearchCapabilities["execution_trace_schema_version"] = 1;
+          SearchCapabilities["adaptive_ranking_status"] = "not_implemented";
+          ProtocolCodes["search_capabilities"] = std::move(SearchCapabilities);
+     }
 
      if (Includes("routes"))
      {

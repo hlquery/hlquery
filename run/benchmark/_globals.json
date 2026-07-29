@@ -1,7 +1,32 @@
 {
+  "fixture_version": 2,
+  "fixture_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
   "synonyms": [
-    {"id": "benchmark_global_demo", "root": "demo", "synonyms": ["sample", "fixture", "synthetic"]},
-    {"id": "benchmark_global_guide", "root": "guide", "synonyms": ["tutorial", "walkthrough", "reference"]}
+    {
+      "id": "benchmark_global_demo",
+      "root": "demo",
+      "synonyms": [
+        "sample",
+        "fixture",
+        "synthetic",
+        "example"
+      ]
+    },
+    {
+      "id": "benchmark_global_guide",
+      "root": "guide",
+      "synonyms": [
+        "tutorial",
+        "walkthrough",
+        "reference"
+      ]
+    }
   ],
-  "stopwords": ["benchmark", "collection", "document", "content", "inserted"]
+  "stopwords": [
+    "benchmark",
+    "collection",
+    "document",
+    "content",
+    "inserted"
+  ]
 }

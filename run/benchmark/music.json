@@ -1,5 +1,254 @@
 {
-  "collection":"music","count":10,"tags":["album","artist","live","studio","playlist","symphony","jazz","rock","pop","indie"],
-  "content_template":"Document {index} in Collection music profiles a {tag} artist band song album and live studio recording. Lorem ipsum dolor sit amet consectetur adipiscing elit inserted by benchmark thread.",
-  "synonyms":[{"id":"music_syn_music","root":"music","synonyms":["song","melody","track","tune"]}]
+  "fixture_version": 2,
+  "fixture_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+  "collection": "music",
+  "count": 10,
+  "tags": [
+    "album",
+    "artist",
+    "live",
+    "studio",
+    "playlist",
+    "composition",
+    "jazz",
+    "rock",
+    "pop",
+    "folk"
+  ],
+  "documents": [
+    {
+      "id": "music_northbound-signals-demo-album",
+      "title": "Northbound Signals (Demo Album)",
+      "content": "A fictional electronic-jazz album built from brushed drums, warm synthesizers, and melodies that return in altered forms.",
+      "description": "Synthetic music demo record: Northbound Signals (Demo Album).",
+      "labels": [
+        "music",
+        "demo",
+        "synthetic",
+        "album",
+        "Example Ensemble Signal Garden",
+        "electronic jazz"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "artist_name": "Example Ensemble Signal Garden",
+      "genre": "electronic jazz",
+      "release_type": "album",
+      "release_year": 2023
+    },
+    {
+      "id": "music_paper-constellations-demo-ep",
+      "title": "Paper Constellations (Demo EP)",
+      "content": "Five fictional chamber-pop songs use strings, close harmonies, and compact arrangements about memory and maps.",
+      "description": "Synthetic music demo record: Paper Constellations (Demo EP).",
+      "labels": [
+        "music",
+        "demo",
+        "synthetic",
+        "artist",
+        "Example Artist Lina Vale",
+        "chamber pop"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "artist_name": "Example Artist Lina Vale",
+      "genre": "chamber pop",
+      "release_type": "EP",
+      "release_year": 2022
+    },
+    {
+      "id": "music_common-frequency-demo-live-set",
+      "title": "Common Frequency (Demo Live Set)",
+      "content": "A fictional live recording captures call-and-response vocals, improvised guitar, and audience percussion.",
+      "description": "Synthetic music demo record: Common Frequency (Demo Live Set).",
+      "labels": [
+        "music",
+        "demo",
+        "synthetic",
+        "live",
+        "Example Band Common Frequency",
+        "indie rock"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "artist_name": "Example Band Common Frequency",
+      "genre": "indie rock",
+      "release_type": "live album",
+      "release_year": 2024
+    },
+    {
+      "id": "music_glass-river-suite-demo-composition",
+      "title": "Glass River Suite (Demo Composition)",
+      "content": "A fictional four-movement suite shifts between solo piano, woodwinds, and quiet field recordings.",
+      "description": "Synthetic music demo record: Glass River Suite (Demo Composition).",
+      "labels": [
+        "music",
+        "demo",
+        "synthetic",
+        "studio",
+        "Example Composer Theo North",
+        "contemporary classical"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "artist_name": "Example Composer Theo North",
+      "genre": "contemporary classical",
+      "release_type": "suite",
+      "release_year": 2021
+    },
+    {
+      "id": "music_market-day-radio-demo-playlist",
+      "title": "Market Day Radio (Demo Playlist)",
+      "content": "A fictional playlist moves from upbeat soul to relaxed instrumental tracks for a community market broadcast.",
+      "description": "Synthetic music demo record: Market Day Radio (Demo Playlist).",
+      "labels": [
+        "music",
+        "demo",
+        "synthetic",
+        "playlist",
+        "Example Radio Cedar FM",
+        "eclectic soul"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "artist_name": "Example Radio Cedar FM",
+      "genre": "eclectic soul",
+      "release_type": "playlist",
+      "release_year": 2024
+    },
+    {
+      "id": "music_soft-circuit-demo-album",
+      "title": "Soft Circuit (Demo Album)",
+      "content": "A fictional ambient record combines modular synthesizer patterns with acoustic percussion and long dynamic fades.",
+      "description": "Synthetic music demo record: Soft Circuit (Demo Album).",
+      "labels": [
+        "music",
+        "demo",
+        "synthetic",
+        "composition",
+        "Example Artist Hana Reed",
+        "ambient electronic"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "artist_name": "Example Artist Hana Reed",
+      "genre": "ambient electronic",
+      "release_type": "album",
+      "release_year": 2020
+    },
+    {
+      "id": "music_second-avenue-stories-demo-album",
+      "title": "Second Avenue Stories (Demo Album)",
+      "content": "Ten fictional hip-hop tracks use character sketches and detailed neighborhood production without referring to real events.",
+      "description": "Synthetic music demo record: Second Avenue Stories (Demo Album).",
+      "labels": [
+        "music",
+        "demo",
+        "synthetic",
+        "jazz",
+        "Example Artist Marrow Lane",
+        "narrative hip-hop"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "artist_name": "Example Artist Marrow Lane",
+      "genre": "narrative hip-hop",
+      "release_type": "album",
+      "release_year": 2023
+    },
+    {
+      "id": "music_orchard-sessions-demo-ep",
+      "title": "Orchard Sessions (Demo EP)",
+      "content": "A fictional folk trio records close vocal harmonies and acoustic arrangements in a small studio setting.",
+      "description": "Synthetic music demo record: Orchard Sessions (Demo EP).",
+      "labels": [
+        "music",
+        "demo",
+        "synthetic",
+        "rock",
+        "Example Trio Orchard Sessions",
+        "contemporary folk"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "artist_name": "Example Trio Orchard Sessions",
+      "genre": "contemporary folk",
+      "release_type": "EP",
+      "release_year": 2019
+    },
+    {
+      "id": "music_blue-hour-transit-demo-single",
+      "title": "Blue Hour Transit (Demo Single)",
+      "content": "A fictional synth-pop single uses a steady bass line, layered vocals, and a bridge that briefly changes meter.",
+      "description": "Synthetic music demo record: Blue Hour Transit (Demo Single).",
+      "labels": [
+        "music",
+        "demo",
+        "synthetic",
+        "pop",
+        "Example Artist Imani Pike",
+        "synth pop"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "artist_name": "Example Artist Imani Pike",
+      "genre": "synth pop",
+      "release_type": "single",
+      "release_year": 2024
+    },
+    {
+      "id": "music_rhythm-atlas-demo-album",
+      "title": "Rhythm Atlas (Demo Album)",
+      "content": "A fictional percussion-led album explores odd meters, ensemble dialogue, and spacious production.",
+      "description": "Synthetic music demo record: Rhythm Atlas (Demo Album).",
+      "labels": [
+        "music",
+        "demo",
+        "synthetic",
+        "folk",
+        "Example Collective Rhythm Atlas",
+        "instrumental fusion"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "artist_name": "Example Collective Rhythm Atlas",
+      "genre": "instrumental fusion",
+      "release_type": "album",
+      "release_year": 2022
+    }
+  ],
+  "fields": [
+    {
+      "name": "artist_name",
+      "type": "string"
+    },
+    {
+      "name": "genre",
+      "type": "string"
+    },
+    {
+      "name": "release_type",
+      "type": "string"
+    },
+    {
+      "name": "release_year",
+      "type": "int32"
+    }
+  ],
+  "metadata": {
+    "_fixture_kind": "synthetic_demo",
+    "_fixture_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market."
+  },
+  "synonyms": [
+    {
+      "id": "music_syn_music",
+      "root": "music",
+      "synonyms": [
+        "song",
+        "melody",
+        "track",
+        "recording"
+      ]
+    }
+  ]
 }

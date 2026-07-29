@@ -18,8 +18,6 @@
 #include "core/hlquery.h"
 #include "runtime/timers.h"
 
-namespace
-{
 TimerManager::Clock::time_point GetTimerNow()
 {
      return Instance ? Instance->Now() : TimerManager::Clock::now();
@@ -39,10 +37,10 @@ int ClampTimerMilliseconds(long long Milliseconds)
 
      return static_cast<int>(Milliseconds);
 }
-}
 
 Timer::Timer() : NextRun(Clock::time_point::max()), Interval(0), Repeating(false)
 {
+
 }
 
 Timer::Timer(std::function<void()> callback, Clock::time_point next_run, std::chrono::milliseconds interval, bool repeating)
@@ -105,6 +103,7 @@ Timer::Clock::time_point Timer::GetNextRun() const
 
 TimerManager::TimerManager()
 {
+
 }
 
 /* Default destructor */
@@ -312,15 +311,18 @@ size_t TimerManager::GetTimerCount() const
 void TimerManager::Clear()
 {
      std::unique_lock<std::shared_mutex> lock(MutexValue);
+
      for (const auto &Active : ActiveTimers)
      {
           CancelledTimers.insert(Active.first);
      }
+
      Entries.clear();
 
-     TimerCondition.wait(lock, [&]()
-                         {
-                              return ActiveTimers.empty();
-                         });
+     TimerCondition.wait(lock, [&]() 
+     {
+          return ActiveTimers.empty();
+     });
+     
      CancelledTimers.clear();
 }

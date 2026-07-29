@@ -141,6 +141,8 @@ std::atomic<int64_t> documents_inserted{0};
 
 std::atomic<int64_t> additional_documents_inserted{0};
 
+std::atomic<int64_t> benchmark_document_bytes{0};
+
 std::atomic<int> collections_skipped{0};
 
 std::atomic<int> documents_skipped{0};
@@ -493,6 +495,17 @@ void WriteAdvancedJSON(const std::string &filename, const AdvancedMetrics &metri
                {"wal_bytes_per_sync", metrics.WalBytesPerSync},
                {"manual_wal_flush", metrics.ManualWalFlush},
                {"commit_status_code", metrics.CommitStatusCode}};
+
+     output["conditions"] =
+          {
+               {"client_version", metrics.ClientVersion},
+               {"server_version", metrics.ServerVersion},
+               {"baseline_documents", metrics.BaselineDocuments},
+               {"baseline_collections", metrics.BaselineCollections},
+               {"baseline_storage_bytes", metrics.BaselineStorageBytes},
+               {"baseline_sstables", metrics.BaselineSSTables},
+               {"logical_document_bytes", metrics.LogicalDocumentBytes},
+               {"search_indexing", "lazy_first_search_excluded"}};
 
      if (!metrics.CollectionTimings.empty())
      {

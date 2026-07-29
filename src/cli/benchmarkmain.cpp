@@ -132,6 +132,16 @@ static std::string FormatBenchmarkRate(double Value)
      return Stream.str();
 }
 
+static std::string FormatBenchmarkMiB(int64_t Bytes)
+{
+     std::ostringstream Stream;
+
+     Stream << std::fixed << std::setprecision(2)
+            << (static_cast<double>(Bytes) / (1024.0 * 1024.0));
+
+     return Stream.str();
+}
+
 struct FakeCollectionSpec
 {
      std::string Name;
@@ -146,10 +156,10 @@ struct RealDocSeed
 
 struct UniversityBenchmarkSeed
 {
-     const char *Name;
-     const char *State;
-     const char *City;
-     const char *Type;
+     std::string Name;
+     std::string State;
+     std::string City;
+     std::string Type;
 };
 
 struct PersonBenchmarkSeed
@@ -188,6 +198,8 @@ static void AddFakeBenchmarkSearchFields(nlohmann::json &fields)
      fields.push_back({{"name", "content"}, {"type", "string"}});
      fields.push_back({{"name", "description"}, {"type", "string"}});
      fields.push_back({{"name", "labels"}, {"type", "string"}});
+     fields.push_back({{"name", "is_synthetic"}, {"type", "bool"}});
+     fields.push_back({{"name", "data_notice"}, {"type", "string"}});
      fields.push_back({{"name", "embedding"}, {"type", "float[]"}});
      fields.push_back({{"name", "location"}, {"type", "geo_point"}});
      fields.push_back({{"name", "location_name"}, {"type", "string"}});
@@ -363,7 +375,7 @@ static std::string JoinTextValues(const std::vector<std::string> &values, const 
 
 static const std::vector<UniversityBenchmarkSeed> &GetUniversityBenchmarkSeeds()
 {
-     static const std::vector<UniversityBenchmarkSeed> seeds = {
+     static std::vector<UniversityBenchmarkSeed> seeds = {
           {"Harvard University", "Massachusetts", "Cambridge", "private_research"},
           {"Stanford University", "California", "Stanford", "private_research"},
           {"Massachusetts Institute of Technology", "Massachusetts", "Cambridge", "private_research"},
@@ -465,6 +477,31 @@ static const std::vector<UniversityBenchmarkSeed> &GetUniversityBenchmarkSeeds()
           {"University of Nevada Reno", "Nevada", "Reno", "public_research"},
           {"Brigham Young University", "Utah", "Provo", "private_research"}};
 
+     static const bool prepared = [&]()
+     {
+          static const std::vector<std::string> roots = {
+               "Redwood Valley", "Great Lakes", "Desert Sky", "Atlantic Harbor", "Prairie Ridge",
+               "Blue River", "Cedar Grove", "North Coast", "Golden Mesa", "Lakeview",
+               "High Plains", "Copper Canyon", "Silver Oak", "Pine Harbor", "Sunrise Valley",
+               "Granite Hill", "Maple Coast", "Riverbend", "Summit Fields", "Coastal Prairie",
+               "Juniper Bay", "Orchard Ridge", "Clearbrook", "Horizon Plains", "Willow Creek"};
+          static const std::vector<std::pair<std::string, std::string>> suffixes = {
+               {"University", "fictional_private_research_university"},
+               {"Institute of Technology", "fictional_technical_institute"},
+               {"College of Arts and Sciences", "fictional_liberal_arts_college"},
+               {"Polytechnic University", "fictional_public_polytechnic"}};
+
+          for (size_t index = 0; index < seeds.size(); ++index)
+          {
+               const auto &suffix = suffixes[(index / roots.size()) % suffixes.size()];
+               seeds[index].Name = "Example " + roots[index % roots.size()] + " " + suffix.first;
+               seeds[index].Type = suffix.second;
+          }
+
+          return true;
+     }();
+     static_cast<void>(prepared);
+
      return seeds;
 }
 
@@ -500,19 +537,6 @@ static std::vector<std::string> BuildUniversityLocationAliases(const UniversityB
           AddUniqueText(aliases, seen, "Cambridge");
           AddUniqueText(aliases, seen, "Greater Boston");
           AddUniqueText(aliases, seen, "Boston area");
-     }
-
-     if (name.find("Harvard") != std::string::npos)
-     {
-          AddUniqueText(aliases, seen, "Harvard Square");
-          AddUniqueText(aliases, seen, "Cambridge Massachusetts");
-     }
-
-     if (name.find("Massachusetts Institute of Technology") != std::string::npos)
-     {
-          AddUniqueText(aliases, seen, "MIT");
-          AddUniqueText(aliases, seen, "Kendall Square");
-          AddUniqueText(aliases, seen, "Cambridge Massachusetts");
      }
 
      if (city == "Stanford" || city == "Berkeley" || city == "San Francisco")
@@ -593,10 +617,11 @@ static std::string BuildUniversityBenchmarkContent(const UniversityBenchmarkSeed
      const std::string &term_a = campus_terms[index % campus_terms.size()];
      const std::string &term_b = campus_terms[(index + 5U) % campus_terms.size()];
 
-     return std::string(seed.Name) + " is a " + HumanizeIdentifier(seed.Type) + " institution in " + seed.City + ", " + seed.State +
-            ". The profile highlights " + program_a + ", " +
+     return seed.Name + " is a fictional " + HumanizeIdentifier(seed.Type) + " institution in " + seed.City + ", " + seed.State +
+            ", United States. This synthetic profile highlights " + program_a + ", " +
             program_b + ", " + term_a + ", " + term_b +
-            ", student body context, research visibility, and the surrounding campus community.";
+            ", student body context, research visibility, and the surrounding campus community. "
+            "It exists only for search demonstrations and does not describe or rank a real institution.";
 }
 
 static PersonBenchmarkSeed BuildPersonBenchmarkSeed(size_t index)
@@ -804,6 +829,12 @@ static std::vector<nlohmann::json> BuildAnomalyBenchmarkDocuments()
           doc["expected_label"] = seed.ExpectedLabel;
           doc["timestamp"] = static_cast<int64_t>(1777501000000LL + static_cast<int64_t>((i + 1U) * 60000U));
           docs.push_back(std::move(doc));
+     }
+
+     for (auto &doc : docs)
+     {
+          doc["is_synthetic"] = true;
+          doc["data_notice"] = "Synthetic anomaly scenario for HLQuery demonstrations; it does not describe a real system, customer, incident, or vulnerability.";
      }
 
      return docs;
@@ -1344,51 +1375,28 @@ bool CreateFakeCollections(const std::string &base_url, const std::string &auth_
                 {"Science Topic: Vaccines and Immunology",
                  "Vaccines train immune memory against pathogens, reducing severe disease and enabling broad public health prevention."},
            }},
-          {"universities",
-           {
-                {"University of California Berkeley",
-                 "California flagship public research university in Berkeley known for engineering, computer science, economics, public policy, and a startup-heavy Bay Area environment."},
-                {"University of Michigan Ann Arbor",
-                 "Michigan public university recognized for engineering, medicine, business, and large-scale research activity with strong alumni reach across industry and public leadership."},
-                {"The Ohio State University",
-                 "Ohio public research university in Columbus with major programs in medicine, business, engineering, agriculture, and a broad campus footprint tied to statewide impact."},
-                {"University of Texas at Austin",
-                 "Texas flagship public university with strength in engineering, business, computer science, energy research, and policy programs connected to a fast-growing state economy."},
-                {"University of Washington Seattle",
-                 "Washington public research university noted for medicine, computer science, public health, and close ties to regional technology and life-science employers."},
-                {"University of Florida",
-                 "Florida public flagship in Gainesville with nationally visible programs in engineering, business, agriculture, health, and a large in-state student base."},
-                {"University of Illinois Urbana Champaign",
-                 "Illinois public research university with standout engineering, computing, physics, and data-intensive research culture tied to both academia and industry."},
-                {"Georgia Institute of Technology",
-                 "Georgia technology-focused public university in Atlanta known for engineering, computing, design, analytics, and cooperative ties with startups and major employers."},
-                {"Pennsylvania State University",
-                 "Pennsylvania public university system led by the University Park campus, with strengths in engineering, business, agriculture, materials, and statewide extension work."},
-                {"University of Massachusetts Amherst",
-                 "Massachusetts public flagship with strong computer science, public health, engineering, sustainability, and social-science research in the New England region."},
-           }},
           {"stocks",
            {
-                {"S&P 500",
-                 "Synthetic demo market note for $SPY (S&P 500): desk notes describe a steady index-tracking session where breadth, sector rotation, and risk appetite matter more than any single headline."},
-                {"Nasdaq-100",
-                 "Synthetic demo market note for $QQQ (Nasdaq-100): the watchlist focuses on growth-stock momentum, software demand, chip supply, and whether buyers keep supporting large-cap technology themes."},
-                {"Dow Jones Industrial Average",
-                 "Synthetic demo market note for $DIA (Dow Jones Industrial Average): market observers frame the session around blue-chip durability, dividend sensitivity, and defensive demand after a mixed macro morning."},
-                {"Russell 2000",
-                 "Synthetic demo market note for $IWM (Russell 2000): the small-cap basket draws attention from traders watching credit conditions, local-bank tone, and domestic cyclical participation."},
-                {"20+ Year U.S. Treasury Bonds",
-                 "Synthetic demo rates note for $TLT (20+ Year U.S. Treasury Bonds): bond-market commentary highlights duration exposure, rate expectations, and portfolio hedging as yields move through a narrow range."},
-                {"Gold",
-                 "Synthetic demo metals note for $GLD (Gold): the metals note tracks inflation hedging, real-yield pressure, and cautious allocation choices during a quieter risk session."},
-                {"Crude Oil",
-                 "Synthetic demo energy note for $USO (Crude Oil): the energy desk follows crude-linked sentiment, supply commentary, refinery margins, and the way commodity moves affect inflation narratives."},
-                {"Apple",
-                 "Synthetic demo company note for $AAPL (Apple): studies device demand, services mix, margin discipline, and index weight without making a live investment call."},
-                {"Microsoft",
-                 "Synthetic demo company note for $MSFT (Microsoft): centers on cloud backlog, enterprise software renewals, AI infrastructure cost, and platform spending discipline."},
-                {"NVIDIA",
-                 "Synthetic demo company note for $NVDA (NVIDIA): follows accelerator demand, data-center orders, supply-chain capacity, and growth-stock positioning."},
+                {"Synthetic Broad Market Basket",
+                 "Fictional market record for $HLQ01 with generated themes and no live price, performance, forecast, or recommendation."},
+                {"Synthetic Technology Basket",
+                 "Fictional market record for $HLQ02 covering a generated technology theme without referring to a real security."},
+                {"Synthetic Municipal Bond Basket",
+                 "Fictional market record for $HLQ03 used only to demonstrate bond-category and cashtag search."},
+                {"Synthetic Renewable Energy Basket",
+                 "Fictional market record for $HLQ04 used only to demonstrate thematic search and filtering."},
+                {"Synthetic Small Company Basket",
+                 "Fictional market record for $HLQ05 used only to demonstrate synthetic small-company classification."},
+                {"Synthetic Short-Term Treasury Basket",
+                 "Fictional market record for $HLQ06 used only to demonstrate defensive-category search."},
+                {"Synthetic Commodity Basket",
+                 "Fictional market record for $HLQ07 used only to demonstrate commodity-category search."},
+                {"Example Harbor Systems Equity",
+                 "Fictional company record for $HLQ08 used only for public software demonstrations."},
+                {"Example Cedar Works Equity",
+                 "Fictional company record for $HLQ09 used only for public software demonstrations."},
+                {"Example Blue River Foods Equity",
+                 "Fictional company record for $HLQ10 used only for public software demonstrations."},
            }},
      };
 
@@ -1409,7 +1417,7 @@ bool CreateFakeCollections(const std::string &base_url, const std::string &auth_
           {"fashion", {"apparel", "designer", "runway", "streetwear", "accessories", "footwear", "collection", "sustainable", "luxury", "seasonal"}},
           {"ecommerce", {"product", "catalog", "checkout", "marketplace", "shipping", "inventory", "order", "conversion", "storefront", "retail"}},
           {"math", {"algebra", "geometry", "calculus", "probability", "prime", "matrix", "vector", "theorem", "equation", "integral"}},
-          {"stocks", {"spy", "qqq", "dia", "iwm", "tlt", "gld", "uso", "aapl", "msft", "nvda"}},
+          {"stocks", {"hlq01", "hlq02", "hlq03", "hlq04", "hlq05", "hlq06", "hlq07", "hlq08", "hlq09", "hlq10"}},
           {"universities", {"california", "michigan", "ohio", "texas", "washington", "florida", "illinois", "georgia", "pennsylvania", "massachusetts"}},
           {"anomalies", {"telemetry", "security", "business", "external", "brave", "rollback", "fraud", "audit", "outlier", "baseline"}}};
 
@@ -1453,37 +1461,36 @@ bool CreateFakeCollections(const std::string &base_url, const std::string &auth_
                AddFakeBenchmarkSearchFields(university_fields);
                university_fields.push_back({{"name", "state"}, {"type", "string"}});
                university_fields.push_back({{"name", "city"}, {"type", "string"}});
+               university_fields.push_back({{"name", "country"}, {"type", "string"}});
                university_fields.push_back({{"name", "city_aliases"}, {"type", "string"}});
                university_fields.push_back({{"name", "location_labels"}, {"type", "string"}});
                university_fields.push_back({{"name", "search_aliases"}, {"type", "string"}});
                university_fields.push_back({{"name", "institution_type"}, {"type", "string"}});
+               university_fields.push_back({{"name", "focus_areas"}, {"type", "string"}});
+               university_fields.push_back({{"name", "demo_rank"}, {"type", "int32"}});
                university_fields.push_back({{"name", "rank"}, {"type", "int32"}});
                university_fields.push_back({{"name", "rank_signal"}, {"type", "float"}});
+               university_fields.push_back({{"name", "composite_score"}, {"type", "float"}});
+               university_fields.push_back({{"name", "research_score"}, {"type", "float"}});
+               university_fields.push_back({{"name", "teaching_score"}, {"type", "float"}});
+               university_fields.push_back({{"name", "arts_score"}, {"type", "float"}});
                university_fields.push_back({{"name", "rank_source"}, {"type", "string"}});
                university_fields.push_back({{"name", "rank_scope"}, {"type", "string"}});
                university_fields.push_back({{"name", "rank_edition"}, {"type", "string"}});
-               university_fields.push_back({{"name", "webometrics_country_rank"}, {"type", "int32"}});
-               university_fields.push_back({{"name", "webometrics_world_rank"}, {"type", "int32"}});
-               university_fields.push_back({{"name", "webometrics_impact_rank"}, {"type", "int32"}});
-               university_fields.push_back({{"name", "webometrics_openness_rank"}, {"type", "int32"}});
-               university_fields.push_back({{"name", "webometrics_excellence_rank"}, {"type", "int32"}});
+               university_fields.push_back({{"name", "rank_notice"}, {"type", "string"}});
 
                nlohmann::json university_metadata = {
-                    {"_default_sorting_field", "webometrics_world_rank"},
+                    {"_default_sorting_field", "demo_rank"},
                     {"_default_sorting_order", "asc"},
-                    {"_rank_field", "webometrics_world_rank"},
+                    {"_rank_field", "demo_rank"},
                     {"_rank_order", "asc"},
-                    {"_rank_source", "webometrics_world_rank"},
-                    {"_rank_scope", "benchmark"},
-                    {"_rank_edition", "January 2026"},
-                    {"_rank_algorithm", "linear_algebra"},
-                    {"_rank_alpha", "0.85"},
-                    {"_rank_beta", "4.0"},
-                    {"_rank_weight", "0.75"},
-                    {"_rank_tiebreak", "rank_signal_desc_webometrics_world_rank_asc"},
-                    {"_rank_methodology", "deterministic_benchmark_webometrics_world_rank_1_to_100"}};
+                    {"_rank_source", "hlquery_synthetic_demo_generator"},
+                    {"_rank_scope", "fictional_united_states_demo"},
+                    {"_rank_edition", "2026 synthetic demo edition"},
+                    {"_rank_tiebreak", "rank_signal_desc_demo_rank_asc"},
+                    {"_rank_methodology", "deterministic generated scores for software demonstration only"}};
 
-               collection_created = client.CreateCollectionWithSchemaLocal(collection_name, university_fields, "webometrics_world_rank", university_metadata);
+               collection_created = client.CreateCollectionWithSchemaLocal(collection_name, university_fields, "demo_rank", university_metadata);
           }
           else if (spec.Name == "people")
           {
@@ -1895,6 +1902,8 @@ bool CreateFakeCollections(const std::string &base_url, const std::string &auth_
                     enriched_doc["content"] = safe_content;
                     enriched_doc["description"] = safe_description;
                     enriched_doc["labels"] = label_list.dump();
+                    enriched_doc["is_synthetic"] = true;
+                    enriched_doc["data_notice"] = "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.";
                     enriched_doc["embedding"] = BuildFakeBenchmarkEmbedding(spec.Name, tag, i);
                     enriched_doc["location"] = BuildFakeBenchmarkLocation(spec.Name, i);
                     enriched_doc["location_name"] = BuildFakeBenchmarkLocationName(spec.Name);
@@ -1988,20 +1997,23 @@ bool CreateFakeCollections(const std::string &base_url, const std::string &auth_
                     university_doc["description"] = university_doc.value<std::string>("description", "");
                     university_doc["state"] = profile.State;
                     university_doc["city"] = profile.City;
+                    university_doc["country"] = "United States";
                     university_doc["city_aliases"] = location_alias_text;
                     university_doc["location_labels"] = location_alias_text;
-                    university_doc["search_aliases"] = std::string(profile.Name) + " | " + profile.City + " | " + profile.State + " | " + location_alias_text;
+                    university_doc["search_aliases"] = profile.Name + " | " + profile.City + " | " + profile.State + " | United States | " + location_alias_text;
                     university_doc["institution_type"] = profile.Type;
+                    university_doc["focus_areas"] = (i % 3U == 0U) ? "computer science | digital humanities" : ((i % 3U == 1U) ? "engineering | environmental research" : "studio art | museum studies");
+                    university_doc["demo_rank"] = rank;
                     university_doc["rank"] = rank;
                     university_doc["rank_signal"] = static_cast<double>(university_profiles.size() - i) / static_cast<double>(university_profiles.size());
-                    university_doc["rank_source"] = "webometrics_world_rank";
-                    university_doc["rank_scope"] = "benchmark";
-                    university_doc["rank_edition"] = "January 2026";
-                    university_doc["webometrics_country_rank"] = rank;
-                    university_doc["webometrics_world_rank"] = rank;
-                    university_doc["webometrics_impact_rank"] = 1 + static_cast<int>((i * 37U) % 100U);
-                    university_doc["webometrics_openness_rank"] = 1 + static_cast<int>((i * 53U) % 100U);
-                    university_doc["webometrics_excellence_rank"] = 1 + static_cast<int>((i * 71U) % 100U);
+                    university_doc["composite_score"] = 99.5 - static_cast<double>(i) * 0.37;
+                    university_doc["research_score"] = 62.0 + static_cast<double>((97U - (i * 7U) % 97U) % 38U);
+                    university_doc["teaching_score"] = 64.0 + static_cast<double>((91U - (i * 5U) % 91U) % 36U);
+                    university_doc["arts_score"] = 60.0 + static_cast<double>((89U - (i * 11U) % 89U) % 40U);
+                    university_doc["rank_source"] = "HLQuery synthetic demo generator";
+                    university_doc["rank_scope"] = "100 fictional institutions in a United States demo dataset";
+                    university_doc["rank_edition"] = "2026 synthetic demo edition";
+                    university_doc["rank_notice"] = "Fictional ranking for software demonstration only; it does not evaluate or represent any real institution.";
 
                     nlohmann::json label_list = nlohmann::json::array();
                     std::unordered_set<std::string> seen_labels;
@@ -2409,52 +2421,6 @@ int64_t CountBenchmarkDocuments(const AdvancedMetrics &metrics, int num_collecti
      return total;
 }
 
-bool RunSanitySearch(BenchmarkClient &client, const std::string &collection, const std::string &query, bool verbose)
-{
-     HTTPResponse resp = client.Search(collection, query);
-
-     if (resp.StatusCode != 200)
-     {
-          if (verbose)
-          {
-               std::cerr << "  [VERIFY] Search '" << query << "' failed with status " << resp.StatusCode << ".\n";
-          }
-
-          return false;
-     }
-
-     try
-     {
-          nlohmann::json result = nlohmann::json::parse(resp.Body);
-          int found = 0;
-
-          if (result.contains("found"))
-          {
-               found = result["found"].get<int>();
-          }
-          else if (result.contains("hits") && result["hits"].is_array())
-          {
-               found = static_cast<int>(result["hits"].size());
-          }
-
-          if (verbose)
-          {
-               std::cout << "  [VERIFY] Search '" << query << "': found " << found << " hit(s).\n";
-          }
-
-          return found > 0;
-     }
-     catch (...)
-     {
-          if (verbose)
-          {
-               std::cerr << "  [VERIFY] Search '" << query << "' returned invalid JSON.\n";
-          }
-     }
-
-     return false;
-}
-
 static void PrintBenchmarkHelp(const char *program_name)
 {
      std::cout << "Usage: " << program_name << " [options]\n"
@@ -2471,7 +2437,7 @@ static void PrintBenchmarkHelp(const char *program_name)
                << "  --advanced [FILE]  Output detailed JSON metrics (default: adv.json)\n"
                << "  --detailed [FILE] Run comprehensive benchmark testing ALL routes\n"
                << "                    and functionalities (includes --advanced)\n"
-               << "  --Search           Run search benchmark on previously inserted data\n"
+               << "  --search           Run search benchmark on previously inserted data\n"
                << "  --dump             Dump all collections and their documents\n"
                << "  --fake             Load sample collections from run/benchmark/*.json\n"
                << "                    (override directory with HLQUERY_BENCHMARK_DIR)\n"
@@ -2479,11 +2445,9 @@ static void PrintBenchmarkHelp(const char *program_name)
                << "                    (runs until stopped with Ctrl+C, randomly creates collections and documents)\n"
                << "  --id ID            Run UUID/ID for correlation (default: auto-generated)\n"
                << "  --seed SEED        Seed for deterministic runs\n"
-               << "  --no-fake-collections  Disable fake helper collections (people, food, stocks, music, sports, etc.)\n"
                << "  --verify-after-restart   Verify counts after server restart\n"
                << "  --verify-final-counts    Verify benchmark collection counts before printing results\n"
                << "  --check-consistency      Check consistency of /status, /stats, /metrics, /doctotal\n"
-               << "  --dry-run          Generate collections/docs in memory but don't send to server\n"
                << "  --cleanup          Delete all benchmark-tagged collections at end\n"
                << "  --prefix PREFIX    Custom prefix for benchmark collections (default: bench_{runid}_)\n"
                << "  --durability-config PATH  Load durability settings from config (e.g., run/conf/database.conf)\n"
@@ -2546,15 +2510,11 @@ int main(int argc, char *argv[])
           std::string run_id_val = "";
           std::string run_seed_val = "";
 
-          bool no_fake_collections = false;
           bool verify_after_restart = false;
           bool verify_final_counts_val = false;
           bool check_consistency_val = false;
-          bool dry_run_val = false;
 
-          (void)no_fake_collections;
           (void)verify_after_restart;
-          (void)dry_run_val;
 
           bool cleanup_benchmark_val = false;
           bool reuse_collections = false;
@@ -2639,7 +2599,7 @@ int main(int argc, char *argv[])
                          advanced_output_file = argv[++i];
                     }
                }
-               else if (arg == "--Search")
+               else if (arg == "--search" || arg == "--Search")
                {
                     search_mode_val = true;
                }
@@ -2681,10 +2641,6 @@ int main(int argc, char *argv[])
                {
                     run_seed_val = RequireNextValue(i, arg);
                }
-               else if (arg == "--no-fake-collections")
-               {
-                    no_fake_collections = true;
-               }
                else if (arg == "--verify-after-restart")
                {
                     verify_after_restart = true;
@@ -2696,10 +2652,6 @@ int main(int argc, char *argv[])
                else if (arg == "--check-consistency")
                {
                     check_consistency_val = true;
-               }
-               else if (arg == "--dry-run")
-               {
-                    dry_run_val = true;
                }
                else if (arg == "--cleanup")
                {
@@ -2792,6 +2744,12 @@ int main(int argc, char *argv[])
 
                HTTPResponse status_response = status_client.MakeRequest("GET", "/status", "", 1);
 
+               if (g_benchmark_should_stop.load())
+               {
+                    std::cerr << "\n[INTERRUPT] Benchmark interrupted during preflight.\n";
+                    return 130;
+               }
+
                if (status_response.StatusCode == 401 || status_response.StatusCode == 403)
                {
                     std::cerr << "\nERROR: Authentication required!.\n";
@@ -2857,8 +2815,28 @@ int main(int argc, char *argv[])
           PrintBenchmarkStatus("Health", "checking.");
 
           BenchmarkClient health_client(base_url, auth_token);
+          std::string server_version = "unknown";
 
           HTTPResponse health_response = health_client.MakeRequest("GET", "/health", "", 1, true, 5000);
+
+          if (g_benchmark_should_stop.load())
+          {
+               std::cerr << "\n[INTERRUPT] Benchmark interrupted during preflight.\n";
+               return 130;
+          }
+
+          if (health_response.StatusCode == 200 && !health_response.Body.empty())
+          {
+               try
+               {
+                    const nlohmann::json health_json = nlohmann::json::parse(health_response.Body);
+                    server_version = health_json.value("version", "unknown");
+               }
+               catch (...)
+               {
+                    /* Version reporting is informational and must not fail preflight. */
+               }
+          }
 
           if (!skip_auth_check && (health_response.StatusCode == 401 || health_response.StatusCode == 403))
           {
@@ -2922,6 +2900,12 @@ int main(int argc, char *argv[])
           PrintBenchmarkStatus("Stability recheck", "running.");
 
           HTTPResponse second_health = health_client.MakeRequest("GET", "/health");
+
+          if (g_benchmark_should_stop.load())
+          {
+               std::cerr << "\n[INTERRUPT] Benchmark interrupted during stability recheck.\n";
+               return 130;
+          }
 
           if (!skip_auth_check && (second_health.StatusCode == 401 || second_health.StatusCode == 403))
           {
@@ -3235,40 +3219,20 @@ int main(int argc, char *argv[])
 
           DurabilityConfig durability_config;
           bool durability_config_loaded = false;
-          std::string durability_path_used;
 
           if (!durability_config_path.empty())
           {
                durability_config_loaded = LoadDurabilityConfig(durability_config_path, durability_config);
-               durability_path_used = durability_config_path;
-          }
-          else
-          {
-               const std::vector<std::string> default_paths = {
-                    "run/conf/database.conf",
-                    "run/conf/hlquery.conf",
-                    "conf/database.conf",
-                    "conf/hlquery.conf",
-                    "/etc/hlquery/hlquery.conf",
-                    "/etc/hlquery/database.conf"};
-
-               for (const auto &candidate : default_paths)
-               {
-                    if (LoadDurabilityConfig(candidate, durability_config))
-                    {
-                         durability_config_loaded = true;
-                         durability_path_used = candidate;
-                         break;
-                    }
-               }
           }
 
           if (advanced_mode)
           {
-               advanced_metrics.DurabilityConfigPath = durability_config_loaded ? durability_path_used : "";
+               advanced_metrics.DurabilityConfigPath = durability_config_loaded ? "provided-via-flag" : "";
                advanced_metrics.WalSyncMode = durability_config.WalSyncMode;
                advanced_metrics.WalBytesPerSync = durability_config.WalBytesPerSync;
                advanced_metrics.ManualWalFlush = durability_config.ManualWalFlush;
+               advanced_metrics.ClientVersion = HLQUERY_VERSION;
+               advanced_metrics.ServerVersion = server_version;
           }
 
           int collections_per_thread_val = (num_collections + active_collection_threads - 1) / active_collection_threads;
@@ -3279,6 +3243,10 @@ int main(int argc, char *argv[])
           }
 
           std::set<std::string> existing_set_val;
+          int64_t baseline_documents_val = -1;
+          int64_t baseline_collections_val = -1;
+          int64_t baseline_storage_bytes_val = -1;
+          int64_t baseline_sstables_val = -1;
 
           if (!reuse_collections)
           {
@@ -3363,9 +3331,55 @@ int main(int argc, char *argv[])
                     std::cout << "  No existing collections to clean up.\n";
                }
           }
+
           else if (verbose_mode)
           {
                std::cout << "Phase 0: Reusing existing collections (--reuse-collections enabled).\n";
+          }
+
+          {
+               BenchmarkClient baseline_client(base_url, auth_token);
+               const HTTPResponse baseline_response = baseline_client.GetDocTotal();
+
+               if (baseline_response.StatusCode == 200)
+               {
+                    try
+                    {
+                         const nlohmann::json baseline_json = nlohmann::json::parse(baseline_response.Body);
+                         baseline_documents_val = baseline_json.value("doctotal", static_cast<int64_t>(-1));
+                         baseline_collections_val = baseline_json.value("coltotal", static_cast<int64_t>(-1));
+                    }
+                    catch (...)
+                    {
+                         /* Baseline context is informational. */
+                    }
+               }
+
+               const HTTPResponse stats_response = baseline_client.GetStats();
+               if (stats_response.StatusCode == 200)
+               {
+                    try
+                    {
+                         const nlohmann::json stats_json = nlohmann::json::parse(stats_response.Body);
+                         if (stats_json.contains("lsm") && stats_json["lsm"].is_object())
+                         {
+                              baseline_storage_bytes_val = stats_json["lsm"].value("rocksdb_size", static_cast<int64_t>(-1));
+                              baseline_sstables_val = stats_json["lsm"].value("sstable_count", static_cast<int64_t>(-1));
+                         }
+                    }
+                    catch (...)
+                    {
+                         /* Physical storage context is informational. */
+                    }
+               }
+          }
+
+          if (advanced_mode)
+          {
+               advanced_metrics.BaselineDocuments = baseline_documents_val;
+               advanced_metrics.BaselineCollections = baseline_collections_val;
+               advanced_metrics.BaselineStorageBytes = baseline_storage_bytes_val;
+               advanced_metrics.BaselineSSTables = baseline_sstables_val;
           }
 
           PrintBenchmarkSection("Progress");
@@ -3735,12 +3749,12 @@ int main(int argc, char *argv[])
 
           if (verbose_mode)
           {
-               std::cout << "\nFlushing pending requests...\n";
+               std::cout << "\nRunning counter verification and storage sync...\n";
           }
           else
           {
                std::cout << "\n";
-               PrintBenchmarkValue("Commit", "update-counters");
+               PrintBenchmarkValue("Durability", "counter verification + storage sync");
           }
 
           int64_t flush_duration_ms = 0;
@@ -3760,60 +3774,41 @@ int main(int argc, char *argv[])
 
                if (verbose_mode)
                {
-                    std::cout << "  Commit duration: " << flush_duration_ms << " ms.\n";
+                    std::cout << "  Durability sync duration: " << flush_duration_ms << " ms.\n";
                }
 
                if (flush_resp.StatusCode != 200 && flush_resp.StatusCode != 201 && verbose_mode)
                {
-                    std::cerr << "  Warning: Commit returned status " << flush_resp.StatusCode << ".\n";
+                    std::cerr << "  Warning: Durability sync returned status " << flush_resp.StatusCode << ".\n";
                }
           }
 
-          bool sanity_search_ok = true;
-          bool sanity_search_ok2 = true;
-          bool sanity_search_ran = false;
-          bool enable_sanity_search = false;
-
-          if (enable_sanity_search && num_collections > 0)
+          if (g_benchmark_should_stop.load())
           {
-               std::string sanity_collection = MakeBenchmarkCollectionName(0);
-               BenchmarkClient sanity_client(base_url, auth_token);
+               std::cerr << "\n[INTERRUPT] Benchmark interrupted during durability sync.\n";
+               return 130;
+          }
 
-               if (verbose_mode)
-               {
-                    std::cout << "\nForcing index build via sanity search...\n";
-               }
-
-               const int max_attempts = 6;
-               for (int attempt = 1; attempt <= max_attempts; attempt++)
-               {
-                    PrintSpinner("Sanity search", attempt, max_attempts, false);
-                    sanity_search_ok = RunSanitySearch(sanity_client, sanity_collection, "Lorem", verbose_mode);
-                    sanity_search_ok2 = RunSanitySearch(sanity_client, sanity_collection, "Topic", verbose_mode);
-
-                    if (sanity_search_ok && sanity_search_ok2)
-                    {
-                         break;
-                    }
-
-                    std::this_thread::sleep_for(std::chrono::milliseconds(200 * attempt));
-               }
-               PrintSpinner("Sanity search", max_attempts, max_attempts, true);
-               sanity_search_ran = true;
+          if (flush_status_code != 200 && flush_status_code != 201)
+          {
+               std::cerr << "\nERROR: Durability sync failed with HTTP status " << flush_status_code << ".\n";
+               std::cerr << "  Ingested data will not be reported as durable.\n";
+               return 1;
           }
 
           auto end_time_val = Now();
 
-          auto ingest_commit_duration_val = std::chrono::duration_cast<std::chrono::milliseconds>(end_time_val - ingest_start_time_val);
+          auto ingest_commit_duration_val = std::chrono::duration_cast<std::chrono::milliseconds>(commit_end_time_val - ingest_start_time_val);
           auto duration_val = std::chrono::duration_cast<std::chrono::milliseconds>(end_time_val - start_time_val);
           auto setup_duration_val = std::chrono::duration_cast<std::chrono::milliseconds>(ingest_start_time_val - start_time_val);
 
           if (advanced_mode)
           {
                advanced_metrics.CommitStartMS = std::chrono::duration_cast<std::chrono::milliseconds>(ingest_end_time_val - start_time_val).count();
-               advanced_metrics.CommitEndMS = std::chrono::duration_cast<std::chrono::milliseconds>(end_time_val - start_time_val).count();
+               advanced_metrics.CommitEndMS = std::chrono::duration_cast<std::chrono::milliseconds>(commit_end_time_val - start_time_val).count();
                advanced_metrics.CommitDurationMS = flush_duration_ms;
                advanced_metrics.CommitStatusCode = flush_status_code;
+               advanced_metrics.LogicalDocumentBytes = benchmark_document_bytes.load();
                advanced_metrics.TotalEndMS = std::chrono::duration_cast<std::chrono::milliseconds>(end_time_val - start_time_val).count();
 
                if (duration_val.count() > 0)
@@ -3889,11 +3884,12 @@ int main(int argc, char *argv[])
                PrintBenchmarkValue("Documents inserted", std::to_string(total_inserted));
           }
           PrintBenchmarkValue("Documents skipped", std::to_string(documents_skipped.load()));
+          PrintBenchmarkValue("Document data", FormatBenchmarkMiB(benchmark_document_bytes.load()) + " MiB logical fields");
 
           PrintBenchmarkSection("Timing");
           PrintBenchmarkValue("Ingest", std::to_string(ingest_duration_ms) + " ms");
-          PrintBenchmarkValue("Commit", std::to_string(flush_duration_ms) + " ms");
-          PrintBenchmarkValue("Ingest + commit", std::to_string(ingest_commit_duration_val.count()) + " ms");
+          PrintBenchmarkValue("Durability sync", std::to_string(flush_duration_ms) + " ms");
+          PrintBenchmarkValue("Ingest + durable", std::to_string(ingest_commit_duration_val.count()) + " ms");
           if (verbose_mode)
           {
                PrintBenchmarkValue("Setup", std::to_string(setup_duration_val.count()) + " ms (cleanup + create)");
@@ -3908,31 +3904,60 @@ int main(int argc, char *argv[])
           }
           if (ingest_commit_duration_val.count() > 0)
           {
-               PrintBenchmarkValue("Committed rate", FormatBenchmarkRate(documents_inserted.load() * 1000.0 / ingest_commit_duration_val.count()) + " docs/sec");
+               PrintBenchmarkValue("Durable rate", FormatBenchmarkRate(documents_inserted.load() * 1000.0 / ingest_commit_duration_val.count()) + " docs/sec");
           }
           else
           {
-               PrintBenchmarkValue("Committed rate", "0 docs/sec");
+               PrintBenchmarkValue("Durable rate", "0 docs/sec");
           }
-          PrintBenchmarkValue("Searchable", std::to_string(duration_val.count()) + " ms");
-          if (duration_val.count() > 0)
+          if (ingest_duration_ms > 0)
           {
-               PrintBenchmarkValue("Searchable rate", FormatBenchmarkRate(documents_inserted.load() * 1000.0 / duration_val.count()) + " docs/sec");
+               const double ingest_mib_per_second =
+                    (static_cast<double>(benchmark_document_bytes.load()) * 1000.0 / ingest_duration_ms) /
+                    (1024.0 * 1024.0);
+               PrintBenchmarkValue("Ingest bandwidth", FormatBenchmarkRate(ingest_mib_per_second) + " MiB/sec");
           }
-          else
+
+          PrintBenchmarkSection("Conditions");
+          PrintBenchmarkValue("Version", std::string(HLQUERY_VERSION) + " client, " + server_version + " server");
+          if (baseline_documents_val >= 0 && baseline_collections_val >= 0)
           {
-               PrintBenchmarkValue("Searchable rate", "0 docs/sec");
+               PrintBenchmarkValue("Server baseline", std::to_string(baseline_documents_val) + " docs in " + std::to_string(baseline_collections_val) + " collection(s)");
           }
-          std::string fsync_mode = (durability_config.WalSyncMode == "none") ? "off" : "on";
-          std::string durability_source = durability_config_loaded ? ("config: " + durability_path_used) : "config: not found";
+          if (baseline_storage_bytes_val >= 0)
+          {
+               std::string storage_baseline = FormatBenchmarkMiB(baseline_storage_bytes_val) + " MiB physical";
+               if (baseline_sstables_val >= 0)
+               {
+                    storage_baseline += ", " + std::to_string(baseline_sstables_val) + " SSTable(s)";
+               }
+               PrintBenchmarkValue("Storage baseline", storage_baseline);
+          }
+          PrintBenchmarkValue("Search indexing", "lazy; first-search index build excluded");
+
+          std::string fsync_mode = "unknown";
+          if (durability_config_loaded)
+          {
+               if (durability_config.WalSyncMode == "none")
+               {
+                    fsync_mode = "off";
+               }
+               else if (durability_config.WalSyncMode != "unknown")
+               {
+                    fsync_mode = "on";
+               }
+          }
+          std::string durability_source = durability_config_loaded
+                                               ? "--durability-config (client-provided)"
+                                               : "not verified (use --durability-config PATH)";
 
           PrintBenchmarkSection("Storage");
           PrintBenchmarkValue("WAL sync mode", durability_config.WalSyncMode);
           PrintBenchmarkValue("WAL bytes/sync", durability_config.WalBytesPerSync);
           PrintBenchmarkValue("Manual WAL flush", durability_config.ManualWalFlush);
           PrintBenchmarkValue("fsync", fsync_mode);
-          PrintBenchmarkValue("Config", durability_source);
-          PrintBenchmarkValue("Commit policy", "update-counters after ingest (status " + std::to_string(flush_status_code) + ")");
+          PrintBenchmarkValue("Config source", durability_source);
+          PrintBenchmarkValue("Commit policy", "counter scan + FlushAndSync (status " + std::to_string(flush_status_code) + ")");
           PrintBenchmarkValue("Run ID", run_id_val);
 
           AdvancedMetrics before_metrics_val;
@@ -3952,26 +3977,6 @@ int main(int argc, char *argv[])
                {
                     std::cout << "  Initial collections: " << before_metrics_val.FinalCollectionsCount << ".\n";
                     std::cout << "  Initial documents: " << before_metrics_val.FinalDocumentsCount << ".\n";
-               }
-          }
-
-          if (enable_sanity_search && num_collections > 0)
-          {
-               if (!sanity_search_ran)
-               {
-                    std::string sanity_collection = MakeBenchmarkCollectionName(0);
-                    sanity_search_ok = RunSanitySearch(count_client_val, sanity_collection, "Lorem", verbose_mode);
-                    sanity_search_ok2 = RunSanitySearch(count_client_val, sanity_collection, "Topic", verbose_mode);
-                    sanity_search_ran = true;
-               }
-
-               if (!sanity_search_ok || !sanity_search_ok2)
-               {
-                    std::string sanity_collection = MakeBenchmarkCollectionName(0);
-                    std::cerr << "\nERROR: Sanity search verification failed (collection: " << sanity_collection << ").\n";
-                    std::cerr << "  This indicates documents are not searchable after commit.\n";
-
-                    return 1;
                }
           }
 
@@ -4128,9 +4133,10 @@ void BenchmarkSignalHandler(int signal_number)
 
      g_benchmark_should_stop.store(true);
 
-     const char message[] = "\n[INTERRUPT] Ctrl+C received - stopping benchmark...\n";
+     const char message[] = "\n[INTERRUPT] Ctrl+C received - cancelling active requests...\n";
 
-     write(STDERR_FILENO, message, sizeof(message) - 1);
+     const ssize_t write_result = write(STDERR_FILENO, message, sizeof(message) - 1);
+     (void)write_result;
 }
 
 /* Reset global statistics. */
@@ -4140,6 +4146,7 @@ void ResetGlobalStats()
      collections_created = 0;
      documents_inserted = 0;
      additional_documents_inserted = 0;
+     benchmark_document_bytes = 0;
      collections_skipped = 0;
      documents_skipped = 0;
      additional_documents_skipped = 0;

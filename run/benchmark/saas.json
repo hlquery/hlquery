@@ -1,1 +1,992 @@
-{"collection":"saas","count":50,"tags":["subscription","tenant","onboarding","billing","analytics","automation","integration","dashboard","retention","workflow"]}
+{
+  "fixture_version": 2,
+  "fixture_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+  "collection": "saas",
+  "count": 50,
+  "tags": [
+    "subscription onboarding",
+    "tenant administration",
+    "usage analytics",
+    "billing recovery",
+    "workflow automation",
+    "integration catalog",
+    "dashboard design",
+    "retention review",
+    "support operations",
+    "release management"
+  ],
+  "documents": [
+    {
+      "id": "saas_001",
+      "title": "Subscription Onboarding — Discovery (Demo Record 01)",
+      "content": "This synthetic saas record covers subscription onboarding during the discovery stage. Maps invitation, first-run setup, activation signals, and respectful follow-up. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic saas demo record: Subscription Onboarding — Discovery (Demo Record 01).",
+      "labels": [
+        "saas",
+        "demo",
+        "synthetic",
+        "subscription onboarding",
+        "discovery"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "workflow": "subscription onboarding",
+      "lifecycle_stage": "discovery",
+      "customer_segment": "small team",
+      "status": "planned"
+    },
+    {
+      "id": "saas_002",
+      "title": "Tenant Administration — Discovery (Demo Record 02)",
+      "content": "This synthetic saas record covers tenant administration during the discovery stage. Explains role assignment, audit history, safe defaults, and account boundaries. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic saas demo record: Tenant Administration — Discovery (Demo Record 02).",
+      "labels": [
+        "saas",
+        "demo",
+        "synthetic",
+        "tenant administration",
+        "discovery"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "workflow": "tenant administration",
+      "lifecycle_stage": "discovery",
+      "customer_segment": "mid-market",
+      "status": "active"
+    },
+    {
+      "id": "saas_003",
+      "title": "Usage Analytics — Discovery (Demo Record 03)",
+      "content": "This synthetic saas record covers usage analytics during the discovery stage. Defines transparent product metrics without storing unnecessary personal data. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic saas demo record: Usage Analytics — Discovery (Demo Record 03).",
+      "labels": [
+        "saas",
+        "demo",
+        "synthetic",
+        "usage analytics",
+        "discovery"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "workflow": "usage analytics",
+      "lifecycle_stage": "discovery",
+      "customer_segment": "enterprise demo",
+      "status": "reviewing"
+    },
+    {
+      "id": "saas_004",
+      "title": "Billing Recovery — Discovery (Demo Record 04)",
+      "content": "This synthetic saas record covers billing recovery during the discovery stage. Uses clear notices, retry windows, and support escalation for failed demo payments. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic saas demo record: Billing Recovery — Discovery (Demo Record 04).",
+      "labels": [
+        "saas",
+        "demo",
+        "synthetic",
+        "billing recovery",
+        "discovery"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "workflow": "billing recovery",
+      "lifecycle_stage": "discovery",
+      "customer_segment": "small team",
+      "status": "planned"
+    },
+    {
+      "id": "saas_005",
+      "title": "Workflow Automation — Discovery (Demo Record 05)",
+      "content": "This synthetic saas record covers workflow automation during the discovery stage. Documents triggers, idempotent actions, permissions, and operator overrides. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic saas demo record: Workflow Automation — Discovery (Demo Record 05).",
+      "labels": [
+        "saas",
+        "demo",
+        "synthetic",
+        "workflow automation",
+        "discovery"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "workflow": "workflow automation",
+      "lifecycle_stage": "discovery",
+      "customer_segment": "mid-market",
+      "status": "active"
+    },
+    {
+      "id": "saas_006",
+      "title": "Integration Catalog — Discovery (Demo Record 06)",
+      "content": "This synthetic saas record covers integration catalog during the discovery stage. Tracks API scopes, ownership, version support, and connection health. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic saas demo record: Integration Catalog — Discovery (Demo Record 06).",
+      "labels": [
+        "saas",
+        "demo",
+        "synthetic",
+        "integration catalog",
+        "discovery"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "workflow": "integration catalog",
+      "lifecycle_stage": "discovery",
+      "customer_segment": "enterprise demo",
+      "status": "reviewing"
+    },
+    {
+      "id": "saas_007",
+      "title": "Dashboard Design — Discovery (Demo Record 07)",
+      "content": "This synthetic saas record covers dashboard design during the discovery stage. Prioritizes user decisions, accessible charts, and consistent metric definitions. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic saas demo record: Dashboard Design — Discovery (Demo Record 07).",
+      "labels": [
+        "saas",
+        "demo",
+        "synthetic",
+        "dashboard design",
+        "discovery"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "workflow": "dashboard design",
+      "lifecycle_stage": "discovery",
+      "customer_segment": "small team",
+      "status": "planned"
+    },
+    {
+      "id": "saas_008",
+      "title": "Retention Review — Discovery (Demo Record 08)",
+      "content": "This synthetic saas record covers retention review during the discovery stage. Separates product engagement from coercive patterns and records test assumptions. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic saas demo record: Retention Review — Discovery (Demo Record 08).",
+      "labels": [
+        "saas",
+        "demo",
+        "synthetic",
+        "retention review",
+        "discovery"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "workflow": "retention review",
+      "lifecycle_stage": "discovery",
+      "customer_segment": "mid-market",
+      "status": "active"
+    },
+    {
+      "id": "saas_009",
+      "title": "Support Operations — Discovery (Demo Record 09)",
+      "content": "This synthetic saas record covers support operations during the discovery stage. Routes requests by urgency while preserving context and customer consent. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic saas demo record: Support Operations — Discovery (Demo Record 09).",
+      "labels": [
+        "saas",
+        "demo",
+        "synthetic",
+        "support operations",
+        "discovery"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "workflow": "support operations",
+      "lifecycle_stage": "discovery",
+      "customer_segment": "enterprise demo",
+      "status": "reviewing"
+    },
+    {
+      "id": "saas_010",
+      "title": "Release Management — Discovery (Demo Record 10)",
+      "content": "This synthetic saas record covers release management during the discovery stage. Uses staged rollout, monitoring, rollback criteria, and customer communication. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic saas demo record: Release Management — Discovery (Demo Record 10).",
+      "labels": [
+        "saas",
+        "demo",
+        "synthetic",
+        "release management",
+        "discovery"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "workflow": "release management",
+      "lifecycle_stage": "discovery",
+      "customer_segment": "small team",
+      "status": "planned"
+    },
+    {
+      "id": "saas_011",
+      "title": "Subscription Onboarding — Setup (Demo Record 11)",
+      "content": "This synthetic saas record covers subscription onboarding during the setup stage. Maps invitation, first-run setup, activation signals, and respectful follow-up. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic saas demo record: Subscription Onboarding — Setup (Demo Record 11).",
+      "labels": [
+        "saas",
+        "demo",
+        "synthetic",
+        "subscription onboarding",
+        "setup"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "workflow": "subscription onboarding",
+      "lifecycle_stage": "setup",
+      "customer_segment": "mid-market",
+      "status": "active"
+    },
+    {
+      "id": "saas_012",
+      "title": "Tenant Administration — Setup (Demo Record 12)",
+      "content": "This synthetic saas record covers tenant administration during the setup stage. Explains role assignment, audit history, safe defaults, and account boundaries. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic saas demo record: Tenant Administration — Setup (Demo Record 12).",
+      "labels": [
+        "saas",
+        "demo",
+        "synthetic",
+        "tenant administration",
+        "setup"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "workflow": "tenant administration",
+      "lifecycle_stage": "setup",
+      "customer_segment": "enterprise demo",
+      "status": "reviewing"
+    },
+    {
+      "id": "saas_013",
+      "title": "Usage Analytics — Setup (Demo Record 13)",
+      "content": "This synthetic saas record covers usage analytics during the setup stage. Defines transparent product metrics without storing unnecessary personal data. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic saas demo record: Usage Analytics — Setup (Demo Record 13).",
+      "labels": [
+        "saas",
+        "demo",
+        "synthetic",
+        "usage analytics",
+        "setup"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "workflow": "usage analytics",
+      "lifecycle_stage": "setup",
+      "customer_segment": "small team",
+      "status": "planned"
+    },
+    {
+      "id": "saas_014",
+      "title": "Billing Recovery — Setup (Demo Record 14)",
+      "content": "This synthetic saas record covers billing recovery during the setup stage. Uses clear notices, retry windows, and support escalation for failed demo payments. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic saas demo record: Billing Recovery — Setup (Demo Record 14).",
+      "labels": [
+        "saas",
+        "demo",
+        "synthetic",
+        "billing recovery",
+        "setup"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "workflow": "billing recovery",
+      "lifecycle_stage": "setup",
+      "customer_segment": "mid-market",
+      "status": "active"
+    },
+    {
+      "id": "saas_015",
+      "title": "Workflow Automation — Setup (Demo Record 15)",
+      "content": "This synthetic saas record covers workflow automation during the setup stage. Documents triggers, idempotent actions, permissions, and operator overrides. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic saas demo record: Workflow Automation — Setup (Demo Record 15).",
+      "labels": [
+        "saas",
+        "demo",
+        "synthetic",
+        "workflow automation",
+        "setup"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "workflow": "workflow automation",
+      "lifecycle_stage": "setup",
+      "customer_segment": "enterprise demo",
+      "status": "reviewing"
+    },
+    {
+      "id": "saas_016",
+      "title": "Integration Catalog — Setup (Demo Record 16)",
+      "content": "This synthetic saas record covers integration catalog during the setup stage. Tracks API scopes, ownership, version support, and connection health. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic saas demo record: Integration Catalog — Setup (Demo Record 16).",
+      "labels": [
+        "saas",
+        "demo",
+        "synthetic",
+        "integration catalog",
+        "setup"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "workflow": "integration catalog",
+      "lifecycle_stage": "setup",
+      "customer_segment": "small team",
+      "status": "planned"
+    },
+    {
+      "id": "saas_017",
+      "title": "Dashboard Design — Setup (Demo Record 17)",
+      "content": "This synthetic saas record covers dashboard design during the setup stage. Prioritizes user decisions, accessible charts, and consistent metric definitions. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic saas demo record: Dashboard Design — Setup (Demo Record 17).",
+      "labels": [
+        "saas",
+        "demo",
+        "synthetic",
+        "dashboard design",
+        "setup"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "workflow": "dashboard design",
+      "lifecycle_stage": "setup",
+      "customer_segment": "mid-market",
+      "status": "active"
+    },
+    {
+      "id": "saas_018",
+      "title": "Retention Review — Setup (Demo Record 18)",
+      "content": "This synthetic saas record covers retention review during the setup stage. Separates product engagement from coercive patterns and records test assumptions. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic saas demo record: Retention Review — Setup (Demo Record 18).",
+      "labels": [
+        "saas",
+        "demo",
+        "synthetic",
+        "retention review",
+        "setup"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "workflow": "retention review",
+      "lifecycle_stage": "setup",
+      "customer_segment": "enterprise demo",
+      "status": "reviewing"
+    },
+    {
+      "id": "saas_019",
+      "title": "Support Operations — Setup (Demo Record 19)",
+      "content": "This synthetic saas record covers support operations during the setup stage. Routes requests by urgency while preserving context and customer consent. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic saas demo record: Support Operations — Setup (Demo Record 19).",
+      "labels": [
+        "saas",
+        "demo",
+        "synthetic",
+        "support operations",
+        "setup"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "workflow": "support operations",
+      "lifecycle_stage": "setup",
+      "customer_segment": "small team",
+      "status": "planned"
+    },
+    {
+      "id": "saas_020",
+      "title": "Release Management — Setup (Demo Record 20)",
+      "content": "This synthetic saas record covers release management during the setup stage. Uses staged rollout, monitoring, rollback criteria, and customer communication. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic saas demo record: Release Management — Setup (Demo Record 20).",
+      "labels": [
+        "saas",
+        "demo",
+        "synthetic",
+        "release management",
+        "setup"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "workflow": "release management",
+      "lifecycle_stage": "setup",
+      "customer_segment": "mid-market",
+      "status": "active"
+    },
+    {
+      "id": "saas_021",
+      "title": "Subscription Onboarding — Active Use (Demo Record 21)",
+      "content": "This synthetic saas record covers subscription onboarding during the active use stage. Maps invitation, first-run setup, activation signals, and respectful follow-up. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic saas demo record: Subscription Onboarding — Active Use (Demo Record 21).",
+      "labels": [
+        "saas",
+        "demo",
+        "synthetic",
+        "subscription onboarding",
+        "active use"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "workflow": "subscription onboarding",
+      "lifecycle_stage": "active use",
+      "customer_segment": "enterprise demo",
+      "status": "reviewing"
+    },
+    {
+      "id": "saas_022",
+      "title": "Tenant Administration — Active Use (Demo Record 22)",
+      "content": "This synthetic saas record covers tenant administration during the active use stage. Explains role assignment, audit history, safe defaults, and account boundaries. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic saas demo record: Tenant Administration — Active Use (Demo Record 22).",
+      "labels": [
+        "saas",
+        "demo",
+        "synthetic",
+        "tenant administration",
+        "active use"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "workflow": "tenant administration",
+      "lifecycle_stage": "active use",
+      "customer_segment": "small team",
+      "status": "planned"
+    },
+    {
+      "id": "saas_023",
+      "title": "Usage Analytics — Active Use (Demo Record 23)",
+      "content": "This synthetic saas record covers usage analytics during the active use stage. Defines transparent product metrics without storing unnecessary personal data. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic saas demo record: Usage Analytics — Active Use (Demo Record 23).",
+      "labels": [
+        "saas",
+        "demo",
+        "synthetic",
+        "usage analytics",
+        "active use"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "workflow": "usage analytics",
+      "lifecycle_stage": "active use",
+      "customer_segment": "mid-market",
+      "status": "active"
+    },
+    {
+      "id": "saas_024",
+      "title": "Billing Recovery — Active Use (Demo Record 24)",
+      "content": "This synthetic saas record covers billing recovery during the active use stage. Uses clear notices, retry windows, and support escalation for failed demo payments. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic saas demo record: Billing Recovery — Active Use (Demo Record 24).",
+      "labels": [
+        "saas",
+        "demo",
+        "synthetic",
+        "billing recovery",
+        "active use"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "workflow": "billing recovery",
+      "lifecycle_stage": "active use",
+      "customer_segment": "enterprise demo",
+      "status": "reviewing"
+    },
+    {
+      "id": "saas_025",
+      "title": "Workflow Automation — Active Use (Demo Record 25)",
+      "content": "This synthetic saas record covers workflow automation during the active use stage. Documents triggers, idempotent actions, permissions, and operator overrides. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic saas demo record: Workflow Automation — Active Use (Demo Record 25).",
+      "labels": [
+        "saas",
+        "demo",
+        "synthetic",
+        "workflow automation",
+        "active use"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "workflow": "workflow automation",
+      "lifecycle_stage": "active use",
+      "customer_segment": "small team",
+      "status": "planned"
+    },
+    {
+      "id": "saas_026",
+      "title": "Integration Catalog — Active Use (Demo Record 26)",
+      "content": "This synthetic saas record covers integration catalog during the active use stage. Tracks API scopes, ownership, version support, and connection health. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic saas demo record: Integration Catalog — Active Use (Demo Record 26).",
+      "labels": [
+        "saas",
+        "demo",
+        "synthetic",
+        "integration catalog",
+        "active use"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "workflow": "integration catalog",
+      "lifecycle_stage": "active use",
+      "customer_segment": "mid-market",
+      "status": "active"
+    },
+    {
+      "id": "saas_027",
+      "title": "Dashboard Design — Active Use (Demo Record 27)",
+      "content": "This synthetic saas record covers dashboard design during the active use stage. Prioritizes user decisions, accessible charts, and consistent metric definitions. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic saas demo record: Dashboard Design — Active Use (Demo Record 27).",
+      "labels": [
+        "saas",
+        "demo",
+        "synthetic",
+        "dashboard design",
+        "active use"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "workflow": "dashboard design",
+      "lifecycle_stage": "active use",
+      "customer_segment": "enterprise demo",
+      "status": "reviewing"
+    },
+    {
+      "id": "saas_028",
+      "title": "Retention Review — Active Use (Demo Record 28)",
+      "content": "This synthetic saas record covers retention review during the active use stage. Separates product engagement from coercive patterns and records test assumptions. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic saas demo record: Retention Review — Active Use (Demo Record 28).",
+      "labels": [
+        "saas",
+        "demo",
+        "synthetic",
+        "retention review",
+        "active use"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "workflow": "retention review",
+      "lifecycle_stage": "active use",
+      "customer_segment": "small team",
+      "status": "planned"
+    },
+    {
+      "id": "saas_029",
+      "title": "Support Operations — Active Use (Demo Record 29)",
+      "content": "This synthetic saas record covers support operations during the active use stage. Routes requests by urgency while preserving context and customer consent. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic saas demo record: Support Operations — Active Use (Demo Record 29).",
+      "labels": [
+        "saas",
+        "demo",
+        "synthetic",
+        "support operations",
+        "active use"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "workflow": "support operations",
+      "lifecycle_stage": "active use",
+      "customer_segment": "mid-market",
+      "status": "active"
+    },
+    {
+      "id": "saas_030",
+      "title": "Release Management — Active Use (Demo Record 30)",
+      "content": "This synthetic saas record covers release management during the active use stage. Uses staged rollout, monitoring, rollback criteria, and customer communication. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic saas demo record: Release Management — Active Use (Demo Record 30).",
+      "labels": [
+        "saas",
+        "demo",
+        "synthetic",
+        "release management",
+        "active use"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "workflow": "release management",
+      "lifecycle_stage": "active use",
+      "customer_segment": "enterprise demo",
+      "status": "reviewing"
+    },
+    {
+      "id": "saas_031",
+      "title": "Subscription Onboarding — Review (Demo Record 31)",
+      "content": "This synthetic saas record covers subscription onboarding during the review stage. Maps invitation, first-run setup, activation signals, and respectful follow-up. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic saas demo record: Subscription Onboarding — Review (Demo Record 31).",
+      "labels": [
+        "saas",
+        "demo",
+        "synthetic",
+        "subscription onboarding",
+        "review"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "workflow": "subscription onboarding",
+      "lifecycle_stage": "review",
+      "customer_segment": "small team",
+      "status": "planned"
+    },
+    {
+      "id": "saas_032",
+      "title": "Tenant Administration — Review (Demo Record 32)",
+      "content": "This synthetic saas record covers tenant administration during the review stage. Explains role assignment, audit history, safe defaults, and account boundaries. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic saas demo record: Tenant Administration — Review (Demo Record 32).",
+      "labels": [
+        "saas",
+        "demo",
+        "synthetic",
+        "tenant administration",
+        "review"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "workflow": "tenant administration",
+      "lifecycle_stage": "review",
+      "customer_segment": "mid-market",
+      "status": "active"
+    },
+    {
+      "id": "saas_033",
+      "title": "Usage Analytics — Review (Demo Record 33)",
+      "content": "This synthetic saas record covers usage analytics during the review stage. Defines transparent product metrics without storing unnecessary personal data. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic saas demo record: Usage Analytics — Review (Demo Record 33).",
+      "labels": [
+        "saas",
+        "demo",
+        "synthetic",
+        "usage analytics",
+        "review"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "workflow": "usage analytics",
+      "lifecycle_stage": "review",
+      "customer_segment": "enterprise demo",
+      "status": "reviewing"
+    },
+    {
+      "id": "saas_034",
+      "title": "Billing Recovery — Review (Demo Record 34)",
+      "content": "This synthetic saas record covers billing recovery during the review stage. Uses clear notices, retry windows, and support escalation for failed demo payments. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic saas demo record: Billing Recovery — Review (Demo Record 34).",
+      "labels": [
+        "saas",
+        "demo",
+        "synthetic",
+        "billing recovery",
+        "review"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "workflow": "billing recovery",
+      "lifecycle_stage": "review",
+      "customer_segment": "small team",
+      "status": "planned"
+    },
+    {
+      "id": "saas_035",
+      "title": "Workflow Automation — Review (Demo Record 35)",
+      "content": "This synthetic saas record covers workflow automation during the review stage. Documents triggers, idempotent actions, permissions, and operator overrides. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic saas demo record: Workflow Automation — Review (Demo Record 35).",
+      "labels": [
+        "saas",
+        "demo",
+        "synthetic",
+        "workflow automation",
+        "review"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "workflow": "workflow automation",
+      "lifecycle_stage": "review",
+      "customer_segment": "mid-market",
+      "status": "active"
+    },
+    {
+      "id": "saas_036",
+      "title": "Integration Catalog — Review (Demo Record 36)",
+      "content": "This synthetic saas record covers integration catalog during the review stage. Tracks API scopes, ownership, version support, and connection health. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic saas demo record: Integration Catalog — Review (Demo Record 36).",
+      "labels": [
+        "saas",
+        "demo",
+        "synthetic",
+        "integration catalog",
+        "review"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "workflow": "integration catalog",
+      "lifecycle_stage": "review",
+      "customer_segment": "enterprise demo",
+      "status": "reviewing"
+    },
+    {
+      "id": "saas_037",
+      "title": "Dashboard Design — Review (Demo Record 37)",
+      "content": "This synthetic saas record covers dashboard design during the review stage. Prioritizes user decisions, accessible charts, and consistent metric definitions. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic saas demo record: Dashboard Design — Review (Demo Record 37).",
+      "labels": [
+        "saas",
+        "demo",
+        "synthetic",
+        "dashboard design",
+        "review"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "workflow": "dashboard design",
+      "lifecycle_stage": "review",
+      "customer_segment": "small team",
+      "status": "planned"
+    },
+    {
+      "id": "saas_038",
+      "title": "Retention Review — Review (Demo Record 38)",
+      "content": "This synthetic saas record covers retention review during the review stage. Separates product engagement from coercive patterns and records test assumptions. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic saas demo record: Retention Review — Review (Demo Record 38).",
+      "labels": [
+        "saas",
+        "demo",
+        "synthetic",
+        "retention review",
+        "review"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "workflow": "retention review",
+      "lifecycle_stage": "review",
+      "customer_segment": "mid-market",
+      "status": "active"
+    },
+    {
+      "id": "saas_039",
+      "title": "Support Operations — Review (Demo Record 39)",
+      "content": "This synthetic saas record covers support operations during the review stage. Routes requests by urgency while preserving context and customer consent. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic saas demo record: Support Operations — Review (Demo Record 39).",
+      "labels": [
+        "saas",
+        "demo",
+        "synthetic",
+        "support operations",
+        "review"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "workflow": "support operations",
+      "lifecycle_stage": "review",
+      "customer_segment": "enterprise demo",
+      "status": "reviewing"
+    },
+    {
+      "id": "saas_040",
+      "title": "Release Management — Review (Demo Record 40)",
+      "content": "This synthetic saas record covers release management during the review stage. Uses staged rollout, monitoring, rollback criteria, and customer communication. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic saas demo record: Release Management — Review (Demo Record 40).",
+      "labels": [
+        "saas",
+        "demo",
+        "synthetic",
+        "release management",
+        "review"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "workflow": "release management",
+      "lifecycle_stage": "review",
+      "customer_segment": "small team",
+      "status": "planned"
+    },
+    {
+      "id": "saas_041",
+      "title": "Subscription Onboarding — Improvement (Demo Record 41)",
+      "content": "This synthetic saas record covers subscription onboarding during the improvement stage. Maps invitation, first-run setup, activation signals, and respectful follow-up. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic saas demo record: Subscription Onboarding — Improvement (Demo Record 41).",
+      "labels": [
+        "saas",
+        "demo",
+        "synthetic",
+        "subscription onboarding",
+        "improvement"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "workflow": "subscription onboarding",
+      "lifecycle_stage": "improvement",
+      "customer_segment": "mid-market",
+      "status": "active"
+    },
+    {
+      "id": "saas_042",
+      "title": "Tenant Administration — Improvement (Demo Record 42)",
+      "content": "This synthetic saas record covers tenant administration during the improvement stage. Explains role assignment, audit history, safe defaults, and account boundaries. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic saas demo record: Tenant Administration — Improvement (Demo Record 42).",
+      "labels": [
+        "saas",
+        "demo",
+        "synthetic",
+        "tenant administration",
+        "improvement"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "workflow": "tenant administration",
+      "lifecycle_stage": "improvement",
+      "customer_segment": "enterprise demo",
+      "status": "reviewing"
+    },
+    {
+      "id": "saas_043",
+      "title": "Usage Analytics — Improvement (Demo Record 43)",
+      "content": "This synthetic saas record covers usage analytics during the improvement stage. Defines transparent product metrics without storing unnecessary personal data. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic saas demo record: Usage Analytics — Improvement (Demo Record 43).",
+      "labels": [
+        "saas",
+        "demo",
+        "synthetic",
+        "usage analytics",
+        "improvement"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "workflow": "usage analytics",
+      "lifecycle_stage": "improvement",
+      "customer_segment": "small team",
+      "status": "planned"
+    },
+    {
+      "id": "saas_044",
+      "title": "Billing Recovery — Improvement (Demo Record 44)",
+      "content": "This synthetic saas record covers billing recovery during the improvement stage. Uses clear notices, retry windows, and support escalation for failed demo payments. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic saas demo record: Billing Recovery — Improvement (Demo Record 44).",
+      "labels": [
+        "saas",
+        "demo",
+        "synthetic",
+        "billing recovery",
+        "improvement"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "workflow": "billing recovery",
+      "lifecycle_stage": "improvement",
+      "customer_segment": "mid-market",
+      "status": "active"
+    },
+    {
+      "id": "saas_045",
+      "title": "Workflow Automation — Improvement (Demo Record 45)",
+      "content": "This synthetic saas record covers workflow automation during the improvement stage. Documents triggers, idempotent actions, permissions, and operator overrides. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic saas demo record: Workflow Automation — Improvement (Demo Record 45).",
+      "labels": [
+        "saas",
+        "demo",
+        "synthetic",
+        "workflow automation",
+        "improvement"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "workflow": "workflow automation",
+      "lifecycle_stage": "improvement",
+      "customer_segment": "enterprise demo",
+      "status": "reviewing"
+    },
+    {
+      "id": "saas_046",
+      "title": "Integration Catalog — Improvement (Demo Record 46)",
+      "content": "This synthetic saas record covers integration catalog during the improvement stage. Tracks API scopes, ownership, version support, and connection health. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic saas demo record: Integration Catalog — Improvement (Demo Record 46).",
+      "labels": [
+        "saas",
+        "demo",
+        "synthetic",
+        "integration catalog",
+        "improvement"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "workflow": "integration catalog",
+      "lifecycle_stage": "improvement",
+      "customer_segment": "small team",
+      "status": "planned"
+    },
+    {
+      "id": "saas_047",
+      "title": "Dashboard Design — Improvement (Demo Record 47)",
+      "content": "This synthetic saas record covers dashboard design during the improvement stage. Prioritizes user decisions, accessible charts, and consistent metric definitions. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic saas demo record: Dashboard Design — Improvement (Demo Record 47).",
+      "labels": [
+        "saas",
+        "demo",
+        "synthetic",
+        "dashboard design",
+        "improvement"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "workflow": "dashboard design",
+      "lifecycle_stage": "improvement",
+      "customer_segment": "mid-market",
+      "status": "active"
+    },
+    {
+      "id": "saas_048",
+      "title": "Retention Review — Improvement (Demo Record 48)",
+      "content": "This synthetic saas record covers retention review during the improvement stage. Separates product engagement from coercive patterns and records test assumptions. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic saas demo record: Retention Review — Improvement (Demo Record 48).",
+      "labels": [
+        "saas",
+        "demo",
+        "synthetic",
+        "retention review",
+        "improvement"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "workflow": "retention review",
+      "lifecycle_stage": "improvement",
+      "customer_segment": "enterprise demo",
+      "status": "reviewing"
+    },
+    {
+      "id": "saas_049",
+      "title": "Support Operations — Improvement (Demo Record 49)",
+      "content": "This synthetic saas record covers support operations during the improvement stage. Routes requests by urgency while preserving context and customer consent. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic saas demo record: Support Operations — Improvement (Demo Record 49).",
+      "labels": [
+        "saas",
+        "demo",
+        "synthetic",
+        "support operations",
+        "improvement"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "workflow": "support operations",
+      "lifecycle_stage": "improvement",
+      "customer_segment": "small team",
+      "status": "planned"
+    },
+    {
+      "id": "saas_050",
+      "title": "Release Management — Improvement (Demo Record 50)",
+      "content": "This synthetic saas record covers release management during the improvement stage. Uses staged rollout, monitoring, rollback criteria, and customer communication. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic saas demo record: Release Management — Improvement (Demo Record 50).",
+      "labels": [
+        "saas",
+        "demo",
+        "synthetic",
+        "release management",
+        "improvement"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "workflow": "release management",
+      "lifecycle_stage": "improvement",
+      "customer_segment": "mid-market",
+      "status": "active"
+    }
+  ],
+  "fields": [
+    {
+      "name": "workflow",
+      "type": "string"
+    },
+    {
+      "name": "lifecycle_stage",
+      "type": "string"
+    },
+    {
+      "name": "customer_segment",
+      "type": "string"
+    },
+    {
+      "name": "status",
+      "type": "string"
+    }
+  ],
+  "metadata": {
+    "_fixture_kind": "synthetic_demo",
+    "_fixture_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market."
+  }
+}

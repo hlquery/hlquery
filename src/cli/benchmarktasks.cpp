@@ -60,6 +60,31 @@ static int NormalizeInsertedCount(int inserted, size_t batch_size)
      return inserted;
 }
 
+static int64_t GetBenchmarkDocumentBytes(const std::vector<std::tuple<std::string, std::string, std::string>> &batch)
+{
+     int64_t bytes = 0;
+
+     for (const auto &doc : batch)
+     {
+          bytes += static_cast<int64_t>(std::get<0>(doc).size());
+          bytes += static_cast<int64_t>(std::get<1>(doc).size());
+          bytes += static_cast<int64_t>(std::get<2>(doc).size());
+     }
+
+     return bytes;
+}
+
+static void RecordInsertedDocumentBytes(int64_t batch_bytes, int inserted, size_t batch_size)
+{
+     if (inserted <= 0 || batch_size == 0)
+     {
+          return;
+     }
+
+     const int64_t inserted_bytes = (batch_bytes * inserted) / static_cast<int64_t>(batch_size);
+     benchmark_document_bytes.fetch_add(inserted_bytes);
+}
+
 /* Deletes collections in a thread. */
 
 void DeleteCollectionsThread(const std::string &base_url, const std::string &auth_token, int start_idx, int end_idx, int total_collections, const std::set<std::string> &existing_collections)
@@ -171,29 +196,44 @@ void InsertAdditionalDocumentsThread(const std::string &base_url, const std::str
 
      client.Reset();
 
-     const int batch_stride = batch_size * std::max(1, thread_count);
+     const int safe_thread_count = std::max(1, thread_count);
+     int task_index = 0;
 
-     for (int col_idx = 0; col_idx < num_collections; col_idx++)
+     for (int batch_round = 0;; ++batch_round)
      {
           if (g_benchmark_should_stop.load())
           {
                return;
           }
 
-          std::string collection_name = MakeBenchmarkCollectionName(col_idx);
+          bool has_more_batches = false;
 
-          client.ResetConnection();
-
-          for (int batch_start = thread_id * batch_size; batch_start < additional_docs; batch_start += batch_stride)
+          for (int col_idx = 0; col_idx < num_collections; ++col_idx)
           {
+               const int batch_start = batch_round * batch_size;
+               if (batch_start >= additional_docs)
+               {
+                    continue;
+               }
+
+               has_more_batches = true;
+               const int current_task = task_index++;
+               if ((current_task % safe_thread_count) != thread_id)
+               {
+                    continue;
+               }
+
                if (g_benchmark_should_stop.load())
                {
                     return;
                }
 
+               std::string collection_name = MakeBenchmarkCollectionName(col_idx);
                int batch_end = std::min(batch_start + batch_size, additional_docs);
+               const int content_thread_id = (batch_start / batch_size) % safe_thread_count;
 
                std::vector<std::tuple<std::string, std::string, std::string>> batch;
+               batch.reserve(static_cast<size_t>(batch_end - batch_start));
 
                for (int batch_idx = batch_start; batch_idx < batch_end; batch_idx++)
                {
@@ -203,9 +243,9 @@ void InsertAdditionalDocumentsThread(const std::string &base_url, const std::str
 
                     std::string title = "Document " + std::to_string(doc_idx) + " in Collection " + std::to_string(col_idx);
 
-                    std::string content = GenerateContentWithSynonymsAndStopwords(doc_idx, thread_id, col_idx, Tools::GetRNG());
+                    std::string content = GenerateContentWithSynonymsAndStopwords(doc_idx, content_thread_id, col_idx, Tools::GetRNG());
 
-                    batch.push_back(std::make_tuple(doc_id, title, content));
+                    batch.emplace_back(std::move(doc_id), std::move(title), std::move(content));
                }
 
                if (g_benchmark_should_stop.load())
@@ -214,6 +254,7 @@ void InsertAdditionalDocumentsThread(const std::string &base_url, const std::str
                }
 
                auto batch_start_time = Now();
+               const int64_t batch_document_bytes = GetBenchmarkDocumentBytes(batch);
 
                int inserted = 0;
 
@@ -236,6 +277,7 @@ void InsertAdditionalDocumentsThread(const std::string &base_url, const std::str
                documents_skipped.fetch_add(static_cast<int>(batch.size()) - inserted);
                additional_documents_inserted.fetch_add(inserted);
                additional_documents_skipped.fetch_add(static_cast<int>(batch.size()) - inserted);
+               RecordInsertedDocumentBytes(batch_document_bytes, inserted, batch.size());
 
                if (collect_metrics)
                {
@@ -263,8 +305,13 @@ void InsertAdditionalDocumentsThread(const std::string &base_url, const std::str
                }
           }
 
-          client.ResetConnection();
+          if (!has_more_batches)
+          {
+               break;
+          }
      }
+
+     client.ResetConnection();
 }
 
 /* Inserts documents in a thread. */
@@ -275,30 +322,45 @@ void InsertDocumentsThread(const std::string &base_url, const std::string &auth_
 
      client.Reset();
 
-     const int batch_stride = batch_size * std::max(1, thread_count);
+     const int safe_thread_count = std::max(1, thread_count);
+     int task_index = 0;
 
-     for (int col_idx = 0; col_idx < num_collections; col_idx++)
+     for (int batch_round = 0;; ++batch_round)
      {
           if (g_benchmark_should_stop.load())
           {
                return;
           }
 
-          std::string collection_name = MakeBenchmarkCollectionName(col_idx);
-          const int docs_in_collection = GetBenchmarkDocsForCollection(col_idx, docs_per_collection, remaining_docs);
+          bool has_more_batches = false;
 
-          client.ResetConnection();
-
-          for (int batch_start = thread_id * batch_size; batch_start < docs_in_collection; batch_start += batch_stride)
+          for (int col_idx = 0; col_idx < num_collections; ++col_idx)
           {
+               const int docs_in_collection = GetBenchmarkDocsForCollection(col_idx, docs_per_collection, remaining_docs);
+               const int batch_start = batch_round * batch_size;
+               if (batch_start >= docs_in_collection)
+               {
+                    continue;
+               }
+
+               has_more_batches = true;
+               const int current_task = task_index++;
+               if ((current_task % safe_thread_count) != thread_id)
+               {
+                    continue;
+               }
+
                if (g_benchmark_should_stop.load())
                {
                     return;
                }
 
+               std::string collection_name = MakeBenchmarkCollectionName(col_idx);
                int batch_end = std::min(batch_start + batch_size, docs_in_collection);
+               const int content_thread_id = (batch_start / batch_size) % safe_thread_count;
 
                std::vector<std::tuple<std::string, std::string, std::string>> batch;
+               batch.reserve(static_cast<size_t>(batch_end - batch_start));
 
                for (int doc_idx = batch_start; doc_idx < batch_end; doc_idx++)
                {
@@ -306,9 +368,9 @@ void InsertDocumentsThread(const std::string &base_url, const std::string &auth_
 
                     std::string title = "Document " + std::to_string(doc_idx) + " in Collection " + std::to_string(col_idx);
 
-                    std::string content = GenerateContentWithSynonymsAndStopwords(doc_idx, thread_id, col_idx, Tools::GetRNG());
+                    std::string content = GenerateContentWithSynonymsAndStopwords(doc_idx, content_thread_id, col_idx, Tools::GetRNG());
 
-                    batch.push_back(std::make_tuple(doc_id, title, content));
+                    batch.emplace_back(std::move(doc_id), std::move(title), std::move(content));
                }
 
                if (g_benchmark_should_stop.load())
@@ -317,6 +379,7 @@ void InsertDocumentsThread(const std::string &base_url, const std::string &auth_
                }
 
                auto batch_start_time = Now();
+               const int64_t batch_document_bytes = GetBenchmarkDocumentBytes(batch);
 
                int inserted = 0;
 
@@ -337,6 +400,7 @@ void InsertDocumentsThread(const std::string &base_url, const std::string &auth_
 
                documents_inserted.fetch_add(inserted);
                documents_skipped.fetch_add(static_cast<int>(batch.size()) - inserted);
+               RecordInsertedDocumentBytes(batch_document_bytes, inserted, batch.size());
 
                if (collect_metrics)
                {
@@ -368,6 +432,11 @@ void InsertDocumentsThread(const std::string &base_url, const std::string &auth_
                }
           }
 
-          client.ResetConnection();
+          if (!has_more_batches)
+          {
+               break;
+          }
      }
+
+     client.ResetConnection();
 }

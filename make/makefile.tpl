@@ -350,6 +350,7 @@ SRCS_TOP += $(API_SRCS)
 
 # Search storage source files
 SEARCH_SRCS := $(wildcard $(SRC_DIR)/search/*.cpp)
+SEARCH_SRCS += $(wildcard $(SRC_DIR)/search/adaptive/*.cpp)
 SRCS_TOP += $(SEARCH_SRCS)
 
 SQL_SRCS := $(wildcard $(SRC_DIR)/sql/*.cpp)
@@ -978,6 +979,8 @@ HTTP_ROUTES_TEST_BIN := build/test/http_routes
 TIMER_CONCURRENCY_TEST_BIN := build/test/timer_concurrency
 CORE_STATS_METRICS_TEST_BIN := build/test/core_stats_metrics
 SEGMENTED_STORAGE_TEST_BIN := build/test/segmented_storage
+LEGACY_HYBRID_RANKING_TEST_BIN := build/test/legacy_hybrid_ranking
+SEARCH_EXECUTION_TRACE_TEST_BIN := build/test/search_execution_trace
 
 $(HTTP_ROUTES_TEST_BIN): tests/http_routes.cpp src/api/httproutes.cpp
 	@mkdir -p $(dir $@)
@@ -1007,6 +1010,20 @@ $(SEGMENTED_STORAGE_TEST_BIN): tests/segmented_storage.cpp src/search/segment_ca
 test-segmented-storage: $(SEGMENTED_STORAGE_TEST_BIN)
 	@$(SEGMENTED_STORAGE_TEST_BIN)
 
+$(LEGACY_HYBRID_RANKING_TEST_BIN): tests/legacy_hybrid_ranking.cpp src/search/hybrid_rank_fusion.cpp
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) $^ -o $@ $(LDFLAGS)
+
+test-legacy-hybrid-ranking: $(LEGACY_HYBRID_RANKING_TEST_BIN)
+	@$(LEGACY_HYBRID_RANKING_TEST_BIN)
+
+$(SEARCH_EXECUTION_TRACE_TEST_BIN): tests/search_execution_trace.cpp src/search/adaptive/search_execution_trace.cpp
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) $^ -o $@ $(LDFLAGS)
+
+test-search-execution-trace: $(SEARCH_EXECUTION_TRACE_TEST_BIN)
+	@$(SEARCH_EXECUTION_TRACE_TEST_BIN)
+
 test-backup-restore:
 	@tests/backup_restore.sh
 
@@ -1016,10 +1033,13 @@ test-auth-fail-closed: $(BIN_DIR)/hlquery
 test-docker-production-mode:
 	@tests/docker_production_mode.sh
 
+test-adaptive-search-trace: $(BIN_DIR)/hlquery
+	@tests/adaptive_search_trace.sh
+
 # test-auth-fail-closed builds the server, whose prepare phase already runs the
 # RocksDB smoke test. Listing rocksdb-smoke here too races the recursive prepare
 # invocation under parallel make and can execute a binary while it is relinking.
-test: test-http-routes test-timer-concurrency test-core-stats-metrics test-segmented-storage test-backup-restore test-auth-fail-closed test-docker-production-mode
+test: test-http-routes test-timer-concurrency test-core-stats-metrics test-segmented-storage test-legacy-hybrid-ranking test-search-execution-trace test-backup-restore test-auth-fail-closed test-docker-production-mode test-adaptive-search-trace
 	@if [ -x "$(RUN_DIR)/test/run_tests.sh" ]; then \
 		"$(RUN_DIR)/test/run_tests.sh"; \
 	else \

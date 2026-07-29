@@ -1,1 +1,992 @@
-{"collection":"fashion","count":50,"tags":["apparel","designer","runway","streetwear","accessories","footwear","collection","sustainable","luxury","seasonal"]}
+{
+  "fixture_version": 2,
+  "fixture_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+  "collection": "fashion",
+  "count": 50,
+  "tags": [
+    "capsule wardrobe study",
+    "material sourcing brief",
+    "runway production plan",
+    "footwear design review",
+    "streetwear lookbook",
+    "accessories catalog",
+    "seasonal color story",
+    "garment repair guide",
+    "inclusive sizing review",
+    "fashion archive record"
+  ],
+  "documents": [
+    {
+      "id": "fashion_001",
+      "title": "Capsule Wardrobe Study — Discovery (Demo Record 01)",
+      "content": "This synthetic fashion record covers capsule wardrobe study during the discovery stage. A fictional collection tests color coordination, layering, repairability, and repeat wear. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic fashion demo record: Capsule Wardrobe Study — Discovery (Demo Record 01).",
+      "labels": [
+        "fashion",
+        "demo",
+        "synthetic",
+        "capsule wardrobe study",
+        "discovery"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "design_topic": "capsule wardrobe study",
+      "lifecycle_stage": "discovery",
+      "material_focus": "woven",
+      "season": "fictional all-season collection"
+    },
+    {
+      "id": "fashion_002",
+      "title": "Material Sourcing Brief — Discovery (Demo Record 02)",
+      "content": "This synthetic fashion record covers material sourcing brief during the discovery stage. Compares generated fabric records by composition, traceability, durability, and care needs. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic fashion demo record: Material Sourcing Brief — Discovery (Demo Record 02).",
+      "labels": [
+        "fashion",
+        "demo",
+        "synthetic",
+        "material sourcing brief",
+        "discovery"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "design_topic": "material sourcing brief",
+      "lifecycle_stage": "discovery",
+      "material_focus": "knit",
+      "season": "fictional all-season collection"
+    },
+    {
+      "id": "fashion_003",
+      "title": "Runway Production Plan — Discovery (Demo Record 03)",
+      "content": "This synthetic fashion record covers runway production plan during the discovery stage. Coordinates a fictional show schedule, fittings, lighting, accessibility, and backstage roles. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic fashion demo record: Runway Production Plan — Discovery (Demo Record 03).",
+      "labels": [
+        "fashion",
+        "demo",
+        "synthetic",
+        "runway production plan",
+        "discovery"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "design_topic": "runway production plan",
+      "lifecycle_stage": "discovery",
+      "material_focus": "mixed material",
+      "season": "fictional all-season collection"
+    },
+    {
+      "id": "fashion_004",
+      "title": "Footwear Design Review — Discovery (Demo Record 04)",
+      "content": "This synthetic fashion record covers footwear design review during the discovery stage. Documents fit tests, outsole choices, repair considerations, and sample revisions. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic fashion demo record: Footwear Design Review — Discovery (Demo Record 04).",
+      "labels": [
+        "fashion",
+        "demo",
+        "synthetic",
+        "footwear design review",
+        "discovery"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "design_topic": "footwear design review",
+      "lifecycle_stage": "discovery",
+      "material_focus": "woven",
+      "season": "fictional all-season collection"
+    },
+    {
+      "id": "fashion_005",
+      "title": "Streetwear Lookbook — Discovery (Demo Record 05)",
+      "content": "This synthetic fashion record covers streetwear lookbook during the discovery stage. Pairs fictional garments with art direction, sizing notes, and inclusive styling options. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic fashion demo record: Streetwear Lookbook — Discovery (Demo Record 05).",
+      "labels": [
+        "fashion",
+        "demo",
+        "synthetic",
+        "streetwear lookbook",
+        "discovery"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "design_topic": "streetwear lookbook",
+      "lifecycle_stage": "discovery",
+      "material_focus": "knit",
+      "season": "fictional all-season collection"
+    },
+    {
+      "id": "fashion_006",
+      "title": "Accessories Catalog — Discovery (Demo Record 06)",
+      "content": "This synthetic fashion record covers accessories catalog during the discovery stage. Describes invented bags and jewelry by material, dimensions, care, and intended use. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic fashion demo record: Accessories Catalog — Discovery (Demo Record 06).",
+      "labels": [
+        "fashion",
+        "demo",
+        "synthetic",
+        "accessories catalog",
+        "discovery"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "design_topic": "accessories catalog",
+      "lifecycle_stage": "discovery",
+      "material_focus": "mixed material",
+      "season": "fictional all-season collection"
+    },
+    {
+      "id": "fashion_007",
+      "title": "Seasonal Color Story — Discovery (Demo Record 07)",
+      "content": "This synthetic fashion record covers seasonal color story during the discovery stage. Explains how a fictional palette moves across garments without making trend claims. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic fashion demo record: Seasonal Color Story — Discovery (Demo Record 07).",
+      "labels": [
+        "fashion",
+        "demo",
+        "synthetic",
+        "seasonal color story",
+        "discovery"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "design_topic": "seasonal color story",
+      "lifecycle_stage": "discovery",
+      "material_focus": "woven",
+      "season": "fictional all-season collection"
+    },
+    {
+      "id": "fashion_008",
+      "title": "Garment Repair Guide — Discovery (Demo Record 08)",
+      "content": "This synthetic fashion record covers garment repair guide during the discovery stage. Maps common repairs, required tools, skill level, and when specialist help is appropriate. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic fashion demo record: Garment Repair Guide — Discovery (Demo Record 08).",
+      "labels": [
+        "fashion",
+        "demo",
+        "synthetic",
+        "garment repair guide",
+        "discovery"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "design_topic": "garment repair guide",
+      "lifecycle_stage": "discovery",
+      "material_focus": "knit",
+      "season": "fictional all-season collection"
+    },
+    {
+      "id": "fashion_009",
+      "title": "Inclusive Sizing Review — Discovery (Demo Record 09)",
+      "content": "This synthetic fashion record covers inclusive sizing review during the discovery stage. Checks grading consistency, fit feedback, measurement language, and sample coverage. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic fashion demo record: Inclusive Sizing Review — Discovery (Demo Record 09).",
+      "labels": [
+        "fashion",
+        "demo",
+        "synthetic",
+        "inclusive sizing review",
+        "discovery"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "design_topic": "inclusive sizing review",
+      "lifecycle_stage": "discovery",
+      "material_focus": "mixed material",
+      "season": "fictional all-season collection"
+    },
+    {
+      "id": "fashion_010",
+      "title": "Fashion Archive Record — Discovery (Demo Record 10)",
+      "content": "This synthetic fashion record covers fashion archive record during the discovery stage. Catalogs a fictional garment by construction, condition, provenance status, and storage needs. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic fashion demo record: Fashion Archive Record — Discovery (Demo Record 10).",
+      "labels": [
+        "fashion",
+        "demo",
+        "synthetic",
+        "fashion archive record",
+        "discovery"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "design_topic": "fashion archive record",
+      "lifecycle_stage": "discovery",
+      "material_focus": "woven",
+      "season": "fictional all-season collection"
+    },
+    {
+      "id": "fashion_011",
+      "title": "Capsule Wardrobe Study — Setup (Demo Record 11)",
+      "content": "This synthetic fashion record covers capsule wardrobe study during the setup stage. A fictional collection tests color coordination, layering, repairability, and repeat wear. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic fashion demo record: Capsule Wardrobe Study — Setup (Demo Record 11).",
+      "labels": [
+        "fashion",
+        "demo",
+        "synthetic",
+        "capsule wardrobe study",
+        "setup"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "design_topic": "capsule wardrobe study",
+      "lifecycle_stage": "setup",
+      "material_focus": "knit",
+      "season": "fictional all-season collection"
+    },
+    {
+      "id": "fashion_012",
+      "title": "Material Sourcing Brief — Setup (Demo Record 12)",
+      "content": "This synthetic fashion record covers material sourcing brief during the setup stage. Compares generated fabric records by composition, traceability, durability, and care needs. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic fashion demo record: Material Sourcing Brief — Setup (Demo Record 12).",
+      "labels": [
+        "fashion",
+        "demo",
+        "synthetic",
+        "material sourcing brief",
+        "setup"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "design_topic": "material sourcing brief",
+      "lifecycle_stage": "setup",
+      "material_focus": "mixed material",
+      "season": "fictional all-season collection"
+    },
+    {
+      "id": "fashion_013",
+      "title": "Runway Production Plan — Setup (Demo Record 13)",
+      "content": "This synthetic fashion record covers runway production plan during the setup stage. Coordinates a fictional show schedule, fittings, lighting, accessibility, and backstage roles. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic fashion demo record: Runway Production Plan — Setup (Demo Record 13).",
+      "labels": [
+        "fashion",
+        "demo",
+        "synthetic",
+        "runway production plan",
+        "setup"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "design_topic": "runway production plan",
+      "lifecycle_stage": "setup",
+      "material_focus": "woven",
+      "season": "fictional all-season collection"
+    },
+    {
+      "id": "fashion_014",
+      "title": "Footwear Design Review — Setup (Demo Record 14)",
+      "content": "This synthetic fashion record covers footwear design review during the setup stage. Documents fit tests, outsole choices, repair considerations, and sample revisions. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic fashion demo record: Footwear Design Review — Setup (Demo Record 14).",
+      "labels": [
+        "fashion",
+        "demo",
+        "synthetic",
+        "footwear design review",
+        "setup"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "design_topic": "footwear design review",
+      "lifecycle_stage": "setup",
+      "material_focus": "knit",
+      "season": "fictional all-season collection"
+    },
+    {
+      "id": "fashion_015",
+      "title": "Streetwear Lookbook — Setup (Demo Record 15)",
+      "content": "This synthetic fashion record covers streetwear lookbook during the setup stage. Pairs fictional garments with art direction, sizing notes, and inclusive styling options. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic fashion demo record: Streetwear Lookbook — Setup (Demo Record 15).",
+      "labels": [
+        "fashion",
+        "demo",
+        "synthetic",
+        "streetwear lookbook",
+        "setup"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "design_topic": "streetwear lookbook",
+      "lifecycle_stage": "setup",
+      "material_focus": "mixed material",
+      "season": "fictional all-season collection"
+    },
+    {
+      "id": "fashion_016",
+      "title": "Accessories Catalog — Setup (Demo Record 16)",
+      "content": "This synthetic fashion record covers accessories catalog during the setup stage. Describes invented bags and jewelry by material, dimensions, care, and intended use. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic fashion demo record: Accessories Catalog — Setup (Demo Record 16).",
+      "labels": [
+        "fashion",
+        "demo",
+        "synthetic",
+        "accessories catalog",
+        "setup"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "design_topic": "accessories catalog",
+      "lifecycle_stage": "setup",
+      "material_focus": "woven",
+      "season": "fictional all-season collection"
+    },
+    {
+      "id": "fashion_017",
+      "title": "Seasonal Color Story — Setup (Demo Record 17)",
+      "content": "This synthetic fashion record covers seasonal color story during the setup stage. Explains how a fictional palette moves across garments without making trend claims. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic fashion demo record: Seasonal Color Story — Setup (Demo Record 17).",
+      "labels": [
+        "fashion",
+        "demo",
+        "synthetic",
+        "seasonal color story",
+        "setup"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "design_topic": "seasonal color story",
+      "lifecycle_stage": "setup",
+      "material_focus": "knit",
+      "season": "fictional all-season collection"
+    },
+    {
+      "id": "fashion_018",
+      "title": "Garment Repair Guide — Setup (Demo Record 18)",
+      "content": "This synthetic fashion record covers garment repair guide during the setup stage. Maps common repairs, required tools, skill level, and when specialist help is appropriate. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic fashion demo record: Garment Repair Guide — Setup (Demo Record 18).",
+      "labels": [
+        "fashion",
+        "demo",
+        "synthetic",
+        "garment repair guide",
+        "setup"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "design_topic": "garment repair guide",
+      "lifecycle_stage": "setup",
+      "material_focus": "mixed material",
+      "season": "fictional all-season collection"
+    },
+    {
+      "id": "fashion_019",
+      "title": "Inclusive Sizing Review — Setup (Demo Record 19)",
+      "content": "This synthetic fashion record covers inclusive sizing review during the setup stage. Checks grading consistency, fit feedback, measurement language, and sample coverage. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic fashion demo record: Inclusive Sizing Review — Setup (Demo Record 19).",
+      "labels": [
+        "fashion",
+        "demo",
+        "synthetic",
+        "inclusive sizing review",
+        "setup"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "design_topic": "inclusive sizing review",
+      "lifecycle_stage": "setup",
+      "material_focus": "woven",
+      "season": "fictional all-season collection"
+    },
+    {
+      "id": "fashion_020",
+      "title": "Fashion Archive Record — Setup (Demo Record 20)",
+      "content": "This synthetic fashion record covers fashion archive record during the setup stage. Catalogs a fictional garment by construction, condition, provenance status, and storage needs. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic fashion demo record: Fashion Archive Record — Setup (Demo Record 20).",
+      "labels": [
+        "fashion",
+        "demo",
+        "synthetic",
+        "fashion archive record",
+        "setup"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "design_topic": "fashion archive record",
+      "lifecycle_stage": "setup",
+      "material_focus": "knit",
+      "season": "fictional all-season collection"
+    },
+    {
+      "id": "fashion_021",
+      "title": "Capsule Wardrobe Study — Active Use (Demo Record 21)",
+      "content": "This synthetic fashion record covers capsule wardrobe study during the active use stage. A fictional collection tests color coordination, layering, repairability, and repeat wear. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic fashion demo record: Capsule Wardrobe Study — Active Use (Demo Record 21).",
+      "labels": [
+        "fashion",
+        "demo",
+        "synthetic",
+        "capsule wardrobe study",
+        "active use"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "design_topic": "capsule wardrobe study",
+      "lifecycle_stage": "active use",
+      "material_focus": "mixed material",
+      "season": "fictional all-season collection"
+    },
+    {
+      "id": "fashion_022",
+      "title": "Material Sourcing Brief — Active Use (Demo Record 22)",
+      "content": "This synthetic fashion record covers material sourcing brief during the active use stage. Compares generated fabric records by composition, traceability, durability, and care needs. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic fashion demo record: Material Sourcing Brief — Active Use (Demo Record 22).",
+      "labels": [
+        "fashion",
+        "demo",
+        "synthetic",
+        "material sourcing brief",
+        "active use"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "design_topic": "material sourcing brief",
+      "lifecycle_stage": "active use",
+      "material_focus": "woven",
+      "season": "fictional all-season collection"
+    },
+    {
+      "id": "fashion_023",
+      "title": "Runway Production Plan — Active Use (Demo Record 23)",
+      "content": "This synthetic fashion record covers runway production plan during the active use stage. Coordinates a fictional show schedule, fittings, lighting, accessibility, and backstage roles. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic fashion demo record: Runway Production Plan — Active Use (Demo Record 23).",
+      "labels": [
+        "fashion",
+        "demo",
+        "synthetic",
+        "runway production plan",
+        "active use"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "design_topic": "runway production plan",
+      "lifecycle_stage": "active use",
+      "material_focus": "knit",
+      "season": "fictional all-season collection"
+    },
+    {
+      "id": "fashion_024",
+      "title": "Footwear Design Review — Active Use (Demo Record 24)",
+      "content": "This synthetic fashion record covers footwear design review during the active use stage. Documents fit tests, outsole choices, repair considerations, and sample revisions. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic fashion demo record: Footwear Design Review — Active Use (Demo Record 24).",
+      "labels": [
+        "fashion",
+        "demo",
+        "synthetic",
+        "footwear design review",
+        "active use"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "design_topic": "footwear design review",
+      "lifecycle_stage": "active use",
+      "material_focus": "mixed material",
+      "season": "fictional all-season collection"
+    },
+    {
+      "id": "fashion_025",
+      "title": "Streetwear Lookbook — Active Use (Demo Record 25)",
+      "content": "This synthetic fashion record covers streetwear lookbook during the active use stage. Pairs fictional garments with art direction, sizing notes, and inclusive styling options. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic fashion demo record: Streetwear Lookbook — Active Use (Demo Record 25).",
+      "labels": [
+        "fashion",
+        "demo",
+        "synthetic",
+        "streetwear lookbook",
+        "active use"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "design_topic": "streetwear lookbook",
+      "lifecycle_stage": "active use",
+      "material_focus": "woven",
+      "season": "fictional all-season collection"
+    },
+    {
+      "id": "fashion_026",
+      "title": "Accessories Catalog — Active Use (Demo Record 26)",
+      "content": "This synthetic fashion record covers accessories catalog during the active use stage. Describes invented bags and jewelry by material, dimensions, care, and intended use. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic fashion demo record: Accessories Catalog — Active Use (Demo Record 26).",
+      "labels": [
+        "fashion",
+        "demo",
+        "synthetic",
+        "accessories catalog",
+        "active use"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "design_topic": "accessories catalog",
+      "lifecycle_stage": "active use",
+      "material_focus": "knit",
+      "season": "fictional all-season collection"
+    },
+    {
+      "id": "fashion_027",
+      "title": "Seasonal Color Story — Active Use (Demo Record 27)",
+      "content": "This synthetic fashion record covers seasonal color story during the active use stage. Explains how a fictional palette moves across garments without making trend claims. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic fashion demo record: Seasonal Color Story — Active Use (Demo Record 27).",
+      "labels": [
+        "fashion",
+        "demo",
+        "synthetic",
+        "seasonal color story",
+        "active use"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "design_topic": "seasonal color story",
+      "lifecycle_stage": "active use",
+      "material_focus": "mixed material",
+      "season": "fictional all-season collection"
+    },
+    {
+      "id": "fashion_028",
+      "title": "Garment Repair Guide — Active Use (Demo Record 28)",
+      "content": "This synthetic fashion record covers garment repair guide during the active use stage. Maps common repairs, required tools, skill level, and when specialist help is appropriate. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic fashion demo record: Garment Repair Guide — Active Use (Demo Record 28).",
+      "labels": [
+        "fashion",
+        "demo",
+        "synthetic",
+        "garment repair guide",
+        "active use"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "design_topic": "garment repair guide",
+      "lifecycle_stage": "active use",
+      "material_focus": "woven",
+      "season": "fictional all-season collection"
+    },
+    {
+      "id": "fashion_029",
+      "title": "Inclusive Sizing Review — Active Use (Demo Record 29)",
+      "content": "This synthetic fashion record covers inclusive sizing review during the active use stage. Checks grading consistency, fit feedback, measurement language, and sample coverage. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic fashion demo record: Inclusive Sizing Review — Active Use (Demo Record 29).",
+      "labels": [
+        "fashion",
+        "demo",
+        "synthetic",
+        "inclusive sizing review",
+        "active use"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "design_topic": "inclusive sizing review",
+      "lifecycle_stage": "active use",
+      "material_focus": "knit",
+      "season": "fictional all-season collection"
+    },
+    {
+      "id": "fashion_030",
+      "title": "Fashion Archive Record — Active Use (Demo Record 30)",
+      "content": "This synthetic fashion record covers fashion archive record during the active use stage. Catalogs a fictional garment by construction, condition, provenance status, and storage needs. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic fashion demo record: Fashion Archive Record — Active Use (Demo Record 30).",
+      "labels": [
+        "fashion",
+        "demo",
+        "synthetic",
+        "fashion archive record",
+        "active use"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "design_topic": "fashion archive record",
+      "lifecycle_stage": "active use",
+      "material_focus": "mixed material",
+      "season": "fictional all-season collection"
+    },
+    {
+      "id": "fashion_031",
+      "title": "Capsule Wardrobe Study — Review (Demo Record 31)",
+      "content": "This synthetic fashion record covers capsule wardrobe study during the review stage. A fictional collection tests color coordination, layering, repairability, and repeat wear. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic fashion demo record: Capsule Wardrobe Study — Review (Demo Record 31).",
+      "labels": [
+        "fashion",
+        "demo",
+        "synthetic",
+        "capsule wardrobe study",
+        "review"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "design_topic": "capsule wardrobe study",
+      "lifecycle_stage": "review",
+      "material_focus": "woven",
+      "season": "fictional all-season collection"
+    },
+    {
+      "id": "fashion_032",
+      "title": "Material Sourcing Brief — Review (Demo Record 32)",
+      "content": "This synthetic fashion record covers material sourcing brief during the review stage. Compares generated fabric records by composition, traceability, durability, and care needs. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic fashion demo record: Material Sourcing Brief — Review (Demo Record 32).",
+      "labels": [
+        "fashion",
+        "demo",
+        "synthetic",
+        "material sourcing brief",
+        "review"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "design_topic": "material sourcing brief",
+      "lifecycle_stage": "review",
+      "material_focus": "knit",
+      "season": "fictional all-season collection"
+    },
+    {
+      "id": "fashion_033",
+      "title": "Runway Production Plan — Review (Demo Record 33)",
+      "content": "This synthetic fashion record covers runway production plan during the review stage. Coordinates a fictional show schedule, fittings, lighting, accessibility, and backstage roles. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic fashion demo record: Runway Production Plan — Review (Demo Record 33).",
+      "labels": [
+        "fashion",
+        "demo",
+        "synthetic",
+        "runway production plan",
+        "review"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "design_topic": "runway production plan",
+      "lifecycle_stage": "review",
+      "material_focus": "mixed material",
+      "season": "fictional all-season collection"
+    },
+    {
+      "id": "fashion_034",
+      "title": "Footwear Design Review — Review (Demo Record 34)",
+      "content": "This synthetic fashion record covers footwear design review during the review stage. Documents fit tests, outsole choices, repair considerations, and sample revisions. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic fashion demo record: Footwear Design Review — Review (Demo Record 34).",
+      "labels": [
+        "fashion",
+        "demo",
+        "synthetic",
+        "footwear design review",
+        "review"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "design_topic": "footwear design review",
+      "lifecycle_stage": "review",
+      "material_focus": "woven",
+      "season": "fictional all-season collection"
+    },
+    {
+      "id": "fashion_035",
+      "title": "Streetwear Lookbook — Review (Demo Record 35)",
+      "content": "This synthetic fashion record covers streetwear lookbook during the review stage. Pairs fictional garments with art direction, sizing notes, and inclusive styling options. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic fashion demo record: Streetwear Lookbook — Review (Demo Record 35).",
+      "labels": [
+        "fashion",
+        "demo",
+        "synthetic",
+        "streetwear lookbook",
+        "review"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "design_topic": "streetwear lookbook",
+      "lifecycle_stage": "review",
+      "material_focus": "knit",
+      "season": "fictional all-season collection"
+    },
+    {
+      "id": "fashion_036",
+      "title": "Accessories Catalog — Review (Demo Record 36)",
+      "content": "This synthetic fashion record covers accessories catalog during the review stage. Describes invented bags and jewelry by material, dimensions, care, and intended use. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic fashion demo record: Accessories Catalog — Review (Demo Record 36).",
+      "labels": [
+        "fashion",
+        "demo",
+        "synthetic",
+        "accessories catalog",
+        "review"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "design_topic": "accessories catalog",
+      "lifecycle_stage": "review",
+      "material_focus": "mixed material",
+      "season": "fictional all-season collection"
+    },
+    {
+      "id": "fashion_037",
+      "title": "Seasonal Color Story — Review (Demo Record 37)",
+      "content": "This synthetic fashion record covers seasonal color story during the review stage. Explains how a fictional palette moves across garments without making trend claims. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic fashion demo record: Seasonal Color Story — Review (Demo Record 37).",
+      "labels": [
+        "fashion",
+        "demo",
+        "synthetic",
+        "seasonal color story",
+        "review"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "design_topic": "seasonal color story",
+      "lifecycle_stage": "review",
+      "material_focus": "woven",
+      "season": "fictional all-season collection"
+    },
+    {
+      "id": "fashion_038",
+      "title": "Garment Repair Guide — Review (Demo Record 38)",
+      "content": "This synthetic fashion record covers garment repair guide during the review stage. Maps common repairs, required tools, skill level, and when specialist help is appropriate. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic fashion demo record: Garment Repair Guide — Review (Demo Record 38).",
+      "labels": [
+        "fashion",
+        "demo",
+        "synthetic",
+        "garment repair guide",
+        "review"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "design_topic": "garment repair guide",
+      "lifecycle_stage": "review",
+      "material_focus": "knit",
+      "season": "fictional all-season collection"
+    },
+    {
+      "id": "fashion_039",
+      "title": "Inclusive Sizing Review — Review (Demo Record 39)",
+      "content": "This synthetic fashion record covers inclusive sizing review during the review stage. Checks grading consistency, fit feedback, measurement language, and sample coverage. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic fashion demo record: Inclusive Sizing Review — Review (Demo Record 39).",
+      "labels": [
+        "fashion",
+        "demo",
+        "synthetic",
+        "inclusive sizing review",
+        "review"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "design_topic": "inclusive sizing review",
+      "lifecycle_stage": "review",
+      "material_focus": "mixed material",
+      "season": "fictional all-season collection"
+    },
+    {
+      "id": "fashion_040",
+      "title": "Fashion Archive Record — Review (Demo Record 40)",
+      "content": "This synthetic fashion record covers fashion archive record during the review stage. Catalogs a fictional garment by construction, condition, provenance status, and storage needs. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic fashion demo record: Fashion Archive Record — Review (Demo Record 40).",
+      "labels": [
+        "fashion",
+        "demo",
+        "synthetic",
+        "fashion archive record",
+        "review"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "design_topic": "fashion archive record",
+      "lifecycle_stage": "review",
+      "material_focus": "woven",
+      "season": "fictional all-season collection"
+    },
+    {
+      "id": "fashion_041",
+      "title": "Capsule Wardrobe Study — Improvement (Demo Record 41)",
+      "content": "This synthetic fashion record covers capsule wardrobe study during the improvement stage. A fictional collection tests color coordination, layering, repairability, and repeat wear. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic fashion demo record: Capsule Wardrobe Study — Improvement (Demo Record 41).",
+      "labels": [
+        "fashion",
+        "demo",
+        "synthetic",
+        "capsule wardrobe study",
+        "improvement"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "design_topic": "capsule wardrobe study",
+      "lifecycle_stage": "improvement",
+      "material_focus": "knit",
+      "season": "fictional all-season collection"
+    },
+    {
+      "id": "fashion_042",
+      "title": "Material Sourcing Brief — Improvement (Demo Record 42)",
+      "content": "This synthetic fashion record covers material sourcing brief during the improvement stage. Compares generated fabric records by composition, traceability, durability, and care needs. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic fashion demo record: Material Sourcing Brief — Improvement (Demo Record 42).",
+      "labels": [
+        "fashion",
+        "demo",
+        "synthetic",
+        "material sourcing brief",
+        "improvement"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "design_topic": "material sourcing brief",
+      "lifecycle_stage": "improvement",
+      "material_focus": "mixed material",
+      "season": "fictional all-season collection"
+    },
+    {
+      "id": "fashion_043",
+      "title": "Runway Production Plan — Improvement (Demo Record 43)",
+      "content": "This synthetic fashion record covers runway production plan during the improvement stage. Coordinates a fictional show schedule, fittings, lighting, accessibility, and backstage roles. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic fashion demo record: Runway Production Plan — Improvement (Demo Record 43).",
+      "labels": [
+        "fashion",
+        "demo",
+        "synthetic",
+        "runway production plan",
+        "improvement"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "design_topic": "runway production plan",
+      "lifecycle_stage": "improvement",
+      "material_focus": "woven",
+      "season": "fictional all-season collection"
+    },
+    {
+      "id": "fashion_044",
+      "title": "Footwear Design Review — Improvement (Demo Record 44)",
+      "content": "This synthetic fashion record covers footwear design review during the improvement stage. Documents fit tests, outsole choices, repair considerations, and sample revisions. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic fashion demo record: Footwear Design Review — Improvement (Demo Record 44).",
+      "labels": [
+        "fashion",
+        "demo",
+        "synthetic",
+        "footwear design review",
+        "improvement"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "design_topic": "footwear design review",
+      "lifecycle_stage": "improvement",
+      "material_focus": "knit",
+      "season": "fictional all-season collection"
+    },
+    {
+      "id": "fashion_045",
+      "title": "Streetwear Lookbook — Improvement (Demo Record 45)",
+      "content": "This synthetic fashion record covers streetwear lookbook during the improvement stage. Pairs fictional garments with art direction, sizing notes, and inclusive styling options. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic fashion demo record: Streetwear Lookbook — Improvement (Demo Record 45).",
+      "labels": [
+        "fashion",
+        "demo",
+        "synthetic",
+        "streetwear lookbook",
+        "improvement"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "design_topic": "streetwear lookbook",
+      "lifecycle_stage": "improvement",
+      "material_focus": "mixed material",
+      "season": "fictional all-season collection"
+    },
+    {
+      "id": "fashion_046",
+      "title": "Accessories Catalog — Improvement (Demo Record 46)",
+      "content": "This synthetic fashion record covers accessories catalog during the improvement stage. Describes invented bags and jewelry by material, dimensions, care, and intended use. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic fashion demo record: Accessories Catalog — Improvement (Demo Record 46).",
+      "labels": [
+        "fashion",
+        "demo",
+        "synthetic",
+        "accessories catalog",
+        "improvement"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "design_topic": "accessories catalog",
+      "lifecycle_stage": "improvement",
+      "material_focus": "woven",
+      "season": "fictional all-season collection"
+    },
+    {
+      "id": "fashion_047",
+      "title": "Seasonal Color Story — Improvement (Demo Record 47)",
+      "content": "This synthetic fashion record covers seasonal color story during the improvement stage. Explains how a fictional palette moves across garments without making trend claims. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic fashion demo record: Seasonal Color Story — Improvement (Demo Record 47).",
+      "labels": [
+        "fashion",
+        "demo",
+        "synthetic",
+        "seasonal color story",
+        "improvement"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "design_topic": "seasonal color story",
+      "lifecycle_stage": "improvement",
+      "material_focus": "knit",
+      "season": "fictional all-season collection"
+    },
+    {
+      "id": "fashion_048",
+      "title": "Garment Repair Guide — Improvement (Demo Record 48)",
+      "content": "This synthetic fashion record covers garment repair guide during the improvement stage. Maps common repairs, required tools, skill level, and when specialist help is appropriate. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic fashion demo record: Garment Repair Guide — Improvement (Demo Record 48).",
+      "labels": [
+        "fashion",
+        "demo",
+        "synthetic",
+        "garment repair guide",
+        "improvement"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "design_topic": "garment repair guide",
+      "lifecycle_stage": "improvement",
+      "material_focus": "mixed material",
+      "season": "fictional all-season collection"
+    },
+    {
+      "id": "fashion_049",
+      "title": "Inclusive Sizing Review — Improvement (Demo Record 49)",
+      "content": "This synthetic fashion record covers inclusive sizing review during the improvement stage. Checks grading consistency, fit feedback, measurement language, and sample coverage. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic fashion demo record: Inclusive Sizing Review — Improvement (Demo Record 49).",
+      "labels": [
+        "fashion",
+        "demo",
+        "synthetic",
+        "inclusive sizing review",
+        "improvement"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "design_topic": "inclusive sizing review",
+      "lifecycle_stage": "improvement",
+      "material_focus": "woven",
+      "season": "fictional all-season collection"
+    },
+    {
+      "id": "fashion_050",
+      "title": "Fashion Archive Record — Improvement (Demo Record 50)",
+      "content": "This synthetic fashion record covers fashion archive record during the improvement stage. Catalogs a fictional garment by construction, condition, provenance status, and storage needs. The scenario includes concrete fields and decisions so search results remain useful in a public demonstration.",
+      "description": "Synthetic fashion demo record: Fashion Archive Record — Improvement (Demo Record 50).",
+      "labels": [
+        "fashion",
+        "demo",
+        "synthetic",
+        "fashion archive record",
+        "improvement"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "design_topic": "fashion archive record",
+      "lifecycle_stage": "improvement",
+      "material_focus": "knit",
+      "season": "fictional all-season collection"
+    }
+  ],
+  "fields": [
+    {
+      "name": "design_topic",
+      "type": "string"
+    },
+    {
+      "name": "lifecycle_stage",
+      "type": "string"
+    },
+    {
+      "name": "material_focus",
+      "type": "string"
+    },
+    {
+      "name": "season",
+      "type": "string"
+    }
+  ],
+  "metadata": {
+    "_fixture_kind": "synthetic_demo",
+    "_fixture_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market."
+  }
+}

@@ -1504,6 +1504,17 @@ ComprehensiveSearchQuery SearchAPI::ParseComprehensiveSearchQuery(const std::uno
           QueryObj.IncludeVectorDistance = ParseSearchBool(Params.at("include_distance"), false);
      }
 
+     if (Params.count("include_search_execution"))
+     {
+          QueryObj.IncludeSearchExecutionExplicit = true;
+          QueryObj.IncludeSearchExecution = ParseSearchBool(Params.at("include_search_execution"), true);
+     }
+
+     if (Params.count("include_search_query_text"))
+     {
+          QueryObj.IncludeSearchQueryText = ParseSearchBool(Params.at("include_search_query_text"), false);
+     }
+
      if (Params.count("hybrid_alpha"))
      {
           try

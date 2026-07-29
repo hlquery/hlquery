@@ -124,7 +124,9 @@ void RunSearches(const std::string &base_url, const std::string &auth_token)
 
      std::vector<std::string> bench_collections;
      static const std::vector<std::string> fake_collections =
-          {"anomalies", "art", "books", "food", "history", "math", "movies", "music", "people", "science", "sports", "stocks", "technology", "travel", "universities"};
+          {"anomalies", "art", "books", "ecommerce", "fashion", "finance", "food", "history",
+           "math", "movies", "music", "people", "saas", "science", "sports", "stocks",
+           "technology", "travel", "universities"};
 
      for (const auto &col : all_collections)
      {
@@ -157,9 +159,9 @@ void RunSearches(const std::string &base_url, const std::string &auth_token)
 
      std::vector<std::string> base_queries =
           {
-               "Document", "Collection", "content", "Lorem", "ipsum", "dolor",
-               "consectetur", "adipiscing", "elit", "inserted", "thread",
-               "music", "science", "band", "cake", "discovery", "$SPY", "$QQQ", "ticker", "cashtag", "anomaly", "outlier"};
+               "Document", "Collection", "content", "Lorem", "ipsum", "inserted", "thread",
+               "fictional", "synthetic", "demo", "university", "art", "music", "science",
+               "recipe", "technology", "history", "$HLQ01", "ticker", "anomaly", "profile", "ranking"};
 
      for (size_t i = 0; i < base_queries.size(); i++)
      {
@@ -178,7 +180,7 @@ void RunSearches(const std::string &base_url, const std::string &auth_token)
 
      if (std::find(bench_collections.begin(), bench_collections.end(), "stocks") != bench_collections.end())
      {
-          const std::vector<std::string> stock_queries = {"$SPY", "$QQQ", "SPY", "ticker"};
+          const std::vector<std::string> stock_queries = {"$HLQ01", "$HLQ02", "HLQ01", "ticker"};
 
           for (const auto &query : stock_queries)
           {
@@ -194,15 +196,15 @@ void RunSearches(const std::string &base_url, const std::string &auth_token)
      if (std::find(bench_collections.begin(), bench_collections.end(), "universities") != bench_collections.end())
      {
           const std::vector<std::string> university_queries = {
-               "research university",
-               "engineering campus",
-               "computer science university",
-               "public research university",
-               "student admissions faculty",
-               "cambridge boston university",
-               "greater boston campus",
-               "bay area university",
-               "twin cities university"};
+               "fictional university",
+               "engineering environmental research",
+               "computer science digital humanities",
+               "studio art museum studies",
+               "student services research",
+               "Cambridge Massachusetts university",
+               "Palo Alto California campus",
+               "fictional public polytechnic",
+               "United States demo ranking"};
 
           for (const auto &query : university_queries)
           {
@@ -216,28 +218,48 @@ void RunSearches(const std::string &base_url, const std::string &auth_token)
 
           std::map<std::string, std::string> rank_params;
           rank_params["limit"] = "5";
-          rank_params["sort_by"] = "webometrics_world_rank:asc";
+          rank_params["sort_by"] = "demo_rank:asc";
 
           std::map<std::string, std::string> default_rank_params;
           default_rank_params["limit"] = "5";
 
           auto default_rank_response = client.Search("universities", "university", default_rank_params);
 
-          PrintSearchResult(++search_count_val, "University default world-rank baseline: 'university'", default_rank_response, "universities");
+          PrintSearchResult(++search_count_val, "University default synthetic-rank baseline: 'university'", default_rank_response, "universities");
 
           auto rank_response = client.Search("universities", "university", rank_params);
 
-          PrintSearchResult(++search_count_val, "University explicit world-rank baseline: 'university'", rank_response, "universities");
+          PrintSearchResult(++search_count_val, "University explicit synthetic-rank baseline: 'university'", rank_response, "universities");
+     }
+
+     if (std::find(bench_collections.begin(), bench_collections.end(), "art") != bench_collections.end())
+     {
+          const std::vector<std::string> art_queries = {
+               "sculpture",
+               "installation lighting",
+               "portrait charcoal pastel",
+               "mural visual storytelling",
+               "gallery composition"};
+
+          for (const auto &query : art_queries)
+          {
+               std::map<std::string, std::string> params;
+               params["limit"] = "5";
+
+               auto response = client.Search("art", query, params);
+
+               PrintSearchResult(++search_count_val, "Art catalog search: '" + query + "'", response, "art");
+          }
      }
 
      if (std::find(bench_collections.begin(), bench_collections.end(), "people") != bench_collections.end())
      {
           const std::vector<std::string> people_queries = {
-               "Adrian Alexis Anderson",
-               "community librarian",
-               "software engineer",
-               "public health analyst",
-               "fictional biography"};
+               "Avery Alexis Northwind",
+               "community archivist",
+               "software reliability engineer",
+               "public health data analyst",
+               "fictional demo profile"};
 
           for (const auto &query : people_queries)
           {

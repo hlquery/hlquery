@@ -17,6 +17,7 @@
  */
 
 #include <algorithm>
+#include <cstdint>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -24,6 +25,8 @@
 #include <set>
 #include <sstream>
 #include <string>
+#include <unordered_map>
+#include <utility>
 #include <vector>
 #include <vendor/json/json.hpp>
 
@@ -77,10 +80,17 @@ std::filesystem::path FixtureDirectory()
           std::filesystem::path executable = std::filesystem::absolute(ExecutablePath, error);
           if (!error)
           {
-               const std::filesystem::path sibling = executable.parent_path().parent_path() / "benchmark";
-               if (std::filesystem::is_directory(sibling))
+               const std::filesystem::path prefix = executable.parent_path().parent_path();
+               const std::filesystem::path source_sibling = prefix / "benchmark";
+               if (std::filesystem::is_directory(source_sibling))
                {
-                    return sibling;
+                    return source_sibling;
+               }
+
+               const std::filesystem::path installed_sibling = prefix / "share" / "hlquery" / "benchmark";
+               if (std::filesystem::is_directory(installed_sibling))
+               {
+                    return installed_sibling;
                }
           }
      }
@@ -115,8 +125,108 @@ nlohmann::json CommonFields()
           {{"name", "title"}, {"type", "string"}},
           {{"name", "content"}, {"type", "string"}},
           {{"name", "description"}, {"type", "string"}},
-          {{"name", "labels"}, {"type", "string"}}
+          {{"name", "labels"}, {"type", "string"}},
+          {{"name", "is_synthetic"}, {"type", "bool"}},
+          {{"name", "data_notice"}, {"type", "string"}},
+          {{"name", "embedding"}, {"type", "float[]"}},
+          {{"name", "location"}, {"type", "geo_point"}},
+          {{"name", "location_name"}, {"type", "string"}}
      });
+}
+
+uint64_t StableFixtureHash(const std::string &value)
+{
+     uint64_t hash = 1469598103934665603ULL;
+     for (unsigned char character : value)
+     {
+          hash ^= character;
+          hash *= 1099511628211ULL;
+     }
+     return hash;
+}
+
+nlohmann::json BuildFixtureEmbedding(const std::string &collection,
+                                     const std::string &tag,
+                                     size_t index)
+{
+     const uint64_t seed = StableFixtureHash(collection + ":" + tag + ":" + std::to_string(index));
+     nlohmann::json embedding = nlohmann::json::array();
+
+     for (int dimension = 0; dimension < 4; ++dimension)
+     {
+          const uint64_t mixed = seed ^
+                                 (static_cast<uint64_t>(dimension + 1) * 0x9e3779b97f4a7c15ULL) ^
+                                 (static_cast<uint64_t>(index + 1U) * 101ULL);
+          embedding.push_back(static_cast<double>(mixed % 2001U) / 1000.0 - 1.0);
+     }
+
+     return embedding;
+}
+
+std::pair<double, double> FixtureCollectionCenter(const std::string &collection)
+{
+     static const std::unordered_map<std::string, std::pair<double, double>> centers = {
+          {"anomalies", {39.7392, -104.9903}},
+          {"art", {40.7614, -73.9776}},
+          {"books", {42.3601, -71.0589}},
+          {"ecommerce", {47.6062, -122.3321}},
+          {"fashion", {48.8566, 2.3522}},
+          {"finance", {40.7069, -74.0113}},
+          {"food", {40.7306, -73.9352}},
+          {"history", {38.8895, -77.0353}},
+          {"math", {42.3736, -71.1097}},
+          {"movies", {34.0522, -118.2437}},
+          {"music", {36.1627, -86.7816}},
+          {"people", {41.8781, -87.6298}},
+          {"saas", {37.7749, -122.4194}},
+          {"science", {37.7749, -122.4194}},
+          {"sports", {39.9526, -75.1652}},
+          {"stocks", {40.7069, -74.0113}},
+          {"technology", {37.3861, -122.0839}},
+          {"travel", {47.6062, -122.3321}},
+          {"universities", {39.8283, -98.5795}}};
+
+     const auto found = centers.find(collection);
+     return found == centers.end() ? std::make_pair(40.7128, -74.0060) : found->second;
+}
+
+nlohmann::json BuildFixtureLocation(const std::string &collection, size_t index)
+{
+     const auto center = FixtureCollectionCenter(collection);
+     const int row = static_cast<int>(index % 5U) - 2;
+     const int column = static_cast<int>((index / 5U) % 5U) - 2;
+
+     return nlohmann::json::array({
+          center.first + static_cast<double>(row) * 0.018,
+          center.second + static_cast<double>(column) * 0.024
+     });
+}
+
+std::string FixtureLocationName(const std::string &collection)
+{
+     static const std::unordered_map<std::string, std::string> names = {
+          {"anomalies", "Synthetic Denver operations region"},
+          {"art", "Synthetic New York arts district"},
+          {"books", "Synthetic Boston reading district"},
+          {"ecommerce", "Synthetic Seattle retail district"},
+          {"fashion", "Synthetic Paris design district"},
+          {"finance", "Synthetic New York finance district"},
+          {"food", "Synthetic New York restaurant district"},
+          {"history", "Synthetic Washington history district"},
+          {"math", "Synthetic Cambridge learning district"},
+          {"movies", "Synthetic Los Angeles studio district"},
+          {"music", "Synthetic Nashville music district"},
+          {"people", "Synthetic United States profile location"},
+          {"saas", "Synthetic San Francisco software district"},
+          {"science", "Synthetic San Francisco research district"},
+          {"sports", "Synthetic Philadelphia sports district"},
+          {"stocks", "Synthetic market-data region"},
+          {"technology", "Synthetic Mountain View technology district"},
+          {"travel", "Synthetic Seattle travel hub"},
+          {"universities", "Synthetic United States campus location"}};
+
+     const auto found = names.find(collection);
+     return found == names.end() ? "Synthetic benchmark location" : found->second;
 }
 
 bool ApplyGlobalFixture(BenchmarkClient &client, const nlohmann::json &fixture)
@@ -188,8 +298,8 @@ bool LoadCollectionFixture(BenchmarkClient &client, const std::filesystem::path 
 
      const nlohmann::json defaults = fixture.value("document_defaults", nlohmann::json::object());
      const nlohmann::json sequence_fields = fixture.value("sequence_fields", nlohmann::json::object());
-     const std::string title_template = fixture.value("title_template", "{collection} benchmark document {index}: {tag}");
-     const std::string content_template = fixture.value("content_template", "Document {index} in Collection {collection}. The content covers {tag}. Lorem ipsum dolor sit amet consectetur adipiscing elit inserted by benchmark thread.");
+     const std::string title_template = fixture.value("title_template", "{collection} demo {index}: {tag}");
+     const std::string content_template = fixture.value("content_template", "Synthetic {collection} demo record {index} covering {tag} with concrete searchable context.");
 
      size_t inserted = 0;
      for (size_t i = 0; i < count; ++i)
@@ -233,9 +343,14 @@ bool LoadCollectionFixture(BenchmarkClient &client, const std::filesystem::path 
           document["document_id"] = document["id"];
           if (!document.contains("title")) document["title"] = Expand(title_template, name, tag, i);
           if (!document.contains("content")) document["content"] = Expand(content_template, name, tag, i);
-          if (!document.contains("description")) document["description"] = "File-backed benchmark fixture for " + name;
-          if (!document.contains("labels")) document["labels"] = nlohmann::json::array({name, tag}).dump();
+          if (!document.contains("description")) document["description"] = "Synthetic " + name + " sample about " + tag + " for search demonstrations.";
+          if (!document.contains("labels")) document["labels"] = nlohmann::json::array({name, tag, "demo", "synthetic"}).dump();
           else if (document["labels"].is_array()) document["labels"] = document["labels"].dump();
+          if (!document.contains("is_synthetic")) document["is_synthetic"] = true;
+          if (!document.contains("data_notice")) document["data_notice"] = "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.";
+          if (!document.contains("embedding")) document["embedding"] = BuildFixtureEmbedding(name, tag, i);
+          if (!document.contains("location")) document["location"] = BuildFixtureLocation(name, i);
+          if (!document.contains("location_name")) document["location_name"] = FixtureLocationName(name);
 
           if (client.UpsertDocumentWithFieldsLocal(name, document))
           {

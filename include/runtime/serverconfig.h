@@ -682,6 +682,41 @@ class ServerConfig
           return RankingIdfFloorFactor;
      }
 
+     /* Returns whether the adaptive search master gate is enabled. */
+
+     bool GetAdaptiveSearchEnabled() const
+     {
+          return AdaptiveSearchEnabled;
+     }
+
+     /* Returns whether ordered search execution traces are enabled. */
+
+     bool GetAdaptiveSearchExecutionTrace() const
+     {
+          return AdaptiveSearchExecutionTrace;
+     }
+
+     /* Returns whether query text may appear in execution traces. */
+
+     bool GetAdaptiveSearchIncludeQueryText() const
+     {
+          return AdaptiveSearchIncludeQueryText;
+     }
+
+     /* Returns whether requests may disable adaptive search features. */
+
+     bool GetAdaptiveSearchAllowRequestDisable() const
+     {
+          return AdaptiveSearchAllowRequestDisable;
+     }
+
+     /* Returns whether non-sensitive adaptive capabilities may be exposed. */
+
+     bool GetAdaptiveSearchExposeCapabilities() const
+     {
+          return AdaptiveSearchExposeCapabilities;
+     }
+
      /* Returns hybrid merge method: linear or rrf. */
 
      std::string GetHybridMergeMethod() const
@@ -1962,6 +1997,14 @@ class ServerConfig
      double RankingTFIDFWeight = 0.3;
 
      /* Hybrid merge settings */
+
+     /* Adaptive search master controls. */
+
+     bool AdaptiveSearchEnabled = false;
+     bool AdaptiveSearchExecutionTrace = false;
+     bool AdaptiveSearchIncludeQueryText = false;
+     bool AdaptiveSearchAllowRequestDisable = true;
+     bool AdaptiveSearchExposeCapabilities = true;
 
      /* Hybrid score merge method: linear or rrf. */
 

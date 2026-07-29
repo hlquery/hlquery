@@ -908,6 +908,24 @@ void ServerConfig::ApplyConfiguration()
           ManagementPoolThreads = ParsePoolThreads("management_pool_threads", ManagementPoolThreads);
      }
 
+     /* Configure the adaptive search master controls. */
+
+     auto AdaptiveSearchTag = ConfigReaderValue.GetTag("adaptive_search");
+
+     if (AdaptiveSearchTag)
+     {
+          AdaptiveSearchEnabled = AdaptiveSearchTag->GetBool("enabled", AdaptiveSearchEnabled);
+          AdaptiveSearchExecutionTrace = AdaptiveSearchTag->GetBool("execution_trace", AdaptiveSearchExecutionTrace);
+          AdaptiveSearchIncludeQueryText = AdaptiveSearchTag->GetBool("include_query_text", AdaptiveSearchIncludeQueryText);
+          AdaptiveSearchAllowRequestDisable = AdaptiveSearchTag->GetBool("allow_request_disable", AdaptiveSearchAllowRequestDisable);
+          AdaptiveSearchExposeCapabilities = AdaptiveSearchTag->GetBool("expose_capabilities", AdaptiveSearchExposeCapabilities);
+
+          if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
+          {
+               Instance->Logs->Debug("serverconfig", "Loaded adaptive search controls: enabled=" + std::string(AdaptiveSearchEnabled ? "true" : "false") + ", execution_trace=" + std::string(AdaptiveSearchExecutionTrace ? "true" : "false") + ", include_query_text=" + std::string(AdaptiveSearchIncludeQueryText ? "true" : "false") + ", allow_request_disable=" + std::string(AdaptiveSearchAllowRequestDisable ? "true" : "false") + ", expose_capabilities=" + std::string(AdaptiveSearchExposeCapabilities ? "true" : "false") + ".");
+          }
+     }
+
      /* Configure search behavior and relevance algorithm parameters */
 
      auto SearchSettingsTag = ConfigReaderValue.GetTag("search");

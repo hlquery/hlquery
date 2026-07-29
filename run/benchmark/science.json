@@ -1,1 +1,227 @@
-{"collection":"science","count":10,"tags":["research","experiment","physics","biology","chemistry","astronomy","lab","discovery","theory","data"]}
+{
+  "fixture_version": 2,
+  "fixture_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+  "collection": "science",
+  "count": 10,
+  "tags": [
+    "research",
+    "experiment",
+    "physics",
+    "biology",
+    "chemistry",
+    "astronomy",
+    "fieldwork",
+    "replication",
+    "data"
+  ],
+  "documents": [
+    {
+      "id": "science_measuring-urban-heat-islands-demo-research-brief",
+      "title": "Measuring Urban Heat Islands (Demo Research Brief)",
+      "content": "A synthetic field-study design compares shaded and unshaded temperature sensors while controlling for time, surface material, and instrument calibration.",
+      "description": "Synthetic science demo record: Measuring Urban Heat Islands (Demo Research Brief).",
+      "labels": [
+        "science",
+        "demo",
+        "synthetic",
+        "research",
+        "environmental science",
+        "paired field measurements"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "field": "environmental science",
+      "method": "paired field measurements",
+      "evidence_level": "instructional example"
+    },
+    {
+      "id": "science_plant-growth-under-different-light-colors-demo-experiment",
+      "title": "Plant Growth under Different Light Colors (Demo Experiment)",
+      "content": "A classroom experiment varies light wavelength while keeping water, soil, temperature, and plant age consistent; repeated measurements reduce noise.",
+      "description": "Synthetic science demo record: Plant Growth under Different Light Colors (Demo Experiment).",
+      "labels": [
+        "science",
+        "demo",
+        "synthetic",
+        "experiment",
+        "biology",
+        "controlled growth experiment"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "field": "biology",
+      "method": "controlled growth experiment",
+      "evidence_level": "instructional example"
+    },
+    {
+      "id": "science_tracking-a-pendulum-period-demo-experiment",
+      "title": "Tracking a Pendulum Period (Demo Experiment)",
+      "content": "Repeated timing at several string lengths illustrates measurement error and the square-root relationship between length and pendulum period.",
+      "description": "Synthetic science demo record: Tracking a Pendulum Period (Demo Experiment).",
+      "labels": [
+        "science",
+        "demo",
+        "synthetic",
+        "physics",
+        "physics",
+        "repeated timing measurements"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "field": "physics",
+      "method": "repeated timing measurements",
+      "evidence_level": "instructional example"
+    },
+    {
+      "id": "science_mapping-a-simple-watershed-demo-field-note",
+      "title": "Mapping a Simple Watershed (Demo Field Note)",
+      "content": "Elevation, drainage direction, and observations after rainfall are combined to explain how water moves through a small fictional watershed.",
+      "description": "Synthetic science demo record: Mapping a Simple Watershed (Demo Field Note).",
+      "labels": [
+        "science",
+        "demo",
+        "synthetic",
+        "biology",
+        "earth science",
+        "mapping and observation"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "field": "earth science",
+      "method": "mapping and observation",
+      "evidence_level": "instructional example"
+    },
+    {
+      "id": "science_testing-vitamin-c-with-titration-demo-lab",
+      "title": "Testing Vitamin C with Titration (Demo Lab)",
+      "content": "A synthetic lab compares juice samples using the same indicator, volumes, endpoint definition, and replicate procedure.",
+      "description": "Synthetic science demo record: Testing Vitamin C with Titration (Demo Lab).",
+      "labels": [
+        "science",
+        "demo",
+        "synthetic",
+        "chemistry",
+        "chemistry",
+        "comparative titration"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "field": "chemistry",
+      "method": "comparative titration",
+      "evidence_level": "instructional example"
+    },
+    {
+      "id": "science_classifying-galaxy-shapes-demo-data-study",
+      "title": "Classifying Galaxy Shapes (Demo Data Study)",
+      "content": "A sample image set is labeled by multiple reviewers, then compared to discuss agreement, bias, and uncertainty in visual classification.",
+      "description": "Synthetic science demo record: Classifying Galaxy Shapes (Demo Data Study).",
+      "labels": [
+        "science",
+        "demo",
+        "synthetic",
+        "astronomy",
+        "astronomy",
+        "image classification"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "field": "astronomy",
+      "method": "image classification",
+      "evidence_level": "instructional example"
+    },
+    {
+      "id": "science_simulating-disease-spread-without-personal-data-demo-model",
+      "title": "Simulating Disease Spread without Personal Data (Demo Model)",
+      "content": "A toy network model varies contact rate and recovery time to show how assumptions change outcomes; it does not predict a real outbreak.",
+      "description": "Synthetic science demo record: Simulating Disease Spread without Personal Data (Demo Model).",
+      "labels": [
+        "science",
+        "demo",
+        "synthetic",
+        "fieldwork",
+        "epidemiology",
+        "synthetic network simulation"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "field": "epidemiology",
+      "method": "synthetic network simulation",
+      "evidence_level": "toy model"
+    },
+    {
+      "id": "science_replicating-a-memory-recall-task-demo-study",
+      "title": "Replicating a Memory Recall Task (Demo Study)",
+      "content": "A fictional protocol randomizes word-list order and records aggregate recall to demonstrate preregistration, controls, and replication.",
+      "description": "Synthetic science demo record: Replicating a Memory Recall Task (Demo Study).",
+      "labels": [
+        "science",
+        "demo",
+        "synthetic",
+        "replication",
+        "cognitive science",
+        "randomized recall task"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "field": "cognitive science",
+      "method": "randomized recall task",
+      "evidence_level": "instructional example"
+    },
+    {
+      "id": "science_comparing-battery-discharge-curves-demo-engineering-test",
+      "title": "Comparing Battery Discharge Curves (Demo Engineering Test)",
+      "content": "Synthetic voltage readings under fixed loads demonstrate sampling intervals, repeat trials, and cautious comparison of storage behavior.",
+      "description": "Synthetic science demo record: Comparing Battery Discharge Curves (Demo Engineering Test).",
+      "labels": [
+        "science",
+        "demo",
+        "synthetic",
+        "data",
+        "materials engineering",
+        "controlled discharge test"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "field": "materials engineering",
+      "method": "controlled discharge test",
+      "evidence_level": "synthetic measurements"
+    },
+    {
+      "id": "science_finding-patterns-in-noisy-sensor-data-demo-analysis",
+      "title": "Finding Patterns in Noisy Sensor Data (Demo Analysis)",
+      "content": "A generated dataset is cleaned, visualized, and checked for outliers before a simple model is evaluated on held-out samples.",
+      "description": "Synthetic science demo record: Finding Patterns in Noisy Sensor Data (Demo Analysis).",
+      "labels": [
+        "science",
+        "demo",
+        "synthetic",
+        "research",
+        "data science",
+        "synthetic data analysis"
+      ],
+      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "is_synthetic": true,
+      "field": "data science",
+      "method": "synthetic data analysis",
+      "evidence_level": "toy dataset"
+    }
+  ],
+  "fields": [
+    {
+      "name": "field",
+      "type": "string"
+    },
+    {
+      "name": "method",
+      "type": "string"
+    },
+    {
+      "name": "evidence_level",
+      "type": "string"
+    }
+  ],
+  "metadata": {
+    "_fixture_kind": "synthetic_demo",
+    "_fixture_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market."
+  }
+}
