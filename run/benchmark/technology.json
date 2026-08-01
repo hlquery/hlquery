@@ -1,0 +1,230 @@
+{
+  "fixture_version": 3,
+  "fixture_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+  "collection": "technology",
+  "count": 10,
+  "tags": [
+    "software",
+    "API",
+    "migration",
+    "observability",
+    "security",
+    "machine learning",
+    "mobile",
+    "events",
+    "robotics",
+    "cloud"
+  ],
+  "documents": [
+    {
+      "id": "technology_designing-a-search-api-contract-demo-technical-note",
+      "title": "Designing a Search API Contract (Demo Technical Note)",
+      "content": "Define stable request fields, explicit pagination, consistent errors, and versioning rules before optimizing implementation details.",
+      "description": "Synthetic technology demo record: Designing a Search API Contract (Demo Technical Note).",
+      "labels": [
+        "technology",
+        "demo",
+        "synthetic",
+        "software",
+        "API design",
+        "backend engineers"
+      ],
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+      "is_synthetic": true,
+      "topic": "API design",
+      "audience": "backend engineers",
+      "maturity": "design guide"
+    },
+    {
+      "id": "technology_zero-downtime-schema-migration-demo-technical-note",
+      "title": "Zero-Downtime Schema Migration (Demo Technical Note)",
+      "content": "A fictional rollout uses additive fields, dual reads, backfill checkpoints, metrics, and a reversible cutover.",
+      "description": "Synthetic technology demo record: Zero-Downtime Schema Migration (Demo Technical Note).",
+      "labels": [
+        "technology",
+        "demo",
+        "synthetic",
+        "API",
+        "database migration",
+        "platform teams"
+      ],
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+      "is_synthetic": true,
+      "topic": "database migration",
+      "audience": "platform teams",
+      "maturity": "operational pattern"
+    },
+    {
+      "id": "technology_practical-service-observability-demo-technical-note",
+      "title": "Practical Service Observability (Demo Technical Note)",
+      "content": "Logs, metrics, and traces are tied to user-visible outcomes, with bounded cardinality and clear incident questions.",
+      "description": "Synthetic technology demo record: Practical Service Observability (Demo Technical Note).",
+      "labels": [
+        "technology",
+        "demo",
+        "synthetic",
+        "migration",
+        "observability",
+        "site reliability engineers"
+      ],
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+      "is_synthetic": true,
+      "topic": "observability",
+      "audience": "site reliability engineers",
+      "maturity": "operational pattern"
+    },
+    {
+      "id": "technology_threat-modeling-a-file-upload-demo-technical-note",
+      "title": "Threat Modeling a File Upload (Demo Technical Note)",
+      "content": "The note identifies trust boundaries, file validation, storage isolation, authorization, rate limits, and safe failure behavior.",
+      "description": "Synthetic technology demo record: Threat Modeling a File Upload (Demo Technical Note).",
+      "labels": [
+        "technology",
+        "demo",
+        "synthetic",
+        "observability",
+        "application security",
+        "security and product engineers"
+      ],
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+      "is_synthetic": true,
+      "topic": "application security",
+      "audience": "security and product engineers",
+      "maturity": "design exercise"
+    },
+    {
+      "id": "technology_evaluating-a-small-language-model-locally-demo-technical-note",
+      "title": "Evaluating a Small Language Model Locally (Demo Technical Note)",
+      "content": "A synthetic evaluation set measures task quality, latency, memory, and failure modes without including private prompts or user data.",
+      "description": "Synthetic technology demo record: Evaluating a Small Language Model Locally (Demo Technical Note).",
+      "labels": [
+        "technology",
+        "demo",
+        "synthetic",
+        "security",
+        "machine learning evaluation",
+        "ML engineers"
+      ],
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+      "is_synthetic": true,
+      "topic": "machine learning evaluation",
+      "audience": "ML engineers",
+      "maturity": "evaluation guide"
+    },
+    {
+      "id": "technology_caching-without-stale-surprises-demo-technical-note",
+      "title": "Caching without Stale Surprises (Demo Technical Note)",
+      "content": "A fictional service documents cache keys, invalidation ownership, freshness limits, fallback behavior, and monitoring.",
+      "description": "Synthetic technology demo record: Caching without Stale Surprises (Demo Technical Note).",
+      "labels": [
+        "technology",
+        "demo",
+        "synthetic",
+        "machine learning",
+        "caching",
+        "backend engineers"
+      ],
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+      "is_synthetic": true,
+      "topic": "caching",
+      "audience": "backend engineers",
+      "maturity": "architecture guide"
+    },
+    {
+      "id": "technology_accessible-mobile-navigation-demo-technical-note",
+      "title": "Accessible Mobile Navigation (Demo Technical Note)",
+      "content": "The design uses semantic labels, predictable focus order, large touch targets, reduced-motion support, and keyboard testing.",
+      "description": "Synthetic technology demo record: Accessible Mobile Navigation (Demo Technical Note).",
+      "labels": [
+        "technology",
+        "demo",
+        "synthetic",
+        "mobile",
+        "mobile accessibility",
+        "mobile developers"
+      ],
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+      "is_synthetic": true,
+      "topic": "mobile accessibility",
+      "audience": "mobile developers",
+      "maturity": "implementation guide"
+    },
+    {
+      "id": "technology_event-processing-with-idempotency-demo-technical-note",
+      "title": "Event Processing with Idempotency (Demo Technical Note)",
+      "content": "A synthetic order workflow uses stable event IDs, deduplication, retry limits, dead-letter review, and replay-safe handlers.",
+      "description": "Synthetic technology demo record: Event Processing with Idempotency (Demo Technical Note).",
+      "labels": [
+        "technology",
+        "demo",
+        "synthetic",
+        "events",
+        "event-driven systems",
+        "distributed-systems engineers"
+      ],
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+      "is_synthetic": true,
+      "topic": "event-driven systems",
+      "audience": "distributed-systems engineers",
+      "maturity": "operational pattern"
+    },
+    {
+      "id": "technology_robotics-sensor-fusion-basics-demo-technical-note",
+      "title": "Robotics Sensor Fusion Basics (Demo Technical Note)",
+      "content": "A toy rover combines noisy distance and wheel measurements while exposing calibration assumptions and uncertainty.",
+      "description": "Synthetic technology demo record: Robotics Sensor Fusion Basics (Demo Technical Note).",
+      "labels": [
+        "technology",
+        "demo",
+        "synthetic",
+        "robotics",
+        "robotics",
+        "robotics students"
+      ],
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+      "is_synthetic": true,
+      "topic": "robotics",
+      "audience": "robotics students",
+      "maturity": "instructional example"
+    },
+    {
+      "id": "technology_reducing-cloud-cost-with-evidence-demo-technical-note",
+      "title": "Reducing Cloud Cost with Evidence (Demo Technical Note)",
+      "content": "A fictional team profiles idle capacity, storage growth, and request patterns before testing small reversible changes.",
+      "description": "Synthetic technology demo record: Reducing Cloud Cost with Evidence (Demo Technical Note).",
+      "labels": [
+        "technology",
+        "demo",
+        "synthetic",
+        "cloud",
+        "cloud cost engineering",
+        "platform teams"
+      ],
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+      "is_synthetic": true,
+      "topic": "cloud cost engineering",
+      "audience": "platform teams",
+      "maturity": "optimization guide"
+    }
+  ],
+  "metadata": {
+    "_fixture_kind": "synthetic_public_demo",
+    "_fixture_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+    "_demo_description": "Practical fictional technical notes about APIs, reliability, accessibility, security, and data systems.",
+    "_demo_queries": "search API design | zero downtime migration | accessible mobile navigation"
+  },
+  "fields": [
+    {
+      "name": "topic",
+      "type": "string"
+    },
+    {
+      "name": "audience",
+      "type": "string"
+    },
+    {
+      "name": "maturity",
+      "type": "string"
+    }
+  ]
+}

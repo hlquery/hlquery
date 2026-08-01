@@ -1,0 +1,230 @@
+{
+  "fixture_version": 3,
+  "fixture_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+  "collection": "history",
+  "count": 10,
+  "tags": [
+    "archive",
+    "maps",
+    "oral history",
+    "records",
+    "photograph",
+    "newspaper",
+    "ephemera",
+    "material culture",
+    "diary",
+    "museum"
+  ],
+  "documents": [
+    {
+      "id": "history_reading-a-city-council-ledger-demo-history-guide",
+      "title": "Reading a City Council Ledger (Demo History Guide)",
+      "content": "This instructional note explains how dates, authorship, omissions, and administrative purpose shape interpretation of a municipal ledger.",
+      "description": "Synthetic history demo record: Reading a City Council Ledger (Demo History Guide).",
+      "labels": [
+        "history",
+        "demo",
+        "synthetic",
+        "archive",
+        "modern",
+        "administrative record"
+      ],
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+      "is_synthetic": true,
+      "period": "modern",
+      "source_type": "administrative record",
+      "analysis_focus": "source context"
+    },
+    {
+      "id": "history_comparing-maps-across-decades-demo-history-guide",
+      "title": "Comparing Maps across Decades (Demo History Guide)",
+      "content": "A map-comparison exercise checks scale, labels, boundaries, and intended audience before drawing conclusions about urban change.",
+      "description": "Synthetic history demo record: Comparing Maps across Decades (Demo History Guide).",
+      "labels": [
+        "history",
+        "demo",
+        "synthetic",
+        "maps",
+        "nineteenth to twentieth century",
+        "historical maps"
+      ],
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+      "is_synthetic": true,
+      "period": "nineteenth to twentieth century",
+      "source_type": "historical maps",
+      "analysis_focus": "spatial change"
+    },
+    {
+      "id": "history_building-an-oral-history-index-demo-archive-note",
+      "title": "Building an Oral History Index (Demo Archive Note)",
+      "content": "A fictional archive workflow records consent, interview context, topics, and access limits while preserving the speaker's wording.",
+      "description": "Synthetic history demo record: Building an Oral History Index (Demo Archive Note).",
+      "labels": [
+        "history",
+        "demo",
+        "synthetic",
+        "oral history",
+        "contemporary",
+        "oral history"
+      ],
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+      "is_synthetic": true,
+      "period": "contemporary",
+      "source_type": "oral history",
+      "analysis_focus": "ethical description"
+    },
+    {
+      "id": "history_tracing-a-household-through-census-records-demo-exercise",
+      "title": "Tracing a Household through Census Records (Demo Exercise)",
+      "content": "A synthetic household illustrates how names, occupations, addresses, and enumeration errors can change between records.",
+      "description": "Synthetic history demo record: Tracing a Household through Census Records (Demo Exercise).",
+      "labels": [
+        "history",
+        "demo",
+        "synthetic",
+        "records",
+        "nineteenth century",
+        "synthetic census records"
+      ],
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+      "is_synthetic": true,
+      "period": "nineteenth century",
+      "source_type": "synthetic census records",
+      "analysis_focus": "record linkage"
+    },
+    {
+      "id": "history_interpreting-a-factory-photograph-demo-history-guide",
+      "title": "Interpreting a Factory Photograph (Demo History Guide)",
+      "content": "The note separates visible evidence from inference and asks who commissioned the image, who is absent, and what happened outside the frame.",
+      "description": "Synthetic history demo record: Interpreting a Factory Photograph (Demo History Guide).",
+      "labels": [
+        "history",
+        "demo",
+        "synthetic",
+        "photograph",
+        "industrial era",
+        "photograph"
+      ],
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+      "is_synthetic": true,
+      "period": "industrial era",
+      "source_type": "photograph",
+      "analysis_focus": "visual evidence"
+    },
+    {
+      "id": "history_newspaper-accounts-of-one-fictional-parade-demo-exercise",
+      "title": "Newspaper Accounts of One Fictional Parade (Demo Exercise)",
+      "content": "Three invented newspaper excerpts use different headlines and details to demonstrate editorial framing and corroboration.",
+      "description": "Synthetic history demo record: Newspaper Accounts of One Fictional Parade (Demo Exercise).",
+      "labels": [
+        "history",
+        "demo",
+        "synthetic",
+        "newspaper",
+        "early twentieth century",
+        "synthetic newspapers"
+      ],
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+      "is_synthetic": true,
+      "period": "early twentieth century",
+      "source_type": "synthetic newspapers",
+      "analysis_focus": "corroboration"
+    },
+    {
+      "id": "history_cataloging-community-posters-demo-archive-note",
+      "title": "Cataloging Community Posters (Demo Archive Note)",
+      "content": "A fictional poster collection is described by creator, date range, printing method, event type, and uncertainty rather than unsupported assumptions.",
+      "description": "Synthetic history demo record: Cataloging Community Posters (Demo Archive Note).",
+      "labels": [
+        "history",
+        "demo",
+        "synthetic",
+        "ephemera",
+        "late twentieth century",
+        "ephemera"
+      ],
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+      "is_synthetic": true,
+      "period": "late twentieth century",
+      "source_type": "ephemera",
+      "analysis_focus": "archival description"
+    },
+    {
+      "id": "history_following-a-trade-route-through-objects-demo-exhibit-note",
+      "title": "Following a Trade Route through Objects (Demo Exhibit Note)",
+      "content": "A synthetic exhibit groups ceramics, textiles, and tools to discuss exchange while clearly separating evidence from curatorial interpretation.",
+      "description": "Synthetic history demo record: Following a Trade Route through Objects (Demo Exhibit Note).",
+      "labels": [
+        "history",
+        "demo",
+        "synthetic",
+        "material culture",
+        "pre-modern",
+        "material culture"
+      ],
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+      "is_synthetic": true,
+      "period": "pre-modern",
+      "source_type": "material culture",
+      "analysis_focus": "exchange networks"
+    },
+    {
+      "id": "history_evaluating-a-wartime-diary-demo-history-guide",
+      "title": "Evaluating a Wartime Diary (Demo History Guide)",
+      "content": "The guide discusses viewpoint, chronology, later editing, trauma, and comparison with independent sources without reproducing a real person's diary.",
+      "description": "Synthetic history demo record: Evaluating a Wartime Diary (Demo History Guide).",
+      "labels": [
+        "history",
+        "demo",
+        "synthetic",
+        "diary",
+        "twentieth century",
+        "fictional diary"
+      ],
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+      "is_synthetic": true,
+      "period": "twentieth century",
+      "source_type": "fictional diary",
+      "analysis_focus": "personal testimony"
+    },
+    {
+      "id": "history_revising-a-museum-timeline-demo-curation-note",
+      "title": "Revising a Museum Timeline (Demo Curation Note)",
+      "content": "A fictional museum team adds local voices, uncertainty labels, and multiple scales of time to a previously simplified display.",
+      "description": "Synthetic history demo record: Revising a Museum Timeline (Demo Curation Note).",
+      "labels": [
+        "history",
+        "demo",
+        "synthetic",
+        "museum",
+        "multi-period",
+        "museum interpretation"
+      ],
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+      "is_synthetic": true,
+      "period": "multi-period",
+      "source_type": "museum interpretation",
+      "analysis_focus": "public history"
+    }
+  ],
+  "metadata": {
+    "_fixture_kind": "synthetic_public_demo",
+    "_fixture_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+    "_demo_description": "Public-history exercises about archives, maps, oral histories, photographs, and source interpretation.",
+    "_demo_queries": "oral history consent | compare historical maps | museum timeline"
+  },
+  "fields": [
+    {
+      "name": "period",
+      "type": "string"
+    },
+    {
+      "name": "source_type",
+      "type": "string"
+    },
+    {
+      "name": "analysis_focus",
+      "type": "string"
+    }
+  ]
+}

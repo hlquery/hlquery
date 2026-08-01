@@ -21,9 +21,9 @@
 #include "core/modulemanager.h"
 #include "runtime/daemon.h"
 
-void EmitDaemonHealthSnapshot(time_t NowTimeVal)
+void EmitDaemonHealthSnapshot(time_t CurrentTime)
 {
-     if (!Instance || NowTimeVal <= 0)
+     if (!Instance || CurrentTime <= 0)
      {
           return;
      }
@@ -36,12 +36,12 @@ void EmitDaemonHealthSnapshot(time_t NowTimeVal)
      constexpr size_t MaxHTTPQueue = 8000;
      constexpr size_t MaxSearchQueue = 4000;
 
-     if (LastSnapshotTime != 0 && (NowTimeVal - LastSnapshotTime) < SnapshotIntervalSec)
+     if (LastSnapshotTime != 0 && (CurrentTime - LastSnapshotTime) < SnapshotIntervalSec)
      {
           return;
      }
 
-     LastSnapshotTime = NowTimeVal;
+     LastSnapshotTime = CurrentTime;
 
      const size_t PendingActions = ActionList::GetActionCount();
      const bool PoolInitialized = ThreadPoolManager::GetInstance().IsInitialized();
@@ -74,7 +74,7 @@ void EmitDaemonHealthSnapshot(time_t NowTimeVal)
      }
 
      std::string SnapshotMessage =
-          "ts=" + std::to_string(static_cast<long long>(NowTimeVal)) +
+          "ts=" + std::to_string(static_cast<long long>(CurrentTime)) +
           " pending_actions=" + std::to_string(PendingActions) +
           " pools_initialized=" + std::string(PoolInitialized ? "yes" : "no") +
           " http_active=" + std::to_string(PoolStats.HTTPPool.ActiveThreads) +

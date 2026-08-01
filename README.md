@@ -33,14 +33,28 @@ hlquery is built for teams that want strong search without the operational weigh
 
 You can use hlquery for full-text search, hybrid retrieval, vector similarity, and AI-assisted workflows while keeping deployment straightforward. It ships with client libraries, command-line tools, and modular runtime extensions for local development and production services.
 
+### Data organization
+
+hlquery organizes data into **collections**. A collection is a logical group of related records, such as products, articles, users, or events, and its schema defines the fields that can be indexed, searched, filtered, sorted, or used for faceting.
+
+Each collection contains **documents**. A document is a JSON record identified by a unique ID and made up of fields such as `title`, `content`, `category`, or `price`. Documents in the same collection follow the same general schema, while each document stores its own values.
+
+For example, a `products` collection can contain one document per product. You can then search the text fields, filter by structured fields such as category or price, and return only the fields needed by your application. Collections keep different types of data organized while allowing each type to have its own schema and search behavior.
+
 ### Prerequisites
 
 **Debian/Ubuntu:**
 ```bash
-$ sudo apt-get install build-essential cmake libssl-dev liburing-dev
+$ sudo apt-get update
+$ sudo apt-get install build-essential cmake zlib1g-dev libssl-dev liburing-dev
 ```
 
-If CMake prints a `uring` lookup warning during the RocksDB build, it usually means the `liburing` development package is missing. Installing `liburing-dev` on Debian/Ubuntu provides the package metadata CMake is looking for and clears the warning.
+`cmake` and `zlib1g-dev` are required to configure and build hlquery and its
+bundled RocksDB dependency on Debian/Ubuntu.
+The `./configure` script validates CMake, GNU Make, the C++ compiler, and zlib
+headers/linking, and exits with an installation hint when a requirement is missing.
+
+If CMake prints a `uring` lookup warning during the rocksdb build, it usually means the `liburing` development package is missing. Installing `liburing-dev` on Debian/Ubuntu provides the package metadata CMake is looking for and clears the warning.
 
 **Red Hat/CentOS:**
 ```bash
@@ -65,7 +79,7 @@ $ sudo pkg install gmake cmake openssl
 
 ### Installation
 
-```bash
+```
 $ wget https://github.com/hlquery/hlquery/archive/refs/heads/unstable.zip
 $ cd hlquery/
 $ ./configure
@@ -80,16 +94,16 @@ $ make install
 
 On FreeBSD, use GNU make for the build and install steps:
 
-```bash
+```
 $ gmake -j4
 $ gmake install
 ```
 
 ### Running hlquery
 
-**Start the server:**
+**Start the server**
 
-```bash
+```
 $ ./run/hlquery start
 [ OK ] Starting hlquery: [Jul-12 - 12:37:59]
 ...
@@ -97,34 +111,38 @@ $ ./run/hlquery start
 
 > **Note**: hlquery uses port **9200** by default. Ensure this port is available and not blocked by your firewall.
 
-**Stop the server:**
+**Stop the server**
 
-```bash
+```
 $ ./run/hlquery stop
 [ INFO ] Stopping hlquery (PID: 27008) ...
 [ OK ] hlquery stopped successfully.
 ```
 
-**Stop the server as JSON:**
+**Stop the server as JSON**
 
-```bash
+```
 $ ./run/hlquery stop --json
 {"action":"stop","stopped_pid":206773,"success":true}
 ```
 
 **Run in foreground (for debugging):**
 
-```bash
+```
 $ ./run/hlquery start --nofork
 ...
 ```
 
-**Run the interactive shell:**
+**Run the interactive shell**
 
-```text
+```
 $ ./run/hlquery talk
 localhost:9200> use art
 Using collection 'art'.
+```
+
+**Checking uptime's**
+```
 localhost:9200|art> uptime
 Server up for 3 days, 1h 0m 31s
 ```
@@ -136,7 +154,7 @@ Official client libraries are available for popular programming languages:
 | Client | Description |
 | --- | --- |
 | **[C++](https://github.com/hlquery/cpp-api)** | Native C++ client library for low-level and embedded integrations. |
-| **[Go](https://github.com/hlquery/go-api)** | Idiomatic Go client for indexing, search, and service backends. |
+| **[Go](https://github.com/hlquery/go-api)** | Go client for indexing, search, and service backends. |
 | **[Java](https://github.com/hlquery/java-api)** | JVM client for Java applications and server-side integrations. |
 | **[Node.js](https://github.com/hlquery/node-api)** | Async JavaScript client for Node.js services and tools. |
 | **[Perl](https://github.com/hlquery/perl-api)** | Perl client library for scripts and existing Perl services. |
@@ -164,35 +182,20 @@ require_once __DIR__ . '/vendor/autoload.php';
 use Hlquery\Client;
 
 $client = new Client('http://localhost:9200');
-
-/* Get the collections service from the client. */
-
-$collections = $client->collections;
-
-/* Build the schema payload sent to hlquery. */
+$collections = $client->collections();
 
 $schema = [
     'fields' => [
-        /* Keep the main product title searchable.     */
-
         ['name' => 'title', 'type' => 'string'],
-
-        /* Index the longer product description text.  */
-
         ['name' => 'content', 'type' => 'string'],
-
-        /* Keep product identifiers as exact, non-fuzzy values. */
-
         ['name' => 'sku', 'type' => 'keyword'],
-
-        /* Save a numeric price for filters and sorts. */
-
         ['name' => 'price', 'type' => 'float'],
     ],
 ];
 
 $response = $collections->create('products', $schema);
 $body = $response->getBody();
+echo json_encode($body, JSON_PRETTY_PRINT) . PHP_EOL;
 
 $client->documents->add('products', [
     'id' => 'prod_keyboard_001',
@@ -212,7 +215,7 @@ $ hlquery-cli add products prod_laptop_001 "Laptop Computer" "High-performance l
 Document 'prod_laptop_001' added to collection 'products'
 ```
 
-**Using the Node API:**
+**Using the Node API**
 
 ```js
 const Client = require('hlquery-node-client');
@@ -248,7 +251,7 @@ Found 1 document(s) (showing 1-1 of 1)
 +---+-----------------+----------+-----------------+---------------------------------------+
 ```
 
-**Using the C++ API:**
+**Using the C++ API**
 
 ```cpp
 #include "hlquery/client.h"
@@ -311,8 +314,8 @@ Distributed search fans a query out to linked search nodes and merges the result
 
 ```text
 $ ./run/hlquery talk
-localhost:9200> sql: select title from music where content like 'madonna%' or content like 'nirvana%';
-SQL rows for `select title from music where content like 'madonna%' or content like 'nirvana%';`:
+localhost:9200> sql: select title from music where content like 'madon%' or content like 'nirva%';
+SQL rows for `select title from music where content like 'madon%' or content like 'nirva%';`:
 +-------------------------+
 | title                   |
 +-------------------------+
@@ -321,6 +324,13 @@ SQL rows for `select title from music where content like 'madonna%' or content l
 +-------------------------+
 2 results shown.
 Search completed in 19 ms.
+```
+
+Runtime links use the same role split. Use `role="master"` (or `distributed`) for a query link and `role="slave"` (or `replica`) for a replication target. If the link is authenticated, include `token` and optionally `token2` in the JSON body; runtime-added links are in-memory and must be added again after restart:
+
+```text
+POST /links/connect
+{"host":"127.0.0.1","port":9202,"role":"slave","token":"shared-secret"}
 ```
 
 ### GitHub Repositories & Branch Structure

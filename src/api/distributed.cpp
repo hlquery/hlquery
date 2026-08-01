@@ -198,8 +198,74 @@ static constexpr float kReplicaStaleTrustWeight = 0.80f;
 
 static constexpr size_t kMaxPendingReplicationRequests = 512;
 static constexpr int kPeerReconnectBackoffMaxMS = 5000;
+static constexpr const char *kPendingReplicationPrefix = "replication_pending:";
 static std::mutex PendingReplicationMutex;
 static std::unordered_map<std::string, std::vector<HttpRequest>> PendingReplicationRequests;
+static std::atomic<uint64_t> PendingReplicationSequence{1};
+
+static std::string BuildPendingReplicationKey()
+{
+     const uint64_t NowMS = Instance ? static_cast<uint64_t>(Instance->NowMs()) : static_cast<uint64_t>(time(nullptr) * 1000);
+     return std::string(kPendingReplicationPrefix) + std::to_string(NowMS) + "-" + std::to_string(PendingReplicationSequence.fetch_add(1, std::memory_order_relaxed));
+}
+
+static nlohmann::json SerializePendingReplication(const std::string &Endpoint, const HttpRequest &Request)
+{
+     nlohmann::json Record;
+     Record["endpoint"] = Endpoint;
+     Record["method"] = Request.Method;
+     Record["path"] = Request.Path;
+     Record["version"] = Request.Version;
+     Record["headers"] = Request.Headers;
+     Record["body"] = Request.Body;
+     Record["remote_address"] = Request.RemoteAddress;
+     Record["remote_port"] = Request.RemotePort;
+     Record["query_params"] = Request.QueryParams;
+     Record["api_key_id"] = Request.APIKeyID;
+     Record["authenticated"] = Request.Authenticated;
+     return Record;
+}
+
+static bool DeserializePendingReplication(const std::string &Raw,
+                                          const std::string &Endpoint,
+                                          HttpRequest *OutRequest)
+{
+     if (!OutRequest)
+     {
+          return false;
+     }
+
+     try
+     {
+          const nlohmann::json Record = nlohmann::json::parse(Raw);
+          if (Record.value("endpoint", std::string()) != Endpoint)
+          {
+               return false;
+          }
+
+          OutRequest->Method = Record.value("method", std::string());
+          OutRequest->Path = Record.value("path", std::string());
+          OutRequest->Version = Record.value("version", std::string("HTTP/1.1"));
+          OutRequest->Body = Record.value("body", std::string());
+          OutRequest->RemoteAddress = Record.value("remote_address", std::string());
+          OutRequest->RemotePort = Record.value("remote_port", 0);
+          OutRequest->APIKeyID = Record.value("api_key_id", std::string());
+          OutRequest->Authenticated = Record.value("authenticated", false);
+          if (Record.contains("headers") && Record["headers"].is_object())
+          {
+               OutRequest->Headers = Record["headers"].get<std::map<std::string, std::string>>();
+          }
+          if (Record.contains("query_params") && Record["query_params"].is_object())
+          {
+               OutRequest->QueryParams = Record["query_params"].get<std::map<std::string, std::string>>();
+          }
+          return !OutRequest->Method.empty() && !OutRequest->Path.empty();
+     }
+     catch (...)
+     {
+          return false;
+     }
+}
 
 struct PersistentPeerSocket
 {
@@ -597,8 +663,27 @@ static bool IsReplicationReplicaEndpoint(const std::string &Endpoint)
           return false;
      }
 
-     const auto SlaveNodes = Instance->Config->GetSlaveNodes();
-     return std::find(SlaveNodes.begin(), SlaveNodes.end(), TrimCopy(Endpoint)) != SlaveNodes.end();
+     std::string NodeHost;
+     int NodePort = 0;
+     bool NodeSSL = false;
+     if (!ParseNodeEndpoint(Endpoint, NodeHost, NodePort, NodeSSL))
+     {
+          return false;
+     }
+
+     for (const auto &Slave : Instance->Config->GetSlaveNodes())
+     {
+          std::string SlaveHost;
+          int SlavePort = 0;
+          bool SlaveSSL = false;
+          if (ParseNodeEndpoint(Slave, SlaveHost, SlavePort, SlaveSSL) &&
+              ToLowerCopy(NodeHost) == ToLowerCopy(SlaveHost) &&
+              NodePort == SlavePort && NodeSSL == SlaveSSL)
+          {
+               return true;
+          }
+     }
+     return false;
 }
 
 /* Implements the send HTTP request helper. */
@@ -1276,6 +1361,79 @@ static bool SendHttpRequest(const std::string &Host,
           size_t HeaderEnd = std::string::npos;
           size_t ExpectedBodyLength = 0;
           bool HasContentLength = false;
+          bool ChunkedTransfer = false;
+          std::string DecodedChunkedBody;
+
+          auto DecodeChunkedBody = [&](std::string *DecodedBodyOut) -> bool
+          {
+               if (!ChunkedTransfer || HeaderEnd == std::string::npos)
+               {
+                    return false;
+               }
+
+               const size_t BodyOffset = HeaderEnd + 4;
+               size_t Cursor = BodyOffset;
+               std::string Decoded;
+               while (true)
+               {
+                    const size_t LineEnd = RawResponse.find("\r\n", Cursor);
+                    if (LineEnd == std::string::npos)
+                    {
+                         return false;
+                    }
+
+                    std::string SizeText = RawResponse.substr(Cursor, LineEnd - Cursor);
+                    const size_t Extension = SizeText.find(';');
+                    if (Extension != std::string::npos)
+                    {
+                         SizeText.resize(Extension);
+                    }
+                    SizeText = TrimCopy(SizeText);
+                    size_t ChunkSize = 0;
+                    try
+                    {
+                         std::size_t Parsed = 0;
+                         ChunkSize = std::stoul(SizeText, &Parsed, 16);
+                         if (Parsed != SizeText.size())
+                         {
+                              return false;
+                         }
+                    }
+                    catch (...)
+                    {
+                         return false;
+                    }
+
+                    Cursor = LineEnd + 2;
+                    if (ChunkSize == 0)
+                    {
+                         /* A zero chunk is followed by either an empty trailer line
+                          * or one/more trailers terminated by an empty line. */
+                         if (RawResponse.compare(Cursor, 2, "\r\n") == 0)
+                         {
+                              if (DecodedBodyOut) *DecodedBodyOut = Decoded;
+                              return true;
+                         }
+                         if (RawResponse.find("\r\n\r\n", Cursor) != std::string::npos)
+                         {
+                              if (DecodedBodyOut) *DecodedBodyOut = Decoded;
+                              return true;
+                         }
+                         return false;
+                    }
+                    if (RawResponse.size() < Cursor + ChunkSize + 2)
+                    {
+                         return false;
+                    }
+                    if (RawResponse.compare(Cursor + ChunkSize, 2, "\r\n") != 0)
+                    {
+                         return false;
+                    }
+
+                    Decoded.append(RawResponse, Cursor, ChunkSize);
+                    Cursor += ChunkSize + 2;
+               }
+          };
 
           while (true)
           {
@@ -1283,6 +1441,10 @@ static bool SendHttpRequest(const std::string &Host,
                {
                     size_t CurrentBodyLength = RawResponse.size() - (HeaderEnd + 4);
                     if (HasContentLength && CurrentBodyLength >= ExpectedBodyLength)
+                    {
+                         break;
+                    }
+                    if (ChunkedTransfer && DecodeChunkedBody(&DecodedChunkedBody))
                     {
                          break;
                     }
@@ -1360,6 +1522,10 @@ static bool SendHttpRequest(const std::string &Host,
                               {
                                    ServerKeepAlive = false;
                               }
+                              else if (Name == "transfer-encoding" && ToLowerCopy(Value).find("chunked") != std::string::npos)
+                              {
+                                   ChunkedTransfer = true;
+                              }
                          }
 
                          if (KeepAliveOut)
@@ -1374,6 +1540,14 @@ static bool SendHttpRequest(const std::string &Host,
                               {
                                    break;
                               }
+                         }
+                         if (ChunkedTransfer && DecodeChunkedBody(&DecodedChunkedBody))
+                         {
+                              break;
+                         }
+                         if (!HasContentLength && !ChunkedTransfer)
+                         {
+                              ServerKeepAlive = false;
                          }
                     }
                }
@@ -1402,6 +1576,18 @@ static bool SendHttpRequest(const std::string &Host,
                     return false;
                }
                BodyStr = RawResponse.substr(BodyOffset, ExpectedBodyLength);
+          }
+          else if (ChunkedTransfer)
+          {
+               if (!DecodeChunkedBody(&DecodedChunkedBody))
+               {
+                    if (OutError)
+                    {
+                         *OutError = "Incomplete chunked HTTP response from " + Host + ":" + std::to_string(Port);
+                    }
+                    return false;
+               }
+               BodyStr = DecodedChunkedBody;
           }
           else
           {
@@ -2043,6 +2229,7 @@ bool SearchAPI::TryDistributedSearch(const HttpRequest &Request,
      bool IndexingInProgress = false;
      bool PartialResults = false;
      float MaxSearchTime = 0.0f;
+     bool LocalExecuted = false;
 
      auto AddLocal = [&](const ComprehensiveSearchResult &LocalRes)
      {
@@ -2089,11 +2276,13 @@ bool SearchAPI::TryDistributedSearch(const HttpRequest &Request,
 
      if (AllowLocal)
      {
+          LocalExecuted = true;
           ComprehensiveSearchResult LocalRes = PerformComprehensiveSearch(Collection, FanoutQuery);
           AddLocal(LocalRes);
      }
 
      int RemoteResponses = 0;
+     const auto FanoutDeadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(std::max(100, TimeoutMS));
 
      for (const auto &NodeState : RoutedNodes)
      {
@@ -2109,6 +2298,20 @@ bool SearchAPI::TryDistributedSearch(const HttpRequest &Request,
                     ComprehensiveSearchResult LocalRes = PerformComprehensiveSearch(Collection, FanoutQuery);
                     AddLocal(LocalRes);
                }
+               continue;
+          }
+
+          if (NodeState.Stale && !RouteSpecified)
+          {
+               std::map<std::string, std::string> Diagnostic;
+               Diagnostic["node"] = BuildDistributedNodeLabel(Node);
+               Diagnostic["status"] = "skipped_stale";
+               Diagnostic["merge_reason"] = "replica_not_fresh";
+               Diagnostic["replication_state"] = "stale";
+               Diagnostic["replication_dirty"] = NodeState.Dirty ? "true" : "false";
+               Diagnostic["replication_resync_in_progress"] = NodeState.ResyncInProgress ? "true" : "false";
+               NodeDiagnostics.push_back(std::move(Diagnostic));
+               PartialResults = true;
                continue;
           }
 
@@ -2146,7 +2349,18 @@ bool SearchAPI::TryDistributedSearch(const HttpRequest &Request,
           PeerRequestResult PeerResult;
           int ConnectionsPerPeer = Instance && Instance->Config ? Instance->Config->GetDistributedConnectionsPerPeer() : 4;
           int IdleMS = Instance && Instance->Config ? Instance->Config->GetDistributedTransportIdleMS() : 30000;
-          if (!ExecutePeerRequestWithFallback(Node.Host, Node.Port, Node.Endpoint, Node.UseSSL, FanoutRequest, TimeoutMS, UsePersistentTransport, PersistentBurst, ConnectionsPerPeer, IdleMS, AutoReconnect, ReconnectMS, PeerTokenSource::Cluster, &PeerResult))
+          const auto Remaining = std::chrono::duration_cast<std::chrono::milliseconds>(FanoutDeadline - std::chrono::steady_clock::now()).count();
+          if (Remaining <= 0)
+          {
+               PartialResults = true;
+               if (OutError && OutError->empty())
+               {
+                    *OutError = "Distributed search deadline exceeded.";
+               }
+               break;
+          }
+          const int RequestTimeoutMS = std::max(100, std::min(TimeoutMS, static_cast<int>(Remaining)));
+          if (!ExecutePeerRequestWithFallback(Node.Host, Node.Port, Node.Endpoint, Node.UseSSL, FanoutRequest, RequestTimeoutMS, UsePersistentTransport, PersistentBurst, ConnectionsPerPeer, IdleMS, AutoReconnect, ReconnectMS, PeerTokenSource::Cluster, &PeerResult))
           {
                std::map<std::string, std::string> Diagnostic;
                Diagnostic["node"] = BuildDistributedNodeLabel(Node);
@@ -2282,7 +2496,7 @@ bool SearchAPI::TryDistributedSearch(const HttpRequest &Request,
           RemoteResponses++;
      }
 
-     if (RemoteResponses == 0 && AggregatedHits.empty())
+     if (RemoteResponses == 0 && AggregatedHits.empty() && !LocalExecuted)
      {
           if (OutError && OutError->empty())
           {
@@ -2309,11 +2523,18 @@ bool SearchAPI::TryDistributedSearch(const HttpRequest &Request,
                     continue;
                }
 
-               const std::string &Id = It->second;
-               auto Found = SeenById.find(Id);
+               std::string DedupKey = Collection;
+               auto CollectionIt = Hit.Document.find("_collection");
+               if (CollectionIt != Hit.Document.end() && !CollectionIt->second.empty())
+               {
+                    DedupKey = CollectionIt->second;
+               }
+               DedupKey += "\x1f";
+               DedupKey += It->second;
+               auto Found = SeenById.find(DedupKey);
                if (Found == SeenById.end())
                {
-                    SeenById[Id] = Deduped.size();
+                    SeenById[DedupKey] = Deduped.size();
                     Deduped.push_back(std::move(Hit));
                }
                else
@@ -2335,6 +2556,8 @@ bool SearchAPI::TryDistributedSearch(const HttpRequest &Request,
      {
           FoundTotal = std::max(0, FoundTotal - DuplicateCount);
           OutOfTotal = std::max(0, OutOfTotal - DuplicateCount);
+          /* Counts/facets from shards are not exact after page-limited deduplication. */
+          PartialResults = true;
      }
      if (!NodeDiagnostics.empty())
      {
@@ -2407,9 +2630,15 @@ bool SearchAPI::TryDistributedSearch(const HttpRequest &Request,
      OutResult->SearchTimeMS = MaxSearchTime;
      OutResult->IndexingInProgress = IndexingInProgress;
      OutResult->PartialResults = PartialResults;
+     OutResult->PartialReason.clear();
      if (PartialResults)
      {
-          OutResult->PartialReason = "one_or_more_nodes_partial";
+          if (OutResult->PartialReason.empty())
+          {
+               OutResult->PartialReason = DuplicateCount > 0
+                                               ? "duplicate_merge_totals_estimated"
+                                               : "one_or_more_nodes_partial";
+          }
      }
      OutResult->DistributedDiagnostics = std::move(NodeDiagnostics);
 
@@ -2810,6 +3039,28 @@ void SearchAPI::EnsureReplicationMonitorStarted() const
           {
                (void)RestoreReplicationSlaveState(Endpoint);
           }
+
+          /* Durable pending writes must wake the monitor even if the process
+           * crashed before the corresponding dirty-state marker was flushed. */
+          if (Instance->Database)
+          {
+               for (const auto &Key : Instance->Database->Keys(std::string(kPendingReplicationPrefix) + "*", true))
+               {
+                    try
+                    {
+                         const nlohmann::json Record = nlohmann::json::parse(Instance->Database->Get(Key));
+                         const std::string Endpoint = Record.value("endpoint", std::string());
+                         if (!Endpoint.empty())
+                         {
+                              MarkSlaveDirty(Endpoint, false);
+                         }
+                    }
+                    catch (...)
+                    {
+                         RecordReplicationFailure("Invalid durable pending replication record: " + Key);
+                    }
+               }
+          }
      }
 
      ReplicationMonitorStop.store(false, std::memory_order_relaxed);
@@ -3067,7 +3318,27 @@ bool SearchAPI::QueuePendingReplication(const std::string &Endpoint,
 
      std::lock_guard<std::mutex> lock(PendingReplicationMutex);
      auto &Queue = PendingReplicationRequests[QueueEndpoint];
-     if (!AllowOverflow && Queue.size() >= kMaxPendingReplicationRequests)
+     size_t PersistentCount = 0;
+     if (Instance && Instance->Database)
+     {
+          for (const auto &Key : Instance->Database->Keys(std::string(kPendingReplicationPrefix) + "*", true))
+          {
+               const std::string Raw = Instance->Database->Get(Key);
+               try
+               {
+                    if (nlohmann::json::parse(Raw).value("endpoint", std::string()) == QueueEndpoint)
+                    {
+                         PersistentCount++;
+                    }
+               }
+               catch (...)
+               {
+                    RecordReplicationFailure("Invalid durable pending replication record: " + Key);
+               }
+          }
+     }
+
+     if (!AllowOverflow && Queue.size() + PersistentCount >= kMaxPendingReplicationRequests)
      {
           if (OutError)
           {
@@ -3075,12 +3346,27 @@ bool SearchAPI::QueuePendingReplication(const std::string &Endpoint,
           }
           return false;
      }
-     Queue.push_back(Request);
+     if (Instance && Instance->Database)
+     {
+          const std::string Key = BuildPendingReplicationKey();
+          if (!Instance->Database->Set(Key, SerializePendingReplication(QueueEndpoint, Request).dump()) || !Instance->Database->SyncWAL())
+          {
+               if (OutError)
+               {
+                    *OutError = "Failed to persist pending replication request for " + QueueEndpoint + ".";
+               }
+               return false;
+          }
+     }
+     else
+     {
+          Queue.push_back(Request);
+     }
      MaybeTriggerCrashInjection("replication_queue_append");
      return true;
 }
 
-std::vector<HttpRequest> SearchAPI::TakePendingReplications(const std::string &Endpoint) const
+std::vector<PendingReplicationRecord> SearchAPI::TakePendingReplications(const std::string &Endpoint) const
 {
      const std::string QueueEndpoint = TrimCopy(Endpoint);
      if (QueueEndpoint.empty())
@@ -3089,15 +3375,29 @@ std::vector<HttpRequest> SearchAPI::TakePendingReplications(const std::string &E
      }
 
      std::lock_guard<std::mutex> lock(PendingReplicationMutex);
-     auto It = PendingReplicationRequests.find(QueueEndpoint);
-     if (It == PendingReplicationRequests.end())
+     std::vector<PendingReplicationRecord> Pending;
+     if (Instance && Instance->Database)
      {
-          return {};
+          for (const auto &Key : Instance->Database->Keys(std::string(kPendingReplicationPrefix) + "*", true))
+          {
+               HttpRequest Request;
+               const std::string Raw = Instance->Database->Get(Key);
+               if (DeserializePendingReplication(Raw, QueueEndpoint, &Request))
+               {
+                    Pending.push_back({std::move(Request), Key});
+               }
+          }
      }
 
-     std::vector<HttpRequest> Pending;
-     Pending.swap(It->second);
-     PendingReplicationRequests.erase(It);
+     auto It = PendingReplicationRequests.find(QueueEndpoint);
+     if (It != PendingReplicationRequests.end())
+     {
+          for (auto &Request : It->second)
+          {
+               Pending.push_back({std::move(Request), ""});
+          }
+          PendingReplicationRequests.erase(It);
+     }
      return Pending;
 }
 
@@ -3109,22 +3409,31 @@ bool SearchAPI::ReplayPendingReplications(const std::string &Endpoint, const std
           return true;
      }
 
-     std::vector<HttpRequest> Failed;
-     for (const auto &Request : Pending)
+     std::vector<PendingReplicationRecord> Failed;
+     for (const auto &Record : Pending)
      {
           MaybeTriggerCrashInjection("replication_replay_send");
 
           HttpResponse ReplicaResponse;
           std::string ReplicaError;
-          if (ProxyReplicationRequest(Request, Host, Port, &ReplicaResponse, &ReplicaError))
+          if (ProxyReplicationRequest(Record.Request, Host, Port, &ReplicaResponse, &ReplicaError))
           {
                if (ReplicaResponse.StatusCode >= 200 && ReplicaResponse.StatusCode < 300)
                {
+                    if (!Record.StorageKey.empty() && Instance && Instance->Database)
+                    {
+                         Instance->Database->Del(Record.StorageKey);
+                    }
                     continue;
                }
           }
 
-          Failed.push_back(Request);
+          Failed.push_back(Record);
+     }
+
+     if (Instance && Instance->Database)
+     {
+          (void)Instance->Database->SyncWAL();
      }
 
      if (Failed.empty())
@@ -3134,14 +3443,29 @@ bool SearchAPI::ReplayPendingReplications(const std::string &Endpoint, const std
 
      std::lock_guard<std::mutex> lock(PendingReplicationMutex);
      auto &Queue = PendingReplicationRequests[Endpoint];
-     for (const auto &Request : Failed)
+     for (const auto &Record : Failed)
      {
-          Queue.push_back(Request);
+          if (Record.StorageKey.empty())
+          {
+               Queue.push_back(Record.Request);
+          }
      }
 
-     if (Queue.size() > kMaxPendingReplicationRequests)
+     size_t PersistentCount = 0;
+     if (Instance && Instance->Database)
      {
-          RecordReplicationFailure("Pending replication queue for " + Endpoint + " exceeded nominal limit during replay; preserving " + std::to_string(Queue.size()) + " queued requests to avoid data loss.");
+          for (const auto &Key : Instance->Database->Keys(std::string(kPendingReplicationPrefix) + "*", true))
+          {
+               HttpRequest Unused;
+               if (DeserializePendingReplication(Instance->Database->Get(Key), Endpoint, &Unused))
+               {
+                    PersistentCount++;
+               }
+          }
+     }
+     if (Queue.size() + PersistentCount > kMaxPendingReplicationRequests)
+     {
+          RecordReplicationFailure("Pending replication queue for " + Endpoint + " exceeded nominal limit during replay; preserving queued requests to avoid data loss.");
      }
 
      return false;
@@ -3163,7 +3487,8 @@ void SearchAPI::RecordReplicationSuccess(size_t AckCount) const
 
 bool SearchAPI::ReplicateWriteRequest(const HttpRequest &Request,
                                       const std::string &OperationLabel,
-                                      std::string *OutError) const
+                                      std::string *OutError,
+                                      const std::string &OutboxEntryID) const
 {
      EnsureReplicationMonitorStarted();
 
@@ -3198,6 +3523,10 @@ bool SearchAPI::ReplicateWriteRequest(const HttpRequest &Request,
      const std::string Mode = Instance && Instance->Config ? ToLowerCopy(Instance->Config->GetReplicationMode()) : std::string("sync_one");
      HttpRequest ReplicationRequest = Request;
      EnsureReplicationOperationID(ReplicationRequest);
+     if (!OutboxEntryID.empty())
+     {
+          ReplicationRequest.Headers["X-HLQ-Replication-Op"] = OutboxEntryID;
+     }
 
      size_t RequiredAcks = RemoteSlaves.size();
      if (Mode == "sync_one")
@@ -3213,9 +3542,14 @@ bool SearchAPI::ReplicateWriteRequest(const HttpRequest &Request,
      {
           size_t Acked = 0;
           std::vector<std::string> Errors;
+          bool QueueDurabilityFailure = false;
 
           for (const auto &Node : RemoteSlaves)
           {
+               /* Check the fence and send while holding the transition lock. A resync
+                * can therefore start either before this write or after it is fully
+                * applied, never in the middle of the hand-off. */
+               std::unique_lock<std::mutex> FenceLock(ReplicationResyncFenceMutex);
                uint64_t LastReachableMS = 0;
                bool IsDirty = false;
                bool ResyncInProgress = false;
@@ -3226,6 +3560,7 @@ bool SearchAPI::ReplicateWriteRequest(const HttpRequest &Request,
                     std::string QueueError;
                     if (!QueuePendingReplication(Node.Endpoint, ReplicationRequest, false, &QueueError))
                     {
+                         QueueDurabilityFailure = true;
                          Errors.push_back(Node.Endpoint + ": " + QueueError);
                     }
                     else
@@ -3255,6 +3590,7 @@ bool SearchAPI::ReplicateWriteRequest(const HttpRequest &Request,
                     std::string QueueError;
                     if (!QueuePendingReplication(Node.Endpoint, ReplicationRequest, false, &QueueError))
                     {
+                         QueueDurabilityFailure = true;
                          Errors.push_back(Node.Endpoint + ": " + (ReplicaError.empty() ? std::string("request failed") : ReplicaError) + "; " + QueueError);
                     }
                     else
@@ -3288,6 +3624,10 @@ bool SearchAPI::ReplicateWriteRequest(const HttpRequest &Request,
                               MarkSlaveDirty(Node.Endpoint);
                               std::string QueueError;
                               const bool Queued = QueuePendingReplication(Node.Endpoint, ReplicationRequest, false, &QueueError);
+                              if (!Queued)
+                              {
+                                   QueueDurabilityFailure = true;
+                              }
                               Errors.push_back(Node.Endpoint + ": flush applied but replica did not confirm durable database sync" +
                                                (Queued ? std::string("") : "; " + QueueError));
                               continue;
@@ -3312,6 +3652,10 @@ bool SearchAPI::ReplicateWriteRequest(const HttpRequest &Request,
                     MarkSlaveDirty(Node.Endpoint);
                     std::string QueueError;
                     const bool Queued = QueuePendingReplication(Node.Endpoint, ReplicationRequest, false, &QueueError);
+                    if (!Queued)
+                    {
+                         QueueDurabilityFailure = true;
+                    }
                     if (ResyncConflict)
                     {
                          Errors.push_back(Node.Endpoint + ": " + (Queued ? std::string("deferred while replica resync fence is active") : QueueError));
@@ -3346,6 +3690,10 @@ bool SearchAPI::ReplicateWriteRequest(const HttpRequest &Request,
                }
                ErrorStream << ")";
           }
+          if (QueueDurabilityFailure)
+          {
+               ErrorStream << " [durability_failure]";
+          }
 
           const std::string ErrorText = ErrorStream.str();
           RecordReplicationFailure(ErrorText);
@@ -3354,9 +3702,13 @@ bool SearchAPI::ReplicateWriteRequest(const HttpRequest &Request,
 
      if (Mode == "async")
      {
-          EnqueueAsyncReplicationTask([ExecuteReplication]()
+          EnqueueAsyncReplicationTask([this, ExecuteReplication, OutboxEntryID]()
                                       {
-                                           ExecuteReplication();
+                                           const auto Result = ExecuteReplication();
+                                           if (Result.first && !OutboxEntryID.empty())
+                                           {
+                                                ClearReplicationOutboxRecord(OutboxEntryID);
+                                           }
                                       });
           return true;
      }
@@ -3366,6 +3718,15 @@ bool SearchAPI::ReplicateWriteRequest(const HttpRequest &Request,
      {
           bool FailOnError = Instance && Instance->Config ? Instance->Config->GetReplicationFailOnError() : true;
           if (FailOnError)
+          {
+               if (OutError)
+               {
+                    *OutError = Result.second;
+               }
+               return false;
+          }
+
+          if (Result.second.find("[durability_failure]") != std::string::npos)
           {
                if (OutError)
                {
@@ -3698,6 +4059,7 @@ void SearchAPI::ReplicationMonitorLoop() const
 
                     bool ShouldResync = false;
                     {
+                         std::lock_guard<std::mutex> FenceLock(ReplicationResyncFenceMutex);
                          std::lock_guard<std::mutex> lock(ReplicationSlaveStateMutex);
                          if (ReplicationDirtySlaves.find(Node.Endpoint) != ReplicationDirtySlaves.end() &&
                              ReplicationResyncInProgress.find(Node.Endpoint) == ReplicationResyncInProgress.end())

@@ -1,0 +1,256 @@
+{
+  "fixture_version": 3,
+  "fixture_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+  "collection": "sports",
+  "count": 10,
+  "tags": [
+    "team",
+    "match",
+    "league",
+    "tournament",
+    "coach",
+    "training",
+    "score",
+    "fictional sports"
+  ],
+  "documents": [
+    {
+      "id": "sports_harbor-foxes-vs-cedar-owls-demo-match-report",
+      "title": "Harbor Foxes vs. Cedar Owls (Demo Match Report)",
+      "content": "In a fictional football match, the Harbor Foxes used wide overloads while the Cedar Owls protected central space and countered after turnovers.",
+      "description": "Synthetic sports demo record: Harbor Foxes vs. Cedar Owls (Demo Match Report).",
+      "labels": [
+        "sports",
+        "demo",
+        "synthetic",
+        "team",
+        "football",
+        "Example City League"
+      ],
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+      "is_synthetic": true,
+      "sport": "football",
+      "competition": "Example City League",
+      "home_team": "Harbor Foxes",
+      "away_team": "Cedar Owls",
+      "result": "2-1"
+    },
+    {
+      "id": "sports_northwind-comets-vs-valley-sparks-demo-game-recap",
+      "title": "Northwind Comets vs. Valley Sparks (Demo Game Recap)",
+      "content": "A fictional basketball recap highlights defensive rebounding, bench minutes, and a late switch to zone coverage.",
+      "description": "Synthetic sports demo record: Northwind Comets vs. Valley Sparks (Demo Game Recap).",
+      "labels": [
+        "sports",
+        "demo",
+        "synthetic",
+        "match",
+        "basketball",
+        "Example Regional Cup"
+      ],
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+      "is_synthetic": true,
+      "sport": "basketball",
+      "competition": "Example Regional Cup",
+      "home_team": "Northwind Comets",
+      "away_team": "Valley Sparks",
+      "result": "84-79"
+    },
+    {
+      "id": "sports_blue-river-aces-vs-summit-rackets-demo-match-report",
+      "title": "Blue River Aces vs. Summit Rackets (Demo Match Report)",
+      "content": "A fictional tennis tie turned on second-serve returns, patient baseline play, and careful workload management.",
+      "description": "Synthetic sports demo record: Blue River Aces vs. Summit Rackets (Demo Match Report).",
+      "labels": [
+        "sports",
+        "demo",
+        "synthetic",
+        "league",
+        "tennis",
+        "Example Club Series"
+      ],
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+      "is_synthetic": true,
+      "sport": "tennis",
+      "competition": "Example Club Series",
+      "home_team": "Blue River Aces",
+      "away_team": "Summit Rackets",
+      "result": "3-2"
+    },
+    {
+      "id": "sports_prairie-runners-relay-review-demo-event",
+      "title": "Prairie Runners Relay Review (Demo Event)",
+      "content": "A fictional relay team improved exchanges through shorter verbal cues, consistent check marks, and recovery planning.",
+      "description": "Synthetic sports demo record: Prairie Runners Relay Review (Demo Event).",
+      "labels": [
+        "sports",
+        "demo",
+        "synthetic",
+        "tournament",
+        "track and field",
+        "Example Open Meet"
+      ],
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+      "is_synthetic": true,
+      "sport": "track and field",
+      "competition": "Example Open Meet",
+      "home_team": "Prairie Runners",
+      "away_team": "Lakeview Striders",
+      "result": "fictional event"
+    },
+    {
+      "id": "sports_granite-peaks-vs-maple-waves-demo-match-report",
+      "title": "Granite Peaks vs. Maple Waves (Demo Match Report)",
+      "content": "A fictional volleyball report examines serve pressure, reception shape, middle-block timing, and substitution choices.",
+      "description": "Synthetic sports demo record: Granite Peaks vs. Maple Waves (Demo Match Report).",
+      "labels": [
+        "sports",
+        "demo",
+        "synthetic",
+        "coach",
+        "volleyball",
+        "Example College League"
+      ],
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+      "is_synthetic": true,
+      "sport": "volleyball",
+      "competition": "Example College League",
+      "home_team": "Granite Peaks",
+      "away_team": "Maple Waves",
+      "result": "3-1"
+    },
+    {
+      "id": "sports_orchard-blades-vs-copper-bears-demo-game-recap",
+      "title": "Orchard Blades vs. Copper Bears (Demo Game Recap)",
+      "content": "A fictional hockey game featured disciplined line changes, controlled zone entries, and strong penalty killing.",
+      "description": "Synthetic sports demo record: Orchard Blades vs. Copper Bears (Demo Game Recap).",
+      "labels": [
+        "sports",
+        "demo",
+        "synthetic",
+        "training",
+        "ice hockey",
+        "Example Winter League"
+      ],
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+      "is_synthetic": true,
+      "sport": "ice hockey",
+      "competition": "Example Winter League",
+      "home_team": "Orchard Blades",
+      "away_team": "Copper Bears",
+      "result": "4-3"
+    },
+    {
+      "id": "sports_willow-creek-rowing-time-trial-demo-event",
+      "title": "Willow Creek Rowing Time Trial (Demo Event)",
+      "content": "A fictional rowing review compares stroke consistency, pacing, wind adjustment, and crew communication.",
+      "description": "Synthetic sports demo record: Willow Creek Rowing Time Trial (Demo Event).",
+      "labels": [
+        "sports",
+        "demo",
+        "synthetic",
+        "score",
+        "rowing",
+        "Example River Regatta"
+      ],
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+      "is_synthetic": true,
+      "sport": "rowing",
+      "competition": "Example River Regatta",
+      "home_team": "Willow Creek Crew",
+      "away_team": "Silver Oak Crew",
+      "result": "fictional time trial"
+    },
+    {
+      "id": "sports_desert-sky-cyclists-stage-review-demo-event",
+      "title": "Desert Sky Cyclists Stage Review (Demo Event)",
+      "content": "A fictional cycling stage report focuses on hydration planning, crosswind positioning, mechanical checks, and shared team work.",
+      "description": "Synthetic sports demo record: Desert Sky Cyclists Stage Review (Demo Event).",
+      "labels": [
+        "sports",
+        "demo",
+        "synthetic",
+        "fictional sports",
+        "cycling",
+        "Example Desert Tour"
+      ],
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+      "is_synthetic": true,
+      "sport": "cycling",
+      "competition": "Example Desert Tour",
+      "home_team": "Desert Sky Cyclists",
+      "away_team": "Horizon Wheelers",
+      "result": "fictional stage"
+    },
+    {
+      "id": "sports_atlantic-harbor-vs-juniper-bay-demo-match-report",
+      "title": "Atlantic Harbor vs. Juniper Bay (Demo Match Report)",
+      "content": "A fictional baseball recap emphasizes pitch selection, defensive positioning, and the value of patient at-bats.",
+      "description": "Synthetic sports demo record: Atlantic Harbor vs. Juniper Bay (Demo Match Report).",
+      "labels": [
+        "sports",
+        "demo",
+        "synthetic",
+        "team",
+        "baseball",
+        "Example Harbor Series"
+      ],
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+      "is_synthetic": true,
+      "sport": "baseball",
+      "competition": "Example Harbor Series",
+      "home_team": "Atlantic Harbor",
+      "away_team": "Juniper Bay",
+      "result": "6-4"
+    },
+    {
+      "id": "sports_clearbrook-swifts-vs-redwood-wings-demo-match-report",
+      "title": "Clearbrook Swifts vs. Redwood Wings (Demo Match Report)",
+      "content": "A fictional badminton tie highlights net control, recovery steps, mixed-doubles communication, and rally construction.",
+      "description": "Synthetic sports demo record: Clearbrook Swifts vs. Redwood Wings (Demo Match Report).",
+      "labels": [
+        "sports",
+        "demo",
+        "synthetic",
+        "match",
+        "badminton",
+        "Example Community Cup"
+      ],
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+      "is_synthetic": true,
+      "sport": "badminton",
+      "competition": "Example Community Cup",
+      "home_team": "Clearbrook Swifts",
+      "away_team": "Redwood Wings",
+      "result": "4-1"
+    }
+  ],
+  "metadata": {
+    "_fixture_kind": "synthetic_public_demo",
+    "_fixture_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+    "_demo_description": "Fictional match and event reports with teams, tactics, competitions, and results.",
+    "_demo_queries": "football counterattack | volleyball serve pressure | rowing pacing"
+  },
+  "fields": [
+    {
+      "name": "sport",
+      "type": "string"
+    },
+    {
+      "name": "competition",
+      "type": "string"
+    },
+    {
+      "name": "home_team",
+      "type": "string"
+    },
+    {
+      "name": "away_team",
+      "type": "string"
+    },
+    {
+      "name": "result",
+      "type": "string"
+    }
+  ]
+}

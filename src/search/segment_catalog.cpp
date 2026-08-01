@@ -5,22 +5,52 @@
  * Copyright (C) 2021-2026, Carlos F. Ferry <carlos.ferry@gmail.com>
  *
  * This file is part of hlquery, released under the BSD License version 3.
+ * You are free to redistribute and/or modify this software
+ * under the terms of the BSD License.
+ * For more details, please visit: https://docs.hlquery.com
  */
 
-#include "search/segment_catalog.h"
-
+#include <cerrno>
+#include <fcntl.h>
 #include <filesystem>
 #include <fstream>
+#include <unistd.h>
 #include <utility>
 
+#include "search/segment_catalog.h"
 #include "vendor/json/json.hpp"
 
-namespace
+bool FsyncPath(const std::filesystem::path &path, bool directory)
 {
-bool FsyncFileBestEffort(const std::string &path)
-{
-     (void)path;
-     return true;
+     int flags = O_RDONLY;
+
+#ifdef O_DIRECTORY
+
+     if (directory)
+     {
+          flags |= O_DIRECTORY;
+     }
+
+#else
+
+     (void)directory;
+
+#endif
+
+     const int fd = ::open(path.c_str(), flags);
+     if (fd < 0)
+     {
+          return false;
+     }
+
+     bool ok = false;
+     do
+     {
+          ok = (::fsync(fd) == 0);
+     } while (!ok && errno == EINTR);
+
+     const int close_result = ::close(fd);
+     return ok && close_result == 0;
 }
 
 bool SaveJsonAtomic(const std::string &path, const nlohmann::json &json_value)
@@ -53,15 +83,22 @@ bool SaveJsonAtomic(const std::string &path, const nlohmann::json &json_value)
                }
           }
 
-          FsyncFileBestEffort(tmp_path.string());
+          if (!FsyncPath(tmp_path, false))
+          {
+               return false;
+          }
+
           std::filesystem::rename(tmp_path, target);
-          return true;
+
+          const std::filesystem::path parent = target.parent_path().empty()
+                                                    ? std::filesystem::path(".")
+                                                    : target.parent_path();
+          return FsyncPath(parent, true);
      }
      catch (...)
      {
           return false;
      }
-}
 }
 
 bool SegmentManifest::Load(const std::string &path, SegmentManifest &out_manifest)

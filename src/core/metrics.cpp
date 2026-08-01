@@ -36,6 +36,13 @@ std::chrono::system_clock::time_point HLQueryMetrics::MetricHistory::GetCurrentT
 
 void HLQueryMetrics::MetricHistory::AddPoint(double Value)
 {
+     /* Do not let invalid samples poison min/max/average summaries. */
+
+     if (!std::isfinite(Value))
+     {
+          return;
+     }
+
      std::lock_guard<std::mutex> Lock(PointsMutex);
 
      const auto NowTime = GetCurrentTime();

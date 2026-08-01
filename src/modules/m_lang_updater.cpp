@@ -44,6 +44,11 @@ class LangUpdaterRuntimeModule final : public AutoCompositeRuntimeModule<LangUpd
      std::atomic<bool> Running{false};
      std::atomic<uint64_t> TimerGeneration{0};
 
+     /* Every timer handle is retained so Stop() can cancel or drain its callback. */
+
+     std::mutex TimerHandlesMutex;
+     std::vector<uint64_t> TimerHandles;
+
      bool Enabled = true;
      bool RunOnStartup = false;
 
@@ -184,6 +189,8 @@ class LangUpdaterRuntimeModule final : public AutoCompositeRuntimeModule<LangUpd
 
      void ScheduleNext(uint64_t DelayMS)
      {
+          std::lock_guard<std::mutex> TimerLock(TimerHandlesMutex);
+
           if (!Enabled || Stopping.load(std::memory_order_acquire) || !Instance || !Instance->Timers)
           {
                return;
@@ -196,7 +203,7 @@ class LangUpdaterRuntimeModule final : public AutoCompositeRuntimeModule<LangUpd
                LastScheduledDelayMS = DelayMS;
           }
 
-          Instance->Timers->Add(
+          const uint64_t TimerIdentifier = Instance->Timers->Add(
                [this, Generation]()
                {
                     if (Stopping.load(std::memory_order_acquire) ||
@@ -209,6 +216,8 @@ class LangUpdaterRuntimeModule final : public AutoCompositeRuntimeModule<LangUpd
                },
                std::chrono::milliseconds(static_cast<int64_t>(DelayMS)),
                false);
+
+          TimerHandles.push_back(TimerIdentifier);
      }
 
      uint64_t GetCurrentIntervalMS() const
@@ -432,8 +441,21 @@ class LangUpdaterRuntimeModule final : public AutoCompositeRuntimeModule<LangUpd
 
      void Stop() override
      {
-          Stopping.store(true, std::memory_order_release);
-          TimerGeneration.fetch_add(1, std::memory_order_acq_rel);
+          std::vector<uint64_t> Handles;
+          {
+               std::lock_guard<std::mutex> Lock(TimerHandlesMutex);
+               Stopping.store(true, std::memory_order_release);
+               TimerGeneration.fetch_add(1, std::memory_order_acq_rel);
+               Handles.swap(TimerHandles);
+          }
+
+          if (Instance && Instance->Timers)
+          {
+               for (uint64_t Identifier : Handles)
+               {
+                    Instance->Timers->CancelAndWait(Identifier);
+               }
+          }
      }
 
      std::vector<ModuleCommandSpec> GetCommandSpecs() const override

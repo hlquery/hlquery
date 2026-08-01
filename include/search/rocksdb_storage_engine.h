@@ -14,7 +14,7 @@
 
 #ifndef ROCKSDB_NAMESPACE
 
-#define ROCKSDB_NAMESPACE rocksdb
+   #define ROCKSDB_NAMESPACE rocksdb
 
 #endif
 
@@ -47,6 +47,7 @@ class SegmentManager;
 class DBManager
 {
    private:
+
      /* DBValue holds the RocksDB instance. */
 
      std::unique_ptr<rocksdb::DB> DBValue;
@@ -181,6 +182,10 @@ class DBManager
      /* DeleteRange deletes keys in a key range. */
 
      size_t DeleteRange(const std::string &start_key, const std::string &end_key);
+
+     /* ClearDocumentStorage removes all document payloads from every storage segment. */
+
+     bool ClearDocumentStorage();
 
      /* Exists checks whether a key exists. */
 

@@ -589,21 +589,6 @@ sub unlink_pid_file_if_matches {
     unlink $pid_file_to_check;
 }
 
-sub wait_for_running_pid {
-    my ($timeout_seconds) = @_;
-    my $deadline = time + $timeout_seconds;
-    my $last_pid = 0;
-
-    while (time < $deadline) {
-        my $pid = is_running();
-        return $pid if $pid && $pid == $last_pid;
-        $last_pid = $pid || 0;
-        select(undef, undef, undef, 0.1);
-    }
-
-    return is_running();
-}
-
 sub start_server {
     my ($nofork, $debug, $skip_auth, @extra_args) = @_;
     my $startup_offset = startup_log_size();
@@ -676,8 +661,12 @@ sub start_server {
             exec @cmd;
             exit 1;
         } elsif ($fork_pid > 0) {
-            $SIG{CHLD} = 'IGNORE';
-            my $pid = wait_for_running_pid(5);
+            my $waited_pid = waitpid($fork_pid, 0);
+            my $child_status = $?;
+            my $child_exit = ($waited_pid == $fork_pid && ($child_status & 127) == 0)
+                ? ($child_status >> 8)
+                : 1;
+            my $pid = is_running();
             my $startup_output = read_startup_delta($startup_offset);
             my $startup = parse_startup_output($startup_output);
             my $port = configured_port();
@@ -689,11 +678,12 @@ sub start_server {
             }
             return {
                 action => 'start',
-                success => $pid ? '__JSON_TRUE__' : '__JSON_FALSE__',
-                pid => $pid || $fork_pid,
+                success => ($child_exit == 0 && $pid) ? '__JSON_TRUE__' : '__JSON_FALSE__',
+                pid => $pid,
                 port => $port,
                 startup => $startup,
-                exit_code => $pid ? 0 : 1,
+                ($child_exit != 0 ? (error => 'hlquery failed during startup') : ()),
+                exit_code => ($child_exit == 0 && $pid) ? 0 : 1,
             };
         } else {
             return {

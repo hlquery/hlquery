@@ -353,11 +353,8 @@ std::vector<std::string> RuntimeModule::ListStorageKeys(const std::string &Patte
      }
 
      const std::string prefix = GetStoragePrefix();
-
      const std::string pattern = prefix + (Pattern.empty() ? "*" : Pattern);
-
      const std::vector<std::string> full_keys = Instance->Database->Keys(pattern);
-
      relative_keys.reserve(full_keys.size());
 
      for (const auto &FullKey : full_keys)
@@ -378,9 +375,7 @@ size_t RuntimeModule::ClearStorage() const
      }
 
      const std::string prefix = GetStoragePrefix();
-
      const std::vector<std::string> full_keys = Instance->Database->Keys(prefix + "*");
-
      size_t deleted_count = 0;
 
      for (const auto &FullKey : full_keys)

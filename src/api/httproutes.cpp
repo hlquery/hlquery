@@ -12,6 +12,7 @@
 
 #include <initializer_list>
 #include <string_view>
+#include <algorithm>
 #include <unordered_map>
 
 #include "api/httpserver.h"
@@ -198,116 +199,265 @@ static CollectionRouteInfo BuildCollectionRouteInfo(std::string_view NormalizedP
      return Info;
 }
 
-/* Returns the exact-match GET route table. */
-
-static const std::unordered_map<std::string_view, RouteAction> &GetExactGetRoutes()
+bool IsPublicHttpRouteAction(RouteAction ActionVal)
 {
-     static const std::unordered_map<std::string_view, RouteAction> Routes = {
-          {"/", RouteAction::Status},
-          {"/admin/storage_status", RouteAction::StorageStatus},
-          {"/aliases", RouteAction::ListAliases},
-          {"/boot-status", RouteAction::Startup},
-          {"/cache", RouteAction::Cache},
-          {"/collections", RouteAction::ListCollections},
-          {"/collections/distributed", RouteAction::ListCollectionsDistributed},
-          {"/connections", RouteAction::Connections},
-          {"/config-files", RouteAction::ConfigFiles},
-          {"/consistency", RouteAction::Integrity},
-          {"/debug/counters", RouteAction::DebugCounters},
-          {"/doctotal", RouteAction::DocTotal},
-          {"/etc", RouteAction::Etc},
-          {"/health", RouteAction::Health},
-          {"/integrity", RouteAction::Integrity},
-          {"/keys", RouteAction::ListKeys},
-          {"/links", RouteAction::LinksList},
-          {"/links/ping", RouteAction::LinksPing},
-          {"/metrics", RouteAction::Metrics},
-          {"/metrics-history", RouteAction::MetricsHistory},
-          {"/metrics.json", RouteAction::Metrics},
-          {"/metrics/history", RouteAction::MetricsHistory},
-          {"/modules", RouteAction::ListModules},
-          {"/multi_search", RouteAction::MultiSearch},
-          {"/ping", RouteAction::Ping},
-          {"/presets", RouteAction::ListPresets},
-          {"/query", RouteAction::Status},
-          {"/ready", RouteAction::Ready},
-          {"/repair", RouteAction::Repair},
-          {"/rocksdb", RouteAction::RocksDB},
-          {"/search", RouteAction::GlobalSearch},
-          {"/search-config", RouteAction::SearchConfig},
-          {"/self-check", RouteAction::SelfCheck},
-          {"/sql", RouteAction::DocumentSearch},
-          {"/startup", RouteAction::Startup},
-          {"/stats", RouteAction::Stats},
-          {"/status", RouteAction::Status},
-          {"/stopwords", RouteAction::ListAllStopwords},
-          {"/stopwords/global", RouteAction::ListGlobalStopwords},
-          {"/stopword_sets", RouteAction::ListAllStopwords},
-          {"/stopword_sets/global", RouteAction::ListGlobalStopwords},
-          {"/synonyms", RouteAction::ListAllSynonyms},
-          {"/synonyms/global", RouteAction::ListGlobalSynonyms},
-          {"/synonym_sets", RouteAction::ListAllSynonyms},
-          {"/synonym_sets/global", RouteAction::ListGlobalSynonyms},
-          {"/update-counters", RouteAction::UpdateCounters},
-          {"/users", RouteAction::ListUsers},
-          {"/_rocksdb", RouteAction::RocksDB},
+     return ActionVal == RouteAction::Health || ActionVal == RouteAction::Ready ||
+            ActionVal == RouteAction::Status || ActionVal == RouteAction::SearchConfig ||
+            ActionVal == RouteAction::Ping || ActionVal == RouteAction::LinksList ||
+            ActionVal == RouteAction::LinksPing || ActionVal == RouteAction::Etc;
+}
+
+bool IsAdminOnlyHttpRouteAction(RouteAction ActionVal)
+{
+     switch (ActionVal)
+     {
+          case RouteAction::ListKeys: case RouteAction::CreateKey: case RouteAction::GetKey:
+          case RouteAction::DeleteKey: case RouteAction::UpdateKey: case RouteAction::ConfigFiles:
+          case RouteAction::ListPresets: case RouteAction::UpsertPreset: case RouteAction::GetPreset:
+          case RouteAction::DeletePreset: case RouteAction::ListUsers: case RouteAction::CreateUser:
+          case RouteAction::GetUser: case RouteAction::DeleteUser: case RouteAction::UpdateUser:
+          case RouteAction::LinksConnect: case RouteAction::LinksDisconnect: case RouteAction::Flush:
+          case RouteAction::Repair: case RouteAction::Cache: case RouteAction::ModuleLoad:
+          case RouteAction::ModuleUnload: case RouteAction::StorageStatus:
+               return true;
+          default:
+               return false;
+     }
+}
+
+/* The catalog is also consumed by /etc; exact paths in it drive exact routing. */
+
+const std::vector<HttpRouteDescription> &GetHttpRouteDescriptions()
+{
+     static const auto Describe = [](RouteAction Action, const char *Name,
+                                     std::initializer_list<const char *> Methods,
+                                     std::initializer_list<const char *> Paths,
+                                     const char *RequestType = "")
+     {
+          HttpRouteDescription Result;
+          Result.Action = Action;
+          Result.Name = Name;
+          for (const char *Method : Methods) Result.Methods.emplace_back(Method);
+          for (const char *Path : Paths) Result.Paths.emplace_back(Path);
+          Result.Access = IsPublicHttpRouteAction(Action) ? "public" :
+                          (IsAdminOnlyHttpRouteAction(Action) ? "admin" : "authenticated");
+          Result.RequestContentType = RequestType;
+          Result.ResponseContentType = "application/json";
+          return Result;
+     };
+
+     static const std::vector<HttpRouteDescription> Routes = {
+          Describe(RouteAction::Status, "status", {"GET"}, {"/", "/status", "/query"}),
+          Describe(RouteAction::SearchConfig, "search_config", {"GET"}, {"/search-config"}),
+          Describe(RouteAction::ConfigFiles, "config_files", {"GET"}, {"/config-files"}),
+          Describe(RouteAction::Health, "health", {"GET"}, {"/health"}),
+          Describe(RouteAction::Ready, "ready", {"GET"}, {"/ready"}),
+          Describe(RouteAction::Ping, "ping", {"GET"}, {"/ping"}),
+          Describe(RouteAction::Stats, "stats", {"GET"}, {"/stats"}),
+          Describe(RouteAction::Metrics, "metrics", {"GET"}, {"/metrics", "/metrics.json"}),
+          Describe(RouteAction::MetricsHistory, "metrics_history", {"GET"}, {"/metrics-history", "/metrics/history"}),
+          Describe(RouteAction::Cache, "cache", {"GET"}, {"/cache"}),
+          Describe(RouteAction::Connections, "connections", {"GET"}, {"/connections"}),
+          Describe(RouteAction::RocksDB, "rocksdb", {"GET"}, {"/rocksdb", "/_rocksdb"}),
+          Describe(RouteAction::DocTotal, "document_total", {"GET"}, {"/doctotal"}),
+          Describe(RouteAction::Flush, "flush", {"POST"}, {"/flush"}, "application/json"),
+          Describe(RouteAction::UpdateCounters, "update_counters", {"GET", "POST"}, {"/update-counters"}),
+          Describe(RouteAction::DebugCounters, "debug_counters", {"GET"}, {"/debug/counters"}),
+          Describe(RouteAction::Repair, "repair", {"GET", "POST"}, {"/repair"}, "application/json"),
+          Describe(RouteAction::Startup, "startup", {"GET"}, {"/startup", "/boot-status"}),
+          Describe(RouteAction::Integrity, "integrity", {"GET"}, {"/integrity", "/consistency"}),
+          Describe(RouteAction::SelfCheck, "self_check", {"GET"}, {"/self-check"}),
+          Describe(RouteAction::StorageStatus, "storage_status", {"GET"}, {"/admin/storage_status"}),
+          Describe(RouteAction::Etc, "etc", {"GET"}, {"/etc"}),
+          Describe(RouteAction::ListCollections, "collections_list", {"GET"}, {"/collections"}),
+          Describe(RouteAction::ListCollectionsDistributed, "collections_distributed", {"GET"}, {"/collections/distributed"}),
+          Describe(RouteAction::CreateCollection, "collection_create", {"POST"}, {"/collections"}, "application/json"),
+          Describe(RouteAction::GetCollection, "collection_get", {"GET"}, {"/collections/{collection}"}),
+          Describe(RouteAction::GetCollectionLanguage, "collection_language", {"GET"}, {"/collections/{collection}/lang"}),
+          Describe(RouteAction::UpdateCollection, "collection_update", {"POST"}, {"/collections/{collection}/update"}, "application/json"),
+          Describe(RouteAction::DeleteCollection, "collection_delete", {"DELETE"}, {"/collections/{collection}"}),
+          Describe(RouteAction::DocumentSearch, "document_search", {"GET", "POST"}, {"/collections/{collection}/documents/search", "/sql"}, "application/json"),
+          Describe(RouteAction::VectorSearch, "vector_search", {"GET", "POST"}, {"/collections/{collection}/vector_search", "/collections/{collection}/search"}, "application/json"),
+          Describe(RouteAction::MultiSearch, "multi_search", {"GET", "POST"}, {"/multi_search"}, "application/json"),
+          Describe(RouteAction::GlobalSearch, "global_search", {"GET", "POST"}, {"/search"}, "application/json"),
+          Describe(RouteAction::ListDocuments, "documents_list", {"GET"}, {"/collections/{collection}/documents"}),
+          Describe(RouteAction::GetDocument, "document_get", {"GET"}, {"/collections/{collection}/documents/{document}"}),
+          Describe(RouteAction::GetDocumentContext, "document_context", {"GET"}, {"/collections/{collection}/documents/{document}/context"}),
+          Describe(RouteAction::AddDocument, "document_add", {"POST"}, {"/collections/{collection}/documents"}, "application/json"),
+          Describe(RouteAction::BulkImportDocuments, "documents_import", {"POST"}, {"/collections/{collection}/documents/import"}, "application/x-ndjson"),
+          Describe(RouteAction::UpdateDocument, "document_update", {"PUT"}, {"/collections/{collection}/documents/{document}"}, "application/json"),
+          Describe(RouteAction::DeleteDocument, "document_delete", {"DELETE"}, {"/collections/{collection}/documents/{document}"}),
+          Describe(RouteAction::DeleteDocumentsByFilter, "documents_delete", {"DELETE"}, {"/collections/{collection}/documents"}),
+          Describe(RouteAction::UpdateByQuery, "documents_update_by_query", {"POST"}, {"/collections/{collection}/documents/_update_by_query"}, "application/json"),
+          Describe(RouteAction::DeleteByQuery, "documents_delete_by_query", {"POST"}, {"/collections/{collection}/documents/_delete_by_query"}, "application/json"),
+          Describe(RouteAction::FacetCounts, "facet_counts", {"GET", "POST"}, {"/collections/{collection}/documents/facet_counts"}, "application/json"),
+          Describe(RouteAction::ExportDocuments, "documents_export", {"GET", "POST"}, {"/collections/{collection}/documents/export"}, "application/json"),
+          Describe(RouteAction::MaybeSuggest, "maybe_suggest", {"GET", "POST"}, {"/collections/{collection}/documents/maybe"}, "application/json"),
+          Describe(RouteAction::ListSynonyms, "synonyms_list", {"GET"}, {"/collections/{collection}/synonyms", "/collections/{collection}/synonym_sets"}),
+          Describe(RouteAction::ListAllSynonyms, "synonyms_list_all", {"GET"}, {"/synonyms", "/synonym_sets"}),
+          Describe(RouteAction::UpsertSynonym, "synonym_upsert", {"POST", "PUT"}, {"/collections/{collection}/synonyms/{synonym}", "/collections/{collection}/synonym_sets/{synonym}"}, "application/json"),
+          Describe(RouteAction::GetSynonym, "synonym_get", {"GET"}, {"/collections/{collection}/synonyms/{synonym}", "/collections/{collection}/synonym_sets/{synonym}"}),
+          Describe(RouteAction::DeleteSynonym, "synonym_delete", {"DELETE"}, {"/collections/{collection}/synonyms/{synonym}", "/collections/{collection}/synonym_sets/{synonym}"}),
+          Describe(RouteAction::ListGlobalSynonyms, "global_synonyms_list", {"GET"}, {"/synonyms/global", "/synonym_sets/global"}),
+          Describe(RouteAction::UpsertGlobalSynonym, "global_synonym_upsert", {"POST", "PUT"}, {"/synonyms/global/{synonym}", "/synonym_sets/global/{synonym}", "/synonym_sets/global/items/{synonym}"}, "application/json"),
+          Describe(RouteAction::GetGlobalSynonym, "global_synonym_get", {"GET"}, {"/synonyms/global/{synonym}", "/synonym_sets/global/{synonym}", "/synonym_sets/global/items/{synonym}"}),
+          Describe(RouteAction::DeleteGlobalSynonym, "global_synonym_delete", {"DELETE"}, {"/synonyms/global/{synonym}", "/synonym_sets/global/{synonym}", "/synonym_sets/global/items/{synonym}"}),
+          Describe(RouteAction::ListStopwords, "stopwords_list", {"GET"}, {"/collections/{collection}/stopwords", "/collections/{collection}/stopword_sets"}),
+          Describe(RouteAction::ListAllStopwords, "stopwords_list_all", {"GET"}, {"/stopwords", "/stopword_sets"}),
+          Describe(RouteAction::CreateStopword, "stopword_create", {"POST"}, {"/collections/{collection}/stopwords", "/collections/{collection}/stopword_sets"}, "application/json"),
+          Describe(RouteAction::DeleteStopword, "stopword_delete", {"DELETE"}, {"/collections/{collection}/stopwords/{stopword}", "/collections/{collection}/stopword_sets/{stopword}"}),
+          Describe(RouteAction::ListGlobalStopwords, "global_stopwords_list", {"GET"}, {"/stopwords/global", "/stopword_sets/global"}),
+          Describe(RouteAction::CreateGlobalStopword, "global_stopword_create", {"POST"}, {"/stopwords/global", "/stopword_sets/global"}, "application/json"),
+          Describe(RouteAction::DeleteGlobalStopword, "global_stopword_delete", {"DELETE"}, {"/stopwords/global/{stopword}", "/stopword_sets/global/{stopword}", "/stopword_sets/global/items/{stopword}"}),
+          Describe(RouteAction::ListOverrides, "overrides_list", {"GET"}, {"/collections/{collection}/overrides", "/collections/{collection}/curations", "/collections/{collection}/curation_sets"}),
+          Describe(RouteAction::UpsertOverride, "override_upsert", {"POST", "PUT"}, {"/collections/{collection}/overrides/{override}", "/collections/{collection}/curations/{override}", "/collections/{collection}/curation_sets/{override}"}, "application/json"),
+          Describe(RouteAction::GetOverride, "override_get", {"GET"}, {"/collections/{collection}/overrides/{override}", "/collections/{collection}/curations/{override}", "/collections/{collection}/curation_sets/{override}"}),
+          Describe(RouteAction::DeleteOverride, "override_delete", {"DELETE"}, {"/collections/{collection}/overrides/{override}", "/collections/{collection}/curations/{override}", "/collections/{collection}/curation_sets/{override}"}),
+          Describe(RouteAction::ListAliases, "aliases_list", {"GET"}, {"/aliases", "/collections/{collection}/aliases"}),
+          Describe(RouteAction::UpsertAlias, "alias_upsert", {"POST", "PUT"}, {"/aliases/{alias}"}, "application/json"),
+          Describe(RouteAction::GetAlias, "alias_get", {"GET"}, {"/aliases/{alias}"}),
+          Describe(RouteAction::DeleteAlias, "alias_delete", {"DELETE"}, {"/aliases/{alias}"}),
+          Describe(RouteAction::LinksList, "links_list", {"GET"}, {"/links"}),
+          Describe(RouteAction::LinksPing, "links_ping", {"GET"}, {"/links/ping"}),
+          Describe(RouteAction::LinksConnect, "links_connect", {"POST"}, {"/links/connect"}, "application/json"),
+          Describe(RouteAction::LinksDisconnect, "links_disconnect", {"POST"}, {"/links/disconnect"}, "application/json"),
+          Describe(RouteAction::ListUsers, "users_list", {"GET"}, {"/users"}),
+          Describe(RouteAction::CreateUser, "user_create", {"POST"}, {"/users"}, "application/json"),
+          Describe(RouteAction::GetUser, "user_get", {"GET"}, {"/users/{user}"}),
+          Describe(RouteAction::UpdateUser, "user_update", {"PUT"}, {"/users/{user}"}, "application/json"),
+          Describe(RouteAction::DeleteUser, "user_delete", {"DELETE"}, {"/users/{user}"}),
+          Describe(RouteAction::ListKeys, "keys_list", {"GET"}, {"/keys"}),
+          Describe(RouteAction::CreateKey, "key_create", {"POST"}, {"/keys"}, "application/json"),
+          Describe(RouteAction::GetKey, "key_get", {"GET"}, {"/keys/{key}"}),
+          Describe(RouteAction::UpdateKey, "key_update", {"PUT"}, {"/keys/{key}"}, "application/json"),
+          Describe(RouteAction::DeleteKey, "key_delete", {"DELETE"}, {"/keys/{key}"}),
+          Describe(RouteAction::ListPresets, "presets_list", {"GET"}, {"/presets"}),
+          Describe(RouteAction::UpsertPreset, "preset_upsert", {"POST", "PUT"}, {"/presets/{preset}"}, "application/json"),
+          Describe(RouteAction::GetPreset, "preset_get", {"GET"}, {"/presets/{preset}"}),
+          Describe(RouteAction::DeletePreset, "preset_delete", {"DELETE"}, {"/presets/{preset}"}),
+          Describe(RouteAction::AnalyticsClick, "analytics_click", {"POST"}, {"/analytics/click"}, "application/json"),
+          Describe(RouteAction::ListModules, "modules_list", {"GET"}, {"/modules"}),
+          Describe(RouteAction::GetModuleSyntax, "module_syntax", {"GET"}, {"/modules/{module}/syntax"}),
+          Describe(RouteAction::ModuleLoad, "module_load", {"POST"}, {"/loadmodule", "/loadmodule/{module}", "/modules/load", "/modules/load/{module}"}, "application/json"),
+          Describe(RouteAction::ModuleUnload, "module_unload", {"POST"}, {"/unloadmodule", "/unloadmodule/{module}", "/modules/unload", "/modules/unload/{module}"}, "application/json"),
+          Describe(RouteAction::ModuleAPI, "module_api", {"GET", "POST", "PUT", "PATCH", "DELETE"}, {"/modules/{module}/{path}"}, "application/json")
      };
 
      return Routes;
 }
 
-/* Returns the exact-match POST route table. */
-
-static const std::unordered_map<std::string_view, RouteAction> &GetExactPostRoutes()
+static bool MatchesCatalogPath(std::string_view Pattern, std::string_view Path)
 {
-     static const std::unordered_map<std::string_view, RouteAction> Routes = {
-          {"/analytics/click", RouteAction::AnalyticsClick},
-          {"/collections", RouteAction::CreateCollection},
-          {"/flush", RouteAction::Flush},
-          {"/keys", RouteAction::CreateKey},
-          {"/links/connect", RouteAction::LinksConnect},
-          {"/links/disconnect", RouteAction::LinksDisconnect},
-          {"/loadmodule", RouteAction::ModuleLoad},
-          {"/multi_search", RouteAction::MultiSearch},
-          {"/repair", RouteAction::Repair},
-          {"/search", RouteAction::GlobalSearch},
-          {"/sql", RouteAction::DocumentSearch},
-          {"/stopword_sets/global", RouteAction::CreateGlobalStopword},
-          {"/stopwords/global", RouteAction::CreateGlobalStopword},
-          {"/unloadmodule", RouteAction::ModuleUnload},
-          {"/update-counters", RouteAction::UpdateCounters},
-          {"/users", RouteAction::CreateUser},
-     };
+     const auto PatternSegments = SplitRouteSegments(Pattern);
+     const auto PathSegments = SplitRouteSegments(Path);
 
+     if (PatternSegments.size() != PathSegments.size())
+     {
+          return false;
+     }
+
+     for (size_t I = 0; I < PatternSegments.size(); ++I)
+     {
+          const std::string_view Segment = PatternSegments[I];
+          const bool Placeholder = Segment.size() >= 2 && Segment.front() == '{' && Segment.back() == '}';
+          if (!Placeholder && Segment != PathSegments[I])
+          {
+               return false;
+          }
+     }
+
+     return true;
+}
+
+std::vector<std::string> GetAllowedHttpMethods(const std::string &Path)
+{
+     const std::string NormalizedPath = NormalizeRoutePath(Path);
+     std::vector<std::string> Result;
+
+     for (const auto &Description : GetHttpRouteDescriptions())
+     {
+          bool Matches = false;
+          for (const auto &Pattern : Description.Paths)
+          {
+               if (MatchesCatalogPath(Pattern, NormalizedPath))
+               {
+                    Matches = true;
+                    break;
+               }
+          }
+
+          if (!Matches) continue;
+          for (const auto &Method : Description.Methods)
+          {
+               if (std::find(Result.begin(), Result.end(), Method) == Result.end()) Result.push_back(Method);
+          }
+     }
+
+     std::sort(Result.begin(), Result.end());
+     return Result;
+}
+
+nlohmann::json BuildHttpRouteDiscoveryJSON()
+{
+     nlohmann::json Routes = nlohmann::json::array();
+     for (const auto &Description : GetHttpRouteDescriptions())
+     {
+          nlohmann::json Route;
+          Route["name"] = Description.Name;
+          Route["methods"] = Description.Methods;
+          Route["paths"] = Description.Paths;
+          Route["access"] = Description.Access;
+          Route["response_content_type"] = Description.ResponseContentType;
+          if (!Description.RequestContentType.empty()) Route["request_content_type"] = Description.RequestContentType;
+
+          std::vector<std::string> PathParameters;
+          for (const auto &Path : Description.Paths)
+          {
+               size_t Open = 0;
+               while ((Open = Path.find('{', Open)) != std::string::npos)
+               {
+                    const size_t Close = Path.find('}', Open + 1);
+                    if (Close == std::string::npos) break;
+                    const std::string Parameter = Path.substr(Open + 1, Close - Open - 1);
+                    if (std::find(PathParameters.begin(), PathParameters.end(), Parameter) == PathParameters.end())
+                    {
+                         PathParameters.push_back(Parameter);
+                    }
+                    Open = Close + 1;
+               }
+          }
+          Route["path_parameters"] = PathParameters;
+          Routes.push_back(std::move(Route));
+     }
      return Routes;
 }
 
 /* Resolves exact route values. */
 
-static RouteAction ResolveExactRoute(std::string_view Path, const std::string &Method)
+static const std::unordered_map<std::string, std::unordered_map<std::string, RouteAction>> &GetExactRoutes()
 {
-     const std::unordered_map<std::string_view, RouteAction> *Routes = nullptr;
+     static const auto Routes = []
+     {
+          std::unordered_map<std::string, std::unordered_map<std::string, RouteAction>> Result;
+          for (const auto &Description : GetHttpRouteDescriptions())
+          {
+               for (const auto &Path : Description.Paths)
+               {
+                    if (Path.find('{') != std::string::npos) continue;
+                    for (const auto &Method : Description.Methods) Result[Method][Path] = Description.Action;
+               }
+          }
+          return Result;
+     }();
+     return Routes;
+}
 
-     if (Method == "GET")
-     {
-          Routes = &GetExactGetRoutes();
-     }
-     else if (Method == "POST")
-     {
-          Routes = &GetExactPostRoutes();
-     }
-     else
-     {
-          return RouteAction::NotFound;
-     }
-
-     const auto RouteIt = Routes->find(Path);
-     if (RouteIt == Routes->end())
-     {
-          return RouteAction::NotFound;
-     }
-
-     return RouteIt->second;
+static RouteAction ResolveExactRoute(const std::string &Path, const std::string &Method)
+{
+     const auto MethodIt = GetExactRoutes().find(Method);
+     if (MethodIt == GetExactRoutes().end()) return RouteAction::NotFound;
+     const auto PathIt = MethodIt->second.find(Path);
+     return PathIt == MethodIt->second.end() ? RouteAction::NotFound : PathIt->second;
 }
 
 /* Resolves HTTP route values. */
@@ -331,31 +481,37 @@ RouteAction ResolveHttpRoute(const HttpRequest &Request)
                return ExactAction;
           }
 
-          if (PrefixRoute(Path, Method, "/loadmodule/", {"POST"}))
+          if (SingleChildRoute(Path, Method, "/loadmodule/", {"POST"}))
           {
                return RouteAction::ModuleLoad;
           }
 
-          if (PrefixRoute(Path, Method, "/unloadmodule/", {"POST"}))
+          if (SingleChildRoute(Path, Method, "/unloadmodule/", {"POST"}))
           {
                return RouteAction::ModuleUnload;
           }
 
           if (PrefixRoute(Path, Method, "/modules/", {"GET", "POST", "PUT", "DELETE", "PATCH"}))
           {
-               if (Path.rfind("/syntax") == Path.size() - 7 && Method == "GET")
+               const std::vector<std::string_view> ModuleSegments = SplitRouteSegments(Path);
+
+               if (ModuleSegments.size() == 3 && ModuleSegments[2] == "syntax" && Method == "GET")
                {
                     return RouteAction::GetModuleSyntax;
                }
 
-               if (PrefixRoute(Path, Method, "/modules/load/", {"POST"}))
+               if (Path.rfind("/modules/load/", 0) == 0 && Method == "POST")
                {
-                    return RouteAction::ModuleLoad;
+                    return SingleChildRoute(Path, Method, "/modules/load/", {"POST"})
+                                ? RouteAction::ModuleLoad
+                                : RouteAction::NotFound;
                }
 
-               if (PrefixRoute(Path, Method, "/modules/unload/", {"POST"}))
+               if (Path.rfind("/modules/unload/", 0) == 0 && Method == "POST")
                {
-                    return RouteAction::ModuleUnload;
+                    return SingleChildRoute(Path, Method, "/modules/unload/", {"POST"})
+                                ? RouteAction::ModuleUnload
+                                : RouteAction::NotFound;
                }
 
                return RouteAction::ModuleAPI;

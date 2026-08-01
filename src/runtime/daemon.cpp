@@ -659,7 +659,8 @@ void hlquery::SetSignal(int SignalNum)
      }
      else if (SignalNum == SIGHUP)
      {
-          /* A daemon can receive SIGHUP as its launching terminal/session changes.
+          /*
+           * A daemon can receive SIGHUP as its launching terminal/session changes.
            * Do not treat it as a shutdown request.
            */
 

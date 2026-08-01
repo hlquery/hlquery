@@ -1507,14 +1507,45 @@ class AutoCompositeRuntimeModule : public CompositeRuntimeModule
      }
 };
 
-/* Signature exported by shared modules for runtime construction. */
+/*
+ * Stable loader ABI implemented by every runtime module.
+ * Increment ModuleRuntimeABIVersion whenever RuntimeModule's binary contract
+ * changes in a way that requires rebuilding modules.
+ */
+
+inline constexpr uint32_t ModuleRuntimeABIVersion = 1;
 
 using CreateRuntimeModuleFn = RuntimeModule *(*)();
+using DestroyRuntimeModuleFn = void (*)(RuntimeModule *) noexcept;
 
-/* Exports the standard module factory symbol expected by the loader. */
+struct RuntimeModuleDescriptor
+{
+     uint32_t DescriptorSize;
+     uint32_t ABIVersion;
+     size_t RuntimeModuleSize;
+     CreateRuntimeModuleFn Create;
+     DestroyRuntimeModuleFn Destroy;
+};
 
-#define MODULE_LOAD(ModuleType)                      \
-     extern "C" RuntimeModule *CreateRuntimeModule() \
-     {                                               \
-          return new ModuleType();                   \
+using GetRuntimeModuleDescriptorFn = const RuntimeModuleDescriptor *(*)() noexcept;
+
+/* Exports construction, destruction, and ABI metadata from one module. */
+
+#define MODULE_LOAD(ModuleType)                                                               \
+     extern "C" CoreExport RuntimeModule *CreateRuntimeModule()                              \
+     {                                                                                        \
+          return new ModuleType();                                                            \
+     }                                                                                        \
+     extern "C" CoreExport void DestroyRuntimeModule(RuntimeModule *Module) noexcept         \
+     {                                                                                        \
+          delete Module;                                                                      \
+     }                                                                                        \
+     extern "C" CoreExport const RuntimeModuleDescriptor *GetRuntimeModuleDescriptor() noexcept \
+     {                                                                                        \
+          static const RuntimeModuleDescriptor Descriptor{sizeof(RuntimeModuleDescriptor),    \
+                                                          ModuleRuntimeABIVersion,             \
+                                                          sizeof(RuntimeModule),              \
+                                                          &CreateRuntimeModule,                \
+                                                          &DestroyRuntimeModule};              \
+          return &Descriptor;                                                                 \
      }

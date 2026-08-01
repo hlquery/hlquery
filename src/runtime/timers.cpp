@@ -18,8 +18,6 @@
 #include "core/hlquery.h"
 #include "runtime/timers.h"
 
-namespace
-{
 TimerManager::Clock::time_point GetTimerNow()
 {
      return Instance ? Instance->Now() : TimerManager::Clock::now();
@@ -39,10 +37,10 @@ int ClampTimerMilliseconds(long long Milliseconds)
 
      return static_cast<int>(Milliseconds);
 }
-}
 
 Timer::Timer() : NextRun(Clock::time_point::max()), Interval(0), Repeating(false)
 {
+
 }
 
 Timer::Timer(std::function<void()> callback, Clock::time_point next_run, std::chrono::milliseconds interval, bool repeating)
@@ -83,6 +81,21 @@ bool Timer::IsRetired() const
      return !Repeating && NextRun == Clock::time_point::max();
 }
 
+uint64_t Timer::GetIdentifier() const
+{
+     return Identifier;
+}
+
+void Timer::SetIdentifier(uint64_t IdentifierValue)
+{
+     Identifier = IdentifierValue;
+}
+
+void Timer::ClearCallback()
+{
+     Callback = nullptr;
+}
+
 Timer::Clock::time_point Timer::GetNextRun() const
 {
      return NextRun;
@@ -90,17 +103,19 @@ Timer::Clock::time_point Timer::GetNextRun() const
 
 TimerManager::TimerManager()
 {
+
 }
 
 /* Default destructor */
 
 TimerManager::~TimerManager()
 {
+     Clear();
 }
 
 /* Add a new timer */
 
-void TimerManager::Add(std::function<void()> callback, std::chrono::milliseconds delay, bool repeating)
+uint64_t TimerManager::Add(std::function<void()> callback, std::chrono::milliseconds delay, bool repeating)
 {
      /* Protect the timer list */
 
@@ -109,7 +124,10 @@ void TimerManager::Add(std::function<void()> callback, std::chrono::milliseconds
      /* Current time */
 
      const auto now = GetTimerNow();
-     Entries.push_back(Timer(std::move(callback), now + delay, delay, repeating));
+     Timer Entry(std::move(callback), now + delay, delay, repeating);
+     const uint64_t Identifier = NextIdentifier++;
+     Entry.SetIdentifier(Identifier);
+     Entries.push_back(std::move(Entry));
      const size_t total_timers = Entries.size();
 
      lock.unlock();
@@ -124,12 +142,47 @@ void TimerManager::Add(std::function<void()> callback, std::chrono::milliseconds
           {
           }
      }
+
+     return Identifier;
 }
 
-void TimerManager::Add(Timer entry)
+uint64_t TimerManager::Add(Timer entry)
 {
      std::unique_lock<std::shared_mutex> lock(MutexValue);
+     if (entry.GetIdentifier() == 0)
+     {
+          entry.SetIdentifier(NextIdentifier++);
+     }
+     const uint64_t Identifier = entry.GetIdentifier();
      Entries.push_back(std::move(entry));
+     return Identifier;
+}
+
+bool TimerManager::CancelAndWait(uint64_t Identifier)
+{
+     if (Identifier == 0)
+     {
+          return false;
+     }
+
+     std::unique_lock<std::shared_mutex> Lock(MutexValue);
+     bool Found = ActiveTimers.find(Identifier) != ActiveTimers.end();
+
+     CancelledTimers.insert(Identifier);
+     const auto NewEnd = std::remove_if(Entries.begin(), Entries.end(),
+                                        [Identifier](const Timer &Entry)
+                                        {
+                                             return Entry.GetIdentifier() == Identifier;
+                                        });
+     Found = Found || NewEnd != Entries.end();
+     Entries.erase(NewEnd, Entries.end());
+
+     TimerCondition.wait(Lock, [&]()
+                         {
+                              return ActiveTimers.find(Identifier) == ActiveTimers.end();
+                         });
+     CancelledTimers.erase(Identifier);
+     return Found;
 }
 
 /* Execute due timers */
@@ -144,23 +197,19 @@ void TimerManager::Tick()
 
           std::unique_lock<std::shared_mutex> lock(MutexValue);
 
-          for (auto &Entry : Entries)
+          for (auto It = Entries.begin(); It != Entries.end();)
           {
-               if (Entry.IsDue(now))
+               if (!It->IsDue(now))
                {
-                    DueTimers.push_back(Entry);
+                    ++It;
+                    continue;
                }
+
+               const uint64_t Identifier = It->GetIdentifier();
+               DueTimers.push_back(std::move(*It));
+               ++ActiveTimers[Identifier];
+               It = Entries.erase(It);
           }
-
-          /* Drop due timers before callbacks run; repeating timers are re-added after completion. */
-
-          Entries.erase(
-               std::remove_if(Entries.begin(), Entries.end(),
-                              [now](const Timer &Entry)
-                              {
-                                   return Entry.IsDue(now);
-                              }),
-               Entries.end());
      }
 
      std::exception_ptr FirstException;
@@ -179,11 +228,30 @@ void TimerManager::Tick()
                }
           }
 
-          if (Entry.IsRepeating())
+          std::unique_lock<std::shared_mutex> Lock(MutexValue);
+          const uint64_t Identifier = Entry.GetIdentifier();
+          const bool Cancelled = CancelledTimers.find(Identifier) != CancelledTimers.end();
+
+          if (Entry.IsRepeating() && !Cancelled)
           {
                Entry.UpdateAfterRun(GetTimerNow());
-               Add(std::move(Entry));
+               Entries.push_back(std::move(Entry));
+               Entry.ClearCallback();
           }
+          else
+          {
+               /* Destroy the type-erased callback before cancellation waiters can unload its module. */
+               Entry.ClearCallback();
+               CancelledTimers.erase(Identifier);
+          }
+
+          auto ActiveIt = ActiveTimers.find(Identifier);
+          if (ActiveIt != ActiveTimers.end() && --ActiveIt->second == 0)
+          {
+               ActiveTimers.erase(ActiveIt);
+          }
+          Lock.unlock();
+          TimerCondition.notify_all();
      }
 
      if (FirstException)
@@ -243,5 +311,18 @@ size_t TimerManager::GetTimerCount() const
 void TimerManager::Clear()
 {
      std::unique_lock<std::shared_mutex> lock(MutexValue);
+
+     for (const auto &Active : ActiveTimers)
+     {
+          CancelledTimers.insert(Active.first);
+     }
+
      Entries.clear();
+
+     TimerCondition.wait(lock, [&]() 
+     {
+          return ActiveTimers.empty();
+     });
+     
+     CancelledTimers.clear();
 }

@@ -1,0 +1,255 @@
+{
+  "fixture_version": 3,
+  "fixture_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+  "collection": "books",
+  "count": 10,
+  "tags": [
+    "novel",
+    "fiction",
+    "essays",
+    "mystery",
+    "science",
+    "cookbook",
+    "technology",
+    "education",
+    "stories"
+  ],
+  "documents": [
+    {
+      "id": "books_the-lantern-index-demo-novel",
+      "title": "The Lantern Index (Demo Novel)",
+      "content": "A fictional archivist discovers that a city library catalog records memories as well as books, creating a mystery about ownership and forgetting.",
+      "description": "Synthetic books demo record: The Lantern Index (Demo Novel).",
+      "labels": [
+        "books",
+        "demo",
+        "synthetic",
+        "novel",
+        "Example Author Mira North",
+        "literary mystery"
+      ],
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+      "is_synthetic": true,
+      "author_name": "Example Author Mira North",
+      "genre": "literary mystery",
+      "format": "hardcover",
+      "publication_year": 2021
+    },
+    {
+      "id": "books_orbiting-home-demo-novel",
+      "title": "Orbiting Home (Demo Novel)",
+      "content": "A fictional engineer on a long research mission records voice letters about distance, family, and the meaning of returning home.",
+      "description": "Synthetic books demo record: Orbiting Home (Demo Novel).",
+      "labels": [
+        "books",
+        "demo",
+        "synthetic",
+        "fiction",
+        "Example Author Theo Vale",
+        "science fiction"
+      ],
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+      "is_synthetic": true,
+      "author_name": "Example Author Theo Vale",
+      "genre": "science fiction",
+      "format": "paperback",
+      "publication_year": 2022
+    },
+    {
+      "id": "books_small-bridges-demo-essays",
+      "title": "Small Bridges (Demo Essays)",
+      "content": "Ten fictional essays examine neighborhood infrastructure, mutual aid, and the everyday systems that connect communities.",
+      "description": "Synthetic books demo record: Small Bridges (Demo Essays).",
+      "labels": [
+        "books",
+        "demo",
+        "synthetic",
+        "essays",
+        "Example Author Lena Pike",
+        "essay collection"
+      ],
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+      "is_synthetic": true,
+      "author_name": "Example Author Lena Pike",
+      "genre": "essay collection",
+      "format": "ebook",
+      "publication_year": 2020
+    },
+    {
+      "id": "books_the-orchard-cipher-demo-novel",
+      "title": "The Orchard Cipher (Demo Novel)",
+      "content": "Two siblings decode an invented set of botanical notes while deciding what to preserve from their family farm.",
+      "description": "Synthetic books demo record: The Orchard Cipher (Demo Novel).",
+      "labels": [
+        "books",
+        "demo",
+        "synthetic",
+        "mystery",
+        "Example Author Omar Reed",
+        "family mystery"
+      ],
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+      "is_synthetic": true,
+      "author_name": "Example Author Omar Reed",
+      "genre": "family mystery",
+      "format": "audiobook",
+      "publication_year": 2023
+    },
+    {
+      "id": "books_weather-for-beginners-demo-guide",
+      "title": "Weather for Beginners (Demo Guide)",
+      "content": "A fictional field guide explains clouds, pressure, local observation, and how to keep a careful weather journal.",
+      "description": "Synthetic books demo record: Weather for Beginners (Demo Guide).",
+      "labels": [
+        "books",
+        "demo",
+        "synthetic",
+        "science",
+        "Example Author Hana Sol",
+        "popular science"
+      ],
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+      "is_synthetic": true,
+      "author_name": "Example Author Hana Sol",
+      "genre": "popular science",
+      "format": "paperback",
+      "publication_year": 2024
+    },
+    {
+      "id": "books_museum-after-midnight-demo-novel",
+      "title": "Museum After Midnight (Demo Novel)",
+      "content": "A night guard and a conservator solve a fictional gallery puzzle using provenance notes, pigments, and patient observation.",
+      "description": "Synthetic books demo record: Museum After Midnight (Demo Novel).",
+      "labels": [
+        "books",
+        "demo",
+        "synthetic",
+        "cookbook",
+        "Example Author Caleb Fern",
+        "cozy mystery"
+      ],
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+      "is_synthetic": true,
+      "author_name": "Example Author Caleb Fern",
+      "genre": "cozy mystery",
+      "format": "hardcover",
+      "publication_year": 2019
+    },
+    {
+      "id": "books_recipes-from-an-imagined-coast-demo-cookbook",
+      "title": "Recipes from an Imagined Coast (Demo Cookbook)",
+      "content": "A fictional cookbook pairs seasonal recipes with short notes about community kitchens and ingredient substitutions.",
+      "description": "Synthetic books demo record: Recipes from an Imagined Coast (Demo Cookbook).",
+      "labels": [
+        "books",
+        "demo",
+        "synthetic",
+        "technology",
+        "Example Author Esme Lark",
+        "cookbook"
+      ],
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+      "is_synthetic": true,
+      "author_name": "Example Author Esme Lark",
+      "genre": "cookbook",
+      "format": "hardcover",
+      "publication_year": 2022
+    },
+    {
+      "id": "books_the-quiet-compiler-demo-novel",
+      "title": "The Quiet Compiler (Demo Novel)",
+      "content": "A programmer maintains an old fictional language while mentoring a team through a difficult and humane software migration.",
+      "description": "Synthetic books demo record: The Quiet Compiler (Demo Novel).",
+      "labels": [
+        "books",
+        "demo",
+        "synthetic",
+        "education",
+        "Example Author Jun Marrow",
+        "workplace fiction"
+      ],
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+      "is_synthetic": true,
+      "author_name": "Example Author Jun Marrow",
+      "genre": "workplace fiction",
+      "format": "ebook",
+      "publication_year": 2024
+    },
+    {
+      "id": "books_river-map-classroom-demo-nonfiction",
+      "title": "River Map Classroom (Demo Nonfiction)",
+      "content": "A fictional teacher uses maps, oral history, and water sampling to build an interdisciplinary local-history course.",
+      "description": "Synthetic books demo record: River Map Classroom (Demo Nonfiction).",
+      "labels": [
+        "books",
+        "demo",
+        "synthetic",
+        "stories",
+        "Example Author Farah Cedar",
+        "education"
+      ],
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+      "is_synthetic": true,
+      "author_name": "Example Author Farah Cedar",
+      "genre": "education",
+      "format": "paperback",
+      "publication_year": 2021
+    },
+    {
+      "id": "books_a-field-guide-to-possible-futures-demo-stories",
+      "title": "A Field Guide to Possible Futures (Demo Stories)",
+      "content": "Linked fictional stories explore repair, climate adaptation, public technology, and optimistic civic imagination.",
+      "description": "Synthetic books demo record: A Field Guide to Possible Futures (Demo Stories).",
+      "labels": [
+        "books",
+        "demo",
+        "synthetic",
+        "novel",
+        "Example Author Avery Kestrel",
+        "speculative stories"
+      ],
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+      "is_synthetic": true,
+      "author_name": "Example Author Avery Kestrel",
+      "genre": "speculative stories",
+      "format": "audiobook",
+      "publication_year": 2023
+    }
+  ],
+  "metadata": {
+    "_fixture_kind": "synthetic_public_demo",
+    "_fixture_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+    "_demo_description": "Fictional book records with useful genre, author, theme, and catalog metadata.",
+    "_demo_queries": "climate fiction | oral history archive | mystery novel"
+  },
+  "fields": [
+    {
+      "name": "author_name",
+      "type": "string"
+    },
+    {
+      "name": "genre",
+      "type": "string"
+    },
+    {
+      "name": "format",
+      "type": "string"
+    },
+    {
+      "name": "publication_year",
+      "type": "int32"
+    }
+  ],
+  "synonyms": [
+    {
+      "id": "books_syn_book",
+      "root": "book",
+      "synonyms": [
+        "novel",
+        "volume",
+        "title",
+        "publication"
+      ]
+    }
+  ]
+}

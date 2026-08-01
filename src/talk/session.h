@@ -89,4 +89,5 @@ bool ExecuteTalkCommand(const std::string &line,
                         HLQueryCLI &cli,
                         TalkState &state,
                         std::string &host,
-                        std::string &port);
+                        std::string &port,
+                        std::string &scheme);

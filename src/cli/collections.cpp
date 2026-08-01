@@ -1474,7 +1474,20 @@ void HLQueryCLI::FlushAll(bool skip_confirmation)
           }
      }
 
-     HLQueryCLI::HTTPResponse response = MakeRequest("POST", "/flush");
+     /*
+      * A destructive flush has to durably clear the system database and every
+      * document segment before the server can acknowledge it.  On a populated
+      * database that legitimately takes longer than the general CLI timeout.
+      * Keep honoring larger user-provided timeouts while providing a safe
+      * minimum for this operation.
+      */
+
+     static constexpr int FlushTimeoutSeconds = 300;
+     const int timeout_seconds = std::max(DefaultTimeoutSeconds, FlushTimeoutSeconds);
+
+     PrintInfo("Deleting all collections and data; this may take several minutes...");
+
+     HLQueryCLI::HTTPResponse response = MakeRequest("POST", "/flush", "", timeout_seconds);
 
      if (CheckRequestFailed(response, false, "/flush"))
      {

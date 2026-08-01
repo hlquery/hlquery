@@ -44,7 +44,7 @@ HLQUERY_VERSION := ${HLQUERY_VERSION}
 
 # BUILD CONFIGURATION
 
-# Build mode: release (default), debug, profile, sanitize
+# Build mode: release (default), debug, profile, sanitize, thread-sanitize
 BUILD_MODE ?= release
 
 # Compiler selection
@@ -168,11 +168,17 @@ else ifeq ($(BUILD_MODE),profile)
   LTO_FLAGS = -flto=auto
   STRIP_FLAGS =
 else ifeq ($(BUILD_MODE),sanitize)
-  # Sanitizer build: address, undefined behavior, and thread sanitizers
-  OPT_FLAGS = -O1 -g -fsanitize=address,undefined,thread -fno-omit-frame-pointer -DDEBUG
+  # AddressSanitizer and UndefinedBehaviorSanitizer can run together.
+  OPT_FLAGS = -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer -DDEBUG
   LTO_FLAGS =
   STRIP_FLAGS =
-  LDFLAGS += -fsanitize=address,undefined,thread
+  LDFLAGS += -fsanitize=address,undefined
+else ifeq ($(BUILD_MODE),thread-sanitize)
+  # ThreadSanitizer is incompatible with AddressSanitizer and must be separate.
+  OPT_FLAGS = -O1 -g -fsanitize=thread -fno-omit-frame-pointer -DDEBUG
+  LTO_FLAGS =
+  STRIP_FLAGS =
+  LDFLAGS += -fsanitize=thread
 else ifeq ($(BUILD_MODE),coverage)
   # Coverage build: for code coverage analysis
   OPT_FLAGS = -O0 -g --coverage -DDEBUG
@@ -189,8 +195,11 @@ endif
 
 # Architecture-specific optimizations
 ARCH_FLAGS =
+PORTABLE_BUILD ?= 0
+ifneq ($(PORTABLE_BUILD),1)
 ifneq ($(OS_NAME),Darwin)
   ARCH_FLAGS += -march=native -mtune=native
+endif
 endif
 OPT_FLAGS += $(ARCH_FLAGS)
 
@@ -341,6 +350,7 @@ SRCS_TOP += $(API_SRCS)
 
 # Search storage source files
 SEARCH_SRCS := $(wildcard $(SRC_DIR)/search/*.cpp)
+SEARCH_SRCS += $(wildcard $(SRC_DIR)/search/adaptive/*.cpp)
 SRCS_TOP += $(SEARCH_SRCS)
 
 SQL_SRCS := $(wildcard $(SRC_DIR)/sql/*.cpp)
@@ -428,7 +438,7 @@ prepare:
 	@$(MAKE) --no-print-directory prune-disabled-extra-modules
 	@mkdir -p $(OBJ_DIR) $(BIN_DIR)
 	@mkdir -p $(OBJ_DIR)/core $(OBJ_DIR)/runtime $(OBJ_DIR)/utils $(OBJ_DIR)/api $(OBJ_DIR)/search $(OBJ_DIR)/sql $(OBJ_DIR)/socketengines $(OBJ_DIR)/timers $(OBJ_DIR)/cli $(OBJ_DIR)/talk $(OBJ_DIR)/modules $(OBJ_DIR)/vendor/fmt $(OBJ_DIR)/vendor/sha2 $(OBJ_DIR)/vendor/md5
-	@mkdir -p $(RUN_DIR)/bin $(RUN_DIR)/conf $(RUN_DIR)/data $(RUN_DIR)/logs $(RUN_DIR)/modules $(RUN_DIR)/pid
+	@mkdir -p $(RUN_DIR)/benchmark $(RUN_DIR)/bin $(RUN_DIR)/conf $(RUN_DIR)/data $(RUN_DIR)/logs $(RUN_DIR)/modules $(RUN_DIR)/pid
 	@mkdir -p $(INC_DIR)
 	@# Fix permissions for Docker volume mounts - ensure entire build tree is writable
 	@if [ -d "$(OBJ_DIR)" ]; then \
@@ -678,7 +688,7 @@ $(OBJ_DIR)/vendor/md5/md5.o: $(VENDOR_DIR)/md5/md5.c | $(OBJ_DIR)
 
 -include $(DEPS)
 
-.PHONY: all build-products prepare rocksdb-check rocksdb-preflight rocksdb-smoke binary-compat-check prune-disabled-extra-modules test clean install uninstall debug create_ssl help build-info synonyms-sync synonyms-check package package-all package-deb package-rpm
+.PHONY: all build-products prepare rocksdb-check rocksdb-preflight rocksdb-smoke binary-compat-check prune-disabled-extra-modules test test-http-routes test-timer-concurrency test-core-stats-metrics test-segmented-storage test-backup-restore test-auth-fail-closed test-docker-production-mode clean install uninstall debug create_ssl help build-info synonyms-sync synonyms-check package package-all package-deb package-rpm
 
 prune-disabled-extra-modules:
 	@mkdir -p $(RUN_DIR)/modules
@@ -762,15 +772,20 @@ install:
 			exit 1; \
 		fi
 	@$(INSTALL) -d "$(STAGED_RUN_DIR)/bin"
+	@$(INSTALL) -d "$(STAGED_RUN_DIR)/benchmark"
 	@$(INSTALL) -d "$(STAGED_RUN_DIR)/modules"
 	@$(INSTALL) -d "$(STAGED_RUN_DIR)"
 	@$(INSTALL) -m 0755 $(BIN_DIR)/hlquery "$(STAGED_RUN_DIR)/bin/hlquery"
 	@$(INSTALL) -m 0755 $(BIN_DIR)/hlquery-cli "$(STAGED_RUN_DIR)/bin/hlquery-cli"
+	@$(INSTALL) -m 0755 tools/hlquery-backup "$(STAGED_RUN_DIR)/bin/hlquery-backup"
 	@if [ -f "$(BIN_DIR)/hlquery-benchmark" ]; then \
 		$(INSTALL) -m 0755 $(BIN_DIR)/hlquery-benchmark "$(STAGED_RUN_DIR)/bin/hlquery-benchmark"; \
 	fi
 	@if [ -f "$(BIN_DIR)/hlquery-talk" ]; then \
 		$(INSTALL) -m 0755 $(BIN_DIR)/hlquery-talk "$(STAGED_RUN_DIR)/bin/hlquery-talk"; \
+	fi
+	@if [ -d "$(RUN_DIR)/benchmark" ] && { [ "$(STAGED_RUN_DIR)" != "$(RUN_DIR)" ] || [ -n "$(DESTDIR)" ]; }; then \
+		cp -R "$(RUN_DIR)/benchmark/." "$(STAGED_RUN_DIR)/benchmark/"; \
 	fi
 	@if [ -n "$(MODULE_LIBS)" ]; then \
 		if [ -z "$(DESTDIR)" ] && [ "$(STAGED_RUN_DIR)" = "$(RUN_DIR)" ]; then \
@@ -897,6 +912,7 @@ BENCHMARK_OBJ := $(CLI_SUPPORT_OBJS) \
                  $(OBJ_DIR)/cli/benchmarkmodes.o \
                  $(OBJ_DIR)/cli/benchmarkreport.o \
                  $(OBJ_DIR)/cli/benchmarkdata.o \
+                 $(OBJ_DIR)/cli/benchmarkfixtures.o \
                  $(OBJ_DIR)/cli/benchmarkmain.o \
                  $(OBJ_DIR)/cli/modules.o \
                  $(OBJ_DIR)/runtime/exitmanager.o
@@ -959,7 +975,71 @@ build-products: $(BIN_DIR)/hlquery $(BIN_DIR)/hlquery-cli $(BIN_DIR)/hlquery-ben
 
 # UTILITY TARGETS
 
-test: rocksdb-smoke
+HTTP_ROUTES_TEST_BIN := build/test/http_routes
+TIMER_CONCURRENCY_TEST_BIN := build/test/timer_concurrency
+CORE_STATS_METRICS_TEST_BIN := build/test/core_stats_metrics
+SEGMENTED_STORAGE_TEST_BIN := build/test/segmented_storage
+LEGACY_HYBRID_RANKING_TEST_BIN := build/test/legacy_hybrid_ranking
+SEARCH_EXECUTION_TRACE_TEST_BIN := build/test/search_execution_trace
+
+$(HTTP_ROUTES_TEST_BIN): tests/http_routes.cpp src/api/httproutes.cpp
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) $^ -o $@ $(LDFLAGS)
+
+test-http-routes: $(HTTP_ROUTES_TEST_BIN)
+	@$(HTTP_ROUTES_TEST_BIN)
+
+$(TIMER_CONCURRENCY_TEST_BIN): tests/timer_concurrency.cpp src/runtime/timers.cpp
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) $^ -o $@ $(LDFLAGS)
+
+test-timer-concurrency: $(TIMER_CONCURRENCY_TEST_BIN)
+	@$(TIMER_CONCURRENCY_TEST_BIN)
+
+$(CORE_STATS_METRICS_TEST_BIN): tests/core_stats_metrics.cpp src/core/metrics.cpp src/core/stats.cpp
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) $^ -o $@ $(LDFLAGS)
+
+test-core-stats-metrics: $(CORE_STATS_METRICS_TEST_BIN)
+	@$(CORE_STATS_METRICS_TEST_BIN)
+
+$(SEGMENTED_STORAGE_TEST_BIN): tests/segmented_storage.cpp src/search/segment_catalog.cpp src/search/segmented_document_router.cpp src/utils/wildcard.cpp $(ROCKSDB_LIB)
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) $(filter %.cpp,$^) -o $@ $(LDFLAGS)
+
+test-segmented-storage: $(SEGMENTED_STORAGE_TEST_BIN)
+	@$(SEGMENTED_STORAGE_TEST_BIN)
+
+$(LEGACY_HYBRID_RANKING_TEST_BIN): tests/legacy_hybrid_ranking.cpp src/search/hybrid_rank_fusion.cpp
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) $^ -o $@ $(LDFLAGS)
+
+test-legacy-hybrid-ranking: $(LEGACY_HYBRID_RANKING_TEST_BIN)
+	@$(LEGACY_HYBRID_RANKING_TEST_BIN)
+
+$(SEARCH_EXECUTION_TRACE_TEST_BIN): tests/search_execution_trace.cpp src/search/adaptive/search_execution_trace.cpp
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) $^ -o $@ $(LDFLAGS)
+
+test-search-execution-trace: $(SEARCH_EXECUTION_TRACE_TEST_BIN)
+	@$(SEARCH_EXECUTION_TRACE_TEST_BIN)
+
+test-backup-restore:
+	@tests/backup_restore.sh
+
+test-auth-fail-closed: $(BIN_DIR)/hlquery
+	@tests/auth_fail_closed.sh
+
+test-docker-production-mode:
+	@tests/docker_production_mode.sh
+
+test-adaptive-search-trace: $(BIN_DIR)/hlquery
+	@tests/adaptive_search_trace.sh
+
+# test-auth-fail-closed builds the server, whose prepare phase already runs the
+# RocksDB smoke test. Listing rocksdb-smoke here too races the recursive prepare
+# invocation under parallel make and can execute a binary while it is relinking.
+test: test-http-routes test-timer-concurrency test-core-stats-metrics test-segmented-storage test-legacy-hybrid-ranking test-search-execution-trace test-backup-restore test-auth-fail-closed test-docker-production-mode test-adaptive-search-trace
 	@if [ -x "$(RUN_DIR)/test/run_tests.sh" ]; then \
 		"$(RUN_DIR)/test/run_tests.sh"; \
 	else \
@@ -973,7 +1053,8 @@ help:
 	@echo "  make BUILD_MODE=release   - Optimized production build (default)"
 	@echo "  make BUILD_MODE=debug     - Debug build with symbols"
 	@echo "  make BUILD_MODE=profile   - Profile build for performance analysis"
-	@echo "  make BUILD_MODE=sanitize - Build with AddressSanitizer, UBSan, ThreadSanitizer"
+	@echo "  make BUILD_MODE=sanitize        - Build with AddressSanitizer and UBSan"
+	@echo "  make BUILD_MODE=thread-sanitize - Build with ThreadSanitizer"
 	@echo "  make BUILD_MODE=coverage  - Build with code coverage support"
 	@echo ""
 	@echo "$(BOLD)Feature Flags:$(NC)"
@@ -981,6 +1062,7 @@ help:
 	@echo "  make WITH_TCMALLOC=1     - Use tcmalloc memory allocator"
 	@echo "  make USE_PGO=1           - Enable Profile-Guided Optimization (generation)"
 	@echo "  make USE_PGO=2           - Use PGO profile data for optimization"
+	@echo "  make PORTABLE_BUILD=1    - Avoid host-specific CPU instructions for release artifacts"
 	@echo "  make USE_CLANG_TIDY=1    - Enable clang-tidy static analysis"
 	@echo "  make ROCKSDB_CMAKE_LOG_LEVEL=STATUS - Override RocksDB CMake configure verbosity"
 	@echo ""
@@ -1054,6 +1136,7 @@ install-system: all
 	$(INSTALL) -d "$(DESTDIR)$(BINDIR)"
 	$(INSTALL) -m 0755 $(BIN_DIR)/hlquery "$(DESTDIR)$(BINDIR)/hlquery"
 	$(INSTALL) -m 0755 $(BIN_DIR)/hlquery-cli "$(DESTDIR)$(BINDIR)/hlquery-cli"
+	$(INSTALL) -m 0755 tools/hlquery-backup "$(DESTDIR)$(BINDIR)/hlquery-backup"
 	@if [ -f "$(BIN_DIR)/hlquery-benchmark" ]; then \
 		$(INSTALL) -m 0755 $(BIN_DIR)/hlquery-benchmark "$(DESTDIR)$(BINDIR)/hlquery-benchmark"; \
 	fi
@@ -1067,6 +1150,10 @@ install-system: all
 	@if [ -d "run/conf" ]; then \
 		$(INSTALL) -d "$(DESTDIR)$(CONFDIR)"; \
 		cp -r run/conf/* "$(DESTDIR)$(CONFDIR)/"; \
+	fi
+	@if [ -d "run/benchmark" ]; then \
+		$(INSTALL) -d "$(DESTDIR)$(PREFIX)/share/hlquery/benchmark"; \
+		cp -R run/benchmark/. "$(DESTDIR)$(PREFIX)/share/hlquery/benchmark/"; \
 	fi
 	@if [ -n "$(SYSTEMD_UNIT_DIR)" ] && [ -f "etc/package-builder/hlquery.service" ]; then \
 		$(INSTALL) -d "$(DESTDIR)$(SYSTEMD_UNIT_DIR)"; \

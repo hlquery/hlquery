@@ -310,15 +310,15 @@ void RunDetailedBenchmark(const std::string &base_url, const std::string &auth_t
                "Creative expression allows individuals to share unique perspectives.",
                "Historical knowledge informs our understanding of past and present."};
 
-     for (int batch_idx = 0; batch_idx < num_batches && total_inserted_val < min_documents; batch_idx++)
+     for (int batch_idx = 0; batch_idx < num_batches; batch_idx++)
      {
           std::vector<std::tuple<std::string, std::string, std::string>> batch;
 
-          int docs_in_batch = std::min(docs_per_batch, min_documents - total_inserted_val);
+          int docs_in_batch = std::min(docs_per_batch, min_documents - (batch_idx * docs_per_batch));
 
           for (int j = 0; j < docs_in_batch; j++)
           {
-               int doc_num = total_inserted_val + j;
+               int doc_num = (batch_idx * docs_per_batch) + j;
 
                std::string doc_id = "detailed_doc_" + std::to_string(doc_num);
 
@@ -395,7 +395,7 @@ void RunDetailedBenchmark(const std::string &base_url, const std::string &auth_t
                {
                     for (int k = 0; k < std::min(inserted, 5); k++)
                     {
-                         sample_docs.push_back("detailed_doc_" + std::to_string(total_inserted_val - inserted + k));
+                         sample_docs.push_back("detailed_doc_" + std::to_string((batch_idx * docs_per_batch) + k));
                     }
                }
           }
@@ -580,7 +580,10 @@ void RunDetailedBenchmark(const std::string &base_url, const std::string &auth_t
 
           advanced_metrics.DetailedOperations.push_back(op);
 
-          search_count_val++;
+          if (search_resp.StatusCode == 200)
+          {
+               search_count_val++;
+          }
 
           if (search_count_val % 100 == 0)
           {
@@ -621,7 +624,10 @@ void RunDetailedBenchmark(const std::string &base_url, const std::string &auth_t
 
           advanced_metrics.DetailedOperations.push_back(op);
 
-          search_count_val++;
+          if (search_resp.StatusCode == 200)
+          {
+               search_count_val++;
+          }
 
           if (search_count_val % 100 == 0)
           {
@@ -662,7 +668,10 @@ void RunDetailedBenchmark(const std::string &base_url, const std::string &auth_t
 
           advanced_metrics.DetailedOperations.push_back(op);
 
-          search_count_val++;
+          if (search_resp.StatusCode == 200)
+          {
+               search_count_val++;
+          }
 
           if (search_count_val % 100 == 0)
           {
@@ -705,7 +714,10 @@ void RunDetailedBenchmark(const std::string &base_url, const std::string &auth_t
 
           advanced_metrics.DetailedOperations.push_back(op);
 
-          search_count_val++;
+          if (post_search.StatusCode == 200)
+          {
+               search_count_val++;
+          }
 
           if (search_count_val % 50 == 0)
           {

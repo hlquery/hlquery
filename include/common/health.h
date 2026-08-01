@@ -14,4 +14,4 @@
 
 #include <ctime>
 
-void EmitDaemonHealthSnapshot(time_t NowTimeVal);
+void EmitDaemonHealthSnapshot(time_t CurrentTime);

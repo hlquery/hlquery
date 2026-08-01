@@ -131,13 +131,20 @@ bool hlquery::StartServer()
                }
                catch (...)
                {
+
                }
           }
 
           StatsVal.IncrementRestartCount();
      }
 
-     if (!CheckExistingProcessInternal())
+     /*
+      * Acquire the PID lock before opening storage or doing recovery work.
+      * Startup can legitimately spend time in RocksDB, and management commands
+      * must still be able to identify and stop that process during the window.
+      */
+
+     if (!hlquery::WritePID())
      {
           /* Determine the PID file path based on the server ID */
 
@@ -177,17 +184,9 @@ bool hlquery::StartServer()
                /* Ignore errors during PID file inspection. */
           }
 
-          ConsoleWriter::WriteError("[FATAL] CheckExistingProcessInternal() failed - another instance may be running" + ExistingPIDInfo + ".", true);
+          ConsoleWriter::WriteError("[FATAL] Failed to acquire PID file lock - another instance may be running" + ExistingPIDInfo + ".", true);
           ConsoleWriter::WriteError("[FATAL] To stop the existing instance, run: ./etc/scripts/debug_daemon.sh stop.", true);
           ConsoleWriter::WriteError("[FATAL] Or: sudo ./run/bin/hlquery --forcestop.", true);
-
-          /* Allow bypassing checks in debug/nofork mode for development flexibility */
-
-          if (Config && Config->GetDebugMode() && Config->GetNoForkMode())
-          {
-               ConsoleWriter::WriteWarning("[WARNING] Debug mode detected - you may want to stop the existing instance first.", true);
-               ConsoleWriter::WriteWarning("[WARNING] Continuing anyway may cause conflicts...", true);
-          }
 
           return false;
      }

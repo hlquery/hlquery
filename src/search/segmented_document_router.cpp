@@ -23,6 +23,9 @@ namespace
 constexpr const char *DocLocationPrefix = "__hlq_docloc:";
 constexpr const char *TombstonePrefix = "__hlq_tombstone:";
 constexpr const char *ManifestGenerationKey = "__hlq_segment_manifest_generation";
+constexpr uint64_t MetadataPersistDocumentThreshold = 100000;
+constexpr uint64_t MetadataPersistBytesThreshold = 256ULL * 1024ULL * 1024ULL;
+constexpr uint64_t MetadataPersistIntervalMs = 5000;
 
 std::string DocKeyFromLocationKey(const std::string &loc_key)
 {
@@ -64,7 +67,7 @@ uint64_t SegmentOrdinal(const std::string &segment_id)
           return 0;
      }
 }
-}
+} // namespace
 
 SegmentManager::SegmentManager(const std::string &data_dir,
                                rocksdb::DB *system_db,
@@ -125,14 +128,18 @@ bool SegmentManager::Initialize()
      }
 
      std::string existing_generation;
-     if (!GetSystemValue(ManifestGenerationKey, existing_generation))
+     if (!GetSystemValue(ManifestGenerationKey, existing_generation) ||
+         existing_generation != std::to_string(Manifest.Generation))
      {
           rebuild_docloc = true;
      }
 
      if (rebuild_docloc)
      {
-          RebuildDocLocationMap();
+          if (!RebuildDocLocationMap())
+          {
+               return false;
+          }
      }
 
      return true;
@@ -140,10 +147,16 @@ bool SegmentManager::Initialize()
 
 void SegmentManager::Shutdown()
 {
+     std::unique_lock<std::shared_mutex> write_lock(WriteMutex);
      std::lock_guard<std::mutex> lock(SegmentMutex);
+     PersistActiveMetadataIfNeededLocked(true);
      CurrentSnapshot.reset();
      ActiveSegment.reset();
      SealedSegments.clear();
+     ActiveReservedDocuments = 0;
+     ActiveReservedBytes = 0;
+     ActiveMetadataDirtyDocuments = 0;
+     ActiveMetadataDirtyBytes = 0;
 }
 
 bool SegmentManager::IsDocKey(const std::string &key)
@@ -282,8 +295,12 @@ bool SegmentManager::LoadOrCreateManifest()
                     }
 
                     SegmentMetadata metadata;
-                    if (SegmentMetadata::Load((entry.path() / "segment.json").string(), metadata) &&
-                        metadata.State != "deleted")
+                    if (!SegmentMetadata::Load((entry.path() / "segment.json").string(), metadata))
+                    {
+                         return false;
+                    }
+
+                    if (metadata.State != "deleted")
                     {
                          discovered.push_back(metadata);
                     }
@@ -310,6 +327,11 @@ bool SegmentManager::LoadOrCreateManifest()
 
           if (metadata.State == "active")
           {
+               if (!Manifest.Active.empty())
+               {
+                    Manifest.Sealed.push_back(Manifest.Active);
+               }
+
                Manifest.Active = metadata.Id;
           }
           else
@@ -327,24 +349,37 @@ bool SegmentManager::LoadOrCreateManifest()
      return PersistManifestLocked();
 }
 
-std::shared_ptr<SegmentManager::SegmentHandle> SegmentManager::OpenSegment(const SegmentMetadata &metadata)
+std::shared_ptr<SegmentManager::SegmentHandle> SegmentManager::OpenSegment(const SegmentMetadata &metadata, bool create_if_missing)
 {
      auto handle = std::make_shared<SegmentHandle>();
      handle->Metadata = metadata;
      handle->Directory = SegmentsDir + "/" + metadata.Id;
      handle->RocksDBPath = handle->Directory + "/rocksdb";
 
-     try
+     if (create_if_missing)
      {
-          std::filesystem::create_directories(handle->RocksDBPath);
+          try
+          {
+               std::filesystem::create_directories(handle->RocksDBPath);
+          }
+          catch (...)
+          {
+               return nullptr;
+          }
      }
-     catch (...)
+     else
      {
-          return nullptr;
+          std::error_code error;
+          if (!std::filesystem::is_directory(handle->RocksDBPath, error) || error)
+          {
+               return nullptr;
+          }
      }
 
+     rocksdb::Options open_options = OptionsValue;
+     open_options.create_if_missing = create_if_missing;
      std::unique_ptr<rocksdb::DB> db_ptr;
-     rocksdb::Status status = rocksdb::DB::Open(OptionsValue, handle->RocksDBPath, &db_ptr);
+     rocksdb::Status status = rocksdb::DB::Open(open_options, handle->RocksDBPath, &db_ptr);
 
      if (!status.ok() || !db_ptr)
      {
@@ -363,32 +398,91 @@ bool SegmentManager::OpenManifestSegments()
      for (const auto &segment_id : Manifest.Sealed)
      {
           SegmentMetadata metadata;
-          if (!SegmentMetadata::Load(SegmentsDir + "/" + segment_id + "/segment.json", metadata))
+          if (!SegmentMetadata::Load(SegmentsDir + "/" + segment_id + "/segment.json", metadata) ||
+              metadata.Id != segment_id)
           {
-               continue;
+               return false;
+          }
+
+          if (metadata.State != "sealed")
+          {
+               metadata.State = "sealed";
+               if (metadata.SealedAtMs == 0)
+               {
+                    metadata.SealedAtMs = NowMs();
+               }
+
+               if (!metadata.SaveAtomic(SegmentsDir + "/" + segment_id + "/segment.json"))
+               {
+                    return false;
+               }
           }
 
           auto handle = OpenSegment(metadata);
-          if (handle)
+          if (!handle)
           {
-               SealedSegments.push_back(handle);
+               return false;
           }
+
+          SealedSegments.push_back(handle);
      }
 
      if (!Manifest.Active.empty())
      {
           SegmentMetadata metadata;
-          if (SegmentMetadata::Load(SegmentsDir + "/" + Manifest.Active + "/segment.json", metadata))
+          if (!SegmentMetadata::Load(SegmentsDir + "/" + Manifest.Active + "/segment.json", metadata) ||
+              metadata.Id != Manifest.Active)
           {
-               ActiveSegment = OpenSegment(metadata);
+               return false;
+          }
+
+          if (metadata.State != "active")
+          {
+               metadata.State = "active";
+               metadata.SealedAtMs = 0;
+
+               if (!metadata.SaveAtomic(SegmentsDir + "/" + Manifest.Active + "/segment.json"))
+               {
+                    return false;
+               }
+          }
+
+          ActiveSegment = OpenSegment(metadata);
+          if (!ActiveSegment)
+          {
+               return false;
+          }
+
+          uint64_t estimated_documents = ActiveSegment->Metadata.DocCountEstimate;
+          ActiveSegment->DB->GetIntProperty("rocksdb.estimate-num-keys", &estimated_documents);
+          const uint64_t estimated_bytes = DirectorySize(ActiveSegment->Directory);
+
+          if (estimated_documents != ActiveSegment->Metadata.DocCountEstimate ||
+              estimated_bytes != ActiveSegment->Metadata.BytesEstimate)
+          {
+               ActiveSegment->Metadata.DocCountEstimate = estimated_documents;
+               ActiveSegment->Metadata.BytesEstimate = estimated_bytes;
+
+               if (!PersistSegmentMetadata(ActiveSegment))
+               {
+                    return false;
+               }
           }
      }
+
+     ActiveMetadataDirtyDocuments = 0;
+     ActiveMetadataDirtyBytes = 0;
+     ActiveReservedDocuments = 0;
+     ActiveReservedBytes = 0;
+     LastMetadataPersistMs = NowMs();
 
      return true;
 }
 
 bool SegmentManager::CreateActiveSegmentLocked()
 {
+     const SegmentManifest previous_manifest = Manifest;
+     const std::shared_ptr<SegmentHandle> previous_active = ActiveSegment;
      uint64_t next_id = Manifest.Generation + 1;
      std::set<std::string> used(Manifest.Sealed.begin(), Manifest.Sealed.end());
 
@@ -424,7 +518,7 @@ bool SegmentManager::CreateActiveSegmentLocked()
           return false;
      }
 
-     auto handle = OpenSegment(metadata);
+     auto handle = OpenSegment(metadata, true);
      if (!handle)
      {
           return false;
@@ -432,19 +526,37 @@ bool SegmentManager::CreateActiveSegmentLocked()
 
      ActiveSegment = handle;
      Manifest.Active = segment_id;
-     Manifest.Generation++;
-     return PersistManifestLocked();
+     Manifest.Generation = SegmentOrdinal(segment_id);
+
+     if (!PersistManifestLocked())
+     {
+          ActiveSegment = previous_active;
+          Manifest = previous_manifest;
+          return false;
+     }
+
+     ActiveMetadataDirtyDocuments = 0;
+     ActiveMetadataDirtyBytes = 0;
+     ActiveReservedDocuments = 0;
+     ActiveReservedBytes = 0;
+     LastMetadataPersistMs = NowMs();
+
+     return true;
 }
 
 bool SegmentManager::PersistManifestLocked()
 {
-     if (!Manifest.SaveAtomic(ManifestPath))
+     /* Write the rebuild marker first. If the manifest commit does not follow,
+      * startup observes a generation mismatch and rebuilds document locations.
+      */
+
+     rocksdb::Status status = SystemDB->Put(WriteOptionsValue, ManifestGenerationKey, std::to_string(Manifest.Generation));
+     if (!status.ok())
      {
           return false;
      }
 
-     rocksdb::Status status = SystemDB->Put(WriteOptionsValue, ManifestGenerationKey, std::to_string(Manifest.Generation));
-     return status.ok();
+     return Manifest.SaveAtomic(ManifestPath);
 }
 
 bool SegmentManager::PersistSegmentMetadata(const std::shared_ptr<SegmentHandle> &segment) const
@@ -455,6 +567,92 @@ bool SegmentManager::PersistSegmentMetadata(const std::shared_ptr<SegmentHandle>
      }
 
      return segment->Metadata.SaveAtomic(segment->Directory + "/segment.json");
+}
+
+bool SegmentManager::PersistActiveMetadataIfNeededLocked(bool force)
+{
+     if (!ActiveSegment)
+     {
+          return true;
+     }
+
+     if (ActiveMetadataDirtyDocuments == 0 && ActiveMetadataDirtyBytes == 0)
+     {
+          return true;
+     }
+
+     const uint64_t now_ms = NowMs();
+     const bool interval_elapsed = LastMetadataPersistMs == 0 ||
+                                   now_ms < LastMetadataPersistMs ||
+                                   now_ms - LastMetadataPersistMs >= MetadataPersistIntervalMs;
+
+     if (!force &&
+         ActiveMetadataDirtyDocuments < MetadataPersistDocumentThreshold &&
+         ActiveMetadataDirtyBytes < MetadataPersistBytesThreshold &&
+         !interval_elapsed)
+     {
+          return true;
+     }
+
+     if (!PersistSegmentMetadata(ActiveSegment))
+     {
+          return false;
+     }
+
+     ActiveMetadataDirtyDocuments = 0;
+     ActiveMetadataDirtyBytes = 0;
+     LastMetadataPersistMs = now_ms;
+     return true;
+}
+
+bool SegmentManager::ActiveSegmentHasCapacityLocked(uint64_t documents, uint64_t bytes) const
+{
+     if (!ActiveSegment)
+     {
+          return false;
+     }
+
+     const uint64_t current_documents = ActiveSegment->Metadata.DocCountEstimate + ActiveReservedDocuments;
+     const uint64_t current_bytes = ActiveSegment->Metadata.BytesEstimate + ActiveReservedBytes;
+
+     /* A single oversized document or batch must still be writable. */
+
+     if (current_documents == 0 && current_bytes == 0)
+     {
+          return true;
+     }
+
+     if (StorageOptions.SegmentMaxDocs > 0 &&
+         documents > StorageOptions.SegmentMaxDocs - std::min<uint64_t>(current_documents, StorageOptions.SegmentMaxDocs))
+     {
+          return false;
+     }
+
+     if (StorageOptions.SegmentMaxBytes > 0 &&
+         bytes > StorageOptions.SegmentMaxBytes - std::min<uint64_t>(current_bytes, StorageOptions.SegmentMaxBytes))
+     {
+          return false;
+     }
+
+     return true;
+}
+
+bool SegmentManager::EnsureActiveSegmentCapacity(uint64_t documents, uint64_t bytes)
+{
+     std::unique_lock<std::shared_mutex> write_lock(WriteMutex);
+     std::lock_guard<std::mutex> lock(SegmentMutex);
+
+     if (!ActiveSegment && !CreateActiveSegmentLocked())
+     {
+          return false;
+     }
+
+     if (ActiveSegmentHasCapacityLocked(documents, bytes))
+     {
+          return true;
+     }
+
+     return SealActiveSegmentAndCreateNewLocked();
 }
 
 bool SegmentManager::ShouldRotateActiveLocked() const
@@ -470,9 +668,8 @@ bool SegmentManager::ShouldRotateActiveLocked() const
           return true;
      }
 
-     const uint64_t bytes = std::max<uint64_t>(DirectorySize(ActiveSegment->Directory),
-                                               ActiveSegment->Metadata.BytesEstimate);
-     if (StorageOptions.SegmentMaxBytes > 0 && bytes >= StorageOptions.SegmentMaxBytes)
+     if (StorageOptions.SegmentMaxBytes > 0 &&
+         ActiveSegment->Metadata.BytesEstimate >= StorageOptions.SegmentMaxBytes)
      {
           return true;
      }
@@ -487,14 +684,24 @@ bool SegmentManager::SealActiveSegmentAndCreateNewLocked()
           return CreateActiveSegmentLocked();
      }
 
-     ActiveSegment->DB->Flush(rocksdb::FlushOptions());
-     ActiveSegment->DB->SyncWAL();
+     if (!ActiveSegment->DB->Flush(rocksdb::FlushOptions()).ok() ||
+         !ActiveSegment->DB->SyncWAL().ok())
+     {
+          return false;
+     }
+
+     const SegmentManifest previous_manifest = Manifest;
+     const SegmentMetadata previous_metadata = ActiveSegment->Metadata;
+     const std::shared_ptr<SegmentHandle> previous_active = ActiveSegment;
+     const size_t previous_sealed_count = SealedSegments.size();
+
      ActiveSegment->Metadata.State = "sealed";
      ActiveSegment->Metadata.SealedAtMs = NowMs();
      ActiveSegment->Metadata.BytesEstimate = DirectorySize(ActiveSegment->Directory);
 
      if (!PersistSegmentMetadata(ActiveSegment))
      {
+          ActiveSegment->Metadata = previous_metadata;
           return false;
      }
 
@@ -505,11 +712,29 @@ bool SegmentManager::SealActiveSegmentAndCreateNewLocked()
 
      if (!CreateActiveSegmentLocked())
      {
+          Manifest = previous_manifest;
+          ActiveSegment = previous_active;
+          SealedSegments.resize(previous_sealed_count);
+          ActiveSegment->Metadata = previous_metadata;
+          PersistSegmentMetadata(ActiveSegment);
           return false;
      }
 
      PublishSnapshotLocked();
      return true;
+}
+
+bool SegmentManager::RotateActiveSegmentIfNeeded()
+{
+     std::unique_lock<std::shared_mutex> write_lock(WriteMutex);
+     std::lock_guard<std::mutex> lock(SegmentMutex);
+
+     if (!ShouldRotateActiveLocked())
+     {
+          return true;
+     }
+
+     return SealActiveSegmentAndCreateNewLocked();
 }
 
 std::shared_ptr<SegmentManager::SegmentHandle> SegmentManager::FindSegment(const std::string &segment_id, const std::shared_ptr<SegmentSnapshot> &snapshot) const
@@ -580,56 +805,76 @@ bool SegmentManager::SetDocument(const std::string &key, const std::string &valu
      }
 
      std::lock_guard<std::mutex> key_lock(GetKeyMutex(key));
-     std::shared_ptr<SegmentHandle> active;
+     const uint64_t document_bytes = key.size() + value.size();
 
+     for (;;)
      {
-          std::lock_guard<std::mutex> lock(SegmentMutex);
+          std::shared_ptr<SegmentHandle> active;
+          bool reserved = false;
+          bool should_rotate = false;
 
-          if (!ActiveSegment && !CreateActiveSegmentLocked())
+          {
+               std::shared_lock<std::shared_mutex> write_lock(WriteMutex);
+
+               {
+                    std::lock_guard<std::mutex> lock(SegmentMutex);
+
+                    if (ActiveSegment && ActiveSegmentHasCapacityLocked(1, document_bytes))
+                    {
+                         active = ActiveSegment;
+                         ActiveReservedDocuments++;
+                         ActiveReservedBytes += document_bytes;
+                         reserved = true;
+                    }
+               }
+
+               if (!reserved)
+               {
+                    write_lock.unlock();
+
+                    if (!EnsureActiveSegmentCapacity(1, document_bytes))
+                    {
+                         return false;
+                    }
+
+                    continue;
+               }
+
+               if (!active || !active->DB ||
+                   !active->DB->Put(WriteOptionsValue, key, value).ok() ||
+                   !PutDocLocation(key, active->Metadata.Id, NowMs()))
+               {
+                    std::lock_guard<std::mutex> lock(SegmentMutex);
+                    ActiveReservedDocuments--;
+                    ActiveReservedBytes -= document_bytes;
+                    return false;
+               }
+
+               {
+                    std::lock_guard<std::mutex> lock(SegmentMutex);
+                    ActiveReservedDocuments--;
+                    ActiveReservedBytes -= document_bytes;
+                    ActiveSegment->Metadata.DocCountEstimate++;
+                    ActiveSegment->Metadata.BytesEstimate += document_bytes;
+                    ActiveMetadataDirtyDocuments++;
+                    ActiveMetadataDirtyBytes += document_bytes;
+
+                    if (!PersistActiveMetadataIfNeededLocked(false))
+                    {
+                         return false;
+                    }
+
+                    should_rotate = ShouldRotateActiveLocked();
+               }
+          }
+
+          if (should_rotate && !RotateActiveSegmentIfNeeded())
           {
                return false;
           }
 
-          active = ActiveSegment;
+          return true;
      }
-
-     if (!active || !active->DB)
-     {
-          return false;
-     }
-
-     rocksdb::Status status = active->DB->Put(WriteOptionsValue, key, value);
-
-     if (!status.ok())
-     {
-          return false;
-     }
-
-     if (!PutDocLocation(key, active->Metadata.Id, NowMs()))
-     {
-          return false;
-     }
-
-     {
-          std::lock_guard<std::mutex> lock(SegmentMutex);
-          if (ActiveSegment && ActiveSegment->Metadata.Id == active->Metadata.Id)
-          {
-               ActiveSegment->Metadata.DocCountEstimate++;
-               ActiveSegment->Metadata.BytesEstimate += key.size() + value.size();
-               PersistSegmentMetadata(ActiveSegment);
-
-               if (ShouldRotateActiveLocked())
-               {
-                    SealActiveSegmentAndCreateNewLocked();
-               }
-               else
-               {
-                    PublishSnapshotLocked();
-               }
-          }
-     }
-
-     return true;
 }
 
 size_t SegmentManager::BatchSetDocuments(const std::vector<std::pair<std::string, std::string>> &key_values)
@@ -639,40 +884,8 @@ size_t SegmentManager::BatchSetDocuments(const std::vector<std::pair<std::string
           return 0;
      }
 
-     std::shared_ptr<SegmentHandle> active;
-
-     {
-          std::lock_guard<std::mutex> lock(SegmentMutex);
-
-          if (!ActiveSegment && !CreateActiveSegmentLocked())
-          {
-               return 0;
-          }
-
-          active = ActiveSegment;
-     }
-
      rocksdb::WriteBatch segment_batch;
      uint64_t bytes = 0;
-
-     for (const auto &kv : key_values)
-     {
-          if (!IsDocKey(kv.first))
-          {
-               return 0;
-          }
-
-          segment_batch.Put(kv.first, kv.second);
-          bytes += kv.first.size() + kv.second.size();
-     }
-
-     if (!active || !active->DB || !active->DB->Write(WriteOptionsValue, &segment_batch).ok())
-     {
-          return 0;
-     }
-
-     rocksdb::WriteBatch system_batch;
-     const uint64_t timestamp_ms = NowMs();
 
      for (const auto &kv : key_values)
      {
@@ -684,35 +897,96 @@ size_t SegmentManager::BatchSetDocuments(const std::vector<std::pair<std::string
                return 0;
           }
 
-          system_batch.Put(DocLocationKey(collection, doc_id), active->Metadata.Id + ":" + std::to_string(timestamp_ms));
-          system_batch.Delete(TombstoneKey(collection, doc_id));
+          segment_batch.Put(kv.first, kv.second);
+          bytes += kv.first.size() + kv.second.size();
      }
 
-     if (!SystemDB->Write(WriteOptionsValue, &system_batch).ok())
+     for (;;)
      {
-          return 0;
-     }
+          std::shared_ptr<SegmentHandle> active;
+          bool reserved = false;
+          bool should_rotate = false;
 
-     {
-          std::lock_guard<std::mutex> lock(SegmentMutex);
-          if (ActiveSegment && ActiveSegment->Metadata.Id == active->Metadata.Id)
           {
-               ActiveSegment->Metadata.DocCountEstimate += key_values.size();
-               ActiveSegment->Metadata.BytesEstimate += bytes;
-               PersistSegmentMetadata(ActiveSegment);
+               std::shared_lock<std::shared_mutex> write_lock(WriteMutex);
 
-               if (ShouldRotateActiveLocked())
                {
-                    SealActiveSegmentAndCreateNewLocked();
+                    std::lock_guard<std::mutex> lock(SegmentMutex);
+
+                    if (ActiveSegment && ActiveSegmentHasCapacityLocked(key_values.size(), bytes))
+                    {
+                         active = ActiveSegment;
+                         ActiveReservedDocuments += key_values.size();
+                         ActiveReservedBytes += bytes;
+                         reserved = true;
+                    }
                }
-               else
+
+               if (!reserved)
                {
-                    PublishSnapshotLocked();
+                    write_lock.unlock();
+
+                    if (!EnsureActiveSegmentCapacity(key_values.size(), bytes))
+                    {
+                         return 0;
+                    }
+
+                    continue;
+               }
+
+               if (!active || !active->DB || !active->DB->Write(WriteOptionsValue, &segment_batch).ok())
+               {
+                    std::lock_guard<std::mutex> lock(SegmentMutex);
+                    ActiveReservedDocuments -= key_values.size();
+                    ActiveReservedBytes -= bytes;
+                    return 0;
+               }
+
+               rocksdb::WriteBatch system_batch;
+               const uint64_t timestamp_ms = NowMs();
+
+               for (const auto &kv : key_values)
+               {
+                    std::string collection;
+                    std::string doc_id;
+                    ParseDocKey(kv.first, collection, doc_id);
+                    system_batch.Put(DocLocationKey(collection, doc_id), active->Metadata.Id + ":" + std::to_string(timestamp_ms));
+                    system_batch.Delete(TombstoneKey(collection, doc_id));
+               }
+
+               if (!SystemDB->Write(WriteOptionsValue, &system_batch).ok())
+               {
+                    std::lock_guard<std::mutex> lock(SegmentMutex);
+                    ActiveReservedDocuments -= key_values.size();
+                    ActiveReservedBytes -= bytes;
+                    return 0;
+               }
+
+               {
+                    std::lock_guard<std::mutex> lock(SegmentMutex);
+                    ActiveReservedDocuments -= key_values.size();
+                    ActiveReservedBytes -= bytes;
+                    ActiveSegment->Metadata.DocCountEstimate += key_values.size();
+                    ActiveSegment->Metadata.BytesEstimate += bytes;
+                    ActiveMetadataDirtyDocuments += key_values.size();
+                    ActiveMetadataDirtyBytes += bytes;
+
+                    if (!PersistActiveMetadataIfNeededLocked(false))
+                    {
+                         return 0;
+                    }
+
+                    should_rotate = ShouldRotateActiveLocked();
                }
           }
-     }
 
-     return key_values.size();
+          if (should_rotate && !RotateActiveSegmentIfNeeded())
+          {
+               return 0;
+          }
+
+          return key_values.size();
+     }
 }
 
 std::string SegmentManager::GetDocument(const std::string &key)
@@ -778,6 +1052,7 @@ int SegmentManager::DeleteDocument(const std::string &key)
      }
 
      std::lock_guard<std::mutex> key_lock(GetKeyMutex(key));
+     std::shared_lock<std::shared_mutex> write_lock(WriteMutex);
 
      rocksdb::WriteBatch batch;
      batch.Put(TombstoneKey(collection, doc_id), std::to_string(NowMs()));
@@ -809,6 +1084,7 @@ size_t SegmentManager::DeleteDocumentRange(const std::string &start_key, const s
           return 0;
      }
 
+     std::unique_lock<std::shared_mutex> write_lock(WriteMutex);
      const std::string loc_prefix = LocationPrefixFromDocPrefix(start_key);
      rocksdb::WriteBatch batch;
      size_t deleted = 0;
@@ -842,6 +1118,63 @@ size_t SegmentManager::DeleteDocumentRange(const std::string &start_key, const s
      }
 
      return SystemDB->Write(WriteOptionsValue, &batch).ok() ? 1 : 0;
+}
+
+bool SegmentManager::ClearAllDocuments()
+{
+     std::unique_lock<std::shared_mutex> write_lock(WriteMutex);
+     auto snapshot = Snapshot();
+
+     if (!snapshot)
+     {
+          return false;
+     }
+
+     const rocksdb::Slice first_document("doc:");
+     const rocksdb::Slice after_last_document("doc;");
+
+     for (const auto &segment : snapshot->LiveNewestFirst)
+     {
+          if (!segment || !segment->DB)
+          {
+               continue;
+          }
+
+          rocksdb::Status status = segment->DB->DeleteRange(WriteOptionsValue,
+                                                            segment->DB->DefaultColumnFamily(),
+                                                            first_document,
+                                                            after_last_document);
+
+          if (!status.ok())
+          {
+               return false;
+          }
+
+          segment->Metadata.DocCountEstimate = 0;
+          segment->Metadata.BytesEstimate = 0;
+
+          if (!PersistSegmentMetadata(segment))
+          {
+               return false;
+          }
+     }
+
+     ActiveMetadataDirtyDocuments = 0;
+     ActiveMetadataDirtyBytes = 0;
+     LastMetadataPersistMs = NowMs();
+
+     /*
+      * The system database may have just been swept by FlushAll. Recreate only
+      * the internal generation marker so a restart does not mistake the reset
+      * for an interrupted catalog update and rebuild routes to deleted data.
+      */
+
+     rocksdb::WriteBatch system_batch;
+     system_batch.DeleteRange(DocLocationPrefix, std::string(DocLocationPrefix) + "\xff");
+     system_batch.DeleteRange(TombstonePrefix, std::string(TombstonePrefix) + "\xff");
+     system_batch.Put(ManifestGenerationKey, std::to_string(snapshot->Generation));
+
+     return SystemDB->Write(WriteOptionsValue, &system_batch).ok();
 }
 
 bool SegmentManager::ExistsDocument(const std::string &key)
@@ -956,6 +1289,7 @@ size_t SegmentManager::GetPrefixTotalSize(const std::string &prefix)
 
 bool SegmentManager::Flush()
 {
+     std::unique_lock<std::shared_mutex> write_lock(WriteMutex);
      auto snapshot = Snapshot();
      bool ok = true;
 
@@ -968,6 +1302,11 @@ bool SegmentManager::Flush()
                     ok = segment->DB->Flush(rocksdb::FlushOptions()).ok() && ok;
                }
           }
+     }
+
+     {
+          std::lock_guard<std::mutex> lock(SegmentMutex);
+          ok = PersistActiveMetadataIfNeededLocked(true) && ok;
      }
 
      return ok;
@@ -975,6 +1314,7 @@ bool SegmentManager::Flush()
 
 bool SegmentManager::FlushAndSync()
 {
+     std::unique_lock<std::shared_mutex> write_lock(WriteMutex);
      auto snapshot = Snapshot();
      bool ok = true;
 
@@ -990,11 +1330,17 @@ bool SegmentManager::FlushAndSync()
           }
      }
 
+     {
+          std::lock_guard<std::mutex> lock(SegmentMutex);
+          ok = PersistActiveMetadataIfNeededLocked(true) && ok;
+     }
+
      return ok;
 }
 
 bool SegmentManager::SyncWAL()
 {
+     std::unique_lock<std::shared_mutex> write_lock(WriteMutex);
      auto snapshot = Snapshot();
      bool ok = true;
 
@@ -1007,6 +1353,11 @@ bool SegmentManager::SyncWAL()
                     ok = segment->DB->SyncWAL().ok() && ok;
                }
           }
+     }
+
+     {
+          std::lock_guard<std::mutex> lock(SegmentMutex);
+          ok = PersistActiveMetadataIfNeededLocked(true) && ok;
      }
 
      return ok;
@@ -1039,8 +1390,23 @@ bool SegmentManager::RebuildDocLocationMap()
           return false;
      }
 
+     /*
+      * Discard partial or stale routes before rebuilding. The generation marker
+      * remains mismatched until the final write, so a crash during this scan
+      * causes the next startup to retry it.
+      */
+
+     rocksdb::WriteBatch clear_batch;
+     clear_batch.DeleteRange(DocLocationPrefix, std::string(DocLocationPrefix) + "\xff");
+
+     if (!SystemDB->Write(WriteOptionsValue, &clear_batch).ok())
+     {
+          return false;
+     }
+
+     static constexpr size_t RebuildBatchSize = 4096;
      rocksdb::WriteBatch batch;
-     std::set<std::string> seen;
+     std::set<std::string> pending_routes;
 
      for (const auto &segment : snapshot->LiveNewestFirst)
      {
@@ -1054,14 +1420,6 @@ bool SegmentManager::RebuildDocLocationMap()
           for (it->Seek("doc:"); it->Valid() && it->key().starts_with("doc:"); it->Next())
           {
                const std::string doc_key = it->key().ToString();
-
-               if (seen.count(doc_key) > 0)
-               {
-                    continue;
-               }
-
-               seen.insert(doc_key);
-
                std::string collection;
                std::string doc_id;
                if (!ParseDocKey(doc_key, collection, doc_id) || IsTombstoned(collection, doc_id))
@@ -1069,12 +1427,43 @@ bool SegmentManager::RebuildDocLocationMap()
                     continue;
                }
 
-               batch.Put(DocLocationKey(collection, doc_id), segment->Metadata.Id + ":" + std::to_string(NowMs()));
+               const std::string route_key = DocLocationKey(collection, doc_id);
+               std::string existing_route;
+
+               if (pending_routes.count(route_key) > 0 || GetSystemValue(route_key, existing_route))
+               {
+                    continue;
+               }
+
+               batch.Put(route_key, segment->Metadata.Id + ":" + std::to_string(NowMs()));
+               pending_routes.insert(route_key);
+
+               if (pending_routes.size() >= RebuildBatchSize)
+               {
+                    if (!SystemDB->Write(WriteOptionsValue, &batch).ok())
+                    {
+                         return false;
+                    }
+
+                    batch.Clear();
+                    pending_routes.clear();
+               }
+          }
+
+          if (!it->status().ok())
+          {
+               return false;
           }
      }
 
-     batch.Put(ManifestGenerationKey, std::to_string(snapshot->Generation));
-     return SystemDB->Write(WriteOptionsValue, &batch).ok();
+     if (!pending_routes.empty() && !SystemDB->Write(WriteOptionsValue, &batch).ok())
+     {
+          return false;
+     }
+
+     return SystemDB->Put(WriteOptionsValue,
+                          ManifestGenerationKey,
+                          std::to_string(snapshot->Generation)).ok();
 }
 
 SegmentManager::SegmentStats SegmentManager::GetStats() const

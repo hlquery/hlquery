@@ -76,10 +76,10 @@ hlquery::hlquery(int argc, char **argv)
 {
      ThreadLimit::SetThreadName("hlquery");
 
-     Instance = this;
-     Metrics = std::make_unique<HLQueryMetrics>();
-     SQL = std::make_unique<SQLService>();
-     Config = std::make_unique<ServerConfig>(argc, argv);
+     Instance     =    this;
+     Metrics      =    std::make_unique<HLQueryMetrics>();
+     SQL          =    std::make_unique<SQLService>();
+     Config       =    std::make_unique<ServerConfig>(argc, argv);
 
      ParseArgs();
      StatsVal.Start();
@@ -300,14 +300,6 @@ void hlquery::Run()
      time_t old_time = Time();
      time_t LastMinuteRun = (old_time > 0) ? (old_time / 60) : -1;
 
-     if (!hlquery::WritePID())
-     {
-          print_error("Failed to acquire PID file lock.");
-          print_error("Another daemon instance may already be starting, or the PID path is not writable.");
-
-          ExitManager::Exit(1);
-     }
-
      if (!Logs)
      {
           print_error("Logs unique_ptr is null in Run() - LogManager failed to initialize.");
@@ -327,16 +319,16 @@ void hlquery::Run()
                break;
           }
 
-          time_t NowTimeVal = 0;
+          time_t CurrentTime = 0;
           time_t CurrentMinute = -1;
 
           try
           {
-               NowTimeVal = Time();
+               CurrentTime = Time();
 
-               if (NowTimeVal > 0)
+               if (CurrentTime > 0)
                {
-                    CurrentMinute = NowTimeVal / 60;
+                    CurrentMinute = CurrentTime / 60;
                }
           }
           catch (...)
@@ -346,10 +338,10 @@ void hlquery::Run()
 
           /* Execute periodic maintenance tasks based on clock movement */
 
-          if (NowTimeVal != old_time)
+          if (CurrentTime != old_time)
           {
                CoreHelpers::SafePeriodicFlush();
-               old_time = NowTimeVal;
+               old_time = CurrentTime;
           }
 
           if (Instance && Instance->Modules && CurrentMinute >= 0 && CurrentMinute != LastMinuteRun)
@@ -421,7 +413,7 @@ void hlquery::Run()
           /* Process other recurring server tasks */
 
           CoreHelpers::ProcessPeriodicTasks();
-          FOREACH_MOD(OnIdleTick, NowTimeVal);
+          FOREACH_MOD(OnIdleTick, CurrentTime);
 
           if (CoreHelpers::ShouldExitLoop())
           {

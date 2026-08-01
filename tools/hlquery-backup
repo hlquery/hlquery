@@ -1,0 +1,173 @@
+#!/bin/sh
+
+set -eu
+
+usage() {
+    cat >&2 <<'EOF'
+Usage:
+  hlquery-backup create --data-dir DIR --output-dir DIR [--config-dir DIR] [--admin-dir DIR] [--pid-file FILE]
+  hlquery-backup verify --backup-dir DIR
+  hlquery-backup restore --backup-dir DIR --data-dir EMPTY_DIR [--config-dir EMPTY_DIR] [--admin-dir EMPTY_DIR]
+
+Create is an offline operation. Stop hlquery before running it. If --pid-file
+is supplied, creation refuses to proceed while that PID is alive. Restore never
+overwrites a non-empty destination.
+EOF
+}
+
+die() {
+    echo "hlquery-backup: $*" >&2
+    exit 1
+}
+
+require_command() {
+    command -v "$1" >/dev/null 2>&1 || die "required command not found: $1"
+}
+
+require_directory() {
+    [ -d "$1" ] || die "directory does not exist: $1"
+}
+
+require_empty_destination() {
+    destination="$1"
+    if [ -e "$destination" ]; then
+        [ -d "$destination" ] || die "restore destination is not a directory: $destination"
+        [ -z "$(find "$destination" -mindepth 1 -maxdepth 1 -print -quit)" ] || die "restore destination is not empty: $destination"
+    else
+        mkdir -p "$destination"
+    fi
+}
+
+copy_tree() {
+    source_dir="$1"
+    destination_dir="$2"
+    mkdir -p "$destination_dir"
+    cp -a "$source_dir/." "$destination_dir/"
+}
+
+write_checksums() {
+    backup_root="$1"
+    (
+        cd "$backup_root"
+        find payload -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum > SHA256SUMS
+    )
+}
+
+verify_backup() {
+    backup_root="$1"
+    require_directory "$backup_root"
+    [ -f "$backup_root/MANIFEST" ] || die "backup manifest is missing"
+    [ -f "$backup_root/SHA256SUMS" ] || die "backup checksum file is missing"
+    [ -d "$backup_root/payload/data" ] || die "backup data payload is missing"
+    (
+        cd "$backup_root"
+        sha256sum -c SHA256SUMS
+    )
+}
+
+command_name="${1:-}"
+[ -n "$command_name" ] || { usage; exit 2; }
+shift
+
+data_dir=""
+config_dir=""
+admin_dir=""
+output_dir=""
+backup_dir=""
+pid_file=""
+
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --data-dir|--config-dir|--admin-dir|--output-dir|--backup-dir|--pid-file)
+            option="$1"
+            shift
+            [ "$#" -gt 0 ] || die "$option requires a value"
+            case "$option" in
+                --data-dir) data_dir="$1" ;;
+                --config-dir) config_dir="$1" ;;
+                --admin-dir) admin_dir="$1" ;;
+                --output-dir) output_dir="$1" ;;
+                --backup-dir) backup_dir="$1" ;;
+                --pid-file) pid_file="$1" ;;
+            esac
+            ;;
+        -h|--help) usage; exit 0 ;;
+        *) die "unknown argument: $1" ;;
+    esac
+    shift
+done
+
+require_command sha256sum
+require_command find
+require_command cp
+
+case "$command_name" in
+    create)
+        [ -n "$data_dir" ] || die "--data-dir is required"
+        [ -n "$output_dir" ] || die "--output-dir is required"
+        require_directory "$data_dir"
+        [ ! -e "$output_dir" ] || die "output already exists: $output_dir"
+
+        if [ -n "$pid_file" ] && [ -f "$pid_file" ]; then
+            pid="$(sed -n '1p' "$pid_file")"
+            case "$pid" in
+                *[!0-9]*|'') die "invalid PID file: $pid_file" ;;
+            esac
+            if kill -0 "$pid" 2>/dev/null; then
+                die "hlquery process $pid is running; stop it before creating an offline backup"
+            fi
+        fi
+
+        output_parent="$(dirname "$output_dir")"
+        mkdir -p "$output_parent"
+        staging="$(mktemp -d "$output_parent/.hlquery-backup.XXXXXX")"
+        trap 'rm -rf "$staging"' EXIT HUP INT TERM
+
+        copy_tree "$data_dir" "$staging/payload/data"
+        [ -z "$config_dir" ] || { require_directory "$config_dir"; copy_tree "$config_dir" "$staging/payload/config"; }
+        [ -z "$admin_dir" ] || { require_directory "$admin_dir"; copy_tree "$admin_dir" "$staging/payload/admin"; }
+
+        {
+            echo "format=hlquery-offline-backup-v1"
+            echo "created_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "hostname=$(hostname 2>/dev/null || echo unknown)"
+            echo "data_included=true"
+            [ -z "$config_dir" ] && echo "config_included=false" || echo "config_included=true"
+            [ -z "$admin_dir" ] && echo "admin_included=false" || echo "admin_included=true"
+        } >"$staging/MANIFEST"
+
+        write_checksums "$staging"
+        verify_backup "$staging" >/dev/null
+        mv "$staging" "$output_dir"
+        trap - EXIT HUP INT TERM
+        echo "Backup created and verified: $output_dir"
+        ;;
+    verify)
+        [ -n "$backup_dir" ] || die "--backup-dir is required"
+        verify_backup "$backup_dir"
+        echo "Backup verified: $backup_dir"
+        ;;
+    restore)
+        [ -n "$backup_dir" ] || die "--backup-dir is required"
+        [ -n "$data_dir" ] || die "--data-dir is required"
+        verify_backup "$backup_dir" >/dev/null
+
+        require_empty_destination "$data_dir"
+        copy_tree "$backup_dir/payload/data" "$data_dir"
+
+        if [ -d "$backup_dir/payload/config" ]; then
+            [ -n "$config_dir" ] || die "backup contains configuration; provide --config-dir"
+            require_empty_destination "$config_dir"
+            copy_tree "$backup_dir/payload/config" "$config_dir"
+        fi
+
+        if [ -d "$backup_dir/payload/admin" ]; then
+            [ -n "$admin_dir" ] || die "backup contains admin data; provide --admin-dir"
+            require_empty_destination "$admin_dir"
+            copy_tree "$backup_dir/payload/admin" "$admin_dir"
+        fi
+
+        echo "Backup restored into empty destinations. Verify ownership before starting hlquery."
+        ;;
+    *) usage; exit 2 ;;
+esac

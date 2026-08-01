@@ -319,6 +319,20 @@ struct AdvancedMetrics
 
      int CommitStatusCode = 0;
 
+     int64_t LogicalDocumentBytes = 0;
+
+     std::string ClientVersion;
+
+     std::string ServerVersion;
+
+     int64_t BaselineDocuments = -1;
+
+     int64_t BaselineCollections = -1;
+
+     int64_t BaselineStorageBytes = -1;
+
+     int64_t BaselineSSTables = -1;
+
      std::string DurabilityConfigPath;
 
      std::string WalSyncMode;
@@ -422,6 +436,8 @@ std::string MakeBenchmarkCollectionName(int collection_index);
 
 bool IsBenchmarkCollectionNameForCurrentPrefix(const std::string &collection_name);
 
+bool IsGeneratedBenchmarkCollectionName(const std::string &collection_name);
+
 extern bool verbose_mode;
 
 extern std::atomic<int> spinner_index;
@@ -441,6 +457,8 @@ extern std::atomic<int> collections_created;
 extern std::atomic<int64_t> documents_inserted;
 
 extern std::atomic<int64_t> additional_documents_inserted;
+
+extern std::atomic<int64_t> benchmark_document_bytes;
 
 extern std::atomic<int> collections_skipped;
 

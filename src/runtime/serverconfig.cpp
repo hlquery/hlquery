@@ -908,6 +908,24 @@ void ServerConfig::ApplyConfiguration()
           ManagementPoolThreads = ParsePoolThreads("management_pool_threads", ManagementPoolThreads);
      }
 
+     /* Configure the adaptive search master controls. */
+
+     auto AdaptiveSearchTag = ConfigReaderValue.GetTag("adaptive_search");
+
+     if (AdaptiveSearchTag)
+     {
+          AdaptiveSearchEnabled = AdaptiveSearchTag->GetBool("enabled", AdaptiveSearchEnabled);
+          AdaptiveSearchExecutionTrace = AdaptiveSearchTag->GetBool("execution_trace", AdaptiveSearchExecutionTrace);
+          AdaptiveSearchIncludeQueryText = AdaptiveSearchTag->GetBool("include_query_text", AdaptiveSearchIncludeQueryText);
+          AdaptiveSearchAllowRequestDisable = AdaptiveSearchTag->GetBool("allow_request_disable", AdaptiveSearchAllowRequestDisable);
+          AdaptiveSearchExposeCapabilities = AdaptiveSearchTag->GetBool("expose_capabilities", AdaptiveSearchExposeCapabilities);
+
+          if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
+          {
+               Instance->Logs->Debug("serverconfig", "Loaded adaptive search controls: enabled=" + std::string(AdaptiveSearchEnabled ? "true" : "false") + ", execution_trace=" + std::string(AdaptiveSearchExecutionTrace ? "true" : "false") + ", include_query_text=" + std::string(AdaptiveSearchIncludeQueryText ? "true" : "false") + ", allow_request_disable=" + std::string(AdaptiveSearchAllowRequestDisable ? "true" : "false") + ", expose_capabilities=" + std::string(AdaptiveSearchExposeCapabilities ? "true" : "false") + ".");
+          }
+     }
+
      /* Configure search behavior and relevance algorithm parameters */
 
      auto SearchSettingsTag = ConfigReaderValue.GetTag("search");
@@ -2276,7 +2294,10 @@ static std::string NormalizeClusterEndpoint(const std::string &Raw, std::string 
      return Host + ":" + std::to_string(Port);
 }
 
-bool ServerConfig::AddClusterNode(const std::string &Endpoint, std::string *OutError)
+bool ServerConfig::AddClusterNode(const std::string &Endpoint,
+                                  std::string *OutError,
+                                  const std::string &PrimaryToken,
+                                  const std::string &SecondaryToken)
 {
      std::string Error;
      std::string Normalized = NormalizeClusterEndpoint(Endpoint, &Error);
@@ -2295,6 +2316,10 @@ bool ServerConfig::AddClusterNode(const std::string &Endpoint, std::string *OutE
      {
           if (NormalizeClusterEndpoint(Existing, nullptr) == Normalized)
           {
+               if (!PrimaryToken.empty() || !SecondaryToken.empty())
+               {
+                    ClusterPeerTokens[Normalized] = std::make_pair(PrimaryToken, SecondaryToken);
+               }
                ClusterEnabled = true;
                return true;
           }
@@ -2303,6 +2328,10 @@ bool ServerConfig::AddClusterNode(const std::string &Endpoint, std::string *OutE
      ClusterNodes.push_back(Normalized);
      std::sort(ClusterNodes.begin(), ClusterNodes.end());
      ClusterNodes.erase(std::unique(ClusterNodes.begin(), ClusterNodes.end()), ClusterNodes.end());
+     if (!PrimaryToken.empty() || !SecondaryToken.empty())
+     {
+          ClusterPeerTokens[Normalized] = std::make_pair(PrimaryToken, SecondaryToken);
+     }
      ClusterEnabled = true;
      return true;
 }
@@ -2357,7 +2386,10 @@ bool ServerConfig::RemoveClusterNode(const std::string &Endpoint, std::string *O
      return Removed;
 }
 
-bool ServerConfig::AddSlaveNode(const std::string &Endpoint, std::string *OutError)
+bool ServerConfig::AddSlaveNode(const std::string &Endpoint,
+                                std::string *OutError,
+                                const std::string &PrimaryToken,
+                                const std::string &SecondaryToken)
 {
      std::string Error;
      std::string Normalized = NormalizeClusterEndpoint(Endpoint, &Error);
@@ -2376,6 +2408,10 @@ bool ServerConfig::AddSlaveNode(const std::string &Endpoint, std::string *OutErr
      {
           if (NormalizeClusterEndpoint(Existing, nullptr) == Normalized)
           {
+               if (!PrimaryToken.empty() || !SecondaryToken.empty())
+               {
+                    SlavePeerTokens[Normalized] = std::make_pair(PrimaryToken, SecondaryToken);
+               }
                ReplicationEnabled = true;
                return true;
           }
@@ -2384,6 +2420,10 @@ bool ServerConfig::AddSlaveNode(const std::string &Endpoint, std::string *OutErr
      SlaveNodes.push_back(Normalized);
      std::sort(SlaveNodes.begin(), SlaveNodes.end());
      SlaveNodes.erase(std::unique(SlaveNodes.begin(), SlaveNodes.end()), SlaveNodes.end());
+     if (!PrimaryToken.empty() || !SecondaryToken.empty())
+     {
+          SlavePeerTokens[Normalized] = std::make_pair(PrimaryToken, SecondaryToken);
+     }
      ReplicationEnabled = true;
      return true;
 }

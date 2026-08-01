@@ -1,0 +1,242 @@
+{
+  "fixture_version": 3,
+  "fixture_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic. Travel details are illustrative and not current travel advice.",
+  "collection": "travel",
+  "count": 10,
+  "tags": [
+    "itinerary",
+    "culture",
+    "city",
+    "public transit",
+    "museum",
+    "architecture",
+    "food",
+    "walking"
+  ],
+  "documents": [
+    {
+      "id": "travel_porto-riverside-walk-demo-itinerary",
+      "title": "Porto Riverside Walk (Demo Itinerary)",
+      "content": "A non-current sample itinerary links a riverside walk, a market stop, and a museum visit with generous transit and rest time.",
+      "description": "Synthetic travel demo record: Porto Riverside Walk (Demo Itinerary).",
+      "labels": [
+        "travel",
+        "demo",
+        "synthetic",
+        "itinerary",
+        "Porto, Portugal",
+        "walking and culture"
+      ],
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+      "is_synthetic": true,
+      "destination": "Porto, Portugal",
+      "trip_style": "walking and culture",
+      "duration_days": 2,
+      "season_note": "check current local conditions before travel"
+    },
+    {
+      "id": "travel_kyoto-neighborhood-loop-demo-itinerary",
+      "title": "Kyoto Neighborhood Loop (Demo Itinerary)",
+      "content": "A fictional day plan groups gardens, small museums, and rail connections by area to avoid unnecessary backtracking.",
+      "description": "Synthetic travel demo record: Kyoto Neighborhood Loop (Demo Itinerary).",
+      "labels": [
+        "travel",
+        "demo",
+        "synthetic",
+        "culture",
+        "Kyoto, Japan",
+        "rail and neighborhoods"
+      ],
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+      "is_synthetic": true,
+      "destination": "Kyoto, Japan",
+      "trip_style": "rail and neighborhoods",
+      "duration_days": 3,
+      "season_note": "check current local conditions before travel"
+    },
+    {
+      "id": "travel_chicago-architecture-weekend-demo-itinerary",
+      "title": "Chicago Architecture Weekend (Demo Itinerary)",
+      "content": "A sample weekend balances an architecture walk, public parks, indoor exhibits, and flexible meal stops.",
+      "description": "Synthetic travel demo record: Chicago Architecture Weekend (Demo Itinerary).",
+      "labels": [
+        "travel",
+        "demo",
+        "synthetic",
+        "city",
+        "Chicago, United States",
+        "city and architecture"
+      ],
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+      "is_synthetic": true,
+      "destination": "Chicago, United States",
+      "trip_style": "city and architecture",
+      "duration_days": 2,
+      "season_note": "check current weather and opening hours"
+    },
+    {
+      "id": "travel_valpara-so-hills-and-murals-demo-itinerary",
+      "title": "Valparaíso Hills and Murals (Demo Itinerary)",
+      "content": "A sample route emphasizes daytime walking, public viewpoints, local transit planning, and respect for residential streets.",
+      "description": "Synthetic travel demo record: Valparaíso Hills and Murals (Demo Itinerary).",
+      "labels": [
+        "travel",
+        "demo",
+        "synthetic",
+        "public transit",
+        "Valparaíso, Chile",
+        "hills and public art"
+      ],
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+      "is_synthetic": true,
+      "destination": "Valparaíso, Chile",
+      "trip_style": "hills and public art",
+      "duration_days": 2,
+      "season_note": "verify current access and transit information"
+    },
+    {
+      "id": "travel_copenhagen-design-route-demo-itinerary",
+      "title": "Copenhagen Design Route (Demo Itinerary)",
+      "content": "A fictional route connects design exhibits, waterfront public space, and bicycle-friendly corridors without claiming current availability.",
+      "description": "Synthetic travel demo record: Copenhagen Design Route (Demo Itinerary).",
+      "labels": [
+        "travel",
+        "demo",
+        "synthetic",
+        "museum",
+        "Copenhagen, Denmark",
+        "design and cycling"
+      ],
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+      "is_synthetic": true,
+      "destination": "Copenhagen, Denmark",
+      "trip_style": "design and cycling",
+      "duration_days": 3,
+      "season_note": "verify current bicycle and venue information"
+    },
+    {
+      "id": "travel_vancouver-rainy-day-plan-demo-itinerary",
+      "title": "Vancouver Rainy-Day Plan (Demo Itinerary)",
+      "content": "A flexible sample plan pairs indoor cultural stops with short outdoor walks and backup transit options.",
+      "description": "Synthetic travel demo record: Vancouver Rainy-Day Plan (Demo Itinerary).",
+      "labels": [
+        "travel",
+        "demo",
+        "synthetic",
+        "architecture",
+        "Vancouver, Canada",
+        "nature and museums"
+      ],
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+      "is_synthetic": true,
+      "destination": "Vancouver, Canada",
+      "trip_style": "nature and museums",
+      "duration_days": 2,
+      "season_note": "check current weather and advisories"
+    },
+    {
+      "id": "travel_marrakesh-courtyard-study-trip-demo-itinerary",
+      "title": "Marrakesh Courtyard Study Trip (Demo Itinerary)",
+      "content": "A fictional architecture-focused plan leaves time for guided context, rest, navigation, and respectful photography choices.",
+      "description": "Synthetic travel demo record: Marrakesh Courtyard Study Trip (Demo Itinerary).",
+      "labels": [
+        "travel",
+        "demo",
+        "synthetic",
+        "food",
+        "Marrakesh, Morocco",
+        "architecture and markets"
+      ],
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+      "is_synthetic": true,
+      "destination": "Marrakesh, Morocco",
+      "trip_style": "architecture and markets",
+      "duration_days": 3,
+      "season_note": "verify current local guidance"
+    },
+    {
+      "id": "travel_melbourne-tram-and-gallery-days-demo-itinerary",
+      "title": "Melbourne Tram and Gallery Days (Demo Itinerary)",
+      "content": "A sample city plan groups galleries, neighborhoods, and tram travel while keeping one unscheduled afternoon.",
+      "description": "Synthetic travel demo record: Melbourne Tram and Gallery Days (Demo Itinerary).",
+      "labels": [
+        "travel",
+        "demo",
+        "synthetic",
+        "walking",
+        "Melbourne, Australia",
+        "transit and galleries"
+      ],
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+      "is_synthetic": true,
+      "destination": "Melbourne, Australia",
+      "trip_style": "transit and galleries",
+      "duration_days": 4,
+      "season_note": "check current transit and venue details"
+    },
+    {
+      "id": "travel_ljubljana-slow-city-break-demo-itinerary",
+      "title": "Ljubljana Slow City Break (Demo Itinerary)",
+      "content": "A fictional low-intensity itinerary uses walking, riverfront stops, and nearby green space with time for spontaneous changes.",
+      "description": "Synthetic travel demo record: Ljubljana Slow City Break (Demo Itinerary).",
+      "labels": [
+        "travel",
+        "demo",
+        "synthetic",
+        "itinerary",
+        "Ljubljana, Slovenia",
+        "slow city travel"
+      ],
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+      "is_synthetic": true,
+      "destination": "Ljubljana, Slovenia",
+      "trip_style": "slow city travel",
+      "duration_days": 2,
+      "season_note": "verify current local conditions"
+    },
+    {
+      "id": "travel_oaxaca-food-and-craft-notes-demo-itinerary",
+      "title": "Oaxaca Food and Craft Notes (Demo Itinerary)",
+      "content": "A sample research itinerary centers on markets, workshops, museums, and asking permission before photographing people or work.",
+      "description": "Synthetic travel demo record: Oaxaca Food and Craft Notes (Demo Itinerary).",
+      "labels": [
+        "travel",
+        "demo",
+        "synthetic",
+        "culture",
+        "Oaxaca, Mexico",
+        "food and craft"
+      ],
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+      "is_synthetic": true,
+      "destination": "Oaxaca, Mexico",
+      "trip_style": "food and craft",
+      "duration_days": 3,
+      "season_note": "verify current access and local guidance"
+    }
+  ],
+  "metadata": {
+    "_fixture_kind": "synthetic_public_demo",
+    "_fixture_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+    "_demo_description": "Illustrative, non-current itineraries for destination, activity, duration, and travel-style search.",
+    "_demo_queries": "architecture weekend | galleries and public transit | food and craft itinerary"
+  },
+  "fields": [
+    {
+      "name": "destination",
+      "type": "string"
+    },
+    {
+      "name": "trip_style",
+      "type": "string"
+    },
+    {
+      "name": "duration_days",
+      "type": "int32"
+    },
+    {
+      "name": "season_note",
+      "type": "string"
+    }
+  ]
+}

@@ -120,6 +120,100 @@ static bool ModuleRuntimeNameMatchesRequest(const RuntimeModule &Module, const s
      return Module.GetName() == RequestedName;
 }
 
+/* Validates one module's loader ABI and constructs it with its own deleter. */
+
+static bool CreateModuleFromHandle(void *Handle, const std::string &ModuleName, std::shared_ptr<RuntimeModule> &Module, std::string &ErrorMessage)
+{
+     dlerror();
+
+     auto *GetDescriptor = reinterpret_cast<GetRuntimeModuleDescriptorFn>(dlsym(Handle, "GetRuntimeModuleDescriptor"));
+     const char *SymbolError = dlerror();
+
+     if (SymbolError)
+     {
+          ErrorMessage = "Module '" + ModuleName + "' is missing GetRuntimeModuleDescriptor(): " + std::string(SymbolError);
+          return false;
+     }
+
+     const RuntimeModuleDescriptor *Descriptor = GetDescriptor();
+
+     if (!Descriptor)
+     {
+          ErrorMessage = "Module '" + ModuleName + "' returned a null runtime descriptor.";
+          return false;
+     }
+
+     if (Descriptor->DescriptorSize < sizeof(RuntimeModuleDescriptor))
+     {
+          ErrorMessage = "Module '" + ModuleName + "' has an unsupported runtime descriptor size (module " +
+                         std::to_string(Descriptor->DescriptorSize) + ", host " + std::to_string(sizeof(RuntimeModuleDescriptor)) + ").";
+          return false;
+     }
+
+     if (Descriptor->ABIVersion != ModuleRuntimeABIVersion)
+     {
+          ErrorMessage = "Module '" + ModuleName + "' has incompatible runtime ABI version " +
+                         std::to_string(Descriptor->ABIVersion) + " (host requires " + std::to_string(ModuleRuntimeABIVersion) + ").";
+          return false;
+     }
+
+     if (Descriptor->RuntimeModuleSize != sizeof(RuntimeModule))
+     {
+          ErrorMessage = "Module '" + ModuleName + "' has an incompatible RuntimeModule size (module " +
+                         std::to_string(Descriptor->RuntimeModuleSize) + ", host " + std::to_string(sizeof(RuntimeModule)) + ").";
+          return false;
+     }
+
+     if (!Descriptor->Create || !Descriptor->Destroy)
+     {
+          ErrorMessage = "Module '" + ModuleName + "' has an incomplete runtime descriptor.";
+          return false;
+     }
+
+     RuntimeModule *RawModule = nullptr;
+     std::string CreationError;
+
+     try
+     {
+          RawModule = Descriptor->Create();
+     }
+     catch (const std::exception &Ex)
+     {
+          CreationError = "Module '" + ModuleName + "' threw during creation: " + std::string(Ex.what());
+     }
+     catch (...)
+     {
+          CreationError = "Module '" + ModuleName + "' threw during creation: unknown exception.";
+     }
+
+     /* The caught exception is destroyed before the caller is allowed to dlclose(). */
+
+     if (!CreationError.empty())
+     {
+          ErrorMessage = std::move(CreationError);
+          return false;
+     }
+
+     if (!RawModule)
+     {
+          ErrorMessage = "Module '" + ModuleName + "' returned a null module instance.";
+          return false;
+     }
+
+     try
+     {
+          Module = std::shared_ptr<RuntimeModule>(RawModule, Descriptor->Destroy);
+     }
+     catch (...)
+     {
+          Descriptor->Destroy(RawModule);
+          ErrorMessage = "Module '" + ModuleName + "' could not allocate its ownership state.";
+          return false;
+     }
+
+     return true;
+}
+
 /* Stores process-wide demo mode state
  * derived from the loaded module set.
  */
@@ -200,6 +294,8 @@ bool ModuleManager::LoadModule(const ServerConfig &Config,
                                std::string &ErrorMessage,
                                const std::string &ExplicitPath)
 {
+     std::lock_guard<std::mutex> LifecycleLock(LifecycleMutex);
+
      if (ModuleName.empty())
      {
           ErrorMessage = "Module name is required.";
@@ -263,41 +359,11 @@ bool ModuleManager::LoadModule(const ServerConfig &Config,
           return false;
      }
 
-     dlerror();
-
-     auto *CreateFn = reinterpret_cast<CreateRuntimeModuleFn>(dlsym(Handle, "CreateRuntimeModule"));
-     const char *SymbolError = dlerror();
-
-     if (SymbolError)
-     {
-          dlclose(Handle);
-          ErrorMessage = "Module '" + ModuleName + "' is missing CreateRuntimeModule(): " + std::string(SymbolError);
-          return false;
-     }
-
      std::shared_ptr<RuntimeModule> Module;
 
-     try
-     {
-          Module.reset(CreateFn());
-     }
-     catch (const std::exception &Ex)
+     if (!CreateModuleFromHandle(Handle, ModuleName, Module, ErrorMessage))
      {
           dlclose(Handle);
-          ErrorMessage = "Module '" + ModuleName + "' threw during creation: " + std::string(Ex.what());
-          return false;
-     }
-     catch (...)
-     {
-          dlclose(Handle);
-          ErrorMessage = "Module '" + ModuleName + "' threw during creation: unknown exception.";
-          return false;
-     }
-
-     if (!Module)
-     {
-          dlclose(Handle);
-          ErrorMessage = "Module '" + ModuleName + "' returned a null module instance.";
           return false;
      }
 
@@ -444,6 +510,15 @@ bool ModuleManager::BeginModuleCallback(const ModuleReference &Module)
 
      std::unique_lock<std::mutex> Lock(Module.ExecutionState->Mutex);
 
+     const std::thread::id CurrentThread = std::this_thread::get_id();
+
+     if (Module.ExecutionState->DispatchInProgress &&
+         Module.ExecutionState->DispatchOwner == CurrentThread)
+     {
+          ++Module.ExecutionState->ActiveCallbacks;
+          return true;
+     }
+
      while (Module.ExecutionState->DispatchInProgress && !Module.ExecutionState->Stopping)
      {
           Module.ExecutionState->Condition.wait(Lock);
@@ -455,6 +530,7 @@ bool ModuleManager::BeginModuleCallback(const ModuleReference &Module)
      }
 
      Module.ExecutionState->DispatchInProgress = true;
+     Module.ExecutionState->DispatchOwner = CurrentThread;
      ++Module.ExecutionState->ActiveCallbacks;
      return true;
 }
@@ -475,8 +551,12 @@ void ModuleManager::EndModuleCallback(const ModuleReference &Module)
           --Module.ExecutionState->ActiveCallbacks;
      }
 
-     Module.ExecutionState->DispatchInProgress = false;
-     Module.ExecutionState->Condition.notify_all();
+     if (Module.ExecutionState->ActiveCallbacks == 0)
+     {
+          Module.ExecutionState->DispatchInProgress = false;
+          Module.ExecutionState->DispatchOwner = std::thread::id();
+          Module.ExecutionState->Condition.notify_all();
+     }
 }
 
 ModuleManager::ModuleCallbackGuard::ModuleCallbackGuard(const ModuleReference &ModuleRef)
@@ -663,6 +743,8 @@ std::string ModuleManager::ResolveModulePath(const ServerConfig &Config, const S
 
 bool ModuleManager::LoadConfiguredModules(const ServerConfig &Config, std::string &ErrorMessage)
 {
+     std::lock_guard<std::mutex> LifecycleLock(LifecycleMutex);
+
      std::vector<LoadedModule> StagedModules;
 
      {
@@ -771,44 +853,11 @@ bool ModuleManager::LoadConfiguredModules(const ServerConfig &Config, std::strin
                return false;
           }
 
-          dlerror();
-
-          auto *CreateFn = reinterpret_cast<CreateRuntimeModuleFn>(dlsym(Handle, "CreateRuntimeModule"));
-          const char *SymbolError = dlerror();
-
-          if (SymbolError)
-          {
-               dlclose(Handle);
-               ErrorMessage = "Module '" + ModuleName + "' is missing CreateRuntimeModule(): " + std::string(SymbolError);
-               RollbackStagedModules();
-               return false;
-          }
-
           std::shared_ptr<RuntimeModule> Module;
 
-          try
-          {
-               Module.reset(CreateFn());
-          }
-          catch (const std::exception &Ex)
+          if (!CreateModuleFromHandle(Handle, ModuleName, Module, ErrorMessage))
           {
                dlclose(Handle);
-               ErrorMessage = "Module '" + ModuleName + "' threw during creation: " + std::string(Ex.what());
-               RollbackStagedModules();
-               return false;
-          }
-          catch (...)
-          {
-               dlclose(Handle);
-               ErrorMessage = "Module '" + ModuleName + "' threw during creation: unknown exception.";
-               RollbackStagedModules();
-               return false;
-          }
-
-          if (!Module)
-          {
-               dlclose(Handle);
-               ErrorMessage = "Module '" + ModuleName + "' returned a null module instance.";
                RollbackStagedModules();
                return false;
           }
@@ -955,6 +1004,8 @@ float ModuleManager::ComputeSearchWeightMultiplier(const std::string &Collection
 
 void ModuleManager::OnUnloadModules()
 {
+     std::lock_guard<std::mutex> LifecycleLock(LifecycleMutex);
+
      ModuleSnapshot ModulesToNotify;
 
      {
@@ -997,6 +1048,8 @@ void ModuleManager::OnUnloadModules()
 
 void ModuleManager::UnloadAll()
 {
+     std::lock_guard<std::mutex> LifecycleLock(LifecycleMutex);
+
      std::vector<LoadedModule> ModulesToUnload;
 
      {
@@ -1012,6 +1065,8 @@ void ModuleManager::UnloadAll()
 
 bool ModuleManager::UnloadModule(const std::string &ModuleName, std::string &ErrorMessage)
 {
+     std::lock_guard<std::mutex> LifecycleLock(LifecycleMutex);
+
      if (ModuleName.empty())
      {
           ErrorMessage = "Module name is required.";

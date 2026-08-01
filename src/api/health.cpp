@@ -166,9 +166,9 @@ static bool HealthBindMatchesHost(const std::string &BindAddress, const std::str
 
 /* Implements the health is local HTTP bind helper. */
 
-static bool HealthIsLocalHttpBind(const std::string &Host, int Port)
+static bool HealthIsLocalHttpBind(const std::string &Host, int Port, bool UseSSL)
 {
-     if (Port <= 0 || !Instance || !Instance->Config)
+     if (UseSSL || Port <= 0 || !Instance || !Instance->Config)
      {
           return false;
      }
@@ -249,10 +249,17 @@ static LinkEndpointInfo HealthBuildEndpointInfo(const std::string &RawEndpoint)
 
      Info.IsValid = true;
      Info.UseSSL = (Info.Scheme == "https");
-     const std::string EndpointHost = HealthFormatEndpointHost(Info.Host);
+     std::string NormalizedHost = Info.Host;
+     if (HealthIsLoopbackHost(NormalizedHost) || NormalizedHost == "0.0.0.0")
+     {
+          /* Keep endpoint membership consistent with ServerConfig normalization. */
+          NormalizedHost = "127.0.0.1";
+     }
+
+     const std::string EndpointHost = HealthFormatEndpointHost(NormalizedHost);
      Info.NormalizedEndpoint = Info.UseSSL ? "https://" + EndpointHost + ":" + std::to_string(Info.Port)
                                            : EndpointHost + ":" + std::to_string(Info.Port);
-     Info.IsLocal = HealthIsLocalHttpBind(Info.Host, Info.Port);
+     Info.IsLocal = HealthIsLocalHttpBind(Info.Host, Info.Port, Info.UseSSL);
      return Info;
 }
 
@@ -884,8 +891,24 @@ static bool NormalizeLinkRuntimeRole(const std::string &RawRole, LinkRuntimeRole
 
 /* Extracts link endpoint values. */
 
-static bool ExtractLinkEndpoint(const HttpRequest &Request, std::string &OutEndpoint, LinkRuntimeRole *OutRole, std::string &OutError)
+static bool ExtractLinkEndpoint(const HttpRequest &Request,
+                                std::string &OutEndpoint,
+                                LinkRuntimeRole *OutRole,
+                                std::string &OutPrimaryToken,
+                                std::string &OutSecondaryToken,
+                                std::string &OutError)
 {
+     OutPrimaryToken.clear();
+     OutSecondaryToken.clear();
+
+     auto ReadToken = [](const nlohmann::json &Body, const char *Name, std::string &Out)
+     {
+          if (Body.contains(Name) && Body[Name].is_string())
+          {
+               Out = HealthTrimWhitespace(Body[Name].get<std::string>());
+          }
+     };
+
      if (OutRole)
      {
           *OutRole = LinkRuntimeRole::Distributed;
@@ -894,6 +917,17 @@ static bool ExtractLinkEndpoint(const HttpRequest &Request, std::string &OutEndp
           {
                return false;
           }
+     }
+
+     auto QueryToken = Request.QueryParams.find("token");
+     if (QueryToken != Request.QueryParams.end())
+     {
+          OutPrimaryToken = HealthTrimWhitespace(QueryToken->second);
+     }
+     QueryToken = Request.QueryParams.find("token2");
+     if (QueryToken != Request.QueryParams.end())
+     {
+          OutSecondaryToken = HealthTrimWhitespace(QueryToken->second);
      }
 
      auto It = Request.QueryParams.find("endpoint");
@@ -931,6 +965,14 @@ static bool ExtractLinkEndpoint(const HttpRequest &Request, std::string &OutEndp
                OutError = "Invalid JSON body";
                return false;
           }
+
+          ReadToken(BodyJSON, "token", OutPrimaryToken);
+          if (OutPrimaryToken.empty()) ReadToken(BodyJSON, "api_key", OutPrimaryToken);
+          if (OutPrimaryToken.empty()) ReadToken(BodyJSON, "pass", OutPrimaryToken);
+          if (OutPrimaryToken.empty()) ReadToken(BodyJSON, "password", OutPrimaryToken);
+          if (OutPrimaryToken.empty()) ReadToken(BodyJSON, "passwd", OutPrimaryToken);
+          ReadToken(BodyJSON, "token2", OutSecondaryToken);
+          if (OutSecondaryToken.empty()) ReadToken(BodyJSON, "pass2", OutSecondaryToken);
 
           if (BodyJSON.contains("endpoint") && BodyJSON["endpoint"].is_string())
           {
@@ -1512,7 +1554,7 @@ HttpResponse SearchAPI::HandleHealth(const HttpRequest &Request)
      HealthJSON["engine"] = SOCKETENGINE_NAME;
      HealthJSON["socket_engine"] = SOCKETENGINE_NAME;
      HealthJSON["server"] = "hlquery";
-     HealthJSON["version"] = "1.0";
+     HealthJSON["version"] = HLQUERY_VERSION;
      HealthJSON["health_degraded"] = HealthDegraded;
      HealthJSON["auth_enabled"] = AuthEnabled;
      HealthJSON["auth_required"] = AuthEnabled;
@@ -1651,47 +1693,136 @@ HttpResponse SearchAPI::HandleMetrics(const HttpRequest &Request)
 
 HttpResponse SearchAPI::HandleEtc(const HttpRequest &Request)
 {
-     (void)Request;
+     std::unordered_set<std::string> Sections;
+     const auto IncludeIt = Request.QueryParams.find("include");
+     if (IncludeIt != Request.QueryParams.end())
+     {
+          std::stringstream Stream(IncludeIt->second);
+          std::string Section;
+          while (std::getline(Stream, Section, ','))
+          {
+               Section = HealthTrimWhitespace(Section);
+               std::transform(Section.begin(), Section.end(), Section.begin(), [](unsigned char C)
+                              { return static_cast<char>(std::tolower(C)); });
+               if (!Section.empty()) Sections.insert(Section);
+          }
+     }
+
+     static const std::unordered_set<std::string> ValidSections = {
+          "all", "metadata", "routes", "protocol", "http_status_codes", "protocol_codes", "search_capabilities"};
+     for (const auto &Section : Sections)
+     {
+          if (ValidSections.find(Section) == ValidSections.end())
+          {
+               nlohmann::json Error;
+               Error["error"] = "Invalid include section";
+               Error["section"] = Section;
+               Error["allowed"] = {"all", "metadata", "routes", "protocol", "http_status_codes", "protocol_codes", "search_capabilities"};
+               return BuildJSONResponse(Status::BAD_REQUEST, Error);
+          }
+     }
+
+     const bool IncludeAll = Sections.empty() || Sections.find("all") != Sections.end();
+     const auto Includes = [&](const char *Section)
+     {
+          return IncludeAll || Sections.find(Section) != Sections.end() ||
+                 (std::string(Section) != "routes" && Sections.find("protocol") != Sections.end());
+     };
 
      nlohmann::json ProtocolCodes;
 
      ProtocolCodes["protocol_name"] = "hlquery";
-     ProtocolCodes["version"] = 1;
-     ProtocolCodes["routes"] = {
-          {"etc", {{"method", "GET"}, {"path", "/etc"}}},
-          {"health", {{"method", "GET"}, {"path", "/health"}}},
-          {"info", {{"method", "GET"}, {"path", "/"}}},
-          {"ping", {{"method", "GET"}, {"path", "/ping"}}},
-          {"ready", {{"method", "GET"}, {"path", "/ready"}}},
-          {"status", {{"method", "GET"}, {"paths", {"/status", "/query"}}}},
-          {"stats", {{"method", "GET"}, {"path", "/stats"}}},
-          {"flush", {{"method", "POST"}, {"path", "/flush"}}}};
+     ProtocolCodes["schema_version"] = 2;
+     ProtocolCodes["version"] = 2;
+     ProtocolCodes["server_version"] = HLQUERY_VERSION;
 
-     ProtocolCodes["http_status_codes"] = {
+     if (Includes("search_capabilities") &&
+         Instance &&
+         Instance->Config &&
+         Instance->Config->GetAdaptiveSearchExposeCapabilities())
+     {
+          nlohmann::json SearchCapabilities;
+          SearchCapabilities["schema_version"] = 1;
+          SearchCapabilities["adaptive_search_available"] = false;
+          SearchCapabilities["adaptive_search_enabled"] = false;
+          SearchCapabilities["adaptive_search_configured"] = Instance->Config->GetAdaptiveSearchEnabled();
+          SearchCapabilities["execution_trace_available"] = true;
+          SearchCapabilities["execution_trace_enabled"] = Instance->Config->GetAdaptiveSearchExecutionTrace();
+          SearchCapabilities["query_text_trace_available"] = Instance->Config->GetAdaptiveSearchIncludeQueryText();
+          SearchCapabilities["request_disable_allowed"] = Instance->Config->GetAdaptiveSearchAllowRequestDisable();
+          SearchCapabilities["supported_planners"] = {"legacy"};
+          SearchCapabilities["supported_fusion_methods"] = {"linear", "rrf"};
+          SearchCapabilities["supported_normalization_methods"] = {"none", "minmax", "zscore"};
+          SearchCapabilities["vector_backends_available"] = {"brute_force"};
+          SearchCapabilities["execution_trace_schema_version"] = 1;
+          SearchCapabilities["adaptive_ranking_status"] = "not_implemented";
+          ProtocolCodes["search_capabilities"] = std::move(SearchCapabilities);
+     }
+
+     if (Includes("routes"))
+     {
+          ProtocolCodes["routes"] = BuildHttpRouteDiscoveryJSON();
+     }
+
+     if (Includes("http_status_codes"))
+     {
+          ProtocolCodes["http_status_codes"] = {
           {"OK", Status::OK},
           {"CREATED", Status::CREATED},
           {"ACCEPTED", Status::ACCEPTED},
           {"NO_CONTENT", Status::NO_CONTENT},
+          {"PARTIAL_CONTENT", HttpCodes::code::PARTIAL_CONTENT},
           {"MULTI_STATUS", Status::MULTI_STATUS},
           {"MOVED_PERMANENTLY", Status::MOVED_PERMANENTLY},
           {"FOUND", Status::FOUND},
+          {"SEE_OTHER", HttpCodes::code::SEE_OTHER},
           {"NOT_MODIFIED", Status::NOT_MODIFIED},
+          {"TEMPORARY_REDIRECT", HttpCodes::code::TEMPORARY_REDIRECT},
+          {"PERMANENT_REDIRECT", HttpCodes::code::PERMANENT_REDIRECT},
           {"BAD_REQUEST", Status::BAD_REQUEST},
           {"UNAUTHORIZED", Status::UNAUTHORIZED},
+          {"PAYMENT_REQUIRED", HttpCodes::code::PAYMENT_REQUIRED},
           {"FORBIDDEN", Status::FORBIDDEN},
           {"NOT_FOUND", Status::NOT_FOUND},
           {"METHOD_NOT_ALLOWED", Status::METHOD_NOT_ALLOWED},
+          {"NOT_ACCEPTABLE", HttpCodes::code::NOT_ACCEPTABLE},
+          {"PROXY_AUTHENTICATION_REQUIRED", HttpCodes::code::PROXY_AUTHENTICATION_REQUIRED},
+          {"REQUEST_TIMEOUT", HttpCodes::code::REQUEST_TIMEOUT},
           {"CONFLICT", Status::CONFLICT},
+          {"GONE", HttpCodes::code::GONE},
+          {"LENGTH_REQUIRED", HttpCodes::code::LENGTH_REQUIRED},
+          {"PRECONDITION_FAILED", HttpCodes::code::PRECONDITION_FAILED},
           {"PAYLOAD_TOO_LARGE", Status::PAYLOAD_TOO_LARGE},
+          {"URI_TOO_LONG", HttpCodes::code::URI_TOO_LONG},
+          {"UNSUPPORTED_MEDIA_TYPE", HttpCodes::code::UNSUPPORTED_MEDIA_TYPE},
+          {"RANGE_NOT_SATISFIABLE", HttpCodes::code::RANGE_NOT_SATISFIABLE},
+          {"EXPECTATION_FAILED", HttpCodes::code::EXPECTATION_FAILED},
+          {"IM_A_TEAPOT", HttpCodes::code::IM_A_TEAPOT},
           {"UNPROCESSABLE_ENTITY", Status::UNPROCESSABLE_ENTITY},
+          {"LOCKED", HttpCodes::code::LOCKED},
+          {"FAILED_DEPENDENCY", HttpCodes::code::FAILED_DEPENDENCY},
+          {"TOO_EARLY", HttpCodes::code::TOO_EARLY},
+          {"UPGRADE_REQUIRED", HttpCodes::code::UPGRADE_REQUIRED},
+          {"PRECONDITION_REQUIRED", HttpCodes::code::PRECONDITION_REQUIRED},
           {"TOO_MANY_REQUESTS", Status::TOO_MANY_REQUESTS},
+          {"REQUEST_HEADER_FIELDS_TOO_LARGE", HttpCodes::code::REQUEST_HEADER_FIELDS_TOO_LARGE},
+          {"UNAVAILABLE_FOR_LEGAL_REASONS", HttpCodes::code::UNAVAILABLE_FOR_LEGAL_REASONS},
           {"INTERNAL_SERVER_ERROR", Status::INTERNAL_SERVER_ERROR},
           {"NOT_IMPLEMENTED", Status::NOT_IMPLEMENTED},
           {"BAD_GATEWAY", Status::BAD_GATEWAY},
           {"SERVICE_UNAVAILABLE", Status::SERVICE_UNAVAILABLE},
-          {"GATEWAY_TIMEOUT", Status::GATEWAY_TIMEOUT}};
+          {"GATEWAY_TIMEOUT", Status::GATEWAY_TIMEOUT},
+          {"HTTP_VERSION_NOT_SUPPORTED", HttpCodes::code::HTTP_VERSION_NOT_SUPPORTED},
+          {"VARIANT_ALSO_NEGOTIATES", HttpCodes::code::VARIANT_ALSO_NEGOTIATES},
+          {"INSUFFICIENT_STORAGE", HttpCodes::code::INSUFFICIENT_STORAGE},
+          {"LOOP_DETECTED", HttpCodes::code::LOOP_DETECTED},
+          {"NOT_EXTENDED", HttpCodes::code::NOT_EXTENDED},
+          {"NETWORK_AUTHENTICATION_REQUIRED", HttpCodes::code::NETWORK_AUTHENTICATION_REQUIRED}};
+     }
 
-     ProtocolCodes["protocol_codes"] = {
+     if (Includes("protocol_codes"))
+     {
+          ProtocolCodes["protocol_codes"] = {
           {"SUCCESS", Code::SUCCESS},
           {"OPERATION_COMPLETE", Code::OPERATION_COMPLETE},
           {"COLLECTION_NOT_FOUND", Code::COLLECTION_NOT_FOUND},
@@ -1760,10 +1891,12 @@ HttpResponse SearchAPI::HandleEtc(const HttpRequest &Request)
           {"MODULE_ROUTE_NOT_FOUND", Code::MODULE_ROUTE_NOT_FOUND},
           {"MODULE_UNAVAILABLE", Code::MODULE_UNAVAILABLE},
           {"RATE_LIMIT_EXCEEDED", Code::RATE_LIMIT_EXCEEDED}};
+     }
 
      HttpResponse Response(Status::OK, StatusText(Status::OK), "application/json");
 
-     Response.Body = ProtocolCodes.dump(2);
+     Response.Headers["Cache-Control"] = "public, max-age=300";
+     Response.Body = ProtocolCodes.dump();
 
      return Response;
 }
@@ -2320,8 +2453,10 @@ HttpResponse SearchAPI::HandleLinksPing(const HttpRequest &Request)
      if (HasEndpointParam)
      {
           std::string Endpoint;
+          std::string IgnoredPrimaryToken;
+          std::string IgnoredSecondaryToken;
           std::string Error;
-          if (!ExtractLinkEndpoint(Request, Endpoint, nullptr, Error))
+          if (!ExtractLinkEndpoint(Request, Endpoint, nullptr, IgnoredPrimaryToken, IgnoredSecondaryToken, Error))
           {
                return BuildLinksErrorResponse(Status::BAD_REQUEST, "Invalid request", Error);
           }
@@ -2337,9 +2472,11 @@ HttpResponse SearchAPI::HandleLinksPing(const HttpRequest &Request)
 HttpResponse SearchAPI::HandleLinksConnect(const HttpRequest &Request)
 {
      std::string Endpoint;
+     std::string PrimaryToken;
+     std::string SecondaryToken;
      LinkRuntimeRole Role = LinkRuntimeRole::Distributed;
      std::string Error;
-     if (!ExtractLinkEndpoint(Request, Endpoint, &Role, Error))
+     if (!ExtractLinkEndpoint(Request, Endpoint, &Role, PrimaryToken, SecondaryToken, Error))
      {
           return BuildLinksErrorResponse(Status::BAD_REQUEST, "Invalid request", Error);
      }
@@ -2394,8 +2531,8 @@ HttpResponse SearchAPI::HandleLinksConnect(const HttpRequest &Request)
 
      std::string AddError;
      const bool Added = Role == LinkRuntimeRole::Slave
-                             ? Instance->Config->AddSlaveNode(Endpoint, &AddError)
-                             : Instance->Config->AddClusterNode(Endpoint, &AddError);
+                             ? Instance->Config->AddSlaveNode(Endpoint, &AddError, PrimaryToken, SecondaryToken)
+                             : Instance->Config->AddClusterNode(Endpoint, &AddError, PrimaryToken, SecondaryToken);
      if (!Added)
      {
           return BuildLinksErrorResponse(Status::BAD_REQUEST, "Failed to add link", AddError);
@@ -2420,7 +2557,9 @@ HttpResponse SearchAPI::HandleLinksDisconnect(const HttpRequest &Request)
      std::string Endpoint;
      LinkRuntimeRole Role = LinkRuntimeRole::Distributed;
      std::string Error;
-     if (!ExtractLinkEndpoint(Request, Endpoint, &Role, Error))
+     std::string IgnoredPrimaryToken;
+     std::string IgnoredSecondaryToken;
+     if (!ExtractLinkEndpoint(Request, Endpoint, &Role, IgnoredPrimaryToken, IgnoredSecondaryToken, Error))
      {
           return BuildLinksErrorResponse(Status::BAD_REQUEST, "Invalid request", Error);
      }

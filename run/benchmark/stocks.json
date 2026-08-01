@@ -1,0 +1,268 @@
+{
+  "fixture_version": 3,
+  "fixture_notice": "Synthetic demo scenario using no live market data; it is not investment, financial, legal, or trading advice.",
+  "collection": "stocks",
+  "count": 10,
+  "tags": [
+    "HLQ01",
+    "HLQ02",
+    "HLQ03",
+    "HLQ04",
+    "HLQ05",
+    "HLQ06",
+    "HLQ07",
+    "HLQ08",
+    "HLQ09",
+    "HLQ10"
+  ],
+  "documents": [
+    {
+      "id": "stocks_hlq01",
+      "title": "Synthetic Broad Market Basket — Fictional Market Record",
+      "content": "Synthetic Broad Market Basket (HLQ01, $HLQ01) is a completely fictional instrument used to demonstrate ticker, cashtag, watchlist, and asset-class search. The synthetic scenario theme is balanced; no price, performance, forecast, recommendation, or live market data is included.",
+      "description": "Synthetic stocks demo record: Synthetic Broad Market Basket — Fictional Market Record.",
+      "labels": [
+        "stocks",
+        "demo",
+        "synthetic",
+        "HLQ01",
+        "$HLQ01",
+        "equity_index_demo",
+        "balanced"
+      ],
+      "data_notice": "Synthetic demo scenario using no live market data; it is not investment, financial, legal, or trading advice.",
+      "is_synthetic": true,
+      "ticker": "HLQ01",
+      "cashtag": "$HLQ01",
+      "asset_class": "equity_index_demo",
+      "watchlist": "synthetic demo balanced",
+      "source": "HLQuery synthetic demo generator"
+    },
+    {
+      "id": "stocks_hlq02",
+      "title": "Synthetic Technology Basket — Fictional Market Record",
+      "content": "Synthetic Technology Basket (HLQ02, $HLQ02) is a completely fictional instrument used to demonstrate ticker, cashtag, watchlist, and asset-class search. The synthetic scenario theme is growth; no price, performance, forecast, recommendation, or live market data is included.",
+      "description": "Synthetic stocks demo record: Synthetic Technology Basket — Fictional Market Record.",
+      "labels": [
+        "stocks",
+        "demo",
+        "synthetic",
+        "HLQ02",
+        "$HLQ02",
+        "sector_index_demo",
+        "growth"
+      ],
+      "data_notice": "Synthetic demo scenario using no live market data; it is not investment, financial, legal, or trading advice.",
+      "is_synthetic": true,
+      "ticker": "HLQ02",
+      "cashtag": "$HLQ02",
+      "asset_class": "sector_index_demo",
+      "watchlist": "synthetic demo growth",
+      "source": "HLQuery synthetic demo generator"
+    },
+    {
+      "id": "stocks_hlq03",
+      "title": "Synthetic Municipal Bond Basket — Fictional Market Record",
+      "content": "Synthetic Municipal Bond Basket (HLQ03, $HLQ03) is a completely fictional instrument used to demonstrate ticker, cashtag, watchlist, and asset-class search. The synthetic scenario theme is income; no price, performance, forecast, recommendation, or live market data is included.",
+      "description": "Synthetic stocks demo record: Synthetic Municipal Bond Basket — Fictional Market Record.",
+      "labels": [
+        "stocks",
+        "demo",
+        "synthetic",
+        "HLQ03",
+        "$HLQ03",
+        "bond_index_demo",
+        "income"
+      ],
+      "data_notice": "Synthetic demo scenario using no live market data; it is not investment, financial, legal, or trading advice.",
+      "is_synthetic": true,
+      "ticker": "HLQ03",
+      "cashtag": "$HLQ03",
+      "asset_class": "bond_index_demo",
+      "watchlist": "synthetic demo income",
+      "source": "HLQuery synthetic demo generator"
+    },
+    {
+      "id": "stocks_hlq04",
+      "title": "Synthetic Renewable Energy Basket — Fictional Market Record",
+      "content": "Synthetic Renewable Energy Basket (HLQ04, $HLQ04) is a completely fictional instrument used to demonstrate ticker, cashtag, watchlist, and asset-class search. The synthetic scenario theme is thematic; no price, performance, forecast, recommendation, or live market data is included.",
+      "description": "Synthetic stocks demo record: Synthetic Renewable Energy Basket — Fictional Market Record.",
+      "labels": [
+        "stocks",
+        "demo",
+        "synthetic",
+        "HLQ04",
+        "$HLQ04",
+        "sector_index_demo",
+        "thematic"
+      ],
+      "data_notice": "Synthetic demo scenario using no live market data; it is not investment, financial, legal, or trading advice.",
+      "is_synthetic": true,
+      "ticker": "HLQ04",
+      "cashtag": "$HLQ04",
+      "asset_class": "sector_index_demo",
+      "watchlist": "synthetic demo thematic",
+      "source": "HLQuery synthetic demo generator"
+    },
+    {
+      "id": "stocks_hlq05",
+      "title": "Synthetic Small Company Basket — Fictional Market Record",
+      "content": "Synthetic Small Company Basket (HLQ05, $HLQ05) is a completely fictional instrument used to demonstrate ticker, cashtag, watchlist, and asset-class search. The synthetic scenario theme is small-cap; no price, performance, forecast, recommendation, or live market data is included.",
+      "description": "Synthetic stocks demo record: Synthetic Small Company Basket — Fictional Market Record.",
+      "labels": [
+        "stocks",
+        "demo",
+        "synthetic",
+        "HLQ05",
+        "$HLQ05",
+        "equity_index_demo",
+        "small-cap"
+      ],
+      "data_notice": "Synthetic demo scenario using no live market data; it is not investment, financial, legal, or trading advice.",
+      "is_synthetic": true,
+      "ticker": "HLQ05",
+      "cashtag": "$HLQ05",
+      "asset_class": "equity_index_demo",
+      "watchlist": "synthetic demo small-cap",
+      "source": "HLQuery synthetic demo generator"
+    },
+    {
+      "id": "stocks_hlq06",
+      "title": "Synthetic Short-Term Treasury Basket — Fictional Market Record",
+      "content": "Synthetic Short-Term Treasury Basket (HLQ06, $HLQ06) is a completely fictional instrument used to demonstrate ticker, cashtag, watchlist, and asset-class search. The synthetic scenario theme is defensive; no price, performance, forecast, recommendation, or live market data is included.",
+      "description": "Synthetic stocks demo record: Synthetic Short-Term Treasury Basket — Fictional Market Record.",
+      "labels": [
+        "stocks",
+        "demo",
+        "synthetic",
+        "HLQ06",
+        "$HLQ06",
+        "bond_index_demo",
+        "defensive"
+      ],
+      "data_notice": "Synthetic demo scenario using no live market data; it is not investment, financial, legal, or trading advice.",
+      "is_synthetic": true,
+      "ticker": "HLQ06",
+      "cashtag": "$HLQ06",
+      "asset_class": "bond_index_demo",
+      "watchlist": "synthetic demo defensive",
+      "source": "HLQuery synthetic demo generator"
+    },
+    {
+      "id": "stocks_hlq07",
+      "title": "Synthetic Commodity Basket — Fictional Market Record",
+      "content": "Synthetic Commodity Basket (HLQ07, $HLQ07) is a completely fictional instrument used to demonstrate ticker, cashtag, watchlist, and asset-class search. The synthetic scenario theme is diversifier; no price, performance, forecast, recommendation, or live market data is included.",
+      "description": "Synthetic stocks demo record: Synthetic Commodity Basket — Fictional Market Record.",
+      "labels": [
+        "stocks",
+        "demo",
+        "synthetic",
+        "HLQ07",
+        "$HLQ07",
+        "commodity_index_demo",
+        "diversifier"
+      ],
+      "data_notice": "Synthetic demo scenario using no live market data; it is not investment, financial, legal, or trading advice.",
+      "is_synthetic": true,
+      "ticker": "HLQ07",
+      "cashtag": "$HLQ07",
+      "asset_class": "commodity_index_demo",
+      "watchlist": "synthetic demo diversifier",
+      "source": "HLQuery synthetic demo generator"
+    },
+    {
+      "id": "stocks_hlq08",
+      "title": "Example Harbor Systems Equity — Fictional Market Record",
+      "content": "Example Harbor Systems Equity (HLQ08, $HLQ08) is a completely fictional instrument used to demonstrate ticker, cashtag, watchlist, and asset-class search. The synthetic scenario theme is software; no price, performance, forecast, recommendation, or live market data is included.",
+      "description": "Synthetic stocks demo record: Example Harbor Systems Equity — Fictional Market Record.",
+      "labels": [
+        "stocks",
+        "demo",
+        "synthetic",
+        "HLQ08",
+        "$HLQ08",
+        "fictional_equity",
+        "software"
+      ],
+      "data_notice": "Synthetic demo scenario using no live market data; it is not investment, financial, legal, or trading advice.",
+      "is_synthetic": true,
+      "ticker": "HLQ08",
+      "cashtag": "$HLQ08",
+      "asset_class": "fictional_equity",
+      "watchlist": "synthetic demo software",
+      "source": "HLQuery synthetic demo generator"
+    },
+    {
+      "id": "stocks_hlq09",
+      "title": "Example Cedar Works Equity — Fictional Market Record",
+      "content": "Example Cedar Works Equity (HLQ09, $HLQ09) is a completely fictional instrument used to demonstrate ticker, cashtag, watchlist, and asset-class search. The synthetic scenario theme is industrial; no price, performance, forecast, recommendation, or live market data is included.",
+      "description": "Synthetic stocks demo record: Example Cedar Works Equity — Fictional Market Record.",
+      "labels": [
+        "stocks",
+        "demo",
+        "synthetic",
+        "HLQ09",
+        "$HLQ09",
+        "fictional_equity",
+        "industrial"
+      ],
+      "data_notice": "Synthetic demo scenario using no live market data; it is not investment, financial, legal, or trading advice.",
+      "is_synthetic": true,
+      "ticker": "HLQ09",
+      "cashtag": "$HLQ09",
+      "asset_class": "fictional_equity",
+      "watchlist": "synthetic demo industrial",
+      "source": "HLQuery synthetic demo generator"
+    },
+    {
+      "id": "stocks_hlq10",
+      "title": "Example Blue River Foods Equity — Fictional Market Record",
+      "content": "Example Blue River Foods Equity (HLQ10, $HLQ10) is a completely fictional instrument used to demonstrate ticker, cashtag, watchlist, and asset-class search. The synthetic scenario theme is consumer; no price, performance, forecast, recommendation, or live market data is included.",
+      "description": "Synthetic stocks demo record: Example Blue River Foods Equity — Fictional Market Record.",
+      "labels": [
+        "stocks",
+        "demo",
+        "synthetic",
+        "HLQ10",
+        "$HLQ10",
+        "fictional_equity",
+        "consumer"
+      ],
+      "data_notice": "Synthetic demo scenario using no live market data; it is not investment, financial, legal, or trading advice.",
+      "is_synthetic": true,
+      "ticker": "HLQ10",
+      "cashtag": "$HLQ10",
+      "asset_class": "fictional_equity",
+      "watchlist": "synthetic demo consumer",
+      "source": "HLQuery synthetic demo generator"
+    }
+  ],
+  "metadata": {
+    "_fixture_kind": "synthetic_public_demo",
+    "_fixture_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+    "_demo_description": "Entirely fictional tickers and instruments for cashtag, watchlist, and asset-class search.",
+    "_demo_queries": "$HLQ01 | fictional technology basket | synthetic bond instrument"
+  },
+  "fields": [
+    {
+      "name": "ticker",
+      "type": "string"
+    },
+    {
+      "name": "cashtag",
+      "type": "string"
+    },
+    {
+      "name": "asset_class",
+      "type": "string"
+    },
+    {
+      "name": "watchlist",
+      "type": "string"
+    },
+    {
+      "name": "source",
+      "type": "string"
+    }
+  ]
+}

@@ -88,3 +88,4 @@ run/conf/.#*
 *.gguf
 .talk_history
 run/super
+etc/docker/secrets/

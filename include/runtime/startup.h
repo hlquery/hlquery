@@ -21,6 +21,7 @@
 class CoreExport StartupState
 {
    public:
+
      /* Start time of the server */
 
      std::chrono::steady_clock::time_point StartTime;

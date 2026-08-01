@@ -26,6 +26,7 @@
 
 #include "vendor/json/json.hpp"
 #include "api/httpserver.h"
+#include "search/adaptive/search_execution_trace.h"
 #include "search/document_collection_store.h"
 #include "search/lexical_inverted_index.h"
 
@@ -268,6 +269,12 @@ struct ComprehensiveSearchQuery
      /* IncludeVectorDistance controls whether `_vector_distance` is emitted per hit. */
 
      bool IncludeVectorDistance = false;
+
+     /* Optional search execution trace controls. */
+
+     bool IncludeSearchExecution = true;
+     bool IncludeSearchExecutionExplicit = false;
+     bool IncludeSearchQueryText = false;
 };
 
 struct SearchHit
@@ -349,6 +356,7 @@ struct ComprehensiveSearchResult
 
      std::string Error;
      std::vector<std::map<std::string, std::string>> DistributedDiagnostics;
+     SearchExecutionTrace ExecutionTrace;
 };
 
 struct ReplicationStatusSnapshot
@@ -359,6 +367,12 @@ struct ReplicationStatusSnapshot
      uint64_t ReplicaAcks = 0;
      std::string LastError;
      uint64_t LastErrorTimestampMS = 0;
+};
+
+struct PendingReplicationRecord
+{
+     HttpRequest Request;
+     std::string StorageKey;
 };
 
 struct PeerReconnectDiagnostics
@@ -396,6 +410,8 @@ class SearchAPI
      mutable std::string LastReplicationError;
      mutable uint64_t LastReplicationErrorTimestampMS = 0;
      mutable std::mutex ReplicationSlaveStateMutex;
+     /* Coordinates the resync transition with in-flight replication sends. */
+     mutable std::mutex ReplicationResyncFenceMutex;
      mutable std::unordered_set<std::string> ReplicationDirtySlaves;
      mutable std::unordered_set<std::string> ReplicationResyncInProgress;
      mutable std::unordered_map<std::string, uint64_t> ReplicationLastReachableTimestampMS;
@@ -456,7 +472,9 @@ class SearchAPI
 
      /* PerformComprehensiveSearch runs lexical, vector, or hybrid search. */
 
-     ComprehensiveSearchResult PerformComprehensiveSearch(const std::string &Collection, const ComprehensiveSearchQuery &Query);
+     ComprehensiveSearchResult PerformComprehensiveSearch(const std::string &Collection,
+                                                          const ComprehensiveSearchQuery &Query,
+                                                          SearchExecutionTrace ExecutionTrace = SearchExecutionTrace());
 
      /* GenerateComprehensiveSearchResponse builds the JSON response payload. */
 
@@ -480,7 +498,9 @@ class SearchAPI
 
      /* ProcessHybridSearch merges lexical and vector results. */
 
-     std::vector<SearchHit> ProcessHybridSearch(const std::string &Collection, const ComprehensiveSearchQuery &Query);
+     std::vector<SearchHit> ProcessHybridSearch(const std::string &Collection,
+                                                const ComprehensiveSearchQuery &Query,
+                                                SearchExecutionTrace *ExecutionTrace = nullptr);
 
      /* ApplyFilters filters hits using the filter_by expression. */
 
@@ -627,6 +647,14 @@ class SearchAPI
 
      void ClearReplicationOutboxRecord(const std::string &EntryID) const;
 
+     void FinalizeReplicationOutboxRecord(const std::string &EntryID) const;
+
+     /* Replays committed replication intents left behind by a crash. */
+     void ReplayCommittedReplicationOutbox() const;
+
+     /* Returns whether async replication must retain its durable intent. */
+     bool IsAsyncReplicationMode() const;
+
      void PersistReplicationSlaveState(const std::string &Endpoint) const;
 
      bool RestoreReplicationSlaveState(const std::string &Endpoint) const;
@@ -635,7 +663,7 @@ class SearchAPI
                                   const HttpRequest &Request,
                                   bool AllowOverflow,
                                   std::string *OutError = nullptr) const;
-     std::vector<HttpRequest> TakePendingReplications(const std::string &Endpoint) const;
+     std::vector<PendingReplicationRecord> TakePendingReplications(const std::string &Endpoint) const;
      bool ReplayPendingReplications(const std::string &Endpoint, const std::string &Host, int Port) const;
 
      void EnsureReplicationMonitorStarted() const;
@@ -660,7 +688,8 @@ class SearchAPI
 
      bool ReplicateWriteRequest(const HttpRequest &Request,
                                 const std::string &OperationLabel,
-                                std::string *OutError) const;
+                                std::string *OutError,
+                                const std::string &OutboxEntryID = std::string()) const;
 
      void RecordReplicationFailure(const std::string &ErrorMessage) const;
 

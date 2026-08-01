@@ -42,6 +42,7 @@
 class CoreExport IPFilter
 {
    private:
+
      /* Resolve hostname to IP addresses. */
 
      bool ResolveHostname(const std::string &Hostname, std::vector<std::string> &ResolvedIPs, bool UseCache = true) const;

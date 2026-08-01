@@ -12,6 +12,7 @@
 
 #pragma once
 
+#include <atomic>
 #include <mutex>
 #include <optional>
 #include <set>
@@ -137,12 +138,12 @@ class UserAuthManager
 
      bool IsAuthEnabled() const
      {
-          return AuthEnabled;
+          return AuthEnabled.load(std::memory_order_acquire);
      }
 
      void SetAuthEnabled(bool Enabled)
      {
-          AuthEnabled = Enabled;
+          AuthEnabled.store(Enabled, std::memory_order_release);
      }
 
      /* Token validation. */
@@ -192,7 +193,7 @@ class UserAuthManager
 
      /* Indicates whether authentication enforcement is enabled */
 
-     bool AuthEnabled;
+     std::atomic<bool> AuthEnabled{false};
 
      /* Configuration file parsing. */
 

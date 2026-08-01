@@ -52,9 +52,24 @@ RocksDBOptions RocksDBOptions::LoadFromConfigReader(const ConfigReader &ReaderIn
       * and memtable merge behavior.
       */
 
-     OptionsResult.WriteBufferSize = RocksDBSettingsTag->GetSize("write_buffer_size", OptionsResult.WriteBufferSize);
+     /* Accept the documented names and the legacy canonical names. */
+     if (RocksDBSettingsTag->HasAttribute("write_buffer_size"))
+     {
+          OptionsResult.WriteBufferSize = RocksDBSettingsTag->GetSize("write_buffer_size", OptionsResult.WriteBufferSize);
+     }
+     else
+     {
+          OptionsResult.WriteBufferSize = RocksDBSettingsTag->GetSize("memtable_size", OptionsResult.WriteBufferSize);
+     }
 
-     OptionsResult.MaxWriteBufferNumber = RocksDBSettingsTag->GetInt("max_write_buffer_number", OptionsResult.MaxWriteBufferNumber);
+     if (RocksDBSettingsTag->HasAttribute("max_write_buffer_number"))
+     {
+          OptionsResult.MaxWriteBufferNumber = RocksDBSettingsTag->GetInt("max_write_buffer_number", OptionsResult.MaxWriteBufferNumber);
+     }
+     else
+     {
+          OptionsResult.MaxWriteBufferNumber = RocksDBSettingsTag->GetInt("max_memtables", OptionsResult.MaxWriteBufferNumber);
+     }
 
      OptionsResult.MinWriteBufferNumberToMerge = RocksDBSettingsTag->GetInt("min_write_buffer_number_to_merge", OptionsResult.MinWriteBufferNumberToMerge);
 
@@ -79,6 +94,10 @@ RocksDBOptions RocksDBOptions::LoadFromConfigReader(const ConfigReader &ReaderIn
      int ConfiguredMaxBackgroundFlushes = ParseRocksThreads("max_background_flushes", OptionsResult.MaxBackgroundFlushes);
 
      int ConfiguredMaxBackgroundCompactions = ParseRocksThreads("max_background_compactions", OptionsResult.MaxBackgroundCompactions);
+     if (!RocksDBSettingsTag->HasAttribute("max_background_compactions"))
+     {
+          ConfiguredMaxBackgroundCompactions = ParseRocksThreads("compaction_threads", OptionsResult.MaxBackgroundCompactions);
+     }
 
      if (ConfiguredMaxBackgroundJobs < 0)
      {
@@ -154,7 +173,14 @@ RocksDBOptions RocksDBOptions::LoadFromConfigReader(const ConfigReader &ReaderIn
       * and compaction trigger thresholds.
       */
 
-     OptionsResult.TargetFileSizeBase = RocksDBSettingsTag->GetSize("target_file_size_base", OptionsResult.TargetFileSizeBase);
+     if (RocksDBSettingsTag->HasAttribute("target_file_size_base"))
+     {
+          OptionsResult.TargetFileSizeBase = RocksDBSettingsTag->GetSize("target_file_size_base", OptionsResult.TargetFileSizeBase);
+     }
+     else
+     {
+          OptionsResult.TargetFileSizeBase = RocksDBSettingsTag->GetSize("sstable_size", OptionsResult.TargetFileSizeBase);
+     }
 
      OptionsResult.MaxBytesForLevelBase = RocksDBSettingsTag->GetSize("max_bytes_for_level_base", OptionsResult.MaxBytesForLevelBase);
 
@@ -164,11 +190,25 @@ RocksDBOptions RocksDBOptions::LoadFromConfigReader(const ConfigReader &ReaderIn
 
      OptionsResult.Level0StopWritesTrigger = RocksDBSettingsTag->GetInt("level0_stop_writes_trigger", OptionsResult.Level0StopWritesTrigger);
 
+     /* Keep both spellings used by older configurations. */
+     OptionsResult.EnableCompaction = RocksDBSettingsTag->GetBool(
+          "enable_compaction",
+          RocksDBSettingsTag->GetBool("compaction", OptionsResult.EnableCompaction));
+
      /* Configure the compression algorithm
       * used for stored RocksDB data.
       */
 
-     std::string CompressionTypeStr = RocksDBSettingsTag->GetString("compression", OptionsResult.Compression);
+     std::string CompressionTypeStr = RocksDBSettingsTag->GetString("compression", "");
+     if (CompressionTypeStr.empty() && RocksDBSettingsTag->HasAttribute("enable_compression"))
+     {
+          /* The historical boolean option maps to fast LZ4 compression. */
+          CompressionTypeStr = RocksDBSettingsTag->GetBool("enable_compression", true) ? "lz4" : "none";
+     }
+     if (CompressionTypeStr.empty())
+     {
+          CompressionTypeStr = OptionsResult.Compression;
+     }
 
      const auto ToLower = [](unsigned char CharacterVal)
      {

@@ -2040,6 +2040,70 @@ void InvertedIndex::LoadFromDisk(const std::string &IndexDir)
           Instance->Logs->Normal("inverted_index", "LoadFromDisk: Loading indexes from disk.");
      }
 
+     /* Resolve every persisted interrupted-flush marker before scanning index
+      * directories. This also handles the case where a prior recovery already
+      * removed the directory but crashed before deleting the marker. RocksDB
+      * remains the source of truth and the lexical index is rebuilt lazily. */
+
+     if (Instance && Instance->Database)
+     {
+          bool RepairedAny = false;
+          const std::string MarkerPrefix = "flush_pending:";
+          const std::vector<std::string> PendingMarkers = Instance->Database->PrefixKeys(MarkerPrefix, 0, 0);
+
+          for (const auto &Marker : PendingMarkers)
+          {
+               if (Marker.rfind(MarkerPrefix, 0) != 0)
+               {
+                    continue;
+               }
+
+               const std::string Collection = Marker.substr(MarkerPrefix.size());
+               const bool SafeCollection = !Collection.empty() &&
+                                           std::all_of(Collection.begin(), Collection.end(), [](unsigned char Ch)
+                                                       {
+                                                            return std::isalnum(Ch) || Ch == '_' || Ch == '-' || Ch == '.';
+                                                       });
+
+               if (!SafeCollection)
+               {
+                    if (Instance->Logs)
+                    {
+                         Instance->Logs->Normal("inverted_index", "LoadFromDisk: Refusing unsafe interrupted-flush marker key '" + Marker + "'.");
+                    }
+                    continue;
+               }
+
+               const std::filesystem::path CollectionDir = std::filesystem::path(IndexDir) / Collection;
+               std::error_code RemoveError;
+               std::filesystem::remove_all(CollectionDir, RemoveError);
+
+               if (RemoveError)
+               {
+                    if (Instance->Logs)
+                    {
+                         Instance->Logs->Normal("inverted_index", "LoadFromDisk: Could not remove interrupted index for collection '" + Collection + "': " + RemoveError.message() + ".");
+                    }
+                    continue;
+               }
+
+               if (Instance->Database->Del(Marker) >= 0)
+               {
+                    RepairedAny = true;
+
+                    if (Instance->Logs)
+                    {
+                         Instance->Logs->Normal("inverted_index", "LoadFromDisk: Repaired interrupted flush for collection '" + Collection + "'; the lexical index will rebuild from RocksDB on demand.");
+                    }
+               }
+          }
+
+          if (RepairedAny)
+          {
+               Instance->Database->FlushAndSync();
+          }
+     }
+
      if (!std::filesystem::exists(IndexDir))
      {
           if (Instance && Instance->Logs)

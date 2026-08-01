@@ -1019,14 +1019,14 @@ HttpResponse SearchAPI::HandleAddDocument(const HttpRequest &Request)
      BumpCollectionMutationVersion(CollectionName);
 
      std::string ReplicationError;
-     if (!ReplicateWriteRequest(Request, "add_document", &ReplicationError))
+     if (!ReplicateWriteRequest(Request, "add_document", &ReplicationError, ReplicationOutboxID))
      {
           HttpResponse Response(Status::SERVICE_UNAVAILABLE, StatusText(Status::SERVICE_UNAVAILABLE), "application/json");
           Response.Body = "{\"error\":\"Replication incomplete\",\"message\":\"Document was written locally but replica acknowledgement failed\",\"details\":\"" + EscapeJSONString(ReplicationError) + "\",\"id\":\"" + EscapeJSONString(DocumentObj.ID) + "\"}";
           return Response;
      }
 
-     ClearReplicationOutboxRecord(ReplicationOutboxID);
+     FinalizeReplicationOutboxRecord(ReplicationOutboxID);
 
      HttpResponse Response(Status::CREATED, StatusText(Status::CREATED), "application/json");
      nlohmann::json ResultJSON;
@@ -1348,14 +1348,14 @@ HttpResponse SearchAPI::HandleUpdateDocument(const HttpRequest &Request)
      BumpCollectionMutationVersion(CollectionName);
 
      std::string ReplicationError;
-     if (!ReplicateWriteRequest(Request, "update_document", &ReplicationError))
+     if (!ReplicateWriteRequest(Request, "update_document", &ReplicationError, ReplicationOutboxID))
      {
           HttpResponse ReplicationResponse(Status::SERVICE_UNAVAILABLE, StatusText(Status::SERVICE_UNAVAILABLE), "application/json");
           ReplicationResponse.Body = "{\"error\":\"Replication incomplete\",\"message\":\"Document was updated locally but replica acknowledgement failed\",\"details\":\"" + EscapeJSONString(ReplicationError) + "\",\"id\":\"" + EscapeJSONString(DocumentID) + "\"}";
           return ReplicationResponse;
      }
 
-     ClearReplicationOutboxRecord(ReplicationOutboxID);
+     FinalizeReplicationOutboxRecord(ReplicationOutboxID);
 
      return Response;
 }
@@ -1454,14 +1454,14 @@ HttpResponse SearchAPI::HandleDeleteDocument(const HttpRequest &Request)
 
      std::string ReplicationError;
 
-     if (!ReplicateWriteRequest(Request, "delete_document", &ReplicationError))
+     if (!ReplicateWriteRequest(Request, "delete_document", &ReplicationError, ReplicationOutboxID))
      {
           HttpResponse ReplicationResponse(Status::SERVICE_UNAVAILABLE, StatusText(Status::SERVICE_UNAVAILABLE), "application/json");
           ReplicationResponse.Body = "{\"error\":\"Replication incomplete\",\"message\":\"Document was deleted locally but replica acknowledgement failed\",\"details\":\"" + EscapeJSONString(ReplicationError) + "\",\"id\":\"" + EscapeJSONString(DocumentID) + "\"}";
           return ReplicationResponse;
      }
 
-     ClearReplicationOutboxRecord(ReplicationOutboxID);
+     FinalizeReplicationOutboxRecord(ReplicationOutboxID);
 
      return Response;
 }
@@ -1597,14 +1597,14 @@ HttpResponse SearchAPI::HandleDeleteDocumentsByFilter(const HttpRequest &Request
           BumpCollectionMutationVersion(CollectionName);
 
           std::string ReplicationError;
-          if (!ReplicateWriteRequest(Request, "delete_documents", &ReplicationError))
+          if (!ReplicateWriteRequest(Request, "delete_documents", &ReplicationError, ReplicationOutboxID))
           {
                HttpResponse ReplicationResponse(Status::SERVICE_UNAVAILABLE, StatusText(Status::SERVICE_UNAVAILABLE), "application/json");
                ReplicationResponse.Body = "{\"error\":\"Replication incomplete\",\"message\":\"Delete-by-filter was applied locally but replica acknowledgement failed\",\"details\":\"" + EscapeJSONString(ReplicationError) + "\"}";
                return ReplicationResponse;
           }
 
-          ClearReplicationOutboxRecord(ReplicationOutboxID);
+          FinalizeReplicationOutboxRecord(ReplicationOutboxID);
      }
      else
      {
@@ -2343,7 +2343,7 @@ HttpResponse SearchAPI::HandleBulkImportDocuments(const HttpRequest &Request)
           BumpCollectionMutationVersion(CollectionName);
 
           std::string ReplicationError;
-          if (!ReplicateWriteRequest(Request, "bulk_import", &ReplicationError))
+     if (!ReplicateWriteRequest(Request, "bulk_import", &ReplicationError, ReplicationOutboxID))
           {
                HttpResponse ReplicationResponse(Status::SERVICE_UNAVAILABLE, StatusText(Status::SERVICE_UNAVAILABLE), "application/json");
                ReplicationResponse.Body = "{\"error\":\"Replication incomplete\",\"message\":\"Bulk import completed locally but replica acknowledgement failed\",\"details\":\"" + EscapeJSONString(ReplicationError) + "\"}";
@@ -2351,7 +2351,7 @@ HttpResponse SearchAPI::HandleBulkImportDocuments(const HttpRequest &Request)
           }
      }
 
-     ClearReplicationOutboxRecord(ReplicationOutboxID);
+     FinalizeReplicationOutboxRecord(ReplicationOutboxID);
 
      return Response;
 }

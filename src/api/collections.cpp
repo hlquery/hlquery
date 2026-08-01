@@ -69,6 +69,7 @@ static int ParseCollectionMaybeInt(const std::string &value, int fallback)
      try
      {
           int parsed = std::stoi(value);
+
           if (parsed < 0)
           {
                return fallback;
@@ -1138,14 +1139,14 @@ HttpResponse SearchAPI::HandleCreateCollection(const HttpRequest &Request)
      FOREACH_MOD(OnCreateCollection, ConfigVal.Name, Request.RemoteAddress, Request.APIKeyID, !Request.APIKeyID.empty());
 
      std::string ReplicationError;
-     if (!ReplicateWriteRequest(Request, "create_collection", &ReplicationError))
+     if (!ReplicateWriteRequest(Request, "create_collection", &ReplicationError, ReplicationOutboxID))
      {
           HttpResponse ReplicationResponse(Status::SERVICE_UNAVAILABLE, StatusText(Status::SERVICE_UNAVAILABLE), "application/json");
           ReplicationResponse.Body = "{\"error\":\"Replication incomplete\",\"message\":\"Collection was created locally but replica acknowledgement failed\",\"details\":\"" + EscapeJSONString(ReplicationError) + "\",\"name\":\"" + EscapeJSONString(ConfigVal.Name) + "\"}";
           return ReplicationResponse;
      }
 
-     ClearReplicationOutboxRecord(ReplicationOutboxID);
+     FinalizeReplicationOutboxRecord(ReplicationOutboxID);
 
      if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
      {
@@ -1231,14 +1232,14 @@ HttpResponse SearchAPI::HandleDeleteCollection(const HttpRequest &Request)
      BumpCollectionMutationVersion(CollectionName);
 
      std::string ReplicationError;
-     if (!ReplicateWriteRequest(Request, "delete_collection", &ReplicationError))
+     if (!ReplicateWriteRequest(Request, "delete_collection", &ReplicationError, ReplicationOutboxID))
      {
           HttpResponse ReplicationResponse(Status::SERVICE_UNAVAILABLE, StatusText(Status::SERVICE_UNAVAILABLE), "application/json");
           ReplicationResponse.Body = "{\"error\":\"Replication incomplete\",\"message\":\"Collection was deleted locally but replica acknowledgement failed\",\"details\":\"" + EscapeJSONString(ReplicationError) + "\",\"name\":\"" + EscapeJSONString(CollectionName) + "\"}";
           return ReplicationResponse;
      }
 
-     ClearReplicationOutboxRecord(ReplicationOutboxID);
+     FinalizeReplicationOutboxRecord(ReplicationOutboxID);
 
      return Response;
 }
@@ -1337,14 +1338,14 @@ HttpResponse SearchAPI::HandleFlush(const HttpRequest &Request)
      BumpCollectionMutationVersion("*");
 
      std::string ReplicationError;
-     if (!ReplicateWriteRequest(Request, "flush", &ReplicationError))
+     if (!ReplicateWriteRequest(Request, "flush", &ReplicationError, ReplicationOutboxID))
      {
           HttpResponse ReplicationResponse(Status::SERVICE_UNAVAILABLE, StatusText(Status::SERVICE_UNAVAILABLE), "application/json");
           ReplicationResponse.Body = "{\"error\":\"Replication incomplete\",\"message\":\"Flush completed locally but replica acknowledgement failed\",\"details\":\"" + EscapeJSONString(ReplicationError) + "\"}";
           return ReplicationResponse;
      }
 
-     ClearReplicationOutboxRecord(ReplicationOutboxID);
+     FinalizeReplicationOutboxRecord(ReplicationOutboxID);
 
      return Response;
 }
@@ -2503,6 +2504,7 @@ HttpResponse SearchAPI::HandleUpdateCollection(const HttpRequest &Request)
 
      std::string ReplicationOutboxID;
      std::string ReplicationJournalError;
+
      if (!PrepareReplicationOutboxRecord(Request, "update_collection", &ReplicationOutboxID, &ReplicationJournalError))
      {
           return BuildErrorResponse(Status::SERVICE_UNAVAILABLE,
@@ -2536,14 +2538,14 @@ HttpResponse SearchAPI::HandleUpdateCollection(const HttpRequest &Request)
      BumpCollectionMutationVersion(CollectionName);
 
      std::string ReplicationError;
-     if (!ReplicateWriteRequest(Request, "update_collection", &ReplicationError))
+     if (!ReplicateWriteRequest(Request, "update_collection", &ReplicationError, ReplicationOutboxID))
      {
           HttpResponse ReplicationResponse(Status::SERVICE_UNAVAILABLE, StatusText(Status::SERVICE_UNAVAILABLE), "application/json");
           ReplicationResponse.Body = "{\"error\":\"Replication incomplete\",\"message\":\"Collection metadata was updated locally but replica acknowledgement failed\",\"details\":\"" + EscapeJSONString(ReplicationError) + "\",\"name\":\"" + EscapeJSONString(CollectionName) + "\"}";
           return ReplicationResponse;
      }
 
-     ClearReplicationOutboxRecord(ReplicationOutboxID);
+     FinalizeReplicationOutboxRecord(ReplicationOutboxID);
 
      return Response;
 }

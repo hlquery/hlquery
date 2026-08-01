@@ -423,12 +423,14 @@ HttpResponse SearchAPI::HandleUpdateUser(const HttpRequest &Request)
      }
 
      auto UserOpt = Instance->Users->GetUser(Name);
+
      if (!UserOpt.has_value())
      {
           return MakeJSONResponse(404, "Not Found", "{\"error\":\"User not found\"}");
      }
 
      json Body;
+
      try
      {
           Body = json::parse(Request.Body.empty() ? "{}" : Request.Body);

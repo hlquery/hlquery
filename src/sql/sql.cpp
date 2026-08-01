@@ -10,9 +10,8 @@
  * For more details, please visit: https://docs.hlquery.com
  */
 
-#include "sql/internal.h"
-
 #include <cctype>
+#include "sql/internal.h"
 
 bool SQLService::LooksLikeSelect(const std::string &sql_text) const
 {

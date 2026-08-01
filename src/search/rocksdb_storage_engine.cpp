@@ -277,6 +277,7 @@ bool DBManager::Initialize()
                     OptionsValue.max_bytes_for_level_multiplier = rocksdb_opts.MaxBytesForLevelMultiplier;
                     OptionsValue.level0_slowdown_writes_trigger = rocksdb_opts.Level0SlowdownWritesTrigger;
                     OptionsValue.level0_stop_writes_trigger = rocksdb_opts.Level0StopWritesTrigger;
+                    OptionsValue.disable_auto_compactions = !rocksdb_opts.EnableCompaction;
 
                     /* Compression */
 
@@ -875,6 +876,26 @@ size_t DBManager::DeleteRange(const std::string &start_key, const std::string &e
      rocksdb::Status status = DBValue->DeleteRange(GetWriteOptions(), DBValue->DefaultColumnFamily(), start_key, end_key);
 
      return status.ok() ? 1 : 0;
+}
+
+bool DBManager::ClearDocumentStorage()
+{
+     if (!DBValue)
+     {
+          return false;
+     }
+
+     if (SegmentedStorageEnabled && SegmentManagerValue)
+     {
+          return SegmentManagerValue->ClearAllDocuments();
+     }
+
+     rocksdb::Status status = DBValue->DeleteRange(GetWriteOptions(),
+                                                   DBValue->DefaultColumnFamily(),
+                                                   "doc:",
+                                                   "doc;");
+
+     return status.ok();
 }
 
 /* Check if key exists */

@@ -1,0 +1,244 @@
+{
+  "fixture_version": 3,
+  "fixture_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+  "collection": "movies",
+  "count": 10,
+  "tags": [
+    "film",
+    "cinema",
+    "director",
+    "cast",
+    "mystery",
+    "drama",
+    "comedy",
+    "animation",
+    "documentary",
+    "science fiction"
+  ],
+  "documents": [
+    {
+      "id": "movies_the-last-tram-home-demo-film",
+      "title": "The Last Tram Home (Demo Film)",
+      "content": "A fictional drama follows five passengers whose delayed night tram turns into a quiet portrait of a changing city.",
+      "description": "Synthetic movies demo record: The Last Tram Home (Demo Film).",
+      "labels": [
+        "movies",
+        "demo",
+        "synthetic",
+        "film",
+        "Example Director Mira Sol",
+        "drama"
+      ],
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+      "is_synthetic": true,
+      "director_name": "Example Director Mira Sol",
+      "genre": "drama",
+      "runtime_minutes": 104,
+      "release_year": 2022
+    },
+    {
+      "id": "movies_signal-at-low-tide-demo-film",
+      "title": "Signal at Low Tide (Demo Film)",
+      "content": "A fictional coastal mystery centers on a radio operator, a missing logbook, and clues revealed by the tide schedule.",
+      "description": "Synthetic movies demo record: Signal at Low Tide (Demo Film).",
+      "labels": [
+        "movies",
+        "demo",
+        "synthetic",
+        "cinema",
+        "Example Director Omar Vale",
+        "mystery"
+      ],
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+      "is_synthetic": true,
+      "director_name": "Example Director Omar Vale",
+      "genre": "mystery",
+      "runtime_minutes": 112,
+      "release_year": 2023
+    },
+    {
+      "id": "movies_kitchen-table-galaxy-demo-film",
+      "title": "Kitchen Table Galaxy (Demo Film)",
+      "content": "A fictional family comedy uses an ambitious school astronomy project to bring three generations into the same room.",
+      "description": "Synthetic movies demo record: Kitchen Table Galaxy (Demo Film).",
+      "labels": [
+        "movies",
+        "demo",
+        "synthetic",
+        "director",
+        "Example Director Hana Fern",
+        "family comedy"
+      ],
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+      "is_synthetic": true,
+      "director_name": "Example Director Hana Fern",
+      "genre": "family comedy",
+      "runtime_minutes": 96,
+      "release_year": 2021
+    },
+    {
+      "id": "movies_archive-room-seven-demo-film",
+      "title": "Archive Room Seven (Demo Film)",
+      "content": "A fictional historical thriller follows conservators who uncover contradictory records in an invented municipal archive.",
+      "description": "Synthetic movies demo record: Archive Room Seven (Demo Film).",
+      "labels": [
+        "movies",
+        "demo",
+        "synthetic",
+        "cast",
+        "Example Director Caleb Pike",
+        "historical thriller"
+      ],
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+      "is_synthetic": true,
+      "director_name": "Example Director Caleb Pike",
+      "genre": "historical thriller",
+      "runtime_minutes": 118,
+      "release_year": 2024
+    },
+    {
+      "id": "movies_parallel-sidewalks-demo-film",
+      "title": "Parallel Sidewalks (Demo Film)",
+      "content": "A fictional ensemble story follows an urban planner and a street photographer documenting the same neighborhood from different angles.",
+      "description": "Synthetic movies demo record: Parallel Sidewalks (Demo Film).",
+      "labels": [
+        "movies",
+        "demo",
+        "synthetic",
+        "mystery",
+        "Example Director Nia Cedar",
+        "ensemble drama"
+      ],
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+      "is_synthetic": true,
+      "director_name": "Example Director Nia Cedar",
+      "genre": "ensemble drama",
+      "runtime_minutes": 109,
+      "release_year": 2020
+    },
+    {
+      "id": "movies_cloud-workshop-demo-animation",
+      "title": "Cloud Workshop (Demo Animation)",
+      "content": "A fictional animated adventure turns weather instruments into characters who learn how observation and cooperation improve a forecast.",
+      "description": "Synthetic movies demo record: Cloud Workshop (Demo Animation).",
+      "labels": [
+        "movies",
+        "demo",
+        "synthetic",
+        "drama",
+        "Example Director Jun Lark",
+        "animation"
+      ],
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+      "is_synthetic": true,
+      "director_name": "Example Director Jun Lark",
+      "genre": "animation",
+      "runtime_minutes": 88,
+      "release_year": 2023
+    },
+    {
+      "id": "movies_the-repair-cafe-demo-documentary",
+      "title": "The Repair Cafe (Demo Documentary)",
+      "content": "A fictional documentary profile explores skills sharing, product repair, and the social life of a monthly community workshop.",
+      "description": "Synthetic movies demo record: The Repair Cafe (Demo Documentary).",
+      "labels": [
+        "movies",
+        "demo",
+        "synthetic",
+        "comedy",
+        "Example Director Farah Reed",
+        "documentary"
+      ],
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+      "is_synthetic": true,
+      "director_name": "Example Director Farah Reed",
+      "genre": "documentary",
+      "runtime_minutes": 84,
+      "release_year": 2022
+    },
+    {
+      "id": "movies_midnight-release-demo-film",
+      "title": "Midnight Release (Demo Film)",
+      "content": "A fictional workplace comedy follows a software team trying to fix a harmless launch problem before sunrise.",
+      "description": "Synthetic movies demo record: Midnight Release (Demo Film).",
+      "labels": [
+        "movies",
+        "demo",
+        "synthetic",
+        "animation",
+        "Example Director Theo Marrow",
+        "workplace comedy"
+      ],
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+      "is_synthetic": true,
+      "director_name": "Example Director Theo Marrow",
+      "genre": "workplace comedy",
+      "runtime_minutes": 101,
+      "release_year": 2024
+    },
+    {
+      "id": "movies_garden-wall-frequency-demo-film",
+      "title": "Garden Wall Frequency (Demo Film)",
+      "content": "A fictional science-fiction story uses a strange garden radio signal to examine curiosity, evidence, and friendship.",
+      "description": "Synthetic movies demo record: Garden Wall Frequency (Demo Film).",
+      "labels": [
+        "movies",
+        "demo",
+        "synthetic",
+        "documentary",
+        "Example Director Esme North",
+        "science fiction"
+      ],
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+      "is_synthetic": true,
+      "director_name": "Example Director Esme North",
+      "genre": "science fiction",
+      "runtime_minutes": 115,
+      "release_year": 2021
+    },
+    {
+      "id": "movies_one-more-rehearsal-demo-film",
+      "title": "One More Rehearsal (Demo Film)",
+      "content": "A fictional music drama follows a community orchestra balancing ambition, care, and the pressure of opening night.",
+      "description": "Synthetic movies demo record: One More Rehearsal (Demo Film).",
+      "labels": [
+        "movies",
+        "demo",
+        "synthetic",
+        "science fiction",
+        "Example Director Avery Kestrel",
+        "music drama"
+      ],
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+      "is_synthetic": true,
+      "director_name": "Example Director Avery Kestrel",
+      "genre": "music drama",
+      "runtime_minutes": 107,
+      "release_year": 2019
+    }
+  ],
+  "metadata": {
+    "_fixture_kind": "synthetic_public_demo",
+    "_fixture_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+    "_demo_description": "Fictional film catalog records with genre, director, setting, and production context.",
+    "_demo_queries": "documentary editing | science fiction drama | animated short"
+  },
+  "fields": [
+    {
+      "name": "director_name",
+      "type": "string"
+    },
+    {
+      "name": "genre",
+      "type": "string"
+    },
+    {
+      "name": "runtime_minutes",
+      "type": "int32"
+    },
+    {
+      "name": "release_year",
+      "type": "int32"
+    }
+  ]
+}

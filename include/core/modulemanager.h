@@ -22,6 +22,7 @@
 #include <mutex>
 #include <shared_mutex>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -86,6 +87,7 @@ class ModuleManager
           unsigned int ActiveCallbacks = 0;
           bool DispatchInProgress = false;
           bool Stopping = false;
+          std::thread::id DispatchOwner;
      };
 
      /* 
@@ -175,6 +177,10 @@ class ModuleManager
      /* Protects the loaded module state and subscriber registries */
 
      mutable std::shared_mutex ModulesMutex;
+
+     /* Serializes complete load/reload/unload transactions, including callbacks. */
+
+     mutable std::mutex LifecycleMutex;
 
      /* Protects demo mode state updates */
 
@@ -461,16 +467,16 @@ class ModuleManager
      bool IsDemoModeEnabled() const;
 
      /* 
-     * Returns the current demo mode message.
-     * The message explains why demo mode is active or what it affects.
-     */
+      * Returns the current demo mode message.
+      * The message explains why demo mode is active or what it affects.
+      */
 
      std::string GetDemoModeMessage() const;
 
      /* 
-     * Updates the current demo mode state and message.
-     * Modules can use this to publish centralized demo mode restrictions.
-     */
+      * Updates the current demo mode state and message.
+      * Modules can use this to publish centralized demo mode restrictions.
+      */
 
      void SetDemoModeState(bool Active, const std::string &Message);
 

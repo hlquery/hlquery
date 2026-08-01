@@ -217,7 +217,7 @@ my %config = (
 sub create_required_directories {
     # Runtime directories (in project root)
     my @runtime_dirs = qw(
-        run/admin run/bin run/conf run/data run/logs
+        run/admin run/benchmark run/bin run/conf run/data run/logs
         run/pid run/ssl
     );
     
@@ -312,7 +312,8 @@ sub print_header {
     my $bold_start = $ansi_supported ? BOLD : "";
     my $white_start = $ansi_supported ? WHITE : "";
     my $reset_end = $ansi_supported ? RESET : "";
-    print "\n" . $bold_start . $white_start . PROJECT_NAME . " Configuration" . $reset_end . "\n";
+#    print "\n" . $bold_start . $white_start . PROJECT_NAME . " Configuration" . $reset_end . "\n";
+    print "\n\n";
     my $system = `uname -s`;
     chomp $system;
     #print "Version " . BOLD . BLACK . $config{VERSION} . RESET . " " . BOLD . BLACK . "on " . $system . RESET . "\n\n";
@@ -482,6 +483,59 @@ sub get_performance_color {
 }
 
 # System checks
+sub find_executable {
+    my ($program) = @_;
+    return undef unless defined $program && length $program;
+
+    if ($program =~ m{/}) {
+        return $program if -f $program && -x $program;
+        return undef;
+    }
+
+    for my $directory (split /:/, ($ENV{PATH} // '')) {
+        $directory = '.' unless length $directory;
+        my $candidate = catfile($directory, $program);
+        return $candidate if -f $candidate && -x $candidate;
+    }
+
+    return undef;
+}
+
+sub print_required_packages_hint {
+    print "\nInstall the required build packages, then run ./configure again:\n";
+    print "  Debian/Ubuntu: sudo apt-get install build-essential cmake zlib1g-dev\n";
+    print "  Red Hat/Fedora: sudo dnf install gcc-c++ make cmake zlib-devel\n";
+    print "  macOS: xcode-select --install && brew install cmake zlib\n";
+    print "  FreeBSD: sudo pkg install gmake cmake zlib-ng\n\n";
+}
+
+sub check_required_build_tools {
+    my $make_command = get_make_command();
+    my @requirements = (
+        ['cmake', 'cmake'],
+        ['make', $make_command],
+    );
+    my @missing;
+
+    for my $requirement (@requirements) {
+        my ($label, $program) = @{$requirement};
+        my $path = find_executable($program);
+        if ($path) {
+            print_success("Required tool: $label", $path);
+        } else {
+            print_error("Required tool: $label", "$program not found in PATH");
+            push @missing, $program;
+        }
+    }
+
+    if (@missing) {
+        print_required_packages_hint();
+        die "FATAL: missing required build tool(s): " . join(', ', @missing) . "\n";
+    }
+
+    return 1;
+}
+
 sub check_compiler {
     my @candidates;
     my %seen;
@@ -522,6 +576,37 @@ sub check_compiler {
     unlink $test_bin if -f $test_bin;
     print_error('C++ compiler not found or not functional');
     return 0;
+}
+
+sub check_zlib {
+    my $test_src = "/tmp/hlquery_zlib_test_$$.cpp";
+    my $test_bin = "/tmp/hlquery_zlib_test_$$";
+    open my $test_fh, '>', $test_src or die "Cannot write zlib test file: $!\n";
+    print $test_fh <<'CPP';
+#include <zlib.h>
+int main() {
+    const char *version = zlibVersion();
+    return version == nullptr ? 1 : 0;
+}
+CPP
+    close $test_fh;
+
+    my $command = shell_quote_args($config{CXX}, '-std=c++17', $test_src, '-lz', '-o', $test_bin)
+        . ' >/dev/null 2>&1';
+    my $result = system($command);
+    my $available = (($result & 127) == 0 && $result == 0 && -x $test_bin);
+
+    unlink $test_src if -f $test_src;
+    unlink $test_bin if -f $test_bin;
+
+    if ($available) {
+        print_success('Required library: zlib', 'headers and linker available');
+        return 1;
+    }
+
+    print_error('Required library: zlib', 'zlib.h or libz was not found');
+    print_required_packages_hint();
+    die "FATAL: zlib development files are required (Debian/Ubuntu package: zlib1g-dev)\n";
 }
 
 sub check_threading {
@@ -815,26 +900,26 @@ sub check_rocksdb_vendor {
     my $rocksdb_lib = catfile($rocksdb_dir, 'build', 'librocksdb.a');
 
     if (!-d $rocksdb_dir || !-f $rocksdb_cmake || !-f $rocksdb_include) {
-        print_error('Vendored RocksDB', 'missing or incomplete');
-        print_error('Expected RocksDB source', $rocksdb_dir);
-        die "Error: vendored RocksDB source is required under vendor/rocksdb\n";
+        print_error('Vendored rocksdb', 'missing or incomplete');
+        print_error('Expected rocksdb source', $rocksdb_dir);
+        die "Error: vendored rocksdb source is required under vendor/rocksdb\n";
     }
 
-    print_success('Vendored RocksDB source', 'found');
+    print_success('Vendored rocksdb source', 'found');
 
     if (!-f $rocksdb_lib) {
-        print_status('SKIP', 'Vendored RocksDB library', 'not built yet (make will build it)');
+        print_status('SKIP', 'Vendored rocksdb library', 'not built yet (make will build it)');
         return 1;
     }
 
     if (!-s $rocksdb_lib) {
-        print_error('Vendored RocksDB library', 'empty archive');
-        die "Error: RocksDB archive exists but is empty: $rocksdb_lib\n";
+        print_error('Vendored rocksdb library', 'empty archive');
+        die "Error: rocksdb archive exists but is empty: $rocksdb_lib\n";
     }
 
     my $test_src = catfile($base_path, 'build', "rocksdb_configure_test_$$.cpp");
     my $test_bin = catfile($base_path, 'build', "rocksdb_configure_test_$$");
-    open my $tfh, '>', $test_src or die "Cannot write RocksDB test file: $!\n";
+    open my $tfh, '>', $test_src or die "Cannot write rocksdb test file: $!\n";
     print $tfh <<'EOF';
 #include <rocksdb/db.h>
 #include <rocksdb/options.h>
@@ -859,12 +944,12 @@ EOF
     unlink $test_bin if -f $test_bin;
 
     if ($result == 0) {
-        print_success('Vendored RocksDB library', 'compiled and linkable');
+        print_success('Vendored rocksdb library', 'compiled and linkable');
         return 1;
     }
 
-    print_error('Vendored RocksDB library', 'link check failed');
-    die "Error: RocksDB archive failed configure link check. Try: rm -rf vendor/rocksdb/build && make rocksdb-smoke\n";
+    print_error('Vendored rocksdb library', 'link check failed');
+    die "Error: rocksdb archive failed configure link check. Try: rm -rf vendor/rocksdb/build && make rocksdb-smoke\n";
 }
 
 sub check_fmt_vendor {
@@ -1671,7 +1756,7 @@ sub main {
         print "  4. Installation Layout (directory structure)\n";
         exit 0;
     }
-    
+
     # Resolve paths.
     # Priority: explicit layout > explicit prefix > default dev layout.
     if ($path_set{layout}) {
@@ -1731,6 +1816,8 @@ sub main {
 
     print_animated_header();
     print_header();
+    # Fail before generating files when mandatory build tooling is absent.
+    check_required_build_tools();
     create_required_directories();
     check_vendor_permissions();
     
@@ -1745,6 +1832,12 @@ sub main {
     print_success('Detected OS', $detected_os);
     
     my $compiler_ok = check_compiler();
+    unless ($compiler_ok) {
+        print_error("FATAL: C++ compiler required");
+        print_required_packages_hint();
+        die "FATAL: C++ compiler required\n";
+    }
+    check_zlib();
     my $threading_ok = check_threading();
 
     # Detect CPU count for max threads
@@ -1811,11 +1904,6 @@ sub main {
     my $cld2_ok = check_cld2_vendor();
     
     print_section_end();
-    
-    unless ($compiler_ok) {
-        print_error("FATAL: C++ compiler required");
-        die "\n";
-    }
     
     # Library testing (unless skipped) - run BEFORE generation
     unless ($skip_tests) {

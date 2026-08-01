@@ -1,0 +1,242 @@
+{
+  "fixture_version": 3,
+  "fixture_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+  "collection": "food",
+  "count": 10,
+  "tags": [
+    "recipe",
+    "cuisine",
+    "restaurant",
+    "dessert",
+    "spice",
+    "vegan",
+    "street food",
+    "seasonal"
+  ],
+  "documents": [
+    {
+      "id": "food_roasted-tomato-farro-bowl-demo-recipe",
+      "title": "Roasted Tomato Farro Bowl (Demo Recipe)",
+      "content": "Roast tomatoes and garlic, fold them into warm farro, then finish with basil, lemon, and toasted seeds for contrasting texture.",
+      "description": "Synthetic food demo record: Roasted Tomato Farro Bowl (Demo Recipe).",
+      "labels": [
+        "food",
+        "demo",
+        "synthetic",
+        "recipe",
+        "roasted tomato farro bowl",
+        "Mediterranean-inspired demo"
+      ],
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+      "is_synthetic": true,
+      "dish": "roasted tomato farro bowl",
+      "cuisine": "Mediterranean-inspired demo",
+      "ingredients": "farro | tomato | garlic | basil | lemon | pumpkin seeds",
+      "prep_minutes": 35
+    },
+    {
+      "id": "food_ginger-sesame-noodle-salad-demo-recipe",
+      "title": "Ginger Sesame Noodle Salad (Demo Recipe)",
+      "content": "Toss chilled noodles with cucumber, carrot, scallion, and a ginger-sesame dressing; add herbs immediately before serving.",
+      "description": "Synthetic food demo record: Ginger Sesame Noodle Salad (Demo Recipe).",
+      "labels": [
+        "food",
+        "demo",
+        "synthetic",
+        "cuisine",
+        "ginger sesame noodle salad",
+        "East Asian-inspired demo"
+      ],
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+      "is_synthetic": true,
+      "dish": "ginger sesame noodle salad",
+      "cuisine": "East Asian-inspired demo",
+      "ingredients": "noodles | cucumber | carrot | ginger | sesame | scallion",
+      "prep_minutes": 25
+    },
+    {
+      "id": "food_smoky-black-bean-tacos-demo-recipe",
+      "title": "Smoky Black Bean Tacos (Demo Recipe)",
+      "content": "Warm black beans with cumin and smoked paprika, then assemble with cabbage, lime, and a mild avocado sauce.",
+      "description": "Synthetic food demo record: Smoky Black Bean Tacos (Demo Recipe).",
+      "labels": [
+        "food",
+        "demo",
+        "synthetic",
+        "restaurant",
+        "smoky black bean tacos",
+        "Mexican-inspired demo"
+      ],
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+      "is_synthetic": true,
+      "dish": "smoky black bean tacos",
+      "cuisine": "Mexican-inspired demo",
+      "ingredients": "black beans | corn tortillas | cabbage | lime | avocado | cumin",
+      "prep_minutes": 30
+    },
+    {
+      "id": "food_herbed-mushroom-hand-pies-demo-recipe",
+      "title": "Herbed Mushroom Hand Pies (Demo Recipe)",
+      "content": "Cook mushrooms and shallots until dry, mix with herbs, and seal the cooled filling inside small pastry rounds.",
+      "description": "Synthetic food demo record: Herbed Mushroom Hand Pies (Demo Recipe).",
+      "labels": [
+        "food",
+        "demo",
+        "synthetic",
+        "dessert",
+        "herbed mushroom hand pies",
+        "European-inspired demo"
+      ],
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+      "is_synthetic": true,
+      "dish": "herbed mushroom hand pies",
+      "cuisine": "European-inspired demo",
+      "ingredients": "mushrooms | shallot | thyme | pastry | black pepper",
+      "prep_minutes": 55
+    },
+    {
+      "id": "food_coconut-lentil-stew-demo-recipe",
+      "title": "Coconut Lentil Stew (Demo Recipe)",
+      "content": "Simmer red lentils with coconut milk, tomato, turmeric, and ginger until creamy; serve with greens and rice.",
+      "description": "Synthetic food demo record: Coconut Lentil Stew (Demo Recipe).",
+      "labels": [
+        "food",
+        "demo",
+        "synthetic",
+        "spice",
+        "coconut lentil stew",
+        "South Asian-inspired demo"
+      ],
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+      "is_synthetic": true,
+      "dish": "coconut lentil stew",
+      "cuisine": "South Asian-inspired demo",
+      "ingredients": "red lentils | coconut milk | tomato | turmeric | ginger | spinach",
+      "prep_minutes": 40
+    },
+    {
+      "id": "food_apple-oat-crumble-demo-recipe",
+      "title": "Apple Oat Crumble (Demo Recipe)",
+      "content": "Bake sliced apples beneath an oat, cinnamon, and brown-sugar topping until the fruit bubbles and the surface turns crisp.",
+      "description": "Synthetic food demo record: Apple Oat Crumble (Demo Recipe).",
+      "labels": [
+        "food",
+        "demo",
+        "synthetic",
+        "vegan",
+        "apple oat crumble",
+        "home baking demo"
+      ],
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+      "is_synthetic": true,
+      "dish": "apple oat crumble",
+      "cuisine": "home baking demo",
+      "ingredients": "apples | oats | flour | cinnamon | butter | brown sugar",
+      "prep_minutes": 50
+    },
+    {
+      "id": "food_charred-corn-street-salad-demo-recipe",
+      "title": "Charred Corn Street Salad (Demo Recipe)",
+      "content": "Combine charred corn with radish, herbs, lime, and a creamy dressing for a bright side dish with gentle heat.",
+      "description": "Synthetic food demo record: Charred Corn Street Salad (Demo Recipe).",
+      "labels": [
+        "food",
+        "demo",
+        "synthetic",
+        "street food",
+        "charred corn street salad",
+        "street-food-inspired demo"
+      ],
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+      "is_synthetic": true,
+      "dish": "charred corn street salad",
+      "cuisine": "street-food-inspired demo",
+      "ingredients": "corn | radish | cilantro | lime | yogurt | chili",
+      "prep_minutes": 20
+    },
+    {
+      "id": "food_lemon-pea-risotto-demo-recipe",
+      "title": "Lemon Pea Risotto (Demo Recipe)",
+      "content": "Add warm stock gradually to rice, then fold in peas, lemon zest, herbs, and grated hard cheese off the heat.",
+      "description": "Synthetic food demo record: Lemon Pea Risotto (Demo Recipe).",
+      "labels": [
+        "food",
+        "demo",
+        "synthetic",
+        "seasonal",
+        "lemon pea risotto",
+        "Italian-inspired demo"
+      ],
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+      "is_synthetic": true,
+      "dish": "lemon pea risotto",
+      "cuisine": "Italian-inspired demo",
+      "ingredients": "rice | peas | lemon | vegetable stock | parsley | parmesan",
+      "prep_minutes": 45
+    },
+    {
+      "id": "food_miso-glazed-eggplant-demo-recipe",
+      "title": "Miso Glazed Eggplant (Demo Recipe)",
+      "content": "Roast scored eggplant until tender, brush with a sweet-savory miso glaze, and broil briefly for caramelization.",
+      "description": "Synthetic food demo record: Miso Glazed Eggplant (Demo Recipe).",
+      "labels": [
+        "food",
+        "demo",
+        "synthetic",
+        "recipe",
+        "miso glazed eggplant",
+        "Japanese-inspired demo"
+      ],
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+      "is_synthetic": true,
+      "dish": "miso glazed eggplant",
+      "cuisine": "Japanese-inspired demo",
+      "ingredients": "eggplant | miso | rice vinegar | sesame oil | scallion",
+      "prep_minutes": 35
+    },
+    {
+      "id": "food_seasonal-citrus-tart-demo-recipe",
+      "title": "Seasonal Citrus Tart (Demo Recipe)",
+      "content": "Fill a baked tart shell with citrus curd and arrange mixed citrus segments on top just before service.",
+      "description": "Synthetic food demo record: Seasonal Citrus Tart (Demo Recipe).",
+      "labels": [
+        "food",
+        "demo",
+        "synthetic",
+        "cuisine",
+        "seasonal citrus tart",
+        "pastry demo"
+      ],
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+      "is_synthetic": true,
+      "dish": "seasonal citrus tart",
+      "cuisine": "pastry demo",
+      "ingredients": "flour | butter | eggs | lemon | orange | sugar",
+      "prep_minutes": 75
+    }
+  ],
+  "metadata": {
+    "_fixture_kind": "synthetic_public_demo",
+    "_fixture_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+    "_demo_description": "Demonstration recipes with ingredients, cuisine context, method, and preparation time.",
+    "_demo_queries": "lentil coconut recipe | vegetarian street food | citrus dessert"
+  },
+  "fields": [
+    {
+      "name": "ingredients",
+      "type": "string"
+    },
+    {
+      "name": "cuisine",
+      "type": "string"
+    },
+    {
+      "name": "dish",
+      "type": "string"
+    },
+    {
+      "name": "prep_minutes",
+      "type": "int32"
+    }
+  ]
+}

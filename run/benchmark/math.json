@@ -1,0 +1,259 @@
+{
+  "fixture_version": 3,
+  "fixture_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+  "collection": "math",
+  "count": 10,
+  "tags": [
+    "algebra",
+    "geometry",
+    "calculus",
+    "probability",
+    "prime",
+    "matrix",
+    "vector",
+    "statistics",
+    "equation",
+    "integral"
+  ],
+  "documents": [
+    {
+      "id": "math_solve-3x-7-22-demo-problem",
+      "title": "Solve 3x + 7 = 22 (Demo Problem)",
+      "content": "Subtract 7 from both sides and divide by 3, giving x = 5. The record is useful for equation and numeric-field search.",
+      "description": "Synthetic math demo record: Solve 3x + 7 = 22 (Demo Problem).",
+      "labels": [
+        "math",
+        "demo",
+        "synthetic",
+        "algebra",
+        "algebra",
+        "3x + 7 = 22"
+      ],
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+      "is_synthetic": true,
+      "topic": "algebra",
+      "expression": "3x + 7 = 22",
+      "answer": "x = 5",
+      "value": 5.0,
+      "equation_index": 7
+    },
+    {
+      "id": "math_area-of-a-6-by-9-rectangle-demo-problem",
+      "title": "Area of a 6 by 9 Rectangle (Demo Problem)",
+      "content": "Multiply length by width: 6 × 9 = 54 square units.",
+      "description": "Synthetic math demo record: Area of a 6 by 9 Rectangle (Demo Problem).",
+      "labels": [
+        "math",
+        "demo",
+        "synthetic",
+        "geometry",
+        "geometry",
+        "6 * 9"
+      ],
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+      "is_synthetic": true,
+      "topic": "geometry",
+      "expression": "6 * 9",
+      "answer": "54 square units",
+      "value": 54.0,
+      "equation_index": 14
+    },
+    {
+      "id": "math_derivative-of-x-cubed-demo-problem",
+      "title": "Derivative of x Cubed (Demo Problem)",
+      "content": "Using the power rule, the derivative of x³ is 3x².",
+      "description": "Synthetic math demo record: Derivative of x Cubed (Demo Problem).",
+      "labels": [
+        "math",
+        "demo",
+        "synthetic",
+        "calculus",
+        "calculus",
+        "d/dx x^3"
+      ],
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+      "is_synthetic": true,
+      "topic": "calculus",
+      "expression": "d/dx x^3",
+      "answer": "3x^2",
+      "value": 3.0,
+      "equation_index": 21
+    },
+    {
+      "id": "math_probability-of-two-heads-demo-problem",
+      "title": "Probability of Two Heads (Demo Problem)",
+      "content": "For two fair coin flips, one of four equally likely outcomes is two heads, so the probability is 0.25.",
+      "description": "Synthetic math demo record: Probability of Two Heads (Demo Problem).",
+      "labels": [
+        "math",
+        "demo",
+        "synthetic",
+        "probability",
+        "probability",
+        "P(HH)"
+      ],
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+      "is_synthetic": true,
+      "topic": "probability",
+      "expression": "P(HH)",
+      "answer": "1/4",
+      "value": 0.25,
+      "equation_index": 28
+    },
+    {
+      "id": "math_check-whether-101-is-prime-demo-problem",
+      "title": "Check Whether 101 Is Prime (Demo Problem)",
+      "content": "Test divisibility by primes no larger than √101; none divide evenly, so 101 is prime.",
+      "description": "Synthetic math demo record: Check Whether 101 Is Prime (Demo Problem).",
+      "labels": [
+        "math",
+        "demo",
+        "synthetic",
+        "prime",
+        "number theory",
+        "prime(101)"
+      ],
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+      "is_synthetic": true,
+      "topic": "number theory",
+      "expression": "prime(101)",
+      "answer": "true",
+      "value": 101.0,
+      "equation_index": 35
+    },
+    {
+      "id": "math_add-two-2-2-matrices-demo-problem",
+      "title": "Add Two 2×2 Matrices (Demo Problem)",
+      "content": "Add corresponding entries of [[1,2],[3,4]] and [[4,3],[2,1]] to obtain [[5,5],[5,5]].",
+      "description": "Synthetic math demo record: Add Two 2×2 Matrices (Demo Problem).",
+      "labels": [
+        "math",
+        "demo",
+        "synthetic",
+        "matrix",
+        "linear algebra",
+        "[[1,2],[3,4]] + [[4,3],[2,1]]"
+      ],
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+      "is_synthetic": true,
+      "topic": "linear algebra",
+      "expression": "[[1,2],[3,4]] + [[4,3],[2,1]]",
+      "answer": "[[5,5],[5,5]]",
+      "value": 20.0,
+      "equation_index": 42
+    },
+    {
+      "id": "math_magnitude-of-vector-3-4-demo-problem",
+      "title": "Magnitude of Vector (3,4) (Demo Problem)",
+      "content": "The Euclidean magnitude is √(3² + 4²) = 5.",
+      "description": "Synthetic math demo record: Magnitude of Vector (3,4) (Demo Problem).",
+      "labels": [
+        "math",
+        "demo",
+        "synthetic",
+        "vector",
+        "vectors",
+        "sqrt(3^2 + 4^2)"
+      ],
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+      "is_synthetic": true,
+      "topic": "vectors",
+      "expression": "sqrt(3^2 + 4^2)",
+      "answer": "5",
+      "value": 5.0,
+      "equation_index": 49
+    },
+    {
+      "id": "math_mean-of-4-7-9-and-12-demo-problem",
+      "title": "Mean of 4, 7, 9, and 12 (Demo Problem)",
+      "content": "The values sum to 32; dividing by four gives a mean of 8.",
+      "description": "Synthetic math demo record: Mean of 4, 7, 9, and 12 (Demo Problem).",
+      "labels": [
+        "math",
+        "demo",
+        "synthetic",
+        "statistics",
+        "statistics",
+        "(4 + 7 + 9 + 12) / 4"
+      ],
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+      "is_synthetic": true,
+      "topic": "statistics",
+      "expression": "(4 + 7 + 9 + 12) / 4",
+      "answer": "8",
+      "value": 8.0,
+      "equation_index": 56
+    },
+    {
+      "id": "math_evaluate-2-to-the-tenth-power-demo-problem",
+      "title": "Evaluate 2 to the Tenth Power (Demo Problem)",
+      "content": "Repeated doubling gives 2¹⁰ = 1024.",
+      "description": "Synthetic math demo record: Evaluate 2 to the Tenth Power (Demo Problem).",
+      "labels": [
+        "math",
+        "demo",
+        "synthetic",
+        "equation",
+        "exponents",
+        "2^10"
+      ],
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+      "is_synthetic": true,
+      "topic": "exponents",
+      "expression": "2^10",
+      "answer": "1024",
+      "value": 1024.0,
+      "equation_index": 63
+    },
+    {
+      "id": "math_integral-of-2x-from-0-to-3-demo-problem",
+      "title": "Integral of 2x from 0 to 3 (Demo Problem)",
+      "content": "An antiderivative is x²; evaluating from 0 to 3 gives 9.",
+      "description": "Synthetic math demo record: Integral of 2x from 0 to 3 (Demo Problem).",
+      "labels": [
+        "math",
+        "demo",
+        "synthetic",
+        "integral",
+        "integral calculus",
+        "integral_0^3 2x dx"
+      ],
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+      "is_synthetic": true,
+      "topic": "integral calculus",
+      "expression": "integral_0^3 2x dx",
+      "answer": "9",
+      "value": 9.0,
+      "equation_index": 70
+    }
+  ],
+  "metadata": {
+    "_fixture_kind": "synthetic_public_demo",
+    "_fixture_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+    "_demo_description": "Worked instructional examples spanning algebra, geometry, probability, calculus, and statistics.",
+    "_demo_queries": "solve 3x plus 7 | probability two heads | derivative x cubed"
+  },
+  "fields": [
+    {
+      "name": "topic",
+      "type": "string"
+    },
+    {
+      "name": "expression",
+      "type": "string"
+    },
+    {
+      "name": "answer",
+      "type": "string"
+    },
+    {
+      "name": "value",
+      "type": "float"
+    },
+    {
+      "name": "equation_index",
+      "type": "int32"
+    }
+  ],
+  "default_sorting_field": "value"
+}

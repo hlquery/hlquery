@@ -760,6 +760,7 @@ static double ComputeSQLAggregateMetric(const SQLAggregateSpec &AggSpec, const s
           }
 
           double ParsedValue = 0.0;
+
           if (!TryParseNumericValue(FieldIt->second, &ParsedValue))
           {
                continue;
@@ -1032,12 +1033,14 @@ static HttpResponse BuildShowCollectionsSQLResponse(const HttpRequest &Request)
      CollectionsRequest.QueryParams["limit"] = std::to_string(PerPage);
 
      HttpResponse CollectionsResponse = SearchAPI::GetInstance().HandleListCollections(CollectionsRequest);
+
      if (CollectionsResponse.StatusCode < 200 || CollectionsResponse.StatusCode >= 300)
      {
           return CollectionsResponse;
      }
 
      nlohmann::json Root;
+
      try
      {
           Root = nlohmann::json::parse(CollectionsResponse.Body);
@@ -1051,6 +1054,7 @@ static HttpResponse BuildShowCollectionsSQLResponse(const HttpRequest &Request)
      }
 
      std::vector<SQLRow> Rows;
+
      if (Root.contains("collections") && Root["collections"].is_array())
      {
           Rows.reserve(Root["collections"].size());
@@ -1668,6 +1672,15 @@ HttpResponse SearchAPI::HandleSearch(const HttpRequest &Request)
           return HttpResponse(Status::METHOD_NOT_ALLOWED, StatusText(Status::METHOD_NOT_ALLOWED), "application/json");
      }
 
+     SearchExecutionTrace RequestTrace;
+
+     if (Instance && Instance->Config)
+     {
+          RequestTrace.Enabled = Instance->Config->GetAdaptiveSearchExecutionTrace();
+     }
+
+     const auto RequestParseStartTime = SearchExecutionRecorder::Start(RequestTrace);
+
      std::string CollectionName = ExtractCollectionFromPath(Request.Path);
 
      std::unordered_map<std::string, std::string> Params;
@@ -1814,6 +1827,18 @@ HttpResponse SearchAPI::HandleSearch(const HttpRequest &Request)
      bool RequestCacheEnabled = true;
      if (Instance && Instance->Config)
      {
+          if (SearchQueryObj.IncludeSearchExecutionExplicit &&
+              !SearchQueryObj.IncludeSearchExecution &&
+              Instance->Config->GetAdaptiveSearchAllowRequestDisable())
+          {
+               RequestTrace.Enabled = false;
+               RequestTrace.Stages.clear();
+          }
+
+          RequestTrace.IncludeQueryText = RequestTrace.Enabled &&
+                                          Instance->Config->GetAdaptiveSearchIncludeQueryText() &&
+                                          SearchQueryObj.IncludeSearchQueryText;
+
           if (!Params.count("enable_synonyms"))
           {
                SearchQueryObj.EnableSynonyms = Instance->Config->GetQuerySettingsEnableSynonyms();
@@ -1828,6 +1853,16 @@ HttpResponse SearchAPI::HandleSearch(const HttpRequest &Request)
                static_cast<uint64_t>(Instance->Config->GetPerformanceCacheTtlSeconds()) * 1000ULL,
                static_cast<size_t>(Instance->Config->GetPerformanceMaxCacheSizeMb()) * 1024ULL * 1024ULL);
      }
+
+     SearchExecutionRecorder::Append(
+          &RequestTrace,
+          "request_parse",
+          "request",
+          "executed",
+          Request.Method == "GET" ? "query_parameters" : "json_and_query_parameters",
+          "",
+          RequestParseStartTime);
+
      const auto RequestCacheIt = Params.find("request_cache");
      if (RequestCacheIt != Params.end())
      {
@@ -1876,6 +1911,7 @@ HttpResponse SearchAPI::HandleSearch(const HttpRequest &Request)
      const size_t MaxFieldBytes = 128;
 
      std::string ValidationError;
+     const auto QueryValidationStartTime = SearchExecutionRecorder::Start(RequestTrace);
 
      /* Validate untrusted query fields before they reach the search execution layer. */
 
@@ -1919,6 +1955,15 @@ HttpResponse SearchAPI::HandleSearch(const HttpRequest &Request)
           }
      }
 
+     SearchExecutionRecorder::Append(
+          &RequestTrace,
+          "query_validation",
+          "request",
+          "executed",
+          "legacy_validation",
+          "",
+          QueryValidationStartTime);
+
      ComprehensiveSearchResult SearchResultObj;
      const DocumentMaybeSettings MaybeSettings = ParseDocumentMaybeSettings(Params);
      const auto DistributedOverrideIt = Request.QueryParams.find("distributed");
@@ -1929,9 +1974,34 @@ HttpResponse SearchAPI::HandleSearch(const HttpRequest &Request)
 
      HttpResponse CachedResponse;
      const uint64_t SearchCacheGeneration = SearchResponseCache::GetGeneration(CollectionName);
-     if (RequestCacheEnabled && !NeedsCustomSQLExecution &&
-         SearchResponseCache::Get("search", Request, CollectionName, CachedResponse))
+     const auto CacheLookupStartTime = SearchExecutionRecorder::Start(RequestTrace);
+     const bool CacheHit = RequestCacheEnabled &&
+                           !NeedsCustomSQLExecution &&
+                           SearchResponseCache::Get("search", Request, CollectionName, CachedResponse);
+
+     if (CacheHit)
      {
+          SearchExecutionRecorder::Append(
+               &RequestTrace,
+               "cache_lookup",
+               "cache",
+               "cached",
+               "response_cache",
+               "hit",
+               CacheLookupStartTime);
+
+          const uint64_t CacheLookupDurationUS = RequestTrace.Enabled && !RequestTrace.Stages.empty()
+                                                      ? RequestTrace.Stages.back().DurationUS
+                                                      : 0;
+
+          if (RequestTrace.Enabled &&
+              !SearchExecutionRecorder::MarkCached(&CachedResponse.Body, CacheLookupDurationUS))
+          {
+               RequestTrace.FromCache = true;
+               RequestTrace.FinalStrategy = "cached_response";
+               SearchExecutionRecorder::Inject(&CachedResponse.Body, RequestTrace);
+          }
+
           EmitCachedSearchAnalytics(SearchQueryObj,
                                     Request,
                                     CachedResponse,
@@ -1940,19 +2010,70 @@ HttpResponse SearchAPI::HandleSearch(const HttpRequest &Request)
           return CachedResponse;
      }
 
+     if (RequestCacheEnabled && !NeedsCustomSQLExecution)
+     {
+          SearchExecutionRecorder::Append(
+               &RequestTrace,
+               "cache_lookup",
+               "cache",
+               "executed",
+               "response_cache",
+               "miss",
+               CacheLookupStartTime);
+     }
+     else
+     {
+          SearchExecutionRecorder::AppendSkipped(
+               &RequestTrace,
+               "cache_lookup",
+               "cache",
+               RequestCacheEnabled ? "unsupported_for_sql_execution" : "disabled");
+     }
+
      /* Try distributed execution first when routing policy requests cross-node search. */
 
      if (SupportsDistributedExecution && ShouldAttemptDistributedSearch(Request))
      {
           std::string DistributedError;
+          const auto DistributedStartTime = SearchExecutionRecorder::Start(RequestTrace);
 
           if (TryDistributedSearch(Request, CollectionName, SearchQueryObj, &SearchResultObj, &DistributedError))
           {
+               SearchResultObj.ExecutionTrace = std::move(RequestTrace);
+               SearchResultObj.ExecutionTrace.FinalStrategy = "distributed";
+
+               SearchExecutionRecorder::Append(
+                    &SearchResultObj.ExecutionTrace,
+                    "distributed_fanout",
+                    "distributed",
+                    "executed",
+                    "configured_nodes",
+                    "",
+                    DistributedStartTime,
+                    0,
+                    SearchResultObj.Hits.size());
+
                HttpResponse Response(Status::OK, StatusText(Status::OK), "application/json");
                Response.Headers["X-HLQ-Execution-Mode"] = "distributed";
                ApplySQLDistinct(SearchResultObj, SQLApplyResult.Translation);
+
+               const auto ResponseSerializationStartTime = SearchExecutionRecorder::Start(SearchResultObj.ExecutionTrace);
                Response.Body = GenerateComprehensiveSearchResponse(SearchResultObj, SearchQueryObj);
                AttachSearchResponseMeta(Response, SearchQueryObj, Request, CollectionName);
+
+               SearchExecutionRecorder::Append(
+                    &SearchResultObj.ExecutionTrace,
+                    "response_serialization",
+                    "response",
+                    "executed",
+                    "json",
+                    "",
+                    ResponseSerializationStartTime,
+                    SearchResultObj.Hits.size(),
+                    SearchResultObj.Hits.size());
+
+               SearchExecutionRecorder::Inject(&Response.Body, SearchResultObj.ExecutionTrace);
+
                if (RequestCacheEnabled)
                {
                     SearchResponseCache::Put("search", Request, CollectionName, Response, SearchCacheGeneration);
@@ -1983,6 +2104,15 @@ HttpResponse SearchAPI::HandleSearch(const HttpRequest &Request)
                }
                return Response;
           }
+
+          SearchExecutionRecorder::Append(
+               &RequestTrace,
+               "distributed_fanout",
+               "distributed",
+               "degraded",
+               "configured_nodes",
+               DistributedError.empty() ? "no_distributed_result" : "distributed_execution_failed",
+               DistributedStartTime);
 
           /* Strict distributed mode rejects the request instead of silently falling back locally. */
 
@@ -2016,15 +2146,16 @@ HttpResponse SearchAPI::HandleSearch(const HttpRequest &Request)
           {
                AnalyticsQuery.Aggregations.clear();
           }
-          SearchResultObj = PerformComprehensiveSearch(CollectionName, AnalyticsQuery);
+          SearchResultObj = PerformComprehensiveSearch(CollectionName, AnalyticsQuery, std::move(RequestTrace));
      }
      else
      {
-          SearchResultObj = PerformComprehensiveSearch(CollectionName, SearchQueryObj);
+          SearchResultObj = PerformComprehensiveSearch(CollectionName, SearchQueryObj, std::move(RequestTrace));
      }
 
      HttpResponse Response(Status::OK, StatusText(Status::OK), "application/json");
      Response.Headers["X-HLQ-Execution-Mode"] = SupportsDistributedExecution ? "local" : "local-aggregations";
+     const auto ResponseSerializationStartTime = SearchExecutionRecorder::Start(SearchResultObj.ExecutionTrace);
 
      if (IsGroupedSQLQuery)
      {
@@ -2049,10 +2180,22 @@ HttpResponse SearchAPI::HandleSearch(const HttpRequest &Request)
           Response.Body = GenerateComprehensiveSearchResponse(SearchResultObj, SearchQueryObj);
      }
 
+     SearchExecutionRecorder::Append(
+          &SearchResultObj.ExecutionTrace,
+          "response_serialization",
+          "response",
+          "executed",
+          "json",
+          "",
+          ResponseSerializationStartTime,
+          SearchResultObj.Hits.size(),
+          SearchResultObj.Hits.size());
+
      /* maybe suggestions are injected only when the result count is below the caller threshold. */
 
      if (MaybeSettings.Enabled && !SearchQueryObj.CaseSensitive && SearchResultObj.Found >= 0 && SearchResultObj.Found < MaybeSettings.MinResults && !SearchQueryObj.Q.empty())
      {
+          const auto MaybeStartTime = SearchExecutionRecorder::Start(SearchResultObj.ExecutionTrace);
           HttpRequest MaybeRequest = Request;
 
           MaybeRequest.Method = "GET";
@@ -2081,9 +2224,20 @@ HttpResponse SearchAPI::HandleSearch(const HttpRequest &Request)
                {
                }
           }
+
+          SearchExecutionRecorder::Append(
+               &SearchResultObj.ExecutionTrace,
+               "maybe_suggestions",
+               "post_processing",
+               MaybeResponse.StatusCode >= 200 && MaybeResponse.StatusCode < 300 ? "executed" : "degraded",
+               "lexical_suggestions",
+               MaybeResponse.StatusCode >= 200 && MaybeResponse.StatusCode < 300 ? "" : "suggestion_request_failed",
+               MaybeStartTime);
      }
 
      AttachSearchResponseMeta(Response, SearchQueryObj, Request, CollectionName);
+
+     SearchExecutionRecorder::Inject(&Response.Body, SearchResultObj.ExecutionTrace);
 
      /* Analytics are emitted after the response body is finalized so counts match the payload. */
      if (SearchQueryObj.EnableAnalytics)
@@ -2217,6 +2371,42 @@ HttpResponse SearchAPI::HandleGlobalSearch(const HttpRequest &Request)
           RequestedCollections.push_back(SQLApplyResult.Collection);
      }
 
+     /* Treat the documented all-collection selectors as an unrestricted target set.
+      * This keeps GET collection=*, JSON collections:["*"], and the CLI --all
+      * behavior consistent without requiring callers to omit the field entirely. */
+
+     if (!RequestedCollections.empty())
+     {
+          bool SelectAllCollections = false;
+          for (const auto &Collection : RequestedCollections)
+          {
+               std::string Selector = Collection;
+               Selector.erase(Selector.begin(), std::find_if(Selector.begin(), Selector.end(), [](unsigned char Ch)
+                                                            { return !std::isspace(Ch); }));
+               Selector.erase(std::find_if(Selector.rbegin(), Selector.rend(), [](unsigned char Ch)
+                                           { return !std::isspace(Ch); })
+                                   .base(),
+                              Selector.end());
+               std::transform(Selector.begin(), Selector.end(), Selector.begin(), [](unsigned char Ch)
+                              { return static_cast<char>(std::tolower(Ch)); });
+
+               if (Selector == "*" || Selector == "all")
+               {
+                    SelectAllCollections = true;
+                    break;
+               }
+          }
+
+          if (SelectAllCollections)
+          {
+               RequestedCollections.clear();
+               if (!SQLApplyResult.Collection.empty())
+               {
+                    RequestedCollections.push_back(SQLApplyResult.Collection);
+               }
+          }
+     }
+
      const bool UseDistributedCollections = ShouldAttemptDistributedSearch(Request) &&
                                             ParseTruthyFlag(Params, "distributed_collections", false);
      const auto AvailableCollections = HybridStorageManagerInstance().ListCollections();
@@ -2307,6 +2497,22 @@ HttpResponse SearchAPI::HandleGlobalSearch(const HttpRequest &Request)
 
      ComprehensiveSearchQuery BaseQuery = ParseComprehensiveSearchQuery(Params);
 
+     const std::size_t GlobalPerPage = static_cast<std::size_t>(std::max(1, BaseQuery.PerPage));
+     const std::size_t GlobalOffset = BaseQuery.Offset > 0
+                                          ? static_cast<std::size_t>(BaseQuery.Offset)
+                                          : static_cast<std::size_t>(std::max(0, BaseQuery.Page - 1)) * GlobalPerPage;
+     constexpr std::size_t MaxGlobalResultWindow = 10000;
+
+     if (GlobalOffset > MaxGlobalResultWindow || GlobalPerPage > MaxGlobalResultWindow - GlobalOffset)
+     {
+          return BuildErrorResponse(Status::BAD_REQUEST,
+                                    Code::SEARCH_INVALID_PARAMETER,
+                                    "Global search result window is too large.",
+                                    "offset + limit/per_page must not exceed 10000 for cross-collection search.");
+     }
+
+     const std::size_t MergeWindow = GlobalOffset + GlobalPerPage;
+
      const size_t MaxQueryBytes = 8192;
      const size_t MaxFilterBytes = 8192;
      const size_t MaxFieldBytes = 128;
@@ -2345,10 +2551,13 @@ HttpResponse SearchAPI::HandleGlobalSearch(const HttpRequest &Request)
      std::map<std::string, std::map<std::string, int>> FacetCounts;
      bool IndexingInProgress = false;
      bool PartialResults = false;
-     float MaxSearchTime = 0.0f;
      size_t ExecutedCollections = 0;
+     std::vector<std::string> ExecutedCollectionNames;
+     std::uint64_t TotalFound = 0;
+     std::uint64_t TotalOutOf = 0;
      std::string DistributedError;
      std::vector<std::map<std::string, std::string>> GlobalDistributedDiagnostics;
+     const auto GlobalSearchStart = Instance->Now();
 
      /* Execute one collection at a time, then merge hits and facet counts into a global view. */
 
@@ -2356,6 +2565,28 @@ HttpResponse SearchAPI::HandleGlobalSearch(const HttpRequest &Request)
      {
           ComprehensiveSearchQuery QueryForCollection = BaseQuery;
           QueryForCollection.AllowScanFallback = (TargetCollections.size() == 1);
+
+          /* Fetch each collection's leading merge window. Applying the caller's
+           * page/offset inside every collection and again after merging loses
+           * globally top-ranked hits and produces incorrect deep pages. */
+
+          QueryForCollection.Page = 1;
+          QueryForCollection.Offset = 0;
+          QueryForCollection.PerPage = static_cast<int>(MergeWindow);
+
+          /* Collection-specific default sorts (for example a catalog rank) must
+           * not truncate candidates before the global score merge. Explicit
+           * caller sort rules are preserved; otherwise fetch by effective score. */
+
+          if (BaseQuery.SortBy.empty())
+          {
+               QueryForCollection.SortBy = {"_text_match:desc"};
+          }
+
+          if (!BaseQuery.FacetBy.empty())
+          {
+               QueryForCollection.MaxFacetValues = 1000;
+          }
 
           std::string FiltersToApply = Request.EmbeddedFilters;
 
@@ -2453,8 +2684,10 @@ HttpResponse SearchAPI::HandleGlobalSearch(const HttpRequest &Request)
 
           IndexingInProgress = IndexingInProgress || CollectionResult.IndexingInProgress;
           PartialResults = PartialResults || CollectionResult.PartialResults;
-          MaxSearchTime = std::max(MaxSearchTime, CollectionResult.SearchTimeMS);
           ExecutedCollections++;
+          ExecutedCollectionNames.push_back(CollectionName);
+          TotalFound += static_cast<std::uint64_t>(std::max(0, CollectionResult.Found));
+          TotalOutOf += static_cast<std::uint64_t>(std::max(0, CollectionResult.OutOf));
      }
 
      /* Strict distributed mode only succeeds when at least one remote-capable execution completed. */
@@ -2466,6 +2699,14 @@ HttpResponse SearchAPI::HandleGlobalSearch(const HttpRequest &Request)
                                     Code::SEARCH_INVALID_PARAMETER,
                                     "Distributed search unavailable.",
                                     Details);
+     }
+
+     if (ExecutedCollections == 0)
+     {
+          return BuildErrorResponse(Status::NOT_FOUND,
+                                    Code::COLLECTION_NOT_FOUND,
+                                    "Collection not found.",
+                                    "No requested collections were accessible for global search.");
      }
 
      /* Global hit ordering uses explicit sort rules first, then normalized search scores. */
@@ -2492,29 +2733,23 @@ HttpResponse SearchAPI::HandleGlobalSearch(const HttpRequest &Request)
      {
           GlobalResult.PartialReason = "one_or_more_collections_partial";
      }
-     GlobalResult.SearchTimeMS = MaxSearchTime;
+     GlobalResult.SearchTimeMS = std::chrono::duration<float, std::milli>(Instance->Now() - GlobalSearchStart).count();
      GlobalResult.DistributedDiagnostics = std::move(GlobalDistributedDiagnostics);
-     GlobalResult.OutOf = (AllHits.size() > static_cast<std::size_t>(std::numeric_limits<int>::max()))
+     GlobalResult.OutOf = TotalOutOf > static_cast<std::uint64_t>(std::numeric_limits<int>::max())
                                ? std::numeric_limits<int>::max()
-                               : static_cast<int>(AllHits.size());
-     GlobalResult.Found = GlobalResult.OutOf;
-
-     const std::size_t PageIndex = static_cast<std::size_t>(GlobalResult.Page - 1);
-     const std::size_t PerPageSize = static_cast<std::size_t>(GlobalResult.PerPage);
+                               : static_cast<int>(TotalOutOf);
+     GlobalResult.Found = TotalFound > static_cast<std::uint64_t>(std::numeric_limits<int>::max())
+                              ? std::numeric_limits<int>::max()
+                              : static_cast<int>(TotalFound);
 
      /* Pagination is applied after the full merged result set has been sorted. */
 
-     if (PageIndex <= (std::numeric_limits<std::size_t>::max() / PerPageSize))
+     if (GlobalOffset < AllHits.size())
      {
-          const std::size_t Start = PageIndex * PerPageSize;
-
-          if (Start < AllHits.size())
-          {
-               const std::size_t End = std::min(AllHits.size(), Start + PerPageSize);
-               GlobalResult.Hits.insert(GlobalResult.Hits.end(),
-                                        AllHits.begin() + static_cast<std::vector<SearchHit>::difference_type>(Start),
-                                        AllHits.begin() + static_cast<std::vector<SearchHit>::difference_type>(End));
-          }
+          const std::size_t End = std::min(AllHits.size(), GlobalOffset + GlobalPerPage);
+          GlobalResult.Hits.insert(GlobalResult.Hits.end(),
+                                   AllHits.begin() + static_cast<std::vector<SearchHit>::difference_type>(GlobalOffset),
+                                   AllHits.begin() + static_cast<std::vector<SearchHit>::difference_type>(End));
      }
 
      for (const auto &FacetPair : FacetCounts)
@@ -2528,12 +2763,32 @@ HttpResponse SearchAPI::HandleGlobalSearch(const HttpRequest &Request)
                Count.Count = CountPair.second;
                Result.Counts.push_back(Count);
           }
+
+          std::stable_sort(Result.Counts.begin(), Result.Counts.end(), [](const FacetCount &A, const FacetCount &B)
+                           {
+                                if (A.Count != B.Count)
+                                {
+                                     return A.Count > B.Count;
+                                }
+                                return A.Value < B.Value;
+                           });
+          if (Result.Counts.size() > static_cast<std::size_t>(BaseQuery.MaxFacetValues))
+          {
+               Result.Counts.resize(static_cast<std::size_t>(BaseQuery.MaxFacetValues));
+          }
           GlobalResult.Facets[FacetPair.first] = Result;
      }
 
      HttpResponse Response(Status::OK, StatusText(Status::OK), "application/json");
      Response.Headers["X-HLQ-Execution-Mode"] = ShouldAttemptDistributedSearch(Request) ? "distributed-global" : "global";
-     Response.Body = GenerateComprehensiveSearchResponse(GlobalResult, BaseQuery);
+     nlohmann::json ResponseJSON = nlohmann::json::parse(GenerateComprehensiveSearchResponse(GlobalResult, BaseQuery));
+     ResponseJSON["offset"] = GlobalOffset;
+     ResponseJSON["page"] = (GlobalOffset / GlobalPerPage) + 1;
+     ResponseJSON["has_prev_page"] = GlobalOffset > 0;
+     ResponseJSON["has_next_page"] = GlobalOffset + GlobalResult.Hits.size() < TotalFound;
+     ResponseJSON["searched_collection_count"] = ExecutedCollectionNames.size();
+     ResponseJSON["searched_collections"] = ExecutedCollectionNames;
+     Response.Body = ResponseJSON.dump();
      AttachSearchResponseMeta(Response, BaseQuery, Request, "*");
 
      /* Collection-search analytics report a wildcard collection because the scope is merged. */
@@ -2798,9 +3053,13 @@ HttpResponse SearchAPI::HandleMultiSearch(const HttpRequest &Request)
  * SearchAPI::PerformComprehensiveSearch implementation.
  */
 
-ComprehensiveSearchResult SearchAPI::PerformComprehensiveSearch(const std::string &Collection, const ComprehensiveSearchQuery &Query)
+ComprehensiveSearchResult SearchAPI::PerformComprehensiveSearch(const std::string &Collection,
+                                                                const ComprehensiveSearchQuery &Query,
+                                                                SearchExecutionTrace ExecutionTrace)
 {
      ComprehensiveSearchResult ResultObj;
+     ResultObj.ExecutionTrace = std::move(ExecutionTrace);
+     SearchExecutionTrace &Trace = ResultObj.ExecutionTrace;
 
      constexpr std::size_t MaxPostProcessingHits = 10000;
 
@@ -2820,26 +3079,82 @@ ComprehensiveSearchResult SearchAPI::PerformComprehensiveSearch(const std::strin
      {
           if (!Query.Q.empty() && Query.Q != "*" && Query.HybridAlpha > 0.0f && Query.HybridAlpha < 1.0f)
           {
-               Hits = ProcessHybridSearch(Collection, Query);
+               Hits = ProcessHybridSearch(Collection, Query, &Trace);
                RankingMode = "hybrid";
+               if (Trace.Enabled)
+               {
+                    Trace.FinalStrategy = "hybrid";
+               }
           }
           else
           {
+               const auto VectorStartTime = SearchExecutionRecorder::Start(Trace);
                Hits = ProcessVectorSearch(Collection, Query);
                RankingMode = "vector";
+               if (Trace.Enabled)
+               {
+                    Trace.FinalStrategy = "vector";
+
+                    SearchExecutionRecorder::Append(
+                         &Trace,
+                         "vector_retrieval",
+                         "retrieval",
+                         "executed",
+                         "brute_force",
+                         "",
+                         VectorStartTime,
+                         0,
+                         Hits.size(),
+                         "",
+                         {{"backend", "brute_force"}});
+               }
           }
      }
      else
      {
+          const auto LexicalStartTime = SearchExecutionRecorder::Start(Trace);
           Hits = ProcessLexicalSearch(Collection, Query);
           RankingMode = "lexical";
+          if (Trace.Enabled)
+          {
+               Trace.FinalStrategy = "lexical";
+          }
+
+          SearchExecutionRecorder::Append(
+               &Trace,
+               "lexical_retrieval",
+               "retrieval",
+               "executed",
+               "lexical_index",
+               "",
+               LexicalStartTime,
+               0,
+               Hits.size(),
+               Query.Q);
      }
 
      /* Filters run after raw hit generation so all search modes share one filter path. */
 
      if (!Query.FilterBy.empty())
      {
+          const auto FilteringStartTime = SearchExecutionRecorder::Start(Trace);
+          const std::size_t CandidatesBeforeFiltering = Hits.size();
           Hits = ApplyFilters(Hits, Query.FilterBy);
+
+          SearchExecutionRecorder::Append(
+               &Trace,
+               "filtering",
+               "post_processing",
+               "executed",
+               "filter_expression",
+               "",
+               FilteringStartTime,
+               CandidatesBeforeFiltering,
+               Hits.size());
+     }
+     else
+     {
+          SearchExecutionRecorder::AppendSkipped(&Trace, "filtering", "post_processing", "not_requested");
      }
 
      if (Query.VectorQueryStr.empty() && Query.Embedding.empty() && !Query.Q.empty() && Query.Q != "*")
@@ -2879,12 +3194,31 @@ ComprehensiveSearchResult SearchAPI::PerformComprehensiveSearch(const std::strin
 
      /* Collection and module weights are applied before sorting so custom ranking affects final order. */
 
+     const auto ModuleWeightingStartTime = SearchExecutionRecorder::Start(Trace);
      ApplyCollectionRankWeights(Hits, Collection);
      ApplyModuleWeights(Hits, Collection, Query, RankingMode);
+
+     SearchExecutionRecorder::Append(
+          &Trace,
+          "module_weighting",
+          "ranking",
+          "executed",
+          "collection_and_modules",
+          "",
+          ModuleWeightingStartTime,
+          Hits.size(),
+          Hits.size());
+
+     const auto SortingStartTime = SearchExecutionRecorder::Start(Trace);
+     std::string SortingAlgorithm;
 
      if (!Query.SortBy.empty())
      {
           Hits = ApplySorting(Hits, Query.SortBy);
+          if (Trace.Enabled)
+          {
+               SortingAlgorithm = "explicit";
+          }
      }
      else
      {
@@ -2893,6 +3227,10 @@ ComprehensiveSearchResult SearchAPI::PerformComprehensiveSearch(const std::strin
           if (!DefaultSortBy.empty())
           {
                Hits = ApplySorting(Hits, DefaultSortBy);
+               if (Trace.Enabled)
+               {
+                    SortingAlgorithm = "collection_default";
+               }
           }
           else
           {
@@ -2900,8 +3238,23 @@ ComprehensiveSearchResult SearchAPI::PerformComprehensiveSearch(const std::strin
                                 {
                                      return GetEffectiveScore(A) > GetEffectiveScore(B);
                                 });
+               if (Trace.Enabled)
+               {
+                    SortingAlgorithm = "effective_score";
+               }
           }
      }
+
+     SearchExecutionRecorder::Append(
+          &Trace,
+          "sorting",
+          "ranking",
+          "executed",
+          SortingAlgorithm,
+          "",
+          SortingStartTime,
+          Hits.size(),
+          Hits.size());
 
      if (Query.PreserveMatchedHits)
      {
@@ -2930,20 +3283,72 @@ ComprehensiveSearchResult SearchAPI::PerformComprehensiveSearch(const std::strin
 
      if (!Query.FacetBy.empty())
      {
+          const auto FacetingStartTime = SearchExecutionRecorder::Start(Trace);
           ResultObj.Facets = GenerateFacets(*PostProcessingHits, Query.FacetBy, Query.FacetQuery, Query.MaxFacetValues);
+
+          SearchExecutionRecorder::Append(
+               &Trace,
+               "faceting",
+               "post_processing",
+               "executed",
+               "field_counts",
+               "",
+               FacetingStartTime,
+               PostProcessingHits->size(),
+               ResultObj.Facets.size());
+     }
+     else
+     {
+          SearchExecutionRecorder::AppendSkipped(&Trace, "faceting", "post_processing", "not_requested");
      }
 
      if (!Query.Aggregations.empty())
      {
+          const auto AggregationStartTime = SearchExecutionRecorder::Start(Trace);
           ResultObj.Aggregations = GenerateAggregations(*PostProcessingHits, Query.Aggregations);
+
+          SearchExecutionRecorder::Append(
+               &Trace,
+               "aggregation",
+               "post_processing",
+               "executed",
+               "configured_aggregations",
+               "",
+               AggregationStartTime,
+               PostProcessingHits->size(),
+               ResultObj.Aggregations.size());
+     }
+     else
+     {
+          SearchExecutionRecorder::AppendSkipped(&Trace, "aggregation", "post_processing", "not_requested");
      }
 
      if (!Query.GroupBy.empty())
      {
+          const auto GroupingStartTime = SearchExecutionRecorder::Start(Trace);
+          const std::size_t CandidatesBeforeGrouping = Hits.size();
           Hits = ApplyGrouping(Hits, Query.GroupBy, Query.GroupLimit);
+
+          SearchExecutionRecorder::Append(
+               &Trace,
+               "grouping",
+               "post_processing",
+               "executed",
+               "field_grouping",
+               "",
+               GroupingStartTime,
+               CandidatesBeforeGrouping,
+               Hits.size());
+     }
+     else
+     {
+          SearchExecutionRecorder::AppendSkipped(&Trace, "grouping", "post_processing", "not_requested");
      }
 
      /* Pagination happens after scoring, optional grouping, and facet precomputation. */
+
+     const auto PaginationStartTime = SearchExecutionRecorder::Start(Trace);
+     const std::size_t CandidatesBeforePagination = Hits.size();
 
      if (Query.Offset > 0)
      {
@@ -2954,18 +3359,44 @@ ComprehensiveSearchResult SearchAPI::PerformComprehensiveSearch(const std::strin
           Hits = ApplyPagination(Hits, Query.Page, Query.PerPage);
      }
 
+     SearchExecutionRecorder::Append(
+          &Trace,
+          "pagination",
+          "post_processing",
+          "executed",
+          Query.Offset > 0 ? "offset" : "page",
+          "",
+          PaginationStartTime,
+          CandidatesBeforePagination,
+          Hits.size());
+
      /* Field projection trims the payload after pagination to avoid extra document copying. */
 
      if (!Query.IncludeFields.empty() || !Query.ExcludeFields.empty())
      {
+          const auto ProjectionStartTime = SearchExecutionRecorder::Start(Trace);
+
           for (auto &HitObj : Hits)
           {
                HitObj.Document = ApplyFieldSelection(HitObj.Document, Query.IncludeFields, Query.ExcludeFields);
           }
+
+          SearchExecutionRecorder::Append(
+               &Trace,
+               "field_projection",
+               "response",
+               "executed",
+               "include_exclude",
+               "",
+               ProjectionStartTime,
+               Hits.size(),
+               Hits.size());
      }
 
      if (Query.Highlight && !Query.Q.empty() && Query.Q != "*")
      {
+          const auto HighlightStartTime = SearchExecutionRecorder::Start(Trace);
+
           for (auto &HitObj : Hits)
           {
                std::vector<std::string> FieldsToHighlight = Query.HighlightFields;
@@ -2985,6 +3416,18 @@ ComprehensiveSearchResult SearchAPI::PerformComprehensiveSearch(const std::strin
 
                HitObj.Highlights = GenerateHighlights(HitObj.Document, Query.Q, FieldsToHighlight);
           }
+
+          SearchExecutionRecorder::Append(
+               &Trace,
+               "highlighting",
+               "response",
+               "executed",
+               "term_highlight",
+               "",
+               HighlightStartTime,
+               Hits.size(),
+               Hits.size(),
+               Query.Q);
      }
 
      ResultObj.Hits = Hits;

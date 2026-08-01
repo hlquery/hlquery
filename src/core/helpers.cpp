@@ -26,8 +26,6 @@
 #include "utils/tools.h"
 #include "search/rocksdb_storage_engine.h"
 
-namespace
-{
 /* Records a periodic task failure only when the logging subsystem is ready. */
 
 void LogPeriodicTaskFailure(const std::string &Message)
@@ -48,7 +46,6 @@ void LogUnknownPeriodicTaskFailure(const std::string &TaskName)
      LogPeriodicTaskFailure(TaskName + " failed with unknown exception.");
 }
 
-}
 
 /* Returns true when either process termination state has been requested. */
 

@@ -31,6 +31,7 @@ int main(int argc, char **argv)
 
      std::string host = "localhost";
      std::string port = "9200";
+     std::string scheme = "http";
 
      std::string command_to_run;
 
@@ -155,7 +156,7 @@ int main(int argc, char **argv)
 
      /* Initialize the CLI client and restore persisted talk aliases. */
 
-     const std::string base_url = "http://" + host + ":" + port;
+     const std::string base_url = scheme + "://" + host + ":" + port;
      HLQueryCLI cli(base_url, false, "", "talk");
 
      TalkState state;
@@ -170,7 +171,7 @@ int main(int argc, char **argv)
 
      if (!command_to_run.empty())
      {
-          ExecuteTalkCommand(TrimWhitespace(command_to_run), cli, state, host, port);
+          ExecuteTalkCommand(TrimWhitespace(command_to_run), cli, state, host, port, scheme);
           SaveTalkAliases(state);
           return cli.GetExitCode();
      }
@@ -221,7 +222,7 @@ int main(int argc, char **argv)
 
           linenoiseHistoryAdd(line.c_str());
 
-          const bool keep_running = ExecuteTalkCommand(line, cli, state, host, port);
+          const bool keep_running = ExecuteTalkCommand(line, cli, state, host, port, scheme);
 
           linenoiseResetState();
 
