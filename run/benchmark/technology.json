@@ -1,6 +1,6 @@
 {
-  "fixture_version": 2,
-  "fixture_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+  "fixture_version": 3,
+  "fixture_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
   "collection": "technology",
   "count": 10,
   "tags": [
@@ -29,7 +29,7 @@
         "API design",
         "backend engineers"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "topic": "API design",
       "audience": "backend engineers",
@@ -48,7 +48,7 @@
         "database migration",
         "platform teams"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "topic": "database migration",
       "audience": "platform teams",
@@ -67,7 +67,7 @@
         "observability",
         "site reliability engineers"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "topic": "observability",
       "audience": "site reliability engineers",
@@ -86,7 +86,7 @@
         "application security",
         "security and product engineers"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "topic": "application security",
       "audience": "security and product engineers",
@@ -105,7 +105,7 @@
         "machine learning evaluation",
         "ML engineers"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "topic": "machine learning evaluation",
       "audience": "ML engineers",
@@ -124,7 +124,7 @@
         "caching",
         "backend engineers"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "topic": "caching",
       "audience": "backend engineers",
@@ -143,7 +143,7 @@
         "mobile accessibility",
         "mobile developers"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "topic": "mobile accessibility",
       "audience": "mobile developers",
@@ -162,7 +162,7 @@
         "event-driven systems",
         "distributed-systems engineers"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "topic": "event-driven systems",
       "audience": "distributed-systems engineers",
@@ -181,7 +181,7 @@
         "robotics",
         "robotics students"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "topic": "robotics",
       "audience": "robotics students",
@@ -200,13 +200,19 @@
         "cloud cost engineering",
         "platform teams"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "topic": "cloud cost engineering",
       "audience": "platform teams",
       "maturity": "optimization guide"
     }
   ],
+  "metadata": {
+    "_fixture_kind": "synthetic_public_demo",
+    "_fixture_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+    "_demo_description": "Practical fictional technical notes about APIs, reliability, accessibility, security, and data systems.",
+    "_demo_queries": "search API design | zero downtime migration | accessible mobile navigation"
+  },
   "fields": [
     {
       "name": "topic",
@@ -220,9 +226,5 @@
       "name": "maturity",
       "type": "string"
     }
-  ],
-  "metadata": {
-    "_fixture_kind": "synthetic_demo",
-    "_fixture_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market."
-  }
+  ]
 }

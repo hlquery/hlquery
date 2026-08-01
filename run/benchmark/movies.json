@@ -1,6 +1,6 @@
 {
-  "fixture_version": 2,
-  "fixture_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+  "fixture_version": 3,
+  "fixture_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
   "collection": "movies",
   "count": 10,
   "tags": [
@@ -29,7 +29,7 @@
         "Example Director Mira Sol",
         "drama"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "director_name": "Example Director Mira Sol",
       "genre": "drama",
@@ -49,7 +49,7 @@
         "Example Director Omar Vale",
         "mystery"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "director_name": "Example Director Omar Vale",
       "genre": "mystery",
@@ -69,7 +69,7 @@
         "Example Director Hana Fern",
         "family comedy"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "director_name": "Example Director Hana Fern",
       "genre": "family comedy",
@@ -89,7 +89,7 @@
         "Example Director Caleb Pike",
         "historical thriller"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "director_name": "Example Director Caleb Pike",
       "genre": "historical thriller",
@@ -109,7 +109,7 @@
         "Example Director Nia Cedar",
         "ensemble drama"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "director_name": "Example Director Nia Cedar",
       "genre": "ensemble drama",
@@ -129,7 +129,7 @@
         "Example Director Jun Lark",
         "animation"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "director_name": "Example Director Jun Lark",
       "genre": "animation",
@@ -149,7 +149,7 @@
         "Example Director Farah Reed",
         "documentary"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "director_name": "Example Director Farah Reed",
       "genre": "documentary",
@@ -169,7 +169,7 @@
         "Example Director Theo Marrow",
         "workplace comedy"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "director_name": "Example Director Theo Marrow",
       "genre": "workplace comedy",
@@ -189,7 +189,7 @@
         "Example Director Esme North",
         "science fiction"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "director_name": "Example Director Esme North",
       "genre": "science fiction",
@@ -209,7 +209,7 @@
         "Example Director Avery Kestrel",
         "music drama"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "director_name": "Example Director Avery Kestrel",
       "genre": "music drama",
@@ -217,6 +217,12 @@
       "release_year": 2019
     }
   ],
+  "metadata": {
+    "_fixture_kind": "synthetic_public_demo",
+    "_fixture_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+    "_demo_description": "Fictional film catalog records with genre, director, setting, and production context.",
+    "_demo_queries": "documentary editing | science fiction drama | animated short"
+  },
   "fields": [
     {
       "name": "director_name",
@@ -234,9 +240,5 @@
       "name": "release_year",
       "type": "int32"
     }
-  ],
-  "metadata": {
-    "_fixture_kind": "synthetic_demo",
-    "_fixture_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market."
-  }
+  ]
 }

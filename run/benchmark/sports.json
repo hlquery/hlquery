@@ -1,6 +1,6 @@
 {
-  "fixture_version": 2,
-  "fixture_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+  "fixture_version": 3,
+  "fixture_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
   "collection": "sports",
   "count": 10,
   "tags": [
@@ -27,7 +27,7 @@
         "football",
         "Example City League"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "sport": "football",
       "competition": "Example City League",
@@ -48,7 +48,7 @@
         "basketball",
         "Example Regional Cup"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "sport": "basketball",
       "competition": "Example Regional Cup",
@@ -69,7 +69,7 @@
         "tennis",
         "Example Club Series"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "sport": "tennis",
       "competition": "Example Club Series",
@@ -90,7 +90,7 @@
         "track and field",
         "Example Open Meet"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "sport": "track and field",
       "competition": "Example Open Meet",
@@ -111,7 +111,7 @@
         "volleyball",
         "Example College League"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "sport": "volleyball",
       "competition": "Example College League",
@@ -132,7 +132,7 @@
         "ice hockey",
         "Example Winter League"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "sport": "ice hockey",
       "competition": "Example Winter League",
@@ -153,7 +153,7 @@
         "rowing",
         "Example River Regatta"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "sport": "rowing",
       "competition": "Example River Regatta",
@@ -174,7 +174,7 @@
         "cycling",
         "Example Desert Tour"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "sport": "cycling",
       "competition": "Example Desert Tour",
@@ -195,7 +195,7 @@
         "baseball",
         "Example Harbor Series"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "sport": "baseball",
       "competition": "Example Harbor Series",
@@ -216,7 +216,7 @@
         "badminton",
         "Example Community Cup"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "sport": "badminton",
       "competition": "Example Community Cup",
@@ -225,6 +225,12 @@
       "result": "4-1"
     }
   ],
+  "metadata": {
+    "_fixture_kind": "synthetic_public_demo",
+    "_fixture_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+    "_demo_description": "Fictional match and event reports with teams, tactics, competitions, and results.",
+    "_demo_queries": "football counterattack | volleyball serve pressure | rowing pacing"
+  },
   "fields": [
     {
       "name": "sport",
@@ -246,9 +252,5 @@
       "name": "result",
       "type": "string"
     }
-  ],
-  "metadata": {
-    "_fixture_kind": "synthetic_demo",
-    "_fixture_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market."
-  }
+  ]
 }

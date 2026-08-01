@@ -69,6 +69,7 @@ static int ParseCollectionMaybeInt(const std::string &value, int fallback)
      try
      {
           int parsed = std::stoi(value);
+
           if (parsed < 0)
           {
                return fallback;
@@ -2503,6 +2504,7 @@ HttpResponse SearchAPI::HandleUpdateCollection(const HttpRequest &Request)
 
      std::string ReplicationOutboxID;
      std::string ReplicationJournalError;
+
      if (!PrepareReplicationOutboxRecord(Request, "update_collection", &ReplicationOutboxID, &ReplicationJournalError))
      {
           return BuildErrorResponse(Status::SERVICE_UNAVAILABLE,

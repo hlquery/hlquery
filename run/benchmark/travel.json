@@ -1,6 +1,6 @@
 {
-  "fixture_version": 2,
-  "fixture_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market. Travel details are illustrative and not current travel advice.",
+  "fixture_version": 3,
+  "fixture_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic. Travel details are illustrative and not current travel advice.",
   "collection": "travel",
   "count": 10,
   "tags": [
@@ -27,7 +27,7 @@
         "Porto, Portugal",
         "walking and culture"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "destination": "Porto, Portugal",
       "trip_style": "walking and culture",
@@ -47,7 +47,7 @@
         "Kyoto, Japan",
         "rail and neighborhoods"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "destination": "Kyoto, Japan",
       "trip_style": "rail and neighborhoods",
@@ -67,7 +67,7 @@
         "Chicago, United States",
         "city and architecture"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "destination": "Chicago, United States",
       "trip_style": "city and architecture",
@@ -87,7 +87,7 @@
         "Valparaíso, Chile",
         "hills and public art"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "destination": "Valparaíso, Chile",
       "trip_style": "hills and public art",
@@ -107,7 +107,7 @@
         "Copenhagen, Denmark",
         "design and cycling"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "destination": "Copenhagen, Denmark",
       "trip_style": "design and cycling",
@@ -127,7 +127,7 @@
         "Vancouver, Canada",
         "nature and museums"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "destination": "Vancouver, Canada",
       "trip_style": "nature and museums",
@@ -147,7 +147,7 @@
         "Marrakesh, Morocco",
         "architecture and markets"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "destination": "Marrakesh, Morocco",
       "trip_style": "architecture and markets",
@@ -167,7 +167,7 @@
         "Melbourne, Australia",
         "transit and galleries"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "destination": "Melbourne, Australia",
       "trip_style": "transit and galleries",
@@ -187,7 +187,7 @@
         "Ljubljana, Slovenia",
         "slow city travel"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "destination": "Ljubljana, Slovenia",
       "trip_style": "slow city travel",
@@ -207,7 +207,7 @@
         "Oaxaca, Mexico",
         "food and craft"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "destination": "Oaxaca, Mexico",
       "trip_style": "food and craft",
@@ -215,6 +215,12 @@
       "season_note": "verify current access and local guidance"
     }
   ],
+  "metadata": {
+    "_fixture_kind": "synthetic_public_demo",
+    "_fixture_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+    "_demo_description": "Illustrative, non-current itineraries for destination, activity, duration, and travel-style search.",
+    "_demo_queries": "architecture weekend | galleries and public transit | food and craft itinerary"
+  },
   "fields": [
     {
       "name": "destination",
@@ -232,9 +238,5 @@
       "name": "season_note",
       "type": "string"
     }
-  ],
-  "metadata": {
-    "_fixture_kind": "synthetic_demo",
-    "_fixture_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market."
-  }
+  ]
 }

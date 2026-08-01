@@ -203,6 +203,8 @@ void RunSearches(const std::string &base_url, const std::string &auth_token)
                "student services research",
                "Cambridge Massachusetts university",
                "Palo Alto California campus",
+               "engineering universities in Texas",
+               "campus arts student experience",
                "fictional public polytechnic",
                "United States demo ranking"};
 
@@ -230,6 +232,14 @@ void RunSearches(const std::string &base_url, const std::string &auth_token)
           auto rank_response = client.Search("universities", "university", rank_params);
 
           PrintSearchResult(++search_count_val, "University explicit synthetic-rank baseline: 'university'", rank_response, "universities");
+
+          std::map<std::string, std::string> arts_rank_params;
+          arts_rank_params["limit"] = "5";
+          arts_rank_params["sort_by"] = "arts_score:desc";
+
+          auto arts_rank_response = client.Search("universities", "studio art museum studies", arts_rank_params);
+
+          PrintSearchResult(++search_count_val, "University fictional arts-score demo: 'studio art museum studies'", arts_rank_response, "universities");
      }
 
      if (std::find(bench_collections.begin(), bench_collections.end(), "art") != bench_collections.end())
@@ -239,6 +249,9 @@ void RunSearches(const std::string &base_url, const std::string &auth_token)
                "installation lighting",
                "portrait charcoal pastel",
                "mural visual storytelling",
+               "recycled steel environmental sculpture",
+               "textile repair visible stitches",
+               "kinetic sound installation",
                "gallery composition"};
 
           for (const auto &query : art_queries)
@@ -259,6 +272,9 @@ void RunSearches(const std::string &base_url, const std::string &auth_token)
                "community archivist",
                "software reliability engineer",
                "public health data analyst",
+               "science educator California astronomy",
+               "museum curator community exhibitions",
+               "civil engineer sustainable materials",
                "fictional demo profile"};
 
           for (const auto &query : people_queries)

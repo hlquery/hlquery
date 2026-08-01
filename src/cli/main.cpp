@@ -1466,7 +1466,7 @@ int main(int argc, char *argv[])
                     }
                }
 
-               cli_instance.FlushAll(!force_flag);
+               cli_instance.FlushAll(force_flag);
           }
           else if (command_str == "modules")
           {

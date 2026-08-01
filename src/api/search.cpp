@@ -760,6 +760,7 @@ static double ComputeSQLAggregateMetric(const SQLAggregateSpec &AggSpec, const s
           }
 
           double ParsedValue = 0.0;
+
           if (!TryParseNumericValue(FieldIt->second, &ParsedValue))
           {
                continue;
@@ -1032,12 +1033,14 @@ static HttpResponse BuildShowCollectionsSQLResponse(const HttpRequest &Request)
      CollectionsRequest.QueryParams["limit"] = std::to_string(PerPage);
 
      HttpResponse CollectionsResponse = SearchAPI::GetInstance().HandleListCollections(CollectionsRequest);
+
      if (CollectionsResponse.StatusCode < 200 || CollectionsResponse.StatusCode >= 300)
      {
           return CollectionsResponse;
      }
 
      nlohmann::json Root;
+
      try
      {
           Root = nlohmann::json::parse(CollectionsResponse.Body);
@@ -1051,6 +1054,7 @@ static HttpResponse BuildShowCollectionsSQLResponse(const HttpRequest &Request)
      }
 
      std::vector<SQLRow> Rows;
+
      if (Root.contains("collections") && Root["collections"].is_array())
      {
           Rows.reserve(Root["collections"].size());

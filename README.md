@@ -45,8 +45,14 @@ For example, a `products` collection can contain one document per product. You c
 
 **Debian/Ubuntu:**
 ```bash
-$ sudo apt-get install build-essential cmake libssl-dev liburing-dev
+$ sudo apt-get update
+$ sudo apt-get install build-essential cmake zlib1g-dev libssl-dev liburing-dev
 ```
+
+`cmake` and `zlib1g-dev` are required to configure and build hlquery and its
+bundled RocksDB dependency on Debian/Ubuntu.
+The `./configure` script validates CMake, GNU Make, the C++ compiler, and zlib
+headers/linking, and exits with an installation hint when a requirement is missing.
 
 If CMake prints a `uring` lookup warning during the rocksdb build, it usually means the `liburing` development package is missing. Installing `liburing-dev` on Debian/Ubuntu provides the package metadata CMake is looking for and clears the warning.
 
@@ -197,11 +203,6 @@ $client->documents->add('products', [
     'content' => 'Compact Bluetooth keyboard for daily work.',
     'price' => 49.99,
 ]);
-
-$listBody = $collections->list(0, 100)->getBody();
-foreach ($listBody['collections'] ?? [] as $collection) {
-    echo (is_array($collection) ? ($collection['name'] ?? '') : $collection) . PHP_EOL;
-}
 
 ```
 

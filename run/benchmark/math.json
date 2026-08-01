@@ -1,6 +1,6 @@
 {
-  "fixture_version": 2,
-  "fixture_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+  "fixture_version": 3,
+  "fixture_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
   "collection": "math",
   "count": 10,
   "tags": [
@@ -29,7 +29,7 @@
         "algebra",
         "3x + 7 = 22"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "topic": "algebra",
       "expression": "3x + 7 = 22",
@@ -50,7 +50,7 @@
         "geometry",
         "6 * 9"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "topic": "geometry",
       "expression": "6 * 9",
@@ -71,7 +71,7 @@
         "calculus",
         "d/dx x^3"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "topic": "calculus",
       "expression": "d/dx x^3",
@@ -92,7 +92,7 @@
         "probability",
         "P(HH)"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "topic": "probability",
       "expression": "P(HH)",
@@ -113,7 +113,7 @@
         "number theory",
         "prime(101)"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "topic": "number theory",
       "expression": "prime(101)",
@@ -134,7 +134,7 @@
         "linear algebra",
         "[[1,2],[3,4]] + [[4,3],[2,1]]"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "topic": "linear algebra",
       "expression": "[[1,2],[3,4]] + [[4,3],[2,1]]",
@@ -155,7 +155,7 @@
         "vectors",
         "sqrt(3^2 + 4^2)"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "topic": "vectors",
       "expression": "sqrt(3^2 + 4^2)",
@@ -176,7 +176,7 @@
         "statistics",
         "(4 + 7 + 9 + 12) / 4"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "topic": "statistics",
       "expression": "(4 + 7 + 9 + 12) / 4",
@@ -197,7 +197,7 @@
         "exponents",
         "2^10"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "topic": "exponents",
       "expression": "2^10",
@@ -218,7 +218,7 @@
         "integral calculus",
         "integral_0^3 2x dx"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "topic": "integral calculus",
       "expression": "integral_0^3 2x dx",
@@ -227,6 +227,12 @@
       "equation_index": 70
     }
   ],
+  "metadata": {
+    "_fixture_kind": "synthetic_public_demo",
+    "_fixture_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+    "_demo_description": "Worked instructional examples spanning algebra, geometry, probability, calculus, and statistics.",
+    "_demo_queries": "solve 3x plus 7 | probability two heads | derivative x cubed"
+  },
   "fields": [
     {
       "name": "topic",
@@ -249,9 +255,5 @@
       "type": "int32"
     }
   ],
-  "metadata": {
-    "_fixture_kind": "synthetic_demo",
-    "_fixture_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market."
-  },
   "default_sorting_field": "value"
 }

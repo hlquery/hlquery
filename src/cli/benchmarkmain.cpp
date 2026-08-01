@@ -337,15 +337,6 @@ static std::string RemoveCommas(const std::string &input)
      return result;
 }
 
-static std::string HumanizeIdentifier(const std::string &input)
-{
-     std::string result = input;
-
-     std::replace(result.begin(), result.end(), '_', ' ');
-
-     return result;
-}
-
 static void AddUniqueText(std::vector<std::string> &values, std::unordered_set<std::string> &seen, const std::string &value)
 {
      const std::string trimmed = TrimWhitespace(value);
@@ -473,34 +464,17 @@ static const std::vector<UniversityBenchmarkSeed> &GetUniversityBenchmarkSeeds()
           {"Auburn University", "Alabama", "Auburn", "public_research"},
           {"Clemson University", "South Carolina", "Clemson", "public_research"},
           {"Colorado State University", "Colorado", "Fort Collins", "public_research"},
-          {"Washington State University", "Washington", "Palouse", "public_research"},
+          {"Washington State University", "Washington", "Pullman", "public_research"},
           {"University of Nevada Reno", "Nevada", "Reno", "public_research"},
           {"Brigham Young University", "Utah", "Provo", "private_research"}};
 
-     static const bool prepared = [&]()
+     static const bool sorted = []()
      {
-          static const std::vector<std::string> roots = {
-               "Redwood Valley", "Great Lakes", "Desert Sky", "Atlantic Harbor", "Prairie Ridge",
-               "Blue River", "Cedar Grove", "North Coast", "Golden Mesa", "Lakeview",
-               "High Plains", "Copper Canyon", "Silver Oak", "Pine Harbor", "Sunrise Valley",
-               "Granite Hill", "Maple Coast", "Riverbend", "Summit Fields", "Coastal Prairie",
-               "Juniper Bay", "Orchard Ridge", "Clearbrook", "Horizon Plains", "Willow Creek"};
-          static const std::vector<std::pair<std::string, std::string>> suffixes = {
-               {"University", "fictional_private_research_university"},
-               {"Institute of Technology", "fictional_technical_institute"},
-               {"College of Arts and Sciences", "fictional_liberal_arts_college"},
-               {"Polytechnic University", "fictional_public_polytechnic"}};
-
-          for (size_t index = 0; index < seeds.size(); ++index)
-          {
-               const auto &suffix = suffixes[(index / roots.size()) % suffixes.size()];
-               seeds[index].Name = "Example " + roots[index % roots.size()] + " " + suffix.first;
-               seeds[index].Type = suffix.second;
-          }
-
+          std::sort(seeds.begin(), seeds.end(), [](const UniversityBenchmarkSeed &left, const UniversityBenchmarkSeed &right)
+                    { return left.Name < right.Name; });
           return true;
      }();
-     static_cast<void>(prepared);
+     static_cast<void>(sorted);
 
      return seeds;
 }
@@ -617,11 +591,11 @@ static std::string BuildUniversityBenchmarkContent(const UniversityBenchmarkSeed
      const std::string &term_a = campus_terms[index % campus_terms.size()];
      const std::string &term_b = campus_terms[(index + 5U) % campus_terms.size()];
 
-     return seed.Name + " is a fictional " + HumanizeIdentifier(seed.Type) + " institution in " + seed.City + ", " + seed.State +
-            ", United States. This synthetic profile highlights " + program_a + ", " +
+     return seed.Name + " is a real university catalog reference in " + seed.City + ", " + seed.State +
+            ", United States. This benchmark profile attaches searchable topics including " + program_a + ", " +
             program_b + ", " + term_a + ", " + term_b +
-            ", student body context, research visibility, and the surrounding campus community. "
-            "It exists only for search demonstrations and does not describe or rank a real institution.";
+            ", student body context, research visibility, and campus community. "
+            "The topic annotations are synthetic and it does not rank the named institution.";
 }
 
 static PersonBenchmarkSeed BuildPersonBenchmarkSeed(size_t index)
@@ -1466,31 +1440,18 @@ bool CreateFakeCollections(const std::string &base_url, const std::string &auth_
                university_fields.push_back({{"name", "location_labels"}, {"type", "string"}});
                university_fields.push_back({{"name", "search_aliases"}, {"type", "string"}});
                university_fields.push_back({{"name", "institution_type"}, {"type", "string"}});
-               university_fields.push_back({{"name", "focus_areas"}, {"type", "string"}});
-               university_fields.push_back({{"name", "demo_rank"}, {"type", "int32"}});
-               university_fields.push_back({{"name", "rank"}, {"type", "int32"}});
-               university_fields.push_back({{"name", "rank_signal"}, {"type", "float"}});
-               university_fields.push_back({{"name", "composite_score"}, {"type", "float"}});
-               university_fields.push_back({{"name", "research_score"}, {"type", "float"}});
-               university_fields.push_back({{"name", "teaching_score"}, {"type", "float"}});
-               university_fields.push_back({{"name", "arts_score"}, {"type", "float"}});
-               university_fields.push_back({{"name", "rank_source"}, {"type", "string"}});
-               university_fields.push_back({{"name", "rank_scope"}, {"type", "string"}});
-               university_fields.push_back({{"name", "rank_edition"}, {"type", "string"}});
-               university_fields.push_back({{"name", "rank_notice"}, {"type", "string"}});
+               university_fields.push_back({{"name", "search_topics"}, {"type", "string"}});
+               university_fields.push_back({{"name", "catalog_order"}, {"type", "int32"}});
+               university_fields.push_back({{"name", "record_kind"}, {"type", "string"}});
 
                nlohmann::json university_metadata = {
-                    {"_default_sorting_field", "demo_rank"},
+                    {"_default_sorting_field", "catalog_order"},
                     {"_default_sorting_order", "asc"},
-                    {"_rank_field", "demo_rank"},
-                    {"_rank_order", "asc"},
-                    {"_rank_source", "hlquery_synthetic_demo_generator"},
-                    {"_rank_scope", "fictional_united_states_demo"},
-                    {"_rank_edition", "2026 synthetic demo edition"},
-                    {"_rank_tiebreak", "rank_signal_desc_demo_rank_asc"},
-                    {"_rank_methodology", "deterministic generated scores for software demonstration only"}};
+                    {"_catalog_sort_field", "catalog_order"},
+                    {"_catalog_scope", "100 recognizable United States universities"},
+                    {"_data_boundary", "names, locations, and broad types are catalog references; search topics are synthetic"}};
 
-               collection_created = client.CreateCollectionWithSchemaLocal(collection_name, university_fields, "demo_rank", university_metadata);
+               collection_created = client.CreateCollectionWithSchemaLocal(collection_name, university_fields, "catalog_order", university_metadata);
           }
           else if (spec.Name == "people")
           {
@@ -1986,7 +1947,7 @@ bool CreateFakeCollections(const std::string &base_url, const std::string &auth_
                {
                     const auto &doc_tuple = docs[i];
                     const auto &profile = university_profiles[i];
-                    const int rank = static_cast<int>(i + 1U);
+                    const int catalog_order = static_cast<int>(i + 1U);
                     const std::vector<std::string> location_aliases = BuildUniversityLocationAliases(profile);
                     const std::string location_alias_text = JoinTextValues(location_aliases, " | ");
 
@@ -2002,18 +1963,12 @@ bool CreateFakeCollections(const std::string &base_url, const std::string &auth_
                     university_doc["location_labels"] = location_alias_text;
                     university_doc["search_aliases"] = profile.Name + " | " + profile.City + " | " + profile.State + " | United States | " + location_alias_text;
                     university_doc["institution_type"] = profile.Type;
-                    university_doc["focus_areas"] = (i % 3U == 0U) ? "computer science | digital humanities" : ((i % 3U == 1U) ? "engineering | environmental research" : "studio art | museum studies");
-                    university_doc["demo_rank"] = rank;
-                    university_doc["rank"] = rank;
-                    university_doc["rank_signal"] = static_cast<double>(university_profiles.size() - i) / static_cast<double>(university_profiles.size());
-                    university_doc["composite_score"] = 99.5 - static_cast<double>(i) * 0.37;
-                    university_doc["research_score"] = 62.0 + static_cast<double>((97U - (i * 7U) % 97U) % 38U);
-                    university_doc["teaching_score"] = 64.0 + static_cast<double>((91U - (i * 5U) % 91U) % 36U);
-                    university_doc["arts_score"] = 60.0 + static_cast<double>((89U - (i * 11U) % 89U) % 40U);
-                    university_doc["rank_source"] = "HLQuery synthetic demo generator";
-                    university_doc["rank_scope"] = "100 fictional institutions in a United States demo dataset";
-                    university_doc["rank_edition"] = "2026 synthetic demo edition";
-                    university_doc["rank_notice"] = "Fictional ranking for software demonstration only; it does not evaluate or represent any real institution.";
+                    university_doc["search_topics"] = (i % 3U == 0U) ? "computer science | digital humanities | science | research | teaching | admissions" : ((i % 3U == 1U) ? "engineering | environmental research | science | teaching | admissions" : "studio art | museum studies | science | research | teaching | admissions");
+                    university_doc["catalog_order"] = catalog_order;
+                    university_doc["record_kind"] = "real_name_location_with_synthetic_search_topics";
+                    university_doc["data_notice"] = "University name and city/state are real catalog references; descriptions and search-topic annotations are synthetic benchmark data.";
+                    university_doc["location_name"] = profile.City + ", " + profile.State + ", United States";
+                    university_doc.erase("location");
 
                     nlohmann::json label_list = nlohmann::json::array();
                     std::unordered_set<std::string> seen_labels;
@@ -2044,7 +1999,7 @@ bool CreateFakeCollections(const std::string &base_url, const std::string &auth_
 
                if (verbose)
                {
-                    LogOutput("  ↳ Added campus and benchmark ranking metadata to " + std::to_string(universities_updated) + " university documents.\n");
+                    LogOutput("  ↳ Added catalog locations and searchable topics to " + std::to_string(universities_updated) + " university documents.\n");
                }
           }
           else if (spec.Name == "people")

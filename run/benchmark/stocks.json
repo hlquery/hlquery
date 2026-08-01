@@ -1,5 +1,5 @@
 {
-  "fixture_version": 2,
+  "fixture_version": 3,
   "fixture_notice": "Synthetic demo scenario using no live market data; it is not investment, financial, legal, or trading advice.",
   "collection": "stocks",
   "count": 10,
@@ -237,6 +237,12 @@
       "source": "HLQuery synthetic demo generator"
     }
   ],
+  "metadata": {
+    "_fixture_kind": "synthetic_public_demo",
+    "_fixture_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+    "_demo_description": "Entirely fictional tickers and instruments for cashtag, watchlist, and asset-class search.",
+    "_demo_queries": "$HLQ01 | fictional technology basket | synthetic bond instrument"
+  },
   "fields": [
     {
       "name": "ticker",
@@ -258,9 +264,5 @@
       "name": "source",
       "type": "string"
     }
-  ],
-  "metadata": {
-    "_fixture_kind": "synthetic_demo",
-    "_fixture_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market."
-  }
+  ]
 }

@@ -1,6 +1,6 @@
 {
-  "fixture_version": 2,
-  "fixture_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+  "fixture_version": 3,
+  "fixture_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
   "collection": "anomalies",
   "count": 100,
   "tags": [
@@ -29,7 +29,7 @@
         "demo-us-east",
         "latency_shift"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "category": "performance",
       "summary": "API latency moved above the synthetic baseline",
@@ -56,7 +56,7 @@
         "demo-ap-south",
         "error_cluster"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "category": "reliability",
       "summary": "Generated error events clustered within a short window",
@@ -83,7 +83,7 @@
         "demo-eu-central",
         "login_burst"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "category": "security",
       "summary": "Fictional login volume increased faster than the demo baseline",
@@ -110,7 +110,7 @@
         "demo-us-west",
         "queue_backlog"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "category": "operations",
       "summary": "Synthetic queue depth grew while worker throughput stayed flat",
@@ -137,7 +137,7 @@
         "demo-us-east",
         "refund_rate"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "category": "business",
       "summary": "Generated refund events exceeded the fictional weekly pattern",
@@ -164,7 +164,7 @@
         "demo-ap-south",
         "cache_miss"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "category": "performance",
       "summary": "Synthetic cache misses rose after a demo configuration change",
@@ -191,7 +191,7 @@
         "demo-eu-central",
         "data_gap"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "category": "data quality",
       "summary": "A generated telemetry series contains an unexpected interval",
@@ -218,7 +218,7 @@
         "demo-us-west",
         "retry_loop"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "category": "reliability",
       "summary": "A fictional client repeated the same idempotent request",
@@ -245,7 +245,7 @@
         "demo-us-east",
         "region_skew"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "category": "operations",
       "summary": "Synthetic request volume shifted toward one demo region",
@@ -272,7 +272,7 @@
         "demo-ap-south",
         "schema_drift"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "category": "data quality",
       "summary": "A generated event field changed type in a demo producer",
@@ -299,7 +299,7 @@
         "demo-eu-central",
         "latency_shift"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "category": "performance",
       "summary": "API latency moved above the synthetic baseline",
@@ -326,7 +326,7 @@
         "demo-us-west",
         "error_cluster"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "category": "reliability",
       "summary": "Generated error events clustered within a short window",
@@ -353,7 +353,7 @@
         "demo-us-east",
         "login_burst"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "category": "security",
       "summary": "Fictional login volume increased faster than the demo baseline",
@@ -380,7 +380,7 @@
         "demo-ap-south",
         "queue_backlog"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "category": "operations",
       "summary": "Synthetic queue depth grew while worker throughput stayed flat",
@@ -407,7 +407,7 @@
         "demo-eu-central",
         "refund_rate"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "category": "business",
       "summary": "Generated refund events exceeded the fictional weekly pattern",
@@ -434,7 +434,7 @@
         "demo-us-west",
         "cache_miss"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "category": "performance",
       "summary": "Synthetic cache misses rose after a demo configuration change",
@@ -461,7 +461,7 @@
         "demo-us-east",
         "data_gap"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "category": "data quality",
       "summary": "A generated telemetry series contains an unexpected interval",
@@ -488,7 +488,7 @@
         "demo-ap-south",
         "retry_loop"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "category": "reliability",
       "summary": "A fictional client repeated the same idempotent request",
@@ -515,7 +515,7 @@
         "demo-eu-central",
         "region_skew"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "category": "operations",
       "summary": "Synthetic request volume shifted toward one demo region",
@@ -542,7 +542,7 @@
         "demo-us-west",
         "schema_drift"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "category": "data quality",
       "summary": "A generated event field changed type in a demo producer",
@@ -569,7 +569,7 @@
         "demo-us-east",
         "latency_shift"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "category": "performance",
       "summary": "API latency moved above the synthetic baseline",
@@ -596,7 +596,7 @@
         "demo-ap-south",
         "error_cluster"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "category": "reliability",
       "summary": "Generated error events clustered within a short window",
@@ -623,7 +623,7 @@
         "demo-eu-central",
         "login_burst"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "category": "security",
       "summary": "Fictional login volume increased faster than the demo baseline",
@@ -650,7 +650,7 @@
         "demo-us-west",
         "queue_backlog"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "category": "operations",
       "summary": "Synthetic queue depth grew while worker throughput stayed flat",
@@ -677,7 +677,7 @@
         "demo-us-east",
         "refund_rate"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "category": "business",
       "summary": "Generated refund events exceeded the fictional weekly pattern",
@@ -704,7 +704,7 @@
         "demo-ap-south",
         "cache_miss"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "category": "performance",
       "summary": "Synthetic cache misses rose after a demo configuration change",
@@ -731,7 +731,7 @@
         "demo-eu-central",
         "data_gap"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "category": "data quality",
       "summary": "A generated telemetry series contains an unexpected interval",
@@ -758,7 +758,7 @@
         "demo-us-west",
         "retry_loop"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "category": "reliability",
       "summary": "A fictional client repeated the same idempotent request",
@@ -785,7 +785,7 @@
         "demo-us-east",
         "region_skew"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "category": "operations",
       "summary": "Synthetic request volume shifted toward one demo region",
@@ -812,7 +812,7 @@
         "demo-ap-south",
         "schema_drift"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "category": "data quality",
       "summary": "A generated event field changed type in a demo producer",
@@ -839,7 +839,7 @@
         "demo-eu-central",
         "latency_shift"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "category": "performance",
       "summary": "API latency moved above the synthetic baseline",
@@ -866,7 +866,7 @@
         "demo-us-west",
         "error_cluster"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "category": "reliability",
       "summary": "Generated error events clustered within a short window",
@@ -893,7 +893,7 @@
         "demo-us-east",
         "login_burst"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "category": "security",
       "summary": "Fictional login volume increased faster than the demo baseline",
@@ -920,7 +920,7 @@
         "demo-ap-south",
         "queue_backlog"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "category": "operations",
       "summary": "Synthetic queue depth grew while worker throughput stayed flat",
@@ -947,7 +947,7 @@
         "demo-eu-central",
         "refund_rate"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "category": "business",
       "summary": "Generated refund events exceeded the fictional weekly pattern",
@@ -974,7 +974,7 @@
         "demo-us-west",
         "cache_miss"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "category": "performance",
       "summary": "Synthetic cache misses rose after a demo configuration change",
@@ -1001,7 +1001,7 @@
         "demo-us-east",
         "data_gap"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "category": "data quality",
       "summary": "A generated telemetry series contains an unexpected interval",
@@ -1028,7 +1028,7 @@
         "demo-ap-south",
         "retry_loop"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "category": "reliability",
       "summary": "A fictional client repeated the same idempotent request",
@@ -1055,7 +1055,7 @@
         "demo-eu-central",
         "region_skew"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "category": "operations",
       "summary": "Synthetic request volume shifted toward one demo region",
@@ -1082,7 +1082,7 @@
         "demo-us-west",
         "schema_drift"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "category": "data quality",
       "summary": "A generated event field changed type in a demo producer",
@@ -1109,7 +1109,7 @@
         "demo-us-east",
         "latency_shift"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "category": "performance",
       "summary": "API latency moved above the synthetic baseline",
@@ -1136,7 +1136,7 @@
         "demo-ap-south",
         "error_cluster"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "category": "reliability",
       "summary": "Generated error events clustered within a short window",
@@ -1163,7 +1163,7 @@
         "demo-eu-central",
         "login_burst"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "category": "security",
       "summary": "Fictional login volume increased faster than the demo baseline",
@@ -1190,7 +1190,7 @@
         "demo-us-west",
         "queue_backlog"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "category": "operations",
       "summary": "Synthetic queue depth grew while worker throughput stayed flat",
@@ -1217,7 +1217,7 @@
         "demo-us-east",
         "refund_rate"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "category": "business",
       "summary": "Generated refund events exceeded the fictional weekly pattern",
@@ -1244,7 +1244,7 @@
         "demo-ap-south",
         "cache_miss"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "category": "performance",
       "summary": "Synthetic cache misses rose after a demo configuration change",
@@ -1271,7 +1271,7 @@
         "demo-eu-central",
         "data_gap"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "category": "data quality",
       "summary": "A generated telemetry series contains an unexpected interval",
@@ -1298,7 +1298,7 @@
         "demo-us-west",
         "retry_loop"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "category": "reliability",
       "summary": "A fictional client repeated the same idempotent request",
@@ -1325,7 +1325,7 @@
         "demo-us-east",
         "region_skew"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "category": "operations",
       "summary": "Synthetic request volume shifted toward one demo region",
@@ -1352,7 +1352,7 @@
         "demo-ap-south",
         "schema_drift"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "category": "data quality",
       "summary": "A generated event field changed type in a demo producer",
@@ -1379,7 +1379,7 @@
         "demo-eu-central",
         "latency_shift"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "category": "performance",
       "summary": "API latency moved above the synthetic baseline",
@@ -1406,7 +1406,7 @@
         "demo-us-west",
         "error_cluster"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "category": "reliability",
       "summary": "Generated error events clustered within a short window",
@@ -1433,7 +1433,7 @@
         "demo-us-east",
         "login_burst"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "category": "security",
       "summary": "Fictional login volume increased faster than the demo baseline",
@@ -1460,7 +1460,7 @@
         "demo-ap-south",
         "queue_backlog"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "category": "operations",
       "summary": "Synthetic queue depth grew while worker throughput stayed flat",
@@ -1487,7 +1487,7 @@
         "demo-eu-central",
         "refund_rate"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "category": "business",
       "summary": "Generated refund events exceeded the fictional weekly pattern",
@@ -1514,7 +1514,7 @@
         "demo-us-west",
         "cache_miss"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "category": "performance",
       "summary": "Synthetic cache misses rose after a demo configuration change",
@@ -1541,7 +1541,7 @@
         "demo-us-east",
         "data_gap"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "category": "data quality",
       "summary": "A generated telemetry series contains an unexpected interval",
@@ -1568,7 +1568,7 @@
         "demo-ap-south",
         "retry_loop"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "category": "reliability",
       "summary": "A fictional client repeated the same idempotent request",
@@ -1595,7 +1595,7 @@
         "demo-eu-central",
         "region_skew"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "category": "operations",
       "summary": "Synthetic request volume shifted toward one demo region",
@@ -1622,7 +1622,7 @@
         "demo-us-west",
         "schema_drift"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "category": "data quality",
       "summary": "A generated event field changed type in a demo producer",
@@ -1649,7 +1649,7 @@
         "demo-us-east",
         "latency_shift"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "category": "performance",
       "summary": "API latency moved above the synthetic baseline",
@@ -1676,7 +1676,7 @@
         "demo-ap-south",
         "error_cluster"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "category": "reliability",
       "summary": "Generated error events clustered within a short window",
@@ -1703,7 +1703,7 @@
         "demo-eu-central",
         "login_burst"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "category": "security",
       "summary": "Fictional login volume increased faster than the demo baseline",
@@ -1730,7 +1730,7 @@
         "demo-us-west",
         "queue_backlog"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "category": "operations",
       "summary": "Synthetic queue depth grew while worker throughput stayed flat",
@@ -1757,7 +1757,7 @@
         "demo-us-east",
         "refund_rate"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "category": "business",
       "summary": "Generated refund events exceeded the fictional weekly pattern",
@@ -1784,7 +1784,7 @@
         "demo-ap-south",
         "cache_miss"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "category": "performance",
       "summary": "Synthetic cache misses rose after a demo configuration change",
@@ -1811,7 +1811,7 @@
         "demo-eu-central",
         "data_gap"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "category": "data quality",
       "summary": "A generated telemetry series contains an unexpected interval",
@@ -1838,7 +1838,7 @@
         "demo-us-west",
         "retry_loop"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "category": "reliability",
       "summary": "A fictional client repeated the same idempotent request",
@@ -1865,7 +1865,7 @@
         "demo-us-east",
         "region_skew"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "category": "operations",
       "summary": "Synthetic request volume shifted toward one demo region",
@@ -1892,7 +1892,7 @@
         "demo-ap-south",
         "schema_drift"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "category": "data quality",
       "summary": "A generated event field changed type in a demo producer",
@@ -1919,7 +1919,7 @@
         "demo-eu-central",
         "latency_shift"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "category": "performance",
       "summary": "API latency moved above the synthetic baseline",
@@ -1946,7 +1946,7 @@
         "demo-us-west",
         "error_cluster"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "category": "reliability",
       "summary": "Generated error events clustered within a short window",
@@ -1973,7 +1973,7 @@
         "demo-us-east",
         "login_burst"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "category": "security",
       "summary": "Fictional login volume increased faster than the demo baseline",
@@ -2000,7 +2000,7 @@
         "demo-ap-south",
         "queue_backlog"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "category": "operations",
       "summary": "Synthetic queue depth grew while worker throughput stayed flat",
@@ -2027,7 +2027,7 @@
         "demo-eu-central",
         "refund_rate"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "category": "business",
       "summary": "Generated refund events exceeded the fictional weekly pattern",
@@ -2054,7 +2054,7 @@
         "demo-us-west",
         "cache_miss"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "category": "performance",
       "summary": "Synthetic cache misses rose after a demo configuration change",
@@ -2081,7 +2081,7 @@
         "demo-us-east",
         "data_gap"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "category": "data quality",
       "summary": "A generated telemetry series contains an unexpected interval",
@@ -2108,7 +2108,7 @@
         "demo-ap-south",
         "retry_loop"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "category": "reliability",
       "summary": "A fictional client repeated the same idempotent request",
@@ -2135,7 +2135,7 @@
         "demo-eu-central",
         "region_skew"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "category": "operations",
       "summary": "Synthetic request volume shifted toward one demo region",
@@ -2162,7 +2162,7 @@
         "demo-us-west",
         "schema_drift"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "category": "data quality",
       "summary": "A generated event field changed type in a demo producer",
@@ -2189,7 +2189,7 @@
         "demo-us-east",
         "latency_shift"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "category": "performance",
       "summary": "API latency moved above the synthetic baseline",
@@ -2216,7 +2216,7 @@
         "demo-ap-south",
         "error_cluster"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "category": "reliability",
       "summary": "Generated error events clustered within a short window",
@@ -2243,7 +2243,7 @@
         "demo-eu-central",
         "login_burst"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "category": "security",
       "summary": "Fictional login volume increased faster than the demo baseline",
@@ -2270,7 +2270,7 @@
         "demo-us-west",
         "queue_backlog"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "category": "operations",
       "summary": "Synthetic queue depth grew while worker throughput stayed flat",
@@ -2297,7 +2297,7 @@
         "demo-us-east",
         "refund_rate"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "category": "business",
       "summary": "Generated refund events exceeded the fictional weekly pattern",
@@ -2324,7 +2324,7 @@
         "demo-ap-south",
         "cache_miss"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "category": "performance",
       "summary": "Synthetic cache misses rose after a demo configuration change",
@@ -2351,7 +2351,7 @@
         "demo-eu-central",
         "data_gap"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "category": "data quality",
       "summary": "A generated telemetry series contains an unexpected interval",
@@ -2378,7 +2378,7 @@
         "demo-us-west",
         "retry_loop"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "category": "reliability",
       "summary": "A fictional client repeated the same idempotent request",
@@ -2405,7 +2405,7 @@
         "demo-us-east",
         "region_skew"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "category": "operations",
       "summary": "Synthetic request volume shifted toward one demo region",
@@ -2432,7 +2432,7 @@
         "demo-ap-south",
         "schema_drift"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "category": "data quality",
       "summary": "A generated event field changed type in a demo producer",
@@ -2459,7 +2459,7 @@
         "demo-eu-central",
         "latency_shift"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "category": "performance",
       "summary": "API latency moved above the synthetic baseline",
@@ -2486,7 +2486,7 @@
         "demo-us-west",
         "error_cluster"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "category": "reliability",
       "summary": "Generated error events clustered within a short window",
@@ -2513,7 +2513,7 @@
         "demo-us-east",
         "login_burst"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "category": "security",
       "summary": "Fictional login volume increased faster than the demo baseline",
@@ -2540,7 +2540,7 @@
         "demo-ap-south",
         "queue_backlog"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "category": "operations",
       "summary": "Synthetic queue depth grew while worker throughput stayed flat",
@@ -2567,7 +2567,7 @@
         "demo-eu-central",
         "refund_rate"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "category": "business",
       "summary": "Generated refund events exceeded the fictional weekly pattern",
@@ -2594,7 +2594,7 @@
         "demo-us-west",
         "cache_miss"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "category": "performance",
       "summary": "Synthetic cache misses rose after a demo configuration change",
@@ -2621,7 +2621,7 @@
         "demo-us-east",
         "data_gap"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "category": "data quality",
       "summary": "A generated telemetry series contains an unexpected interval",
@@ -2648,7 +2648,7 @@
         "demo-ap-south",
         "retry_loop"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "category": "reliability",
       "summary": "A fictional client repeated the same idempotent request",
@@ -2675,7 +2675,7 @@
         "demo-eu-central",
         "region_skew"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "category": "operations",
       "summary": "Synthetic request volume shifted toward one demo region",
@@ -2702,7 +2702,7 @@
         "demo-us-west",
         "schema_drift"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "category": "data quality",
       "summary": "A generated event field changed type in a demo producer",
@@ -2715,6 +2715,12 @@
       "expected_label": "schema_drift"
     }
   ],
+  "metadata": {
+    "_fixture_kind": "synthetic_public_demo",
+    "_fixture_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+    "_demo_description": "Synthetic operational signals for demonstrating severity, service, region, and incident search.",
+    "_demo_queries": "queue backlog high severity | schema drift | latency shift"
+  },
   "fields": [
     {
       "name": "category",
@@ -2753,10 +2759,6 @@
       "type": "string"
     }
   ],
-  "metadata": {
-    "_fixture_kind": "synthetic_demo",
-    "_fixture_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market."
-  },
   "stopwords": [
     "the",
     "and"

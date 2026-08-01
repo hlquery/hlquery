@@ -312,7 +312,8 @@ sub print_header {
     my $bold_start = $ansi_supported ? BOLD : "";
     my $white_start = $ansi_supported ? WHITE : "";
     my $reset_end = $ansi_supported ? RESET : "";
-    print "\n" . $bold_start . $white_start . PROJECT_NAME . " Configuration" . $reset_end . "\n";
+#    print "\n" . $bold_start . $white_start . PROJECT_NAME . " Configuration" . $reset_end . "\n";
+    print "\n\n";
     my $system = `uname -s`;
     chomp $system;
     #print "Version " . BOLD . BLACK . $config{VERSION} . RESET . " " . BOLD . BLACK . "on " . $system . RESET . "\n\n";
@@ -482,6 +483,59 @@ sub get_performance_color {
 }
 
 # System checks
+sub find_executable {
+    my ($program) = @_;
+    return undef unless defined $program && length $program;
+
+    if ($program =~ m{/}) {
+        return $program if -f $program && -x $program;
+        return undef;
+    }
+
+    for my $directory (split /:/, ($ENV{PATH} // '')) {
+        $directory = '.' unless length $directory;
+        my $candidate = catfile($directory, $program);
+        return $candidate if -f $candidate && -x $candidate;
+    }
+
+    return undef;
+}
+
+sub print_required_packages_hint {
+    print "\nInstall the required build packages, then run ./configure again:\n";
+    print "  Debian/Ubuntu: sudo apt-get install build-essential cmake zlib1g-dev\n";
+    print "  Red Hat/Fedora: sudo dnf install gcc-c++ make cmake zlib-devel\n";
+    print "  macOS: xcode-select --install && brew install cmake zlib\n";
+    print "  FreeBSD: sudo pkg install gmake cmake zlib-ng\n\n";
+}
+
+sub check_required_build_tools {
+    my $make_command = get_make_command();
+    my @requirements = (
+        ['cmake', 'cmake'],
+        ['make', $make_command],
+    );
+    my @missing;
+
+    for my $requirement (@requirements) {
+        my ($label, $program) = @{$requirement};
+        my $path = find_executable($program);
+        if ($path) {
+            print_success("Required tool: $label", $path);
+        } else {
+            print_error("Required tool: $label", "$program not found in PATH");
+            push @missing, $program;
+        }
+    }
+
+    if (@missing) {
+        print_required_packages_hint();
+        die "FATAL: missing required build tool(s): " . join(', ', @missing) . "\n";
+    }
+
+    return 1;
+}
+
 sub check_compiler {
     my @candidates;
     my %seen;
@@ -522,6 +576,37 @@ sub check_compiler {
     unlink $test_bin if -f $test_bin;
     print_error('C++ compiler not found or not functional');
     return 0;
+}
+
+sub check_zlib {
+    my $test_src = "/tmp/hlquery_zlib_test_$$.cpp";
+    my $test_bin = "/tmp/hlquery_zlib_test_$$";
+    open my $test_fh, '>', $test_src or die "Cannot write zlib test file: $!\n";
+    print $test_fh <<'CPP';
+#include <zlib.h>
+int main() {
+    const char *version = zlibVersion();
+    return version == nullptr ? 1 : 0;
+}
+CPP
+    close $test_fh;
+
+    my $command = shell_quote_args($config{CXX}, '-std=c++17', $test_src, '-lz', '-o', $test_bin)
+        . ' >/dev/null 2>&1';
+    my $result = system($command);
+    my $available = (($result & 127) == 0 && $result == 0 && -x $test_bin);
+
+    unlink $test_src if -f $test_src;
+    unlink $test_bin if -f $test_bin;
+
+    if ($available) {
+        print_success('Required library: zlib', 'headers and linker available');
+        return 1;
+    }
+
+    print_error('Required library: zlib', 'zlib.h or libz was not found');
+    print_required_packages_hint();
+    die "FATAL: zlib development files are required (Debian/Ubuntu package: zlib1g-dev)\n";
 }
 
 sub check_threading {
@@ -1671,7 +1756,7 @@ sub main {
         print "  4. Installation Layout (directory structure)\n";
         exit 0;
     }
-    
+
     # Resolve paths.
     # Priority: explicit layout > explicit prefix > default dev layout.
     if ($path_set{layout}) {
@@ -1731,6 +1816,8 @@ sub main {
 
     print_animated_header();
     print_header();
+    # Fail before generating files when mandatory build tooling is absent.
+    check_required_build_tools();
     create_required_directories();
     check_vendor_permissions();
     
@@ -1745,6 +1832,12 @@ sub main {
     print_success('Detected OS', $detected_os);
     
     my $compiler_ok = check_compiler();
+    unless ($compiler_ok) {
+        print_error("FATAL: C++ compiler required");
+        print_required_packages_hint();
+        die "FATAL: C++ compiler required\n";
+    }
+    check_zlib();
     my $threading_ok = check_threading();
 
     # Detect CPU count for max threads
@@ -1811,11 +1904,6 @@ sub main {
     my $cld2_ok = check_cld2_vendor();
     
     print_section_end();
-    
-    unless ($compiler_ok) {
-        print_error("FATAL: C++ compiler required");
-        die "\n";
-    }
     
     # Library testing (unless skipped) - run BEFORE generation
     unless ($skip_tests) {

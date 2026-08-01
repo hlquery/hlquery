@@ -14,7 +14,7 @@
 
 #ifndef ROCKSDB_NAMESPACE
 
-#define ROCKSDB_NAMESPACE rocksdb
+   #define ROCKSDB_NAMESPACE rocksdb
 
 #endif
 
@@ -47,6 +47,7 @@ class SegmentManager;
 class DBManager
 {
    private:
+
      /* DBValue holds the RocksDB instance. */
 
      std::unique_ptr<rocksdb::DB> DBValue;

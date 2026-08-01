@@ -16,13 +16,45 @@ ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = ROOT / "run" / "benchmark"
 
 SAFE_NOTICE = (
-    "Synthetic sample data for HLQuery demonstrations; it is not a factual "
-    "claim about a real person, organization, event, or market."
+    "Public HLQuery demonstration data. University names and campus locations "
+    "are real catalog references; generated descriptions, people, organizations, "
+    "artworks, rankings, incidents, and market instruments are synthetic."
 )
 MARKET_NOTICE = (
     "Synthetic demo scenario using no live market data; it is not investment, "
     "financial, legal, or trading advice."
 )
+
+PUBLIC_DEMO_METADATA = {
+    "people": (
+        "Fictional professional profiles for demonstrating name, biography, skills, occupation, and U.S. location search.",
+        "science educator California | museum curator community exhibitions | civil engineer sustainable materials",
+    ),
+    "universities": (
+        "One hundred recognizable U.S. universities with real names and campus locations plus clearly labeled synthetic benchmark signals.",
+        "universities in Massachusetts | computer science universities | public research universities in Texas",
+    ),
+    "art": (
+        "A fictional museum-style catalog covering painting, sculpture, printmaking, installation, drawing, and public art.",
+        "recycled steel sculpture | charcoal portrait | installation about light and memory",
+    ),
+    "books": ("Fictional book records with useful genre, author, theme, and catalog metadata.", "climate fiction | oral history archive | mystery novel"),
+    "music": ("Fictional releases and performances for artist, genre, instrument, and venue search.", "ambient electronic album | community jazz performance | string quartet"),
+    "movies": ("Fictional film catalog records with genre, director, setting, and production context.", "documentary editing | science fiction drama | animated short"),
+    "science": ("Instructional research examples that explain methods, controls, evidence, and uncertainty.", "battery discharge experiment | urban heat measurements | noisy sensor analysis"),
+    "history": ("Public-history exercises about archives, maps, oral histories, photographs, and source interpretation.", "oral history consent | compare historical maps | museum timeline"),
+    "food": ("Demonstration recipes with ingredients, cuisine context, method, and preparation time.", "lentil coconut recipe | vegetarian street food | citrus dessert"),
+    "travel": ("Illustrative, non-current itineraries for destination, activity, duration, and travel-style search.", "architecture weekend | galleries and public transit | food and craft itinerary"),
+    "technology": ("Practical fictional technical notes about APIs, reliability, accessibility, security, and data systems.", "search API design | zero downtime migration | accessible mobile navigation"),
+    "sports": ("Fictional match and event reports with teams, tactics, competitions, and results.", "football counterattack | volleyball serve pressure | rowing pacing"),
+    "math": ("Worked instructional examples spanning algebra, geometry, probability, calculus, and statistics.", "solve 3x plus 7 | probability two heads | derivative x cubed"),
+    "ecommerce": ("Fictional commerce workflows covering catalogs, checkout, inventory, accessibility, and returns.", "checkout idempotency | inventory synchronization | accessible storefront"),
+    "fashion": ("Fictional design and archive records covering materials, fit, production, repair, and inclusive sizing.", "garment repair | inclusive sizing | material sourcing"),
+    "saas": ("Fictional software-service workflows covering onboarding, tenants, billing, support, and releases.", "tenant administration | release rollback | subscription onboarding"),
+    "finance": ("Synthetic educational finance scenarios with no live data, recommendations, or personal records.", "invoice aging | household budget categories | payment reconciliation"),
+    "stocks": ("Entirely fictional tickers and instruments for cashtag, watchlist, and asset-class search.", "$HLQ01 | fictional technology basket | synthetic bond instrument"),
+    "anomalies": ("Synthetic operational signals for demonstrating severity, service, region, and incident search.", "queue backlog high severity | schema drift | latency shift"),
+}
 
 
 def slug(value: str) -> str:
@@ -69,27 +101,30 @@ def fixture(
     synonyms: list[dict[str, object]] | None = None,
     stopwords: list[str] | None = None,
 ) -> dict[str, object]:
+    description, demo_queries = PUBLIC_DEMO_METADATA.get(
+        collection,
+        (f"Synthetic {collection} records for public search demonstrations.", f"{collection} demo | synthetic {collection}"),
+    )
+    collection_metadata = {
+        "_fixture_kind": "synthetic_public_demo",
+        "_fixture_notice": SAFE_NOTICE,
+        "_demo_description": description,
+        "_demo_queries": demo_queries,
+    }
+    if metadata:
+        collection_metadata.update(metadata)
+
     result: dict[str, object] = {
-        "fixture_version": 2,
+        "fixture_version": 3,
         "fixture_notice": SAFE_NOTICE,
         "collection": collection,
         "count": len(documents),
         "tags": tags,
         "documents": documents,
+        "metadata": collection_metadata,
     }
     if fields:
         result["fields"] = fields
-    if metadata:
-        result["metadata"] = {
-            "_fixture_kind": "synthetic_demo",
-            "_fixture_notice": SAFE_NOTICE,
-            **metadata,
-        }
-    else:
-        result["metadata"] = {
-            "_fixture_kind": "synthetic_demo",
-            "_fixture_notice": SAFE_NOTICE,
-        }
     if default_sorting_field:
         result["default_sorting_field"] = default_sorting_field
     if synonyms:
@@ -189,6 +224,86 @@ def make_art() -> dict[str, object]:
             2024,
             "Visitors can add fictional routes and landmarks to a projected map, creating a changing record of shared spatial imagination.",
         ),
+        (
+            "River Grammar (Demo Print Series)",
+            "Example Artist Amara Flint",
+            "woodcut and water-based ink",
+            "contemporary printmaking",
+            2017,
+            "Twelve woodcuts translate bends, currents, and floodplain marks into a visual vocabulary of repeated lines and open space.",
+        ),
+        (
+            "Library of Unfinished Colors (Demo Installation)",
+            "Example Artist Soren Field",
+            "pigment, glass, and labeled shelves",
+            "conceptual installation",
+            2022,
+            "Rows of fictional pigment samples invite visitors to compare how names, lighting, and neighboring colors change perception.",
+        ),
+        (
+            "Three Chairs for a Long Conversation (Demo Sculpture)",
+            "Example Artist Priya Moss",
+            "carved ash and woven cord",
+            "social sculpture",
+            2020,
+            "Three connected seats turn ordinary furniture into a study of distance, listening, and the physical design of conversation.",
+        ),
+        (
+            "Night Bus Palimpsest (Demo Artwork)",
+            "Example Artist Felix Arroyo",
+            "gouache and graphite on paper",
+            "narrative drawing",
+            2019,
+            "Erased figures, route numbers, and reflected windows accumulate into an imagined record of one late-night bus journey.",
+        ),
+        (
+            "Seed Vault for Sidewalk Plants (Demo Archive)",
+            "Example Artist Leila Brooks",
+            "pressed plants, paper, and audio",
+            "ecological archive art",
+            2024,
+            "A fictional neighborhood archive pairs resilient sidewalk plants with drawings and short recordings about observation and care.",
+        ),
+        (
+            "Blue Room, Four Temperatures (Demo Painting)",
+            "Example Artist Kenji Hale",
+            "egg tempera on wood panel",
+            "color field painting",
+            2018,
+            "Four panels use closely related blues to show how surface preparation and surrounding light can make one color feel warm or cool.",
+        ),
+        (
+            "Public Steps, Private Rhythms (Demo Video Work)",
+            "Example Artist Marisol Quill",
+            "three-channel silent video",
+            "observational media art",
+            2021,
+            "A staged sequence of fictional pedestrians focuses on repetition, pause, and the choreography created by shared civic space.",
+        ),
+        (
+            "Repair Table No. 6 (Demo Textile Work)",
+            "Example Artist Dae Winter",
+            "mended cotton and linen",
+            "textile art",
+            2023,
+            "Visible stitches preserve wear instead of hiding it, presenting repair as both a practical technique and a record of use.",
+        ),
+        (
+            "Weather Station for Imagined Islands (Demo Sculpture)",
+            "Example Artist Noor Bell",
+            "brass, paper, and hand-built sensors",
+            "speculative sculpture",
+            2022,
+            "Nonfunctional instruments describe the winds and rainfall of fictional islands while asking how measurement shapes a place.",
+        ),
+        (
+            "Choir of Small Machines (Demo Sound Installation)",
+            "Example Artist Tomas Grove",
+            "motors, paper, wood, and speakers",
+            "kinetic sound art",
+            2024,
+            "Low-speed motors animate paper surfaces to create a changing rhythm that visitors hear differently as they move through the room.",
+        ),
     ]
     documents = [
         document(
@@ -215,6 +330,10 @@ def make_art() -> dict[str, object]:
             field("year", "int32"),
             field("exhibition_context", "string"),
         ],
+        metadata={
+            "_catalog_scope": "20 fictional artworks and installations",
+            "_catalog_policy": "all artists, artworks, exhibitions, and provenance contexts are fictional",
+        },
         synonyms=[
             {
                 "id": "art_syn_artwork",
@@ -230,17 +349,19 @@ def make_people() -> dict[str, object]:
     middle_names = ["Alexis", "Brooke", "Cameron", "Drew", "Emery", "Francis", "Gray", "Harper", "Indigo", "Jordan"]
     last_names = ["Northwind", "Cedar", "Marrow", "Solis", "Kestrel", "Vale", "Rowan", "Pike", "Lark", "Fern"]
     roles = [
-        ("community archivist", "neighborhood history and accessible archives"),
-        ("software reliability engineer", "observability, incident learning, and developer mentoring"),
-        ("urban mobility planner", "safe walking routes and reliable public transit"),
-        ("science educator", "hands-on astronomy and evidence-based classroom projects"),
-        ("museum programs curator", "community exhibitions and inclusive interpretation"),
-        ("cooperative business adviser", "local entrepreneurship and practical budgeting"),
-        ("public health data analyst", "community wellness dashboards and data literacy"),
-        ("civil infrastructure engineer", "resilient bridges and sustainable materials"),
-        ("documentary editor", "visual storytelling and public-interest media"),
-        ("food culture writer", "seasonal cooking and community recipe archives"),
+        ("community archivist", "neighborhood history and accessible archives", "oral history indexing | metadata design | public workshops", "community memory catalog"),
+        ("software reliability engineer", "observability, incident learning, and developer mentoring", "distributed systems | tracing | incident facilitation", "service reliability field guide"),
+        ("urban mobility planner", "safe walking routes and reliable public transit", "street design | transit analysis | community engagement", "safe routes accessibility map"),
+        ("science educator", "hands-on astronomy and evidence-based classroom projects", "curriculum design | lab safety | science communication", "night-sky learning program"),
+        ("museum programs curator", "community exhibitions and inclusive interpretation", "exhibition planning | accessibility | visitor research", "shared stories gallery program"),
+        ("cooperative business adviser", "local entrepreneurship and practical budgeting", "cash-flow planning | facilitation | cooperative governance", "neighborhood enterprise workshop"),
+        ("public health data analyst", "community wellness dashboards and data literacy", "data visualization | quality review | plain-language reporting", "community indicators dashboard"),
+        ("civil infrastructure engineer", "resilient bridges and sustainable materials", "structural analysis | materials testing | project coordination", "low-carbon bridge materials study"),
+        ("documentary editor", "visual storytelling and public-interest media", "story editing | archival research | accessible captions", "local voices short-film series"),
+        ("food culture writer", "seasonal cooking and community recipe archives", "recipe testing | interviewing | cultural documentation", "seasonal table oral-history project"),
     ]
+    career_stages = ["early-career", "mid-career", "senior", "lead", "independent"]
+    project_phases = ["research", "community workshop", "prototype", "accessibility review", "public learning report"]
     locations = [
         ("Portland", "Oregon", 45.5152, -122.6784),
         ("Austin", "Texas", 30.2672, -97.7431),
@@ -270,15 +391,19 @@ def make_people() -> dict[str, object]:
         first = first_names[index % len(first_names)]
         middle = middle_names[(index // 10) % len(middle_names)]
         last = last_names[(index * 3 + index // 10) % len(last_names)]
-        role, interests = roles[(index * 7) % len(roles)]
-        city, state, latitude, longitude = locations[(index * 3 + 2) % len(locations)]
-        organization = organizations[(index * 7) % len(organizations)]
+        role, interests, skills, project = roles[(index * 7) % len(roles)]
+        city, state, latitude, longitude = locations[(index * 3 + index // 10 + 2) % len(locations)]
+        organization = organizations[(index * 7 + index // 10) % len(organizations)]
+        career_stage = career_stages[(index // 4) % len(career_stages)]
+        experience_years = 2 + ((index * 7 + index // 10) % 19)
+        featured_project = f"{project} — {project_phases[(index * 3 + index // 10) % len(project_phases)]}"
         full_name = f"{first} {middle} {last}"
         title = f"{full_name} — Fictional Demo Profile"
         biography = (
-            f"{full_name} is a fictional {role} based in {city}, {state}. "
-            f"This synthetic profile describes work at {organization} involving {interests}. "
-            "It exists only to demonstrate name, biography, occupation, and location search."
+            f"{full_name} is a fictional {career_stage} {role} based in {city}, {state}. "
+            f"This synthetic profile places them at {organization}, where the demo portfolio focuses on {interests}. "
+            f"A featured project, {featured_project}, uses {skills}. The generated profile represents {experience_years} "
+            "years of fictional experience and exists only to demonstrate biography, skills, occupation, project, and location search."
         )
         documents.append(
             document(
@@ -298,6 +423,10 @@ def make_people() -> dict[str, object]:
                 country="United States",
                 interests=interests,
                 organization=organization,
+                skills=skills,
+                featured_project=featured_project,
+                career_stage=career_stage,
+                experience_years=experience_years,
                 profile_type="fictional_demo_person",
                 location=[latitude, longitude],
                 location_name=f"Fictional profile location near {city}, {state}",
@@ -305,7 +434,7 @@ def make_people() -> dict[str, object]:
         )
     return fixture(
         "people",
-        [role for role, _ in roles],
+        [role for role, _, _, _ in roles],
         documents,
         fields=[
             field("first_name", "string"),
@@ -319,8 +448,16 @@ def make_people() -> dict[str, object]:
             field("country", "string"),
             field("interests", "string"),
             field("organization", "string"),
+            field("skills", "string"),
+            field("featured_project", "string"),
+            field("career_stage", "string"),
+            field("experience_years", "int32"),
             field("profile_type", "string"),
         ],
+        metadata={
+            "_profile_scope": "100 entirely fictional United States professional profiles",
+            "_profile_policy": "no contact details, private records, or claims about real people",
+        },
         synonyms=[
             {
                 "id": "people_syn_biography",
@@ -332,65 +469,109 @@ def make_people() -> dict[str, object]:
 
 
 def make_universities() -> dict[str, object]:
-    roots = [
-        "Redwood Valley",
-        "Great Lakes",
-        "Desert Sky",
-        "Atlantic Harbor",
-        "Prairie Ridge",
-        "Blue River",
-        "Cedar Grove",
-        "North Coast",
-        "Golden Mesa",
-        "Lakeview",
-        "High Plains",
-        "Copper Canyon",
-        "Silver Oak",
-        "Pine Harbor",
-        "Sunrise Valley",
-        "Granite Hill",
-        "Maple Coast",
-        "Riverbend",
-        "Summit Fields",
-        "Coastal Prairie",
-        "Juniper Bay",
-        "Orchard Ridge",
-        "Clearbrook",
-        "Horizon Plains",
-        "Willow Creek",
-    ]
-    suffixes = [
-        ("University", "fictional_private_research_university"),
-        ("Institute of Technology", "fictional_technical_institute"),
-        ("College of Arts and Sciences", "fictional_liberal_arts_college"),
-        ("Polytechnic University", "fictional_public_polytechnic"),
-    ]
-    campuses = [
-        ("Cambridge", "Massachusetts", 42.3736, -71.1097, "New England"),
-        ("Palo Alto", "California", 37.4419, -122.1430, "West Coast"),
-        ("Austin", "Texas", 30.2672, -97.7431, "Southwest"),
-        ("Seattle", "Washington", 47.6062, -122.3321, "Pacific Northwest"),
-        ("Ann Arbor", "Michigan", 42.2808, -83.7430, "Great Lakes"),
-        ("Chicago", "Illinois", 41.8781, -87.6298, "Midwest"),
-        ("Atlanta", "Georgia", 33.7490, -84.3880, "Southeast"),
-        ("Denver", "Colorado", 39.7392, -104.9903, "Mountain West"),
-        ("Boston", "Massachusetts", 42.3601, -71.0589, "New England"),
-        ("Minneapolis", "Minnesota", 44.9778, -93.2650, "Upper Midwest"),
-        ("Phoenix", "Arizona", 33.4484, -112.0740, "Southwest"),
-        ("Portland", "Oregon", 45.5152, -122.6784, "Pacific Northwest"),
-        ("Philadelphia", "Pennsylvania", 39.9526, -75.1652, "Mid-Atlantic"),
-        ("Raleigh", "North Carolina", 35.7796, -78.6382, "Southeast"),
-        ("Madison", "Wisconsin", 43.0731, -89.4012, "Great Lakes"),
-        ("Salt Lake City", "Utah", 40.7608, -111.8910, "Mountain West"),
-        ("New York", "New York", 40.7128, -74.0060, "Northeast"),
-        ("Columbus", "Ohio", 39.9612, -82.9988, "Midwest"),
-        ("Nashville", "Tennessee", 36.1627, -86.7816, "Southeast"),
-        ("San Diego", "California", 32.7157, -117.1611, "West Coast"),
-        ("Pittsburgh", "Pennsylvania", 40.4406, -79.9959, "Appalachia"),
-        ("Miami", "Florida", 25.7617, -80.1918, "Southeast"),
-        ("Albuquerque", "New Mexico", 35.0844, -106.6504, "Southwest"),
-        ("Kansas City", "Missouri", 39.0997, -94.5786, "Central United States"),
-        ("Burlington", "Vermont", 44.4759, -73.2121, "New England"),
+    # Names, locations, and broad control/type labels are catalog data. Academic
+    # topics and numeric scores below remain deterministic benchmark annotations.
+    catalog = [
+        ("Harvard University", "Cambridge", "Massachusetts", "private_research"),
+        ("Stanford University", "Stanford", "California", "private_research"),
+        ("Massachusetts Institute of Technology", "Cambridge", "Massachusetts", "private_research"),
+        ("University of California Berkeley", "Berkeley", "California", "public_research"),
+        ("University of Washington Seattle", "Seattle", "Washington", "public_research"),
+        ("University of Michigan Ann Arbor", "Ann Arbor", "Michigan", "public_research"),
+        ("Cornell University", "Ithaca", "New York", "private_research"),
+        ("Columbia University", "New York", "New York", "private_research"),
+        ("University of Pennsylvania", "Philadelphia", "Pennsylvania", "private_research"),
+        ("Yale University", "New Haven", "Connecticut", "private_research"),
+        ("Princeton University", "Princeton", "New Jersey", "private_research"),
+        ("University of California Los Angeles", "Los Angeles", "California", "public_research"),
+        ("University of Chicago", "Chicago", "Illinois", "private_research"),
+        ("Johns Hopkins University", "Baltimore", "Maryland", "private_research"),
+        ("University of California San Diego", "La Jolla", "California", "public_research"),
+        ("University of Wisconsin Madison", "Madison", "Wisconsin", "public_research"),
+        ("Duke University", "Durham", "North Carolina", "private_research"),
+        ("Northwestern University", "Evanston", "Illinois", "private_research"),
+        ("University of Illinois Urbana Champaign", "Urbana Champaign", "Illinois", "public_research"),
+        ("New York University", "New York", "New York", "private_research"),
+        ("University of Texas at Austin", "Austin", "Texas", "public_research"),
+        ("University of North Carolina Chapel Hill", "Chapel Hill", "North Carolina", "public_research"),
+        ("Pennsylvania State University", "University Park", "Pennsylvania", "public_research"),
+        ("University of Minnesota Twin Cities", "Minneapolis", "Minnesota", "public_research"),
+        ("University of Florida", "Gainesville", "Florida", "public_research"),
+        ("University of Southern California", "Los Angeles", "California", "private_research"),
+        ("Carnegie Mellon University", "Pittsburgh", "Pennsylvania", "private_research"),
+        ("Georgia Institute of Technology", "Atlanta", "Georgia", "public_research"),
+        ("Ohio State University", "Columbus", "Ohio", "public_research"),
+        ("Purdue University", "West Lafayette", "Indiana", "public_research"),
+        ("University of Maryland College Park", "College Park", "Maryland", "public_research"),
+        ("University of California Davis", "Davis", "California", "public_research"),
+        ("University of California Irvine", "Irvine", "California", "public_research"),
+        ("University of California Santa Barbara", "Santa Barbara", "California", "public_research"),
+        ("University of Colorado Boulder", "Boulder", "Colorado", "public_research"),
+        ("University of Virginia", "Charlottesville", "Virginia", "public_research"),
+        ("Vanderbilt University", "Nashville", "Tennessee", "private_research"),
+        ("Rice University", "Houston", "Texas", "private_research"),
+        ("Washington University in St Louis", "St Louis", "Missouri", "private_research"),
+        ("Emory University", "Atlanta", "Georgia", "private_research"),
+        ("University of Arizona", "Tucson", "Arizona", "public_research"),
+        ("Arizona State University", "Tempe", "Arizona", "public_research"),
+        ("Michigan State University", "East Lansing", "Michigan", "public_research"),
+        ("Rutgers University New Brunswick", "New Brunswick", "New Jersey", "public_research"),
+        ("Texas A and M University", "College Station", "Texas", "public_research"),
+        ("Indiana University Bloomington", "Bloomington", "Indiana", "public_research"),
+        ("University of Pittsburgh", "Pittsburgh", "Pennsylvania", "public_research"),
+        ("Boston University", "Boston", "Massachusetts", "private_research"),
+        ("Brown University", "Providence", "Rhode Island", "private_research"),
+        ("Dartmouth College", "Hanover", "New Hampshire", "private_research"),
+        ("University of Utah", "Salt Lake City", "Utah", "public_research"),
+        ("University of Iowa", "Iowa City", "Iowa", "public_research"),
+        ("Iowa State University", "Ames", "Iowa", "public_research"),
+        ("University of Oregon", "Eugene", "Oregon", "public_research"),
+        ("Oregon State University", "Corvallis", "Oregon", "public_research"),
+        ("University of California Santa Cruz", "Santa Cruz", "California", "public_research"),
+        ("University of California Riverside", "Riverside", "California", "public_research"),
+        ("University of California San Francisco", "San Francisco", "California", "public_health_sciences"),
+        ("University of Massachusetts Amherst", "Amherst", "Massachusetts", "public_research"),
+        ("University of Connecticut", "Storrs", "Connecticut", "public_research"),
+        ("University of Delaware", "Newark", "Delaware", "public_research"),
+        ("University of Georgia", "Athens", "Georgia", "public_research"),
+        ("University of Kansas", "Lawrence", "Kansas", "public_research"),
+        ("University of Kentucky", "Lexington", "Kentucky", "public_research"),
+        ("University of Missouri", "Columbia", "Missouri", "public_research"),
+        ("University of Nebraska Lincoln", "Lincoln", "Nebraska", "public_research"),
+        ("University of New Mexico", "Albuquerque", "New Mexico", "public_research"),
+        ("University of Oklahoma", "Norman", "Oklahoma", "public_research"),
+        ("University of South Carolina", "Columbia", "South Carolina", "public_research"),
+        ("University of Tennessee Knoxville", "Knoxville", "Tennessee", "public_research"),
+        ("University of Vermont", "Burlington", "Vermont", "public_research"),
+        ("Virginia Tech", "Blacksburg", "Virginia", "public_research"),
+        ("North Carolina State University", "Raleigh", "North Carolina", "public_research"),
+        ("Florida State University", "Tallahassee", "Florida", "public_research"),
+        ("University of Miami", "Coral Gables", "Florida", "private_research"),
+        ("Georgetown University", "Washington", "District of Columbia", "private_research"),
+        ("George Washington University", "Washington", "District of Columbia", "private_research"),
+        ("Tufts University", "Medford", "Massachusetts", "private_research"),
+        ("Northeastern University", "Boston", "Massachusetts", "private_research"),
+        ("Syracuse University", "Syracuse", "New York", "private_research"),
+        ("Rensselaer Polytechnic Institute", "Troy", "New York", "private_research"),
+        ("University at Buffalo", "Buffalo", "New York", "public_research"),
+        ("Stony Brook University", "Stony Brook", "New York", "public_research"),
+        ("Binghamton University", "Binghamton", "New York", "public_research"),
+        ("Temple University", "Philadelphia", "Pennsylvania", "public_research"),
+        ("Drexel University", "Philadelphia", "Pennsylvania", "private_research"),
+        ("Case Western Reserve University", "Cleveland", "Ohio", "private_research"),
+        ("University of Cincinnati", "Cincinnati", "Ohio", "public_research"),
+        ("University of Houston", "Houston", "Texas", "public_research"),
+        ("Baylor University", "Waco", "Texas", "private_research"),
+        ("Southern Methodist University", "Dallas", "Texas", "private_research"),
+        ("Tulane University", "New Orleans", "Louisiana", "private_research"),
+        ("Louisiana State University", "Baton Rouge", "Louisiana", "public_research"),
+        ("University of Alabama", "Tuscaloosa", "Alabama", "public_research"),
+        ("Auburn University", "Auburn", "Alabama", "public_research"),
+        ("Clemson University", "Clemson", "South Carolina", "public_research"),
+        ("Colorado State University", "Fort Collins", "Colorado", "public_research"),
+        ("Washington State University", "Pullman", "Washington", "public_research"),
+        ("University of Nevada Reno", "Reno", "Nevada", "public_research"),
+        ("Brigham Young University", "Provo", "Utah", "private_research"),
     ]
     focus_pairs = [
         ("computer science", "digital humanities"),
@@ -405,93 +586,59 @@ def make_universities() -> dict[str, object]:
         ("music technology", "media production"),
     ]
     documents: list[dict[str, object]] = []
-    for index in range(100):
-        root = roots[index % len(roots)]
-        suffix, institution_type = suffixes[index // len(roots)]
-        city, state, latitude, longitude, region = campuses[(index * 7) % len(campuses)]
-        focus_a, focus_b = focus_pairs[(index * 3) % len(focus_pairs)]
-        rank = index + 1
-        composite_score = round(99.5 - index * 0.37, 2)
-        research_score = round(62.0 + ((97 - index * 7) % 38), 1)
-        teaching_score = round(64.0 + ((91 - index * 5) % 36), 1)
-        arts_score = round(60.0 + ((89 - index * 11) % 40), 1)
-        student_experience_score = round(63.0 + ((93 - index * 13) % 37), 1)
-        institution_name = f"Example {root} {suffix}"
-        title = f"{institution_name} — Fictional U.S. University"
-        focus_areas = f"{focus_a} | {focus_b}"
+    for catalog_order, (institution_name, city, state, institution_type) in enumerate(
+        sorted(catalog, key=lambda row: row[0]), start=1
+    ):
+        index = catalog_order - 1
+        focus_a, focus_b = focus_pairs[(index * 3 + index // 25) % len(focus_pairs)]
+        title = institution_name
+        search_topics = f"{focus_a} | {focus_b} | science | research | teaching | admissions"
         content = (
-            f"{institution_name} is a fictional institution located in {city}, {state}, United States. "
-            f"Its demo profile emphasizes {focus_a} and {focus_b}, plus sample information about admissions, "
-            "student services, research programs, libraries, campus arts, and community partnerships. "
-            f"The synthetic U.S. demo ranking is {rank} of 100 with a composite score of {composite_score}; "
-            "these values are generated solely to demonstrate filtering, sorting, faceting, and ranked search."
+            f"{institution_name} is a real university catalog reference located in {city}, {state}, United States. "
+            f"The catalog classifies it as {institution_type.replace('_', ' ')}. "
+            f"Search topics attached for benchmark coverage include {focus_a}, {focus_b}, science, research, teaching, and admissions. "
+            "The institution name, city, state, country, and broad type are catalog fields; topic annotations are synthetic search aids."
         )
         documents.append(
             document(
                 "universities",
                 title,
                 content,
-                identifier=f"universities_demo_{rank:03d}",
-                labels=[state, city, region, institution_type, focus_a, focus_b, "fictional-university"],
+                identifier=f"universities_{slug(institution_name)}",
+                labels=[state, city, "United States", institution_type, focus_a, focus_b, "university-catalog"],
                 institution_name=institution_name,
                 city=city,
                 state=state,
                 country="United States",
-                region=region,
-                city_aliases=f"{city} | {state} | {region} | United States",
+                city_aliases=f"{city} | {state} | United States",
                 institution_type=institution_type,
-                focus_areas=focus_areas,
-                demo_rank=rank,
-                rank=rank,
-                rank_signal=round((101 - rank) / 100, 2),
-                composite_score=composite_score,
-                research_score=research_score,
-                teaching_score=teaching_score,
-                arts_score=arts_score,
-                student_experience_score=student_experience_score,
-                student_count=2400 + ((index * 977) % 28000),
-                rank_source="HLQuery synthetic demo generator",
-                rank_scope="100 fictional institutions in a United States demo dataset",
-                rank_edition="2026 synthetic demo edition",
-                rank_notice="Fictional ranking for software demonstration only; it does not evaluate or represent any real institution.",
-                location=[latitude, longitude],
-                location_name=f"Fictional campus near {city}, {state}",
+                search_topics=search_topics,
+                catalog_order=catalog_order,
+                record_kind="real_name_location_with_synthetic_search_topics",
+                location_name=f"{city}, {state}, United States",
             )
         )
     return fixture(
         "universities",
-        ["united states", "university", "college", "campus", "research", "teaching", "arts", "admissions", "fictional ranking"],
+        ["united states", "university", "college", "campus", "science", "research", "teaching", "arts", "admissions"],
         documents,
         fields=[
             field("institution_name", "string"),
             field("state", "string"),
             field("city", "string"),
             field("country", "string"),
-            field("region", "string"),
             field("city_aliases", "string"),
             field("institution_type", "string"),
-            field("focus_areas", "string"),
-            field("demo_rank", "int32"),
-            field("rank", "int32"),
-            field("rank_signal", "float"),
-            field("composite_score", "float"),
-            field("research_score", "float"),
-            field("teaching_score", "float"),
-            field("arts_score", "float"),
-            field("student_experience_score", "float"),
-            field("student_count", "int32"),
-            field("rank_source", "string"),
-            field("rank_scope", "string"),
-            field("rank_edition", "string"),
-            field("rank_notice", "string"),
+            field("search_topics", "string"),
+            field("catalog_order", "int32"),
+            field("record_kind", "string"),
         ],
-        default_sorting_field="demo_rank",
+        default_sorting_field="catalog_order",
         metadata={
-            "_rank_field": "demo_rank",
-            "_rank_order": "asc",
-            "_rank_scope": "fictional_united_states_demo",
-            "_rank_edition": "2026 synthetic demo edition",
-            "_rank_methodology": "deterministic generated composite score for software demonstration only",
+            "_catalog_sort_field": "catalog_order",
+            "_catalog_sort_order": "asc",
+            "_catalog_scope": "100 recognizable United States universities",
+            "_data_boundary": "names, locations, and broad types are catalog references; search topics are synthetic",
         },
         synonyms=[
             {
@@ -998,12 +1145,89 @@ def build_all() -> dict[str, dict[str, object]]:
     }
 
 
+def validate_public_fixtures(fixtures: dict[str, dict[str, object]]) -> None:
+    """Reject public demo data that loses its safety markers or internal logic."""
+
+    errors: list[str] = []
+    all_ids: set[str] = set()
+
+    for filename, payload in fixtures.items():
+        collection = str(payload.get("collection", ""))
+        documents = payload.get("documents", [])
+        metadata = payload.get("metadata", {})
+
+        if not collection or not isinstance(documents, list) or not documents:
+            errors.append(f"{filename}: collection name and documents are required")
+            continue
+        if payload.get("fixture_version") != 3:
+            errors.append(f"{filename}: fixture_version must be 3")
+        if payload.get("count") != len(documents):
+            errors.append(f"{filename}: count does not match documents")
+        if not isinstance(metadata, dict) or metadata.get("_fixture_kind") != "synthetic_public_demo":
+            errors.append(f"{filename}: public synthetic metadata is missing")
+        if not metadata.get("_demo_description") or not metadata.get("_demo_queries"):
+            errors.append(f"{filename}: demo description and example queries are required")
+
+        collection_ids: set[str] = set()
+        for index, item in enumerate(documents, start=1):
+            prefix = f"{filename} document {index}"
+            identifier = str(item.get("id", ""))
+            labels = item.get("labels", [])
+            if not identifier or identifier in collection_ids or identifier in all_ids:
+                errors.append(f"{prefix}: id is missing or duplicated")
+            collection_ids.add(identifier)
+            all_ids.add(identifier)
+            if item.get("is_synthetic") is not True:
+                errors.append(f"{prefix}: is_synthetic must be true")
+            if not isinstance(labels, list) or "demo" not in labels or "synthetic" not in labels:
+                errors.append(f"{prefix}: demo and synthetic labels are required")
+            if not str(item.get("data_notice", "")).strip():
+                errors.append(f"{prefix}: data_notice is required")
+            if not str(item.get("title", "")).strip() or not str(item.get("content", "")).strip():
+                errors.append(f"{prefix}: meaningful title and content are required")
+
+    people = fixtures["people.json"]["documents"]
+    for index, item in enumerate(people, start=1):
+        if "Fictional Demo Profile" not in str(item.get("title", "")):
+            errors.append(f"people.json document {index}: title must identify a fictional demo profile")
+        if item.get("profile_type") != "fictional_demo_person" or not str(item.get("organization", "")).startswith("Example "):
+            errors.append(f"people.json document {index}: fictional person or organization marker is missing")
+        if any(field_name in item for field_name in ("email", "phone", "address", "social_handle")):
+            errors.append(f"people.json document {index}: public fixture must not include contact details")
+
+    art = fixtures["art.json"]["documents"]
+    for index, item in enumerate(art, start=1):
+        if "Demo" not in str(item.get("title", "")) or not str(item.get("artist_name", "")).startswith("Example Artist "):
+            errors.append(f"art.json document {index}: fictional artwork or artist marker is missing")
+
+    universities = fixtures["universities.json"]["documents"]
+    for expected_order, item in enumerate(universities, start=1):
+        if item.get("catalog_order") != expected_order:
+            errors.append(f"universities.json document {expected_order}: catalog order must be contiguous")
+        if any(name in item for name in ("demo_rank", "rank", "composite_score", "student_count")):
+            errors.append(f"universities.json document {expected_order}: fabricated rankings and counts are forbidden")
+        if item.get("title") != item.get("institution_name") or not str(item.get("id", "")).startswith("universities_"):
+            errors.append(f"universities.json document {expected_order}: meaningful catalog identity is missing")
+        if str(item.get("id", "")).startswith("universities_demo_"):
+            errors.append(f"universities.json document {expected_order}: generic numeric IDs are forbidden")
+
+    for filename in ("finance.json", "stocks.json"):
+        for index, item in enumerate(fixtures[filename]["documents"], start=1):
+            if "not investment" not in str(item.get("data_notice", "")):
+                errors.append(f"{filename} document {index}: financial disclaimer is missing")
+
+    if errors:
+        raise ValueError("Public benchmark fixture validation failed:\n- " + "\n- ".join(errors))
+
+
 def main() -> None:
     OUTPUT.mkdir(parents=True, exist_ok=True)
+    fixtures = build_all()
+    validate_public_fixtures(fixtures)
     write(
         "_globals.json",
         {
-            "fixture_version": 2,
+            "fixture_version": 3,
             "fixture_notice": SAFE_NOTICE,
             "synonyms": [
                 {
@@ -1020,7 +1244,7 @@ def main() -> None:
             "stopwords": ["benchmark", "collection", "document", "content", "inserted"],
         },
     )
-    for filename, payload in build_all().items():
+    for filename, payload in fixtures.items():
         write(filename, payload)
 
 

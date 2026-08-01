@@ -1,6 +1,6 @@
 {
-  "fixture_version": 2,
-  "fixture_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+  "fixture_version": 3,
+  "fixture_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
   "collection": "books",
   "count": 10,
   "tags": [
@@ -28,7 +28,7 @@
         "Example Author Mira North",
         "literary mystery"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "author_name": "Example Author Mira North",
       "genre": "literary mystery",
@@ -48,7 +48,7 @@
         "Example Author Theo Vale",
         "science fiction"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "author_name": "Example Author Theo Vale",
       "genre": "science fiction",
@@ -68,7 +68,7 @@
         "Example Author Lena Pike",
         "essay collection"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "author_name": "Example Author Lena Pike",
       "genre": "essay collection",
@@ -88,7 +88,7 @@
         "Example Author Omar Reed",
         "family mystery"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "author_name": "Example Author Omar Reed",
       "genre": "family mystery",
@@ -108,7 +108,7 @@
         "Example Author Hana Sol",
         "popular science"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "author_name": "Example Author Hana Sol",
       "genre": "popular science",
@@ -128,7 +128,7 @@
         "Example Author Caleb Fern",
         "cozy mystery"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "author_name": "Example Author Caleb Fern",
       "genre": "cozy mystery",
@@ -148,7 +148,7 @@
         "Example Author Esme Lark",
         "cookbook"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "author_name": "Example Author Esme Lark",
       "genre": "cookbook",
@@ -168,7 +168,7 @@
         "Example Author Jun Marrow",
         "workplace fiction"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "author_name": "Example Author Jun Marrow",
       "genre": "workplace fiction",
@@ -188,7 +188,7 @@
         "Example Author Farah Cedar",
         "education"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "author_name": "Example Author Farah Cedar",
       "genre": "education",
@@ -208,7 +208,7 @@
         "Example Author Avery Kestrel",
         "speculative stories"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "author_name": "Example Author Avery Kestrel",
       "genre": "speculative stories",
@@ -216,6 +216,12 @@
       "publication_year": 2023
     }
   ],
+  "metadata": {
+    "_fixture_kind": "synthetic_public_demo",
+    "_fixture_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+    "_demo_description": "Fictional book records with useful genre, author, theme, and catalog metadata.",
+    "_demo_queries": "climate fiction | oral history archive | mystery novel"
+  },
   "fields": [
     {
       "name": "author_name",
@@ -234,10 +240,6 @@
       "type": "int32"
     }
   ],
-  "metadata": {
-    "_fixture_kind": "synthetic_demo",
-    "_fixture_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market."
-  },
   "synonyms": [
     {
       "id": "books_syn_book",

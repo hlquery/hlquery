@@ -1,8 +1,8 @@
 {
-  "fixture_version": 2,
-  "fixture_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+  "fixture_version": 3,
+  "fixture_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
   "collection": "art",
-  "count": 10,
+  "count": 20,
   "tags": [
     "painting",
     "sculpture",
@@ -27,7 +27,7 @@
         "oil and cold wax on canvas",
         "artwork"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "artist_name": "Example Artist Aster Vale",
       "medium": "oil and cold wax on canvas",
@@ -48,7 +48,7 @@
         "screen print on paper",
         "artwork"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "artist_name": "Example Artist Rowan Pike",
       "medium": "screen print on paper",
@@ -69,7 +69,7 @@
         "recycled steel and ceramic",
         "artwork"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "artist_name": "Example Artist Imani North",
       "medium": "recycled steel and ceramic",
@@ -90,7 +90,7 @@
         "photographic collage",
         "artwork"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "artist_name": "Example Artist Luca Fern",
       "medium": "photographic collage",
@@ -111,7 +111,7 @@
         "cotton thread, wood, and light",
         "artwork"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "artist_name": "Example Artist Nia Sol",
       "medium": "cotton thread, wood, and light",
@@ -132,7 +132,7 @@
         "graphite and ink",
         "artwork"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "artist_name": "Example Artist Theo March",
       "medium": "graphite and ink",
@@ -153,7 +153,7 @@
         "acrylic mural",
         "artwork"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "artist_name": "Example Artist Esme Calder",
       "medium": "acrylic mural",
@@ -174,7 +174,7 @@
         "painted aluminum",
         "artwork"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "artist_name": "Example Artist Omar Venn",
       "medium": "painted aluminum",
@@ -195,7 +195,7 @@
         "charcoal and pastel",
         "artwork"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "artist_name": "Example Artist Hana Reed",
       "medium": "charcoal and pastel",
@@ -216,15 +216,233 @@
         "paper, fabric, and projection",
         "artwork"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "artist_name": "Example Artist Mateo Lark",
       "medium": "paper, fabric, and projection",
       "movement": "participatory installation",
       "year": 2024,
       "exhibition_context": "fictional public gallery study"
+    },
+    {
+      "id": "art_river-grammar-demo-print-series",
+      "title": "River Grammar (Demo Print Series)",
+      "content": "Twelve woodcuts translate bends, currents, and floodplain marks into a visual vocabulary of repeated lines and open space. The catalog note discusses medium, composition, installation requirements, and the intended gallery experience.",
+      "description": "Synthetic art demo record: River Grammar (Demo Print Series).",
+      "labels": [
+        "art",
+        "demo",
+        "synthetic",
+        "contemporary printmaking",
+        "woodcut and water-based ink",
+        "artwork"
+      ],
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+      "is_synthetic": true,
+      "artist_name": "Example Artist Amara Flint",
+      "medium": "woodcut and water-based ink",
+      "movement": "contemporary printmaking",
+      "year": 2017,
+      "exhibition_context": "fictional public gallery study"
+    },
+    {
+      "id": "art_library-of-unfinished-colors-demo-installation",
+      "title": "Library of Unfinished Colors (Demo Installation)",
+      "content": "Rows of fictional pigment samples invite visitors to compare how names, lighting, and neighboring colors change perception. The catalog note discusses medium, composition, installation requirements, and the intended gallery experience.",
+      "description": "Synthetic art demo record: Library of Unfinished Colors (Demo Installation).",
+      "labels": [
+        "art",
+        "demo",
+        "synthetic",
+        "conceptual installation",
+        "pigment, glass, and labeled shelves",
+        "artwork"
+      ],
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+      "is_synthetic": true,
+      "artist_name": "Example Artist Soren Field",
+      "medium": "pigment, glass, and labeled shelves",
+      "movement": "conceptual installation",
+      "year": 2022,
+      "exhibition_context": "fictional public gallery study"
+    },
+    {
+      "id": "art_three-chairs-for-a-long-conversation-demo-sculpture",
+      "title": "Three Chairs for a Long Conversation (Demo Sculpture)",
+      "content": "Three connected seats turn ordinary furniture into a study of distance, listening, and the physical design of conversation. The catalog note discusses medium, composition, installation requirements, and the intended gallery experience.",
+      "description": "Synthetic art demo record: Three Chairs for a Long Conversation (Demo Sculpture).",
+      "labels": [
+        "art",
+        "demo",
+        "synthetic",
+        "social sculpture",
+        "carved ash and woven cord",
+        "artwork"
+      ],
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+      "is_synthetic": true,
+      "artist_name": "Example Artist Priya Moss",
+      "medium": "carved ash and woven cord",
+      "movement": "social sculpture",
+      "year": 2020,
+      "exhibition_context": "fictional public gallery study"
+    },
+    {
+      "id": "art_night-bus-palimpsest-demo-artwork",
+      "title": "Night Bus Palimpsest (Demo Artwork)",
+      "content": "Erased figures, route numbers, and reflected windows accumulate into an imagined record of one late-night bus journey. The catalog note discusses medium, composition, installation requirements, and the intended gallery experience.",
+      "description": "Synthetic art demo record: Night Bus Palimpsest (Demo Artwork).",
+      "labels": [
+        "art",
+        "demo",
+        "synthetic",
+        "narrative drawing",
+        "gouache and graphite on paper",
+        "artwork"
+      ],
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+      "is_synthetic": true,
+      "artist_name": "Example Artist Felix Arroyo",
+      "medium": "gouache and graphite on paper",
+      "movement": "narrative drawing",
+      "year": 2019,
+      "exhibition_context": "fictional public gallery study"
+    },
+    {
+      "id": "art_seed-vault-for-sidewalk-plants-demo-archive",
+      "title": "Seed Vault for Sidewalk Plants (Demo Archive)",
+      "content": "A fictional neighborhood archive pairs resilient sidewalk plants with drawings and short recordings about observation and care. The catalog note discusses medium, composition, installation requirements, and the intended gallery experience.",
+      "description": "Synthetic art demo record: Seed Vault for Sidewalk Plants (Demo Archive).",
+      "labels": [
+        "art",
+        "demo",
+        "synthetic",
+        "ecological archive art",
+        "pressed plants, paper, and audio",
+        "artwork"
+      ],
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+      "is_synthetic": true,
+      "artist_name": "Example Artist Leila Brooks",
+      "medium": "pressed plants, paper, and audio",
+      "movement": "ecological archive art",
+      "year": 2024,
+      "exhibition_context": "fictional public gallery study"
+    },
+    {
+      "id": "art_blue-room-four-temperatures-demo-painting",
+      "title": "Blue Room, Four Temperatures (Demo Painting)",
+      "content": "Four panels use closely related blues to show how surface preparation and surrounding light can make one color feel warm or cool. The catalog note discusses medium, composition, installation requirements, and the intended gallery experience.",
+      "description": "Synthetic art demo record: Blue Room, Four Temperatures (Demo Painting).",
+      "labels": [
+        "art",
+        "demo",
+        "synthetic",
+        "color field painting",
+        "egg tempera on wood panel",
+        "artwork"
+      ],
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+      "is_synthetic": true,
+      "artist_name": "Example Artist Kenji Hale",
+      "medium": "egg tempera on wood panel",
+      "movement": "color field painting",
+      "year": 2018,
+      "exhibition_context": "fictional public gallery study"
+    },
+    {
+      "id": "art_public-steps-private-rhythms-demo-video-work",
+      "title": "Public Steps, Private Rhythms (Demo Video Work)",
+      "content": "A staged sequence of fictional pedestrians focuses on repetition, pause, and the choreography created by shared civic space. The catalog note discusses medium, composition, installation requirements, and the intended gallery experience.",
+      "description": "Synthetic art demo record: Public Steps, Private Rhythms (Demo Video Work).",
+      "labels": [
+        "art",
+        "demo",
+        "synthetic",
+        "observational media art",
+        "three-channel silent video",
+        "artwork"
+      ],
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+      "is_synthetic": true,
+      "artist_name": "Example Artist Marisol Quill",
+      "medium": "three-channel silent video",
+      "movement": "observational media art",
+      "year": 2021,
+      "exhibition_context": "fictional public gallery study"
+    },
+    {
+      "id": "art_repair-table-no-6-demo-textile-work",
+      "title": "Repair Table No. 6 (Demo Textile Work)",
+      "content": "Visible stitches preserve wear instead of hiding it, presenting repair as both a practical technique and a record of use. The catalog note discusses medium, composition, installation requirements, and the intended gallery experience.",
+      "description": "Synthetic art demo record: Repair Table No. 6 (Demo Textile Work).",
+      "labels": [
+        "art",
+        "demo",
+        "synthetic",
+        "textile art",
+        "mended cotton and linen",
+        "artwork"
+      ],
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+      "is_synthetic": true,
+      "artist_name": "Example Artist Dae Winter",
+      "medium": "mended cotton and linen",
+      "movement": "textile art",
+      "year": 2023,
+      "exhibition_context": "fictional public gallery study"
+    },
+    {
+      "id": "art_weather-station-for-imagined-islands-demo-sculpture",
+      "title": "Weather Station for Imagined Islands (Demo Sculpture)",
+      "content": "Nonfunctional instruments describe the winds and rainfall of fictional islands while asking how measurement shapes a place. The catalog note discusses medium, composition, installation requirements, and the intended gallery experience.",
+      "description": "Synthetic art demo record: Weather Station for Imagined Islands (Demo Sculpture).",
+      "labels": [
+        "art",
+        "demo",
+        "synthetic",
+        "speculative sculpture",
+        "brass, paper, and hand-built sensors",
+        "artwork"
+      ],
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+      "is_synthetic": true,
+      "artist_name": "Example Artist Noor Bell",
+      "medium": "brass, paper, and hand-built sensors",
+      "movement": "speculative sculpture",
+      "year": 2022,
+      "exhibition_context": "fictional public gallery study"
+    },
+    {
+      "id": "art_choir-of-small-machines-demo-sound-installation",
+      "title": "Choir of Small Machines (Demo Sound Installation)",
+      "content": "Low-speed motors animate paper surfaces to create a changing rhythm that visitors hear differently as they move through the room. The catalog note discusses medium, composition, installation requirements, and the intended gallery experience.",
+      "description": "Synthetic art demo record: Choir of Small Machines (Demo Sound Installation).",
+      "labels": [
+        "art",
+        "demo",
+        "synthetic",
+        "kinetic sound art",
+        "motors, paper, wood, and speakers",
+        "artwork"
+      ],
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+      "is_synthetic": true,
+      "artist_name": "Example Artist Tomas Grove",
+      "medium": "motors, paper, wood, and speakers",
+      "movement": "kinetic sound art",
+      "year": 2024,
+      "exhibition_context": "fictional public gallery study"
     }
   ],
+  "metadata": {
+    "_fixture_kind": "synthetic_public_demo",
+    "_fixture_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+    "_demo_description": "A fictional museum-style catalog covering painting, sculpture, printmaking, installation, drawing, and public art.",
+    "_demo_queries": "recycled steel sculpture | charcoal portrait | installation about light and memory",
+    "_catalog_scope": "20 fictional artworks and installations",
+    "_catalog_policy": "all artists, artworks, exhibitions, and provenance contexts are fictional"
+  },
   "fields": [
     {
       "name": "artist_name",
@@ -247,10 +465,6 @@
       "type": "string"
     }
   ],
-  "metadata": {
-    "_fixture_kind": "synthetic_demo",
-    "_fixture_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market."
-  },
   "synonyms": [
     {
       "id": "art_syn_artwork",

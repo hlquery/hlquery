@@ -1,6 +1,6 @@
 {
-  "fixture_version": 2,
-  "fixture_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+  "fixture_version": 3,
+  "fixture_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
   "collection": "music",
   "count": 10,
   "tags": [
@@ -29,7 +29,7 @@
         "Example Ensemble Signal Garden",
         "electronic jazz"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "artist_name": "Example Ensemble Signal Garden",
       "genre": "electronic jazz",
@@ -49,7 +49,7 @@
         "Example Artist Lina Vale",
         "chamber pop"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "artist_name": "Example Artist Lina Vale",
       "genre": "chamber pop",
@@ -69,7 +69,7 @@
         "Example Band Common Frequency",
         "indie rock"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "artist_name": "Example Band Common Frequency",
       "genre": "indie rock",
@@ -89,7 +89,7 @@
         "Example Composer Theo North",
         "contemporary classical"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "artist_name": "Example Composer Theo North",
       "genre": "contemporary classical",
@@ -109,7 +109,7 @@
         "Example Radio Cedar FM",
         "eclectic soul"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "artist_name": "Example Radio Cedar FM",
       "genre": "eclectic soul",
@@ -129,7 +129,7 @@
         "Example Artist Hana Reed",
         "ambient electronic"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "artist_name": "Example Artist Hana Reed",
       "genre": "ambient electronic",
@@ -149,7 +149,7 @@
         "Example Artist Marrow Lane",
         "narrative hip-hop"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "artist_name": "Example Artist Marrow Lane",
       "genre": "narrative hip-hop",
@@ -169,7 +169,7 @@
         "Example Trio Orchard Sessions",
         "contemporary folk"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "artist_name": "Example Trio Orchard Sessions",
       "genre": "contemporary folk",
@@ -189,7 +189,7 @@
         "Example Artist Imani Pike",
         "synth pop"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "artist_name": "Example Artist Imani Pike",
       "genre": "synth pop",
@@ -209,7 +209,7 @@
         "Example Collective Rhythm Atlas",
         "instrumental fusion"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "artist_name": "Example Collective Rhythm Atlas",
       "genre": "instrumental fusion",
@@ -217,6 +217,12 @@
       "release_year": 2022
     }
   ],
+  "metadata": {
+    "_fixture_kind": "synthetic_public_demo",
+    "_fixture_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+    "_demo_description": "Fictional releases and performances for artist, genre, instrument, and venue search.",
+    "_demo_queries": "ambient electronic album | community jazz performance | string quartet"
+  },
   "fields": [
     {
       "name": "artist_name",
@@ -235,10 +241,6 @@
       "type": "int32"
     }
   ],
-  "metadata": {
-    "_fixture_kind": "synthetic_demo",
-    "_fixture_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market."
-  },
   "synonyms": [
     {
       "id": "music_syn_music",

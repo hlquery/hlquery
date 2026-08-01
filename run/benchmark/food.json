@@ -1,6 +1,6 @@
 {
-  "fixture_version": 2,
-  "fixture_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+  "fixture_version": 3,
+  "fixture_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
   "collection": "food",
   "count": 10,
   "tags": [
@@ -27,7 +27,7 @@
         "roasted tomato farro bowl",
         "Mediterranean-inspired demo"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "dish": "roasted tomato farro bowl",
       "cuisine": "Mediterranean-inspired demo",
@@ -47,7 +47,7 @@
         "ginger sesame noodle salad",
         "East Asian-inspired demo"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "dish": "ginger sesame noodle salad",
       "cuisine": "East Asian-inspired demo",
@@ -67,7 +67,7 @@
         "smoky black bean tacos",
         "Mexican-inspired demo"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "dish": "smoky black bean tacos",
       "cuisine": "Mexican-inspired demo",
@@ -87,7 +87,7 @@
         "herbed mushroom hand pies",
         "European-inspired demo"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "dish": "herbed mushroom hand pies",
       "cuisine": "European-inspired demo",
@@ -107,7 +107,7 @@
         "coconut lentil stew",
         "South Asian-inspired demo"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "dish": "coconut lentil stew",
       "cuisine": "South Asian-inspired demo",
@@ -127,7 +127,7 @@
         "apple oat crumble",
         "home baking demo"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "dish": "apple oat crumble",
       "cuisine": "home baking demo",
@@ -147,7 +147,7 @@
         "charred corn street salad",
         "street-food-inspired demo"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "dish": "charred corn street salad",
       "cuisine": "street-food-inspired demo",
@@ -167,7 +167,7 @@
         "lemon pea risotto",
         "Italian-inspired demo"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "dish": "lemon pea risotto",
       "cuisine": "Italian-inspired demo",
@@ -187,7 +187,7 @@
         "miso glazed eggplant",
         "Japanese-inspired demo"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "dish": "miso glazed eggplant",
       "cuisine": "Japanese-inspired demo",
@@ -207,7 +207,7 @@
         "seasonal citrus tart",
         "pastry demo"
       ],
-      "data_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.",
+      "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
       "is_synthetic": true,
       "dish": "seasonal citrus tart",
       "cuisine": "pastry demo",
@@ -215,6 +215,12 @@
       "prep_minutes": 75
     }
   ],
+  "metadata": {
+    "_fixture_kind": "synthetic_public_demo",
+    "_fixture_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
+    "_demo_description": "Demonstration recipes with ingredients, cuisine context, method, and preparation time.",
+    "_demo_queries": "lentil coconut recipe | vegetarian street food | citrus dessert"
+  },
   "fields": [
     {
       "name": "ingredients",
@@ -232,9 +238,5 @@
       "name": "prep_minutes",
       "type": "int32"
     }
-  ],
-  "metadata": {
-    "_fixture_kind": "synthetic_demo",
-    "_fixture_notice": "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market."
-  }
+  ]
 }

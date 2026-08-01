@@ -347,9 +347,10 @@ bool LoadCollectionFixture(BenchmarkClient &client, const std::filesystem::path 
           if (!document.contains("labels")) document["labels"] = nlohmann::json::array({name, tag, "demo", "synthetic"}).dump();
           else if (document["labels"].is_array()) document["labels"] = document["labels"].dump();
           if (!document.contains("is_synthetic")) document["is_synthetic"] = true;
-          if (!document.contains("data_notice")) document["data_notice"] = "Synthetic sample data for HLQuery demonstrations; it is not a factual claim about a real person, organization, event, or market.";
+          if (!document.contains("data_notice")) document["data_notice"] = "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.";
           if (!document.contains("embedding")) document["embedding"] = BuildFixtureEmbedding(name, tag, i);
-          if (!document.contains("location")) document["location"] = BuildFixtureLocation(name, i);
+          /* Do not fabricate exact campus coordinates for real university names. */
+          if (!document.contains("location") && name != "universities") document["location"] = BuildFixtureLocation(name, i);
           if (!document.contains("location_name")) document["location_name"] = FixtureLocationName(name);
 
           if (client.UpsertDocumentWithFieldsLocal(name, document))
@@ -382,7 +383,7 @@ bool LoadCollectionFixture(BenchmarkClient &client, const std::filesystem::path 
           }
      }
 
-     std::cout << "✓ Inserted " << inserted << " fake documents into '" << name << "' from " << path.filename().string() << ".\n";
+     std::cout << "✓ Inserted " << inserted << " synthetic demo documents into '" << name << "' from " << path.filename().string() << ".\n";
      if (verbose)
      {
           std::cout << "  ↳ Loaded schema and lexical resources from " << path.string() << ".\n";
