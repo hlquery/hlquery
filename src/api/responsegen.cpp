@@ -173,9 +173,9 @@ std::string SearchAPI::GenerateComprehensiveSearchResponse(const ComprehensiveSe
      JSON << "\"per_page\":" << Result.PerPage << ",";
 
      const int SafePerPage = Result.PerPage > 0 ? Result.PerPage : 1;
-     const std::size_t OutOfSize = Result.OutOf > 0 ? static_cast<std::size_t>(Result.OutOf) : 0;
+     const std::size_t FoundSize = Result.Found > 0 ? static_cast<std::size_t>(Result.Found) : 0;
      const std::size_t PerPageSize = static_cast<std::size_t>(SafePerPage);
-     const std::size_t TotalPagesSize = (OutOfSize + PerPageSize - 1) / PerPageSize;
+     const std::size_t TotalPagesSize = (FoundSize + PerPageSize - 1) / PerPageSize;
      const int TotalPages = (TotalPagesSize > static_cast<std::size_t>(std::numeric_limits<int>::max()))
                                  ? std::numeric_limits<int>::max()
                                  : static_cast<int>(TotalPagesSize);
