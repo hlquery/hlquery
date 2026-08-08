@@ -2775,6 +2775,11 @@ HTTPResponse BenchmarkClient::GetMetrics()
      return MakeRequest("GET", "/metrics");
 }
 
+HTTPResponse BenchmarkClient::GetStorageDiagnostics()
+{
+     return MakeRequest("GET", "/_diagnostics/storage", "", 1, true, 5000);
+}
+
 /* Triggers a counter update on the server. */
 
 HTTPResponse BenchmarkClient::UpdateCounters(const std::string &prefix)
@@ -2791,7 +2796,13 @@ HTTPResponse BenchmarkClient::UpdateCounters(const std::string &prefix)
 
 HTTPResponse BenchmarkClient::FlushSync(const std::string &prefix)
 {
-     return UpdateCounters(prefix);
+     (void)prefix;
+     const nlohmann::json RequestBody = {
+          {"sync_wal", true},
+          {"flush_memtables", false},
+          {"wait_for_compaction", false}
+     };
+     return MakeRequest("POST", "/_admin/storage/durability-barrier", RequestBody.dump(), 1, true, 30000);
 }
 
 /* Encodes a string for use in a URL. */

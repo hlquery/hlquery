@@ -2746,13 +2746,22 @@ HttpResponse SearchAPI::HandleUpdateCounters(const HttpRequest &Request)
           prefix_filter = HealthTrimWhitespace(prefix_it->second);
      }
 
+     bool Success = false;
+
      if (!prefix_filter.empty())
      {
-          HybridStorageManager::GetInstance().UpdateCollectionCountersPrefix(prefix_filter, true);
+          Success = HybridStorageManager::GetInstance().UpdateCollectionCountersPrefix(prefix_filter, true);
      }
      else
      {
-          HybridStorageManager::GetInstance().UpdateCollectionCounters(true);
+          Success = HybridStorageManager::GetInstance().UpdateCollectionCounters(true);
+     }
+
+     if (!Success)
+     {
+          HttpResponse Response(Status::INTERNAL_SERVER_ERROR, StatusText(Status::INTERNAL_SERVER_ERROR), "application/json");
+          Response.Body = "{\"status\":\"error\",\"error\":\"Counter update or storage synchronization failed\"}";
+          return Response;
      }
 
      HttpResponse Response(Status::OK, StatusText(Status::OK), "application/json");

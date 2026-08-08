@@ -1255,6 +1255,14 @@ class SearchAPI
 
      HttpResponse HandleStorageStatus(const HttpRequest &Request);
 
+     /* HandleStorageDiagnostics returns effective runtime durability settings. */
+
+     HttpResponse HandleStorageDiagnostics(const HttpRequest &Request);
+
+     /* HandleDurabilityBarrier synchronizes acknowledged storage writes. */
+
+     HttpResponse HandleDurabilityBarrier(const HttpRequest &Request);
+
      /* ResolveCollectionName resolves aliases to collection names. */
 
      std::string ResolveCollectionName(const std::string &Name);

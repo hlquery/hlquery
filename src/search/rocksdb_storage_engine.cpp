@@ -1469,6 +1469,40 @@ std::string DBManager::GetDBPath() const
      return DBPath;
 }
 
+uint64_t DBManager::GetLatestSequenceNumber() const
+{
+     std::lock_guard<std::mutex> lock(DBValueMutex);
+     return DBValue ? DBValue->GetLatestSequenceNumber() : 0;
+}
+
+std::string DBManager::GetWALSyncMode() const
+{
+     return WALSyncMode;
+}
+
+rocksdb::WriteOptions DBManager::GetEffectiveWriteOptions() const
+{
+     return GetWriteOptions();
+}
+
+rocksdb::Options DBManager::GetEffectiveOptions() const
+{
+     std::lock_guard<std::mutex> lock(DBValueMutex);
+     return OptionsValue;
+}
+
+std::string DBManager::GetLastSyncErrorCode() const
+{
+     std::lock_guard<std::mutex> lock(LastSyncErrorMutex);
+     return LastSyncErrorCode;
+}
+
+std::string DBManager::GetLastSyncErrorMessage() const
+{
+     std::lock_guard<std::mutex> lock(LastSyncErrorMutex);
+     return LastSyncErrorMessage;
+}
+
 /* Get actual number of background threads */
 
 int DBManager::GetBackgroundThreadCount() const

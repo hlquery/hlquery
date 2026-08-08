@@ -242,7 +242,18 @@ std::unordered_map<std::string, std::unordered_map<std::string, std::string>> Pe
 
      for (const auto &Pair : OperationStatsMap)
      {
-          AllStats[Pair.first] = GetOperationStats(Pair.first);
+          const auto &OpStats = Pair.second;
+          auto &Stats = AllStats[Pair.first];
+          Stats["count"] = std::to_string(OpStats.Count);
+          Stats["successful"] = std::to_string(OpStats.Successful);
+          Stats["failed"] = std::to_string(OpStats.Failed);
+          Stats["total_time_ms"] = std::to_string(OpStats.TotalTimeMS);
+          Stats["min_time_ms"] = std::to_string(OpStats.MinTimeMS);
+          Stats["max_time_ms"] = std::to_string(OpStats.MaxTimeMS);
+          Stats["avg_time_ms"] = std::to_string(OpStats.AvgTimeMS);
+          Stats["success_rate"] = OpStats.Count > 0
+                                      ? std::to_string((static_cast<double>(OpStats.Successful) / OpStats.Count) * 100.0)
+                                      : "0.000000";
      }
 
      return AllStats;

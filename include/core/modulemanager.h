@@ -333,6 +333,7 @@ class ModuleManager
      std::string ResolveModulePath(const ServerConfig &Config, const ServerConfig::ModuleLoadEntry &ModuleEntry) const;
 
    public:
+
      /*
       * Validates the logical module name used for config entries and runtime
       * load/unload requests. Paths belong in ModuleLoadEntry::Path, not Name.

@@ -494,7 +494,15 @@ void WriteAdvancedJSON(const std::string &filename, const AdvancedMetrics &metri
                {"wal_sync_mode", metrics.WalSyncMode},
                {"wal_bytes_per_sync", metrics.WalBytesPerSync},
                {"manual_wal_flush", metrics.ManualWalFlush},
-               {"commit_status_code", metrics.CommitStatusCode}};
+               {"verified", metrics.DurabilityVerified},
+               {"filesystem", metrics.StorageFilesystem},
+               {"memory_filesystem", metrics.MemoryFilesystem},
+               {"commit_status_code", metrics.CommitStatusCode},
+               {"barrier_id", metrics.BarrierID},
+               {"barrier_sequence", metrics.BarrierSequence},
+               {"rocksdb_wal_sync_ms", metrics.BarrierWALSyncMS},
+               {"barrier_total_ms", metrics.BarrierTotalMS},
+               {"rocksdb_status", metrics.BarrierRocksDBStatus}};
 
      output["conditions"] =
           {

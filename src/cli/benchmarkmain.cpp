@@ -76,7 +76,54 @@ struct DurabilityConfig
      std::string WalSyncMode = "unknown";
      std::string WalBytesPerSync = "unknown";
      std::string ManualWalFlush = "unknown";
+     std::string UseFsync = "unknown";
+     std::string Filesystem = "unknown";
+     bool MemoryFilesystem = false;
+     std::string Source = "not verified";
 };
+
+bool LoadRuntimeDurabilityConfig(BenchmarkClient &Client, DurabilityConfig &Config, bool AllowMemoryFilesystem)
+{
+     const HTTPResponse Response = Client.GetStorageDiagnostics();
+     if (Response.StatusCode != 200 || Response.Body.empty())
+     {
+          return false;
+     }
+
+     try
+     {
+          const nlohmann::json Diagnostics = nlohmann::json::parse(Response.Body);
+          const auto &WriteOptions = Diagnostics.at("write_options");
+          const auto &DBOptions = Diagnostics.at("db_options");
+
+          Config.WalSyncMode = Diagnostics.value("wal_sync_mode", "unknown");
+          Config.WalBytesPerSync = std::to_string(DBOptions.at("wal_bytes_per_sync").get<uint64_t>());
+          Config.ManualWalFlush = DBOptions.at("manual_wal_flush").get<bool>() ? "true" : "false";
+          Config.UseFsync = DBOptions.at("use_fsync").get<bool>() ? "true" : "false";
+          Config.Filesystem = Diagnostics.at("filesystem").get<std::string>();
+          Config.MemoryFilesystem = Diagnostics.value("storage_is_volatile", false);
+          Config.Source = "/_diagnostics/storage (effective runtime)";
+          if (Config.MemoryFilesystem && AllowMemoryFilesystem)
+          {
+               Config.Source += "; memory filesystem explicitly allowed";
+          }
+
+          const bool WALEnabled = Diagnostics.at("wal_enabled").get<bool>();
+          const bool DisableWAL = WriteOptions.at("disable_wal").get<bool>();
+          const auto &CriticalUnknowns = Diagnostics.at("critical_unknowns");
+          const bool KnownBarrier = Diagnostics.value("durability_barrier", std::string()) == "DBManager::SyncWAL";
+          const bool NoIngestQueue = Diagnostics.value("server_ingest_queue", std::string()) == "none";
+          const bool KnownDatabasePath = !Diagnostics.value("database_path", std::string()).empty();
+          return WALEnabled && !DisableWAL && Config.WalSyncMode != "unknown" &&
+                 CriticalUnknowns.is_array() && CriticalUnknowns.empty() &&
+                 KnownBarrier && NoIngestQueue && KnownDatabasePath &&
+                 (!Config.MemoryFilesystem || AllowMemoryFilesystem);
+     }
+     catch (...)
+     {
+          return false;
+     }
+}
 
 std::string TrimWhitespace(const std::string &input)
 {
@@ -2408,6 +2455,7 @@ static void PrintBenchmarkHelp(const char *program_name)
                << "  --durability-config PATH  Load durability settings from config (e.g., run/conf/database.conf)\n"
                << "  --reuse-collections Reuse existing collections instead of deleting/recreating them\n"
                << "  --skip-auth-check  Skip authentication requirement check (useful when auth is disabled)\n"
+               << "  --allow-memory-filesystem  Permit durable-rate output on tmpfs/ramfs (clearly labeled)\n"
                << "  --unorganized      Create an 'unorganized' collection with non-standard schema for testing\n"
                << "  --log-file FILE    Structured log file (JSON lines format)\n"
                << "  --verbose, -v      Show detailed progress information\n"
@@ -2476,6 +2524,7 @@ int main(int argc, char *argv[])
           std::string log_file_val = "";
 
           bool skip_auth_check = false;
+          bool allow_memory_filesystem = false;
           bool create_unorganized_val = false;
           bool ssl_auth_mode = false;
 
@@ -2627,6 +2676,10 @@ int main(int argc, char *argv[])
                else if (arg == "--skip-auth-check")
                {
                     skip_auth_check = true;
+               }
+               else if (arg == "--allow-memory-filesystem")
+               {
+                    allow_memory_filesystem = true;
                }
                else if (arg == "--unorganized")
                {
@@ -3173,19 +3226,27 @@ int main(int argc, char *argv[])
           }
 
           DurabilityConfig durability_config;
-          bool durability_config_loaded = false;
 
           if (!durability_config_path.empty())
           {
-               durability_config_loaded = LoadDurabilityConfig(durability_config_path, durability_config);
+               if (LoadDurabilityConfig(durability_config_path, durability_config))
+               {
+                    durability_config.Source = "--durability-config (client-provided; not runtime verified)";
+               }
           }
+
+          const bool runtime_durability_verified = LoadRuntimeDurabilityConfig(control_client, durability_config,
+                                                                                allow_memory_filesystem);
 
           if (advanced_mode)
           {
-               advanced_metrics.DurabilityConfigPath = durability_config_loaded ? "provided-via-flag" : "";
+               advanced_metrics.DurabilityConfigPath = durability_config.Source;
                advanced_metrics.WalSyncMode = durability_config.WalSyncMode;
                advanced_metrics.WalBytesPerSync = durability_config.WalBytesPerSync;
                advanced_metrics.ManualWalFlush = durability_config.ManualWalFlush;
+               advanced_metrics.DurabilityVerified = false;
+               advanced_metrics.StorageFilesystem = durability_config.Filesystem;
+               advanced_metrics.MemoryFilesystem = durability_config.MemoryFilesystem;
                advanced_metrics.ClientVersion = HLQUERY_VERSION;
                advanced_metrics.ServerVersion = server_version;
           }
@@ -3709,7 +3770,7 @@ int main(int argc, char *argv[])
           else
           {
                std::cout << "\n";
-               PrintBenchmarkValue("Durability", "counter verification + storage sync");
+               PrintBenchmarkValue("Durability", "explicit WAL synchronization barrier");
           }
 
           int64_t flush_duration_ms = 0;
@@ -3727,9 +3788,38 @@ int main(int argc, char *argv[])
                flush_status_code = flush_resp.StatusCode;
                commit_end_time_val = flush_end;
 
+               if (flush_status_code == 200 || flush_status_code == 201)
+               {
+                    try
+                    {
+                         const nlohmann::json Barrier = nlohmann::json::parse(flush_resp.Body);
+                         if (!Barrier.value("success", false) || Barrier.value("rocksdb_status", std::string()) != "OK")
+                         {
+                              flush_status_code = 500;
+                         }
+                         if (advanced_mode)
+                         {
+                              advanced_metrics.BarrierID = Barrier.value("barrier_id", std::string());
+                              advanced_metrics.BarrierSequence = Barrier.value("sequence", uint64_t{0});
+                              advanced_metrics.BarrierWALSyncMS = Barrier.value("rocksdb_wal_sync_ms", 0.0);
+                              advanced_metrics.BarrierTotalMS = Barrier.value("total_ms", 0.0);
+                              advanced_metrics.BarrierRocksDBStatus = Barrier.value("rocksdb_status", std::string());
+                         }
+                    }
+                    catch (...)
+                    {
+                         flush_status_code = 500;
+                    }
+               }
+
                if (verbose_mode)
                {
                     std::cout << "  Durability sync duration: " << flush_duration_ms << " ms.\n";
+               }
+
+               if (advanced_mode)
+               {
+                    advanced_metrics.DurabilityVerified = runtime_durability_verified && flush_status_code == 200;
                }
 
                if (flush_resp.StatusCode != 200 && flush_resp.StatusCode != 201 && verbose_mode)
@@ -3754,7 +3844,6 @@ int main(int argc, char *argv[])
           auto end_time_val = Now();
 
           auto ingest_commit_duration_val = std::chrono::duration_cast<std::chrono::milliseconds>(commit_end_time_val - ingest_start_time_val);
-          auto duration_val = std::chrono::duration_cast<std::chrono::milliseconds>(end_time_val - start_time_val);
           auto setup_duration_val = std::chrono::duration_cast<std::chrono::milliseconds>(ingest_start_time_val - start_time_val);
 
           if (advanced_mode)
@@ -3766,9 +3855,10 @@ int main(int argc, char *argv[])
                advanced_metrics.LogicalDocumentBytes = benchmark_document_bytes.load();
                advanced_metrics.TotalEndMS = std::chrono::duration_cast<std::chrono::milliseconds>(end_time_val - start_time_val).count();
 
-               if (duration_val.count() > 0)
+               if (ingest_commit_duration_val.count() > 0)
                {
-                    advanced_metrics.TotalThroughputDocsPerSec = (documents_inserted.load() * 1000.0) / duration_val.count();
+                    advanced_metrics.TotalThroughputDocsPerSec =
+                         (documents_inserted.load() * 1000.0) / ingest_commit_duration_val.count();
                }
           }
 
@@ -3857,13 +3947,13 @@ int main(int argc, char *argv[])
           {
                PrintBenchmarkValue("Ingest rate", "0 docs/sec");
           }
-          if (ingest_commit_duration_val.count() > 0)
+          if (runtime_durability_verified && ingest_commit_duration_val.count() > 0)
           {
                PrintBenchmarkValue("Durable rate", FormatBenchmarkRate(documents_inserted.load() * 1000.0 / ingest_commit_duration_val.count()) + " docs/sec");
           }
           else
           {
-               PrintBenchmarkValue("Durable rate", "0 docs/sec");
+               PrintBenchmarkValue("Durable rate", "NOT VERIFIED");
           }
           if (ingest_duration_ms > 0)
           {
@@ -3890,29 +3980,18 @@ int main(int argc, char *argv[])
           }
           PrintBenchmarkValue("Search indexing", "lazy; first-search index build excluded");
 
-          std::string fsync_mode = "unknown";
-          if (durability_config_loaded)
-          {
-               if (durability_config.WalSyncMode == "none")
-               {
-                    fsync_mode = "off";
-               }
-               else if (durability_config.WalSyncMode != "unknown")
-               {
-                    fsync_mode = "on";
-               }
-          }
-          std::string durability_source = durability_config_loaded
-                                               ? "--durability-config (client-provided)"
-                                               : "not verified (use --durability-config PATH)";
+          const std::string fsync_mode = durability_config.UseFsync;
+          const std::string durability_source = durability_config.Source;
 
           PrintBenchmarkSection("Storage");
           PrintBenchmarkValue("WAL sync mode", durability_config.WalSyncMode);
           PrintBenchmarkValue("WAL bytes/sync", durability_config.WalBytesPerSync);
           PrintBenchmarkValue("Manual WAL flush", durability_config.ManualWalFlush);
           PrintBenchmarkValue("fsync", fsync_mode);
+          PrintBenchmarkValue("Filesystem", durability_config.Filesystem +
+                                                (durability_config.MemoryFilesystem ? " (memory filesystem)" : ""));
           PrintBenchmarkValue("Config source", durability_source);
-          PrintBenchmarkValue("Commit policy", "counter scan + FlushAndSync (status " + std::to_string(flush_status_code) + ")");
+          PrintBenchmarkValue("Commit policy", "explicit SyncWAL barrier (status " + std::to_string(flush_status_code) + ")");
           PrintBenchmarkValue("Run ID", run_id_val);
 
           AdvancedMetrics before_metrics_val;

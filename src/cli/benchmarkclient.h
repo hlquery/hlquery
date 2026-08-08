@@ -229,6 +229,10 @@ class BenchmarkClient
 
      HTTPResponse GetMetrics();
 
+     /* Gets effective runtime storage diagnostics. */
+
+     HTTPResponse GetStorageDiagnostics();
+
      /* Updates counters. */
 
      HTTPResponse UpdateCounters(const std::string &prefix = "");
@@ -340,6 +344,22 @@ struct AdvancedMetrics
      std::string WalBytesPerSync;
 
      std::string ManualWalFlush;
+
+     bool DurabilityVerified = false;
+
+     std::string StorageFilesystem;
+
+     bool MemoryFilesystem = false;
+
+     std::string BarrierID;
+
+     uint64_t BarrierSequence = 0;
+
+     double BarrierWALSyncMS = 0.0;
+
+     double BarrierTotalMS = 0.0;
+
+     std::string BarrierRocksDBStatus;
 
      std::vector<int64_t> CollectionTimings;
 

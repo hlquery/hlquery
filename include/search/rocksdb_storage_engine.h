@@ -295,6 +295,27 @@ class DBManager
 
      std::string GetDBPath() const;
 
+     /* GetLatestSequenceNumber returns RocksDB's latest committed sequence. */
+
+     uint64_t GetLatestSequenceNumber() const;
+
+     /* GetWALSyncMode returns the effective per-write WAL mode. */
+
+     std::string GetWALSyncMode() const;
+
+     /* GetEffectiveWriteOptions returns the options used by storage writes. */
+
+     rocksdb::WriteOptions GetEffectiveWriteOptions() const;
+
+     /* GetEffectiveOptions returns a snapshot of the opened RocksDB options. */
+
+     rocksdb::Options GetEffectiveOptions() const;
+
+     /* Returns the last structured flush or WAL synchronization error. */
+
+     std::string GetLastSyncErrorCode() const;
+     std::string GetLastSyncErrorMessage() const;
+
      /* GetBackgroundThreadCount returns background thread count. */
 
      int GetBackgroundThreadCount() const;

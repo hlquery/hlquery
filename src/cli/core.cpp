@@ -27,8 +27,8 @@
 
 #ifdef HLQUERY_HAS_OPENSSL
 
-#include <openssl/err.h>
-#include <openssl/ssl.h>
+     #include <openssl/err.h>
+     #include <openssl/ssl.h>
 
 #endif
 

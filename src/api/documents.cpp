@@ -2251,22 +2251,6 @@ HttpResponse SearchAPI::HandleBulkImportDocuments(const HttpRequest &Request)
 
                     for (const auto &DocObj : Chunk)
                     {
-                         if (Instance && Instance->Database)
-                         {
-                              std::string DocKey = "doc:" + CollectionName + ":" + DocObj.ID;
-                              std::string ExistingData = Instance->Database->Get(DocKey);
-
-                              if (!ExistingData.empty())
-                              {
-                                   if (Instance && Instance->Logs)
-                                   {
-                                        Instance->Logs->Normal("search_api", "Bulk import fallback: Skipping duplicate document ID '" + DocObj.ID + "' in collection '" + CollectionName + "'.");
-                                   }
-
-                                   continue;
-                              }
-                         }
-
                          try
                          {
                               Document StorageDoc;

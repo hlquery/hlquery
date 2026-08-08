@@ -38,6 +38,7 @@
 class SearchThreadPool
 {
    public:
+
      /* Identifies the workload category served by a pool. */
 
      enum class PoolType
@@ -48,7 +49,8 @@ class SearchThreadPool
           MANAGEMENT
      };
 
-     /* Describes the startup and runtime limits for one pool instance.
+     /* 
+      * Describes the startup and runtime limits for one pool instance.
       * These values control thread count, queueing, and affinity behavior.
       */
 
@@ -532,6 +534,7 @@ class HighPerformanceTask
 class CPUAffinityManager
 {
    public:
+
      /* Default constructor */
 
      CPUAffinityManager() = default;
@@ -594,6 +597,7 @@ class CPUAffinityManager
      }
 
    private:
+
      /* Cached CPU topology information */
 
      CPUTopology Topology;

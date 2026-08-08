@@ -45,7 +45,6 @@ For example, a `products` collection can contain one document per product. You c
 
 **Debian/Ubuntu:**
 ```bash
-$ sudo apt-get update
 $ sudo apt-get install build-essential cmake zlib1g-dev libssl-dev liburing-dev
 ```
 

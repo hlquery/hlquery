@@ -295,8 +295,8 @@ class HybridStorageManager
 
      /* UpdateCollectionCounters updates collection counters. */
 
-     void UpdateCollectionCounters(bool force = false);
-     void UpdateCollectionCountersPrefix(const std::string &prefix, bool force = false);
+     bool UpdateCollectionCounters(bool force = false);
+     bool UpdateCollectionCountersPrefix(const std::string &prefix, bool force = false);
 
      /* SaveDataToDisk persists data to disk. */
 
