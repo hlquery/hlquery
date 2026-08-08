@@ -8,15 +8,17 @@ benchmark document generator, naming, payload shape, and performance workload
 are unchanged by these public demo fixtures.
 
 People, organizations other than the named universities, artworks, companies,
-incidents, and market instruments in these fixtures are fictional. University
-names, cities, states, countries, and broad institution types are catalog
-references; their `search_topics` are synthetic query aids. The fixture contains
-no university ranking, score, enrollment count, or invented campus coordinate.
-Finance and stock scenarios contain no live data or recommendations.
+incidents, and market instruments in these fixtures are fictional. The
+`universities` fixture is a dated snapshot of the top 100 United States entries
+in the Webometrics July 2026 country ranking. Its names, locations, published
+ranking fields, edition, and source URL are factual references; `search_topics`
+and descriptive prose are synthetic query aids. It contains no enrollment count
+or invented campus coordinate. Finance and stock scenarios contain no live data
+or recommendations.
 
 Every imported record includes:
 
-- `is_synthetic: true`
+- `is_synthetic: true` when any generated benchmark content is present
 - a human-readable `data_notice`
 - a deterministic four-dimensional `embedding`
 - a `location_name`; wholly synthetic collections also have a demo `location`
@@ -25,13 +27,15 @@ Collection metadata also includes `_demo_description` and `_demo_queries`, so
 public interfaces can explain what each dataset demonstrates and offer useful
 queries instead of exposing filler text. For example:
 
-- `people`: `science educator California`, `civil engineer sustainable materials`
-- `universities`: `science universities`, `public research universities in Texas`
+- `people`: `science educator California`, `senior public health analyst Texas`
+- `universities`: `top US universities`, `webometrics rank under 25`
 - `art`: `recycled steel sculpture`, `charcoal portrait`
+- `science`: `controlled battery discharge test`, `noisy sensor data limitations`
 
 University IDs are derived from institution names, so collection listings show
 useful references such as `universities_harvard-university` instead of numeric
-placeholder IDs. `catalog_order` provides deterministic alphabetical sorting.
+placeholder IDs. `webometrics_us_rank` provides deterministic ranking order;
+`catalog_order` mirrors that rank for compatibility.
 
 Edit the source definitions in
 `tools/generate-benchmark-fixtures.py`, then regenerate the JSON:
@@ -44,8 +48,9 @@ The generator is deterministic, so running it without source changes should not
 change any fixture. It also validates every public document before writing:
 synthetic labels and notices are mandatory, fictional people and organizations
 must retain their explicit markers, contact details are forbidden, university
-IDs and catalog order must be meaningful, fabricated university rankings and
-enrollment counts are forbidden, and finance records retain their disclaimer.
+IDs and catalog order must be meaningful, sourced Webometrics fields must be
+complete, unsourced rankings and enrollment counts are forbidden, and finance
+records retain their disclaimer.
 
 `hlquery-benchmark --fake` loads every `.json` file in this directory in
 lexicographic order. Files whose name starts with `_` define global synonyms and

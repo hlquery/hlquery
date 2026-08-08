@@ -32,7 +32,12 @@
       "is_synthetic": true,
       "field": "environmental science",
       "method": "paired field measurements",
-      "evidence_level": "instructional example"
+      "evidence_level": "instructional example",
+      "topic": "Measuring Urban Heat Islands",
+      "research_question": "How can measuring urban heat islands be investigated with paired field measurements?",
+      "keywords": "Measuring Urban Heat Islands | environmental science | paired field measurements | controls | measurements | uncertainty",
+      "limitations": "Simplified classroom design; results are illustrative and not a peer-reviewed finding.",
+      "search_text": "Measuring Urban Heat Islands | environmental science | paired field measurements | A synthetic field-study design compares shaded and unshaded temperature sensors while controlling for time, surface material, and instrument calibration. | Simplified classroom design; results are illustrative and not a peer-reviewed finding."
     },
     {
       "id": "science_plant-growth-under-different-light-colors-demo-experiment",
@@ -51,7 +56,12 @@
       "is_synthetic": true,
       "field": "biology",
       "method": "controlled growth experiment",
-      "evidence_level": "instructional example"
+      "evidence_level": "instructional example",
+      "topic": "Plant Growth under Different Light Colors",
+      "research_question": "How can plant growth under different light colors be investigated with controlled growth experiment?",
+      "keywords": "Plant Growth under Different Light Colors | biology | controlled growth experiment | controls | measurements | uncertainty",
+      "limitations": "Simplified classroom design; results are illustrative and not a peer-reviewed finding.",
+      "search_text": "Plant Growth under Different Light Colors | biology | controlled growth experiment | A classroom experiment varies light wavelength while keeping water, soil, temperature, and plant age consistent; repeated measurements reduce noise. | Simplified classroom design; results are illustrative and not a peer-reviewed finding."
     },
     {
       "id": "science_tracking-a-pendulum-period-demo-experiment",
@@ -70,7 +80,12 @@
       "is_synthetic": true,
       "field": "physics",
       "method": "repeated timing measurements",
-      "evidence_level": "instructional example"
+      "evidence_level": "instructional example",
+      "topic": "Tracking a Pendulum Period",
+      "research_question": "How can tracking a pendulum period be investigated with repeated timing measurements?",
+      "keywords": "Tracking a Pendulum Period | physics | repeated timing measurements | controls | measurements | uncertainty",
+      "limitations": "Simplified classroom design; results are illustrative and not a peer-reviewed finding.",
+      "search_text": "Tracking a Pendulum Period | physics | repeated timing measurements | Repeated timing at several string lengths illustrates measurement error and the square-root relationship between length and pendulum period. | Simplified classroom design; results are illustrative and not a peer-reviewed finding."
     },
     {
       "id": "science_mapping-a-simple-watershed-demo-field-note",
@@ -89,7 +104,12 @@
       "is_synthetic": true,
       "field": "earth science",
       "method": "mapping and observation",
-      "evidence_level": "instructional example"
+      "evidence_level": "instructional example",
+      "topic": "Mapping a Simple Watershed",
+      "research_question": "How can mapping a simple watershed be investigated with mapping and observation?",
+      "keywords": "Mapping a Simple Watershed | earth science | mapping and observation | controls | measurements | uncertainty",
+      "limitations": "Simplified classroom design; results are illustrative and not a peer-reviewed finding.",
+      "search_text": "Mapping a Simple Watershed | earth science | mapping and observation | Elevation, drainage direction, and observations after rainfall are combined to explain how water moves through a small fictional watershed. | Simplified classroom design; results are illustrative and not a peer-reviewed finding."
     },
     {
       "id": "science_testing-vitamin-c-with-titration-demo-lab",
@@ -108,7 +128,12 @@
       "is_synthetic": true,
       "field": "chemistry",
       "method": "comparative titration",
-      "evidence_level": "instructional example"
+      "evidence_level": "instructional example",
+      "topic": "Testing Vitamin C with Titration",
+      "research_question": "How can testing vitamin c with titration be investigated with comparative titration?",
+      "keywords": "Testing Vitamin C with Titration | chemistry | comparative titration | controls | measurements | uncertainty",
+      "limitations": "Simplified classroom design; results are illustrative and not a peer-reviewed finding.",
+      "search_text": "Testing Vitamin C with Titration | chemistry | comparative titration | A synthetic lab compares juice samples using the same indicator, volumes, endpoint definition, and replicate procedure. | Simplified classroom design; results are illustrative and not a peer-reviewed finding."
     },
     {
       "id": "science_classifying-galaxy-shapes-demo-data-study",
@@ -127,7 +152,12 @@
       "is_synthetic": true,
       "field": "astronomy",
       "method": "image classification",
-      "evidence_level": "instructional example"
+      "evidence_level": "instructional example",
+      "topic": "Classifying Galaxy Shapes",
+      "research_question": "How can classifying galaxy shapes be investigated with image classification?",
+      "keywords": "Classifying Galaxy Shapes | astronomy | image classification | controls | measurements | uncertainty",
+      "limitations": "Simplified classroom design; results are illustrative and not a peer-reviewed finding.",
+      "search_text": "Classifying Galaxy Shapes | astronomy | image classification | A sample image set is labeled by multiple reviewers, then compared to discuss agreement, bias, and uncertainty in visual classification. | Simplified classroom design; results are illustrative and not a peer-reviewed finding."
     },
     {
       "id": "science_simulating-disease-spread-without-personal-data-demo-model",
@@ -146,7 +176,12 @@
       "is_synthetic": true,
       "field": "epidemiology",
       "method": "synthetic network simulation",
-      "evidence_level": "toy model"
+      "evidence_level": "toy model",
+      "topic": "Simulating Disease Spread without Personal Data",
+      "research_question": "How can simulating disease spread without personal data be investigated with synthetic network simulation?",
+      "keywords": "Simulating Disease Spread without Personal Data | epidemiology | synthetic network simulation | controls | measurements | uncertainty",
+      "limitations": "Outcomes depend on synthetic assumptions and must not be interpreted as real-world predictions.",
+      "search_text": "Simulating Disease Spread without Personal Data | epidemiology | synthetic network simulation | A toy network model varies contact rate and recovery time to show how assumptions change outcomes; it does not predict a real outbreak. | Outcomes depend on synthetic assumptions and must not be interpreted as real-world predictions."
     },
     {
       "id": "science_replicating-a-memory-recall-task-demo-study",
@@ -165,7 +200,12 @@
       "is_synthetic": true,
       "field": "cognitive science",
       "method": "randomized recall task",
-      "evidence_level": "instructional example"
+      "evidence_level": "instructional example",
+      "topic": "Replicating a Memory Recall Task",
+      "research_question": "How can replicating a memory recall task be investigated with randomized recall task?",
+      "keywords": "Replicating a Memory Recall Task | cognitive science | randomized recall task | controls | measurements | uncertainty",
+      "limitations": "Simplified classroom design; results are illustrative and not a peer-reviewed finding.",
+      "search_text": "Replicating a Memory Recall Task | cognitive science | randomized recall task | A fictional protocol randomizes word-list order and records aggregate recall to demonstrate preregistration, controls, and replication. | Simplified classroom design; results are illustrative and not a peer-reviewed finding."
     },
     {
       "id": "science_comparing-battery-discharge-curves-demo-engineering-test",
@@ -184,7 +224,12 @@
       "is_synthetic": true,
       "field": "materials engineering",
       "method": "controlled discharge test",
-      "evidence_level": "synthetic measurements"
+      "evidence_level": "synthetic measurements",
+      "topic": "Comparing Battery Discharge Curves",
+      "research_question": "How can comparing battery discharge curves be investigated with controlled discharge test?",
+      "keywords": "Comparing Battery Discharge Curves | materials engineering | controlled discharge test | controls | measurements | uncertainty",
+      "limitations": "Measurements are generated for demonstration and do not characterize commercial products.",
+      "search_text": "Comparing Battery Discharge Curves | materials engineering | controlled discharge test | Synthetic voltage readings under fixed loads demonstrate sampling intervals, repeat trials, and cautious comparison of storage behavior. | Measurements are generated for demonstration and do not characterize commercial products."
     },
     {
       "id": "science_finding-patterns-in-noisy-sensor-data-demo-analysis",
@@ -203,16 +248,25 @@
       "is_synthetic": true,
       "field": "data science",
       "method": "synthetic data analysis",
-      "evidence_level": "toy dataset"
+      "evidence_level": "toy dataset",
+      "topic": "Finding Patterns in Noisy Sensor Data",
+      "research_question": "How can finding patterns in noisy sensor data be investigated with synthetic data analysis?",
+      "keywords": "Finding Patterns in Noisy Sensor Data | data science | synthetic data analysis | controls | measurements | uncertainty",
+      "limitations": "The generated sample is small and intended only to demonstrate an analysis workflow.",
+      "search_text": "Finding Patterns in Noisy Sensor Data | data science | synthetic data analysis | A generated dataset is cleaned, visualized, and checked for outliers before a simple model is evaluated on held-out samples. | The generated sample is small and intended only to demonstrate an analysis workflow."
     }
   ],
   "metadata": {
     "_fixture_kind": "synthetic_public_demo",
     "_fixture_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
-    "_demo_description": "Instructional research examples that explain methods, controls, evidence, and uncertainty.",
-    "_demo_queries": "battery discharge experiment | urban heat measurements | noisy sensor analysis"
+    "_demo_description": "Instructional research records with explicit topics, questions, methods, evidence levels, keywords, controls, and limitations.",
+    "_demo_queries": "controlled battery discharge test | urban heat field measurements | noisy sensor data limitations"
   },
   "fields": [
+    {
+      "name": "topic",
+      "type": "string"
+    },
     {
       "name": "field",
       "type": "string"
@@ -224,6 +278,54 @@
     {
       "name": "evidence_level",
       "type": "string"
+    },
+    {
+      "name": "research_question",
+      "type": "string"
+    },
+    {
+      "name": "keywords",
+      "type": "string"
+    },
+    {
+      "name": "limitations",
+      "type": "string"
+    },
+    {
+      "name": "search_text",
+      "type": "string"
+    }
+  ],
+  "synonyms": [
+    {
+      "id": "science_syn_experiment",
+      "root": "experiment",
+      "synonyms": [
+        "study",
+        "test",
+        "investigation",
+        "trial"
+      ]
+    },
+    {
+      "id": "science_syn_method",
+      "root": "method",
+      "synonyms": [
+        "methodology",
+        "procedure",
+        "protocol",
+        "approach"
+      ]
+    },
+    {
+      "id": "science_syn_evidence",
+      "root": "evidence",
+      "synonyms": [
+        "results",
+        "observations",
+        "findings",
+        "measurements"
+      ]
     }
   ]
 }

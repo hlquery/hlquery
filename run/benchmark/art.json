@@ -17,7 +17,7 @@
     {
       "id": "art_tidal-memory-no-3-demo-artwork",
       "title": "Tidal Memory No. 3 (Demo Artwork)",
-      "content": "Layered blue and umber fields use scraped edges and repeated arcs to explore how coastal memories change over time. The catalog note discusses medium, composition, installation requirements, and the intended gallery experience.",
+      "content": "Layered blue and umber fields use scraped edges and repeated arcs to explore how coastal memories change over time. The catalog note identifies the artist, medium, movement, date, visual themes, and display context.",
       "description": "Synthetic art demo record: Tidal Memory No. 3 (Demo Artwork).",
       "labels": [
         "art",
@@ -32,13 +32,16 @@
       "artist_name": "Example Artist Aster Vale",
       "medium": "oil and cold wax on canvas",
       "movement": "contemporary abstraction",
+      "artwork_type": "artwork",
+      "themes": "contemporary abstraction | oil and cold wax on canvas | composition | gallery experience",
+      "search_text": "Tidal Memory No. 3 (Demo Artwork) | Example Artist Aster Vale | oil and cold wax on canvas | contemporary abstraction | artwork | Layered blue and umber fields use scraped edges and repeated arcs to explore how coastal memories change over time.",
       "year": 2021,
       "exhibition_context": "fictional public gallery study"
     },
     {
       "id": "art_transit-lines-at-dusk-demo-artwork",
       "title": "Transit Lines at Dusk (Demo Artwork)",
-      "content": "Overlapping route diagrams and warm color blocks turn an imagined evening commute into a study of rhythm and wayfinding. The catalog note discusses medium, composition, installation requirements, and the intended gallery experience.",
+      "content": "Overlapping route diagrams and warm color blocks turn an imagined evening commute into a study of rhythm and wayfinding. The catalog note identifies the artist, medium, movement, date, visual themes, and display context.",
       "description": "Synthetic art demo record: Transit Lines at Dusk (Demo Artwork).",
       "labels": [
         "art",
@@ -53,13 +56,16 @@
       "artist_name": "Example Artist Rowan Pike",
       "medium": "screen print on paper",
       "movement": "urban graphic art",
+      "artwork_type": "artwork",
+      "themes": "urban graphic art | screen print on paper | composition | gallery experience",
+      "search_text": "Transit Lines at Dusk (Demo Artwork) | Example Artist Rowan Pike | screen print on paper | urban graphic art | artwork | Overlapping route diagrams and warm color blocks turn an imagined evening commute into a study of rhythm and wayfinding.",
       "year": 2019,
       "exhibition_context": "fictional public gallery study"
     },
     {
       "id": "art_the-listening-garden-demo-sculpture",
       "title": "The Listening Garden (Demo Sculpture)",
-      "content": "Curved steel stems hold ceramic forms at different heights so wind and visitor movement continually alter the installation. The catalog note discusses medium, composition, installation requirements, and the intended gallery experience.",
+      "content": "Curved steel stems hold ceramic forms at different heights so wind and visitor movement continually alter the installation. The catalog note identifies the artist, medium, movement, date, visual themes, and display context.",
       "description": "Synthetic art demo record: The Listening Garden (Demo Sculpture).",
       "labels": [
         "art",
@@ -67,6 +73,7 @@
         "synthetic",
         "environmental sculpture",
         "recycled steel and ceramic",
+        "sculpture",
         "artwork"
       ],
       "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
@@ -74,13 +81,16 @@
       "artist_name": "Example Artist Imani North",
       "medium": "recycled steel and ceramic",
       "movement": "environmental sculpture",
+      "artwork_type": "sculpture",
+      "themes": "environmental sculpture | recycled steel and ceramic | composition | gallery experience",
+      "search_text": "The Listening Garden (Demo Sculpture) | Example Artist Imani North | recycled steel and ceramic | environmental sculpture | sculpture | Curved steel stems hold ceramic forms at different heights so wind and visitor movement continually alter the installation.",
       "year": 2023,
       "exhibition_context": "fictional public gallery study"
     },
     {
       "id": "art_archive-of-small-windows-demo-artwork",
       "title": "Archive of Small Windows (Demo Artwork)",
-      "content": "Fictional neighborhood photographs are arranged as a modular facade that invites viewers to compare private and public space. The catalog note discusses medium, composition, installation requirements, and the intended gallery experience.",
+      "content": "Fictional neighborhood photographs are arranged as a modular facade that invites viewers to compare private and public space. The catalog note identifies the artist, medium, movement, date, visual themes, and display context.",
       "description": "Synthetic art demo record: Archive of Small Windows (Demo Artwork).",
       "labels": [
         "art",
@@ -95,13 +105,16 @@
       "artist_name": "Example Artist Luca Fern",
       "medium": "photographic collage",
       "movement": "documentary collage",
+      "artwork_type": "artwork",
+      "themes": "documentary collage | photographic collage | composition | gallery experience",
+      "search_text": "Archive of Small Windows (Demo Artwork) | Example Artist Luca Fern | photographic collage | documentary collage | artwork | Fictional neighborhood photographs are arranged as a modular facade that invites viewers to compare private and public space.",
       "year": 2020,
       "exhibition_context": "fictional public gallery study"
     },
     {
       "id": "art_red-thread-assembly-demo-installation",
       "title": "Red Thread Assembly (Demo Installation)",
-      "content": "A suspended grid of red thread casts shifting shadows and demonstrates how lighting can become part of a sculptural composition. The catalog note discusses medium, composition, installation requirements, and the intended gallery experience.",
+      "content": "A suspended grid of red thread casts shifting shadows and demonstrates how lighting can become part of a sculptural composition. The catalog note identifies the artist, medium, movement, date, visual themes, and display context.",
       "description": "Synthetic art demo record: Red Thread Assembly (Demo Installation).",
       "labels": [
         "art",
@@ -109,6 +122,7 @@
         "synthetic",
         "site-specific installation",
         "cotton thread, wood, and light",
+        "installation",
         "artwork"
       ],
       "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
@@ -116,13 +130,16 @@
       "artist_name": "Example Artist Nia Sol",
       "medium": "cotton thread, wood, and light",
       "movement": "site-specific installation",
+      "artwork_type": "installation",
+      "themes": "site-specific installation | cotton thread, wood, and light | composition | gallery experience",
+      "search_text": "Red Thread Assembly (Demo Installation) | Example Artist Nia Sol | cotton thread, wood, and light | site-specific installation | installation | A suspended grid of red thread casts shifting shadows and demonstrates how lighting can become part of a sculptural composition.",
       "year": 2024,
       "exhibition_context": "fictional public gallery study"
     },
     {
       "id": "art_quiet-machinery-demo-artwork",
       "title": "Quiet Machinery (Demo Artwork)",
-      "content": "Detailed fictional machine parts gradually dissolve into hand-drawn marks, contrasting technical precision with human gesture. The catalog note discusses medium, composition, installation requirements, and the intended gallery experience.",
+      "content": "Detailed fictional machine parts gradually dissolve into hand-drawn marks, contrasting technical precision with human gesture. The catalog note identifies the artist, medium, movement, date, visual themes, and display context.",
       "description": "Synthetic art demo record: Quiet Machinery (Demo Artwork).",
       "labels": [
         "art",
@@ -137,13 +154,16 @@
       "artist_name": "Example Artist Theo March",
       "medium": "graphite and ink",
       "movement": "industrial drawing",
+      "artwork_type": "artwork",
+      "themes": "industrial drawing | graphite and ink | composition | gallery experience",
+      "search_text": "Quiet Machinery (Demo Artwork) | Example Artist Theo March | graphite and ink | industrial drawing | artwork | Detailed fictional machine parts gradually dissolve into hand-drawn marks, contrasting technical precision with human gesture.",
       "year": 2018,
       "exhibition_context": "fictional public gallery study"
     },
     {
       "id": "art_after-the-rain-market-demo-mural",
       "title": "After the Rain Market (Demo Mural)",
-      "content": "A fictional market scene uses reflective pavement, bright produce, and multiple viewpoints to practice large-scale visual storytelling. The catalog note discusses medium, composition, installation requirements, and the intended gallery experience.",
+      "content": "A fictional market scene uses reflective pavement, bright produce, and multiple viewpoints to practice large-scale visual storytelling. The catalog note identifies the artist, medium, movement, date, visual themes, and display context.",
       "description": "Synthetic art demo record: After the Rain Market (Demo Mural).",
       "labels": [
         "art",
@@ -151,6 +171,7 @@
         "synthetic",
         "community muralism",
         "acrylic mural",
+        "mural",
         "artwork"
       ],
       "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
@@ -158,13 +179,16 @@
       "artist_name": "Example Artist Esme Calder",
       "medium": "acrylic mural",
       "movement": "community muralism",
+      "artwork_type": "mural",
+      "themes": "community muralism | acrylic mural | composition | gallery experience",
+      "search_text": "After the Rain Market (Demo Mural) | Example Artist Esme Calder | acrylic mural | community muralism | mural | A fictional market scene uses reflective pavement, bright produce, and multiple viewpoints to practice large-scale visual storytelling.",
       "year": 2022,
       "exhibition_context": "fictional public gallery study"
     },
     {
       "id": "art_folded-horizon-demo-sculpture",
       "title": "Folded Horizon (Demo Sculpture)",
-      "content": "Angular planes change from green to gold as viewers move around the work, emphasizing perspective and negative space. The catalog note discusses medium, composition, installation requirements, and the intended gallery experience.",
+      "content": "Angular planes change from green to gold as viewers move around the work, emphasizing perspective and negative space. The catalog note identifies the artist, medium, movement, date, visual themes, and display context.",
       "description": "Synthetic art demo record: Folded Horizon (Demo Sculpture).",
       "labels": [
         "art",
@@ -172,6 +196,7 @@
         "synthetic",
         "geometric sculpture",
         "painted aluminum",
+        "sculpture",
         "artwork"
       ],
       "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
@@ -179,13 +204,16 @@
       "artist_name": "Example Artist Omar Venn",
       "medium": "painted aluminum",
       "movement": "geometric sculpture",
+      "artwork_type": "sculpture",
+      "themes": "geometric sculpture | painted aluminum | composition | gallery experience",
+      "search_text": "Folded Horizon (Demo Sculpture) | Example Artist Omar Venn | painted aluminum | geometric sculpture | sculpture | Angular planes change from green to gold as viewers move around the work, emphasizing perspective and negative space.",
       "year": 2021,
       "exhibition_context": "fictional public gallery study"
     },
     {
       "id": "art_portrait-with-borrowed-light-demo-artwork",
       "title": "Portrait with Borrowed Light (Demo Artwork)",
-      "content": "A fictional sitter is rendered with soft charcoal and a narrow band of pastel to examine focus, expression, and reflected light. The catalog note discusses medium, composition, installation requirements, and the intended gallery experience.",
+      "content": "A fictional sitter is rendered with soft charcoal and a narrow band of pastel to examine focus, expression, and reflected light. The catalog note identifies the artist, medium, movement, date, visual themes, and display context.",
       "description": "Synthetic art demo record: Portrait with Borrowed Light (Demo Artwork).",
       "labels": [
         "art",
@@ -200,13 +228,16 @@
       "artist_name": "Example Artist Hana Reed",
       "medium": "charcoal and pastel",
       "movement": "figurative portraiture",
+      "artwork_type": "artwork",
+      "themes": "figurative portraiture | charcoal and pastel | composition | gallery experience",
+      "search_text": "Portrait with Borrowed Light (Demo Artwork) | Example Artist Hana Reed | charcoal and pastel | figurative portraiture | artwork | A fictional sitter is rendered with soft charcoal and a narrow band of pastel to examine focus, expression, and reflected light.",
       "year": 2023,
       "exhibition_context": "fictional public gallery study"
     },
     {
       "id": "art_common-ground-map-demo-installation",
       "title": "Common Ground Map (Demo Installation)",
-      "content": "Visitors can add fictional routes and landmarks to a projected map, creating a changing record of shared spatial imagination. The catalog note discusses medium, composition, installation requirements, and the intended gallery experience.",
+      "content": "Visitors can add fictional routes and landmarks to a projected map, creating a changing record of shared spatial imagination. The catalog note identifies the artist, medium, movement, date, visual themes, and display context.",
       "description": "Synthetic art demo record: Common Ground Map (Demo Installation).",
       "labels": [
         "art",
@@ -214,6 +245,7 @@
         "synthetic",
         "participatory installation",
         "paper, fabric, and projection",
+        "installation",
         "artwork"
       ],
       "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
@@ -221,13 +253,16 @@
       "artist_name": "Example Artist Mateo Lark",
       "medium": "paper, fabric, and projection",
       "movement": "participatory installation",
+      "artwork_type": "installation",
+      "themes": "participatory installation | paper, fabric, and projection | composition | gallery experience",
+      "search_text": "Common Ground Map (Demo Installation) | Example Artist Mateo Lark | paper, fabric, and projection | participatory installation | installation | Visitors can add fictional routes and landmarks to a projected map, creating a changing record of shared spatial imagination.",
       "year": 2024,
       "exhibition_context": "fictional public gallery study"
     },
     {
       "id": "art_river-grammar-demo-print-series",
       "title": "River Grammar (Demo Print Series)",
-      "content": "Twelve woodcuts translate bends, currents, and floodplain marks into a visual vocabulary of repeated lines and open space. The catalog note discusses medium, composition, installation requirements, and the intended gallery experience.",
+      "content": "Twelve woodcuts translate bends, currents, and floodplain marks into a visual vocabulary of repeated lines and open space. The catalog note identifies the artist, medium, movement, date, visual themes, and display context.",
       "description": "Synthetic art demo record: River Grammar (Demo Print Series).",
       "labels": [
         "art",
@@ -235,6 +270,7 @@
         "synthetic",
         "contemporary printmaking",
         "woodcut and water-based ink",
+        "print series",
         "artwork"
       ],
       "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
@@ -242,13 +278,16 @@
       "artist_name": "Example Artist Amara Flint",
       "medium": "woodcut and water-based ink",
       "movement": "contemporary printmaking",
+      "artwork_type": "print series",
+      "themes": "contemporary printmaking | woodcut and water-based ink | composition | gallery experience",
+      "search_text": "River Grammar (Demo Print Series) | Example Artist Amara Flint | woodcut and water-based ink | contemporary printmaking | print series | Twelve woodcuts translate bends, currents, and floodplain marks into a visual vocabulary of repeated lines and open space.",
       "year": 2017,
       "exhibition_context": "fictional public gallery study"
     },
     {
       "id": "art_library-of-unfinished-colors-demo-installation",
       "title": "Library of Unfinished Colors (Demo Installation)",
-      "content": "Rows of fictional pigment samples invite visitors to compare how names, lighting, and neighboring colors change perception. The catalog note discusses medium, composition, installation requirements, and the intended gallery experience.",
+      "content": "Rows of fictional pigment samples invite visitors to compare how names, lighting, and neighboring colors change perception. The catalog note identifies the artist, medium, movement, date, visual themes, and display context.",
       "description": "Synthetic art demo record: Library of Unfinished Colors (Demo Installation).",
       "labels": [
         "art",
@@ -256,6 +295,7 @@
         "synthetic",
         "conceptual installation",
         "pigment, glass, and labeled shelves",
+        "installation",
         "artwork"
       ],
       "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
@@ -263,13 +303,16 @@
       "artist_name": "Example Artist Soren Field",
       "medium": "pigment, glass, and labeled shelves",
       "movement": "conceptual installation",
+      "artwork_type": "installation",
+      "themes": "conceptual installation | pigment, glass, and labeled shelves | composition | gallery experience",
+      "search_text": "Library of Unfinished Colors (Demo Installation) | Example Artist Soren Field | pigment, glass, and labeled shelves | conceptual installation | installation | Rows of fictional pigment samples invite visitors to compare how names, lighting, and neighboring colors change perception.",
       "year": 2022,
       "exhibition_context": "fictional public gallery study"
     },
     {
       "id": "art_three-chairs-for-a-long-conversation-demo-sculpture",
       "title": "Three Chairs for a Long Conversation (Demo Sculpture)",
-      "content": "Three connected seats turn ordinary furniture into a study of distance, listening, and the physical design of conversation. The catalog note discusses medium, composition, installation requirements, and the intended gallery experience.",
+      "content": "Three connected seats turn ordinary furniture into a study of distance, listening, and the physical design of conversation. The catalog note identifies the artist, medium, movement, date, visual themes, and display context.",
       "description": "Synthetic art demo record: Three Chairs for a Long Conversation (Demo Sculpture).",
       "labels": [
         "art",
@@ -277,6 +320,7 @@
         "synthetic",
         "social sculpture",
         "carved ash and woven cord",
+        "sculpture",
         "artwork"
       ],
       "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
@@ -284,13 +328,16 @@
       "artist_name": "Example Artist Priya Moss",
       "medium": "carved ash and woven cord",
       "movement": "social sculpture",
+      "artwork_type": "sculpture",
+      "themes": "social sculpture | carved ash and woven cord | composition | gallery experience",
+      "search_text": "Three Chairs for a Long Conversation (Demo Sculpture) | Example Artist Priya Moss | carved ash and woven cord | social sculpture | sculpture | Three connected seats turn ordinary furniture into a study of distance, listening, and the physical design of conversation.",
       "year": 2020,
       "exhibition_context": "fictional public gallery study"
     },
     {
       "id": "art_night-bus-palimpsest-demo-artwork",
       "title": "Night Bus Palimpsest (Demo Artwork)",
-      "content": "Erased figures, route numbers, and reflected windows accumulate into an imagined record of one late-night bus journey. The catalog note discusses medium, composition, installation requirements, and the intended gallery experience.",
+      "content": "Erased figures, route numbers, and reflected windows accumulate into an imagined record of one late-night bus journey. The catalog note identifies the artist, medium, movement, date, visual themes, and display context.",
       "description": "Synthetic art demo record: Night Bus Palimpsest (Demo Artwork).",
       "labels": [
         "art",
@@ -305,13 +352,16 @@
       "artist_name": "Example Artist Felix Arroyo",
       "medium": "gouache and graphite on paper",
       "movement": "narrative drawing",
+      "artwork_type": "artwork",
+      "themes": "narrative drawing | gouache and graphite on paper | composition | gallery experience",
+      "search_text": "Night Bus Palimpsest (Demo Artwork) | Example Artist Felix Arroyo | gouache and graphite on paper | narrative drawing | artwork | Erased figures, route numbers, and reflected windows accumulate into an imagined record of one late-night bus journey.",
       "year": 2019,
       "exhibition_context": "fictional public gallery study"
     },
     {
       "id": "art_seed-vault-for-sidewalk-plants-demo-archive",
       "title": "Seed Vault for Sidewalk Plants (Demo Archive)",
-      "content": "A fictional neighborhood archive pairs resilient sidewalk plants with drawings and short recordings about observation and care. The catalog note discusses medium, composition, installation requirements, and the intended gallery experience.",
+      "content": "A fictional neighborhood archive pairs resilient sidewalk plants with drawings and short recordings about observation and care. The catalog note identifies the artist, medium, movement, date, visual themes, and display context.",
       "description": "Synthetic art demo record: Seed Vault for Sidewalk Plants (Demo Archive).",
       "labels": [
         "art",
@@ -319,6 +369,7 @@
         "synthetic",
         "ecological archive art",
         "pressed plants, paper, and audio",
+        "archive",
         "artwork"
       ],
       "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
@@ -326,13 +377,16 @@
       "artist_name": "Example Artist Leila Brooks",
       "medium": "pressed plants, paper, and audio",
       "movement": "ecological archive art",
+      "artwork_type": "archive",
+      "themes": "ecological archive art | pressed plants, paper, and audio | composition | gallery experience",
+      "search_text": "Seed Vault for Sidewalk Plants (Demo Archive) | Example Artist Leila Brooks | pressed plants, paper, and audio | ecological archive art | archive | A fictional neighborhood archive pairs resilient sidewalk plants with drawings and short recordings about observation and care.",
       "year": 2024,
       "exhibition_context": "fictional public gallery study"
     },
     {
       "id": "art_blue-room-four-temperatures-demo-painting",
       "title": "Blue Room, Four Temperatures (Demo Painting)",
-      "content": "Four panels use closely related blues to show how surface preparation and surrounding light can make one color feel warm or cool. The catalog note discusses medium, composition, installation requirements, and the intended gallery experience.",
+      "content": "Four panels use closely related blues to show how surface preparation and surrounding light can make one color feel warm or cool. The catalog note identifies the artist, medium, movement, date, visual themes, and display context.",
       "description": "Synthetic art demo record: Blue Room, Four Temperatures (Demo Painting).",
       "labels": [
         "art",
@@ -340,6 +394,7 @@
         "synthetic",
         "color field painting",
         "egg tempera on wood panel",
+        "painting",
         "artwork"
       ],
       "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
@@ -347,13 +402,16 @@
       "artist_name": "Example Artist Kenji Hale",
       "medium": "egg tempera on wood panel",
       "movement": "color field painting",
+      "artwork_type": "painting",
+      "themes": "color field painting | egg tempera on wood panel | composition | gallery experience",
+      "search_text": "Blue Room, Four Temperatures (Demo Painting) | Example Artist Kenji Hale | egg tempera on wood panel | color field painting | painting | Four panels use closely related blues to show how surface preparation and surrounding light can make one color feel warm or cool.",
       "year": 2018,
       "exhibition_context": "fictional public gallery study"
     },
     {
       "id": "art_public-steps-private-rhythms-demo-video-work",
       "title": "Public Steps, Private Rhythms (Demo Video Work)",
-      "content": "A staged sequence of fictional pedestrians focuses on repetition, pause, and the choreography created by shared civic space. The catalog note discusses medium, composition, installation requirements, and the intended gallery experience.",
+      "content": "A staged sequence of fictional pedestrians focuses on repetition, pause, and the choreography created by shared civic space. The catalog note identifies the artist, medium, movement, date, visual themes, and display context.",
       "description": "Synthetic art demo record: Public Steps, Private Rhythms (Demo Video Work).",
       "labels": [
         "art",
@@ -361,6 +419,7 @@
         "synthetic",
         "observational media art",
         "three-channel silent video",
+        "video work",
         "artwork"
       ],
       "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
@@ -368,13 +427,16 @@
       "artist_name": "Example Artist Marisol Quill",
       "medium": "three-channel silent video",
       "movement": "observational media art",
+      "artwork_type": "video work",
+      "themes": "observational media art | three-channel silent video | composition | gallery experience",
+      "search_text": "Public Steps, Private Rhythms (Demo Video Work) | Example Artist Marisol Quill | three-channel silent video | observational media art | video work | A staged sequence of fictional pedestrians focuses on repetition, pause, and the choreography created by shared civic space.",
       "year": 2021,
       "exhibition_context": "fictional public gallery study"
     },
     {
       "id": "art_repair-table-no-6-demo-textile-work",
       "title": "Repair Table No. 6 (Demo Textile Work)",
-      "content": "Visible stitches preserve wear instead of hiding it, presenting repair as both a practical technique and a record of use. The catalog note discusses medium, composition, installation requirements, and the intended gallery experience.",
+      "content": "Visible stitches preserve wear instead of hiding it, presenting repair as both a practical technique and a record of use. The catalog note identifies the artist, medium, movement, date, visual themes, and display context.",
       "description": "Synthetic art demo record: Repair Table No. 6 (Demo Textile Work).",
       "labels": [
         "art",
@@ -382,6 +444,7 @@
         "synthetic",
         "textile art",
         "mended cotton and linen",
+        "textile work",
         "artwork"
       ],
       "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
@@ -389,13 +452,16 @@
       "artist_name": "Example Artist Dae Winter",
       "medium": "mended cotton and linen",
       "movement": "textile art",
+      "artwork_type": "textile work",
+      "themes": "textile art | mended cotton and linen | composition | gallery experience",
+      "search_text": "Repair Table No. 6 (Demo Textile Work) | Example Artist Dae Winter | mended cotton and linen | textile art | textile work | Visible stitches preserve wear instead of hiding it, presenting repair as both a practical technique and a record of use.",
       "year": 2023,
       "exhibition_context": "fictional public gallery study"
     },
     {
       "id": "art_weather-station-for-imagined-islands-demo-sculpture",
       "title": "Weather Station for Imagined Islands (Demo Sculpture)",
-      "content": "Nonfunctional instruments describe the winds and rainfall of fictional islands while asking how measurement shapes a place. The catalog note discusses medium, composition, installation requirements, and the intended gallery experience.",
+      "content": "Nonfunctional instruments describe the winds and rainfall of fictional islands while asking how measurement shapes a place. The catalog note identifies the artist, medium, movement, date, visual themes, and display context.",
       "description": "Synthetic art demo record: Weather Station for Imagined Islands (Demo Sculpture).",
       "labels": [
         "art",
@@ -403,6 +469,7 @@
         "synthetic",
         "speculative sculpture",
         "brass, paper, and hand-built sensors",
+        "sculpture",
         "artwork"
       ],
       "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
@@ -410,13 +477,16 @@
       "artist_name": "Example Artist Noor Bell",
       "medium": "brass, paper, and hand-built sensors",
       "movement": "speculative sculpture",
+      "artwork_type": "sculpture",
+      "themes": "speculative sculpture | brass, paper, and hand-built sensors | composition | gallery experience",
+      "search_text": "Weather Station for Imagined Islands (Demo Sculpture) | Example Artist Noor Bell | brass, paper, and hand-built sensors | speculative sculpture | sculpture | Nonfunctional instruments describe the winds and rainfall of fictional islands while asking how measurement shapes a place.",
       "year": 2022,
       "exhibition_context": "fictional public gallery study"
     },
     {
       "id": "art_choir-of-small-machines-demo-sound-installation",
       "title": "Choir of Small Machines (Demo Sound Installation)",
-      "content": "Low-speed motors animate paper surfaces to create a changing rhythm that visitors hear differently as they move through the room. The catalog note discusses medium, composition, installation requirements, and the intended gallery experience.",
+      "content": "Low-speed motors animate paper surfaces to create a changing rhythm that visitors hear differently as they move through the room. The catalog note identifies the artist, medium, movement, date, visual themes, and display context.",
       "description": "Synthetic art demo record: Choir of Small Machines (Demo Sound Installation).",
       "labels": [
         "art",
@@ -424,6 +494,7 @@
         "synthetic",
         "kinetic sound art",
         "motors, paper, wood, and speakers",
+        "sound installation",
         "artwork"
       ],
       "data_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
@@ -431,6 +502,9 @@
       "artist_name": "Example Artist Tomas Grove",
       "medium": "motors, paper, wood, and speakers",
       "movement": "kinetic sound art",
+      "artwork_type": "sound installation",
+      "themes": "kinetic sound art | motors, paper, wood, and speakers | composition | gallery experience",
+      "search_text": "Choir of Small Machines (Demo Sound Installation) | Example Artist Tomas Grove | motors, paper, wood, and speakers | kinetic sound art | sound installation | Low-speed motors animate paper surfaces to create a changing rhythm that visitors hear differently as they move through the room.",
       "year": 2024,
       "exhibition_context": "fictional public gallery study"
     }
@@ -438,8 +512,8 @@
   "metadata": {
     "_fixture_kind": "synthetic_public_demo",
     "_fixture_notice": "Public HLQuery demonstration data. University names and campus locations are real catalog references; generated descriptions, people, organizations, artworks, rankings, incidents, and market instruments are synthetic.",
-    "_demo_description": "A fictional museum-style catalog covering painting, sculpture, printmaking, installation, drawing, and public art.",
-    "_demo_queries": "recycled steel sculpture | charcoal portrait | installation about light and memory",
+    "_demo_description": "A structured fictional museum catalog with artist, medium, movement, artwork type, themes, year, and display context.",
+    "_demo_queries": "recycled steel sculpture | charcoal portrait | site specific light installation",
     "_catalog_scope": "20 fictional artworks and installations",
     "_catalog_policy": "all artists, artworks, exhibitions, and provenance contexts are fictional"
   },
@@ -454,6 +528,18 @@
     },
     {
       "name": "movement",
+      "type": "string"
+    },
+    {
+      "name": "artwork_type",
+      "type": "string"
+    },
+    {
+      "name": "themes",
+      "type": "string"
+    },
+    {
+      "name": "search_text",
       "type": "string"
     },
     {
@@ -474,6 +560,33 @@
         "work of art",
         "creative work",
         "visual work"
+      ]
+    },
+    {
+      "id": "art_syn_sculpture",
+      "root": "sculpture",
+      "synonyms": [
+        "sculptural work",
+        "three dimensional art",
+        "3d artwork"
+      ]
+    },
+    {
+      "id": "art_syn_installation",
+      "root": "installation",
+      "synonyms": [
+        "installation art",
+        "site specific work",
+        "gallery installation"
+      ]
+    },
+    {
+      "id": "art_syn_painting",
+      "root": "painting",
+      "synonyms": [
+        "painted work",
+        "canvas",
+        "painted artwork"
       ]
     }
   ]
