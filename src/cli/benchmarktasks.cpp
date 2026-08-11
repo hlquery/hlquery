@@ -19,7 +19,7 @@
 #include <thread>
 #include <vector>
 #include <vendor/json/json.hpp>
-#include <openssl/sha.h>
+#include <sha2/sha2.h>
 
 #include "benchmarkclient.h"
 #include "runtime/clock.h"
@@ -49,8 +49,9 @@ static std::string MakeBenchmarkDocumentID(int collection_index, int document_in
 
 std::string BenchmarkSHA256(const std::string &value)
 {
-     unsigned char digest[SHA256_DIGEST_LENGTH];
-     ::SHA256(reinterpret_cast<const unsigned char *>(value.data()), value.size(), digest);
+     unsigned char digest[SHA256_DIGEST_SIZE];
+     sha256(reinterpret_cast<const unsigned char *>(value.data()),
+            static_cast<unsigned int>(value.size()), digest);
      std::ostringstream output;
      output << std::hex << std::setfill('0');
      for (unsigned char byte : digest)

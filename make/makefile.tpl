@@ -939,10 +939,10 @@ $(BIN_DIR)/hlquery-cli: $(CLI_OBJS) | $(PREPARE_PREREQ)
 
 # Benchmark binary
 # Note: Benchmark doesn't need RocksDB, but we ensure it waits for prepare target
-$(BIN_DIR)/hlquery-benchmark: $(BENCHMARK_OBJ) | $(PREPARE_PREREQ)
+$(BIN_DIR)/hlquery-benchmark: $(BENCHMARK_OBJ) $(SHA2_OBJ) | $(PREPARE_PREREQ)
 	@mkdir -p $(BIN_DIR)
 	$(CXX) $(CXXFLAGS) \
-		$(BENCHMARK_OBJ) \
+		$(BENCHMARK_OBJ) $(SHA2_OBJ) \
 		-o $@ \
 		$(LDFLAGS)
 
