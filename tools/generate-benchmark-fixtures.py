@@ -503,8 +503,8 @@ def make_universities() -> dict[str, object]:
     ranking_edition = "January 2026"
     university_notice = (
         "Public HLQuery demonstration data. University names, campus locations, and "
-        "Webometrics January 2026 ranking fields are factual reference data; descriptions "
-        "and search-topic annotations are synthetic."
+        "Webometrics January 2026 ranking fields are factual reference data. Content and "
+        "descriptions restate those fields; search-topic annotations are synthetic."
     )
     # name, city, first-level region, country, broad type, world/impact/openness/excellence ranks
     catalog = [
@@ -638,6 +638,12 @@ def make_universities() -> dict[str, object]:
         "University of Colorado Boulder": ["Denver metropolitan area"],
         "California Institute of Technology Caltech": ["Los Angeles", "Greater Los Angeles"],
     }
+    institution_type_descriptions = {
+        "private_research": "a private research university",
+        "public_research": "a public research university",
+        "private_health_sciences": "a private health-sciences institution",
+        "public_health_sciences": "a public health-sciences university",
+    }
     documents: list[dict[str, object]] = []
     for row in catalog:
         institution_name, city, region, country, institution_type = row[:5]
@@ -647,11 +653,13 @@ def make_universities() -> dict[str, object]:
         search_topics = f"{focus_a} | {focus_b} | science | research | teaching | admissions"
         location_aliases = list(dict.fromkeys([city, *metropolitan_aliases.get(institution_name, []), region, country]))
         location_alias_text = " | ".join(location_aliases)
+        institution_description = institution_type_descriptions[institution_type]
         content = (
-            f"{institution_name} is ranked {world_rank} worldwide in the "
-            f"Webometrics {ranking_edition} edition. It is a university catalog reference located in "
-            f"{city}, {region}, {country}. Searchable location labels include {location_alias_text}. "
-            f"Synthetic benchmark topics include {search_topics}."
+            f"{institution_name} is {institution_description} based in {city}, {region}, {country}. "
+            f"In the Webometrics {ranking_edition} world ranking, it holds world rank {world_rank}; "
+            f"its indicator positions are impact rank {impact_rank}, openness rank {openness_rank}, "
+            f"and excellence rank {excellence_rank}. Location searches also associate the institution "
+            f"with {location_alias_text}."
         )
         documents.append(
             document(
@@ -659,7 +667,10 @@ def make_universities() -> dict[str, object]:
                 institution_name,
                 content,
                 identifier=f"universities_{slug(institution_name)}",
-                description=f"Webometrics {ranking_edition} world rank {world_rank} benchmark record for {institution_name}.",
+                description=(
+                    f"{institution_name}, located in {city}, {region}, {country}: "
+                    f"Webometrics {ranking_edition} world rank {world_rank}."
+                ),
                 data_notice=university_notice,
                 labels=list(dict.fromkeys(["webometrics", "world-top-100", ranking_edition, *location_aliases, institution_type])),
                 institution_name=institution_name,
@@ -700,7 +711,7 @@ def make_universities() -> dict[str, object]:
             "_catalog_scope": "Top 100 institutions in the Webometrics January 2026 world ranking",
             "_ranking_edition": ranking_edition, "_ranking_source": ranking_source,
             "_ranking_source_url": ranking_source_url,
-            "_data_boundary": "University names, locations, and published ranking fields are factual references; descriptions and search topics are synthetic",
+            "_data_boundary": "University names, locations, and published ranking fields are factual references; content and descriptions restate those fields, while search topics are synthetic",
         },
         synonyms=[{"id": "universities_syn_university", "root": "university", "synonyms": ["college", "campus", "institution", "school"]}],
     )
@@ -1315,6 +1326,7 @@ def validate_public_fixtures(fixtures: dict[str, dict[str, object]]) -> None:
 
     universities = fixtures["universities.json"]["documents"]
     for expected_order, item in enumerate(universities, start=1):
+        content = str(item.get("content", ""))
         if item.get("catalog_order") != expected_order:
             errors.append(f"universities.json document {expected_order}: catalog order must be contiguous")
         if item.get("webometrics_world_rank") != expected_order:
@@ -1331,6 +1343,19 @@ def validate_public_fixtures(fixtures: dict[str, dict[str, object]]) -> None:
             errors.append(f"universities.json document {expected_order}: meaningful catalog identity is missing")
         if str(item.get("id", "")).startswith("universities_demo_"):
             errors.append(f"universities.json document {expected_order}: generic numeric IDs are forbidden")
+        required_content_fragments = (
+            str(item.get("institution_name", "")),
+            f"world rank {item.get('webometrics_world_rank')}",
+            f"impact rank {item.get('webometrics_impact_rank')}",
+            f"openness rank {item.get('webometrics_openness_rank')}",
+            f"excellence rank {item.get('webometrics_excellence_rank')}",
+            str(item.get("location_name", "")),
+        )
+        if any(fragment not in content for fragment in required_content_fragments):
+            errors.append(
+                f"universities.json document {expected_order}: content must describe the institution, "
+                "location, and all Webometrics ranks"
+            )
     boston_results = {
         str(item.get("institution_name", ""))
         for item in universities

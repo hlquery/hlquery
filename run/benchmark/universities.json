@@ -1,6 +1,6 @@
 {
   "fixture_version": 4,
-  "fixture_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data; descriptions and search-topic annotations are synthetic.",
+  "fixture_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data. Content and descriptions restate those fields; search-topic annotations are synthetic.",
   "collection": "universities",
   "count": 100,
   "tags": [
@@ -18,8 +18,8 @@
     {
       "id": "universities_harvard-university",
       "title": "Harvard University",
-      "content": "Harvard University is ranked 1 worldwide in the Webometrics January 2026 edition. It is a university catalog reference located in Cambridge, Massachusetts, United States. Searchable location labels include Cambridge | Boston | Greater Boston | Boston metropolitan area | Massachusetts | United States. Synthetic benchmark topics include computer science | digital humanities | science | research | teaching | admissions.",
-      "description": "Webometrics January 2026 world rank 1 benchmark record for Harvard University.",
+      "content": "Harvard University is a private research university based in Cambridge, Massachusetts, United States. In the Webometrics January 2026 world ranking, it holds world rank 1; its indicator positions are impact rank 2, openness rank 1, and excellence rank 1. Location searches also associate the institution with Cambridge | Boston | Greater Boston | Boston metropolitan area | Massachusetts | United States.",
+      "description": "Harvard University, located in Cambridge, Massachusetts, United States: Webometrics January 2026 world rank 1.",
       "labels": [
         "universities",
         "demo",
@@ -35,7 +35,7 @@
         "United States",
         "private_research"
       ],
-      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data; descriptions and search-topic annotations are synthetic.",
+      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data. Content and descriptions restate those fields; search-topic annotations are synthetic.",
       "is_synthetic": true,
       "institution_name": "Harvard University",
       "city": "Cambridge",
@@ -58,8 +58,8 @@
     {
       "id": "universities_stanford-university",
       "title": "Stanford University",
-      "content": "Stanford University is ranked 2 worldwide in the Webometrics January 2026 edition. It is a university catalog reference located in Stanford, California, United States. Searchable location labels include Stanford | Bay Area | San Francisco Bay Area | Silicon Valley | California | United States. Synthetic benchmark topics include studio art | museum studies | science | research | teaching | admissions.",
-      "description": "Webometrics January 2026 world rank 2 benchmark record for Stanford University.",
+      "content": "Stanford University is a private research university based in Stanford, California, United States. In the Webometrics January 2026 world ranking, it holds world rank 2; its indicator positions are impact rank 1, openness rank 3, and excellence rank 11. Location searches also associate the institution with Stanford | Bay Area | San Francisco Bay Area | Silicon Valley | California | United States.",
+      "description": "Stanford University, located in Stanford, California, United States: Webometrics January 2026 world rank 2.",
       "labels": [
         "universities",
         "demo",
@@ -75,7 +75,7 @@
         "United States",
         "private_research"
       ],
-      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data; descriptions and search-topic annotations are synthetic.",
+      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data. Content and descriptions restate those fields; search-topic annotations are synthetic.",
       "is_synthetic": true,
       "institution_name": "Stanford University",
       "city": "Stanford",
@@ -98,8 +98,8 @@
     {
       "id": "universities_university-of-oxford",
       "title": "University of Oxford",
-      "content": "University of Oxford is ranked 3 worldwide in the Webometrics January 2026 edition. It is a university catalog reference located in Oxford, England, United Kingdom. Searchable location labels include Oxford | England | United Kingdom. Synthetic benchmark topics include education | learning technology | science | research | teaching | admissions.",
-      "description": "Webometrics January 2026 world rank 3 benchmark record for University of Oxford.",
+      "content": "University of Oxford is a public research university based in Oxford, England, United Kingdom. In the Webometrics January 2026 world ranking, it holds world rank 3; its indicator positions are impact rank 7, openness rank 4, and excellence rank 6. Location searches also associate the institution with Oxford | England | United Kingdom.",
+      "description": "University of Oxford, located in Oxford, England, United Kingdom: Webometrics January 2026 world rank 3.",
       "labels": [
         "universities",
         "demo",
@@ -112,7 +112,7 @@
         "United Kingdom",
         "public_research"
       ],
-      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data; descriptions and search-topic annotations are synthetic.",
+      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data. Content and descriptions restate those fields; search-topic annotations are synthetic.",
       "is_synthetic": true,
       "institution_name": "University of Oxford",
       "city": "Oxford",
@@ -135,8 +135,8 @@
     {
       "id": "universities_university-of-michigan",
       "title": "University of Michigan",
-      "content": "University of Michigan is ranked 4 worldwide in the Webometrics January 2026 edition. It is a university catalog reference located in Ann Arbor, Michigan, United States. Searchable location labels include Ann Arbor | Michigan | United States. Synthetic benchmark topics include music technology | media production | science | research | teaching | admissions.",
-      "description": "Webometrics January 2026 world rank 4 benchmark record for University of Michigan.",
+      "content": "University of Michigan is a public research university based in Ann Arbor, Michigan, United States. In the Webometrics January 2026 world ranking, it holds world rank 4; its indicator positions are impact rank 8, openness rank 17, and excellence rank 14. Location searches also associate the institution with Ann Arbor | Michigan | United States.",
+      "description": "University of Michigan, located in Ann Arbor, Michigan, United States: Webometrics January 2026 world rank 4.",
       "labels": [
         "universities",
         "demo",
@@ -149,7 +149,7 @@
         "United States",
         "public_research"
       ],
-      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data; descriptions and search-topic annotations are synthetic.",
+      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data. Content and descriptions restate those fields; search-topic annotations are synthetic.",
       "is_synthetic": true,
       "institution_name": "University of Michigan",
       "city": "Ann Arbor",
@@ -172,8 +172,8 @@
     {
       "id": "universities_cornell-university",
       "title": "Cornell University",
-      "content": "Cornell University is ranked 5 worldwide in the Webometrics January 2026 edition. It is a university catalog reference located in Ithaca, New York, United States. Searchable location labels include Ithaca | New York | United States. Synthetic benchmark topics include public health | community data | science | research | teaching | admissions.",
-      "description": "Webometrics January 2026 world rank 5 benchmark record for Cornell University.",
+      "content": "Cornell University is a private research university based in Ithaca, New York, United States. In the Webometrics January 2026 world ranking, it holds world rank 5; its indicator positions are impact rank 5, openness rank 12, and excellence rank 21. Location searches also associate the institution with Ithaca | New York | United States.",
+      "description": "Cornell University, located in Ithaca, New York, United States: Webometrics January 2026 world rank 5.",
       "labels": [
         "universities",
         "demo",
@@ -186,7 +186,7 @@
         "United States",
         "private_research"
       ],
-      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data; descriptions and search-topic annotations are synthetic.",
+      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data. Content and descriptions restate those fields; search-topic annotations are synthetic.",
       "is_synthetic": true,
       "institution_name": "Cornell University",
       "city": "Ithaca",
@@ -209,8 +209,8 @@
     {
       "id": "universities_johns-hopkins-university",
       "title": "Johns Hopkins University",
-      "content": "Johns Hopkins University is ranked 6 worldwide in the Webometrics January 2026 edition. It is a university catalog reference located in Baltimore, Maryland, United States. Searchable location labels include Baltimore | Maryland | United States. Synthetic benchmark topics include business analytics | entrepreneurship | science | research | teaching | admissions.",
-      "description": "Webometrics January 2026 world rank 6 benchmark record for Johns Hopkins University.",
+      "content": "Johns Hopkins University is a private research university based in Baltimore, Maryland, United States. In the Webometrics January 2026 world ranking, it holds world rank 6; its indicator positions are impact rank 16, openness rank 7, and excellence rank 12. Location searches also associate the institution with Baltimore | Maryland | United States.",
+      "description": "Johns Hopkins University, located in Baltimore, Maryland, United States: Webometrics January 2026 world rank 6.",
       "labels": [
         "universities",
         "demo",
@@ -223,7 +223,7 @@
         "United States",
         "private_research"
       ],
-      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data; descriptions and search-topic annotations are synthetic.",
+      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data. Content and descriptions restate those fields; search-topic annotations are synthetic.",
       "is_synthetic": true,
       "institution_name": "Johns Hopkins University",
       "city": "Baltimore",
@@ -246,8 +246,8 @@
     {
       "id": "universities_university-of-cambridge",
       "title": "University of Cambridge",
-      "content": "University of Cambridge is ranked 7 worldwide in the Webometrics January 2026 edition. It is a university catalog reference located in Cambridge, England, United Kingdom. Searchable location labels include Cambridge | England | United Kingdom. Synthetic benchmark topics include biology | applied mathematics | science | research | teaching | admissions.",
-      "description": "Webometrics January 2026 world rank 7 benchmark record for University of Cambridge.",
+      "content": "University of Cambridge is a public research university based in Cambridge, England, United Kingdom. In the Webometrics January 2026 world ranking, it holds world rank 7; its indicator positions are impact rank 15, openness rank 5, and excellence rank 15. Location searches also associate the institution with Cambridge | England | United Kingdom.",
+      "description": "University of Cambridge, located in Cambridge, England, United Kingdom: Webometrics January 2026 world rank 7.",
       "labels": [
         "universities",
         "demo",
@@ -260,7 +260,7 @@
         "United Kingdom",
         "public_research"
       ],
-      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data; descriptions and search-topic annotations are synthetic.",
+      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data. Content and descriptions restate those fields; search-topic annotations are synthetic.",
       "is_synthetic": true,
       "institution_name": "University of Cambridge",
       "city": "Cambridge",
@@ -283,8 +283,8 @@
     {
       "id": "universities_university-of-pennsylvania",
       "title": "University of Pennsylvania",
-      "content": "University of Pennsylvania is ranked 8 worldwide in the Webometrics January 2026 edition. It is a university catalog reference located in Philadelphia, Pennsylvania, United States. Searchable location labels include Philadelphia | Pennsylvania | United States. Synthetic benchmark topics include renewable energy | materials engineering | science | research | teaching | admissions.",
-      "description": "Webometrics January 2026 world rank 8 benchmark record for University of Pennsylvania.",
+      "content": "University of Pennsylvania is a private research university based in Philadelphia, Pennsylvania, United States. In the Webometrics January 2026 world ranking, it holds world rank 8; its indicator positions are impact rank 11, openness rank 15, and excellence rank 22. Location searches also associate the institution with Philadelphia | Pennsylvania | United States.",
+      "description": "University of Pennsylvania, located in Philadelphia, Pennsylvania, United States: Webometrics January 2026 world rank 8.",
       "labels": [
         "universities",
         "demo",
@@ -297,7 +297,7 @@
         "United States",
         "private_research"
       ],
-      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data; descriptions and search-topic annotations are synthetic.",
+      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data. Content and descriptions restate those fields; search-topic annotations are synthetic.",
       "is_synthetic": true,
       "institution_name": "University of Pennsylvania",
       "city": "Philadelphia",
@@ -320,8 +320,8 @@
     {
       "id": "universities_university-of-washington",
       "title": "University of Washington",
-      "content": "University of Washington is ranked 9 worldwide in the Webometrics January 2026 edition. It is a university catalog reference located in Seattle, Washington, United States. Searchable location labels include Seattle | Washington | United States. Synthetic benchmark topics include environmental science | public policy | science | research | teaching | admissions.",
-      "description": "Webometrics January 2026 world rank 9 benchmark record for University of Washington.",
+      "content": "University of Washington is a public research university based in Seattle, Washington, United States. In the Webometrics January 2026 world ranking, it holds world rank 9; its indicator positions are impact rank 18, openness rank 2, and excellence rank 18. Location searches also associate the institution with Seattle | Washington | United States.",
+      "description": "University of Washington, located in Seattle, Washington, United States: Webometrics January 2026 world rank 9.",
       "labels": [
         "universities",
         "demo",
@@ -334,7 +334,7 @@
         "United States",
         "public_research"
       ],
-      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data; descriptions and search-topic annotations are synthetic.",
+      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data. Content and descriptions restate those fields; search-topic annotations are synthetic.",
       "is_synthetic": true,
       "institution_name": "University of Washington",
       "city": "Seattle",
@@ -357,8 +357,8 @@
     {
       "id": "universities_yale-university",
       "title": "Yale University",
-      "content": "Yale University is ranked 10 worldwide in the Webometrics January 2026 edition. It is a university catalog reference located in New Haven, Connecticut, United States. Searchable location labels include New Haven | Connecticut | United States. Synthetic benchmark topics include civil engineering | urban planning | science | research | teaching | admissions.",
-      "description": "Webometrics January 2026 world rank 10 benchmark record for Yale University.",
+      "content": "Yale University is a private research university based in New Haven, Connecticut, United States. In the Webometrics January 2026 world ranking, it holds world rank 10; its indicator positions are impact rank 9, openness rank 20, and excellence rank 27. Location searches also associate the institution with New Haven | Connecticut | United States.",
+      "description": "Yale University, located in New Haven, Connecticut, United States: Webometrics January 2026 world rank 10.",
       "labels": [
         "universities",
         "demo",
@@ -371,7 +371,7 @@
         "United States",
         "private_research"
       ],
-      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data; descriptions and search-topic annotations are synthetic.",
+      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data. Content and descriptions restate those fields; search-topic annotations are synthetic.",
       "is_synthetic": true,
       "institution_name": "Yale University",
       "city": "New Haven",
@@ -394,8 +394,8 @@
     {
       "id": "universities_ucl-university-college-london",
       "title": "UCL University College London",
-      "content": "UCL University College London is ranked 11 worldwide in the Webometrics January 2026 edition. It is a university catalog reference located in London, England, United Kingdom. Searchable location labels include London | England | United Kingdom. Synthetic benchmark topics include computer science | digital humanities | science | research | teaching | admissions.",
-      "description": "Webometrics January 2026 world rank 11 benchmark record for UCL University College London.",
+      "content": "UCL University College London is a public research university based in London, England, United Kingdom. In the Webometrics January 2026 world ranking, it holds world rank 11; its indicator positions are impact rank 32, openness rank 6, and excellence rank 3. Location searches also associate the institution with London | England | United Kingdom.",
+      "description": "UCL University College London, located in London, England, United Kingdom: Webometrics January 2026 world rank 11.",
       "labels": [
         "universities",
         "demo",
@@ -408,7 +408,7 @@
         "United Kingdom",
         "public_research"
       ],
-      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data; descriptions and search-topic annotations are synthetic.",
+      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data. Content and descriptions restate those fields; search-topic annotations are synthetic.",
       "is_synthetic": true,
       "institution_name": "UCL University College London",
       "city": "London",
@@ -431,8 +431,8 @@
     {
       "id": "universities_columbia-university-new-york",
       "title": "Columbia University New York",
-      "content": "Columbia University New York is ranked 12 worldwide in the Webometrics January 2026 edition. It is a university catalog reference located in New York, New York, United States. Searchable location labels include New York | United States. Synthetic benchmark topics include studio art | museum studies | science | research | teaching | admissions.",
-      "description": "Webometrics January 2026 world rank 12 benchmark record for Columbia University New York.",
+      "content": "Columbia University New York is a private research university based in New York, New York, United States. In the Webometrics January 2026 world ranking, it holds world rank 12; its indicator positions are impact rank 6, openness rank 14, and excellence rank 36. Location searches also associate the institution with New York | United States.",
+      "description": "Columbia University New York, located in New York, New York, United States: Webometrics January 2026 world rank 12.",
       "labels": [
         "universities",
         "demo",
@@ -444,7 +444,7 @@
         "United States",
         "private_research"
       ],
-      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data; descriptions and search-topic annotations are synthetic.",
+      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data. Content and descriptions restate those fields; search-topic annotations are synthetic.",
       "is_synthetic": true,
       "institution_name": "Columbia University New York",
       "city": "New York",
@@ -467,8 +467,8 @@
     {
       "id": "universities_university-of-california-los-angeles-ucla",
       "title": "University of California Los Angeles UCLA",
-      "content": "University of California Los Angeles UCLA is ranked 13 worldwide in the Webometrics January 2026 edition. It is a university catalog reference located in Los Angeles, California, United States. Searchable location labels include Los Angeles | California | United States. Synthetic benchmark topics include education | learning technology | science | research | teaching | admissions.",
-      "description": "Webometrics January 2026 world rank 13 benchmark record for University of California Los Angeles UCLA.",
+      "content": "University of California Los Angeles UCLA is a public research university based in Los Angeles, California, United States. In the Webometrics January 2026 world ranking, it holds world rank 13; its indicator positions are impact rank 13, openness rank 24, and excellence rank 32. Location searches also associate the institution with Los Angeles | California | United States.",
+      "description": "University of California Los Angeles UCLA, located in Los Angeles, California, United States: Webometrics January 2026 world rank 13.",
       "labels": [
         "universities",
         "demo",
@@ -481,7 +481,7 @@
         "United States",
         "public_research"
       ],
-      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data; descriptions and search-topic annotations are synthetic.",
+      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data. Content and descriptions restate those fields; search-topic annotations are synthetic.",
       "is_synthetic": true,
       "institution_name": "University of California Los Angeles UCLA",
       "city": "Los Angeles",
@@ -504,8 +504,8 @@
     {
       "id": "universities_university-of-toronto",
       "title": "University of Toronto",
-      "content": "University of Toronto is ranked 14 worldwide in the Webometrics January 2026 edition. It is a university catalog reference located in Toronto, Ontario, Canada. Searchable location labels include Toronto | Ontario | Canada. Synthetic benchmark topics include music technology | media production | science | research | teaching | admissions.",
-      "description": "Webometrics January 2026 world rank 14 benchmark record for University of Toronto.",
+      "content": "University of Toronto is a public research university based in Toronto, Ontario, Canada. In the Webometrics January 2026 world ranking, it holds world rank 14; its indicator positions are impact rank 36, openness rank 16, and excellence rank 8. Location searches also associate the institution with Toronto | Ontario | Canada.",
+      "description": "University of Toronto, located in Toronto, Ontario, Canada: Webometrics January 2026 world rank 14.",
       "labels": [
         "universities",
         "demo",
@@ -518,7 +518,7 @@
         "Canada",
         "public_research"
       ],
-      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data; descriptions and search-topic annotations are synthetic.",
+      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data. Content and descriptions restate those fields; search-topic annotations are synthetic.",
       "is_synthetic": true,
       "institution_name": "University of Toronto",
       "city": "Toronto",
@@ -541,8 +541,8 @@
     {
       "id": "universities_university-of-california-berkeley",
       "title": "University of California Berkeley",
-      "content": "University of California Berkeley is ranked 15 worldwide in the Webometrics January 2026 edition. It is a university catalog reference located in Berkeley, California, United States. Searchable location labels include Berkeley | Bay Area | San Francisco Bay Area | California | United States. Synthetic benchmark topics include public health | community data | science | research | teaching | admissions.",
-      "description": "Webometrics January 2026 world rank 15 benchmark record for University of California Berkeley.",
+      "content": "University of California Berkeley is a public research university based in Berkeley, California, United States. In the Webometrics January 2026 world ranking, it holds world rank 15; its indicator positions are impact rank 4, openness rank 21, and excellence rank 49. Location searches also associate the institution with Berkeley | Bay Area | San Francisco Bay Area | California | United States.",
+      "description": "University of California Berkeley, located in Berkeley, California, United States: Webometrics January 2026 world rank 15.",
       "labels": [
         "universities",
         "demo",
@@ -557,7 +557,7 @@
         "United States",
         "public_research"
       ],
-      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data; descriptions and search-topic annotations are synthetic.",
+      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data. Content and descriptions restate those fields; search-topic annotations are synthetic.",
       "is_synthetic": true,
       "institution_name": "University of California Berkeley",
       "city": "Berkeley",
@@ -580,8 +580,8 @@
     {
       "id": "universities_university-of-california-san-diego",
       "title": "University of California San Diego",
-      "content": "University of California San Diego is ranked 16 worldwide in the Webometrics January 2026 edition. It is a university catalog reference located in La Jolla, California, United States. Searchable location labels include La Jolla | San Diego | California | United States. Synthetic benchmark topics include business analytics | entrepreneurship | science | research | teaching | admissions.",
-      "description": "Webometrics January 2026 world rank 16 benchmark record for University of California San Diego.",
+      "content": "University of California San Diego is a public research university based in La Jolla, California, United States. In the Webometrics January 2026 world ranking, it holds world rank 16; its indicator positions are impact rank 23, openness rank 9, and excellence rank 35. Location searches also associate the institution with La Jolla | San Diego | California | United States.",
+      "description": "University of California San Diego, located in La Jolla, California, United States: Webometrics January 2026 world rank 16.",
       "labels": [
         "universities",
         "demo",
@@ -595,7 +595,7 @@
         "United States",
         "public_research"
       ],
-      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data; descriptions and search-topic annotations are synthetic.",
+      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data. Content and descriptions restate those fields; search-topic annotations are synthetic.",
       "is_synthetic": true,
       "institution_name": "University of California San Diego",
       "city": "La Jolla",
@@ -618,8 +618,8 @@
     {
       "id": "universities_massachusetts-institute-of-technology",
       "title": "Massachusetts Institute of Technology",
-      "content": "Massachusetts Institute of Technology is ranked 17 worldwide in the Webometrics January 2026 edition. It is a university catalog reference located in Cambridge, Massachusetts, United States. Searchable location labels include Cambridge | Boston | Greater Boston | Boston metropolitan area | MIT | Massachusetts | United States. Synthetic benchmark topics include biology | applied mathematics | science | research | teaching | admissions.",
-      "description": "Webometrics January 2026 world rank 17 benchmark record for Massachusetts Institute of Technology.",
+      "content": "Massachusetts Institute of Technology is a private research university based in Cambridge, Massachusetts, United States. In the Webometrics January 2026 world ranking, it holds world rank 17; its indicator positions are impact rank 3, openness rank 8, and excellence rank 65. Location searches also associate the institution with Cambridge | Boston | Greater Boston | Boston metropolitan area | MIT | Massachusetts | United States.",
+      "description": "Massachusetts Institute of Technology, located in Cambridge, Massachusetts, United States: Webometrics January 2026 world rank 17.",
       "labels": [
         "universities",
         "demo",
@@ -636,7 +636,7 @@
         "United States",
         "private_research"
       ],
-      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data; descriptions and search-topic annotations are synthetic.",
+      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data. Content and descriptions restate those fields; search-topic annotations are synthetic.",
       "is_synthetic": true,
       "institution_name": "Massachusetts Institute of Technology",
       "city": "Cambridge",
@@ -659,8 +659,8 @@
     {
       "id": "universities_university-of-british-columbia",
       "title": "University of British Columbia",
-      "content": "University of British Columbia is ranked 18 worldwide in the Webometrics January 2026 edition. It is a university catalog reference located in Vancouver, British Columbia, Canada. Searchable location labels include Vancouver | British Columbia | Canada. Synthetic benchmark topics include renewable energy | materials engineering | science | research | teaching | admissions.",
-      "description": "Webometrics January 2026 world rank 18 benchmark record for University of British Columbia.",
+      "content": "University of British Columbia is a public research university based in Vancouver, British Columbia, Canada. In the Webometrics January 2026 world ranking, it holds world rank 18; its indicator positions are impact rank 37, openness rank 48, and excellence rank 29. Location searches also associate the institution with Vancouver | British Columbia | Canada.",
+      "description": "University of British Columbia, located in Vancouver, British Columbia, Canada: Webometrics January 2026 world rank 18.",
       "labels": [
         "universities",
         "demo",
@@ -673,7 +673,7 @@
         "Canada",
         "public_research"
       ],
-      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data; descriptions and search-topic annotations are synthetic.",
+      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data. Content and descriptions restate those fields; search-topic annotations are synthetic.",
       "is_synthetic": true,
       "institution_name": "University of British Columbia",
       "city": "Vancouver",
@@ -696,8 +696,8 @@
     {
       "id": "universities_university-of-wisconsin-madison",
       "title": "University of Wisconsin Madison",
-      "content": "University of Wisconsin Madison is ranked 19 worldwide in the Webometrics January 2026 edition. It is a university catalog reference located in Madison, Wisconsin, United States. Searchable location labels include Madison | Wisconsin | United States. Synthetic benchmark topics include environmental science | public policy | science | research | teaching | admissions.",
-      "description": "Webometrics January 2026 world rank 19 benchmark record for University of Wisconsin Madison.",
+      "content": "University of Wisconsin Madison is a public research university based in Madison, Wisconsin, United States. In the Webometrics January 2026 world ranking, it holds world rank 19; its indicator positions are impact rank 19, openness rank 52, and excellence rank 59. Location searches also associate the institution with Madison | Wisconsin | United States.",
+      "description": "University of Wisconsin Madison, located in Madison, Wisconsin, United States: Webometrics January 2026 world rank 19.",
       "labels": [
         "universities",
         "demo",
@@ -710,7 +710,7 @@
         "United States",
         "public_research"
       ],
-      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data; descriptions and search-topic annotations are synthetic.",
+      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data. Content and descriptions restate those fields; search-topic annotations are synthetic.",
       "is_synthetic": true,
       "institution_name": "University of Wisconsin Madison",
       "city": "Madison",
@@ -733,8 +733,8 @@
     {
       "id": "universities_university-of-florida",
       "title": "University of Florida",
-      "content": "University of Florida is ranked 20 worldwide in the Webometrics January 2026 edition. It is a university catalog reference located in Gainesville, Florida, United States. Searchable location labels include Gainesville | Florida | United States. Synthetic benchmark topics include civil engineering | urban planning | science | research | teaching | admissions.",
-      "description": "Webometrics January 2026 world rank 20 benchmark record for University of Florida.",
+      "content": "University of Florida is a public research university based in Gainesville, Florida, United States. In the Webometrics January 2026 world ranking, it holds world rank 20; its indicator positions are impact rank 26, openness rank 82, and excellence rank 54. Location searches also associate the institution with Gainesville | Florida | United States.",
+      "description": "University of Florida, located in Gainesville, Florida, United States: Webometrics January 2026 world rank 20.",
       "labels": [
         "universities",
         "demo",
@@ -747,7 +747,7 @@
         "United States",
         "public_research"
       ],
-      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data; descriptions and search-topic annotations are synthetic.",
+      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data. Content and descriptions restate those fields; search-topic annotations are synthetic.",
       "is_synthetic": true,
       "institution_name": "University of Florida",
       "city": "Gainesville",
@@ -770,8 +770,8 @@
     {
       "id": "universities_duke-university",
       "title": "Duke University",
-      "content": "Duke University is ranked 21 worldwide in the Webometrics January 2026 edition. It is a university catalog reference located in Durham, North Carolina, United States. Searchable location labels include Durham | Raleigh-Durham | Research Triangle | North Carolina | United States. Synthetic benchmark topics include computer science | digital humanities | science | research | teaching | admissions.",
-      "description": "Webometrics January 2026 world rank 21 benchmark record for Duke University.",
+      "content": "Duke University is a private research university based in Durham, North Carolina, United States. In the Webometrics January 2026 world ranking, it holds world rank 21; its indicator positions are impact rank 27, openness rank 28, and excellence rank 67. Location searches also associate the institution with Durham | Raleigh-Durham | Research Triangle | North Carolina | United States.",
+      "description": "Duke University, located in Durham, North Carolina, United States: Webometrics January 2026 world rank 21.",
       "labels": [
         "universities",
         "demo",
@@ -786,7 +786,7 @@
         "United States",
         "private_research"
       ],
-      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data; descriptions and search-topic annotations are synthetic.",
+      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data. Content and descriptions restate those fields; search-topic annotations are synthetic.",
       "is_synthetic": true,
       "institution_name": "Duke University",
       "city": "Durham",
@@ -809,8 +809,8 @@
     {
       "id": "universities_university-of-north-carolina-chapel-hill",
       "title": "University of North Carolina Chapel Hill",
-      "content": "University of North Carolina Chapel Hill is ranked 22 worldwide in the Webometrics January 2026 edition. It is a university catalog reference located in Chapel Hill, North Carolina, United States. Searchable location labels include Chapel Hill | Raleigh-Durham | Research Triangle | North Carolina | United States. Synthetic benchmark topics include studio art | museum studies | science | research | teaching | admissions.",
-      "description": "Webometrics January 2026 world rank 22 benchmark record for University of North Carolina Chapel Hill.",
+      "content": "University of North Carolina Chapel Hill is a public research university based in Chapel Hill, North Carolina, United States. In the Webometrics January 2026 world ranking, it holds world rank 22; its indicator positions are impact rank 33, openness rank 23, and excellence rank 63. Location searches also associate the institution with Chapel Hill | Raleigh-Durham | Research Triangle | North Carolina | United States.",
+      "description": "University of North Carolina Chapel Hill, located in Chapel Hill, North Carolina, United States: Webometrics January 2026 world rank 22.",
       "labels": [
         "universities",
         "demo",
@@ -825,7 +825,7 @@
         "United States",
         "public_research"
       ],
-      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data; descriptions and search-topic annotations are synthetic.",
+      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data. Content and descriptions restate those fields; search-topic annotations are synthetic.",
       "is_synthetic": true,
       "institution_name": "University of North Carolina Chapel Hill",
       "city": "Chapel Hill",
@@ -848,8 +848,8 @@
     {
       "id": "universities_northwestern-university",
       "title": "Northwestern University",
-      "content": "Northwestern University is ranked 23 worldwide in the Webometrics January 2026 edition. It is a university catalog reference located in Evanston, Illinois, United States. Searchable location labels include Evanston | Chicago | Chicago metropolitan area | Illinois | United States. Synthetic benchmark topics include education | learning technology | science | research | teaching | admissions.",
-      "description": "Webometrics January 2026 world rank 23 benchmark record for Northwestern University.",
+      "content": "Northwestern University is a private research university based in Evanston, Illinois, United States. In the Webometrics January 2026 world ranking, it holds world rank 23; its indicator positions are impact rank 34, openness rank 46, and excellence rank 58. Location searches also associate the institution with Evanston | Chicago | Chicago metropolitan area | Illinois | United States.",
+      "description": "Northwestern University, located in Evanston, Illinois, United States: Webometrics January 2026 world rank 23.",
       "labels": [
         "universities",
         "demo",
@@ -864,7 +864,7 @@
         "United States",
         "private_research"
       ],
-      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data; descriptions and search-topic annotations are synthetic.",
+      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data. Content and descriptions restate those fields; search-topic annotations are synthetic.",
       "is_synthetic": true,
       "institution_name": "Northwestern University",
       "city": "Evanston",
@@ -887,8 +887,8 @@
     {
       "id": "universities_pennsylvania-state-university",
       "title": "Pennsylvania State University",
-      "content": "Pennsylvania State University is ranked 24 worldwide in the Webometrics January 2026 edition. It is a university catalog reference located in University Park, Pennsylvania, United States. Searchable location labels include University Park | State College | Pennsylvania | United States. Synthetic benchmark topics include music technology | media production | science | research | teaching | admissions.",
-      "description": "Webometrics January 2026 world rank 24 benchmark record for Pennsylvania State University.",
+      "content": "Pennsylvania State University is a public research university based in University Park, Pennsylvania, United States. In the Webometrics January 2026 world ranking, it holds world rank 24; its indicator positions are impact rank 10, openness rank 102, and excellence rank 76. Location searches also associate the institution with University Park | State College | Pennsylvania | United States.",
+      "description": "Pennsylvania State University, located in University Park, Pennsylvania, United States: Webometrics January 2026 world rank 24.",
       "labels": [
         "universities",
         "demo",
@@ -902,7 +902,7 @@
         "United States",
         "public_research"
       ],
-      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data; descriptions and search-topic annotations are synthetic.",
+      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data. Content and descriptions restate those fields; search-topic annotations are synthetic.",
       "is_synthetic": true,
       "institution_name": "Pennsylvania State University",
       "city": "University Park",
@@ -925,8 +925,8 @@
     {
       "id": "universities_new-york-university",
       "title": "New York University",
-      "content": "New York University is ranked 25 worldwide in the Webometrics January 2026 edition. It is a university catalog reference located in New York, New York, United States. Searchable location labels include New York | United States. Synthetic benchmark topics include public health | community data | science | research | teaching | admissions.",
-      "description": "Webometrics January 2026 world rank 25 benchmark record for New York University.",
+      "content": "New York University is a private research university based in New York, New York, United States. In the Webometrics January 2026 world ranking, it holds world rank 25; its indicator positions are impact rank 22, openness rank 39, and excellence rank 78. Location searches also associate the institution with New York | United States.",
+      "description": "New York University, located in New York, New York, United States: Webometrics January 2026 world rank 25.",
       "labels": [
         "universities",
         "demo",
@@ -938,7 +938,7 @@
         "United States",
         "private_research"
       ],
-      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data; descriptions and search-topic annotations are synthetic.",
+      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data. Content and descriptions restate those fields; search-topic annotations are synthetic.",
       "is_synthetic": true,
       "institution_name": "New York University",
       "city": "New York",
@@ -961,8 +961,8 @@
     {
       "id": "universities_university-of-chicago",
       "title": "University of Chicago",
-      "content": "University of Chicago is ranked 26 worldwide in the Webometrics January 2026 edition. It is a university catalog reference located in Chicago, Illinois, United States. Searchable location labels include Chicago | Illinois | United States. Synthetic benchmark topics include education | learning technology | science | research | teaching | admissions.",
-      "description": "Webometrics January 2026 world rank 26 benchmark record for University of Chicago.",
+      "content": "University of Chicago is a private research university based in Chicago, Illinois, United States. In the Webometrics January 2026 world ranking, it holds world rank 26; its indicator positions are impact rank 14, openness rank 26, and excellence rank 98. Location searches also associate the institution with Chicago | Illinois | United States.",
+      "description": "University of Chicago, located in Chicago, Illinois, United States: Webometrics January 2026 world rank 26.",
       "labels": [
         "universities",
         "demo",
@@ -975,7 +975,7 @@
         "United States",
         "private_research"
       ],
-      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data; descriptions and search-topic annotations are synthetic.",
+      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data. Content and descriptions restate those fields; search-topic annotations are synthetic.",
       "is_synthetic": true,
       "institution_name": "University of Chicago",
       "city": "Chicago",
@@ -998,8 +998,8 @@
     {
       "id": "universities_imperial-college-london",
       "title": "Imperial College London",
-      "content": "Imperial College London is ranked 27 worldwide in the Webometrics January 2026 edition. It is a university catalog reference located in London, England, United Kingdom. Searchable location labels include London | England | United Kingdom. Synthetic benchmark topics include music technology | media production | science | research | teaching | admissions.",
-      "description": "Webometrics January 2026 world rank 27 benchmark record for Imperial College London.",
+      "content": "Imperial College London is a public research university based in London, England, United Kingdom. In the Webometrics January 2026 world ranking, it holds world rank 27; its indicator positions are impact rank 84, openness rank 11, and excellence rank 20. Location searches also associate the institution with London | England | United Kingdom.",
+      "description": "Imperial College London, located in London, England, United Kingdom: Webometrics January 2026 world rank 27.",
       "labels": [
         "universities",
         "demo",
@@ -1012,7 +1012,7 @@
         "United Kingdom",
         "public_research"
       ],
-      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data; descriptions and search-topic annotations are synthetic.",
+      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data. Content and descriptions restate those fields; search-topic annotations are synthetic.",
       "is_synthetic": true,
       "institution_name": "Imperial College London",
       "city": "London",
@@ -1035,8 +1035,8 @@
     {
       "id": "universities_university-of-edinburgh",
       "title": "University of Edinburgh",
-      "content": "University of Edinburgh is ranked 28 worldwide in the Webometrics January 2026 edition. It is a university catalog reference located in Edinburgh, Scotland, United Kingdom. Searchable location labels include Edinburgh | Scotland | United Kingdom. Synthetic benchmark topics include public health | community data | science | research | teaching | admissions.",
-      "description": "Webometrics January 2026 world rank 28 benchmark record for University of Edinburgh.",
+      "content": "University of Edinburgh is a public research university based in Edinburgh, Scotland, United Kingdom. In the Webometrics January 2026 world ranking, it holds world rank 28; its indicator positions are impact rank 49, openness rank 57, and excellence rank 56. Location searches also associate the institution with Edinburgh | Scotland | United Kingdom.",
+      "description": "University of Edinburgh, located in Edinburgh, Scotland, United Kingdom: Webometrics January 2026 world rank 28.",
       "labels": [
         "universities",
         "demo",
@@ -1049,7 +1049,7 @@
         "United Kingdom",
         "public_research"
       ],
-      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data; descriptions and search-topic annotations are synthetic.",
+      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data. Content and descriptions restate those fields; search-topic annotations are synthetic.",
       "is_synthetic": true,
       "institution_name": "University of Edinburgh",
       "city": "Edinburgh",
@@ -1072,8 +1072,8 @@
     {
       "id": "universities_eth-zurich-swiss-federal-institute-of-technology-zurich",
       "title": "ETH Zurich Swiss Federal Institute of Technology Zurich",
-      "content": "ETH Zurich Swiss Federal Institute of Technology Zurich is ranked 29 worldwide in the Webometrics January 2026 edition. It is a university catalog reference located in Zurich, Zurich, Switzerland. Searchable location labels include Zurich | Switzerland. Synthetic benchmark topics include business analytics | entrepreneurship | science | research | teaching | admissions.",
-      "description": "Webometrics January 2026 world rank 29 benchmark record for ETH Zurich Swiss Federal Institute of Technology Zurich.",
+      "content": "ETH Zurich Swiss Federal Institute of Technology Zurich is a public research university based in Zurich, Zurich, Switzerland. In the Webometrics January 2026 world ranking, it holds world rank 29; its indicator positions are impact rank 46, openness rank 51, and excellence rank 62. Location searches also associate the institution with Zurich | Switzerland.",
+      "description": "ETH Zurich Swiss Federal Institute of Technology Zurich, located in Zurich, Zurich, Switzerland: Webometrics January 2026 world rank 29.",
       "labels": [
         "universities",
         "demo",
@@ -1085,7 +1085,7 @@
         "Switzerland",
         "public_research"
       ],
-      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data; descriptions and search-topic annotations are synthetic.",
+      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data. Content and descriptions restate those fields; search-topic annotations are synthetic.",
       "is_synthetic": true,
       "institution_name": "ETH Zurich Swiss Federal Institute of Technology Zurich",
       "city": "Zurich",
@@ -1108,8 +1108,8 @@
     {
       "id": "universities_ohio-state-university",
       "title": "Ohio State University",
-      "content": "Ohio State University is ranked 30 worldwide in the Webometrics January 2026 edition. It is a university catalog reference located in Columbus, Ohio, United States. Searchable location labels include Columbus | Ohio | United States. Synthetic benchmark topics include biology | applied mathematics | science | research | teaching | admissions.",
-      "description": "Webometrics January 2026 world rank 30 benchmark record for Ohio State University.",
+      "content": "Ohio State University is a public research university based in Columbus, Ohio, United States. In the Webometrics January 2026 world ranking, it holds world rank 30; its indicator positions are impact rank 40, openness rank 78, and excellence rank 70. Location searches also associate the institution with Columbus | Ohio | United States.",
+      "description": "Ohio State University, located in Columbus, Ohio, United States: Webometrics January 2026 world rank 30.",
       "labels": [
         "universities",
         "demo",
@@ -1122,7 +1122,7 @@
         "United States",
         "public_research"
       ],
-      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data; descriptions and search-topic annotations are synthetic.",
+      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data. Content and descriptions restate those fields; search-topic annotations are synthetic.",
       "is_synthetic": true,
       "institution_name": "Ohio State University",
       "city": "Columbus",
@@ -1145,8 +1145,8 @@
     {
       "id": "universities_university-of-melbourne",
       "title": "University of Melbourne",
-      "content": "University of Melbourne is ranked 31 worldwide in the Webometrics January 2026 edition. It is a university catalog reference located in Melbourne, Victoria, Australia. Searchable location labels include Melbourne | Victoria | Australia. Synthetic benchmark topics include renewable energy | materials engineering | science | research | teaching | admissions.",
-      "description": "Webometrics January 2026 world rank 31 benchmark record for University of Melbourne.",
+      "content": "University of Melbourne is a public research university based in Melbourne, Victoria, Australia. In the Webometrics January 2026 world ranking, it holds world rank 31; its indicator positions are impact rank 90, openness rank 35, and excellence rank 19. Location searches also associate the institution with Melbourne | Victoria | Australia.",
+      "description": "University of Melbourne, located in Melbourne, Victoria, Australia: Webometrics January 2026 world rank 31.",
       "labels": [
         "universities",
         "demo",
@@ -1159,7 +1159,7 @@
         "Australia",
         "public_research"
       ],
-      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data; descriptions and search-topic annotations are synthetic.",
+      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data. Content and descriptions restate those fields; search-topic annotations are synthetic.",
       "is_synthetic": true,
       "institution_name": "University of Melbourne",
       "city": "Melbourne",
@@ -1182,8 +1182,8 @@
     {
       "id": "universities_peking-university",
       "title": "Peking University",
-      "content": "Peking University is ranked 32 worldwide in the Webometrics January 2026 edition. It is a university catalog reference located in Beijing, Beijing, China. Searchable location labels include Beijing | China. Synthetic benchmark topics include environmental science | public policy | science | research | teaching | admissions.",
-      "description": "Webometrics January 2026 world rank 32 benchmark record for Peking University.",
+      "content": "Peking University is a public research university based in Beijing, Beijing, China. In the Webometrics January 2026 world ranking, it holds world rank 32; its indicator positions are impact rank 98, openness rank 43, and excellence rank 9. Location searches also associate the institution with Beijing | China.",
+      "description": "Peking University, located in Beijing, Beijing, China: Webometrics January 2026 world rank 32.",
       "labels": [
         "universities",
         "demo",
@@ -1195,7 +1195,7 @@
         "China",
         "public_research"
       ],
-      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data; descriptions and search-topic annotations are synthetic.",
+      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data. Content and descriptions restate those fields; search-topic annotations are synthetic.",
       "is_synthetic": true,
       "institution_name": "Peking University",
       "city": "Beijing",
@@ -1218,8 +1218,8 @@
     {
       "id": "universities_university-of-california-san-francisco",
       "title": "University of California San Francisco",
-      "content": "University of California San Francisco is ranked 33 worldwide in the Webometrics January 2026 edition. It is a university catalog reference located in San Francisco, California, United States. Searchable location labels include San Francisco | California | United States. Synthetic benchmark topics include civil engineering | urban planning | science | research | teaching | admissions.",
-      "description": "Webometrics January 2026 world rank 33 benchmark record for University of California San Francisco.",
+      "content": "University of California San Francisco is a public health-sciences university based in San Francisco, California, United States. In the Webometrics January 2026 world ranking, it holds world rank 33; its indicator positions are impact rank 78, openness rank 13, and excellence rank 42. Location searches also associate the institution with San Francisco | California | United States.",
+      "description": "University of California San Francisco, located in San Francisco, California, United States: Webometrics January 2026 world rank 33.",
       "labels": [
         "universities",
         "demo",
@@ -1232,7 +1232,7 @@
         "United States",
         "public_health_sciences"
       ],
-      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data; descriptions and search-topic annotations are synthetic.",
+      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data. Content and descriptions restate those fields; search-topic annotations are synthetic.",
       "is_synthetic": true,
       "institution_name": "University of California San Francisco",
       "city": "San Francisco",
@@ -1255,8 +1255,8 @@
     {
       "id": "universities_university-of-southern-california",
       "title": "University of Southern California",
-      "content": "University of Southern California is ranked 34 worldwide in the Webometrics January 2026 edition. It is a university catalog reference located in Los Angeles, California, United States. Searchable location labels include Los Angeles | California | United States. Synthetic benchmark topics include computer science | digital humanities | science | research | teaching | admissions.",
-      "description": "Webometrics January 2026 world rank 34 benchmark record for University of Southern California.",
+      "content": "University of Southern California is a private research university based in Los Angeles, California, United States. In the Webometrics January 2026 world ranking, it holds world rank 34; its indicator positions are impact rank 28, openness rank 54, and excellence rank 99. Location searches also associate the institution with Los Angeles | California | United States.",
+      "description": "University of Southern California, located in Los Angeles, California, United States: Webometrics January 2026 world rank 34.",
       "labels": [
         "universities",
         "demo",
@@ -1269,7 +1269,7 @@
         "United States",
         "private_research"
       ],
-      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data; descriptions and search-topic annotations are synthetic.",
+      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data. Content and descriptions restate those fields; search-topic annotations are synthetic.",
       "is_synthetic": true,
       "institution_name": "University of Southern California",
       "city": "Los Angeles",
@@ -1292,8 +1292,8 @@
     {
       "id": "universities_university-of-new-south-wales",
       "title": "University of New South Wales",
-      "content": "University of New South Wales is ranked 35 worldwide in the Webometrics January 2026 edition. It is a university catalog reference located in Sydney, New South Wales, Australia. Searchable location labels include Sydney | New South Wales | Australia. Synthetic benchmark topics include studio art | museum studies | science | research | teaching | admissions.",
-      "description": "Webometrics January 2026 world rank 35 benchmark record for University of New South Wales.",
+      "content": "University of New South Wales is a public research university based in Sydney, New South Wales, Australia. In the Webometrics January 2026 world ranking, it holds world rank 35; its indicator positions are impact rank 85, openness rank 56, and excellence rank 30. Location searches also associate the institution with Sydney | New South Wales | Australia.",
+      "description": "University of New South Wales, located in Sydney, New South Wales, Australia: Webometrics January 2026 world rank 35.",
       "labels": [
         "universities",
         "demo",
@@ -1306,7 +1306,7 @@
         "Australia",
         "public_research"
       ],
-      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data; descriptions and search-topic annotations are synthetic.",
+      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data. Content and descriptions restate those fields; search-topic annotations are synthetic.",
       "is_synthetic": true,
       "institution_name": "University of New South Wales",
       "city": "Sydney",
@@ -1329,8 +1329,8 @@
     {
       "id": "universities_university-of-california-davis",
       "title": "University of California Davis",
-      "content": "University of California Davis is ranked 36 worldwide in the Webometrics January 2026 edition. It is a university catalog reference located in Davis, California, United States. Searchable location labels include Davis | California | United States. Synthetic benchmark topics include education | learning technology | science | research | teaching | admissions.",
-      "description": "Webometrics January 2026 world rank 36 benchmark record for University of California Davis.",
+      "content": "University of California Davis is a public research university based in Davis, California, United States. In the Webometrics January 2026 world ranking, it holds world rank 36; its indicator positions are impact rank 31, openness rank 83, and excellence rank 91. Location searches also associate the institution with Davis | California | United States.",
+      "description": "University of California Davis, located in Davis, California, United States: Webometrics January 2026 world rank 36.",
       "labels": [
         "universities",
         "demo",
@@ -1343,7 +1343,7 @@
         "United States",
         "public_research"
       ],
-      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data; descriptions and search-topic annotations are synthetic.",
+      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data. Content and descriptions restate those fields; search-topic annotations are synthetic.",
       "is_synthetic": true,
       "institution_name": "University of California Davis",
       "city": "Davis",
@@ -1366,8 +1366,8 @@
     {
       "id": "universities_university-of-texas-austin",
       "title": "University of Texas Austin",
-      "content": "University of Texas Austin is ranked 37 worldwide in the Webometrics January 2026 edition. It is a university catalog reference located in Austin, Texas, United States. Searchable location labels include Austin | Texas | United States. Synthetic benchmark topics include music technology | media production | science | research | teaching | admissions.",
-      "description": "Webometrics January 2026 world rank 37 benchmark record for University of Texas Austin.",
+      "content": "University of Texas Austin is a public research university based in Austin, Texas, United States. In the Webometrics January 2026 world ranking, it holds world rank 37; its indicator positions are impact rank 20, openness rank 95, and excellence rank 102. Location searches also associate the institution with Austin | Texas | United States.",
+      "description": "University of Texas Austin, located in Austin, Texas, United States: Webometrics January 2026 world rank 37.",
       "labels": [
         "universities",
         "demo",
@@ -1380,7 +1380,7 @@
         "United States",
         "public_research"
       ],
-      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data; descriptions and search-topic annotations are synthetic.",
+      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data. Content and descriptions restate those fields; search-topic annotations are synthetic.",
       "is_synthetic": true,
       "institution_name": "University of Texas Austin",
       "city": "Austin",
@@ -1403,8 +1403,8 @@
     {
       "id": "universities_university-of-pittsburgh",
       "title": "University of Pittsburgh",
-      "content": "University of Pittsburgh is ranked 38 worldwide in the Webometrics January 2026 edition. It is a university catalog reference located in Pittsburgh, Pennsylvania, United States. Searchable location labels include Pittsburgh | Pennsylvania | United States. Synthetic benchmark topics include public health | community data | science | research | teaching | admissions.",
-      "description": "Webometrics January 2026 world rank 38 benchmark record for University of Pittsburgh.",
+      "content": "University of Pittsburgh is a public research university based in Pittsburgh, Pennsylvania, United States. In the Webometrics January 2026 world ranking, it holds world rank 38; its indicator positions are impact rank 53, openness rank 45, and excellence rank 81. Location searches also associate the institution with Pittsburgh | Pennsylvania | United States.",
+      "description": "University of Pittsburgh, located in Pittsburgh, Pennsylvania, United States: Webometrics January 2026 world rank 38.",
       "labels": [
         "universities",
         "demo",
@@ -1417,7 +1417,7 @@
         "United States",
         "public_research"
       ],
-      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data; descriptions and search-topic annotations are synthetic.",
+      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data. Content and descriptions restate those fields; search-topic annotations are synthetic.",
       "is_synthetic": true,
       "institution_name": "University of Pittsburgh",
       "city": "Pittsburgh",
@@ -1440,8 +1440,8 @@
     {
       "id": "universities_mcgill-university",
       "title": "McGill University",
-      "content": "McGill University is ranked 39 worldwide in the Webometrics January 2026 edition. It is a university catalog reference located in Montreal, Quebec, Canada. Searchable location labels include Montreal | Quebec | Canada. Synthetic benchmark topics include business analytics | entrepreneurship | science | research | teaching | admissions.",
-      "description": "Webometrics January 2026 world rank 39 benchmark record for McGill University.",
+      "content": "McGill University is a public research university based in Montreal, Quebec, Canada. In the Webometrics January 2026 world ranking, it holds world rank 39; its indicator positions are impact rank 59, openness rank 81, and excellence rank 73. Location searches also associate the institution with Montreal | Quebec | Canada.",
+      "description": "McGill University, located in Montreal, Quebec, Canada: Webometrics January 2026 world rank 39.",
       "labels": [
         "universities",
         "demo",
@@ -1454,7 +1454,7 @@
         "Canada",
         "public_research"
       ],
-      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data; descriptions and search-topic annotations are synthetic.",
+      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data. Content and descriptions restate those fields; search-topic annotations are synthetic.",
       "is_synthetic": true,
       "institution_name": "McGill University",
       "city": "Montreal",
@@ -1477,8 +1477,8 @@
     {
       "id": "universities_university-of-illinois-urbana-champaign",
       "title": "University of Illinois Urbana Champaign",
-      "content": "University of Illinois Urbana Champaign is ranked 40 worldwide in the Webometrics January 2026 edition. It is a university catalog reference located in Urbana Champaign, Illinois, United States. Searchable location labels include Urbana Champaign | Illinois | United States. Synthetic benchmark topics include biology | applied mathematics | science | research | teaching | admissions.",
-      "description": "Webometrics January 2026 world rank 40 benchmark record for University of Illinois Urbana Champaign.",
+      "content": "University of Illinois Urbana Champaign is a public research university based in Urbana Champaign, Illinois, United States. In the Webometrics January 2026 world ranking, it holds world rank 40; its indicator positions are impact rank 24, openness rank 113, and excellence rank 110. Location searches also associate the institution with Urbana Champaign | Illinois | United States.",
+      "description": "University of Illinois Urbana Champaign, located in Urbana Champaign, Illinois, United States: Webometrics January 2026 world rank 40.",
       "labels": [
         "universities",
         "demo",
@@ -1491,7 +1491,7 @@
         "United States",
         "public_research"
       ],
-      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data; descriptions and search-topic annotations are synthetic.",
+      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data. Content and descriptions restate those fields; search-topic annotations are synthetic.",
       "is_synthetic": true,
       "institution_name": "University of Illinois Urbana Champaign",
       "city": "Urbana Champaign",
@@ -1514,8 +1514,8 @@
     {
       "id": "universities_university-of-tokyo",
       "title": "University of Tokyo",
-      "content": "University of Tokyo is ranked 41 worldwide in the Webometrics January 2026 edition. It is a university catalog reference located in Tokyo, Tokyo, Japan. Searchable location labels include Tokyo | Japan. Synthetic benchmark topics include renewable energy | materials engineering | science | research | teaching | admissions.",
-      "description": "Webometrics January 2026 world rank 41 benchmark record for University of Tokyo.",
+      "content": "University of Tokyo is a public research university based in Tokyo, Tokyo, Japan. In the Webometrics January 2026 world ranking, it holds world rank 41; its indicator positions are impact rank 82, openness rank 37, and excellence rank 57. Location searches also associate the institution with Tokyo | Japan.",
+      "description": "University of Tokyo, located in Tokyo, Tokyo, Japan: Webometrics January 2026 world rank 41.",
       "labels": [
         "universities",
         "demo",
@@ -1527,7 +1527,7 @@
         "Japan",
         "public_research"
       ],
-      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data; descriptions and search-topic annotations are synthetic.",
+      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data. Content and descriptions restate those fields; search-topic annotations are synthetic.",
       "is_synthetic": true,
       "institution_name": "University of Tokyo",
       "city": "Tokyo",
@@ -1550,8 +1550,8 @@
     {
       "id": "universities_university-of-queensland",
       "title": "University of Queensland",
-      "content": "University of Queensland is ranked 42 worldwide in the Webometrics January 2026 edition. It is a university catalog reference located in Brisbane, Queensland, Australia. Searchable location labels include Brisbane | Queensland | Australia. Synthetic benchmark topics include environmental science | public policy | science | research | teaching | admissions.",
-      "description": "Webometrics January 2026 world rank 42 benchmark record for University of Queensland.",
+      "content": "University of Queensland is a public research university based in Brisbane, Queensland, Australia. In the Webometrics January 2026 world ranking, it holds world rank 42; its indicator positions are impact rank 99, openness rank 60, and excellence rank 33. Location searches also associate the institution with Brisbane | Queensland | Australia.",
+      "description": "University of Queensland, located in Brisbane, Queensland, Australia: Webometrics January 2026 world rank 42.",
       "labels": [
         "universities",
         "demo",
@@ -1564,7 +1564,7 @@
         "Australia",
         "public_research"
       ],
-      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data; descriptions and search-topic annotations are synthetic.",
+      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data. Content and descriptions restate those fields; search-topic annotations are synthetic.",
       "is_synthetic": true,
       "institution_name": "University of Queensland",
       "city": "Brisbane",
@@ -1587,8 +1587,8 @@
     {
       "id": "universities_johns-hopkins-university-school-of-medicine",
       "title": "Johns Hopkins University School of Medicine",
-      "content": "Johns Hopkins University School of Medicine is ranked 43 worldwide in the Webometrics January 2026 edition. It is a university catalog reference located in Baltimore, Maryland, United States. Searchable location labels include Baltimore | Maryland | United States. Synthetic benchmark topics include civil engineering | urban planning | science | research | teaching | admissions.",
-      "description": "Webometrics January 2026 world rank 43 benchmark record for Johns Hopkins University School of Medicine.",
+      "content": "Johns Hopkins University School of Medicine is a private health-sciences institution based in Baltimore, Maryland, United States. In the Webometrics January 2026 world ranking, it holds world rank 43; its indicator positions are impact rank 47, openness rank 29, and excellence rank 106. Location searches also associate the institution with Baltimore | Maryland | United States.",
+      "description": "Johns Hopkins University School of Medicine, located in Baltimore, Maryland, United States: Webometrics January 2026 world rank 43.",
       "labels": [
         "universities",
         "demo",
@@ -1601,7 +1601,7 @@
         "United States",
         "private_health_sciences"
       ],
-      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data; descriptions and search-topic annotations are synthetic.",
+      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data. Content and descriptions restate those fields; search-topic annotations are synthetic.",
       "is_synthetic": true,
       "institution_name": "Johns Hopkins University School of Medicine",
       "city": "Baltimore",
@@ -1624,8 +1624,8 @@
     {
       "id": "universities_university-of-manchester",
       "title": "University of Manchester",
-      "content": "University of Manchester is ranked 44 worldwide in the Webometrics January 2026 edition. It is a university catalog reference located in Manchester, England, United Kingdom. Searchable location labels include Manchester | England | United Kingdom. Synthetic benchmark topics include computer science | digital humanities | science | research | teaching | admissions.",
-      "description": "Webometrics January 2026 world rank 44 benchmark record for University of Manchester.",
+      "content": "University of Manchester is a public research university based in Manchester, England, United Kingdom. In the Webometrics January 2026 world ranking, it holds world rank 44; its indicator positions are impact rank 86, openness rank 42, and excellence rank 55. Location searches also associate the institution with Manchester | England | United Kingdom.",
+      "description": "University of Manchester, located in Manchester, England, United Kingdom: Webometrics January 2026 world rank 44.",
       "labels": [
         "universities",
         "demo",
@@ -1638,7 +1638,7 @@
         "United Kingdom",
         "public_research"
       ],
-      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data; descriptions and search-topic annotations are synthetic.",
+      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data. Content and descriptions restate those fields; search-topic annotations are synthetic.",
       "is_synthetic": true,
       "institution_name": "University of Manchester",
       "city": "Manchester",
@@ -1661,8 +1661,8 @@
     {
       "id": "universities_national-university-of-singapore",
       "title": "National University of Singapore",
-      "content": "National University of Singapore is ranked 45 worldwide in the Webometrics January 2026 edition. It is a university catalog reference located in Singapore, Singapore, Singapore. Searchable location labels include Singapore. Synthetic benchmark topics include studio art | museum studies | science | research | teaching | admissions.",
-      "description": "Webometrics January 2026 world rank 45 benchmark record for National University of Singapore.",
+      "content": "National University of Singapore is a public research university based in Singapore, Singapore, Singapore. In the Webometrics January 2026 world ranking, it holds world rank 45; its indicator positions are impact rank 111, openness rank 55, and excellence rank 25. Location searches also associate the institution with Singapore.",
+      "description": "National University of Singapore, located in Singapore, Singapore, Singapore: Webometrics January 2026 world rank 45.",
       "labels": [
         "universities",
         "demo",
@@ -1673,7 +1673,7 @@
         "Singapore",
         "public_research"
       ],
-      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data; descriptions and search-topic annotations are synthetic.",
+      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data. Content and descriptions restate those fields; search-topic annotations are synthetic.",
       "is_synthetic": true,
       "institution_name": "National University of Singapore",
       "city": "Singapore",
@@ -1696,8 +1696,8 @@
     {
       "id": "universities_king-s-college-london",
       "title": "King's College London",
-      "content": "King's College London is ranked 46 worldwide in the Webometrics January 2026 edition. It is a university catalog reference located in London, England, United Kingdom. Searchable location labels include London | England | United Kingdom. Synthetic benchmark topics include education | learning technology | science | research | teaching | admissions.",
-      "description": "Webometrics January 2026 world rank 46 benchmark record for King's College London.",
+      "content": "King's College London is a public research university based in London, England, United Kingdom. In the Webometrics January 2026 world ranking, it holds world rank 46; its indicator positions are impact rank 102, openness rank 41, and excellence rank 41. Location searches also associate the institution with London | England | United Kingdom.",
+      "description": "King's College London, located in London, England, United Kingdom: Webometrics January 2026 world rank 46.",
       "labels": [
         "universities",
         "demo",
@@ -1710,7 +1710,7 @@
         "United Kingdom",
         "public_research"
       ],
-      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data; descriptions and search-topic annotations are synthetic.",
+      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data. Content and descriptions restate those fields; search-topic annotations are synthetic.",
       "is_synthetic": true,
       "institution_name": "King's College London",
       "city": "London",
@@ -1733,8 +1733,8 @@
     {
       "id": "universities_princeton-university",
       "title": "Princeton University",
-      "content": "Princeton University is ranked 47 worldwide in the Webometrics January 2026 edition. It is a university catalog reference located in Princeton, New Jersey, United States. Searchable location labels include Princeton | New Jersey | United States. Synthetic benchmark topics include music technology | media production | science | research | teaching | admissions.",
-      "description": "Webometrics January 2026 world rank 47 benchmark record for Princeton University.",
+      "content": "Princeton University is a private research university based in Princeton, New Jersey, United States. In the Webometrics January 2026 world ranking, it holds world rank 47; its indicator positions are impact rank 17, openness rank 66, and excellence rank 146. Location searches also associate the institution with Princeton | New Jersey | United States.",
+      "description": "Princeton University, located in Princeton, New Jersey, United States: Webometrics January 2026 world rank 47.",
       "labels": [
         "universities",
         "demo",
@@ -1747,7 +1747,7 @@
         "United States",
         "private_research"
       ],
-      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data; descriptions and search-topic annotations are synthetic.",
+      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data. Content and descriptions restate those fields; search-topic annotations are synthetic.",
       "is_synthetic": true,
       "institution_name": "Princeton University",
       "city": "Princeton",
@@ -1770,8 +1770,8 @@
     {
       "id": "universities_michigan-state-university",
       "title": "Michigan State University",
-      "content": "Michigan State University is ranked 48 worldwide in the Webometrics January 2026 edition. It is a university catalog reference located in East Lansing, Michigan, United States. Searchable location labels include East Lansing | Michigan | United States. Synthetic benchmark topics include public health | community data | science | research | teaching | admissions.",
-      "description": "Webometrics January 2026 world rank 48 benchmark record for Michigan State University.",
+      "content": "Michigan State University is a public research university based in East Lansing, Michigan, United States. In the Webometrics January 2026 world ranking, it holds world rank 48; its indicator positions are impact rank 35, openness rank 104, and excellence rank 116. Location searches also associate the institution with East Lansing | Michigan | United States.",
+      "description": "Michigan State University, located in East Lansing, Michigan, United States: Webometrics January 2026 world rank 48.",
       "labels": [
         "universities",
         "demo",
@@ -1784,7 +1784,7 @@
         "United States",
         "public_research"
       ],
-      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data; descriptions and search-topic annotations are synthetic.",
+      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data. Content and descriptions restate those fields; search-topic annotations are synthetic.",
       "is_synthetic": true,
       "institution_name": "Michigan State University",
       "city": "East Lansing",
@@ -1807,8 +1807,8 @@
     {
       "id": "universities_boston-university",
       "title": "Boston University",
-      "content": "Boston University is ranked 49 worldwide in the Webometrics January 2026 edition. It is a university catalog reference located in Boston, Massachusetts, United States. Searchable location labels include Boston | Massachusetts | United States. Synthetic benchmark topics include business analytics | entrepreneurship | science | research | teaching | admissions.",
-      "description": "Webometrics January 2026 world rank 49 benchmark record for Boston University.",
+      "content": "Boston University is a private research university based in Boston, Massachusetts, United States. In the Webometrics January 2026 world ranking, it holds world rank 49; its indicator positions are impact rank 44, openness rank 64, and excellence rank 115. Location searches also associate the institution with Boston | Massachusetts | United States.",
+      "description": "Boston University, located in Boston, Massachusetts, United States: Webometrics January 2026 world rank 49.",
       "labels": [
         "universities",
         "demo",
@@ -1821,7 +1821,7 @@
         "United States",
         "private_research"
       ],
-      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data; descriptions and search-topic annotations are synthetic.",
+      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data. Content and descriptions restate those fields; search-topic annotations are synthetic.",
       "is_synthetic": true,
       "institution_name": "Boston University",
       "city": "Boston",
@@ -1844,8 +1844,8 @@
     {
       "id": "universities_university-of-maryland-college-park",
       "title": "University of Maryland College Park",
-      "content": "University of Maryland College Park is ranked 50 worldwide in the Webometrics January 2026 edition. It is a university catalog reference located in College Park, Maryland, United States. Searchable location labels include College Park | Washington DC | Washington metropolitan area | Maryland | United States. Synthetic benchmark topics include biology | applied mathematics | science | research | teaching | admissions.",
-      "description": "Webometrics January 2026 world rank 50 benchmark record for University of Maryland College Park.",
+      "content": "University of Maryland College Park is a public research university based in College Park, Maryland, United States. In the Webometrics January 2026 world ranking, it holds world rank 50; its indicator positions are impact rank 29, openness rank 88, and excellence rank 136. Location searches also associate the institution with College Park | Washington DC | Washington metropolitan area | Maryland | United States.",
+      "description": "University of Maryland College Park, located in College Park, Maryland, United States: Webometrics January 2026 world rank 50.",
       "labels": [
         "universities",
         "demo",
@@ -1860,7 +1860,7 @@
         "United States",
         "public_research"
       ],
-      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data; descriptions and search-topic annotations are synthetic.",
+      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data. Content and descriptions restate those fields; search-topic annotations are synthetic.",
       "is_synthetic": true,
       "institution_name": "University of Maryland College Park",
       "city": "College Park",
@@ -1883,8 +1883,8 @@
     {
       "id": "universities_rutgers-the-state-university-of-new-jersey",
       "title": "Rutgers The State University of New Jersey",
-      "content": "Rutgers The State University of New Jersey is ranked 51 worldwide in the Webometrics January 2026 edition. It is a university catalog reference located in New Brunswick, New Jersey, United States. Searchable location labels include New Brunswick | New York metropolitan area | New Jersey | United States. Synthetic benchmark topics include public health | community data | science | research | teaching | admissions.",
-      "description": "Webometrics January 2026 world rank 51 benchmark record for Rutgers The State University of New Jersey.",
+      "content": "Rutgers The State University of New Jersey is a public research university based in New Brunswick, New Jersey, United States. In the Webometrics January 2026 world ranking, it holds world rank 51; its indicator positions are impact rank 41, openness rank 96, and excellence rank 120. Location searches also associate the institution with New Brunswick | New York metropolitan area | New Jersey | United States.",
+      "description": "Rutgers The State University of New Jersey, located in New Brunswick, New Jersey, United States: Webometrics January 2026 world rank 51.",
       "labels": [
         "universities",
         "demo",
@@ -1898,7 +1898,7 @@
         "United States",
         "public_research"
       ],
-      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data; descriptions and search-topic annotations are synthetic.",
+      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data. Content and descriptions restate those fields; search-topic annotations are synthetic.",
       "is_synthetic": true,
       "institution_name": "Rutgers The State University of New Jersey",
       "city": "New Brunswick",
@@ -1921,8 +1921,8 @@
     {
       "id": "universities_university-of-sydney",
       "title": "University of Sydney",
-      "content": "University of Sydney is ranked 52 worldwide in the Webometrics January 2026 edition. It is a university catalog reference located in Sydney, New South Wales, Australia. Searchable location labels include Sydney | New South Wales | Australia. Synthetic benchmark topics include business analytics | entrepreneurship | science | research | teaching | admissions.",
-      "description": "Webometrics January 2026 world rank 52 benchmark record for University of Sydney.",
+      "content": "University of Sydney is a public research university based in Sydney, New South Wales, Australia. In the Webometrics January 2026 world ranking, it holds world rank 52; its indicator positions are impact rank 130, openness rank 40, and excellence rank 24. Location searches also associate the institution with Sydney | New South Wales | Australia.",
+      "description": "University of Sydney, located in Sydney, New South Wales, Australia: Webometrics January 2026 world rank 52.",
       "labels": [
         "universities",
         "demo",
@@ -1935,7 +1935,7 @@
         "Australia",
         "public_research"
       ],
-      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data; descriptions and search-topic annotations are synthetic.",
+      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data. Content and descriptions restate those fields; search-topic annotations are synthetic.",
       "is_synthetic": true,
       "institution_name": "University of Sydney",
       "city": "Sydney",
@@ -1958,8 +1958,8 @@
     {
       "id": "universities_university-of-sao-paulo-usp",
       "title": "University of Sao Paulo USP",
-      "content": "University of Sao Paulo USP is ranked 53 worldwide in the Webometrics January 2026 edition. It is a university catalog reference located in Sao Paulo, Sao Paulo, Brazil. Searchable location labels include Sao Paulo | Brazil. Synthetic benchmark topics include biology | applied mathematics | science | research | teaching | admissions.",
-      "description": "Webometrics January 2026 world rank 53 benchmark record for University of Sao Paulo USP.",
+      "content": "University of Sao Paulo USP is a public research university based in Sao Paulo, Sao Paulo, Brazil. In the Webometrics January 2026 world ranking, it holds world rank 53; its indicator positions are impact rank 79, openness rank 227, and excellence rank 46. Location searches also associate the institution with Sao Paulo | Brazil.",
+      "description": "University of Sao Paulo USP, located in Sao Paulo, Sao Paulo, Brazil: Webometrics January 2026 world rank 53.",
       "labels": [
         "universities",
         "demo",
@@ -1971,7 +1971,7 @@
         "Brazil",
         "public_research"
       ],
-      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data; descriptions and search-topic annotations are synthetic.",
+      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data. Content and descriptions restate those fields; search-topic annotations are synthetic.",
       "is_synthetic": true,
       "institution_name": "University of Sao Paulo USP",
       "city": "Sao Paulo",
@@ -1994,8 +1994,8 @@
     {
       "id": "universities_texas-a-m-university",
       "title": "Texas A&M University",
-      "content": "Texas A&M University is ranked 54 worldwide in the Webometrics January 2026 edition. It is a university catalog reference located in College Station, Texas, United States. Searchable location labels include College Station | Texas | United States. Synthetic benchmark topics include renewable energy | materials engineering | science | research | teaching | admissions.",
-      "description": "Webometrics January 2026 world rank 54 benchmark record for Texas A&M University.",
+      "content": "Texas A&M University is a public research university based in College Station, Texas, United States. In the Webometrics January 2026 world ranking, it holds world rank 54; its indicator positions are impact rank 45, openness rank 114, and excellence rank 118. Location searches also associate the institution with College Station | Texas | United States.",
+      "description": "Texas A&M University, located in College Station, Texas, United States: Webometrics January 2026 world rank 54.",
       "labels": [
         "universities",
         "demo",
@@ -2008,7 +2008,7 @@
         "United States",
         "public_research"
       ],
-      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data; descriptions and search-topic annotations are synthetic.",
+      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data. Content and descriptions restate those fields; search-topic annotations are synthetic.",
       "is_synthetic": true,
       "institution_name": "Texas A&M University",
       "city": "College Station",
@@ -2031,8 +2031,8 @@
     {
       "id": "universities_university-of-arizona",
       "title": "University of Arizona",
-      "content": "University of Arizona is ranked 55 worldwide in the Webometrics January 2026 edition. It is a university catalog reference located in Tucson, Arizona, United States. Searchable location labels include Tucson | Arizona | United States. Synthetic benchmark topics include environmental science | public policy | science | research | teaching | admissions.",
-      "description": "Webometrics January 2026 world rank 55 benchmark record for University of Arizona.",
+      "content": "University of Arizona is a public research university based in Tucson, Arizona, United States. In the Webometrics January 2026 world ranking, it holds world rank 55; its indicator positions are impact rank 38, openness rank 103, and excellence rank 131. Location searches also associate the institution with Tucson | Arizona | United States.",
+      "description": "University of Arizona, located in Tucson, Arizona, United States: Webometrics January 2026 world rank 55.",
       "labels": [
         "universities",
         "demo",
@@ -2045,7 +2045,7 @@
         "United States",
         "public_research"
       ],
-      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data; descriptions and search-topic annotations are synthetic.",
+      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data. Content and descriptions restate those fields; search-topic annotations are synthetic.",
       "is_synthetic": true,
       "institution_name": "University of Arizona",
       "city": "Tucson",
@@ -2068,8 +2068,8 @@
     {
       "id": "universities_heidelberg-university",
       "title": "Heidelberg University",
-      "content": "Heidelberg University is ranked 56 worldwide in the Webometrics January 2026 edition. It is a university catalog reference located in Heidelberg, Baden-Wurttemberg, Germany. Searchable location labels include Heidelberg | Baden-Wurttemberg | Germany. Synthetic benchmark topics include civil engineering | urban planning | science | research | teaching | admissions.",
-      "description": "Webometrics January 2026 world rank 56 benchmark record for Heidelberg University.",
+      "content": "Heidelberg University is a public research university based in Heidelberg, Baden-Wurttemberg, Germany. In the Webometrics January 2026 world ranking, it holds world rank 56; its indicator positions are impact rank 120, openness rank 27, and excellence rank 52. Location searches also associate the institution with Heidelberg | Baden-Wurttemberg | Germany.",
+      "description": "Heidelberg University, located in Heidelberg, Baden-Wurttemberg, Germany: Webometrics January 2026 world rank 56.",
       "labels": [
         "universities",
         "demo",
@@ -2082,7 +2082,7 @@
         "Germany",
         "public_research"
       ],
-      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data; descriptions and search-topic annotations are synthetic.",
+      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data. Content and descriptions restate those fields; search-topic annotations are synthetic.",
       "is_synthetic": true,
       "institution_name": "Heidelberg University",
       "city": "Heidelberg",
@@ -2105,8 +2105,8 @@
     {
       "id": "universities_tsinghua-university",
       "title": "Tsinghua University",
-      "content": "Tsinghua University is ranked 57 worldwide in the Webometrics January 2026 edition. It is a university catalog reference located in Beijing, Beijing, China. Searchable location labels include Beijing | China. Synthetic benchmark topics include computer science | digital humanities | science | research | teaching | admissions.",
-      "description": "Webometrics January 2026 world rank 57 benchmark record for Tsinghua University.",
+      "content": "Tsinghua University is a public research university based in Beijing, Beijing, China. In the Webometrics January 2026 world ranking, it holds world rank 57; its indicator positions are impact rank 155, openness rank 33, and excellence rank 7. Location searches also associate the institution with Beijing | China.",
+      "description": "Tsinghua University, located in Beijing, Beijing, China: Webometrics January 2026 world rank 57.",
       "labels": [
         "universities",
         "demo",
@@ -2118,7 +2118,7 @@
         "China",
         "public_research"
       ],
-      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data; descriptions and search-topic annotations are synthetic.",
+      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data. Content and descriptions restate those fields; search-topic annotations are synthetic.",
       "is_synthetic": true,
       "institution_name": "Tsinghua University",
       "city": "Beijing",
@@ -2141,8 +2141,8 @@
     {
       "id": "universities_university-of-california-irvine",
       "title": "University of California Irvine",
-      "content": "University of California Irvine is ranked 58 worldwide in the Webometrics January 2026 edition. It is a university catalog reference located in Irvine, California, United States. Searchable location labels include Irvine | California | United States. Synthetic benchmark topics include studio art | museum studies | science | research | teaching | admissions.",
-      "description": "Webometrics January 2026 world rank 58 benchmark record for University of California Irvine.",
+      "content": "University of California Irvine is a public research university based in Irvine, California, United States. In the Webometrics January 2026 world ranking, it holds world rank 58; its indicator positions are impact rank 48, openness rank 67, and excellence rank 140. Location searches also associate the institution with Irvine | California | United States.",
+      "description": "University of California Irvine, located in Irvine, California, United States: Webometrics January 2026 world rank 58.",
       "labels": [
         "universities",
         "demo",
@@ -2155,7 +2155,7 @@
         "United States",
         "public_research"
       ],
-      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data; descriptions and search-topic annotations are synthetic.",
+      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data. Content and descriptions restate those fields; search-topic annotations are synthetic.",
       "is_synthetic": true,
       "institution_name": "University of California Irvine",
       "city": "Irvine",
@@ -2178,8 +2178,8 @@
     {
       "id": "universities_arizona-state-university",
       "title": "Arizona State University",
-      "content": "Arizona State University is ranked 59 worldwide in the Webometrics January 2026 edition. It is a university catalog reference located in Tempe, Arizona, United States. Searchable location labels include Tempe | Phoenix | Phoenix metropolitan area | Arizona | United States. Synthetic benchmark topics include education | learning technology | science | research | teaching | admissions.",
-      "description": "Webometrics January 2026 world rank 59 benchmark record for Arizona State University.",
+      "content": "Arizona State University is a public research university based in Tempe, Arizona, United States. In the Webometrics January 2026 world ranking, it holds world rank 59; its indicator positions are impact rank 30, openness rank 141, and excellence rank 147. Location searches also associate the institution with Tempe | Phoenix | Phoenix metropolitan area | Arizona | United States.",
+      "description": "Arizona State University, located in Tempe, Arizona, United States: Webometrics January 2026 world rank 59.",
       "labels": [
         "universities",
         "demo",
@@ -2194,7 +2194,7 @@
         "United States",
         "public_research"
       ],
-      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data; descriptions and search-topic annotations are synthetic.",
+      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data. Content and descriptions restate those fields; search-topic annotations are synthetic.",
       "is_synthetic": true,
       "institution_name": "Arizona State University",
       "city": "Tempe",
@@ -2217,8 +2217,8 @@
     {
       "id": "universities_university-of-utah",
       "title": "University of Utah",
-      "content": "University of Utah is ranked 60 worldwide in the Webometrics January 2026 edition. It is a university catalog reference located in Salt Lake City, Utah, United States. Searchable location labels include Salt Lake City | Utah | United States. Synthetic benchmark topics include music technology | media production | science | research | teaching | admissions.",
-      "description": "Webometrics January 2026 world rank 60 benchmark record for University of Utah.",
+      "content": "University of Utah is a public research university based in Salt Lake City, Utah, United States. In the Webometrics January 2026 world ranking, it holds world rank 60; its indicator positions are impact rank 42, openness rank 132, and excellence rank 135. Location searches also associate the institution with Salt Lake City | Utah | United States.",
+      "description": "University of Utah, located in Salt Lake City, Utah, United States: Webometrics January 2026 world rank 60.",
       "labels": [
         "universities",
         "demo",
@@ -2231,7 +2231,7 @@
         "United States",
         "public_research"
       ],
-      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data; descriptions and search-topic annotations are synthetic.",
+      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data. Content and descriptions restate those fields; search-topic annotations are synthetic.",
       "is_synthetic": true,
       "institution_name": "University of Utah",
       "city": "Salt Lake City",
@@ -2254,8 +2254,8 @@
     {
       "id": "universities_university-of-amsterdam",
       "title": "University of Amsterdam",
-      "content": "University of Amsterdam is ranked 61 worldwide in the Webometrics January 2026 edition. It is a university catalog reference located in Amsterdam, North Holland, Netherlands. Searchable location labels include Amsterdam | North Holland | Netherlands. Synthetic benchmark topics include public health | community data | science | research | teaching | admissions.",
-      "description": "Webometrics January 2026 world rank 61 benchmark record for University of Amsterdam.",
+      "content": "University of Amsterdam is a public research university based in Amsterdam, North Holland, Netherlands. In the Webometrics January 2026 world ranking, it holds world rank 61; its indicator positions are impact rank 117, openness rank 59, and excellence rank 61. Location searches also associate the institution with Amsterdam | North Holland | Netherlands.",
+      "description": "University of Amsterdam, located in Amsterdam, North Holland, Netherlands: Webometrics January 2026 world rank 61.",
       "labels": [
         "universities",
         "demo",
@@ -2268,7 +2268,7 @@
         "Netherlands",
         "public_research"
       ],
-      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data; descriptions and search-topic annotations are synthetic.",
+      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data. Content and descriptions restate those fields; search-topic annotations are synthetic.",
       "is_synthetic": true,
       "institution_name": "University of Amsterdam",
       "city": "Amsterdam",
@@ -2291,8 +2291,8 @@
     {
       "id": "universities_purdue-university",
       "title": "Purdue University",
-      "content": "Purdue University is ranked 62 worldwide in the Webometrics January 2026 edition. It is a university catalog reference located in West Lafayette, Indiana, United States. Searchable location labels include West Lafayette | Indiana | United States. Synthetic benchmark topics include business analytics | entrepreneurship | science | research | teaching | admissions.",
-      "description": "Webometrics January 2026 world rank 62 benchmark record for Purdue University.",
+      "content": "Purdue University is a public research university based in West Lafayette, Indiana, United States. In the Webometrics January 2026 world ranking, it holds world rank 62; its indicator positions are impact rank 25, openness rank 165, and excellence rank 152. Location searches also associate the institution with West Lafayette | Indiana | United States.",
+      "description": "Purdue University, located in West Lafayette, Indiana, United States: Webometrics January 2026 world rank 62.",
       "labels": [
         "universities",
         "demo",
@@ -2305,7 +2305,7 @@
         "United States",
         "public_research"
       ],
-      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data; descriptions and search-topic annotations are synthetic.",
+      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data. Content and descriptions restate those fields; search-topic annotations are synthetic.",
       "is_synthetic": true,
       "institution_name": "Purdue University",
       "city": "West Lafayette",
@@ -2328,8 +2328,8 @@
     {
       "id": "universities_university-of-copenhagen",
       "title": "University of Copenhagen",
-      "content": "University of Copenhagen is ranked 63 worldwide in the Webometrics January 2026 edition. It is a university catalog reference located in Copenhagen, Capital Region, Denmark. Searchable location labels include Copenhagen | Capital Region | Denmark. Synthetic benchmark topics include biology | applied mathematics | science | research | teaching | admissions.",
-      "description": "Webometrics January 2026 world rank 63 benchmark record for University of Copenhagen.",
+      "content": "University of Copenhagen is a public research university based in Copenhagen, Capital Region, Denmark. In the Webometrics January 2026 world ranking, it holds world rank 63; its indicator positions are impact rank 143, openness rank 36, and excellence rank 38. Location searches also associate the institution with Copenhagen | Capital Region | Denmark.",
+      "description": "University of Copenhagen, located in Copenhagen, Capital Region, Denmark: Webometrics January 2026 world rank 63.",
       "labels": [
         "universities",
         "demo",
@@ -2342,7 +2342,7 @@
         "Denmark",
         "public_research"
       ],
-      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data; descriptions and search-topic annotations are synthetic.",
+      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data. Content and descriptions restate those fields; search-topic annotations are synthetic.",
       "is_synthetic": true,
       "institution_name": "University of Copenhagen",
       "city": "Copenhagen",
@@ -2365,8 +2365,8 @@
     {
       "id": "universities_monash-university",
       "title": "Monash University",
-      "content": "Monash University is ranked 64 worldwide in the Webometrics January 2026 edition. It is a university catalog reference located in Melbourne, Victoria, Australia. Searchable location labels include Melbourne | Victoria | Australia. Synthetic benchmark topics include renewable energy | materials engineering | science | research | teaching | admissions.",
-      "description": "Webometrics January 2026 world rank 64 benchmark record for Monash University.",
+      "content": "Monash University is a public research university based in Melbourne, Victoria, Australia. In the Webometrics January 2026 world ranking, it holds world rank 64; its indicator positions are impact rank 149, openness rank 50, and excellence rank 28. Location searches also associate the institution with Melbourne | Victoria | Australia.",
+      "description": "Monash University, located in Melbourne, Victoria, Australia: Webometrics January 2026 world rank 64.",
       "labels": [
         "universities",
         "demo",
@@ -2379,7 +2379,7 @@
         "Australia",
         "public_research"
       ],
-      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data; descriptions and search-topic annotations are synthetic.",
+      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data. Content and descriptions restate those fields; search-topic annotations are synthetic.",
       "is_synthetic": true,
       "institution_name": "Monash University",
       "city": "Melbourne",
@@ -2402,8 +2402,8 @@
     {
       "id": "universities_university-of-alberta",
       "title": "University of Alberta",
-      "content": "University of Alberta is ranked 65 worldwide in the Webometrics January 2026 edition. It is a university catalog reference located in Edmonton, Alberta, Canada. Searchable location labels include Edmonton | Alberta | Canada. Synthetic benchmark topics include environmental science | public policy | science | research | teaching | admissions.",
-      "description": "Webometrics January 2026 world rank 65 benchmark record for University of Alberta.",
+      "content": "University of Alberta is a public research university based in Edmonton, Alberta, Canada. In the Webometrics January 2026 world ranking, it holds world rank 65; its indicator positions are impact rank 88, openness rank 136, and excellence rank 90. Location searches also associate the institution with Edmonton | Alberta | Canada.",
+      "description": "University of Alberta, located in Edmonton, Alberta, Canada: Webometrics January 2026 world rank 65.",
       "labels": [
         "universities",
         "demo",
@@ -2416,7 +2416,7 @@
         "Canada",
         "public_research"
       ],
-      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data; descriptions and search-topic annotations are synthetic.",
+      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data. Content and descriptions restate those fields; search-topic annotations are synthetic.",
       "is_synthetic": true,
       "institution_name": "University of Alberta",
       "city": "Edmonton",
@@ -2439,8 +2439,8 @@
     {
       "id": "universities_ku-leuven",
       "title": "KU Leuven",
-      "content": "KU Leuven is ranked 66 worldwide in the Webometrics January 2026 edition. It is a university catalog reference located in Leuven, Flemish Brabant, Belgium. Searchable location labels include Leuven | Flemish Brabant | Belgium. Synthetic benchmark topics include civil engineering | urban planning | science | research | teaching | admissions.",
-      "description": "Webometrics January 2026 world rank 66 benchmark record for KU Leuven.",
+      "content": "KU Leuven is a private research university based in Leuven, Flemish Brabant, Belgium. In the Webometrics January 2026 world ranking, it holds world rank 66; its indicator positions are impact rank 136, openness rank 69, and excellence rank 47. Location searches also associate the institution with Leuven | Flemish Brabant | Belgium.",
+      "description": "KU Leuven, located in Leuven, Flemish Brabant, Belgium: Webometrics January 2026 world rank 66.",
       "labels": [
         "universities",
         "demo",
@@ -2453,7 +2453,7 @@
         "Belgium",
         "private_research"
       ],
-      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data; descriptions and search-topic annotations are synthetic.",
+      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data. Content and descriptions restate those fields; search-topic annotations are synthetic.",
       "is_synthetic": true,
       "institution_name": "KU Leuven",
       "city": "Leuven",
@@ -2476,8 +2476,8 @@
     {
       "id": "universities_emory-university",
       "title": "Emory University",
-      "content": "Emory University is ranked 67 worldwide in the Webometrics January 2026 edition. It is a university catalog reference located in Atlanta, Georgia, United States. Searchable location labels include Atlanta | Georgia | United States. Synthetic benchmark topics include computer science | digital humanities | science | research | teaching | admissions.",
-      "description": "Webometrics January 2026 world rank 67 benchmark record for Emory University.",
+      "content": "Emory University is a private research university based in Atlanta, Georgia, United States. In the Webometrics January 2026 world ranking, it holds world rank 67; its indicator positions are impact rank 101, openness rank 65, and excellence rank 97. Location searches also associate the institution with Atlanta | Georgia | United States.",
+      "description": "Emory University, located in Atlanta, Georgia, United States: Webometrics January 2026 world rank 67.",
       "labels": [
         "universities",
         "demo",
@@ -2490,7 +2490,7 @@
         "United States",
         "private_research"
       ],
-      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data; descriptions and search-topic annotations are synthetic.",
+      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data. Content and descriptions restate those fields; search-topic annotations are synthetic.",
       "is_synthetic": true,
       "institution_name": "Emory University",
       "city": "Atlanta",
@@ -2513,8 +2513,8 @@
     {
       "id": "universities_university-of-helsinki",
       "title": "University of Helsinki",
-      "content": "University of Helsinki is ranked 68 worldwide in the Webometrics January 2026 edition. It is a university catalog reference located in Helsinki, Uusimaa, Finland. Searchable location labels include Helsinki | Uusimaa | Finland. Synthetic benchmark topics include studio art | museum studies | science | research | teaching | admissions.",
-      "description": "Webometrics January 2026 world rank 68 benchmark record for University of Helsinki.",
+      "content": "University of Helsinki is a public research university based in Helsinki, Uusimaa, Finland. In the Webometrics January 2026 world ranking, it holds world rank 68; its indicator positions are impact rank 109, openness rank 74, and excellence rank 89. Location searches also associate the institution with Helsinki | Uusimaa | Finland.",
+      "description": "University of Helsinki, located in Helsinki, Uusimaa, Finland: Webometrics January 2026 world rank 68.",
       "labels": [
         "universities",
         "demo",
@@ -2527,7 +2527,7 @@
         "Finland",
         "public_research"
       ],
-      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data; descriptions and search-topic annotations are synthetic.",
+      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data. Content and descriptions restate those fields; search-topic annotations are synthetic.",
       "is_synthetic": true,
       "institution_name": "University of Helsinki",
       "city": "Helsinki",
@@ -2550,8 +2550,8 @@
     {
       "id": "universities_utrecht-university",
       "title": "Utrecht University",
-      "content": "Utrecht University is ranked 69 worldwide in the Webometrics January 2026 edition. It is a university catalog reference located in Utrecht, Utrecht, Netherlands. Searchable location labels include Utrecht | Netherlands. Synthetic benchmark topics include education | learning technology | science | research | teaching | admissions.",
-      "description": "Webometrics January 2026 world rank 69 benchmark record for Utrecht University.",
+      "content": "Utrecht University is a public research university based in Utrecht, Utrecht, Netherlands. In the Webometrics January 2026 world ranking, it holds world rank 69; its indicator positions are impact rank 113, openness rank 85, and excellence rank 87. Location searches also associate the institution with Utrecht | Netherlands.",
+      "description": "Utrecht University, located in Utrecht, Utrecht, Netherlands: Webometrics January 2026 world rank 69.",
       "labels": [
         "universities",
         "demo",
@@ -2563,7 +2563,7 @@
         "Netherlands",
         "public_research"
       ],
-      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data; descriptions and search-topic annotations are synthetic.",
+      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data. Content and descriptions restate those fields; search-topic annotations are synthetic.",
       "is_synthetic": true,
       "institution_name": "Utrecht University",
       "city": "Utrecht",
@@ -2586,8 +2586,8 @@
     {
       "id": "universities_university-of-colorado-boulder",
       "title": "University of Colorado Boulder",
-      "content": "University of Colorado Boulder is ranked 70 worldwide in the Webometrics January 2026 edition. It is a university catalog reference located in Boulder, Colorado, United States. Searchable location labels include Boulder | Denver metropolitan area | Colorado | United States. Synthetic benchmark topics include music technology | media production | science | research | teaching | admissions.",
-      "description": "Webometrics January 2026 world rank 70 benchmark record for University of Colorado Boulder.",
+      "content": "University of Colorado Boulder is a public research university based in Boulder, Colorado, United States. In the Webometrics January 2026 world ranking, it holds world rank 70; its indicator positions are impact rank 39, openness rank 111, and excellence rank 183. Location searches also associate the institution with Boulder | Denver metropolitan area | Colorado | United States.",
+      "description": "University of Colorado Boulder, located in Boulder, Colorado, United States: Webometrics January 2026 world rank 70.",
       "labels": [
         "universities",
         "demo",
@@ -2601,7 +2601,7 @@
         "United States",
         "public_research"
       ],
-      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data; descriptions and search-topic annotations are synthetic.",
+      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data. Content and descriptions restate those fields; search-topic annotations are synthetic.",
       "is_synthetic": true,
       "institution_name": "University of Colorado Boulder",
       "city": "Boulder",
@@ -2624,8 +2624,8 @@
     {
       "id": "universities_university-of-glasgow",
       "title": "University of Glasgow",
-      "content": "University of Glasgow is ranked 71 worldwide in the Webometrics January 2026 edition. It is a university catalog reference located in Glasgow, Scotland, United Kingdom. Searchable location labels include Glasgow | Scotland | United Kingdom. Synthetic benchmark topics include public health | community data | science | research | teaching | admissions.",
-      "description": "Webometrics January 2026 world rank 71 benchmark record for University of Glasgow.",
+      "content": "University of Glasgow is a public research university based in Glasgow, Scotland, United Kingdom. In the Webometrics January 2026 world ranking, it holds world rank 71; its indicator positions are impact rank 103, openness rank 34, and excellence rank 123. Location searches also associate the institution with Glasgow | Scotland | United Kingdom.",
+      "description": "University of Glasgow, located in Glasgow, Scotland, United Kingdom: Webometrics January 2026 world rank 71.",
       "labels": [
         "universities",
         "demo",
@@ -2638,7 +2638,7 @@
         "United Kingdom",
         "public_research"
       ],
-      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data; descriptions and search-topic annotations are synthetic.",
+      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data. Content and descriptions restate those fields; search-topic annotations are synthetic.",
       "is_synthetic": true,
       "institution_name": "University of Glasgow",
       "city": "Glasgow",
@@ -2661,8 +2661,8 @@
     {
       "id": "universities_university-of-hong-kong",
       "title": "University of Hong Kong",
-      "content": "University of Hong Kong is ranked 72 worldwide in the Webometrics January 2026 edition. It is a university catalog reference located in Hong Kong, Hong Kong, Hong Kong. Searchable location labels include Hong Kong. Synthetic benchmark topics include business analytics | entrepreneurship | science | research | teaching | admissions.",
-      "description": "Webometrics January 2026 world rank 72 benchmark record for University of Hong Kong.",
+      "content": "University of Hong Kong is a public research university based in Hong Kong, Hong Kong, Hong Kong. In the Webometrics January 2026 world ranking, it holds world rank 72; its indicator positions are impact rank 174, openness rank 47, and excellence rank 34. Location searches also associate the institution with Hong Kong.",
+      "description": "University of Hong Kong, located in Hong Kong, Hong Kong, Hong Kong: Webometrics January 2026 world rank 72.",
       "labels": [
         "universities",
         "demo",
@@ -2673,7 +2673,7 @@
         "Hong Kong",
         "public_research"
       ],
-      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data; descriptions and search-topic annotations are synthetic.",
+      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data. Content and descriptions restate those fields; search-topic annotations are synthetic.",
       "is_synthetic": true,
       "institution_name": "University of Hong Kong",
       "city": "Hong Kong",
@@ -2696,8 +2696,8 @@
     {
       "id": "universities_university-of-bologna",
       "title": "University of Bologna",
-      "content": "University of Bologna is ranked 73 worldwide in the Webometrics January 2026 edition. It is a university catalog reference located in Bologna, Emilia-Romagna, Italy. Searchable location labels include Bologna | Emilia-Romagna | Italy. Synthetic benchmark topics include biology | applied mathematics | science | research | teaching | admissions.",
-      "description": "Webometrics January 2026 world rank 73 benchmark record for University of Bologna.",
+      "content": "University of Bologna is a public research university based in Bologna, Emilia-Romagna, Italy. In the Webometrics January 2026 world ranking, it holds world rank 73; its indicator positions are impact rank 132, openness rank 80, and excellence rank 93. Location searches also associate the institution with Bologna | Emilia-Romagna | Italy.",
+      "description": "University of Bologna, located in Bologna, Emilia-Romagna, Italy: Webometrics January 2026 world rank 73.",
       "labels": [
         "universities",
         "demo",
@@ -2710,7 +2710,7 @@
         "Italy",
         "public_research"
       ],
-      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data; descriptions and search-topic annotations are synthetic.",
+      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data. Content and descriptions restate those fields; search-topic annotations are synthetic.",
       "is_synthetic": true,
       "institution_name": "University of Bologna",
       "city": "Bologna",
@@ -2733,8 +2733,8 @@
     {
       "id": "universities_university-of-zurich",
       "title": "University of Zurich",
-      "content": "University of Zurich is ranked 74 worldwide in the Webometrics January 2026 edition. It is a university catalog reference located in Zurich, Zurich, Switzerland. Searchable location labels include Zurich | Switzerland. Synthetic benchmark topics include renewable energy | materials engineering | science | research | teaching | admissions.",
-      "description": "Webometrics January 2026 world rank 74 benchmark record for University of Zurich.",
+      "content": "University of Zurich is a public research university based in Zurich, Zurich, Switzerland. In the Webometrics January 2026 world ranking, it holds world rank 74; its indicator positions are impact rank 140, openness rank 77, and excellence rank 84. Location searches also associate the institution with Zurich | Switzerland.",
+      "description": "University of Zurich, located in Zurich, Zurich, Switzerland: Webometrics January 2026 world rank 74.",
       "labels": [
         "universities",
         "demo",
@@ -2746,7 +2746,7 @@
         "Switzerland",
         "public_research"
       ],
-      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data; descriptions and search-topic annotations are synthetic.",
+      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data. Content and descriptions restate those fields; search-topic annotations are synthetic.",
       "is_synthetic": true,
       "institution_name": "University of Zurich",
       "city": "Zurich",
@@ -2769,8 +2769,8 @@
     {
       "id": "universities_university-of-virginia",
       "title": "University of Virginia",
-      "content": "University of Virginia is ranked 75 worldwide in the Webometrics January 2026 edition. It is a university catalog reference located in Charlottesville, Virginia, United States. Searchable location labels include Charlottesville | Virginia | United States. Synthetic benchmark topics include environmental science | public policy | science | research | teaching | admissions.",
-      "description": "Webometrics January 2026 world rank 75 benchmark record for University of Virginia.",
+      "content": "University of Virginia is a public research university based in Charlottesville, Virginia, United States. In the Webometrics January 2026 world ranking, it holds world rank 75; its indicator positions are impact rank 43, openness rank 131, and excellence rank 193. Location searches also associate the institution with Charlottesville | Virginia | United States.",
+      "description": "University of Virginia, located in Charlottesville, Virginia, United States: Webometrics January 2026 world rank 75.",
       "labels": [
         "universities",
         "demo",
@@ -2783,7 +2783,7 @@
         "United States",
         "public_research"
       ],
-      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data; descriptions and search-topic annotations are synthetic.",
+      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data. Content and descriptions restate those fields; search-topic annotations are synthetic.",
       "is_synthetic": true,
       "institution_name": "University of Virginia",
       "city": "Charlottesville",
@@ -2806,8 +2806,8 @@
     {
       "id": "universities_lmu-munich",
       "title": "LMU Munich",
-      "content": "LMU Munich is ranked 76 worldwide in the Webometrics January 2026 edition. It is a university catalog reference located in Munich, Bavaria, Germany. Searchable location labels include Munich | Bavaria | Germany. Synthetic benchmark topics include biology | applied mathematics | science | research | teaching | admissions.",
-      "description": "Webometrics January 2026 world rank 76 benchmark record for LMU Munich.",
+      "content": "LMU Munich is a public research university based in Munich, Bavaria, Germany. In the Webometrics January 2026 world ranking, it holds world rank 76; its indicator positions are impact rank 150, openness rank 62, and excellence rank 79. Location searches also associate the institution with Munich | Bavaria | Germany.",
+      "description": "LMU Munich, located in Munich, Bavaria, Germany: Webometrics January 2026 world rank 76.",
       "labels": [
         "universities",
         "demo",
@@ -2820,7 +2820,7 @@
         "Germany",
         "public_research"
       ],
-      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data; descriptions and search-topic annotations are synthetic.",
+      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data. Content and descriptions restate those fields; search-topic annotations are synthetic.",
       "is_synthetic": true,
       "institution_name": "LMU Munich",
       "city": "Munich",
@@ -2843,8 +2843,8 @@
     {
       "id": "universities_technical-university-of-munich",
       "title": "Technical University of Munich",
-      "content": "Technical University of Munich is ranked 77 worldwide in the Webometrics January 2026 edition. It is a university catalog reference located in Munich, Bavaria, Germany. Searchable location labels include Munich | Bavaria | Germany. Synthetic benchmark topics include renewable energy | materials engineering | science | research | teaching | admissions.",
-      "description": "Webometrics January 2026 world rank 77 benchmark record for Technical University of Munich.",
+      "content": "Technical University of Munich is a public research university based in Munich, Bavaria, Germany. In the Webometrics January 2026 world ranking, it holds world rank 77; its indicator positions are impact rank 128, openness rank 119, and excellence rank 95. Location searches also associate the institution with Munich | Bavaria | Germany.",
+      "description": "Technical University of Munich, located in Munich, Bavaria, Germany: Webometrics January 2026 world rank 77.",
       "labels": [
         "universities",
         "demo",
@@ -2857,7 +2857,7 @@
         "Germany",
         "public_research"
       ],
-      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data; descriptions and search-topic annotations are synthetic.",
+      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data. Content and descriptions restate those fields; search-topic annotations are synthetic.",
       "is_synthetic": true,
       "institution_name": "Technical University of Munich",
       "city": "Munich",
@@ -2880,8 +2880,8 @@
     {
       "id": "universities_university-of-groningen",
       "title": "University of Groningen",
-      "content": "University of Groningen is ranked 78 worldwide in the Webometrics January 2026 edition. It is a university catalog reference located in Groningen, Groningen, Netherlands. Searchable location labels include Groningen | Netherlands. Synthetic benchmark topics include environmental science | public policy | science | research | teaching | admissions.",
-      "description": "Webometrics January 2026 world rank 78 benchmark record for University of Groningen.",
+      "content": "University of Groningen is a public research university based in Groningen, Groningen, Netherlands. In the Webometrics January 2026 world ranking, it holds world rank 78; its indicator positions are impact rank 131, openness rank 116, and excellence rank 94. Location searches also associate the institution with Groningen | Netherlands.",
+      "description": "University of Groningen, located in Groningen, Groningen, Netherlands: Webometrics January 2026 world rank 78.",
       "labels": [
         "universities",
         "demo",
@@ -2893,7 +2893,7 @@
         "Netherlands",
         "public_research"
       ],
-      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data; descriptions and search-topic annotations are synthetic.",
+      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data. Content and descriptions restate those fields; search-topic annotations are synthetic.",
       "is_synthetic": true,
       "institution_name": "University of Groningen",
       "city": "Groningen",
@@ -2916,8 +2916,8 @@
     {
       "id": "universities_australian-national-university",
       "title": "Australian National University",
-      "content": "Australian National University is ranked 79 worldwide in the Webometrics January 2026 edition. It is a university catalog reference located in Canberra, Australian Capital Territory, Australia. Searchable location labels include Canberra | Australian Capital Territory | Australia. Synthetic benchmark topics include civil engineering | urban planning | science | research | teaching | admissions.",
-      "description": "Webometrics January 2026 world rank 79 benchmark record for Australian National University.",
+      "content": "Australian National University is a public research university based in Canberra, Australian Capital Territory, Australia. In the Webometrics January 2026 world ranking, it holds world rank 79; its indicator positions are impact rank 81, openness rank 123, and excellence rank 166. Location searches also associate the institution with Canberra | Australian Capital Territory | Australia.",
+      "description": "Australian National University, located in Canberra, Australian Capital Territory, Australia: Webometrics January 2026 world rank 79.",
       "labels": [
         "universities",
         "demo",
@@ -2930,7 +2930,7 @@
         "Australia",
         "public_research"
       ],
-      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data; descriptions and search-topic annotations are synthetic.",
+      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data. Content and descriptions restate those fields; search-topic annotations are synthetic.",
       "is_synthetic": true,
       "institution_name": "Australian National University",
       "city": "Canberra",
@@ -2953,8 +2953,8 @@
     {
       "id": "universities_university-of-oslo",
       "title": "University of Oslo",
-      "content": "University of Oslo is ranked 80 worldwide in the Webometrics January 2026 edition. It is a university catalog reference located in Oslo, Oslo, Norway. Searchable location labels include Oslo | Norway. Synthetic benchmark topics include computer science | digital humanities | science | research | teaching | admissions.",
-      "description": "Webometrics January 2026 world rank 80 benchmark record for University of Oslo.",
+      "content": "University of Oslo is a public research university based in Oslo, Oslo, Norway. In the Webometrics January 2026 world ranking, it holds world rank 80; its indicator positions are impact rank 126, openness rank 133, and excellence rank 111. Location searches also associate the institution with Oslo | Norway.",
+      "description": "University of Oslo, located in Oslo, Oslo, Norway: Webometrics January 2026 world rank 80.",
       "labels": [
         "universities",
         "demo",
@@ -2966,7 +2966,7 @@
         "Norway",
         "public_research"
       ],
-      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data; descriptions and search-topic annotations are synthetic.",
+      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data. Content and descriptions restate those fields; search-topic annotations are synthetic.",
       "is_synthetic": true,
       "institution_name": "University of Oslo",
       "city": "Oslo",
@@ -2989,8 +2989,8 @@
     {
       "id": "universities_university-of-barcelona",
       "title": "University of Barcelona",
-      "content": "University of Barcelona is ranked 81 worldwide in the Webometrics January 2026 edition. It is a university catalog reference located in Barcelona, Catalonia, Spain. Searchable location labels include Barcelona | Catalonia | Spain. Synthetic benchmark topics include studio art | museum studies | science | research | teaching | admissions.",
-      "description": "Webometrics January 2026 world rank 81 benchmark record for University of Barcelona.",
+      "content": "University of Barcelona is a public research university based in Barcelona, Catalonia, Spain. In the Webometrics January 2026 world ranking, it holds world rank 81; its indicator positions are impact rank 134, openness rank 142, and excellence rank 107. Location searches also associate the institution with Barcelona | Catalonia | Spain.",
+      "description": "University of Barcelona, located in Barcelona, Catalonia, Spain: Webometrics January 2026 world rank 81.",
       "labels": [
         "universities",
         "demo",
@@ -3003,7 +3003,7 @@
         "Spain",
         "public_research"
       ],
-      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data; descriptions and search-topic annotations are synthetic.",
+      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data. Content and descriptions restate those fields; search-topic annotations are synthetic.",
       "is_synthetic": true,
       "institution_name": "University of Barcelona",
       "city": "Barcelona",
@@ -3026,8 +3026,8 @@
     {
       "id": "universities_university-of-hamburg",
       "title": "University of Hamburg",
-      "content": "University of Hamburg is ranked 82 worldwide in the Webometrics January 2026 edition. It is a university catalog reference located in Hamburg, Hamburg, Germany. Searchable location labels include Hamburg | Germany. Synthetic benchmark topics include education | learning technology | science | research | teaching | admissions.",
-      "description": "Webometrics January 2026 world rank 82 benchmark record for University of Hamburg.",
+      "content": "University of Hamburg is a public research university based in Hamburg, Hamburg, Germany. In the Webometrics January 2026 world ranking, it holds world rank 82; its indicator positions are impact rank 152, openness rank 94, and excellence rank 101. Location searches also associate the institution with Hamburg | Germany.",
+      "description": "University of Hamburg, located in Hamburg, Hamburg, Germany: Webometrics January 2026 world rank 82.",
       "labels": [
         "universities",
         "demo",
@@ -3039,7 +3039,7 @@
         "Germany",
         "public_research"
       ],
-      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data; descriptions and search-topic annotations are synthetic.",
+      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data. Content and descriptions restate those fields; search-topic annotations are synthetic.",
       "is_synthetic": true,
       "institution_name": "University of Hamburg",
       "city": "Hamburg",
@@ -3062,8 +3062,8 @@
     {
       "id": "universities_lund-university",
       "title": "Lund University",
-      "content": "Lund University is ranked 83 worldwide in the Webometrics January 2026 edition. It is a university catalog reference located in Lund, Skane, Sweden. Searchable location labels include Lund | Skane | Sweden. Synthetic benchmark topics include music technology | media production | science | research | teaching | admissions.",
-      "description": "Webometrics January 2026 world rank 83 benchmark record for Lund University.",
+      "content": "Lund University is a public research university based in Lund, Skane, Sweden. In the Webometrics January 2026 world ranking, it holds world rank 83; its indicator positions are impact rank 144, openness rank 121, and excellence rank 108. Location searches also associate the institution with Lund | Skane | Sweden.",
+      "description": "Lund University, located in Lund, Skane, Sweden: Webometrics January 2026 world rank 83.",
       "labels": [
         "universities",
         "demo",
@@ -3076,7 +3076,7 @@
         "Sweden",
         "public_research"
       ],
-      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data; descriptions and search-topic annotations are synthetic.",
+      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data. Content and descriptions restate those fields; search-topic annotations are synthetic.",
       "is_synthetic": true,
       "institution_name": "Lund University",
       "city": "Lund",
@@ -3099,8 +3099,8 @@
     {
       "id": "universities_brown-university",
       "title": "Brown University",
-      "content": "Brown University is ranked 84 worldwide in the Webometrics January 2026 edition. It is a university catalog reference located in Providence, Rhode Island, United States. Searchable location labels include Providence | Rhode Island | United States. Synthetic benchmark topics include public health | community data | science | research | teaching | admissions.",
-      "description": "Webometrics January 2026 world rank 84 benchmark record for Brown University.",
+      "content": "Brown University is a private research university based in Providence, Rhode Island, United States. In the Webometrics January 2026 world ranking, it holds world rank 84; its indicator positions are impact rank 60, openness rank 155, and excellence rank 208. Location searches also associate the institution with Providence | Rhode Island | United States.",
+      "description": "Brown University, located in Providence, Rhode Island, United States: Webometrics January 2026 world rank 84.",
       "labels": [
         "universities",
         "demo",
@@ -3113,7 +3113,7 @@
         "United States",
         "private_research"
       ],
-      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data; descriptions and search-topic annotations are synthetic.",
+      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data. Content and descriptions restate those fields; search-topic annotations are synthetic.",
       "is_synthetic": true,
       "institution_name": "Brown University",
       "city": "Providence",
@@ -3136,8 +3136,8 @@
     {
       "id": "universities_university-of-calgary",
       "title": "University of Calgary",
-      "content": "University of Calgary is ranked 85 worldwide in the Webometrics January 2026 edition. It is a university catalog reference located in Calgary, Alberta, Canada. Searchable location labels include Calgary | Alberta | Canada. Synthetic benchmark topics include business analytics | entrepreneurship | science | research | teaching | admissions.",
-      "description": "Webometrics January 2026 world rank 85 benchmark record for University of Calgary.",
+      "content": "University of Calgary is a public research university based in Calgary, Alberta, Canada. In the Webometrics January 2026 world ranking, it holds world rank 85; its indicator positions are impact rank 122, openness rank 162, and excellence rank 129. Location searches also associate the institution with Calgary | Alberta | Canada.",
+      "description": "University of Calgary, located in Calgary, Alberta, Canada: Webometrics January 2026 world rank 85.",
       "labels": [
         "universities",
         "demo",
@@ -3150,7 +3150,7 @@
         "Canada",
         "public_research"
       ],
-      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data; descriptions and search-topic annotations are synthetic.",
+      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data. Content and descriptions restate those fields; search-topic annotations are synthetic.",
       "is_synthetic": true,
       "institution_name": "University of Calgary",
       "city": "Calgary",
@@ -3173,8 +3173,8 @@
     {
       "id": "universities_university-of-leeds",
       "title": "University of Leeds",
-      "content": "University of Leeds is ranked 86 worldwide in the Webometrics January 2026 edition. It is a university catalog reference located in Leeds, England, United Kingdom. Searchable location labels include Leeds | England | United Kingdom. Synthetic benchmark topics include biology | applied mathematics | science | research | teaching | admissions.",
-      "description": "Webometrics January 2026 world rank 86 benchmark record for University of Leeds.",
+      "content": "University of Leeds is a public research university based in Leeds, England, United Kingdom. In the Webometrics January 2026 world ranking, it holds world rank 86; its indicator positions are impact rank 112, openness rank 210, and excellence rank 137. Location searches also associate the institution with Leeds | England | United Kingdom.",
+      "description": "University of Leeds, located in Leeds, England, United Kingdom: Webometrics January 2026 world rank 86.",
       "labels": [
         "universities",
         "demo",
@@ -3187,7 +3187,7 @@
         "United Kingdom",
         "public_research"
       ],
-      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data; descriptions and search-topic annotations are synthetic.",
+      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data. Content and descriptions restate those fields; search-topic annotations are synthetic.",
       "is_synthetic": true,
       "institution_name": "University of Leeds",
       "city": "Leeds",
@@ -3210,8 +3210,8 @@
     {
       "id": "universities_rwth-aachen-university",
       "title": "RWTH Aachen University",
-      "content": "RWTH Aachen University is ranked 87 worldwide in the Webometrics January 2026 edition. It is a university catalog reference located in Aachen, North Rhine-Westphalia, Germany. Searchable location labels include Aachen | North Rhine-Westphalia | Germany. Synthetic benchmark topics include renewable energy | materials engineering | science | research | teaching | admissions.",
-      "description": "Webometrics January 2026 world rank 87 benchmark record for RWTH Aachen University.",
+      "content": "RWTH Aachen University is a public research university based in Aachen, North Rhine-Westphalia, Germany. In the Webometrics January 2026 world ranking, it holds world rank 87; its indicator positions are impact rank 75, openness rank 109, and excellence rank 212. Location searches also associate the institution with Aachen | North Rhine-Westphalia | Germany.",
+      "description": "RWTH Aachen University, located in Aachen, North Rhine-Westphalia, Germany: Webometrics January 2026 world rank 87.",
       "labels": [
         "universities",
         "demo",
@@ -3224,7 +3224,7 @@
         "Germany",
         "public_research"
       ],
-      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data; descriptions and search-topic annotations are synthetic.",
+      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data. Content and descriptions restate those fields; search-topic annotations are synthetic.",
       "is_synthetic": true,
       "institution_name": "RWTH Aachen University",
       "city": "Aachen",
@@ -3247,8 +3247,8 @@
     {
       "id": "universities_georgia-institute-of-technology",
       "title": "Georgia Institute of Technology",
-      "content": "Georgia Institute of Technology is ranked 88 worldwide in the Webometrics January 2026 edition. It is a university catalog reference located in Atlanta, Georgia, United States. Searchable location labels include Atlanta | Georgia | United States. Synthetic benchmark topics include environmental science | public policy | science | research | teaching | admissions.",
-      "description": "Webometrics January 2026 world rank 88 benchmark record for Georgia Institute of Technology.",
+      "content": "Georgia Institute of Technology is a public research university based in Atlanta, Georgia, United States. In the Webometrics January 2026 world ranking, it holds world rank 88; its indicator positions are impact rank 69, openness rank 147, and excellence rank 211. Location searches also associate the institution with Atlanta | Georgia | United States.",
+      "description": "Georgia Institute of Technology, located in Atlanta, Georgia, United States: Webometrics January 2026 world rank 88.",
       "labels": [
         "universities",
         "demo",
@@ -3261,7 +3261,7 @@
         "United States",
         "public_research"
       ],
-      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data; descriptions and search-topic annotations are synthetic.",
+      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data. Content and descriptions restate those fields; search-topic annotations are synthetic.",
       "is_synthetic": true,
       "institution_name": "Georgia Institute of Technology",
       "city": "Atlanta",
@@ -3284,8 +3284,8 @@
     {
       "id": "universities_california-institute-of-technology-caltech",
       "title": "California Institute of Technology Caltech",
-      "content": "California Institute of Technology Caltech is ranked 89 worldwide in the Webometrics January 2026 edition. It is a university catalog reference located in Pasadena, California, United States. Searchable location labels include Pasadena | Los Angeles | Greater Los Angeles | California | United States. Synthetic benchmark topics include civil engineering | urban planning | science | research | teaching | admissions.",
-      "description": "Webometrics January 2026 world rank 89 benchmark record for California Institute of Technology Caltech.",
+      "content": "California Institute of Technology Caltech is a private research university based in Pasadena, California, United States. In the Webometrics January 2026 world ranking, it holds world rank 89; its indicator positions are impact rank 58, openness rank 18, and excellence rank 267. Location searches also associate the institution with Pasadena | Los Angeles | Greater Los Angeles | California | United States.",
+      "description": "California Institute of Technology Caltech, located in Pasadena, California, United States: Webometrics January 2026 world rank 89.",
       "labels": [
         "universities",
         "demo",
@@ -3300,7 +3300,7 @@
         "United States",
         "private_research"
       ],
-      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data; descriptions and search-topic annotations are synthetic.",
+      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data. Content and descriptions restate those fields; search-topic annotations are synthetic.",
       "is_synthetic": true,
       "institution_name": "California Institute of Technology Caltech",
       "city": "Pasadena",
@@ -3323,8 +3323,8 @@
     {
       "id": "universities_city-university-of-hong-kong",
       "title": "City University of Hong Kong",
-      "content": "City University of Hong Kong is ranked 90 worldwide in the Webometrics January 2026 edition. It is a university catalog reference located in Hong Kong, Hong Kong, Hong Kong. Searchable location labels include Hong Kong. Synthetic benchmark topics include computer science | digital humanities | science | research | teaching | admissions.",
-      "description": "Webometrics January 2026 world rank 90 benchmark record for City University of Hong Kong.",
+      "content": "City University of Hong Kong is a public research university based in Hong Kong, Hong Kong, Hong Kong. In the Webometrics January 2026 world ranking, it holds world rank 90; its indicator positions are impact rank 158, openness rank 172, and excellence rank 113. Location searches also associate the institution with Hong Kong.",
+      "description": "City University of Hong Kong, located in Hong Kong, Hong Kong, Hong Kong: Webometrics January 2026 world rank 90.",
       "labels": [
         "universities",
         "demo",
@@ -3335,7 +3335,7 @@
         "Hong Kong",
         "public_research"
       ],
-      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data; descriptions and search-topic annotations are synthetic.",
+      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data. Content and descriptions restate those fields; search-topic annotations are synthetic.",
       "is_synthetic": true,
       "institution_name": "City University of Hong Kong",
       "city": "Hong Kong",
@@ -3358,8 +3358,8 @@
     {
       "id": "universities_vanderbilt-university",
       "title": "Vanderbilt University",
-      "content": "Vanderbilt University is ranked 91 worldwide in the Webometrics January 2026 edition. It is a university catalog reference located in Nashville, Tennessee, United States. Searchable location labels include Nashville | Tennessee | United States. Synthetic benchmark topics include studio art | museum studies | science | research | teaching | admissions.",
-      "description": "Webometrics January 2026 world rank 91 benchmark record for Vanderbilt University.",
+      "content": "Vanderbilt University is a private research university based in Nashville, Tennessee, United States. In the Webometrics January 2026 world ranking, it holds world rank 91; its indicator positions are impact rank 73, openness rank 117, and excellence rank 243. Location searches also associate the institution with Nashville | Tennessee | United States.",
+      "description": "Vanderbilt University, located in Nashville, Tennessee, United States: Webometrics January 2026 world rank 91.",
       "labels": [
         "universities",
         "demo",
@@ -3372,7 +3372,7 @@
         "United States",
         "private_research"
       ],
-      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data; descriptions and search-topic annotations are synthetic.",
+      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data. Content and descriptions restate those fields; search-topic annotations are synthetic.",
       "is_synthetic": true,
       "institution_name": "Vanderbilt University",
       "city": "Nashville",
@@ -3395,8 +3395,8 @@
     {
       "id": "universities_uppsala-university",
       "title": "Uppsala University",
-      "content": "Uppsala University is ranked 92 worldwide in the Webometrics January 2026 edition. It is a university catalog reference located in Uppsala, Uppsala County, Sweden. Searchable location labels include Uppsala | Uppsala County | Sweden. Synthetic benchmark topics include education | learning technology | science | research | teaching | admissions.",
-      "description": "Webometrics January 2026 world rank 92 benchmark record for Uppsala University.",
+      "content": "Uppsala University is a public research university based in Uppsala, Uppsala County, Sweden. In the Webometrics January 2026 world ranking, it holds world rank 92; its indicator positions are impact rank 171, openness rank 107, and excellence rank 124. Location searches also associate the institution with Uppsala | Uppsala County | Sweden.",
+      "description": "Uppsala University, located in Uppsala, Uppsala County, Sweden: Webometrics January 2026 world rank 92.",
       "labels": [
         "universities",
         "demo",
@@ -3409,7 +3409,7 @@
         "Sweden",
         "public_research"
       ],
-      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data; descriptions and search-topic annotations are synthetic.",
+      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data. Content and descriptions restate those fields; search-topic annotations are synthetic.",
       "is_synthetic": true,
       "institution_name": "Uppsala University",
       "city": "Uppsala",
@@ -3432,8 +3432,8 @@
     {
       "id": "universities_kyoto-university",
       "title": "Kyoto University",
-      "content": "Kyoto University is ranked 93 worldwide in the Webometrics January 2026 edition. It is a university catalog reference located in Kyoto, Kyoto, Japan. Searchable location labels include Kyoto | Japan. Synthetic benchmark topics include music technology | media production | science | research | teaching | admissions.",
-      "description": "Webometrics January 2026 world rank 93 benchmark record for Kyoto University.",
+      "content": "Kyoto University is a public research university based in Kyoto, Kyoto, Japan. In the Webometrics January 2026 world ranking, it holds world rank 93; its indicator positions are impact rank 142, openness rank 126, and excellence rank 158. Location searches also associate the institution with Kyoto | Japan.",
+      "description": "Kyoto University, located in Kyoto, Kyoto, Japan: Webometrics January 2026 world rank 93.",
       "labels": [
         "universities",
         "demo",
@@ -3445,7 +3445,7 @@
         "Japan",
         "public_research"
       ],
-      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data; descriptions and search-topic annotations are synthetic.",
+      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data. Content and descriptions restate those fields; search-topic annotations are synthetic.",
       "is_synthetic": true,
       "institution_name": "Kyoto University",
       "city": "Kyoto",
@@ -3468,8 +3468,8 @@
     {
       "id": "universities_north-carolina-state-university",
       "title": "North Carolina State University",
-      "content": "North Carolina State University is ranked 94 worldwide in the Webometrics January 2026 edition. It is a university catalog reference located in Raleigh, North Carolina, United States. Searchable location labels include Raleigh | Raleigh-Durham | Research Triangle | North Carolina | United States. Synthetic benchmark topics include public health | community data | science | research | teaching | admissions.",
-      "description": "Webometrics January 2026 world rank 94 benchmark record for North Carolina State University.",
+      "content": "North Carolina State University is a public research university based in Raleigh, North Carolina, United States. In the Webometrics January 2026 world ranking, it holds world rank 94; its indicator positions are impact rank 50, openness rank 265, and excellence rank 240. Location searches also associate the institution with Raleigh | Raleigh-Durham | Research Triangle | North Carolina | United States.",
+      "description": "North Carolina State University, located in Raleigh, North Carolina, United States: Webometrics January 2026 world rank 94.",
       "labels": [
         "universities",
         "demo",
@@ -3484,7 +3484,7 @@
         "United States",
         "public_research"
       ],
-      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data; descriptions and search-topic annotations are synthetic.",
+      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data. Content and descriptions restate those fields; search-topic annotations are synthetic.",
       "is_synthetic": true,
       "institution_name": "North Carolina State University",
       "city": "Raleigh",
@@ -3507,8 +3507,8 @@
     {
       "id": "universities_university-of-milan",
       "title": "University of Milan",
-      "content": "University of Milan is ranked 95 worldwide in the Webometrics January 2026 edition. It is a university catalog reference located in Milan, Lombardy, Italy. Searchable location labels include Milan | Lombardy | Italy. Synthetic benchmark topics include business analytics | entrepreneurship | science | research | teaching | admissions.",
-      "description": "Webometrics January 2026 world rank 95 benchmark record for University of Milan.",
+      "content": "University of Milan is a public research university based in Milan, Lombardy, Italy. In the Webometrics January 2026 world ranking, it holds world rank 95; its indicator positions are impact rank 198, openness rank 137, and excellence rank 88. Location searches also associate the institution with Milan | Lombardy | Italy.",
+      "description": "University of Milan, located in Milan, Lombardy, Italy: Webometrics January 2026 world rank 95.",
       "labels": [
         "universities",
         "demo",
@@ -3521,7 +3521,7 @@
         "Italy",
         "public_research"
       ],
-      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data; descriptions and search-topic annotations are synthetic.",
+      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data. Content and descriptions restate those fields; search-topic annotations are synthetic.",
       "is_synthetic": true,
       "institution_name": "University of Milan",
       "city": "Milan",
@@ -3544,8 +3544,8 @@
     {
       "id": "universities_chinese-university-of-hong-kong",
       "title": "Chinese University of Hong Kong",
-      "content": "Chinese University of Hong Kong is ranked 96 worldwide in the Webometrics January 2026 edition. It is a university catalog reference located in Hong Kong, Hong Kong, Hong Kong. Searchable location labels include Hong Kong. Synthetic benchmark topics include biology | applied mathematics | science | research | teaching | admissions.",
-      "description": "Webometrics January 2026 world rank 96 benchmark record for Chinese University of Hong Kong.",
+      "content": "Chinese University of Hong Kong is a public research university based in Hong Kong, Hong Kong, Hong Kong. In the Webometrics January 2026 world ranking, it holds world rank 96; its indicator positions are impact rank 217, openness rank 79, and excellence rank 82. Location searches also associate the institution with Hong Kong.",
+      "description": "Chinese University of Hong Kong, located in Hong Kong, Hong Kong, Hong Kong: Webometrics January 2026 world rank 96.",
       "labels": [
         "universities",
         "demo",
@@ -3556,7 +3556,7 @@
         "Hong Kong",
         "public_research"
       ],
-      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data; descriptions and search-topic annotations are synthetic.",
+      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data. Content and descriptions restate those fields; search-topic annotations are synthetic.",
       "is_synthetic": true,
       "institution_name": "Chinese University of Hong Kong",
       "city": "Hong Kong",
@@ -3579,8 +3579,8 @@
     {
       "id": "universities_university-of-illinois-chicago",
       "title": "University of Illinois Chicago",
-      "content": "University of Illinois Chicago is ranked 97 worldwide in the Webometrics January 2026 edition. It is a university catalog reference located in Chicago, Illinois, United States. Searchable location labels include Chicago | Illinois | United States. Synthetic benchmark topics include renewable energy | materials engineering | science | research | teaching | admissions.",
-      "description": "Webometrics January 2026 world rank 97 benchmark record for University of Illinois Chicago.",
+      "content": "University of Illinois Chicago is a public research university based in Chicago, Illinois, United States. In the Webometrics January 2026 world ranking, it holds world rank 97; its indicator positions are impact rank 107, openness rank 143, and excellence rank 206. Location searches also associate the institution with Chicago | Illinois | United States.",
+      "description": "University of Illinois Chicago, located in Chicago, Illinois, United States: Webometrics January 2026 world rank 97.",
       "labels": [
         "universities",
         "demo",
@@ -3593,7 +3593,7 @@
         "United States",
         "public_research"
       ],
-      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data; descriptions and search-topic annotations are synthetic.",
+      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data. Content and descriptions restate those fields; search-topic annotations are synthetic.",
       "is_synthetic": true,
       "institution_name": "University of Illinois Chicago",
       "city": "Chicago",
@@ -3616,8 +3616,8 @@
     {
       "id": "universities_ghent-university",
       "title": "Ghent University",
-      "content": "Ghent University is ranked 98 worldwide in the Webometrics January 2026 edition. It is a university catalog reference located in Ghent, East Flanders, Belgium. Searchable location labels include Ghent | East Flanders | Belgium. Synthetic benchmark topics include environmental science | public policy | science | research | teaching | admissions.",
-      "description": "Webometrics January 2026 world rank 98 benchmark record for Ghent University.",
+      "content": "Ghent University is a public research university based in Ghent, East Flanders, Belgium. In the Webometrics January 2026 world ranking, it holds world rank 98; its indicator positions are impact rank 180, openness rank 134, and excellence rank 121. Location searches also associate the institution with Ghent | East Flanders | Belgium.",
+      "description": "Ghent University, located in Ghent, East Flanders, Belgium: Webometrics January 2026 world rank 98.",
       "labels": [
         "universities",
         "demo",
@@ -3630,7 +3630,7 @@
         "Belgium",
         "public_research"
       ],
-      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data; descriptions and search-topic annotations are synthetic.",
+      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data. Content and descriptions restate those fields; search-topic annotations are synthetic.",
       "is_synthetic": true,
       "institution_name": "Ghent University",
       "city": "Ghent",
@@ -3653,8 +3653,8 @@
     {
       "id": "universities_mcmaster-university",
       "title": "McMaster University",
-      "content": "McMaster University is ranked 99 worldwide in the Webometrics January 2026 edition. It is a university catalog reference located in Hamilton, Ontario, Canada. Searchable location labels include Hamilton | Ontario | Canada. Synthetic benchmark topics include civil engineering | urban planning | science | research | teaching | admissions.",
-      "description": "Webometrics January 2026 world rank 99 benchmark record for McMaster University.",
+      "content": "McMaster University is a public research university based in Hamilton, Ontario, Canada. In the Webometrics January 2026 world ranking, it holds world rank 99; its indicator positions are impact rank 163, openness rank 106, and excellence rank 151. Location searches also associate the institution with Hamilton | Ontario | Canada.",
+      "description": "McMaster University, located in Hamilton, Ontario, Canada: Webometrics January 2026 world rank 99.",
       "labels": [
         "universities",
         "demo",
@@ -3667,7 +3667,7 @@
         "Canada",
         "public_research"
       ],
-      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data; descriptions and search-topic annotations are synthetic.",
+      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data. Content and descriptions restate those fields; search-topic annotations are synthetic.",
       "is_synthetic": true,
       "institution_name": "McMaster University",
       "city": "Hamilton",
@@ -3690,8 +3690,8 @@
     {
       "id": "universities_university-of-birmingham",
       "title": "University of Birmingham",
-      "content": "University of Birmingham is ranked 100 worldwide in the Webometrics January 2026 edition. It is a university catalog reference located in Birmingham, England, United Kingdom. Searchable location labels include Birmingham | England | United Kingdom. Synthetic benchmark topics include computer science | digital humanities | science | research | teaching | admissions.",
-      "description": "Webometrics January 2026 world rank 100 benchmark record for University of Birmingham.",
+      "content": "University of Birmingham is a public research university based in Birmingham, England, United Kingdom. In the Webometrics January 2026 world ranking, it holds world rank 100; its indicator positions are impact rank 208, openness rank 76, and excellence rank 103. Location searches also associate the institution with Birmingham | England | United Kingdom.",
+      "description": "University of Birmingham, located in Birmingham, England, United Kingdom: Webometrics January 2026 world rank 100.",
       "labels": [
         "universities",
         "demo",
@@ -3704,7 +3704,7 @@
         "United Kingdom",
         "public_research"
       ],
-      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data; descriptions and search-topic annotations are synthetic.",
+      "data_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data. Content and descriptions restate those fields; search-topic annotations are synthetic.",
       "is_synthetic": true,
       "institution_name": "University of Birmingham",
       "city": "Birmingham",
@@ -3727,7 +3727,7 @@
   ],
   "metadata": {
     "_fixture_kind": "mixed_factual_and_synthetic_public_demo",
-    "_fixture_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data; descriptions and search-topic annotations are synthetic.",
+    "_fixture_notice": "Public HLQuery demonstration data. University names, campus locations, and Webometrics January 2026 ranking fields are factual reference data. Content and descriptions restate those fields; search-topic annotations are synthetic.",
     "_demo_description": "The top 100 institutions in the Webometrics January 2026 world ranking, with searchable city and metropolitan-area labels plus synthetic search-topic annotations.",
     "_demo_queries": "Boston universities | universities in London | webometrics world rank under 25 | research universities in Canada",
     "_catalog_sort_field": "webometrics_world_rank",
@@ -3736,7 +3736,7 @@
     "_ranking_edition": "January 2026",
     "_ranking_source": "Webometrics Global Web Rankings for Universities",
     "_ranking_source_url": "https://www.webometrics.org/",
-    "_data_boundary": "University names, locations, and published ranking fields are factual references; descriptions and search topics are synthetic"
+    "_data_boundary": "University names, locations, and published ranking fields are factual references; content and descriptions restate those fields, while search topics are synthetic"
   },
   "fields": [
     {

@@ -11,8 +11,9 @@ People, organizations other than the named universities, artworks, companies,
 incidents, and market instruments in these fixtures are fictional. The
 `universities` fixture is a dated snapshot of the top 100 entries in the
 Webometrics January 2026 world ranking. Its names, locations, published
-ranking fields, edition, and source URL are factual references; `search_topics`
-and descriptive prose are synthetic query aids. City and metropolitan-area
+ranking fields, edition, and source URL are factual references. Each document's
+content restates its institution, location, and four ranking positions;
+`search_topics` are synthetic query aids. City and metropolitan-area
 labels make nearby campuses discoverable by the city users normally search—for
 example, `Boston` matches MIT in Cambridge as well as Boston University. It
 contains no enrollment count or invented campus coordinate. Finance and stock
