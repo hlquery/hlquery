@@ -323,7 +323,15 @@ void SearchResponseCache::InvalidateCollection(const std::string &Collection)
           return;
      }
 
-     CollectionGenerations[Collection] = ++MutationClock;
+     const uint64_t Generation = ++MutationClock;
+     CollectionGenerations[Collection] = Generation;
+
+     /*
+      * Collection-list responses are cached under the wildcard scope. Advance
+      * that scope as well so a list request that started before this mutation
+      * cannot repopulate the cache with stale document counts afterward.
+      */
+     CollectionGenerations["*"] = Generation;
 
      auto EraseGroup = [&](const std::string &Group)
      {

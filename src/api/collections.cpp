@@ -1448,6 +1448,8 @@ HttpResponse SearchAPI::HandleListCollections(const HttpRequest &Request)
           return CachedResponse;
      }
 
+     const uint64_t CacheGeneration = SearchResponseCache::GetGeneration("*");
+
      long long OffsetVal = 0;
      long long LimitVal = -1;
      std::string PatternVal;
@@ -1853,7 +1855,7 @@ HttpResponse SearchAPI::HandleListCollections(const HttpRequest &Request)
 
      HttpResponse Response(Status::OK, StatusText(Status::OK), "application/json");
      Response.Body = ResponseJSON.dump();
-     SearchResponseCache::Put("collections", Request, "*", Response);
+     SearchResponseCache::Put("collections", Request, "*", Response, CacheGeneration);
      return Response;
 }
 
@@ -2197,6 +2199,8 @@ HttpResponse SearchAPI::HandleGetCollection(const HttpRequest &Request)
           return CachedResponse;
      }
 
+     const uint64_t CacheGeneration = SearchResponseCache::GetGeneration(CollectionName);
+
      try
      {
           bool CollectionExistsVal = false;
@@ -2299,7 +2303,7 @@ HttpResponse SearchAPI::HandleGetCollection(const HttpRequest &Request)
           ResponseJSON["sortable_fields"] = nlohmann::json::array();
           Response.Body = ResponseJSON.dump();
 
-          SearchResponseCache::Put("collections", Request, CollectionName, Response);
+          SearchResponseCache::Put("collections", Request, CollectionName, Response, CacheGeneration);
           return Response;
      }
      catch (const std::exception &E)
@@ -2351,6 +2355,8 @@ HttpResponse SearchAPI::HandleGetCollectionLanguage(const HttpRequest &Request)
      {
           return CachedResponse;
      }
+
+     const uint64_t CacheGeneration = SearchResponseCache::GetGeneration(CollectionName);
 
      if (!HybridStorageManagerInstance().CollectionExists(CollectionName))
      {
@@ -2438,7 +2444,7 @@ HttpResponse SearchAPI::HandleGetCollectionLanguage(const HttpRequest &Request)
 
      HttpResponse Response(Status::OK, StatusText(Status::OK), "application/json");
      Response.Body = Root.dump();
-     SearchResponseCache::Put("collections", Request, CollectionName, Response);
+     SearchResponseCache::Put("collections", Request, CollectionName, Response, CacheGeneration);
      return Response;
 }
 

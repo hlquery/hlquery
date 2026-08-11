@@ -688,7 +688,7 @@ $(OBJ_DIR)/vendor/md5/md5.o: $(VENDOR_DIR)/md5/md5.c | $(OBJ_DIR)
 
 -include $(DEPS)
 
-.PHONY: all build-products prepare rocksdb-check rocksdb-preflight rocksdb-smoke binary-compat-check prune-disabled-extra-modules test test-http-routes test-timer-concurrency test-core-stats-metrics test-performance-monitor test-segmented-storage test-backup-restore test-auth-fail-closed test-docker-production-mode clean install uninstall debug create_ssl help build-info synonyms-sync synonyms-check package package-all package-deb package-rpm
+.PHONY: all build-products prepare rocksdb-check rocksdb-preflight rocksdb-smoke binary-compat-check prune-disabled-extra-modules test test-http-routes test-timer-concurrency test-core-stats-metrics test-performance-monitor test-segmented-storage test-search-response-cache test-backup-restore test-auth-fail-closed test-docker-production-mode clean install uninstall debug create_ssl help build-info synonyms-sync synonyms-check package package-all package-deb package-rpm
 
 prune-disabled-extra-modules:
 	@mkdir -p $(RUN_DIR)/modules
@@ -982,6 +982,7 @@ PERFORMANCE_MONITOR_TEST_BIN := build/test/performance_monitor
 SEGMENTED_STORAGE_TEST_BIN := build/test/segmented_storage
 LEGACY_HYBRID_RANKING_TEST_BIN := build/test/legacy_hybrid_ranking
 SEARCH_EXECUTION_TRACE_TEST_BIN := build/test/search_execution_trace
+SEARCH_RESPONSE_CACHE_TEST_BIN := build/test/search_response_cache
 
 $(HTTP_ROUTES_TEST_BIN): tests/http_routes.cpp src/api/httproutes.cpp
 	@mkdir -p $(dir $@)
@@ -1032,6 +1033,13 @@ $(SEARCH_EXECUTION_TRACE_TEST_BIN): tests/search_execution_trace.cpp src/search/
 test-search-execution-trace: $(SEARCH_EXECUTION_TRACE_TEST_BIN)
 	@$(SEARCH_EXECUTION_TRACE_TEST_BIN)
 
+$(SEARCH_RESPONSE_CACHE_TEST_BIN): tests/search_response_cache.cpp src/api/searchcache.cpp | $(CONFIG_HEADER)
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) $^ -o $@ $(LDFLAGS)
+
+test-search-response-cache: $(SEARCH_RESPONSE_CACHE_TEST_BIN)
+	@$(SEARCH_RESPONSE_CACHE_TEST_BIN)
+
 test-backup-restore:
 	@tests/backup_restore.sh
 
@@ -1047,7 +1055,7 @@ test-adaptive-search-trace: $(BIN_DIR)/hlquery
 # test-auth-fail-closed builds the server, whose prepare phase already runs the
 # RocksDB smoke test. Listing rocksdb-smoke here too races the recursive prepare
 # invocation under parallel make and can execute a binary while it is relinking.
-test: test-http-routes test-timer-concurrency test-core-stats-metrics test-performance-monitor test-segmented-storage test-legacy-hybrid-ranking test-search-execution-trace test-backup-restore test-auth-fail-closed test-docker-production-mode test-adaptive-search-trace
+test: test-http-routes test-timer-concurrency test-core-stats-metrics test-performance-monitor test-segmented-storage test-legacy-hybrid-ranking test-search-execution-trace test-search-response-cache test-backup-restore test-auth-fail-closed test-docker-production-mode test-adaptive-search-trace
 	@if [ -x "$(RUN_DIR)/test/run_tests.sh" ]; then \
 		"$(RUN_DIR)/test/run_tests.sh"; \
 	else \
