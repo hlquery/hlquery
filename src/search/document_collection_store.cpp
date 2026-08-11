@@ -2011,6 +2011,12 @@ bool HybridStorageManager::AddDocument(const std::string &collection, const Docu
           return false;
      }
 
+     /* The document is durable from this point onward. Invalidate derived
+      * state before metadata maintenance so a counter failure cannot leave a
+      * successfully stored document hidden behind a stale index or response. */
+     MarkCollectionIndexDirty(collection);
+     SearchResponseCache::InvalidateCollection(collection);
+
      /*
            * Update collection metadata counter after insert to ensure accuracy.
            * Only increment counter for new documents (not updates).
@@ -2065,9 +2071,6 @@ bool HybridStorageManager::AddDocument(const std::string &collection, const Docu
 
      if (success)
      {
-          MarkCollectionIndexDirty(collection);
-          SearchResponseCache::InvalidateCollection(collection);
-
           /*
            * Index new document immediately so it's searchable right away.
            * This ensures synonyms work with newly added documents.

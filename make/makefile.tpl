@@ -984,56 +984,56 @@ LEGACY_HYBRID_RANKING_TEST_BIN := build/test/legacy_hybrid_ranking
 SEARCH_EXECUTION_TRACE_TEST_BIN := build/test/search_execution_trace
 SEARCH_RESPONSE_CACHE_TEST_BIN := build/test/search_response_cache
 
-$(HTTP_ROUTES_TEST_BIN): tests/http_routes.cpp src/api/httproutes.cpp
+$(HTTP_ROUTES_TEST_BIN): tests/http_routes.cpp src/api/httproutes.cpp | $(USE_VENDOR_ROCKSDB)
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) $^ -o $@ $(LDFLAGS)
 
 test-http-routes: $(HTTP_ROUTES_TEST_BIN)
 	@$(HTTP_ROUTES_TEST_BIN)
 
-$(TIMER_CONCURRENCY_TEST_BIN): tests/timer_concurrency.cpp src/runtime/timers.cpp
+$(TIMER_CONCURRENCY_TEST_BIN): tests/timer_concurrency.cpp src/runtime/timers.cpp | $(USE_VENDOR_ROCKSDB)
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) $^ -o $@ $(LDFLAGS)
 
 test-timer-concurrency: $(TIMER_CONCURRENCY_TEST_BIN)
 	@$(TIMER_CONCURRENCY_TEST_BIN)
 
-$(CORE_STATS_METRICS_TEST_BIN): tests/core_stats_metrics.cpp src/core/metrics.cpp src/core/stats.cpp
+$(CORE_STATS_METRICS_TEST_BIN): tests/core_stats_metrics.cpp src/core/metrics.cpp src/core/stats.cpp | $(USE_VENDOR_ROCKSDB)
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) $^ -o $@ $(LDFLAGS)
 
 test-core-stats-metrics: $(CORE_STATS_METRICS_TEST_BIN)
 	@$(CORE_STATS_METRICS_TEST_BIN)
 
-$(PERFORMANCE_MONITOR_TEST_BIN): tests/performance_monitor.cpp src/utils/dbutils.cpp
+$(PERFORMANCE_MONITOR_TEST_BIN): tests/performance_monitor.cpp src/utils/dbutils.cpp | $(USE_VENDOR_ROCKSDB)
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) $^ -o $@ $(LDFLAGS)
 
 test-performance-monitor: $(PERFORMANCE_MONITOR_TEST_BIN)
 	@$(PERFORMANCE_MONITOR_TEST_BIN)
 
-$(SEGMENTED_STORAGE_TEST_BIN): tests/segmented_storage.cpp src/search/segment_catalog.cpp src/search/segmented_document_router.cpp src/utils/wildcard.cpp $(ROCKSDB_LIB)
+$(SEGMENTED_STORAGE_TEST_BIN): tests/segmented_storage.cpp src/search/segment_catalog.cpp src/search/segmented_document_router.cpp src/utils/wildcard.cpp $(USE_VENDOR_ROCKSDB)
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) $(filter %.cpp,$^) -o $@ $(LDFLAGS)
 
 test-segmented-storage: $(SEGMENTED_STORAGE_TEST_BIN)
 	@$(SEGMENTED_STORAGE_TEST_BIN)
 
-$(LEGACY_HYBRID_RANKING_TEST_BIN): tests/legacy_hybrid_ranking.cpp src/search/hybrid_rank_fusion.cpp
+$(LEGACY_HYBRID_RANKING_TEST_BIN): tests/legacy_hybrid_ranking.cpp src/search/hybrid_rank_fusion.cpp | $(USE_VENDOR_ROCKSDB)
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) $^ -o $@ $(LDFLAGS)
 
 test-legacy-hybrid-ranking: $(LEGACY_HYBRID_RANKING_TEST_BIN)
 	@$(LEGACY_HYBRID_RANKING_TEST_BIN)
 
-$(SEARCH_EXECUTION_TRACE_TEST_BIN): tests/search_execution_trace.cpp src/search/adaptive/search_execution_trace.cpp
+$(SEARCH_EXECUTION_TRACE_TEST_BIN): tests/search_execution_trace.cpp src/search/adaptive/search_execution_trace.cpp | $(USE_VENDOR_ROCKSDB)
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) $^ -o $@ $(LDFLAGS)
 
 test-search-execution-trace: $(SEARCH_EXECUTION_TRACE_TEST_BIN)
 	@$(SEARCH_EXECUTION_TRACE_TEST_BIN)
 
-$(SEARCH_RESPONSE_CACHE_TEST_BIN): tests/search_response_cache.cpp src/api/searchcache.cpp | $(CONFIG_HEADER)
+$(SEARCH_RESPONSE_CACHE_TEST_BIN): tests/search_response_cache.cpp src/api/searchcache.cpp | $(CONFIG_HEADER) $(USE_VENDOR_ROCKSDB)
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) $^ -o $@ $(LDFLAGS)
 

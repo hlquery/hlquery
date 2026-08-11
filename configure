@@ -1222,7 +1222,7 @@ sub generate_config_h {
         $template_content =~ s/\$\{$key\}/$value/g;
     }
     
-    write_generated_file_if_changed($config_path, $template_content, 0644);
+    return write_generated_file_if_changed($config_path, $template_content, 0644);
 }
 
 sub generate_makefile {
@@ -1305,7 +1305,7 @@ sub generate_makefile {
     # Write the generated Makefile only when its contents changed. Preserving
     # the timestamp prevents a no-op configure from rebuilding every object.
     my $abs_makefile_path = rel2abs($makefile_path);
-    write_generated_file_if_changed($abs_makefile_path, $template_content, 0644);
+    my $makefile_changed = write_generated_file_if_changed($abs_makefile_path, $template_content, 0644);
     
     # Verify Makefile was written
     if (!-f $abs_makefile_path) {
@@ -1357,7 +1357,8 @@ sub generate_makefile {
         print_error("Makefile appears to be too small ($makefile_size bytes)");
         die "Error: Makefile appears to be invalid (size: $makefile_size bytes)\n";
     }
-    
+
+    return $makefile_changed;
 }
 
 sub generate_hlquery_wrapper {
@@ -1479,12 +1480,12 @@ sub cleanup_old_builds {
         catdir($base_path, BUILD_DIR, 'bin')
     );
     
-    for my $dir (@cleanup_dirs) {
-        if (-d $dir) {
-            print_step("Cleaning old build artifacts");
-            system("rm -rf '$dir'");
-            last;
-        }
+    my @existing_dirs = grep { -d $_ } @cleanup_dirs;
+    return unless @existing_dirs;
+
+    print_step("Cleaning old build artifacts");
+    for my $dir (@existing_dirs) {
+        rmtree($dir);
     }
 }
 
@@ -1925,7 +1926,7 @@ sub main {
     mkpath(catdir($base_path, INCLUDE_DIR)) unless -d catdir($base_path, INCLUDE_DIR);
     
     print_step('Generating configuration cache');
-    generate_config_h($disable_lsm);
+    my $config_header_changed = generate_config_h($disable_lsm);
     print_success('Generated include/core/config.h');
     
     print_step('Generating Makefile');
@@ -1936,8 +1937,9 @@ sub main {
     }
     
     # Call generate_makefile with error handling
+    my $makefile_changed = 0;
     eval {
-        generate_makefile($enabled_extras, $reconfigure_command);
+        $makefile_changed = generate_makefile($enabled_extras, $reconfigure_command);
     };
     if ($@) {
         print_error("Makefile generation failed: $@");
@@ -1968,7 +1970,7 @@ sub main {
     
     # Setup configuration caching and cleanup
     setup_config_cache();
-    cleanup_old_builds();
+    cleanup_old_builds() if $config_header_changed || $makefile_changed;
     
     # Create test infrastructure
     create_test_infrastructure();

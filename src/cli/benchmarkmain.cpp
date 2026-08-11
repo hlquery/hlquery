@@ -120,15 +120,21 @@ static IntegrityVerificationResult VerifyBenchmarkIntegrity(BenchmarkClient &cli
      std::unordered_map<std::string, VerifiedBenchmarkDocument> expected;
      std::vector<std::pair<std::string, std::string>> expected_hashes;
 
+     const auto document_key = [](int collection, const std::string &id)
+     {
+          return std::to_string(collection) + "\x1f" + id;
+     };
+
      for (int collection = 0; collection < num_collections; ++collection)
      {
           const int count = docs_per_collection + (collection < remaining_docs ? 1 : 0);
           for (int ordinal = 0; ordinal < count; ++ordinal)
           {
                VerifiedBenchmarkDocument document = BuildVerifiedBenchmarkDocument(collection, ordinal, run_id, seed, reuse_collections);
+               const std::string key = document_key(collection, document.ID);
                result.ExpectedLogicalBytes += static_cast<int64_t>(document.Payload.size());
-               expected_hashes.emplace_back(document.ID, document.PayloadHash);
-               expected.emplace(document.ID, std::move(document));
+               expected_hashes.emplace_back(key, document.PayloadHash);
+               expected.emplace(key, std::move(document));
           }
      }
      result.Expected = static_cast<int64_t>(expected.size());
@@ -141,6 +147,25 @@ static IntegrityVerificationResult VerifyBenchmarkIntegrity(BenchmarkClient &cli
           if (value.is_number_integer()) return std::to_string(value.get<int64_t>());
           if (value.is_number_unsigned()) return std::to_string(value.get<uint64_t>());
           return value.dump();
+     };
+     const auto scalar_integer = [](const nlohmann::json &value, int64_t fallback) -> int64_t
+     {
+          try
+          {
+               if (value.is_number_integer()) return value.get<int64_t>();
+               if (value.is_number_unsigned()) return static_cast<int64_t>(value.get<uint64_t>());
+               if (value.is_string())
+               {
+                    const std::string text = value.get<std::string>();
+                    size_t consumed = 0;
+                    const int64_t parsed = std::stoll(text, &consumed);
+                    if (consumed == text.size()) return parsed;
+               }
+          }
+          catch (...)
+          {
+          }
+          return fallback;
      };
 
      for (int collection = 0; collection < num_collections; ++collection)
@@ -210,15 +235,16 @@ static IntegrityVerificationResult VerifyBenchmarkIntegrity(BenchmarkClient &cli
                          const std::string id = document.at("id").get<std::string>();
                          const std::string payload = document.at("payload").get<std::string>();
                          const std::string stored_hash = document.at("payload_hash").get<std::string>();
+                         const std::string key = document_key(collection, id);
                          result.ObservedLogicalBytes += static_cast<int64_t>(payload.size());
 
-                         if (!seen.insert(id).second)
+                         if (!seen.insert(key).second)
                          {
                               result.Duplicate++;
                               continue;
                          }
 
-                         const auto expected_it = expected.find(id);
+                         const auto expected_it = expected.find(key);
                          if (expected_it == expected.end())
                          {
                               result.Unexpected++;
@@ -229,8 +255,8 @@ static IntegrityVerificationResult VerifyBenchmarkIntegrity(BenchmarkClient &cli
                          const bool fields_match =
                               document.value("run_id", std::string()) == wanted.RunID &&
                               (document.contains("benchmark_seed") ? scalar_string(document["benchmark_seed"]) : std::string()) == wanted.Seed &&
-                              document.value("ordinal", int64_t{-1}) == wanted.Ordinal &&
-                              document.value("collection_number", -1) == collection &&
+                              (document.contains("ordinal") ? scalar_integer(document["ordinal"], -1) : -1) == wanted.Ordinal &&
+                              (document.contains("collection_number") ? scalar_integer(document["collection_number"], -1) : -1) == collection &&
                               document.value("title", std::string()) == wanted.Title &&
                               document.value("content", std::string()) == wanted.Content &&
                               payload == wanted.Payload && stored_hash == wanted.PayloadHash &&
@@ -240,7 +266,7 @@ static IntegrityVerificationResult VerifyBenchmarkIntegrity(BenchmarkClient &cli
                          {
                               result.Corrupted++;
                          }
-                         observed_hashes.emplace_back(id, stored_hash);
+                         observed_hashes.emplace_back(key, stored_hash);
                          expected.erase(expected_it);
                     }
                     catch (...)

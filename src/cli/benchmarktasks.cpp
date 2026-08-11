@@ -41,7 +41,7 @@ static std::string MakeBenchmarkDocumentID(int collection_index, int document_in
      if (!reuse_collections && !run_id.empty())
      {
           const std::string run_suffix = run_id.size() > 2 ? run_id.substr(2) : run_id;
-          return std::to_string(collection_index) + std::to_string(document_index) + run_suffix;
+          return std::to_string(collection_index) + "_" + std::to_string(document_index) + "_" + run_suffix;
      }
 
      return std::to_string(collection_index) + "_" + std::to_string(document_index);

@@ -597,41 +597,9 @@ HttpResponse SearchAPI::HandleListDocuments(const HttpRequest &Request)
 
                Response.Body += ",\"" + EscapeJSONString(Field.first) + "\":";
 
-               const std::string &FieldValueVal = Field.second;
-
-               if (!FieldValueVal.empty())
-               {
-                    char *EndPtr = nullptr;
-
-                    std::strtod(FieldValueVal.c_str(), &EndPtr);
-
-                    bool IsNumberVal = false;
-
-                    if (EndPtr != nullptr && EndPtr == FieldValueVal.c_str() + FieldValueVal.length())
-                    {
-                         if (!FieldValueVal.empty() && (std::isdigit(FieldValueVal[0]) || FieldValueVal[0] == '+' || FieldValueVal[0] == '-' || FieldValueVal[0] == '.'))
-                         {
-                              IsNumberVal = true;
-                         }
-                    }
-
-                    if (IsNumberVal)
-                    {
-                         Response.Body += FieldValueVal;
-                    }
-                    else if (FieldValueVal == "true" || FieldValueVal == "false")
-                    {
-                         Response.Body += FieldValueVal;
-                    }
-                    else
-                    {
-                         Response.Body += "\"" + EscapeJSONString(FieldValueVal) + "\"";
-                    }
-               }
-               else
-               {
-                    Response.Body += "\"\"";
-               }
+               /* Document fields are stored as strings. Preserve their type and
+                * let JSON escaping handle values that merely look numeric. */
+               Response.Body += "\"" + EscapeJSONString(Field.second) + "\"";
           }
 
           Response.Body += "}";
@@ -1816,41 +1784,9 @@ HttpResponse SearchAPI::HandleGetDocument(const HttpRequest &Request)
      {
           Response.Body += ",\"" + EscapeJSONString(Field.first) + "\":";
 
-          const std::string &FieldValueVal = Field.second;
-
-          if (!FieldValueVal.empty())
-          {
-               char *EndPtr = nullptr;
-
-               std::strtod(FieldValueVal.c_str(), &EndPtr);
-
-               bool IsNumberVal = false;
-
-               if (EndPtr != nullptr && EndPtr == FieldValueVal.c_str() + FieldValueVal.length())
-               {
-                    if (!FieldValueVal.empty() && (std::isdigit(FieldValueVal[0]) || FieldValueVal[0] == '+' || FieldValueVal[0] == '-' || FieldValueVal[0] == '.'))
-                    {
-                         IsNumberVal = true;
-                    }
-               }
-
-               if (IsNumberVal)
-               {
-                    Response.Body += FieldValueVal;
-               }
-               else if (FieldValueVal == "true" || FieldValueVal == "false")
-               {
-                    Response.Body += FieldValueVal;
-               }
-               else
-               {
-                    Response.Body += "\"" + EscapeJSONString(FieldValueVal) + "\"";
-               }
-          }
-          else
-          {
-               Response.Body += "\"\"";
-          }
+          /* Keep the single-document response consistent with list responses:
+           * fields are string-valued even when their contents resemble JSON. */
+          Response.Body += "\"" + EscapeJSONString(Field.second) + "\"";
      }
 
      Response.Body += "}";
