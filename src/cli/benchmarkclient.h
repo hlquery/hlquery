@@ -40,6 +40,24 @@ struct HTTPResponse
      std::string ErrorMessage;
 };
 
+struct VerifiedBenchmarkDocument
+{
+     std::string ID;
+     std::string Title;
+     std::string Content;
+     std::string RunID;
+     std::string Seed;
+     int64_t Ordinal = 0;
+     int Collection = 0;
+     std::string Payload;
+     std::string PayloadHash;
+};
+
+std::string BenchmarkSHA256(const std::string &value);
+VerifiedBenchmarkDocument BuildVerifiedBenchmarkDocument(int collection_index, int document_index,
+                                                          const std::string &run_id, const std::string &seed,
+                                                          bool reuse_collections);
+
 /* BenchmarkClient class for performance testing. */
 
 class BenchmarkClient
@@ -179,6 +197,10 @@ class BenchmarkClient
 
      int InsertDocumentsBulk(const std::string &collection, const std::vector<std::tuple<std::string, std::string, std::string>> &docs);
 
+     /* Inserts deterministic documents carrying independently verifiable payload hashes. */
+
+     int InsertVerifiedDocumentsBulk(const std::string &collection, const std::vector<VerifiedBenchmarkDocument> &docs);
+
      int InsertDocumentsBulkLocal(const std::string &collection, const std::vector<std::tuple<std::string, std::string, std::string>> &docs);
 
      /* Searches in a collection. */
@@ -275,6 +297,20 @@ struct OperationMetrics
      std::map<std::string, std::string> Metadata;
 };
 
+struct BenchmarkLatencySample
+{
+     int64_t TimestampNS = 0;
+     int WorkerID = 0;
+     std::string Collection;
+     int BatchNumber = 0;
+     int Documents = 0;
+     int64_t LogicalBytes = 0;
+     int64_t LatencyNS = 0;
+     int HTTPStatus = 0;
+     int64_t ServerWriteNS = -1;
+     std::string Error;
+};
+
 /* AdvancedMetrics struct represents advanced metrics for the benchmark. */
 
 struct AdvancedMetrics
@@ -361,9 +397,24 @@ struct AdvancedMetrics
 
      std::string BarrierRocksDBStatus;
 
+     int64_t IntegrityExpected = 0;
+     int64_t IntegrityObserved = 0;
+     int64_t IntegrityMissing = 0;
+     int64_t IntegrityDuplicate = 0;
+     int64_t IntegrityUnexpected = 0;
+     int64_t IntegrityCorrupted = 0;
+     int64_t IntegrityMalformed = 0;
+     int64_t IntegrityDurationMS = 0;
+     int64_t IntegrityExpectedLogicalBytes = 0;
+     int64_t IntegrityObservedLogicalBytes = 0;
+     std::string IntegrityExpectedChecksum;
+     std::string IntegrityObservedChecksum;
+
      std::vector<int64_t> CollectionTimings;
 
      std::vector<int64_t> BatchTimings;
+
+     std::vector<BenchmarkLatencySample> LatencySamples;
 
      std::vector<int> BatchSizes;
 

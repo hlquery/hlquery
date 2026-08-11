@@ -39,6 +39,7 @@ void BenchmarkSignalHandler(int signal);
 void ResetGlobalStats();
 
 void ResetProgressBar();
+void PrintProgressBar(int current, int total, const std::string &label, int bar_width = 50);
 void PrintSpinner(const std::string &label, int attempt, int total_attempts, bool done);
 
 /* Main mode functions. */
@@ -55,9 +56,9 @@ bool CreateFakeCollections(const std::string &base_url, const std::string &auth_
 
 void CreateCollectionsThread(const std::string &base_url, const std::string &auth_token, int start_idx, int end_idx, bool collect_metrics, int total_collections, bool reuse_collections);
 
-void InsertDocumentsThread(const std::string &base_url, const std::string &auth_token, int num_collections, int docs_per_collection, int remaining_docs, int thread_id, int thread_count, int batch_size, bool collect_metrics, int total_documents, const std::string &run_id, bool reuse_collections);
+void InsertDocumentsThread(const std::string &base_url, const std::string &auth_token, int num_collections, int docs_per_collection, int remaining_docs, int thread_id, int thread_count, int batch_size, bool collect_metrics, int total_documents, const std::string &run_id, const std::string &seed, bool reuse_collections);
 
-void InsertAdditionalDocumentsThread(const std::string &base_url, const std::string &auth_token, int num_collections, int start_doc_idx, int additional_docs, int thread_id, int thread_count, int batch_size, bool collect_metrics, int total_documents, const std::string &run_id, bool reuse_collections);
+void InsertAdditionalDocumentsThread(const std::string &base_url, const std::string &auth_token, int num_collections, int start_doc_idx, int additional_docs, int thread_id, int thread_count, int batch_size, bool collect_metrics, int total_documents, const std::string &run_id, const std::string &seed, bool reuse_collections);
 
 void GetFinalCounts(BenchmarkClient &client, AdvancedMetrics &metrics, bool verbose, int num_collections = -1);
 
@@ -79,8 +80,203 @@ struct DurabilityConfig
      std::string UseFsync = "unknown";
      std::string Filesystem = "unknown";
      bool MemoryFilesystem = false;
+     bool RuntimeDiagnosticsAvailable = false;
+     bool WALEnabled = false;
+     bool PerWriteSync = false;
      std::string Source = "not verified";
 };
+
+struct IntegrityVerificationResult
+{
+     bool Interrupted = false;
+     int64_t Expected = 0;
+     int64_t Observed = 0;
+     int64_t Missing = 0;
+     int64_t Duplicate = 0;
+     int64_t Unexpected = 0;
+     int64_t Corrupted = 0;
+     int64_t Malformed = 0;
+     int64_t ExpectedLogicalBytes = 0;
+     int64_t ObservedLogicalBytes = 0;
+     std::string ExpectedChecksum;
+     std::string ObservedChecksum;
+     int64_t DurationMS = 0;
+
+     bool Passed() const
+     {
+          return Expected == Observed && Missing == 0 && Duplicate == 0 && Unexpected == 0 &&
+                 Corrupted == 0 && Malformed == 0 && ExpectedLogicalBytes == ObservedLogicalBytes &&
+                 ExpectedChecksum == ObservedChecksum;
+     }
+};
+
+static IntegrityVerificationResult VerifyBenchmarkIntegrity(BenchmarkClient &client, int num_collections,
+                                                             int docs_per_collection, int remaining_docs,
+                                                             const std::string &run_id, const std::string &seed,
+                                                             bool reuse_collections)
+{
+     const auto started = Now();
+     IntegrityVerificationResult result;
+     std::unordered_map<std::string, VerifiedBenchmarkDocument> expected;
+     std::vector<std::pair<std::string, std::string>> expected_hashes;
+
+     for (int collection = 0; collection < num_collections; ++collection)
+     {
+          const int count = docs_per_collection + (collection < remaining_docs ? 1 : 0);
+          for (int ordinal = 0; ordinal < count; ++ordinal)
+          {
+               VerifiedBenchmarkDocument document = BuildVerifiedBenchmarkDocument(collection, ordinal, run_id, seed, reuse_collections);
+               result.ExpectedLogicalBytes += static_cast<int64_t>(document.Payload.size());
+               expected_hashes.emplace_back(document.ID, document.PayloadHash);
+               expected.emplace(document.ID, std::move(document));
+          }
+     }
+     result.Expected = static_cast<int64_t>(expected.size());
+
+     std::unordered_set<std::string> seen;
+     std::vector<std::pair<std::string, std::string>> observed_hashes;
+     const auto scalar_string = [](const nlohmann::json &value) -> std::string
+     {
+          if (value.is_string()) return value.get<std::string>();
+          if (value.is_number_integer()) return std::to_string(value.get<int64_t>());
+          if (value.is_number_unsigned()) return std::to_string(value.get<uint64_t>());
+          return value.dump();
+     };
+
+     for (int collection = 0; collection < num_collections; ++collection)
+     {
+          if (g_benchmark_should_stop.load())
+          {
+               result.Interrupted = true;
+               result.DurationMS = std::chrono::duration_cast<std::chrono::milliseconds>(Now() - started).count();
+               return result;
+          }
+
+          const std::string collection_name = MakeBenchmarkCollectionName(collection);
+          int offset = 0;
+          while (true)
+          {
+               if (g_benchmark_should_stop.load())
+               {
+                    result.Interrupted = true;
+                    result.DurationMS = std::chrono::duration_cast<std::chrono::milliseconds>(Now() - started).count();
+                    return result;
+               }
+
+               const HTTPResponse response = client.GetCollectionDocuments(collection_name, offset, 1000);
+               if (g_benchmark_should_stop.load())
+               {
+                    result.Interrupted = true;
+                    result.DurationMS = std::chrono::duration_cast<std::chrono::milliseconds>(Now() - started).count();
+                    return result;
+               }
+
+               if (response.StatusCode != 200)
+               {
+                    result.Malformed++;
+                    break;
+               }
+
+               nlohmann::json body;
+               try
+               {
+                    body = nlohmann::json::parse(response.Body);
+               }
+               catch (...)
+               {
+                    result.Malformed++;
+                    break;
+               }
+
+               if (!body.contains("documents") || !body["documents"].is_array())
+               {
+                    result.Malformed++;
+                    break;
+               }
+
+               const auto &documents = body["documents"];
+               for (const auto &document : documents)
+               {
+                    if (g_benchmark_should_stop.load())
+                    {
+                         result.Interrupted = true;
+                         result.DurationMS = std::chrono::duration_cast<std::chrono::milliseconds>(Now() - started).count();
+                         return result;
+                    }
+
+                    result.Observed++;
+                    try
+                    {
+                         const std::string id = document.at("id").get<std::string>();
+                         const std::string payload = document.at("payload").get<std::string>();
+                         const std::string stored_hash = document.at("payload_hash").get<std::string>();
+                         result.ObservedLogicalBytes += static_cast<int64_t>(payload.size());
+
+                         if (!seen.insert(id).second)
+                         {
+                              result.Duplicate++;
+                              continue;
+                         }
+
+                         const auto expected_it = expected.find(id);
+                         if (expected_it == expected.end())
+                         {
+                              result.Unexpected++;
+                              continue;
+                         }
+
+                         const auto &wanted = expected_it->second;
+                         const bool fields_match =
+                              document.value("run_id", std::string()) == wanted.RunID &&
+                              (document.contains("benchmark_seed") ? scalar_string(document["benchmark_seed"]) : std::string()) == wanted.Seed &&
+                              document.value("ordinal", int64_t{-1}) == wanted.Ordinal &&
+                              document.value("collection_number", -1) == collection &&
+                              document.value("title", std::string()) == wanted.Title &&
+                              document.value("content", std::string()) == wanted.Content &&
+                              payload == wanted.Payload && stored_hash == wanted.PayloadHash &&
+                              BenchmarkSHA256(payload) == stored_hash;
+
+                         if (!fields_match)
+                         {
+                              result.Corrupted++;
+                         }
+                         observed_hashes.emplace_back(id, stored_hash);
+                         expected.erase(expected_it);
+                    }
+                    catch (...)
+                    {
+                         result.Malformed++;
+                    }
+               }
+
+               PrintProgressBar(static_cast<int>(result.Observed), static_cast<int>(result.Expected),
+                                "Verifying documents");
+
+               if (documents.empty())
+               {
+                    break;
+               }
+               offset += static_cast<int>(documents.size());
+               const int64_t total = body.value("total", int64_t{offset});
+               if (offset >= total || documents.size() < 1000)
+               {
+                    break;
+               }
+          }
+     }
+
+     result.Missing = static_cast<int64_t>(expected.size());
+     std::sort(expected_hashes.begin(), expected_hashes.end());
+     std::sort(observed_hashes.begin(), observed_hashes.end());
+     std::string expected_material;
+     std::string observed_material;
+     for (const auto &[id, hash] : expected_hashes) expected_material += id + ":" + hash + "\n";
+     for (const auto &[id, hash] : observed_hashes) observed_material += id + ":" + hash + "\n";
+     result.ExpectedChecksum = BenchmarkSHA256(expected_material);
+     result.ObservedChecksum = BenchmarkSHA256(observed_material);
+     result.DurationMS = std::chrono::duration_cast<std::chrono::milliseconds>(Now() - started).count();
+     return result;
+}
 
 bool LoadRuntimeDurabilityConfig(BenchmarkClient &Client, DurabilityConfig &Config, bool AllowMemoryFilesystem)
 {
@@ -102,19 +298,23 @@ bool LoadRuntimeDurabilityConfig(BenchmarkClient &Client, DurabilityConfig &Conf
           Config.UseFsync = DBOptions.at("use_fsync").get<bool>() ? "true" : "false";
           Config.Filesystem = Diagnostics.at("filesystem").get<std::string>();
           Config.MemoryFilesystem = Diagnostics.value("storage_is_volatile", false);
+          Config.RuntimeDiagnosticsAvailable = true;
+          Config.WALEnabled = Diagnostics.at("wal_enabled").get<bool>() &&
+                              !WriteOptions.at("disable_wal").get<bool>();
+          Config.PerWriteSync = WriteOptions.at("sync").get<bool>();
           Config.Source = "/_diagnostics/storage (effective runtime)";
           if (Config.MemoryFilesystem && AllowMemoryFilesystem)
           {
                Config.Source += "; memory filesystem explicitly allowed";
           }
 
-          const bool WALEnabled = Diagnostics.at("wal_enabled").get<bool>();
-          const bool DisableWAL = WriteOptions.at("disable_wal").get<bool>();
           const auto &CriticalUnknowns = Diagnostics.at("critical_unknowns");
-          const bool KnownBarrier = Diagnostics.value("durability_barrier", std::string()) == "DBManager::SyncWAL";
+          const std::string BarrierName = Diagnostics.value("durability_barrier", std::string());
+          const bool KnownBarrier = BarrierName == "DBManager::ExecuteDurabilityBarrier(SyncWAL)" ||
+                                    BarrierName == "DBManager::SyncWAL";
           const bool NoIngestQueue = Diagnostics.value("server_ingest_queue", std::string()) == "none";
           const bool KnownDatabasePath = !Diagnostics.value("database_path", std::string()).empty();
-          return WALEnabled && !DisableWAL && Config.WalSyncMode != "unknown" &&
+          return Config.WALEnabled && Config.WalSyncMode != "unknown" &&
                  CriticalUnknowns.is_array() && CriticalUnknowns.empty() &&
                  KnownBarrier && NoIngestQueue && KnownDatabasePath &&
                  (!Config.MemoryFilesystem || AllowMemoryFilesystem);
@@ -142,7 +342,7 @@ static std::string PadBenchmarkLabel(const std::string &Label, size_t Width = 23
 {
      if (Label.size() >= Width)
      {
-          return Label;
+          return Label + "  ";
      }
 
      return Label + std::string(Width - Label.size(), ' ');
@@ -2447,6 +2647,7 @@ static void PrintBenchmarkHelp(const char *program_name)
                << "                    (runs until stopped with Ctrl+C, randomly creates collections and documents)\n"
                << "  --id ID            Run UUID/ID for correlation (default: auto-generated)\n"
                << "  --seed SEED        Seed for deterministic runs\n"
+               << "  --verify           Perform full deterministic document read-back after ingest\n"
                << "  --verify-after-restart   Verify counts after server restart\n"
                << "  --verify-final-counts    Verify benchmark collection counts before printing results\n"
                << "  --check-consistency      Check consistency of /status, /stats, /metrics, /doctotal\n"
@@ -2511,8 +2712,9 @@ int main(int argc, char *argv[])
           verbose_mode = false;
 
           std::string run_id_val = "";
-          std::string run_seed_val = "";
+          std::string run_seed_val = "1337";
 
+          bool verify_documents = false;
           bool verify_after_restart = false;
           bool verify_final_counts_val = false;
           bool check_consistency_val = false;
@@ -2644,6 +2846,10 @@ int main(int argc, char *argv[])
                else if (arg == "--seed")
                {
                     run_seed_val = RequireNextValue(i, arg);
+               }
+               else if (arg == "--verify")
+               {
+                    verify_documents = true;
                }
                else if (arg == "--verify-after-restart")
                {
@@ -3238,6 +3444,15 @@ int main(int argc, char *argv[])
           const bool runtime_durability_verified = LoadRuntimeDurabilityConfig(control_client, durability_config,
                                                                                 allow_memory_filesystem);
 
+          if (durability_config.RuntimeDiagnosticsAvailable && !durability_config.WALEnabled)
+          {
+               std::cerr << "\nERROR: The server has disabled its write-ahead log (WAL sync mode '"
+                         << durability_config.WalSyncMode << "').\n";
+               std::cerr << "  The benchmark requires WAL-backed writes for its explicit durability barrier.\n";
+               std::cerr << "  Set rocksdb wal_sync_mode=\"normal\" (or \"full\") and restart the server before benchmarking.\n";
+               return 1;
+          }
+
           if (advanced_mode)
           {
                advanced_metrics.DurabilityConfigPath = durability_config.Source;
@@ -3575,7 +3790,7 @@ int main(int argc, char *argv[])
                          break;
                     }
 
-                    document_threads_vec.emplace_back(InsertDocumentsThread, base_url, auth_token, num_collections, docs_per_collection_val, remaining_docs_val, i, active_document_threads, batch_size, advanced_mode, num_documents, run_id_val, reuse_collections);
+                    document_threads_vec.emplace_back(InsertDocumentsThread, base_url, auth_token, num_collections, docs_per_collection_val, remaining_docs_val, i, active_document_threads, batch_size, advanced_mode, num_documents, run_id_val, run_seed_val, reuse_collections);
                }
 
                for (auto &t : document_threads_vec)
@@ -3687,7 +3902,7 @@ int main(int argc, char *argv[])
                               break;
                          }
 
-                         additional_document_threads_vec.emplace_back(InsertAdditionalDocumentsThread, base_url, auth_token, num_collections, docs_per_collection_val, additional_docs_per_collection_val, i, active_document_threads, batch_size, advanced_mode, total_additional_docs_val, run_id_val, reuse_collections);
+                         additional_document_threads_vec.emplace_back(InsertAdditionalDocumentsThread, base_url, auth_token, num_collections, docs_per_collection_val, additional_docs_per_collection_val, i, active_document_threads, batch_size, advanced_mode, total_additional_docs_val, run_id_val, run_seed_val, reuse_collections);
                     }
 
                     for (auto &t : additional_document_threads_vec)
@@ -3775,6 +3990,7 @@ int main(int argc, char *argv[])
 
           int64_t flush_duration_ms = 0;
           int flush_status_code = 0;
+          std::string flush_response_body;
           auto commit_end_time_val = ingest_end_time_val;
 
           {
@@ -3786,6 +4002,7 @@ int main(int argc, char *argv[])
 
                flush_duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(flush_end - flush_start).count();
                flush_status_code = flush_resp.StatusCode;
+               flush_response_body = flush_resp.Body;
                commit_end_time_val = flush_end;
 
                if (flush_status_code == 200 || flush_status_code == 201)
@@ -3797,14 +4014,11 @@ int main(int argc, char *argv[])
                          {
                               flush_status_code = 500;
                          }
-                         if (advanced_mode)
-                         {
-                              advanced_metrics.BarrierID = Barrier.value("barrier_id", std::string());
-                              advanced_metrics.BarrierSequence = Barrier.value("sequence", uint64_t{0});
-                              advanced_metrics.BarrierWALSyncMS = Barrier.value("rocksdb_wal_sync_ms", 0.0);
-                              advanced_metrics.BarrierTotalMS = Barrier.value("total_ms", 0.0);
-                              advanced_metrics.BarrierRocksDBStatus = Barrier.value("rocksdb_status", std::string());
-                         }
+                         advanced_metrics.BarrierID = Barrier.value("barrier_id", std::string());
+                         advanced_metrics.BarrierSequence = Barrier.value("sequence", uint64_t{0});
+                         advanced_metrics.BarrierWALSyncMS = Barrier.value("rocksdb_wal_sync_ms", 0.0);
+                         advanced_metrics.BarrierTotalMS = Barrier.value("total_ms", 0.0);
+                         advanced_metrics.BarrierRocksDBStatus = Barrier.value("rocksdb_status", std::string());
                     }
                     catch (...)
                     {
@@ -3817,10 +4031,7 @@ int main(int argc, char *argv[])
                     std::cout << "  Durability sync duration: " << flush_duration_ms << " ms.\n";
                }
 
-               if (advanced_mode)
-               {
-                    advanced_metrics.DurabilityVerified = runtime_durability_verified && flush_status_code == 200;
-               }
+               advanced_metrics.DurabilityVerified = runtime_durability_verified && flush_status_code == 200;
 
                if (flush_resp.StatusCode != 200 && flush_resp.StatusCode != 201 && verbose_mode)
                {
@@ -3837,6 +4048,22 @@ int main(int argc, char *argv[])
           if (flush_status_code != 200 && flush_status_code != 201)
           {
                std::cerr << "\nERROR: Durability sync failed with HTTP status " << flush_status_code << ".\n";
+               if (!flush_response_body.empty())
+               {
+                    try
+                    {
+                         const nlohmann::json ErrorBody = nlohmann::json::parse(flush_response_body);
+                         const std::string ErrorMessage = ErrorBody.value("error", std::string());
+                         if (!ErrorMessage.empty())
+                         {
+                              std::cerr << "  Server response: " << ErrorMessage << ".\n";
+                         }
+                    }
+                    catch (...)
+                    {
+                         std::cerr << "  Server response: " << flush_response_body << "\n";
+                    }
+               }
                std::cerr << "  Ingested data will not be reported as durable.\n";
                return 1;
           }
@@ -3845,6 +4072,57 @@ int main(int argc, char *argv[])
 
           auto ingest_commit_duration_val = std::chrono::duration_cast<std::chrono::milliseconds>(commit_end_time_val - ingest_start_time_val);
           auto setup_duration_val = std::chrono::duration_cast<std::chrono::milliseconds>(ingest_start_time_val - start_time_val);
+
+          IntegrityVerificationResult integrity;
+          if (verify_documents)
+          {
+               PrintBenchmarkValue("Integrity", "full deterministic read-back");
+               ResetProgressBar();
+               BenchmarkClient integrity_client(base_url, auth_token);
+               integrity = VerifyBenchmarkIntegrity(
+                    integrity_client, num_collections, docs_per_collection_val, remaining_docs_val,
+                    run_id_val, run_seed_val, reuse_collections);
+
+               if (integrity.Interrupted || g_benchmark_should_stop.load())
+               {
+                    std::cerr << "\n[INTERRUPT] Benchmark interrupted during integrity verification.\n";
+                    return 130;
+               }
+
+               if (!verbose_mode)
+               {
+                    std::cout << "\n";
+               }
+
+               advanced_metrics.IntegrityExpected = integrity.Expected;
+               advanced_metrics.IntegrityObserved = integrity.Observed;
+               advanced_metrics.IntegrityMissing = integrity.Missing;
+               advanced_metrics.IntegrityDuplicate = integrity.Duplicate;
+               advanced_metrics.IntegrityUnexpected = integrity.Unexpected;
+               advanced_metrics.IntegrityCorrupted = integrity.Corrupted;
+               advanced_metrics.IntegrityMalformed = integrity.Malformed;
+               advanced_metrics.IntegrityDurationMS = integrity.DurationMS;
+               advanced_metrics.IntegrityExpectedLogicalBytes = integrity.ExpectedLogicalBytes;
+               advanced_metrics.IntegrityObservedLogicalBytes = integrity.ObservedLogicalBytes;
+               advanced_metrics.IntegrityExpectedChecksum = integrity.ExpectedChecksum;
+               advanced_metrics.IntegrityObservedChecksum = integrity.ObservedChecksum;
+
+               if (!integrity.Passed())
+               {
+                    std::cerr << "\nERROR: Full document integrity verification failed.\n";
+                    std::cerr << "  Expected=" << integrity.Expected << " observed=" << integrity.Observed
+                              << " missing=" << integrity.Missing << " duplicate=" << integrity.Duplicate
+                              << " unexpected=" << integrity.Unexpected << " corrupted=" << integrity.Corrupted
+                              << " malformed=" << integrity.Malformed << ".\n";
+                    std::cerr << "  Aggregate expected=" << integrity.ExpectedChecksum
+                              << " observed=" << integrity.ObservedChecksum << ".\n";
+                    return 1;
+               }
+          }
+          else
+          {
+               PrintBenchmarkValue("Integrity", "skipped (use --verify for full read-back)");
+          }
 
           if (advanced_mode)
           {
@@ -3905,7 +4183,7 @@ int main(int argc, char *argv[])
           }
 
           std::cout << "\n";
-          PrintBenchmarkTitle("Benchmark complete");
+          PrintBenchmarkTitle("Benchmark smoke run complete");
           PrintBenchmarkSection("Dataset");
           PrintBenchmarkValue("Collections created", std::to_string(collections_created.load()));
           PrintBenchmarkValue("Collections skipped", std::to_string(collections_skipped.load()));
@@ -3930,6 +4208,24 @@ int main(int argc, char *argv[])
           }
           PrintBenchmarkValue("Documents skipped", std::to_string(documents_skipped.load()));
           PrintBenchmarkValue("Document data", FormatBenchmarkMiB(benchmark_document_bytes.load()) + " MiB logical fields");
+
+          PrintBenchmarkSection("Integrity");
+          if (verify_documents)
+          {
+               PrintBenchmarkValue("Expected", std::to_string(integrity.Expected));
+               PrintBenchmarkValue("Verified", std::to_string(integrity.Observed));
+               PrintBenchmarkValue("Missing", std::to_string(integrity.Missing));
+               PrintBenchmarkValue("Duplicate", std::to_string(integrity.Duplicate));
+               PrintBenchmarkValue("Unexpected", std::to_string(integrity.Unexpected));
+               PrintBenchmarkValue("Corrupted", std::to_string(integrity.Corrupted));
+               PrintBenchmarkValue("Malformed", std::to_string(integrity.Malformed));
+               PrintBenchmarkValue("Aggregate checksum", "MATCH (" + integrity.ExpectedChecksum + ")");
+               PrintBenchmarkValue("Verification time", std::to_string(integrity.DurationMS) + " ms (excluded from throughput)");
+          }
+          else
+          {
+               PrintBenchmarkValue("Full document read-back", "not requested (use --verify)");
+          }
 
           PrintBenchmarkSection("Timing");
           PrintBenchmarkValue("Ingest", std::to_string(ingest_duration_ms) + " ms");
@@ -3987,12 +4283,32 @@ int main(int argc, char *argv[])
           PrintBenchmarkValue("WAL sync mode", durability_config.WalSyncMode);
           PrintBenchmarkValue("WAL bytes/sync", durability_config.WalBytesPerSync);
           PrintBenchmarkValue("Manual WAL flush", durability_config.ManualWalFlush);
-          PrintBenchmarkValue("fsync", fsync_mode);
+          PrintBenchmarkValue("RocksDB use_fsync", fsync_mode);
           PrintBenchmarkValue("Filesystem", durability_config.Filesystem +
                                                 (durability_config.MemoryFilesystem ? " (memory filesystem)" : ""));
           PrintBenchmarkValue("Config source", durability_source);
           PrintBenchmarkValue("Commit policy", "explicit SyncWAL barrier (status " + std::to_string(flush_status_code) + ")");
           PrintBenchmarkValue("Run ID", run_id_val);
+
+          PrintBenchmarkSection("Durability contract");
+          PrintBenchmarkValue("WAL enabled", durability_config.WALEnabled ? "yes" : "no");
+          PrintBenchmarkValue("Per-write sync", durability_config.PerWriteSync ? "yes" : "no");
+          PrintBenchmarkValue("Durability barrier", "RocksDB SyncWAL");
+          PrintBenchmarkValue("Barrier status", advanced_metrics.BarrierRocksDBStatus.empty() ? "OK" : advanced_metrics.BarrierRocksDBStatus);
+          PrintBenchmarkValue("Barrier sequence", std::to_string(advanced_metrics.BarrierSequence));
+          PrintBenchmarkValue("Synchronization syscall", "not traced in throughput run");
+          PrintBenchmarkValue("Process-crash verified", "no");
+          PrintBenchmarkValue("VM-power-loss tested", "no");
+          PrintBenchmarkValue("Physical power guarantee", "no");
+
+          PrintBenchmarkSection("Qualification");
+          PrintBenchmarkValue("Result classification", "smoke-test throughput");
+          PrintBenchmarkValue("Application integrity", verify_documents
+                                                       ? "verified (full read-back + SHA-256)"
+                                                       : "not verified (use --verify)");
+          PrintBenchmarkValue("Sustained measurement", "no");
+          PrintBenchmarkValue("Dataset exceeds RAM", "no");
+          PrintBenchmarkValue("Result publishable", "development only");
 
           AdvancedMetrics before_metrics_val;
 
@@ -4096,6 +4412,26 @@ int main(int argc, char *argv[])
                     mismatch_val = true;
                }
 
+               const IntegrityVerificationResult restart_integrity = VerifyBenchmarkIntegrity(
+                    restart_client, num_collections, docs_per_collection_val, remaining_docs_val,
+                    run_id_val, run_seed_val, reuse_collections);
+               if (restart_integrity.Interrupted || g_benchmark_should_stop.load())
+               {
+                    std::cerr << "\n[INTERRUPT] Benchmark interrupted during restart integrity verification.\n";
+                    return 130;
+               }
+               std::cout << "  Full document integrity: " << (restart_integrity.Passed() ? "MATCH" : "FAILED")
+                         << " (" << restart_integrity.Observed << "/" << restart_integrity.Expected << ").\n";
+               if (!restart_integrity.Passed())
+               {
+                    mismatch_val = true;
+                    std::cerr << "  Missing=" << restart_integrity.Missing
+                              << " duplicate=" << restart_integrity.Duplicate
+                              << " unexpected=" << restart_integrity.Unexpected
+                              << " corrupted=" << restart_integrity.Corrupted
+                              << " malformed=" << restart_integrity.Malformed << ".\n";
+               }
+
                if (!mismatch_val)
                {
                     std::cout << "\n✓ Counts match after restart - verification passed!.\n";
@@ -4104,6 +4440,7 @@ int main(int argc, char *argv[])
                {
                     std::cerr << "\n✗ Counts do not match after restart - verification failed!.\n";
                     std::cerr << "  This indicates a counter persistence or recovery issue.\n";
+                    return 1;
                }
 
                if (check_consistency_val)

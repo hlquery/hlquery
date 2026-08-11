@@ -9,12 +9,14 @@ are unchanged by these public demo fixtures.
 
 People, organizations other than the named universities, artworks, companies,
 incidents, and market instruments in these fixtures are fictional. The
-`universities` fixture is a dated snapshot of the top 100 United States entries
-in the Webometrics July 2026 country ranking. Its names, locations, published
+`universities` fixture is a dated snapshot of the top 100 entries in the
+Webometrics January 2026 world ranking. Its names, locations, published
 ranking fields, edition, and source URL are factual references; `search_topics`
-and descriptive prose are synthetic query aids. It contains no enrollment count
-or invented campus coordinate. Finance and stock scenarios contain no live data
-or recommendations.
+and descriptive prose are synthetic query aids. City and metropolitan-area
+labels make nearby campuses discoverable by the city users normally search—for
+example, `Boston` matches MIT in Cambridge as well as Boston University. It
+contains no enrollment count or invented campus coordinate. Finance and stock
+scenarios contain no live data or recommendations.
 
 Every imported record includes:
 
@@ -28,13 +30,36 @@ public interfaces can explain what each dataset demonstrates and offer useful
 queries instead of exposing filler text. For example:
 
 - `people`: `science educator California`, `senior public health analyst Texas`
-- `universities`: `top US universities`, `webometrics rank under 25`
+- `universities`: `Boston universities`, `universities in London`
 - `art`: `recycled steel sculpture`, `charcoal portrait`
 - `science`: `controlled battery discharge test`, `noisy sensor data limitations`
 
+## Credibility verification
+
+The ordinary 100,000-document command is a smoke test. It performs a checked
+multi-instance WAL barrier and complete deterministic SHA-256 read-back, but it
+must not be presented as sustained production throughput.
+
+```bash
+./scripts/benchmark/verify-credibility.sh \
+  --server ./run/bin/hlquery \
+  --benchmark ./run/bin/hlquery-benchmark \
+  --config ./run/conf/hlquery.conf \
+  --profile standard \
+  --output ./artifacts/benchmark
+```
+
+Profiles are `smoke`, `standard`, `sustained`, and `out-of-cache`. Standard
+automatically calibrates to at least 60 seconds and retains ten measured runs;
+sustained calibrates to at least ten minutes. `--matrix core` sweeps each local
+worker, batch, and collection axis; `--matrix full` runs their cross-product.
+The syscall, process-crash, and VM-power-loss tools under `scripts/benchmark/`
+produce separate claims; process-crash success is never labeled as a VM or
+physical power-loss guarantee.
+
 University IDs are derived from institution names, so collection listings show
 useful references such as `universities_harvard-university` instead of numeric
-placeholder IDs. `webometrics_us_rank` provides deterministic ranking order;
+placeholder IDs. `webometrics_world_rank` provides deterministic ranking order;
 `catalog_order` mirrors that rank for compatibility.
 
 Edit the source definitions in

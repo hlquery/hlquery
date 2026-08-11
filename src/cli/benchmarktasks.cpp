@@ -11,6 +11,7 @@
  */
 
 #include <chrono>
+#include <iomanip>
 #include <iostream>
 #include <mutex>
 #include <set>
@@ -18,6 +19,7 @@
 #include <thread>
 #include <vector>
 #include <vendor/json/json.hpp>
+#include <openssl/sha.h>
 
 #include "benchmarkclient.h"
 #include "runtime/clock.h"
@@ -45,6 +47,48 @@ static std::string MakeBenchmarkDocumentID(int collection_index, int document_in
      return std::to_string(collection_index) + "_" + std::to_string(document_index);
 }
 
+std::string BenchmarkSHA256(const std::string &value)
+{
+     unsigned char digest[SHA256_DIGEST_LENGTH];
+     ::SHA256(reinterpret_cast<const unsigned char *>(value.data()), value.size(), digest);
+     std::ostringstream output;
+     output << std::hex << std::setfill('0');
+     for (unsigned char byte : digest)
+     {
+          output << std::setw(2) << static_cast<unsigned int>(byte);
+     }
+     return output.str();
+}
+
+VerifiedBenchmarkDocument BuildVerifiedBenchmarkDocument(int collection_index, int document_index,
+                                                          const std::string &run_id, const std::string &seed,
+                                                          bool reuse_collections)
+{
+     VerifiedBenchmarkDocument document;
+     document.ID = MakeBenchmarkDocumentID(collection_index, document_index, run_id, reuse_collections);
+     document.Title = "Document " + std::to_string(document_index) + " in Collection " + std::to_string(collection_index);
+     document.Content = "Deterministic HLQuery benchmark document for run " + run_id +
+                        ", seed " + seed + ", collection " + std::to_string(collection_index) +
+                        ", ordinal " + std::to_string(document_index) + ".";
+     document.RunID = run_id;
+     document.Seed = seed;
+     document.Ordinal = document_index;
+     document.Collection = collection_index;
+
+     nlohmann::ordered_json canonical = {
+          {"benchmark_seed", document.Seed},
+          {"collection_number", document.Collection},
+          {"content", document.Content},
+          {"document_id", document.ID},
+          {"ordinal", document.Ordinal},
+          {"run_id", document.RunID},
+          {"title", document.Title}
+     };
+     document.Payload = canonical.dump();
+     document.PayloadHash = BenchmarkSHA256(document.Payload);
+     return document;
+}
+
 static int NormalizeInsertedCount(int inserted, size_t batch_size)
 {
      if (inserted < 0)
@@ -58,20 +102,6 @@ static int NormalizeInsertedCount(int inserted, size_t batch_size)
      }
 
      return inserted;
-}
-
-static int64_t GetBenchmarkDocumentBytes(const std::vector<std::tuple<std::string, std::string, std::string>> &batch)
-{
-     int64_t bytes = 0;
-
-     for (const auto &doc : batch)
-     {
-          bytes += static_cast<int64_t>(std::get<0>(doc).size());
-          bytes += static_cast<int64_t>(std::get<1>(doc).size());
-          bytes += static_cast<int64_t>(std::get<2>(doc).size());
-     }
-
-     return bytes;
 }
 
 static void RecordInsertedDocumentBytes(int64_t batch_bytes, int inserted, size_t batch_size)
@@ -190,7 +220,7 @@ void CreateCollectionsThread(const std::string &base_url, const std::string &aut
 
 /* Inserts additional documents in a thread. */
 
-void InsertAdditionalDocumentsThread(const std::string &base_url, const std::string &auth_token, int num_collections, int start_doc_idx, int additional_docs, int thread_id, int thread_count, int batch_size, bool collect_metrics, int total_documents, const std::string &run_id, bool reuse_collections)
+void InsertAdditionalDocumentsThread(const std::string &base_url, const std::string &auth_token, int num_collections, int start_doc_idx, int additional_docs, int thread_id, int thread_count, int batch_size, bool collect_metrics, int total_documents, const std::string &run_id, const std::string &seed, bool reuse_collections)
 {
      BenchmarkClient client(base_url, auth_token, reuse_collections);
 
@@ -230,22 +260,14 @@ void InsertAdditionalDocumentsThread(const std::string &base_url, const std::str
 
                std::string collection_name = MakeBenchmarkCollectionName(col_idx);
                int batch_end = std::min(batch_start + batch_size, additional_docs);
-               const int content_thread_id = (batch_start / batch_size) % safe_thread_count;
-
-               std::vector<std::tuple<std::string, std::string, std::string>> batch;
+               std::vector<VerifiedBenchmarkDocument> batch;
                batch.reserve(static_cast<size_t>(batch_end - batch_start));
 
                for (int batch_idx = batch_start; batch_idx < batch_end; batch_idx++)
                {
                     int doc_idx = start_doc_idx + batch_idx;
 
-                    std::string doc_id = MakeBenchmarkDocumentID(col_idx, doc_idx, run_id, reuse_collections);
-
-                    std::string title = "Document " + std::to_string(doc_idx) + " in Collection " + std::to_string(col_idx);
-
-                    std::string content = GenerateContentWithSynonymsAndStopwords(doc_idx, content_thread_id, col_idx, Tools::GetRNG());
-
-                    batch.emplace_back(std::move(doc_id), std::move(title), std::move(content));
+                    batch.push_back(BuildVerifiedBenchmarkDocument(col_idx, doc_idx, run_id, seed, reuse_collections));
                }
 
                if (g_benchmark_should_stop.load())
@@ -254,7 +276,8 @@ void InsertAdditionalDocumentsThread(const std::string &base_url, const std::str
                }
 
                auto batch_start_time = Now();
-               const int64_t batch_document_bytes = GetBenchmarkDocumentBytes(batch);
+               int64_t batch_document_bytes = 0;
+               for (const auto &doc : batch) batch_document_bytes += static_cast<int64_t>(doc.Payload.size() + doc.PayloadHash.size());
 
                int inserted = 0;
 
@@ -262,7 +285,7 @@ void InsertAdditionalDocumentsThread(const std::string &base_url, const std::str
 
                try
                {
-                    inserted = client.InsertDocumentsBulk(collection_name, batch);
+                    inserted = client.InsertVerifiedDocumentsBulk(collection_name, batch);
                }
                catch (...)
                {
@@ -282,12 +305,19 @@ void InsertAdditionalDocumentsThread(const std::string &base_url, const std::str
                if (collect_metrics)
                {
                     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(batch_end_time - batch_start_time);
+                    const int64_t latency_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(batch_end_time - batch_start_time).count();
+                    const int64_t timestamp_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                         std::chrono::system_clock::now().time_since_epoch()).count();
 
                     std::lock_guard<std::mutex> lock(advanced_metrics_mutex);
 
                     advanced_metrics.BatchTimings.push_back(duration.count());
                     advanced_metrics.BatchSizes.push_back(batch.size());
                     advanced_metrics.BatchCollections.push_back(collection_name);
+                    advanced_metrics.LatencySamples.push_back({timestamp_ns, thread_id, collection_name, batch_num,
+                         static_cast<int>(batch.size()), batch_document_bytes, latency_ns,
+                         inserted == static_cast<int>(batch.size()) ? 200 : 0, -1,
+                         inserted == static_cast<int>(batch.size()) ? "" : "partial_or_failed_batch"});
                }
 
                int total_inserted = additional_documents_inserted.load();
@@ -316,7 +346,7 @@ void InsertAdditionalDocumentsThread(const std::string &base_url, const std::str
 
 /* Inserts documents in a thread. */
 
-void InsertDocumentsThread(const std::string &base_url, const std::string &auth_token, int num_collections, int docs_per_collection, int remaining_docs, int thread_id, int thread_count, int batch_size, bool collect_metrics, int total_documents, const std::string &run_id, bool reuse_collections)
+void InsertDocumentsThread(const std::string &base_url, const std::string &auth_token, int num_collections, int docs_per_collection, int remaining_docs, int thread_id, int thread_count, int batch_size, bool collect_metrics, int total_documents, const std::string &run_id, const std::string &seed, bool reuse_collections)
 {
      BenchmarkClient client(base_url, auth_token, reuse_collections);
 
@@ -357,20 +387,12 @@ void InsertDocumentsThread(const std::string &base_url, const std::string &auth_
 
                std::string collection_name = MakeBenchmarkCollectionName(col_idx);
                int batch_end = std::min(batch_start + batch_size, docs_in_collection);
-               const int content_thread_id = (batch_start / batch_size) % safe_thread_count;
-
-               std::vector<std::tuple<std::string, std::string, std::string>> batch;
+               std::vector<VerifiedBenchmarkDocument> batch;
                batch.reserve(static_cast<size_t>(batch_end - batch_start));
 
                for (int doc_idx = batch_start; doc_idx < batch_end; doc_idx++)
                {
-                    std::string doc_id = MakeBenchmarkDocumentID(col_idx, doc_idx, run_id, reuse_collections);
-
-                    std::string title = "Document " + std::to_string(doc_idx) + " in Collection " + std::to_string(col_idx);
-
-                    std::string content = GenerateContentWithSynonymsAndStopwords(doc_idx, content_thread_id, col_idx, Tools::GetRNG());
-
-                    batch.emplace_back(std::move(doc_id), std::move(title), std::move(content));
+                    batch.push_back(BuildVerifiedBenchmarkDocument(col_idx, doc_idx, run_id, seed, reuse_collections));
                }
 
                if (g_benchmark_should_stop.load())
@@ -379,7 +401,8 @@ void InsertDocumentsThread(const std::string &base_url, const std::string &auth_
                }
 
                auto batch_start_time = Now();
-               const int64_t batch_document_bytes = GetBenchmarkDocumentBytes(batch);
+               int64_t batch_document_bytes = 0;
+               for (const auto &doc : batch) batch_document_bytes += static_cast<int64_t>(doc.Payload.size() + doc.PayloadHash.size());
 
                int inserted = 0;
 
@@ -387,7 +410,7 @@ void InsertDocumentsThread(const std::string &base_url, const std::string &auth_
 
                try
                {
-                    inserted = client.InsertDocumentsBulk(collection_name, batch);
+                    inserted = client.InsertVerifiedDocumentsBulk(collection_name, batch);
                }
                catch (...)
                {
@@ -405,12 +428,19 @@ void InsertDocumentsThread(const std::string &base_url, const std::string &auth_
                if (collect_metrics)
                {
                     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(batch_end_time - batch_start_time);
+                    const int64_t latency_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(batch_end_time - batch_start_time).count();
+                    const int64_t timestamp_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                         std::chrono::system_clock::now().time_since_epoch()).count();
 
                     std::lock_guard<std::mutex> lock(advanced_metrics_mutex);
 
                     advanced_metrics.BatchTimings.push_back(duration.count());
                     advanced_metrics.BatchSizes.push_back(batch.size());
                     advanced_metrics.BatchCollections.push_back(collection_name);
+                    advanced_metrics.LatencySamples.push_back({timestamp_ns, thread_id, collection_name, batch_num,
+                         static_cast<int>(batch.size()), batch_document_bytes, latency_ns,
+                         inserted == static_cast<int>(batch.size()) ? 200 : 0, -1,
+                         inserted == static_cast<int>(batch.size()) ? "" : "partial_or_failed_batch"});
                }
 
                int total_inserted = documents_inserted.load();

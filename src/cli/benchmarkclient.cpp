@@ -1450,6 +1450,13 @@ bool BenchmarkClient::CreateCollectionLocal(const std::string &name, int timeout
 
      schema["fields"].push_back(content_field);
 
+     schema["fields"].push_back({{"name", "run_id"}, {"type", "string"}});
+     schema["fields"].push_back({{"name", "benchmark_seed"}, {"type", "string"}});
+     schema["fields"].push_back({{"name", "ordinal"}, {"type", "int64"}});
+     schema["fields"].push_back({{"name", "collection_number"}, {"type", "int32"}});
+     schema["fields"].push_back({{"name", "payload"}, {"type", "string"}});
+     schema["fields"].push_back({{"name", "payload_hash"}, {"type", "string"}});
+
      std::string json_str = schema.dump();
 
      HTTPResponse response = MakeRequest("POST", AppendLocalOnlyQuery("/collections", true), json_str, 3, true, timeout_ms);
@@ -2522,6 +2529,66 @@ int BenchmarkClient::InsertDocumentsBulkInternal(const std::string &collection, 
 int BenchmarkClient::InsertDocumentsBulk(const std::string &collection, const std::vector<std::tuple<std::string, std::string, std::string>> &docs)
 {
      return InsertDocumentsBulkInternal(collection, docs, 0);
+}
+
+int BenchmarkClient::InsertVerifiedDocumentsBulk(const std::string &collection, const std::vector<VerifiedBenchmarkDocument> &docs)
+{
+     if (docs.empty())
+     {
+          return 0;
+     }
+
+     nlohmann::json payload;
+     payload["documents"] = nlohmann::json::array();
+     for (const auto &source : docs)
+     {
+          payload["documents"].push_back({
+               {"id", source.ID},
+               {"document_id", source.ID},
+               {"title", source.Title},
+               {"content", source.Content},
+               {"run_id", source.RunID},
+               {"benchmark_seed", source.Seed},
+               {"ordinal", source.Ordinal},
+               {"collection_number", source.Collection},
+               {"payload", source.Payload},
+               {"payload_hash", source.PayloadHash}
+          });
+     }
+
+     const std::string encoded_collection = UrlEncode(collection);
+     const int timeout_ms = std::clamp(static_cast<int>(docs.size()) * 10, 5000, 60000);
+     HTTPResponse response = MakeWriteRequestWithRetry(
+          "POST",
+          "/collections/" + encoded_collection + "/documents/import?assume_new=true&batch_size=" + std::to_string(docs.size()),
+          payload.dump(), 3, true, timeout_ms);
+
+     if (response.StatusCode != 200 && response.StatusCode != 201 &&
+         !IsLocalWriteCommittedDespiteReplicationError(response))
+     {
+          return 0;
+     }
+
+     if (IsLocalWriteCommittedDespiteReplicationError(response))
+     {
+          return static_cast<int>(docs.size());
+     }
+
+     try
+     {
+          const nlohmann::json result = nlohmann::json::parse(response.Body);
+          const int imported = result.value("imported", 0);
+          const int failed = result.value("failed", 0);
+          if (failed != 0 || imported < 0)
+          {
+               return 0;
+          }
+          return std::min(imported, static_cast<int>(docs.size()));
+     }
+     catch (...)
+     {
+          return 0;
+     }
 }
 
 int BenchmarkClient::InsertDocumentsBulkLocal(const std::string &collection, const std::vector<std::tuple<std::string, std::string, std::string>> &docs)

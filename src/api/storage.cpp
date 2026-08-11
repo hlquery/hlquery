@@ -401,7 +401,17 @@ HttpResponse SearchAPI::HandleStorageDiagnostics(const HttpRequest &Request)
                                              : 1;
      Body["column_families_per_database"] = 1;
      Body["server_ingest_queue"] = "none";
-     Body["durability_barrier"] = "DBManager::SyncWAL";
+     Body["durability_barrier"] = "DBManager::ExecuteDurabilityBarrier(SyncWAL)";
+     Body["metrics"] = {
+          {"block_cache_usage", DBStats.block_cache_usage},
+          {"memtable_bytes", DBStats.memtable_size},
+          {"sst_bytes", DBStats.total_db_size},
+          {"pending_compaction_bytes", DBStats.pending_compaction_bytes},
+          {"running_flushes", DBStats.running_flushes},
+          {"running_compactions", DBStats.running_compactions},
+          {"write_stall_micros", DBStats.write_stall_micros},
+          {"bytes_written", DBStats.rocksdb_bytes_written}
+     };
      Body["filesystem"] = Mount.Filesystem.empty() ? nlohmann::json(nullptr) : nlohmann::json(Mount.Filesystem);
      Body["mount_point"] = Mount.MountPoint.empty() ? nlohmann::json(nullptr) : nlohmann::json(Mount.MountPoint);
      Body["mount_options"] = Mount.MountOptions.empty() ? nlohmann::json(nullptr) : nlohmann::json(Mount.MountOptions);
@@ -478,28 +488,38 @@ HttpResponse SearchAPI::HandleDurabilityBarrier(const HttpRequest &Request)
           return Response;
      }
 
-     const uint64_t Sequence = Instance->Database->GetLatestSequenceNumber();
-     const auto BarrierStart = std::chrono::steady_clock::now();
      double FlushMS = 0.0;
      double SyncMS = 0.0;
-     bool Success = true;
+     const auto Barrier = Instance->Database->ExecuteDurabilityBarrier(SyncWAL, FlushMemtables);
 
-     if (FlushMemtables)
+     nlohmann::json Instances = nlohmann::json::array();
+     std::string FirstFailure;
+     for (const auto &Result : Barrier.Instances)
      {
-          const auto Start = std::chrono::steady_clock::now();
-          Success = Instance->Database->Flush();
-          FlushMS = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - Start).count();
+          if (Result.Operation.find("Flush") != std::string::npos)
+          {
+               FlushMS += Result.ElapsedMS;
+          }
+          if (Result.Operation.find("SyncWAL") != std::string::npos)
+          {
+               SyncMS += Result.ElapsedMS;
+          }
+          Instances.push_back({
+               {"name", Result.Name},
+               {"operation", Result.Operation},
+               {"status", Result.Status},
+               {"elapsed_ms", Result.ElapsedMS},
+               {"success", Result.Success}
+          });
+          if (!Result.Success && FirstFailure.empty())
+          {
+               FirstFailure = Result.Name + ": " + Result.Status;
+          }
      }
 
-     if (Success && SyncWAL)
-     {
-          const auto Start = std::chrono::steady_clock::now();
-          Success = Instance->Database->SyncWAL();
-          SyncMS = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - Start).count();
-     }
-
-     const double TotalMS = std::chrono::duration<double, std::milli>(
-          std::chrono::steady_clock::now() - BarrierStart).count();
+     const bool Success = Barrier.Success;
+     const uint64_t Sequence = Barrier.Sequence;
+     const double TotalMS = Barrier.TotalMS;
      const auto NowMS = std::chrono::duration_cast<std::chrono::milliseconds>(
           std::chrono::system_clock::now().time_since_epoch()).count();
 
@@ -507,13 +527,16 @@ HttpResponse SearchAPI::HandleDurabilityBarrier(const HttpRequest &Request)
      Body["success"] = Success;
      Body["barrier_id"] = std::to_string(NowMS) + "_" + std::to_string(Sequence);
      Body["sequence"] = Sequence;
-     Body["queued_writes_wait_ms"] = 0.0;
+     Body["queued_writes_wait_ms"] = Barrier.QueuedWritesWaitMS;
      Body["rocksdb_wal_sync_ms"] = SyncWAL ? nlohmann::json(SyncMS) : nlohmann::json(nullptr);
      Body["memtable_flush_ms"] = FlushMemtables ? nlohmann::json(FlushMS) : nlohmann::json(nullptr);
      Body["compaction_wait_ms"] = nullptr;
      Body["total_ms"] = TotalMS;
-     Body["rocksdb_status"] = Success ? "OK" : Instance->Database->GetLastSyncErrorMessage();
-     Body["rocksdb_error_code"] = Success ? "" : Instance->Database->GetLastSyncErrorCode();
+     Body["rocksdb_status"] = Success ? "OK" : FirstFailure;
+     Body["rocksdb_error_code"] = Success ? "" :
+          (Instance->Database->GetLastSyncErrorCode().empty() ? "rocksdb_instance_sync_failed" : Instance->Database->GetLastSyncErrorCode());
+     Body["instances"] = std::move(Instances);
+     Body["write_boundary"] = "exclusive: all mutations begun before sequence capture completed before synchronization";
      Body["collections_synchronized"] = HybridStorageManagerInstance().ListCollections().size();
 
      HttpResponse Response(Success ? Status::OK : Status::INTERNAL_SERVER_ERROR,
