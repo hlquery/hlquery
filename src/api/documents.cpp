@@ -218,9 +218,15 @@ HttpResponse SearchAPI::HandleListDocuments(const HttpRequest &Request)
                     LimitVal = 1;
                }
 
-               if (LimitVal > 1000)
+               /*
+                * Keep the public result window bounded, but permit efficient
+                * full exports and integrity scans. The former 1,000-document
+                * ceiling forced offset-based clients to rescan the same RocksDB
+                * prefix dozens of times for medium-sized collections.
+                */
+               if (LimitVal > 10000)
                {
-                    LimitVal = 1000;
+                    LimitVal = 10000;
                }
           }
           catch (...)
@@ -2134,7 +2140,8 @@ HttpResponse SearchAPI::HandleBulkImportDocuments(const HttpRequest &Request)
           UniqueDocuments = std::move(LocalDocs);
      }
 
-     size_t BatchChunkSize = 2000;
+     /* Keep typical document batches below the 1 MiB WAL batch guard. */
+     size_t BatchChunkSize = 500;
      size_t ImportedCount = RemoteImportedCount;
      std::string ReplicationOutboxID;
      std::string ReplicationJournalError;
@@ -2191,24 +2198,12 @@ HttpResponse SearchAPI::HandleBulkImportDocuments(const HttpRequest &Request)
 
                try
                {
-                    std::vector<Document> StorageDocs;
-                    StorageDocs.reserve(Chunk.size());
-
-                    for (const auto &DocObj : Chunk)
-                    {
-                         Document StorageDoc;
-
-                         StorageDoc.ID = DocObj.ID;
-                         StorageDoc.Title = DocObj.Title;
-                         StorageDoc.Content = DocObj.Content;
-                         StorageDoc.Fields = DocObj.Fields;
-                         StorageDoc.Score = DocObj.Score;
-                         StorageDoc.Timestamp = DocObj.Timestamp;
-
-                         StorageDocs.push_back(StorageDoc);
-                    }
-
-                    size_t BatchInsertedCount = HybridStorageManagerInstance().AddDocumentsBatch(CollectionName, StorageDocs, AssumeNewDocuments);
+                    /*
+                     * Chunk already contains storage-layer Document values. Copying
+                     * every title, body, and JSON field map into a second vector here
+                     * doubled memory traffic on the hottest bulk-ingest path.
+                     */
+                    size_t BatchInsertedCount = HybridStorageManagerInstance().AddDocumentsBatch(CollectionName, Chunk, AssumeNewDocuments);
                     BatchResultVal = (BatchInsertedCount > 0);
 
                     if (BatchResultVal)

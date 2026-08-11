@@ -217,7 +217,7 @@ class BenchmarkClient
 
      /* Gets documents from a collection. */
 
-     HTTPResponse GetCollectionDocuments(const std::string &collection, int offset = 0, int limit = 1000);
+     HTTPResponse GetCollectionDocuments(const std::string &collection, int offset = 0, int limit = 10000);
 
      /* Gets a document. */
 

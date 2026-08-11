@@ -2297,10 +2297,6 @@ size_t HybridStorageManager::AddDocumentsBatch(const std::string &collection, co
 
      if (count > 0)
      {
-     }
-
-     if (count > 0)
-     {
           RefreshCollectionLanguageIfNeeded(collection, nullptr);
      }
 

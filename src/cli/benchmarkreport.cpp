@@ -212,12 +212,19 @@ void PrintProgressBar(int current, int total, const std::string &label, int /* b
 
      int last_percent = last_printed_percent.load();
 
-     if (percent / 5 == last_percent / 5 && current < total)
+     if ((current >= total && last_percent >= 100) ||
+         (percent / 5 == last_percent / 5 && current < total))
      {
           return;
      }
 
-     if (!progress_bar_mutex.try_lock())
+     const bool completed = current >= total || percent >= 100;
+
+     if (completed)
+     {
+          progress_bar_mutex.lock();
+     }
+     else if (!progress_bar_mutex.try_lock())
      {
           return;
      }
@@ -226,9 +233,11 @@ void PrintProgressBar(int current, int total, const std::string &label, int /* b
 
      int current_bucket = current_percent / 5;
 
-     int last_bucket = last_printed_percent.load() / 5;
+     const int latest_percent = last_printed_percent.load();
+     int last_bucket = latest_percent / 5;
 
-     if (current_bucket == last_bucket && current < total)
+     if ((current >= total && latest_percent >= 100) ||
+         (current_bucket == last_bucket && current < total))
      {
           progress_bar_mutex.unlock();
 

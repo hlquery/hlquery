@@ -163,7 +163,7 @@ static IntegrityVerificationResult VerifyBenchmarkIntegrity(BenchmarkClient &cli
                     return result;
                }
 
-               const HTTPResponse response = client.GetCollectionDocuments(collection_name, offset, 1000);
+               const HTTPResponse response = client.GetCollectionDocuments(collection_name, offset, 10000);
                if (g_benchmark_should_stop.load())
                {
                     result.Interrupted = true;
@@ -2635,7 +2635,7 @@ static void PrintBenchmarkHelp(const char *program_name)
                << "  --collections N   Number of collections to create (default: 2)\n"
                << "  --documents N     Total number of documents to insert (default: 50000 per collection)\n"
                << "  --threads N        Number of threads (default: 8)\n"
-               << "  --batch-size N     Documents per bulk insert batch (default: 2000)\n"
+               << "  --batch-size N     Documents per bulk insert batch (default: 500)\n"
                << "  --advanced [FILE]  Output detailed JSON metrics (default: adv.json)\n"
                << "  --detailed [FILE] Run comprehensive benchmark testing ALL routes\n"
                << "                    and functionalities (includes --advanced)\n"
@@ -2695,7 +2695,7 @@ int main(int argc, char *argv[])
           const int default_docs_per_collection = 50000;
           int num_documents = num_collections * default_docs_per_collection;
           int num_threads = 8;
-          int batch_size = 2000;
+          int batch_size = 500;
           bool documents_explicitly_set = false;
 
           bool default_limits_applied = false;
