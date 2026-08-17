@@ -23,6 +23,7 @@
 class ProcessingGuard
 {
    private:
+
      /* Shared processing flag protected by this guard. */
 
      std::atomic<bool> &Flag;
@@ -32,6 +33,7 @@ class ProcessingGuard
      bool ShouldReset;
 
    public:
+
      /* Attempt to acquire the processing flag for the current scope. */
 
      explicit ProcessingGuard(std::atomic<bool> &flag) : Flag(flag)

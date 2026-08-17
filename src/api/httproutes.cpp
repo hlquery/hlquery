@@ -219,6 +219,7 @@ bool IsAdminOnlyHttpRouteAction(RouteAction ActionVal)
           case RouteAction::LinksConnect: case RouteAction::LinksDisconnect: case RouteAction::Flush:
           case RouteAction::Repair: case RouteAction::Cache: case RouteAction::ModuleLoad:
           case RouteAction::ModuleUnload: case RouteAction::StorageStatus:
+          case RouteAction::StorageDiagnostics: case RouteAction::DurabilityBarrier:
                return true;
           default:
                return false;
@@ -268,6 +269,8 @@ const std::vector<HttpRouteDescription> &GetHttpRouteDescriptions()
           Describe(RouteAction::Integrity, "integrity", {"GET"}, {"/integrity", "/consistency"}),
           Describe(RouteAction::SelfCheck, "self_check", {"GET"}, {"/self-check"}),
           Describe(RouteAction::StorageStatus, "storage_status", {"GET"}, {"/admin/storage_status"}),
+          Describe(RouteAction::StorageDiagnostics, "storage_diagnostics", {"GET"}, {"/_diagnostics/storage"}),
+          Describe(RouteAction::DurabilityBarrier, "durability_barrier", {"POST"}, {"/_admin/storage/durability-barrier"}, "application/json"),
           Describe(RouteAction::Etc, "etc", {"GET"}, {"/etc"}),
           Describe(RouteAction::ListCollections, "collections_list", {"GET"}, {"/collections"}),
           Describe(RouteAction::ListCollectionsDistributed, "collections_distributed", {"GET"}, {"/collections/distributed"}),
@@ -878,6 +881,10 @@ const char *RouteActionName(RouteAction ActionVal)
                return "SelfCheck";
           case RouteAction::StorageStatus:
                return "StorageStatus";
+          case RouteAction::StorageDiagnostics:
+               return "StorageDiagnostics";
+          case RouteAction::DurabilityBarrier:
+               return "DurabilityBarrier";
           case RouteAction::Etc:
                return "Etc";
           case RouteAction::Root:

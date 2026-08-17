@@ -39,6 +39,7 @@
 class CoreExport ActionList
 {
    private:
+
      /* Active processing queue; holds actions currently being executed. */
 
      static std::vector<std::function<void()>> &Actions;
@@ -78,6 +79,7 @@ class CoreExport ActionList
      static std::atomic<size_t> &CurrentProcessingCount;
 
    public:
+
      using Action = std::function<void()>;
 
      /* Statistics structure for monitoring action list performance. */

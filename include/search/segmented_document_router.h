@@ -27,6 +27,15 @@
 class SegmentManager
 {
    public:
+     struct DurabilityInstanceResult
+     {
+          std::string Name;
+          std::string Operation;
+          std::string Status;
+          double ElapsedMS = 0.0;
+          bool Success = false;
+     };
+
      struct SegmentStats
      {
           uint64_t TotalBytes = 0;
@@ -61,6 +70,7 @@ class SegmentManager
      bool Flush();
      bool FlushAndSync();
      bool SyncWAL();
+     std::vector<DurabilityInstanceResult> ExecuteDurabilityBarrier(bool sync_wal, bool flush_memtables);
      void Compact();
      bool ClearAllDocuments();
 

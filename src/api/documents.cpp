@@ -218,9 +218,15 @@ HttpResponse SearchAPI::HandleListDocuments(const HttpRequest &Request)
                     LimitVal = 1;
                }
 
-               if (LimitVal > 1000)
+               /*
+                * Keep the public result window bounded, but permit efficient
+                * full exports and integrity scans. The former 1,000-document
+                * ceiling forced offset-based clients to rescan the same RocksDB
+                * prefix dozens of times for medium-sized collections.
+                */
+               if (LimitVal > 10000)
                {
-                    LimitVal = 1000;
+                    LimitVal = 10000;
                }
           }
           catch (...)
@@ -591,41 +597,9 @@ HttpResponse SearchAPI::HandleListDocuments(const HttpRequest &Request)
 
                Response.Body += ",\"" + EscapeJSONString(Field.first) + "\":";
 
-               const std::string &FieldValueVal = Field.second;
-
-               if (!FieldValueVal.empty())
-               {
-                    char *EndPtr = nullptr;
-
-                    std::strtod(FieldValueVal.c_str(), &EndPtr);
-
-                    bool IsNumberVal = false;
-
-                    if (EndPtr != nullptr && EndPtr == FieldValueVal.c_str() + FieldValueVal.length())
-                    {
-                         if (!FieldValueVal.empty() && (std::isdigit(FieldValueVal[0]) || FieldValueVal[0] == '+' || FieldValueVal[0] == '-' || FieldValueVal[0] == '.'))
-                         {
-                              IsNumberVal = true;
-                         }
-                    }
-
-                    if (IsNumberVal)
-                    {
-                         Response.Body += FieldValueVal;
-                    }
-                    else if (FieldValueVal == "true" || FieldValueVal == "false")
-                    {
-                         Response.Body += FieldValueVal;
-                    }
-                    else
-                    {
-                         Response.Body += "\"" + EscapeJSONString(FieldValueVal) + "\"";
-                    }
-               }
-               else
-               {
-                    Response.Body += "\"\"";
-               }
+               /* Document fields are stored as strings. Preserve their type and
+                * let JSON escaping handle values that merely look numeric. */
+               Response.Body += "\"" + EscapeJSONString(Field.second) + "\"";
           }
 
           Response.Body += "}";
@@ -1810,41 +1784,9 @@ HttpResponse SearchAPI::HandleGetDocument(const HttpRequest &Request)
      {
           Response.Body += ",\"" + EscapeJSONString(Field.first) + "\":";
 
-          const std::string &FieldValueVal = Field.second;
-
-          if (!FieldValueVal.empty())
-          {
-               char *EndPtr = nullptr;
-
-               std::strtod(FieldValueVal.c_str(), &EndPtr);
-
-               bool IsNumberVal = false;
-
-               if (EndPtr != nullptr && EndPtr == FieldValueVal.c_str() + FieldValueVal.length())
-               {
-                    if (!FieldValueVal.empty() && (std::isdigit(FieldValueVal[0]) || FieldValueVal[0] == '+' || FieldValueVal[0] == '-' || FieldValueVal[0] == '.'))
-                    {
-                         IsNumberVal = true;
-                    }
-               }
-
-               if (IsNumberVal)
-               {
-                    Response.Body += FieldValueVal;
-               }
-               else if (FieldValueVal == "true" || FieldValueVal == "false")
-               {
-                    Response.Body += FieldValueVal;
-               }
-               else
-               {
-                    Response.Body += "\"" + EscapeJSONString(FieldValueVal) + "\"";
-               }
-          }
-          else
-          {
-               Response.Body += "\"\"";
-          }
+          /* Keep the single-document response consistent with list responses:
+           * fields are string-valued even when their contents resemble JSON. */
+          Response.Body += "\"" + EscapeJSONString(Field.second) + "\"";
      }
 
      Response.Body += "}";
@@ -2134,7 +2076,8 @@ HttpResponse SearchAPI::HandleBulkImportDocuments(const HttpRequest &Request)
           UniqueDocuments = std::move(LocalDocs);
      }
 
-     size_t BatchChunkSize = 2000;
+     /* Keep typical document batches below the 1 MiB WAL batch guard. */
+     size_t BatchChunkSize = 500;
      size_t ImportedCount = RemoteImportedCount;
      std::string ReplicationOutboxID;
      std::string ReplicationJournalError;
@@ -2191,24 +2134,12 @@ HttpResponse SearchAPI::HandleBulkImportDocuments(const HttpRequest &Request)
 
                try
                {
-                    std::vector<Document> StorageDocs;
-                    StorageDocs.reserve(Chunk.size());
-
-                    for (const auto &DocObj : Chunk)
-                    {
-                         Document StorageDoc;
-
-                         StorageDoc.ID = DocObj.ID;
-                         StorageDoc.Title = DocObj.Title;
-                         StorageDoc.Content = DocObj.Content;
-                         StorageDoc.Fields = DocObj.Fields;
-                         StorageDoc.Score = DocObj.Score;
-                         StorageDoc.Timestamp = DocObj.Timestamp;
-
-                         StorageDocs.push_back(StorageDoc);
-                    }
-
-                    size_t BatchInsertedCount = HybridStorageManagerInstance().AddDocumentsBatch(CollectionName, StorageDocs, AssumeNewDocuments);
+                    /*
+                     * Chunk already contains storage-layer Document values. Copying
+                     * every title, body, and JSON field map into a second vector here
+                     * doubled memory traffic on the hottest bulk-ingest path.
+                     */
+                    size_t BatchInsertedCount = HybridStorageManagerInstance().AddDocumentsBatch(CollectionName, Chunk, AssumeNewDocuments);
                     BatchResultVal = (BatchInsertedCount > 0);
 
                     if (BatchResultVal)
@@ -2251,22 +2182,6 @@ HttpResponse SearchAPI::HandleBulkImportDocuments(const HttpRequest &Request)
 
                     for (const auto &DocObj : Chunk)
                     {
-                         if (Instance && Instance->Database)
-                         {
-                              std::string DocKey = "doc:" + CollectionName + ":" + DocObj.ID;
-                              std::string ExistingData = Instance->Database->Get(DocKey);
-
-                              if (!ExistingData.empty())
-                              {
-                                   if (Instance && Instance->Logs)
-                                   {
-                                        Instance->Logs->Normal("search_api", "Bulk import fallback: Skipping duplicate document ID '" + DocObj.ID + "' in collection '" + CollectionName + "'.");
-                                   }
-
-                                   continue;
-                              }
-                         }
-
                          try
                          {
                               Document StorageDoc;

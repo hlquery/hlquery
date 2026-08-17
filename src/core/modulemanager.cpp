@@ -27,7 +27,8 @@
 #include "core/modules.h"
 #include "api/searchapi.h"
 
-/* Records one module hook failure
+/*
+ * Records one module hook failure
  * without assuming logging is initialized.
  */
 

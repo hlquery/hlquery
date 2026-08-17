@@ -661,14 +661,16 @@ void HybridStorageManager::StartMetadataScanThread()
 
 /* UpdateCollectionCounters - Refreshes persisted collection counters. */
 
-void HybridStorageManager::UpdateCollectionCounters(bool force)
+bool HybridStorageManager::UpdateCollectionCounters(bool force)
 {
      /* Update collection document counts from RocksDB */
 
      if (!Instance || !Instance->Database)
      {
-          return;
+          return false;
      }
+
+     bool Success = true;
 
      /* Get all collections */
 
@@ -710,7 +712,10 @@ void HybridStorageManager::UpdateCollectionCounters(bool force)
           {
                std::string new_meta_value = std::to_string(actual_count) + ":" + std::to_string(timestamp);
 
-               Instance->Database->Set(meta_key, new_meta_value);
+               if (!Instance->Database->Set(meta_key, new_meta_value))
+               {
+                    Success = false;
+               }
 
                if (Instance && Instance->Logs && actual_count != stored_count)
                {
@@ -738,10 +743,14 @@ void HybridStorageManager::UpdateCollectionCounters(bool force)
      {
           try
           {
-               Instance->Database->FlushAndSync();
+               if (!Instance->Database->FlushAndSync())
+               {
+                    Success = false;
+               }
           }
           catch (...)
           {
+               Success = false;
                /* If flush fails, log but don't fail - data should still be persisted eventually */
 
                if (Instance && Instance->Logs)
@@ -755,22 +764,25 @@ void HybridStorageManager::UpdateCollectionCounters(bool force)
      {
           Instance->Logs->Normal("hybrid_storage", "UpdateCollectionCounters: Completed.");
      }
+
+     return Success;
 }
 
 /* HybridStorageManager::UpdateCollectionCountersPrefix - Updates counters for collections matching a prefix. */
 
-void HybridStorageManager::UpdateCollectionCountersPrefix(const std::string &prefix, bool force)
+bool HybridStorageManager::UpdateCollectionCountersPrefix(const std::string &prefix, bool force)
 {
      if (prefix.empty())
      {
-          UpdateCollectionCounters(force);
-          return;
+          return UpdateCollectionCounters(force);
      }
 
      if (!Instance || !Instance->Database)
      {
-          return;
+          return false;
      }
+
+     bool Success = true;
 
      auto collections = ListCollections();
 
@@ -810,7 +822,10 @@ void HybridStorageManager::UpdateCollectionCountersPrefix(const std::string &pre
           {
                std::string new_meta_value = std::to_string(actual_count) + ":" + std::to_string(timestamp);
 
-               Instance->Database->Set(meta_key, new_meta_value);
+               if (!Instance->Database->Set(meta_key, new_meta_value))
+               {
+                    Success = false;
+               }
 
                if (Instance && Instance->Logs && actual_count != stored_count)
                {
@@ -833,10 +848,14 @@ void HybridStorageManager::UpdateCollectionCountersPrefix(const std::string &pre
      {
           try
           {
-               Instance->Database->FlushAndSync();
+               if (!Instance->Database->FlushAndSync())
+               {
+                    Success = false;
+               }
           }
           catch (...)
           {
+               Success = false;
                if (Instance && Instance->Logs)
                {
                     Instance->Logs->Normal("hybrid_storage", "UpdateCollectionCountersPrefix: WARNING - FlushAndSync failed, metadata may not be persisted.");
@@ -848,6 +867,8 @@ void HybridStorageManager::UpdateCollectionCountersPrefix(const std::string &pre
      {
           Instance->Logs->Normal("hybrid_storage", "UpdateCollectionCountersPrefix: Completed.");
      }
+
+     return Success;
 }
 
 /* CreateCollection - Creates a new collection and stores metadata. */
@@ -1990,6 +2011,12 @@ bool HybridStorageManager::AddDocument(const std::string &collection, const Docu
           return false;
      }
 
+     /* The document is durable from this point onward. Invalidate derived
+      * state before metadata maintenance so a counter failure cannot leave a
+      * successfully stored document hidden behind a stale index or response. */
+     MarkCollectionIndexDirty(collection);
+     SearchResponseCache::InvalidateCollection(collection);
+
      /*
            * Update collection metadata counter after insert to ensure accuracy.
            * Only increment counter for new documents (not updates).
@@ -2021,7 +2048,22 @@ bool HybridStorageManager::AddDocument(const std::string &collection, const Docu
 
           std::string new_meta_value = std::to_string(current_count) + ":" + std::to_string(timestamp);
 
-          Instance->Database->Set(meta_key, new_meta_value);
+          if (!Instance->Database->Set(meta_key, new_meta_value))
+          {
+               const size_t actual_count = Instance->Database->CountKeys("doc:" + collection + ":");
+               new_meta_value = BuildCollectionMetaValue(actual_count, timestamp);
+               if (!Instance->Database->Set(meta_key, new_meta_value))
+               {
+                    if (Instance->Logs)
+                    {
+                         Instance->Logs->Critical("hybrid_storage", "AddDocument stored document '" + doc.ID +
+                                                                           "' but failed to persist the collection counter.");
+                    }
+                    return false;
+               }
+               current_count = actual_count;
+          }
+
           UpdateCollectionMetadataCacheLocked(collection, current_count, timestamp);
      }
 
@@ -2029,9 +2071,6 @@ bool HybridStorageManager::AddDocument(const std::string &collection, const Docu
 
      if (success)
      {
-          MarkCollectionIndexDirty(collection);
-          SearchResponseCache::InvalidateCollection(collection);
-
           /*
            * Index new document immediately so it's searchable right away.
            * This ensures synonyms work with newly added documents.
@@ -2257,10 +2296,6 @@ size_t HybridStorageManager::AddDocumentsBatch(const std::string &collection, co
      {
           MarkCollectionIndexDirty(collection);
           SearchResponseCache::InvalidateCollection(collection);
-     }
-
-     if (count > 0)
-     {
      }
 
      if (count > 0)
@@ -2715,8 +2750,14 @@ bool HybridStorageManager::DeleteDocument(const std::string &collection, const s
 
                     std::string new_meta_value = std::to_string(current_count) + ":" + std::to_string(timestamp);
 
-                    Instance->Database->Set(meta_key, new_meta_value);
-                    UpdateCollectionMetadataCacheLocked(collection, current_count, timestamp);
+                    if (!Instance->Database->Set(meta_key, new_meta_value))
+                    {
+                         partial_cleanup_failed = true;
+                    }
+                    else
+                    {
+                         UpdateCollectionMetadataCacheLocked(collection, current_count, timestamp);
+                    }
                }
           }
 
@@ -3221,7 +3262,12 @@ CollectionIntegrityStatus HybridStorageManager::RepairCollection(const std::stri
 
           time_t timestamp = time(nullptr);
           ParseCollectionMetaValue(Instance->Database->Get("collection_meta:" + collection), nullptr, &timestamp);
-          Instance->Database->Set("collection_meta:" + collection, BuildCollectionMetaValue(status.ActualCount, timestamp));
+          if (!Instance->Database->Set("collection_meta:" + collection,
+                                       BuildCollectionMetaValue(status.ActualCount, timestamp)))
+          {
+               status.Error = "Failed to persist repaired collection metadata";
+               return status;
+          }
           UpdateCollectionMetadataCacheLocked(collection, status.ActualCount, timestamp);
      }
 

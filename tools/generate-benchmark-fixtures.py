@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Generate the public, synthetic data used by `hlquery-benchmark --fake`.
+"""Generate the public demo data used by `hlquery-benchmark --fake`.
 
-The generated records are deterministic and intentionally avoid claims about
-real people, organizations, rankings, market activity, or current events.
+The generated records are deterministic. Factual fields, such as the dated
+Webometrics university-ranking snapshot, carry explicit source metadata; all
+generated descriptions and benchmark annotations remain clearly identified.
 """
 
 from __future__ import annotations
@@ -27,21 +28,21 @@ MARKET_NOTICE = (
 
 PUBLIC_DEMO_METADATA = {
     "people": (
-        "Fictional professional profiles for demonstrating name, biography, skills, occupation, and U.S. location search.",
-        "science educator California | museum curator community exhibitions | civil engineer sustainable materials",
+        "One hundred coherent fictional professional profiles covering every occupation and city combination, with aligned experience, organization, skills, and projects.",
+        "science educator California | museum curator community exhibitions | senior public health analyst Texas",
     ),
     "universities": (
-        "One hundred recognizable U.S. universities with real names and campus locations plus clearly labeled synthetic benchmark signals.",
-        "universities in Massachusetts | computer science universities | public research universities in Texas",
+        "The top 100 institutions in the Webometrics January 2026 world ranking, with searchable city and metropolitan-area labels plus synthetic search-topic annotations.",
+        "Boston universities | universities in London | webometrics world rank under 25 | research universities in Canada",
     ),
     "art": (
-        "A fictional museum-style catalog covering painting, sculpture, printmaking, installation, drawing, and public art.",
-        "recycled steel sculpture | charcoal portrait | installation about light and memory",
+        "A structured fictional museum catalog with artist, medium, movement, artwork type, themes, year, and display context.",
+        "recycled steel sculpture | charcoal portrait | site specific light installation",
     ),
     "books": ("Fictional book records with useful genre, author, theme, and catalog metadata.", "climate fiction | oral history archive | mystery novel"),
     "music": ("Fictional releases and performances for artist, genre, instrument, and venue search.", "ambient electronic album | community jazz performance | string quartet"),
     "movies": ("Fictional film catalog records with genre, director, setting, and production context.", "documentary editing | science fiction drama | animated short"),
-    "science": ("Instructional research examples that explain methods, controls, evidence, and uncertainty.", "battery discharge experiment | urban heat measurements | noisy sensor analysis"),
+    "science": ("Instructional research records with explicit topics, questions, methods, evidence levels, keywords, controls, and limitations.", "controlled battery discharge test | urban heat field measurements | noisy sensor data limitations"),
     "history": ("Public-history exercises about archives, maps, oral histories, photographs, and source interpretation.", "oral history consent | compare historical maps | museum timeline"),
     "food": ("Demonstration recipes with ingredients, cuisine context, method, and preparation time.", "lentil coconut recipe | vegetarian street food | citrus dessert"),
     "travel": ("Illustrative, non-current itineraries for destination, activity, duration, and travel-style search.", "architecture weekend | galleries and public transit | food and craft itinerary"),
@@ -305,20 +306,27 @@ def make_art() -> dict[str, object]:
             "Low-speed motors animate paper surfaces to create a changing rhythm that visitors hear differently as they move through the room.",
         ),
     ]
-    documents = [
-        document(
-            "art",
-            title,
-            f"{summary} The catalog note discusses medium, composition, installation requirements, and the intended gallery experience.",
-            labels=[movement, medium, "artwork"],
-            artist_name=artist,
-            medium=medium,
-            movement=movement,
-            year=year,
-            exhibition_context="fictional public gallery study",
+    documents = []
+    for title, artist, medium, movement, year, summary in rows:
+        type_match = re.search(r"\(Demo ([^)]+)\)$", title)
+        artwork_type = type_match.group(1).lower() if type_match else "artwork"
+        themes = f"{movement} | {medium} | composition | gallery experience"
+        documents.append(
+            document(
+                "art",
+                title,
+                f"{summary} The catalog note identifies the artist, medium, movement, date, visual themes, and display context.",
+                labels=[movement, medium, artwork_type] + ([] if artwork_type == "artwork" else ["artwork"]),
+                artist_name=artist,
+                medium=medium,
+                movement=movement,
+                artwork_type=artwork_type,
+                themes=themes,
+                search_text=f"{title} | {artist} | {medium} | {movement} | {artwork_type} | {summary}",
+                year=year,
+                exhibition_context="fictional public gallery study",
+            )
         )
-        for title, artist, medium, movement, year, summary in rows
-    ]
     return fixture(
         "art",
         ["painting", "sculpture", "printmaking", "collage", "installation", "drawing", "mural", "portrait"],
@@ -327,6 +335,9 @@ def make_art() -> dict[str, object]:
             field("artist_name", "string"),
             field("medium", "string"),
             field("movement", "string"),
+            field("artwork_type", "string"),
+            field("themes", "string"),
+            field("search_text", "string"),
             field("year", "int32"),
             field("exhibition_context", "string"),
         ],
@@ -339,7 +350,10 @@ def make_art() -> dict[str, object]:
                 "id": "art_syn_artwork",
                 "root": "artwork",
                 "synonyms": ["piece", "work of art", "creative work", "visual work"],
-            }
+            },
+            {"id": "art_syn_sculpture", "root": "sculpture", "synonyms": ["sculptural work", "three dimensional art", "3d artwork"]},
+            {"id": "art_syn_installation", "root": "installation", "synonyms": ["installation art", "site specific work", "gallery installation"]},
+            {"id": "art_syn_painting", "root": "painting", "synonyms": ["painted work", "canvas", "painted artwork"]},
         ],
     )
 
@@ -360,7 +374,6 @@ def make_people() -> dict[str, object]:
         ("documentary editor", "visual storytelling and public-interest media", "story editing | archival research | accessible captions", "local voices short-film series"),
         ("food culture writer", "seasonal cooking and community recipe archives", "recipe testing | interviewing | cultural documentation", "seasonal table oral-history project"),
     ]
-    career_stages = ["early-career", "mid-career", "senior", "lead", "independent"]
     project_phases = ["research", "community workshop", "prototype", "accessibility review", "public learning report"]
     locations = [
         ("Portland", "Oregon", 45.5152, -122.6784),
@@ -391,26 +404,35 @@ def make_people() -> dict[str, object]:
         first = first_names[index % len(first_names)]
         middle = middle_names[(index // 10) % len(middle_names)]
         last = last_names[(index * 3 + index // 10) % len(last_names)]
-        role, interests, skills, project = roles[(index * 7) % len(roles)]
-        city, state, latitude, longitude = locations[(index * 3 + index // 10 + 2) % len(locations)]
-        organization = organizations[(index * 7 + index // 10) % len(organizations)]
-        career_stage = career_stages[(index // 4) % len(career_stages)]
-        experience_years = 2 + ((index * 7 + index // 10) % 19)
+        role_index = index % len(roles)
+        role, interests, skills, project = roles[role_index]
+        city, state, latitude, longitude = locations[(index // len(roles)) % len(locations)]
+        organization = organizations[role_index]
+        experience_years = 1 + ((index * 3 + role_index) % 22)
+        if experience_years <= 4:
+            career_stage = "early-career"
+        elif experience_years <= 9:
+            career_stage = "mid-career"
+        elif experience_years <= 15:
+            career_stage = "senior"
+        else:
+            career_stage = "lead"
         featured_project = f"{project} — {project_phases[(index * 3 + index // 10) % len(project_phases)]}"
+        experience_label = f"{experience_years} year" if experience_years == 1 else f"{experience_years} years"
         full_name = f"{first} {middle} {last}"
         title = f"{full_name} — Fictional Demo Profile"
         biography = (
             f"{full_name} is a fictional {career_stage} {role} based in {city}, {state}. "
             f"This synthetic profile places them at {organization}, where the demo portfolio focuses on {interests}. "
-            f"A featured project, {featured_project}, uses {skills}. The generated profile represents {experience_years} "
-            "years of fictional experience and exists only to demonstrate biography, skills, occupation, project, and location search."
+            f"A featured project, {featured_project}, uses {skills}. The generated profile represents {experience_label} "
+            "of fictional experience and exists only to demonstrate biography, skills, occupation, project, and location search."
         )
         documents.append(
             document(
                 "people",
                 title,
                 biography,
-                identifier=f"people_profile_{index + 1:03d}",
+                identifier=f"people_{slug(full_name)}",
                 labels=[role, city, state, "fictional-person"],
                 first_name=first,
                 middle_name=middle,
@@ -425,6 +447,7 @@ def make_people() -> dict[str, object]:
                 organization=organization,
                 skills=skills,
                 featured_project=featured_project,
+                search_text=f"{full_name} | {role} | {skills} | {interests} | {project} | {city} | {state}",
                 career_stage=career_stage,
                 experience_years=experience_years,
                 profile_type="fictional_demo_person",
@@ -450,6 +473,7 @@ def make_people() -> dict[str, object]:
             field("organization", "string"),
             field("skills", "string"),
             field("featured_project", "string"),
+            field("search_text", "string"),
             field("career_stage", "string"),
             field("experience_years", "int32"),
             field("profile_type", "string"),
@@ -463,115 +487,127 @@ def make_people() -> dict[str, object]:
                 "id": "people_syn_biography",
                 "root": "biography",
                 "synonyms": ["profile", "background", "bio", "life summary"],
-            }
+            },
+            {"id": "people_syn_engineer", "root": "engineer", "synonyms": ["engineering professional", "technical specialist"]},
+            {"id": "people_syn_curator", "root": "curator", "synonyms": ["museum professional", "exhibition specialist"]},
+            {"id": "people_syn_educator", "root": "educator", "synonyms": ["teacher", "instructor", "learning specialist"]},
         ],
     )
 
 
 def make_universities() -> dict[str, object]:
-    # Names, locations, and broad control/type labels are catalog data. Academic
-    # topics and numeric scores below remain deterministic benchmark annotations.
+    # Snapshot of the Webometrics main world ranking, January 2026.
+    # Ranking fields are factual source data; search topics remain synthetic.
+    ranking_source = "Webometrics Global Web Rankings for Universities"
+    ranking_source_url = "https://www.webometrics.org/"
+    ranking_edition = "January 2026"
+    university_notice = (
+        "Public HLQuery demonstration data. University names, campus locations, and "
+        "Webometrics January 2026 ranking fields are factual reference data. Content and "
+        "descriptions restate those fields; search-topic annotations are synthetic."
+    )
+    # name, city, first-level region, country, broad type, world/impact/openness/excellence ranks
     catalog = [
-        ("Harvard University", "Cambridge", "Massachusetts", "private_research"),
-        ("Stanford University", "Stanford", "California", "private_research"),
-        ("Massachusetts Institute of Technology", "Cambridge", "Massachusetts", "private_research"),
-        ("University of California Berkeley", "Berkeley", "California", "public_research"),
-        ("University of Washington Seattle", "Seattle", "Washington", "public_research"),
-        ("University of Michigan Ann Arbor", "Ann Arbor", "Michigan", "public_research"),
-        ("Cornell University", "Ithaca", "New York", "private_research"),
-        ("Columbia University", "New York", "New York", "private_research"),
-        ("University of Pennsylvania", "Philadelphia", "Pennsylvania", "private_research"),
-        ("Yale University", "New Haven", "Connecticut", "private_research"),
-        ("Princeton University", "Princeton", "New Jersey", "private_research"),
-        ("University of California Los Angeles", "Los Angeles", "California", "public_research"),
-        ("University of Chicago", "Chicago", "Illinois", "private_research"),
-        ("Johns Hopkins University", "Baltimore", "Maryland", "private_research"),
-        ("University of California San Diego", "La Jolla", "California", "public_research"),
-        ("University of Wisconsin Madison", "Madison", "Wisconsin", "public_research"),
-        ("Duke University", "Durham", "North Carolina", "private_research"),
-        ("Northwestern University", "Evanston", "Illinois", "private_research"),
-        ("University of Illinois Urbana Champaign", "Urbana Champaign", "Illinois", "public_research"),
-        ("New York University", "New York", "New York", "private_research"),
-        ("University of Texas at Austin", "Austin", "Texas", "public_research"),
-        ("University of North Carolina Chapel Hill", "Chapel Hill", "North Carolina", "public_research"),
-        ("Pennsylvania State University", "University Park", "Pennsylvania", "public_research"),
-        ("University of Minnesota Twin Cities", "Minneapolis", "Minnesota", "public_research"),
-        ("University of Florida", "Gainesville", "Florida", "public_research"),
-        ("University of Southern California", "Los Angeles", "California", "private_research"),
-        ("Carnegie Mellon University", "Pittsburgh", "Pennsylvania", "private_research"),
-        ("Georgia Institute of Technology", "Atlanta", "Georgia", "public_research"),
-        ("Ohio State University", "Columbus", "Ohio", "public_research"),
-        ("Purdue University", "West Lafayette", "Indiana", "public_research"),
-        ("University of Maryland College Park", "College Park", "Maryland", "public_research"),
-        ("University of California Davis", "Davis", "California", "public_research"),
-        ("University of California Irvine", "Irvine", "California", "public_research"),
-        ("University of California Santa Barbara", "Santa Barbara", "California", "public_research"),
-        ("University of Colorado Boulder", "Boulder", "Colorado", "public_research"),
-        ("University of Virginia", "Charlottesville", "Virginia", "public_research"),
-        ("Vanderbilt University", "Nashville", "Tennessee", "private_research"),
-        ("Rice University", "Houston", "Texas", "private_research"),
-        ("Washington University in St Louis", "St Louis", "Missouri", "private_research"),
-        ("Emory University", "Atlanta", "Georgia", "private_research"),
-        ("University of Arizona", "Tucson", "Arizona", "public_research"),
-        ("Arizona State University", "Tempe", "Arizona", "public_research"),
-        ("Michigan State University", "East Lansing", "Michigan", "public_research"),
-        ("Rutgers University New Brunswick", "New Brunswick", "New Jersey", "public_research"),
-        ("Texas A and M University", "College Station", "Texas", "public_research"),
-        ("Indiana University Bloomington", "Bloomington", "Indiana", "public_research"),
-        ("University of Pittsburgh", "Pittsburgh", "Pennsylvania", "public_research"),
-        ("Boston University", "Boston", "Massachusetts", "private_research"),
-        ("Brown University", "Providence", "Rhode Island", "private_research"),
-        ("Dartmouth College", "Hanover", "New Hampshire", "private_research"),
-        ("University of Utah", "Salt Lake City", "Utah", "public_research"),
-        ("University of Iowa", "Iowa City", "Iowa", "public_research"),
-        ("Iowa State University", "Ames", "Iowa", "public_research"),
-        ("University of Oregon", "Eugene", "Oregon", "public_research"),
-        ("Oregon State University", "Corvallis", "Oregon", "public_research"),
-        ("University of California Santa Cruz", "Santa Cruz", "California", "public_research"),
-        ("University of California Riverside", "Riverside", "California", "public_research"),
-        ("University of California San Francisco", "San Francisco", "California", "public_health_sciences"),
-        ("University of Massachusetts Amherst", "Amherst", "Massachusetts", "public_research"),
-        ("University of Connecticut", "Storrs", "Connecticut", "public_research"),
-        ("University of Delaware", "Newark", "Delaware", "public_research"),
-        ("University of Georgia", "Athens", "Georgia", "public_research"),
-        ("University of Kansas", "Lawrence", "Kansas", "public_research"),
-        ("University of Kentucky", "Lexington", "Kentucky", "public_research"),
-        ("University of Missouri", "Columbia", "Missouri", "public_research"),
-        ("University of Nebraska Lincoln", "Lincoln", "Nebraska", "public_research"),
-        ("University of New Mexico", "Albuquerque", "New Mexico", "public_research"),
-        ("University of Oklahoma", "Norman", "Oklahoma", "public_research"),
-        ("University of South Carolina", "Columbia", "South Carolina", "public_research"),
-        ("University of Tennessee Knoxville", "Knoxville", "Tennessee", "public_research"),
-        ("University of Vermont", "Burlington", "Vermont", "public_research"),
-        ("Virginia Tech", "Blacksburg", "Virginia", "public_research"),
-        ("North Carolina State University", "Raleigh", "North Carolina", "public_research"),
-        ("Florida State University", "Tallahassee", "Florida", "public_research"),
-        ("University of Miami", "Coral Gables", "Florida", "private_research"),
-        ("Georgetown University", "Washington", "District of Columbia", "private_research"),
-        ("George Washington University", "Washington", "District of Columbia", "private_research"),
-        ("Tufts University", "Medford", "Massachusetts", "private_research"),
-        ("Northeastern University", "Boston", "Massachusetts", "private_research"),
-        ("Syracuse University", "Syracuse", "New York", "private_research"),
-        ("Rensselaer Polytechnic Institute", "Troy", "New York", "private_research"),
-        ("University at Buffalo", "Buffalo", "New York", "public_research"),
-        ("Stony Brook University", "Stony Brook", "New York", "public_research"),
-        ("Binghamton University", "Binghamton", "New York", "public_research"),
-        ("Temple University", "Philadelphia", "Pennsylvania", "public_research"),
-        ("Drexel University", "Philadelphia", "Pennsylvania", "private_research"),
-        ("Case Western Reserve University", "Cleveland", "Ohio", "private_research"),
-        ("University of Cincinnati", "Cincinnati", "Ohio", "public_research"),
-        ("University of Houston", "Houston", "Texas", "public_research"),
-        ("Baylor University", "Waco", "Texas", "private_research"),
-        ("Southern Methodist University", "Dallas", "Texas", "private_research"),
-        ("Tulane University", "New Orleans", "Louisiana", "private_research"),
-        ("Louisiana State University", "Baton Rouge", "Louisiana", "public_research"),
-        ("University of Alabama", "Tuscaloosa", "Alabama", "public_research"),
-        ("Auburn University", "Auburn", "Alabama", "public_research"),
-        ("Clemson University", "Clemson", "South Carolina", "public_research"),
-        ("Colorado State University", "Fort Collins", "Colorado", "public_research"),
-        ("Washington State University", "Pullman", "Washington", "public_research"),
-        ("University of Nevada Reno", "Reno", "Nevada", "public_research"),
-        ("Brigham Young University", "Provo", "Utah", "private_research"),
+        ("Harvard University", "Cambridge", "Massachusetts", "United States", "private_research", 1, 2, 1, 1),
+        ("Stanford University", "Stanford", "California", "United States", "private_research", 2, 1, 3, 11),
+        ("University of Oxford", "Oxford", "England", "United Kingdom", "public_research", 3, 7, 4, 6),
+        ("University of Michigan", "Ann Arbor", "Michigan", "United States", "public_research", 4, 8, 17, 14),
+        ("Cornell University", "Ithaca", "New York", "United States", "private_research", 5, 5, 12, 21),
+        ("Johns Hopkins University", "Baltimore", "Maryland", "United States", "private_research", 6, 16, 7, 12),
+        ("University of Cambridge", "Cambridge", "England", "United Kingdom", "public_research", 7, 15, 5, 15),
+        ("University of Pennsylvania", "Philadelphia", "Pennsylvania", "United States", "private_research", 8, 11, 15, 22),
+        ("University of Washington", "Seattle", "Washington", "United States", "public_research", 9, 18, 2, 18),
+        ("Yale University", "New Haven", "Connecticut", "United States", "private_research", 10, 9, 20, 27),
+        ("UCL University College London", "London", "England", "United Kingdom", "public_research", 11, 32, 6, 3),
+        ("Columbia University New York", "New York", "New York", "United States", "private_research", 12, 6, 14, 36),
+        ("University of California Los Angeles UCLA", "Los Angeles", "California", "United States", "public_research", 13, 13, 24, 32),
+        ("University of Toronto", "Toronto", "Ontario", "Canada", "public_research", 14, 36, 16, 8),
+        ("University of California Berkeley", "Berkeley", "California", "United States", "public_research", 15, 4, 21, 49),
+        ("University of California San Diego", "La Jolla", "California", "United States", "public_research", 16, 23, 9, 35),
+        ("Massachusetts Institute of Technology", "Cambridge", "Massachusetts", "United States", "private_research", 17, 3, 8, 65),
+        ("University of British Columbia", "Vancouver", "British Columbia", "Canada", "public_research", 18, 37, 48, 29),
+        ("University of Wisconsin Madison", "Madison", "Wisconsin", "United States", "public_research", 19, 19, 52, 59),
+        ("University of Florida", "Gainesville", "Florida", "United States", "public_research", 20, 26, 82, 54),
+        ("Duke University", "Durham", "North Carolina", "United States", "private_research", 21, 27, 28, 67),
+        ("University of North Carolina Chapel Hill", "Chapel Hill", "North Carolina", "United States", "public_research", 22, 33, 23, 63),
+        ("Northwestern University", "Evanston", "Illinois", "United States", "private_research", 23, 34, 46, 58),
+        ("Pennsylvania State University", "University Park", "Pennsylvania", "United States", "public_research", 24, 10, 102, 76),
+        ("New York University", "New York", "New York", "United States", "private_research", 25, 22, 39, 78),
+        ("University of Chicago", "Chicago", "Illinois", "United States", "private_research", 26, 14, 26, 98),
+        ("Imperial College London", "London", "England", "United Kingdom", "public_research", 27, 84, 11, 20),
+        ("University of Edinburgh", "Edinburgh", "Scotland", "United Kingdom", "public_research", 28, 49, 57, 56),
+        ("ETH Zurich Swiss Federal Institute of Technology Zurich", "Zurich", "Zurich", "Switzerland", "public_research", 29, 46, 51, 62),
+        ("Ohio State University", "Columbus", "Ohio", "United States", "public_research", 30, 40, 78, 70),
+        ("University of Melbourne", "Melbourne", "Victoria", "Australia", "public_research", 31, 90, 35, 19),
+        ("Peking University", "Beijing", "Beijing", "China", "public_research", 32, 98, 43, 9),
+        ("University of California San Francisco", "San Francisco", "California", "United States", "public_health_sciences", 33, 78, 13, 42),
+        ("University of Southern California", "Los Angeles", "California", "United States", "private_research", 34, 28, 54, 99),
+        ("University of New South Wales", "Sydney", "New South Wales", "Australia", "public_research", 35, 85, 56, 30),
+        ("University of California Davis", "Davis", "California", "United States", "public_research", 36, 31, 83, 91),
+        ("University of Texas Austin", "Austin", "Texas", "United States", "public_research", 37, 20, 95, 102),
+        ("University of Pittsburgh", "Pittsburgh", "Pennsylvania", "United States", "public_research", 38, 53, 45, 81),
+        ("McGill University", "Montreal", "Quebec", "Canada", "public_research", 39, 59, 81, 73),
+        ("University of Illinois Urbana Champaign", "Urbana Champaign", "Illinois", "United States", "public_research", 40, 24, 113, 110),
+        ("University of Tokyo", "Tokyo", "Tokyo", "Japan", "public_research", 41, 82, 37, 57),
+        ("University of Queensland", "Brisbane", "Queensland", "Australia", "public_research", 42, 99, 60, 33),
+        ("Johns Hopkins University School of Medicine", "Baltimore", "Maryland", "United States", "private_health_sciences", 43, 47, 29, 106),
+        ("University of Manchester", "Manchester", "England", "United Kingdom", "public_research", 44, 86, 42, 55),
+        ("National University of Singapore", "Singapore", "Singapore", "Singapore", "public_research", 45, 111, 55, 25),
+        ("King's College London", "London", "England", "United Kingdom", "public_research", 46, 102, 41, 41),
+        ("Princeton University", "Princeton", "New Jersey", "United States", "private_research", 47, 17, 66, 146),
+        ("Michigan State University", "East Lansing", "Michigan", "United States", "public_research", 48, 35, 104, 116),
+        ("Boston University", "Boston", "Massachusetts", "United States", "private_research", 49, 44, 64, 115),
+        ("University of Maryland College Park", "College Park", "Maryland", "United States", "public_research", 50, 29, 88, 136),
+        ("Rutgers The State University of New Jersey", "New Brunswick", "New Jersey", "United States", "public_research", 51, 41, 96, 120),
+        ("University of Sydney", "Sydney", "New South Wales", "Australia", "public_research", 52, 130, 40, 24),
+        ("University of Sao Paulo USP", "Sao Paulo", "Sao Paulo", "Brazil", "public_research", 53, 79, 227, 46),
+        ("Texas A&M University", "College Station", "Texas", "United States", "public_research", 54, 45, 114, 118),
+        ("University of Arizona", "Tucson", "Arizona", "United States", "public_research", 55, 38, 103, 131),
+        ("Heidelberg University", "Heidelberg", "Baden-Wurttemberg", "Germany", "public_research", 56, 120, 27, 52),
+        ("Tsinghua University", "Beijing", "Beijing", "China", "public_research", 57, 155, 33, 7),
+        ("University of California Irvine", "Irvine", "California", "United States", "public_research", 58, 48, 67, 140),
+        ("Arizona State University", "Tempe", "Arizona", "United States", "public_research", 59, 30, 141, 147),
+        ("University of Utah", "Salt Lake City", "Utah", "United States", "public_research", 60, 42, 132, 135),
+        ("University of Amsterdam", "Amsterdam", "North Holland", "Netherlands", "public_research", 61, 117, 59, 61),
+        ("Purdue University", "West Lafayette", "Indiana", "United States", "public_research", 62, 25, 165, 152),
+        ("University of Copenhagen", "Copenhagen", "Capital Region", "Denmark", "public_research", 63, 143, 36, 38),
+        ("Monash University", "Melbourne", "Victoria", "Australia", "public_research", 64, 149, 50, 28),
+        ("University of Alberta", "Edmonton", "Alberta", "Canada", "public_research", 65, 88, 136, 90),
+        ("KU Leuven", "Leuven", "Flemish Brabant", "Belgium", "private_research", 66, 136, 69, 47),
+        ("Emory University", "Atlanta", "Georgia", "United States", "private_research", 67, 101, 65, 97),
+        ("University of Helsinki", "Helsinki", "Uusimaa", "Finland", "public_research", 68, 109, 74, 89),
+        ("Utrecht University", "Utrecht", "Utrecht", "Netherlands", "public_research", 69, 113, 85, 87),
+        ("University of Colorado Boulder", "Boulder", "Colorado", "United States", "public_research", 70, 39, 111, 183),
+        ("University of Glasgow", "Glasgow", "Scotland", "United Kingdom", "public_research", 71, 103, 34, 123),
+        ("University of Hong Kong", "Hong Kong", "Hong Kong", "Hong Kong", "public_research", 72, 174, 47, 34),
+        ("University of Bologna", "Bologna", "Emilia-Romagna", "Italy", "public_research", 73, 132, 80, 93),
+        ("University of Zurich", "Zurich", "Zurich", "Switzerland", "public_research", 74, 140, 77, 84),
+        ("University of Virginia", "Charlottesville", "Virginia", "United States", "public_research", 75, 43, 131, 193),
+        ("LMU Munich", "Munich", "Bavaria", "Germany", "public_research", 76, 150, 62, 79),
+        ("Technical University of Munich", "Munich", "Bavaria", "Germany", "public_research", 77, 128, 119, 95),
+        ("University of Groningen", "Groningen", "Groningen", "Netherlands", "public_research", 78, 131, 116, 94),
+        ("Australian National University", "Canberra", "Australian Capital Territory", "Australia", "public_research", 79, 81, 123, 166),
+        ("University of Oslo", "Oslo", "Oslo", "Norway", "public_research", 80, 126, 133, 111),
+        ("University of Barcelona", "Barcelona", "Catalonia", "Spain", "public_research", 81, 134, 142, 107),
+        ("University of Hamburg", "Hamburg", "Hamburg", "Germany", "public_research", 82, 152, 94, 101),
+        ("Lund University", "Lund", "Skane", "Sweden", "public_research", 83, 144, 121, 108),
+        ("Brown University", "Providence", "Rhode Island", "United States", "private_research", 84, 60, 155, 208),
+        ("University of Calgary", "Calgary", "Alberta", "Canada", "public_research", 85, 122, 162, 129),
+        ("University of Leeds", "Leeds", "England", "United Kingdom", "public_research", 86, 112, 210, 137),
+        ("RWTH Aachen University", "Aachen", "North Rhine-Westphalia", "Germany", "public_research", 87, 75, 109, 212),
+        ("Georgia Institute of Technology", "Atlanta", "Georgia", "United States", "public_research", 88, 69, 147, 211),
+        ("California Institute of Technology Caltech", "Pasadena", "California", "United States", "private_research", 89, 58, 18, 267),
+        ("City University of Hong Kong", "Hong Kong", "Hong Kong", "Hong Kong", "public_research", 90, 158, 172, 113),
+        ("Vanderbilt University", "Nashville", "Tennessee", "United States", "private_research", 91, 73, 117, 243),
+        ("Uppsala University", "Uppsala", "Uppsala County", "Sweden", "public_research", 92, 171, 107, 124),
+        ("Kyoto University", "Kyoto", "Kyoto", "Japan", "public_research", 93, 142, 126, 158),
+        ("North Carolina State University", "Raleigh", "North Carolina", "United States", "public_research", 94, 50, 265, 240),
+        ("University of Milan", "Milan", "Lombardy", "Italy", "public_research", 95, 198, 137, 88),
+        ("Chinese University of Hong Kong", "Hong Kong", "Hong Kong", "Hong Kong", "public_research", 96, 217, 79, 82),
+        ("University of Illinois Chicago", "Chicago", "Illinois", "United States", "public_research", 97, 107, 143, 206),
+        ("Ghent University", "Ghent", "East Flanders", "Belgium", "public_research", 98, 180, 134, 121),
+        ("McMaster University", "Hamilton", "Ontario", "Canada", "public_research", 99, 163, 106, 151),
+        ("University of Birmingham", "Birmingham", "England", "United Kingdom", "public_research", 100, 208, 76, 103),
     ]
     focus_pairs = [
         ("computer science", "digital humanities"),
@@ -585,69 +621,105 @@ def make_universities() -> dict[str, object]:
         ("biology", "applied mathematics"),
         ("music technology", "media production"),
     ]
+    metropolitan_aliases = {
+        "Harvard University": ["Boston", "Greater Boston", "Boston metropolitan area"],
+        "Massachusetts Institute of Technology": ["Boston", "Greater Boston", "Boston metropolitan area", "MIT"],
+        "Stanford University": ["Bay Area", "San Francisco Bay Area", "Silicon Valley"],
+        "University of California Berkeley": ["Bay Area", "San Francisco Bay Area"],
+        "University of California San Diego": ["San Diego"],
+        "Duke University": ["Raleigh-Durham", "Research Triangle"],
+        "University of North Carolina Chapel Hill": ["Raleigh-Durham", "Research Triangle"],
+        "North Carolina State University": ["Raleigh-Durham", "Research Triangle"],
+        "Northwestern University": ["Chicago", "Chicago metropolitan area"],
+        "Pennsylvania State University": ["State College"],
+        "University of Maryland College Park": ["Washington DC", "Washington metropolitan area"],
+        "Rutgers The State University of New Jersey": ["New York metropolitan area"],
+        "Arizona State University": ["Phoenix", "Phoenix metropolitan area"],
+        "University of Colorado Boulder": ["Denver metropolitan area"],
+        "California Institute of Technology Caltech": ["Los Angeles", "Greater Los Angeles"],
+    }
+    institution_type_descriptions = {
+        "private_research": "a private research university",
+        "public_research": "a public research university",
+        "private_health_sciences": "a private health-sciences institution",
+        "public_health_sciences": "a public health-sciences university",
+    }
     documents: list[dict[str, object]] = []
-    for catalog_order, (institution_name, city, state, institution_type) in enumerate(
-        sorted(catalog, key=lambda row: row[0]), start=1
-    ):
-        index = catalog_order - 1
+    for row in catalog:
+        institution_name, city, region, country, institution_type = row[:5]
+        world_rank, impact_rank, openness_rank, excellence_rank = row[5:]
+        index = world_rank - 1
         focus_a, focus_b = focus_pairs[(index * 3 + index // 25) % len(focus_pairs)]
-        title = institution_name
         search_topics = f"{focus_a} | {focus_b} | science | research | teaching | admissions"
+        location_aliases = list(dict.fromkeys([city, *metropolitan_aliases.get(institution_name, []), region, country]))
+        location_alias_text = " | ".join(location_aliases)
+        institution_description = institution_type_descriptions[institution_type]
         content = (
-            f"{institution_name} is a real university catalog reference located in {city}, {state}, United States. "
-            f"The catalog classifies it as {institution_type.replace('_', ' ')}. "
-            f"Search topics attached for benchmark coverage include {focus_a}, {focus_b}, science, research, teaching, and admissions. "
-            "The institution name, city, state, country, and broad type are catalog fields; topic annotations are synthetic search aids."
+            f"{institution_name} is {institution_description} based in {city}, {region}, {country}. "
+            f"In the Webometrics {ranking_edition} world ranking, it holds world rank {world_rank}; "
+            f"its indicator positions are impact rank {impact_rank}, openness rank {openness_rank}, "
+            f"and excellence rank {excellence_rank}. Location searches also associate the institution "
+            f"with {location_alias_text}."
         )
         documents.append(
             document(
                 "universities",
-                title,
+                institution_name,
                 content,
                 identifier=f"universities_{slug(institution_name)}",
-                labels=[state, city, "United States", institution_type, focus_a, focus_b, "university-catalog"],
+                description=(
+                    f"{institution_name}, located in {city}, {region}, {country}: "
+                    f"Webometrics {ranking_edition} world rank {world_rank}."
+                ),
+                data_notice=university_notice,
+                labels=list(dict.fromkeys(["webometrics", "world-top-100", ranking_edition, *location_aliases, institution_type])),
                 institution_name=institution_name,
                 city=city,
-                state=state,
-                country="United States",
-                city_aliases=f"{city} | {state} | United States",
+                region=region,
+                country=country,
+                city_aliases=location_alias_text,
                 institution_type=institution_type,
                 search_topics=search_topics,
-                catalog_order=catalog_order,
-                record_kind="real_name_location_with_synthetic_search_topics",
-                location_name=f"{city}, {state}, United States",
+                catalog_order=world_rank,
+                record_kind="webometrics_ranking_with_synthetic_search_topics",
+                ranking_edition=ranking_edition,
+                ranking_source=ranking_source,
+                ranking_source_url=ranking_source_url,
+                webometrics_world_rank=world_rank,
+                webometrics_impact_rank=impact_rank,
+                webometrics_openness_rank=openness_rank,
+                webometrics_excellence_rank=excellence_rank,
+                location_name=f"{city}, {region}, {country}",
             )
         )
-    return fixture(
+    result = fixture(
         "universities",
-        ["united states", "university", "college", "campus", "science", "research", "teaching", "arts", "admissions"],
+        ["world", "university", "college", "campus", "science", "research", "teaching", "arts", "admissions"],
         documents,
         fields=[
-            field("institution_name", "string"),
-            field("state", "string"),
-            field("city", "string"),
-            field("country", "string"),
-            field("city_aliases", "string"),
-            field("institution_type", "string"),
-            field("search_topics", "string"),
-            field("catalog_order", "int32"),
-            field("record_kind", "string"),
+            field("institution_name", "string"), field("region", "string"), field("city", "string"),
+            field("country", "string"), field("city_aliases", "string"), field("institution_type", "string"),
+            field("search_topics", "string"), field("catalog_order", "int32"), field("record_kind", "string"),
+            field("ranking_edition", "string"), field("ranking_source", "string"), field("ranking_source_url", "string"),
+            field("webometrics_world_rank", "int32"),
+            field("webometrics_impact_rank", "int32"), field("webometrics_openness_rank", "int32"),
+            field("webometrics_excellence_rank", "int32"),
         ],
-        default_sorting_field="catalog_order",
+        default_sorting_field="webometrics_world_rank",
         metadata={
-            "_catalog_sort_field": "catalog_order",
-            "_catalog_sort_order": "asc",
-            "_catalog_scope": "100 recognizable United States universities",
-            "_data_boundary": "names, locations, and broad types are catalog references; search topics are synthetic",
+            "_catalog_sort_field": "webometrics_world_rank", "_catalog_sort_order": "asc",
+            "_catalog_scope": "Top 100 institutions in the Webometrics January 2026 world ranking",
+            "_ranking_edition": ranking_edition, "_ranking_source": ranking_source,
+            "_ranking_source_url": ranking_source_url,
+            "_data_boundary": "University names, locations, and published ranking fields are factual references; content and descriptions restate those fields, while search topics are synthetic",
         },
-        synonyms=[
-            {
-                "id": "universities_syn_university",
-                "root": "university",
-                "synonyms": ["college", "campus", "institution", "school"],
-            }
-        ],
+        synonyms=[{"id": "universities_syn_university", "root": "university", "synonyms": ["college", "campus", "institution", "school"]}],
     )
+    result["fixture_version"] = 4
+    result["fixture_notice"] = university_notice
+    result["metadata"]["_fixture_kind"] = "mixed_factual_and_synthetic_public_demo"
+    result["metadata"]["_fixture_notice"] = university_notice
+    return result
 
 
 def make_curated_collection(
@@ -770,12 +842,43 @@ def make_science() -> dict[str, object]:
         ("Comparing Battery Discharge Curves (Demo Engineering Test)", "Synthetic voltage readings under fixed loads demonstrate sampling intervals, repeat trials, and cautious comparison of storage behavior.", {"field": "materials engineering", "method": "controlled discharge test", "evidence_level": "synthetic measurements"}),
         ("Finding Patterns in Noisy Sensor Data (Demo Analysis)", "A generated dataset is cleaned, visualized, and checked for outliers before a simple model is evaluated on held-out samples.", {"field": "data science", "method": "synthetic data analysis", "evidence_level": "toy dataset"}),
     ]
-    return make_curated_collection(
+    result = make_curated_collection(
         "science",
         ["research", "experiment", "physics", "biology", "chemistry", "astronomy", "fieldwork", "replication", "data"],
         rows,
-        [field("field", "string"), field("method", "string"), field("evidence_level", "string")],
+        [
+            field("topic", "string"),
+            field("field", "string"),
+            field("method", "string"),
+            field("evidence_level", "string"),
+            field("research_question", "string"),
+            field("keywords", "string"),
+            field("limitations", "string"),
+            field("search_text", "string"),
+        ],
+        synonyms=[
+            {"id": "science_syn_experiment", "root": "experiment", "synonyms": ["study", "test", "investigation", "trial"]},
+            {"id": "science_syn_method", "root": "method", "synonyms": ["methodology", "procedure", "protocol", "approach"]},
+            {"id": "science_syn_evidence", "root": "evidence", "synonyms": ["results", "observations", "findings", "measurements"]},
+        ],
     )
+
+    limitation_by_level = {
+        "instructional example": "Simplified classroom design; results are illustrative and not a peer-reviewed finding.",
+        "toy model": "Outcomes depend on synthetic assumptions and must not be interpreted as real-world predictions.",
+        "synthetic measurements": "Measurements are generated for demonstration and do not characterize commercial products.",
+        "toy dataset": "The generated sample is small and intended only to demonstrate an analysis workflow.",
+    }
+    for item in result["documents"]:
+        topic = re.sub(r"\s*\(Demo [^)]+\)$", "", str(item["title"]))
+        field_name = str(item["field"])
+        method = str(item["method"])
+        item["topic"] = topic
+        item["research_question"] = f"How can {topic.lower()} be investigated with {method}?"
+        item["keywords"] = f"{topic} | {field_name} | {method} | controls | measurements | uncertainty"
+        item["limitations"] = limitation_by_level[str(item["evidence_level"])]
+        item["search_text"] = f"{topic} | {field_name} | {method} | {item['content']} | {item['limitations']}"
+    return result
 
 
 def make_history() -> dict[str, object]:
@@ -1159,11 +1262,15 @@ def validate_public_fixtures(fixtures: dict[str, dict[str, object]]) -> None:
         if not collection or not isinstance(documents, list) or not documents:
             errors.append(f"{filename}: collection name and documents are required")
             continue
-        if payload.get("fixture_version") != 3:
-            errors.append(f"{filename}: fixture_version must be 3")
+        expected_version = 4 if filename == "universities.json" else 3
+        if payload.get("fixture_version") != expected_version:
+            errors.append(f"{filename}: fixture_version must be {expected_version}")
         if payload.get("count") != len(documents):
             errors.append(f"{filename}: count does not match documents")
-        if not isinstance(metadata, dict) or metadata.get("_fixture_kind") != "synthetic_public_demo":
+        allowed_fixture_kinds = {"synthetic_public_demo"}
+        if filename == "universities.json":
+            allowed_fixture_kinds.add("mixed_factual_and_synthetic_public_demo")
+        if not isinstance(metadata, dict) or metadata.get("_fixture_kind") not in allowed_fixture_kinds:
             errors.append(f"{filename}: public synthetic metadata is missing")
         if not metadata.get("_demo_description") or not metadata.get("_demo_queries"):
             errors.append(f"{filename}: demo description and example queries are required")
@@ -1187,6 +1294,7 @@ def validate_public_fixtures(fixtures: dict[str, dict[str, object]]) -> None:
                 errors.append(f"{prefix}: meaningful title and content are required")
 
     people = fixtures["people.json"]["documents"]
+    people_role_locations: set[tuple[str, str]] = set()
     for index, item in enumerate(people, start=1):
         if "Fictional Demo Profile" not in str(item.get("title", "")):
             errors.append(f"people.json document {index}: title must identify a fictional demo profile")
@@ -1194,22 +1302,67 @@ def validate_public_fixtures(fixtures: dict[str, dict[str, object]]) -> None:
             errors.append(f"people.json document {index}: fictional person or organization marker is missing")
         if any(field_name in item for field_name in ("email", "phone", "address", "social_handle")):
             errors.append(f"people.json document {index}: public fixture must not include contact details")
+        people_role_locations.add((str(item.get("occupation", "")), str(item.get("city", ""))))
+        years = int(item.get("experience_years", 0))
+        expected_stage = "early-career" if years <= 4 else "mid-career" if years <= 9 else "senior" if years <= 15 else "lead"
+        if item.get("career_stage") != expected_stage:
+            errors.append(f"people.json document {index}: career stage does not match experience")
+        if not str(item.get("search_text", "")).strip():
+            errors.append(f"people.json document {index}: searchable profile summary is missing")
+    if len(people_role_locations) != 100:
+        errors.append("people.json: every occupation and city combination must be represented once")
 
     art = fixtures["art.json"]["documents"]
     for index, item in enumerate(art, start=1):
         if "Demo" not in str(item.get("title", "")) or not str(item.get("artist_name", "")).startswith("Example Artist "):
             errors.append(f"art.json document {index}: fictional artwork or artist marker is missing")
+        if not item.get("artwork_type") or not item.get("themes") or not item.get("search_text"):
+            errors.append(f"art.json document {index}: structured discovery fields are incomplete")
+
+    science = fixtures["science.json"]["documents"]
+    for index, item in enumerate(science, start=1):
+        if any(not item.get(name) for name in ("topic", "research_question", "keywords", "limitations", "search_text")):
+            errors.append(f"science.json document {index}: research context fields are incomplete")
 
     universities = fixtures["universities.json"]["documents"]
     for expected_order, item in enumerate(universities, start=1):
+        content = str(item.get("content", ""))
         if item.get("catalog_order") != expected_order:
             errors.append(f"universities.json document {expected_order}: catalog order must be contiguous")
+        if item.get("webometrics_world_rank") != expected_order:
+            errors.append(f"universities.json document {expected_order}: Webometrics world rank must be contiguous")
+        if any(name not in item for name in (
+            "webometrics_world_rank", "webometrics_impact_rank",
+            "webometrics_openness_rank", "webometrics_excellence_rank",
+            "ranking_edition", "ranking_source", "ranking_source_url",
+        )):
+            errors.append(f"universities.json document {expected_order}: sourced ranking fields are incomplete")
         if any(name in item for name in ("demo_rank", "rank", "composite_score", "student_count")):
-            errors.append(f"universities.json document {expected_order}: fabricated rankings and counts are forbidden")
+            errors.append(f"universities.json document {expected_order}: unsourced rankings and counts are forbidden")
         if item.get("title") != item.get("institution_name") or not str(item.get("id", "")).startswith("universities_"):
             errors.append(f"universities.json document {expected_order}: meaningful catalog identity is missing")
         if str(item.get("id", "")).startswith("universities_demo_"):
             errors.append(f"universities.json document {expected_order}: generic numeric IDs are forbidden")
+        required_content_fragments = (
+            str(item.get("institution_name", "")),
+            f"world rank {item.get('webometrics_world_rank')}",
+            f"impact rank {item.get('webometrics_impact_rank')}",
+            f"openness rank {item.get('webometrics_openness_rank')}",
+            f"excellence rank {item.get('webometrics_excellence_rank')}",
+            str(item.get("location_name", "")),
+        )
+        if any(fragment not in content for fragment in required_content_fragments):
+            errors.append(
+                f"universities.json document {expected_order}: content must describe the institution, "
+                "location, and all Webometrics ranks"
+            )
+    boston_results = {
+        str(item.get("institution_name", ""))
+        for item in universities
+        if "Boston" in item.get("labels", []) and "Boston" in str(item.get("content", ""))
+    }
+    if not {"Massachusetts Institute of Technology", "Boston University"}.issubset(boston_results):
+        errors.append("universities.json: Boston labels must find MIT and Boston University")
 
     for filename in ("finance.json", "stocks.json"):
         for index, item in enumerate(fixtures[filename]["documents"], start=1):

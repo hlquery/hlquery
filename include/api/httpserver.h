@@ -131,6 +131,8 @@ enum class RouteAction
      Integrity,
      SelfCheck,
      StorageStatus,
+     StorageDiagnostics,
+     DurabilityBarrier,
      Etc,
      Root,
      ListCollections,

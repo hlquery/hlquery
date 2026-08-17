@@ -11,8 +11,10 @@
  */
 
 #include <algorithm>
+#include <arpa/inet.h>
 #include <atomic>
 #include <cctype>
+#include <charconv>
 #include <chrono>
 #include <cstring>
 #include <fcntl.h>
@@ -38,6 +40,7 @@
 #ifdef HLQUERY_HAS_OPENSSL
 #include <openssl/err.h>
 #include <openssl/ssl.h>
+#include <openssl/x509_vfy.h>
 #endif
 
 #include <vendor/json/json.hpp>
@@ -103,6 +106,146 @@ enum class BenchmarkSocketWaitResult
      Interrupted,
      Failed
 };
+
+static bool IsIdempotentHTTPMethod(const std::string &method)
+{
+     return method == "GET" || method == "HEAD" || method == "OPTIONS" ||
+            method == "PUT" || method == "DELETE";
+}
+
+static bool IsRetryableHTTPStatus(int status_code)
+{
+     return status_code == 408 || status_code == 425 || status_code == 429 ||
+            status_code == 500 || status_code == 502 || status_code == 503 ||
+            status_code == 504;
+}
+
+static const std::string AMBIGUOUS_NON_IDEMPOTENT_PREFIX =
+     "Non-idempotent request may have been applied; automatic retry disabled. ";
+
+static void MarkAmbiguousNonIdempotentResponse(HTTPResponse &response, const std::string &detail)
+{
+     response.ErrorMessage = AMBIGUOUS_NON_IDEMPOTENT_PREFIX + detail;
+}
+
+static bool IsAmbiguousNonIdempotentResponse(const HTTPResponse &response)
+{
+     return response.ErrorMessage.compare(0,
+                                          AMBIGUOUS_NON_IDEMPOTENT_PREFIX.size(),
+                                          AMBIGUOUS_NON_IDEMPOTENT_PREFIX) == 0;
+}
+
+static void SetPotentiallyAmbiguousError(HTTPResponse &response,
+                                         bool ambiguous,
+                                         const std::string &detail)
+{
+     if (ambiguous)
+     {
+          MarkAmbiguousNonIdempotentResponse(response, detail);
+     }
+     else
+     {
+          response.ErrorMessage = detail;
+     }
+}
+
+static constexpr size_t MAX_BENCHMARK_RESPONSE_SIZE = 100U * 1024U * 1024U;
+static constexpr size_t MAX_BENCHMARK_HEADER_SIZE = 64U * 1024U;
+
+static std::string TrimHTTPHeaderValue(const std::string &value)
+{
+     const size_t start = value.find_first_not_of(" \t");
+     if (start == std::string::npos)
+     {
+          return "";
+     }
+
+     const size_t end = value.find_last_not_of(" \t");
+     return value.substr(start, end - start + 1);
+}
+
+static bool ParseBenchmarkResponseHeaders(const std::string &headers,
+                                          bool &has_content_length,
+                                          size_t &content_length,
+                                          bool &connection_close,
+                                          std::string &error)
+{
+     has_content_length = false;
+     content_length = 0;
+     connection_close = false;
+
+     size_t line_start = headers.find("\r\n");
+     if (line_start == std::string::npos)
+     {
+          error = "Invalid HTTP response: missing status-line terminator.";
+          return false;
+     }
+     line_start += 2;
+
+     while (line_start < headers.size())
+     {
+          size_t line_end = headers.find("\r\n", line_start);
+          if (line_end == std::string::npos)
+          {
+               line_end = headers.size();
+          }
+
+          const std::string line = headers.substr(line_start, line_end - line_start);
+          const size_t colon = line.find(':');
+          if (colon == std::string::npos)
+          {
+               error = "Invalid HTTP response: malformed header line.";
+               return false;
+          }
+
+          std::string name = TrimHTTPHeaderValue(line.substr(0, colon));
+          std::transform(name.begin(), name.end(), name.begin(), [](unsigned char character)
+                         {
+                              return static_cast<char>(std::tolower(character));
+                         });
+          const std::string value = TrimHTTPHeaderValue(line.substr(colon + 1));
+
+          if (name == "content-length")
+          {
+               if (has_content_length || value.empty())
+               {
+                    error = "Invalid HTTP response: duplicate or empty Content-Length header.";
+                    return false;
+               }
+
+               size_t parsed_length = 0;
+               const char *value_begin = value.data();
+               const char *value_end = value_begin + value.size();
+               const auto parse_result = std::from_chars(value_begin, value_end, parsed_length);
+               if (parse_result.ec != std::errc() || parse_result.ptr != value_end)
+               {
+                    error = "Invalid HTTP response: malformed Content-Length header.";
+                    return false;
+               }
+
+               has_content_length = true;
+               content_length = parsed_length;
+          }
+          else if (name == "transfer-encoding")
+          {
+               error = "Unsupported HTTP response: Transfer-Encoding is not accepted by the benchmark client.";
+               return false;
+          }
+          else if (name == "connection")
+          {
+               std::string lower_value = value;
+               std::transform(lower_value.begin(), lower_value.end(), lower_value.begin(), [](unsigned char character)
+                              {
+                                   return static_cast<char>(std::tolower(character));
+                              });
+               connection_close = lower_value.find("close") != std::string::npos;
+          }
+
+          line_start = line_end + 2;
+     }
+
+     return true;
+}
 
 /* Waits for non-blocking socket I/O in short, Ctrl+C-aware intervals. */
 
@@ -379,7 +522,13 @@ BenchmarkClient::BenchmarkClient(const std::string &base_url, const std::string 
 
           if (SSLCtx)
           {
-               SSL_CTX_set_verify(SSLCtx, SSL_VERIFY_NONE, nullptr);
+               SSL_CTX_set_verify(SSLCtx, SSL_VERIFY_PEER, nullptr);
+
+               if (SSL_CTX_set_default_verify_paths(SSLCtx) != 1)
+               {
+                    SSL_CTX_free(SSLCtx);
+                    SSLCtx = nullptr;
+               }
           }
      }
 #endif
@@ -420,6 +569,7 @@ void BenchmarkClient::ResetConnection()
 HTTPResponse BenchmarkClient::MakeRequest(const std::string &method, const std::string &path, const std::string &body, int max_retries, bool use_keep_alive, int timeout_ms)
 {
      HTTPResponse response;
+     const bool request_is_idempotent = IsIdempotentHTTPMethod(method);
 
      if (g_benchmark_should_stop.load())
      {
@@ -517,8 +667,41 @@ HTTPResponse BenchmarkClient::MakeRequest(const std::string &method, const std::
 
                SSL_set_fd(SSLObj, sock);
 
+               unsigned char address_buffer[sizeof(struct in6_addr)];
+               const bool host_is_ip_address =
+                    inet_pton(AF_INET, Host.c_str(), address_buffer) == 1 ||
+                    inet_pton(AF_INET6, Host.c_str(), address_buffer) == 1;
+
+               bool tls_host_configured = false;
+               if (host_is_ip_address)
+               {
+                    tls_host_configured = X509_VERIFY_PARAM_set1_ip_asc(SSL_get0_param(SSLObj), Host.c_str()) == 1;
+               }
+               else
+               {
+#if defined(__GNUC__) || defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wold-style-cast"
+#endif
+                    const bool sni_configured = SSL_set_tlsext_host_name(SSLObj, Host.c_str()) == 1;
+#if defined(__GNUC__) || defined(__clang__)
+#pragma GCC diagnostic pop
+#endif
+                    tls_host_configured = sni_configured && SSL_set1_host(SSLObj, Host.c_str()) == 1;
+               }
+
+               if (!tls_host_configured)
+               {
+                    CloseSocket();
+                    response.StatusCode = -1;
+                    response.ErrorMessage = "Failed to configure TLS hostname verification.";
+
+                    return response;
+               }
+
                const auto handshake_start = Now();
                bool handshake_complete = false;
+               std::string tls_failure_message = "TLS handshake failed.";
 
                while (!handshake_complete)
                {
@@ -534,6 +717,16 @@ HTTPResponse BenchmarkClient::MakeRequest(const std::string &method, const std::
                     const int connect_result = SSL_connect(SSLObj);
                     if (connect_result == 1)
                     {
+                         const long verify_result = SSL_get_verify_result(SSLObj);
+                         if (verify_result != X509_V_OK)
+                         {
+                              tls_failure_message = "TLS certificate verification failed: ";
+                              tls_failure_message += X509_verify_cert_error_string(verify_result);
+                              tls_failure_message += ".";
+                              CloseSocket();
+                              break;
+                         }
+
                          handshake_complete = true;
                          break;
                     }
@@ -559,7 +752,19 @@ HTTPResponse BenchmarkClient::MakeRequest(const std::string &method, const std::
                               return response;
                          }
 
+                         tls_failure_message = wait_result == BenchmarkSocketWaitResult::TimedOut
+                                                   ? "TLS handshake timed out."
+                                                   : "TLS handshake failed while waiting for the socket.";
+
                          break;
+                    }
+
+                    const long verify_result = SSL_get_verify_result(SSLObj);
+                    if (verify_result != X509_V_OK)
+                    {
+                         tls_failure_message = "TLS certificate verification failed: ";
+                         tls_failure_message += X509_verify_cert_error_string(verify_result);
+                         tls_failure_message += ".";
                     }
 
                     CloseSocket();
@@ -571,7 +776,7 @@ HTTPResponse BenchmarkClient::MakeRequest(const std::string &method, const std::
                     if (attempt == max_retries - 1)
                     {
                          response.StatusCode = -1;
-                         response.ErrorMessage = "TLS handshake failed.";
+                         response.ErrorMessage = tls_failure_message;
 
                          return response;
                     }
@@ -639,13 +844,17 @@ HTTPResponse BenchmarkClient::MakeRequest(const std::string &method, const std::
                {
                     CloseSocket();
                     response.StatusCode = -1;
-                    response.ErrorMessage = "Timed out while writing HTTP request to server.";
+                    SetPotentiallyAmbiguousError(response,
+                                                 !request_is_idempotent && sent > 0,
+                                                 "Timed out while writing HTTP request to server.");
 
                     return response;
                }
 
                int write_result = 0;
+#ifdef HLQUERY_HAS_OPENSSL
                int ssl_write_error = 0;
+#endif
 
                if (UseSSL)
                {
@@ -695,9 +904,11 @@ HTTPResponse BenchmarkClient::MakeRequest(const std::string &method, const std::
 
                          CloseSocket();
                          response.StatusCode = -1;
-                         response.ErrorMessage = wait_result == BenchmarkSocketWaitResult::Interrupted
-                                                      ? "Interrupted by user (Ctrl+C)."
-                                                      : "Timed out while writing HTTPS request to server.";
+                         SetPotentiallyAmbiguousError(response,
+                                                      !request_is_idempotent && sent > 0,
+                                                      wait_result == BenchmarkSocketWaitResult::Interrupted
+                                                           ? "Interrupted by user (Ctrl+C)."
+                                                           : "Timed out while writing HTTPS request to server.");
 
                          return response;
                     }
@@ -732,16 +943,20 @@ HTTPResponse BenchmarkClient::MakeRequest(const std::string &method, const std::
                          {
                               CloseSocket();
                               response.StatusCode = -1;
-                              response.ErrorMessage = "Failed while waiting to write HTTP request to server.";
+                              SetPotentiallyAmbiguousError(response,
+                                                           !request_is_idempotent && sent > 0,
+                                                           "Failed while waiting to write HTTP request to server.");
 
                               return response;
                          }
 
                          CloseSocket();
                          response.StatusCode = -1;
-                         response.ErrorMessage = wait_result == BenchmarkSocketWaitResult::Interrupted
-                                                      ? "Interrupted by user (Ctrl+C)."
-                                                      : "Timed out while writing HTTP request to server.";
+                         SetPotentiallyAmbiguousError(response,
+                                                      !request_is_idempotent && sent > 0,
+                                                      wait_result == BenchmarkSocketWaitResult::Interrupted
+                                                           ? "Interrupted by user (Ctrl+C)."
+                                                           : "Timed out while writing HTTP request to server.");
 
                          return response;
                     }
@@ -749,14 +964,16 @@ HTTPResponse BenchmarkClient::MakeRequest(const std::string &method, const std::
 
                CloseSocket();
 
-               if (attempt < max_retries - 1)
+               if (attempt < max_retries - 1 && (request_is_idempotent || sent == 0))
                {
                     retry_after_write_failure = true;
                     break;
                }
 
                response.StatusCode = -1;
-               response.ErrorMessage = "Failed to write HTTP request to server.";
+               SetPotentiallyAmbiguousError(response,
+                                            !request_is_idempotent && sent > 0,
+                                            "Failed to write HTTP request to server.");
 
                return response;
           }
@@ -771,6 +988,12 @@ HTTPResponse BenchmarkClient::MakeRequest(const std::string &method, const std::
           std::string response_str;
 
           bool response_complete = false;
+          bool response_headers_parsed = false;
+          bool response_has_content_length = false;
+          bool response_connection_close = false;
+          bool response_is_close_delimited = false;
+          size_t response_header_end = 0;
+          size_t expected_content_length = 0;
 
           auto read_start = Now();
 
@@ -807,13 +1030,15 @@ HTTPResponse BenchmarkClient::MakeRequest(const std::string &method, const std::
 
                     CloseSocket();
 
-                    if (attempt < max_retries - 1)
+                    if (attempt < max_retries - 1 && request_is_idempotent)
                     {
                          break;
                     }
 
                     response.StatusCode = -1;
-                    response.ErrorMessage = "Timed out waiting for HTTP response from server.";
+                    SetPotentiallyAmbiguousError(response,
+                                                 !request_is_idempotent,
+                                                 "Timed out waiting for HTTP response from server.");
 
                     return response;
                }
@@ -845,13 +1070,15 @@ HTTPResponse BenchmarkClient::MakeRequest(const std::string &method, const std::
 
                          CloseSocket();
 
-                         if (attempt < max_retries - 1)
+                         if (attempt < max_retries - 1 && request_is_idempotent)
                          {
                               break;
                          }
 
                          response.StatusCode = -1;
-                         response.ErrorMessage = "Timed out waiting for HTTP response from server.";
+                         SetPotentiallyAmbiguousError(response,
+                                                      !request_is_idempotent,
+                                                      "Timed out waiting for HTTP response from server.");
 
                          return response;
                     }
@@ -865,14 +1092,18 @@ HTTPResponse BenchmarkClient::MakeRequest(const std::string &method, const std::
 
                          CloseSocket();
                          response.StatusCode = -1;
-                         response.ErrorMessage = "Failed while waiting for HTTP response from server.";
+                         SetPotentiallyAmbiguousError(response,
+                                                      !request_is_idempotent,
+                                                      "Failed while waiting for HTTP response from server.");
 
                          return response;
                     }
                }
 
                int bytes = 0;
+#ifdef HLQUERY_HAS_OPENSSL
                int ssl_read_error = 0;
+#endif
 
                if (UseSSL)
                {
@@ -929,9 +1160,11 @@ HTTPResponse BenchmarkClient::MakeRequest(const std::string &method, const std::
 
                     CloseSocket();
                     response.StatusCode = -1;
-                    response.ErrorMessage = wait_result == BenchmarkSocketWaitResult::Interrupted
-                                                 ? "Interrupted by user (Ctrl+C)."
-                                                 : "Timed out waiting for HTTPS response from server.";
+                    SetPotentiallyAmbiguousError(response,
+                                                 !request_is_idempotent,
+                                                 wait_result == BenchmarkSocketWaitResult::Interrupted
+                                                      ? "Interrupted by user (Ctrl+C)."
+                                                      : "Timed out waiting for HTTPS response from server.");
 
                     return response;
                }
@@ -954,13 +1187,19 @@ HTTPResponse BenchmarkClient::MakeRequest(const std::string &method, const std::
 
                if (bytes <= 0)
                {
-                    if (bytes == 0)
+                    if (bytes == 0 && response_headers_parsed &&
+                        ((!response_has_content_length && response_is_close_delimited) ||
+                         (response_has_content_length &&
+                          response_str.size() >= response_header_end + 4 + expected_content_length)))
                     {
-                         if (response_str.find("\r\n\r\n") != std::string::npos)
+                         if (sock_flags >= 0)
                          {
-                              response_complete = true;
-                              break;
+                              fcntl(sock, F_SETFL, sock_flags);
                          }
+
+                         CloseSocket();
+                         response_complete = true;
+                         break;
                     }
 
                     if (sock_flags >= 0)
@@ -970,84 +1209,145 @@ HTTPResponse BenchmarkClient::MakeRequest(const std::string &method, const std::
 
                     CloseSocket();
 
-                    if (attempt < max_retries - 1)
+                    if (attempt < max_retries - 1 && request_is_idempotent)
                     {
                          break;
                     }
 
                     response.StatusCode = -1;
-                    response.ErrorMessage = (bytes == 0)
-                                                 ? "Connection closed before a complete HTTP response was received."
-                                                 : "Failed to read HTTP response from server.";
+                    SetPotentiallyAmbiguousError(response,
+                                                 !request_is_idempotent,
+                                                 bytes == 0
+                                                      ? "Connection closed before a complete HTTP response was received."
+                                                      : "Failed to read HTTP response from server.");
+
+                    return response;
+               }
+
+               if (response_str.size() > MAX_BENCHMARK_RESPONSE_SIZE - static_cast<size_t>(bytes))
+               {
+                    if (sock_flags >= 0)
+                    {
+                         fcntl(sock, F_SETFL, sock_flags);
+                    }
+
+                    CloseSocket();
+                    response.StatusCode = -1;
+                    SetPotentiallyAmbiguousError(response,
+                                                 !request_is_idempotent,
+                                                 "HTTP response exceeded the 100 MiB benchmark-client limit.");
 
                     return response;
                }
 
                response_str.append(buffer, static_cast<size_t>(bytes));
 
-               size_t header_end = response_str.find("\r\n\r\n");
-
-               if (header_end != std::string::npos)
+               if (!response_headers_parsed)
                {
-                    std::string headers_part = response_str.substr(0, header_end);
-                    std::string headers_lower = headers_part;
-                    std::transform(headers_lower.begin(), headers_lower.end(), headers_lower.begin(),
-                                   [](unsigned char C)
-                                   {
-                                        return static_cast<char>(std::tolower(C));
-                                   });
-
-                    size_t cl_pos = headers_lower.find("content-length:");
-
-                    if (cl_pos != std::string::npos)
+                    response_header_end = response_str.find("\r\n\r\n");
+                    if (response_header_end == std::string::npos)
                     {
-                         size_t colon_pos = headers_part.find(':', cl_pos);
-                         size_t value_start = colon_pos == std::string::npos ? std::string::npos : headers_part.find_first_not_of(" \t", colon_pos + 1);
-                         size_t cl_end = headers_part.find("\r\n", cl_pos);
-                         if (cl_end == std::string::npos)
+                         if (response_str.size() > MAX_BENCHMARK_HEADER_SIZE)
                          {
-                              cl_end = headers_part.size();
+                              if (sock_flags >= 0)
+                              {
+                                   fcntl(sock, F_SETFL, sock_flags);
+                              }
+
+                              CloseSocket();
+                              response.StatusCode = -1;
+                              SetPotentiallyAmbiguousError(response,
+                                                           !request_is_idempotent,
+                                                           "HTTP response headers exceeded the 64 KiB benchmark-client limit.");
+
+                              return response;
                          }
 
-                         try
-                         {
-                              if (value_start == std::string::npos || value_start > cl_end)
-                              {
-                                   throw std::invalid_argument("missing Content-Length value");
-                              }
-
-                              std::string length_value = headers_part.substr(value_start, cl_end - value_start);
-                              size_t value_end = length_value.find_last_not_of(" \t");
-                              if (value_end != std::string::npos)
-                              {
-                                   length_value.erase(value_end + 1);
-                              }
-
-                              size_t parsed = 0;
-                              int len = std::stoi(length_value, &parsed);
-
-                              if (parsed != length_value.size() || len < 0)
-                              {
-                                   throw std::invalid_argument("invalid Content-Length value");
-                              }
-
-                              if (response_str.length() >= header_end + 4 + len)
-                              {
-                                   response_complete = true;
-                              }
-                         }
-                         catch (...)
-                         {
-                              response_complete = true;
-                         }
+                         continue;
                     }
-                    else
+
+                    if (response_header_end > MAX_BENCHMARK_HEADER_SIZE)
                     {
-                         if (response_str.find("}") != std::string::npos)
+                         if (sock_flags >= 0)
                          {
-                              response_complete = true;
+                              fcntl(sock, F_SETFL, sock_flags);
                          }
+
+                         CloseSocket();
+                         response.StatusCode = -1;
+                         SetPotentiallyAmbiguousError(response,
+                                                      !request_is_idempotent,
+                                                      "HTTP response headers exceeded the 64 KiB benchmark-client limit.");
+
+                         return response;
                     }
+
+                    bool connection_close = false;
+                    std::string framing_error;
+                    const std::string headers_part = response_str.substr(0, response_header_end);
+                    if (!ParseBenchmarkResponseHeaders(headers_part,
+                                                       response_has_content_length,
+                                                       expected_content_length,
+                                                       connection_close,
+                                                       framing_error))
+                    {
+                         if (sock_flags >= 0)
+                         {
+                              fcntl(sock, F_SETFL, sock_flags);
+                         }
+
+                         CloseSocket();
+                         response.StatusCode = -1;
+                         SetPotentiallyAmbiguousError(response,
+                                                      !request_is_idempotent,
+                                                      framing_error);
+
+                         return response;
+                    }
+
+                    response_headers_parsed = true;
+                    response_connection_close = connection_close;
+                    response_is_close_delimited = connection_close || !use_keep_alive;
+
+                    if (!response_has_content_length && !response_is_close_delimited)
+                    {
+                         if (sock_flags >= 0)
+                         {
+                              fcntl(sock, F_SETFL, sock_flags);
+                         }
+
+                         CloseSocket();
+                         response.StatusCode = -1;
+                         SetPotentiallyAmbiguousError(response,
+                                                      !request_is_idempotent,
+                                                      "Invalid keep-alive HTTP response: missing Content-Length.");
+
+                         return response;
+                    }
+
+                    const size_t body_start = response_header_end + 4;
+                    if (response_has_content_length &&
+                        expected_content_length > MAX_BENCHMARK_RESPONSE_SIZE - body_start)
+                    {
+                         if (sock_flags >= 0)
+                         {
+                              fcntl(sock, F_SETFL, sock_flags);
+                         }
+
+                         CloseSocket();
+                         response.StatusCode = -1;
+                         SetPotentiallyAmbiguousError(response,
+                                                      !request_is_idempotent,
+                                                      "HTTP Content-Length exceeded the 100 MiB benchmark-client limit.");
+
+                         return response;
+                    }
+               }
+
+               if (response_headers_parsed && response_has_content_length &&
+                   response_str.size() >= response_header_end + 4 + expected_content_length)
+               {
+                    response_complete = true;
                }
           }
 
@@ -1060,10 +1360,13 @@ HTTPResponse BenchmarkClient::MakeRequest(const std::string &method, const std::
           {
                size_t first_http = response_str.find("HTTP/");
 
-               if (first_http == std::string::npos)
+               if (first_http != 0)
                {
                     response.StatusCode = -1;
-                    response.ErrorMessage = "Invalid HTTP response: no HTTP/ header found.";
+                    SetPotentiallyAmbiguousError(response,
+                                                 !request_is_idempotent,
+                                                 "Invalid HTTP response: status line does not start with HTTP/.");
+                    CloseSocket();
 
                     return response;
                }
@@ -1073,7 +1376,10 @@ HTTPResponse BenchmarkClient::MakeRequest(const std::string &method, const std::
                if (header_end == std::string::npos)
                {
                     response.StatusCode = -1;
-                    response.ErrorMessage = "Invalid HTTP response: no header end found.";
+                    SetPotentiallyAmbiguousError(response,
+                                                 !request_is_idempotent,
+                                                 "Invalid HTTP response: no header end found.");
+                    CloseSocket();
 
                     return response;
                }
@@ -1134,7 +1440,9 @@ HTTPResponse BenchmarkClient::MakeRequest(const std::string &method, const std::
 
                if (response.StatusCode == -1)
                {
-                    response.ErrorMessage = "Failed to parse HTTP status code from response.";
+                    SetPotentiallyAmbiguousError(response,
+                                                 !request_is_idempotent,
+                                                 "Failed to parse HTTP status code from response.");
 
                     if (log_file_stream && log_file_stream->is_open())
                     {
@@ -1167,20 +1475,16 @@ HTTPResponse BenchmarkClient::MakeRequest(const std::string &method, const std::
                     return response;
                }
 
+               if (!request_is_idempotent && IsRetryableHTTPStatus(response.StatusCode))
+               {
+                    MarkAmbiguousNonIdempotentResponse(response,
+                                                       "Server returned HTTP " + std::to_string(response.StatusCode) + ".");
+               }
+
                size_t body_start = header_end + 4;
-
-               size_t next_http_start = response_str.find("\r\n\r\nHTTP/", header_end);
-
-               size_t body_end;
-
-               if (next_http_start != std::string::npos)
-               {
-                    body_end = next_http_start;
-               }
-               else
-               {
-                    body_end = response_str.length();
-               }
+               const size_t body_end = response_has_content_length
+                                            ? body_start + expected_content_length
+                                            : response_str.length();
 
                response.Body = response_str.substr(body_start, body_end - body_start);
 
@@ -1200,7 +1504,7 @@ HTTPResponse BenchmarkClient::MakeRequest(const std::string &method, const std::
                     }
                }
 
-               if (!use_keep_alive)
+               if (!use_keep_alive || response_connection_close)
                {
                     CloseSocket();
                }
@@ -1318,6 +1622,11 @@ static std::string LowercaseCopy(std::string value)
 
 bool BenchmarkClient::IsRetryableWriteResponse(const HTTPResponse &response) const
 {
+     if (IsAmbiguousNonIdempotentResponse(response))
+     {
+          return false;
+     }
+
      if (response.StatusCode == -1 || response.StatusCode == 408 || response.StatusCode == 425 ||
          response.StatusCode == 429 || response.StatusCode == 500 || response.StatusCode == 502 ||
          response.StatusCode == 503 || response.StatusCode == 504)
@@ -1449,6 +1758,13 @@ bool BenchmarkClient::CreateCollectionLocal(const std::string &name, int timeout
      content_field["facet"] = false;
 
      schema["fields"].push_back(content_field);
+
+     schema["fields"].push_back({{"name", "run_id"}, {"type", "string"}});
+     schema["fields"].push_back({{"name", "benchmark_seed"}, {"type", "string"}});
+     schema["fields"].push_back({{"name", "ordinal"}, {"type", "int64"}});
+     schema["fields"].push_back({{"name", "collection_number"}, {"type", "int32"}});
+     schema["fields"].push_back({{"name", "payload"}, {"type", "string"}});
+     schema["fields"].push_back({{"name", "payload_hash"}, {"type", "string"}});
 
      std::string json_str = schema.dump();
 
@@ -2395,6 +2711,11 @@ int BenchmarkClient::InsertDocumentsBulkRequest(const std::string &collection, c
 
 bool BenchmarkClient::IsRetryableBulkInsertResponse(const HTTPResponse &response) const
 {
+     if (IsAmbiguousNonIdempotentResponse(response))
+     {
+          return false;
+     }
+
      if (response.StatusCode == -1 || response.StatusCode == 408 || response.StatusCode == 425 ||
          response.StatusCode == 429 || response.StatusCode == 500 || response.StatusCode == 502 ||
          response.StatusCode == 503 || response.StatusCode == 504)
@@ -2522,6 +2843,66 @@ int BenchmarkClient::InsertDocumentsBulkInternal(const std::string &collection, 
 int BenchmarkClient::InsertDocumentsBulk(const std::string &collection, const std::vector<std::tuple<std::string, std::string, std::string>> &docs)
 {
      return InsertDocumentsBulkInternal(collection, docs, 0);
+}
+
+int BenchmarkClient::InsertVerifiedDocumentsBulk(const std::string &collection, const std::vector<VerifiedBenchmarkDocument> &docs)
+{
+     if (docs.empty())
+     {
+          return 0;
+     }
+
+     nlohmann::json payload;
+     payload["documents"] = nlohmann::json::array();
+     for (const auto &source : docs)
+     {
+          payload["documents"].push_back({
+               {"id", source.ID},
+               {"document_id", source.ID},
+               {"title", source.Title},
+               {"content", source.Content},
+               {"run_id", source.RunID},
+               {"benchmark_seed", source.Seed},
+               {"ordinal", source.Ordinal},
+               {"collection_number", source.Collection},
+               {"payload", source.Payload},
+               {"payload_hash", source.PayloadHash}
+          });
+     }
+
+     const std::string encoded_collection = UrlEncode(collection);
+     const int timeout_ms = std::clamp(static_cast<int>(docs.size()) * 10, 5000, 60000);
+     HTTPResponse response = MakeWriteRequestWithRetry(
+          "POST",
+          "/collections/" + encoded_collection + "/documents/import?assume_new=true&batch_size=" + std::to_string(docs.size()),
+          payload.dump(), 3, true, timeout_ms);
+
+     if (response.StatusCode != 200 && response.StatusCode != 201 &&
+         !IsLocalWriteCommittedDespiteReplicationError(response))
+     {
+          return 0;
+     }
+
+     if (IsLocalWriteCommittedDespiteReplicationError(response))
+     {
+          return static_cast<int>(docs.size());
+     }
+
+     try
+     {
+          const nlohmann::json result = nlohmann::json::parse(response.Body);
+          const int imported = result.value("imported", 0);
+          const int failed = result.value("failed", 0);
+          if (failed != 0 || imported < 0)
+          {
+               return 0;
+          }
+          return std::min(imported, static_cast<int>(docs.size()));
+     }
+     catch (...)
+     {
+          return 0;
+     }
 }
 
 int BenchmarkClient::InsertDocumentsBulkLocal(const std::string &collection, const std::vector<std::tuple<std::string, std::string, std::string>> &docs)
@@ -2775,6 +3156,11 @@ HTTPResponse BenchmarkClient::GetMetrics()
      return MakeRequest("GET", "/metrics");
 }
 
+HTTPResponse BenchmarkClient::GetStorageDiagnostics()
+{
+     return MakeRequest("GET", "/_diagnostics/storage", "", 1, true, 5000);
+}
+
 /* Triggers a counter update on the server. */
 
 HTTPResponse BenchmarkClient::UpdateCounters(const std::string &prefix)
@@ -2791,7 +3177,13 @@ HTTPResponse BenchmarkClient::UpdateCounters(const std::string &prefix)
 
 HTTPResponse BenchmarkClient::FlushSync(const std::string &prefix)
 {
-     return UpdateCounters(prefix);
+     (void)prefix;
+     const nlohmann::json RequestBody = {
+          {"sync_wal", true},
+          {"flush_memtables", false},
+          {"wait_for_compaction", false}
+     };
+     return MakeRequest("POST", "/_admin/storage/durability-barrier", RequestBody.dump(), 1, true, 30000);
 }
 
 /* Encodes a string for use in a URL. */

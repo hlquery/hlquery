@@ -1099,6 +1099,38 @@ EOF
 }
 
 # Configuration generation
+
+sub write_generated_file_if_changed {
+    my ($path, $content, $mode) = @_;
+
+    if (-f $path) {
+        open my $existing_fh, '<', $path or die "Cannot read generated file $path: $!\n";
+        local $/;
+        my $existing_content = <$existing_fh>;
+        close $existing_fh;
+
+        if (defined($existing_content) && $existing_content eq $content) {
+            chmod $mode, $path;
+            return 0;
+        }
+    }
+
+    my $temporary_path = $path . '.tmp.' . $$;
+    open my $temporary_fh, '>', $temporary_path or die "Cannot write generated file $temporary_path: $!\n";
+    print $temporary_fh $content;
+    close $temporary_fh or do {
+        unlink $temporary_path;
+        die "Cannot close generated file $temporary_path: $!\n";
+    };
+    chmod $mode, $temporary_path;
+    rename $temporary_path, $path or do {
+        unlink $temporary_path;
+        die "Cannot replace generated file $path: $!\n";
+    };
+
+    return 1;
+}
+
 # Configuration generation - REFACTORED: Uses template file for cleaner code
 sub generate_config_h {
     my ($disable_lsm) = @_;
@@ -1190,12 +1222,7 @@ sub generate_config_h {
         $template_content =~ s/\$\{$key\}/$value/g;
     }
     
-    # Write the generated config.h
-    open my $fh, '>', $config_path or die "Cannot write $config_path: $!\n";
-    print $fh $template_content;
-    close $fh;
-    
-    chmod 0644, $config_path;
+    return write_generated_file_if_changed($config_path, $template_content, 0644);
 }
 
 sub generate_makefile {
@@ -1275,24 +1302,10 @@ sub generate_makefile {
     $template_content =~ s/\$\{EXTRA_MODULE_ENABLED_NAMES\}/$extra_module_enabled_names/g;
     $template_content =~ s/\$\{EXTRA_MODULE_BUILD_RULES\}/$extra_module_rules/g;
     
-    # Write the generated Makefile.
+    # Write the generated Makefile only when its contents changed. Preserving
+    # the timestamp prevents a no-op configure from rebuilding every object.
     my $abs_makefile_path = rel2abs($makefile_path);
-    open my $makefile_fh, '>', $abs_makefile_path or do {
-        print_error("Cannot write Makefile at $abs_makefile_path: $!");
-        print_error("Current directory: " . getcwd());
-        die "Cannot write Makefile at $abs_makefile_path: $!\n";
-    };
-    print $makefile_fh $template_content;
-    close $makefile_fh or do {
-        print_error("Cannot close Makefile: $!");
-        die "Cannot close Makefile: $!\n";
-    };
-    
-    # Force filesystem sync BEFORE verification to ensure file is written
-    system('sync') if ($^O ne 'MSWin32');
-    
-    # Small delay to allow filesystem to catch up (especially in Docker/VMs)
-    select(undef, undef, undef, 0.1);
+    my $makefile_changed = write_generated_file_if_changed($abs_makefile_path, $template_content, 0644);
     
     # Verify Makefile was written
     if (!-f $abs_makefile_path) {
@@ -1307,8 +1320,6 @@ sub generate_makefile {
         die "Error: Makefile is empty at $abs_makefile_path\n";
     }
     
-    chmod 0644, $abs_makefile_path;
-
     if (@{$module_annotations->{package_lines}}) {
         print_status('INFO', 'Module package hints', scalar(@{$module_annotations->{package_lines}}) . ' module(s)');
         foreach my $line (@{$module_annotations->{package_lines}}) {
@@ -1346,9 +1357,8 @@ sub generate_makefile {
         print_error("Makefile appears to be too small ($makefile_size bytes)");
         die "Error: Makefile appears to be invalid (size: $makefile_size bytes)\n";
     }
-    
-    # Final sync after all operations
-    system('sync') if ($^O ne 'MSWin32');
+
+    return $makefile_changed;
 }
 
 sub generate_hlquery_wrapper {
@@ -1470,12 +1480,12 @@ sub cleanup_old_builds {
         catdir($base_path, BUILD_DIR, 'bin')
     );
     
-    for my $dir (@cleanup_dirs) {
-        if (-d $dir) {
-            print_step("Cleaning old build artifacts");
-            system("rm -rf '$dir'");
-            last;
-        }
+    my @existing_dirs = grep { -d $_ } @cleanup_dirs;
+    return unless @existing_dirs;
+
+    print_step("Cleaning old build artifacts");
+    for my $dir (@existing_dirs) {
+        rmtree($dir);
     }
 }
 
@@ -1916,7 +1926,7 @@ sub main {
     mkpath(catdir($base_path, INCLUDE_DIR)) unless -d catdir($base_path, INCLUDE_DIR);
     
     print_step('Generating configuration cache');
-    generate_config_h($disable_lsm);
+    my $config_header_changed = generate_config_h($disable_lsm);
     print_success('Generated include/core/config.h');
     
     print_step('Generating Makefile');
@@ -1927,8 +1937,9 @@ sub main {
     }
     
     # Call generate_makefile with error handling
+    my $makefile_changed = 0;
     eval {
-        generate_makefile($enabled_extras, $reconfigure_command);
+        $makefile_changed = generate_makefile($enabled_extras, $reconfigure_command);
     };
     if ($@) {
         print_error("Makefile generation failed: $@");
@@ -1959,7 +1970,7 @@ sub main {
     
     # Setup configuration caching and cleanup
     setup_config_cache();
-    cleanup_old_builds();
+    cleanup_old_builds() if $config_header_changed || $makefile_changed;
     
     # Create test infrastructure
     create_test_infrastructure();

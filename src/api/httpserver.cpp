@@ -2840,6 +2840,14 @@ void HttpConnection::ProcessSingleRequest(const std::string &RequestStr)
           {
                Response = API.HandleStorageStatus(Request);
           }
+          else if (Request.Path == "/_diagnostics/storage" && Request.Method == "GET")
+          {
+               Response = API.HandleStorageDiagnostics(Request);
+          }
+          else if (Request.Path == "/_admin/storage/durability-barrier" && Request.Method == "POST")
+          {
+               Response = API.HandleDurabilityBarrier(Request);
+          }
           else if (Request.Path.find("/collections/") == 0 && (Request.Path.find("/vector_search") != std::string::npos || VectorSearchAlias) && (Request.Method == "GET" || Request.Method == "POST"))
           {
                Response = API.HandleVectorSearch(Request);
@@ -5375,6 +5383,12 @@ static HttpResponse DispatchResolvedRoute(SearchAPI &API, const HttpRequest &Req
 
                case RouteAction::StorageStatus:
                     return API.HandleStorageStatus(Request);
+
+               case RouteAction::StorageDiagnostics:
+                    return API.HandleStorageDiagnostics(Request);
+
+               case RouteAction::DurabilityBarrier:
+                    return API.HandleDurabilityBarrier(Request);
 
                case RouteAction::ListCollections:
                     return API.HandleListCollections(Request);

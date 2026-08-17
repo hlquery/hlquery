@@ -1340,27 +1340,65 @@ bool SegmentManager::FlushAndSync()
 
 bool SegmentManager::SyncWAL()
 {
+     const auto results = ExecuteDurabilityBarrier(true, false);
+     return std::all_of(results.begin(), results.end(), [](const DurabilityInstanceResult &result) {
+          return result.Success;
+     });
+}
+
+std::vector<SegmentManager::DurabilityInstanceResult>
+SegmentManager::ExecuteDurabilityBarrier(bool sync_wal, bool flush_memtables)
+{
      std::unique_lock<std::shared_mutex> write_lock(WriteMutex);
      auto snapshot = Snapshot();
-     bool ok = true;
+     std::vector<DurabilityInstanceResult> results;
 
-     if (snapshot)
+     /* This may write system-DB metadata. DBManager syncs the system DB after us. */
      {
-          for (const auto &segment : snapshot->LiveNewestFirst)
+          const auto start = std::chrono::steady_clock::now();
+          bool metadata_ok = false;
           {
-               if (segment && segment->DB)
-               {
-                    ok = segment->DB->SyncWAL().ok() && ok;
-               }
+               std::lock_guard<std::mutex> lock(SegmentMutex);
+               metadata_ok = PersistActiveMetadataIfNeededLocked(true);
           }
+          results.push_back({"segment_metadata", "persist", metadata_ok ? "OK" : "metadata persistence failed",
+                             std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count(),
+                             metadata_ok});
      }
 
+     if (!snapshot)
      {
-          std::lock_guard<std::mutex> lock(SegmentMutex);
-          ok = PersistActiveMetadataIfNeededLocked(true) && ok;
+          return results;
      }
 
-     return ok;
+     for (const auto &segment : snapshot->LiveNewestFirst)
+     {
+          if (!segment || !segment->DB)
+          {
+               continue;
+          }
+
+          const auto start = std::chrono::steady_clock::now();
+          rocksdb::Status status = rocksdb::Status::OK();
+          std::string operation;
+
+          if (flush_memtables)
+          {
+               operation = "Flush";
+               status = segment->DB->Flush(rocksdb::FlushOptions());
+          }
+          if (status.ok() && sync_wal)
+          {
+               operation += operation.empty() ? "SyncWAL" : "+SyncWAL";
+               status = segment->DB->SyncWAL();
+          }
+
+          results.push_back({"segment:" + segment->Metadata.Id, operation, status.ToString(),
+                             std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count(),
+                             status.ok()});
+     }
+
+     return results;
 }
 
 void SegmentManager::Compact()

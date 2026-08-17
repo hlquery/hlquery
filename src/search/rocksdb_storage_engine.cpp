@@ -11,6 +11,7 @@
  */
 
 #include <algorithm>
+#include <chrono>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
@@ -621,6 +622,8 @@ bool DBManager::IsDocumentKey(const std::string &key) const
 
 bool DBManager::Set(const std::string &key, const std::string &value)
 {
+     std::shared_lock<std::shared_mutex> boundary_lock(DurabilityBoundaryMutex);
+
      if (!DBValue)
      {
           return false;
@@ -667,6 +670,8 @@ bool DBManager::Set(const std::string &key, const std::string &value)
 
 bool DBManager::SetIfNotExists(const std::string &key, const std::string &value)
 {
+     std::shared_lock<std::shared_mutex> boundary_lock(DurabilityBoundaryMutex);
+
      if (!DBValue)
      {
           return false;
@@ -710,6 +715,8 @@ bool DBManager::SetIfNotExists(const std::string &key, const std::string &value)
 
 size_t DBManager::BatchSet(const std::vector<std::pair<std::string, std::string>> &key_values)
 {
+     std::shared_lock<std::shared_mutex> boundary_lock(DurabilityBoundaryMutex);
+
      if (!DBValue || key_values.empty())
      {
           return 0;
@@ -844,6 +851,8 @@ std::string DBManager::Get(const std::string &key)
 
 int DBManager::Del(const std::string &key)
 {
+     std::shared_lock<std::shared_mutex> boundary_lock(DurabilityBoundaryMutex);
+
      if (!DBValue)
      {
           return 0;
@@ -863,6 +872,8 @@ int DBManager::Del(const std::string &key)
 
 size_t DBManager::DeleteRange(const std::string &start_key, const std::string &end_key)
 {
+     std::shared_lock<std::shared_mutex> boundary_lock(DurabilityBoundaryMutex);
+
      if (!DBValue)
      {
           return 0;
@@ -880,6 +891,8 @@ size_t DBManager::DeleteRange(const std::string &start_key, const std::string &e
 
 bool DBManager::ClearDocumentStorage()
 {
+     std::shared_lock<std::shared_mutex> boundary_lock(DurabilityBoundaryMutex);
+
      if (!DBValue)
      {
           return false;
@@ -1202,6 +1215,77 @@ bool DBManager::SyncWAL()
      return true;
 }
 
+DBManager::DurabilityBarrierResult
+DBManager::ExecuteDurabilityBarrier(bool sync_wal, bool flush_memtables)
+{
+     DurabilityBarrierResult result;
+     const auto total_start = std::chrono::steady_clock::now();
+     const auto wait_start = total_start;
+     std::unique_lock<std::shared_mutex> boundary_lock(DurabilityBoundaryMutex);
+     result.QueuedWritesWaitMS = std::chrono::duration<double, std::milli>(
+          std::chrono::steady_clock::now() - wait_start).count();
+
+     std::lock_guard<std::mutex> db_lock(DBValueMutex);
+     DatabaseSyncGuard sync_guard;
+
+     if (!DBValue)
+     {
+          result.Instances.push_back({"system", "unavailable", "database is not open", 0.0, false});
+          result.TotalMS = std::chrono::duration<double, std::milli>(
+               std::chrono::steady_clock::now() - total_start).count();
+          return result;
+     }
+
+     /* Every logical mutation that began before this lock has now completed. */
+     result.Sequence = DBValue->GetLatestSequenceNumber();
+
+     if (SegmentedStorageEnabled && SegmentManagerValue)
+     {
+          for (const auto &segment_result : SegmentManagerValue->ExecuteDurabilityBarrier(sync_wal, flush_memtables))
+          {
+               result.Instances.push_back({segment_result.Name, segment_result.Operation, segment_result.Status,
+                                           segment_result.ElapsedMS, segment_result.Success});
+          }
+     }
+
+     const auto system_start = std::chrono::steady_clock::now();
+     rocksdb::Status system_status = rocksdb::Status::OK();
+     std::string operation;
+
+     if (flush_memtables)
+     {
+          operation = "Flush";
+          system_status = DBValue->Flush(rocksdb::FlushOptions());
+     }
+     if (system_status.ok() && sync_wal)
+     {
+          operation += operation.empty() ? "SyncWAL" : "+SyncWAL";
+          system_status = DBValue->SyncWAL();
+     }
+
+     result.Instances.push_back({"system", operation, system_status.ToString(),
+                                 std::chrono::duration<double, std::milli>(
+                                      std::chrono::steady_clock::now() - system_start).count(),
+                                 system_status.ok()});
+
+     result.Success = !result.Instances.empty() &&
+          std::all_of(result.Instances.begin(), result.Instances.end(),
+                      [](const DurabilityInstanceResult &instance) { return instance.Success; });
+
+     if (result.Success)
+     {
+          ClearLastSyncError();
+     }
+     else if (!system_status.ok())
+     {
+          RecordSyncFailure("ExecuteDurabilityBarrier", "rocksdb_wal_sync_failed", system_status);
+     }
+
+     result.TotalMS = std::chrono::duration<double, std::milli>(
+          std::chrono::steady_clock::now() - total_start).count();
+     return result;
+}
+
 /* Trigger manual compaction */
 
 void DBManager::Compact()
@@ -1401,14 +1485,28 @@ DBManager::Stats DBManager::GetRocksDBStats() const
           uint64_t memtable_size = 0;
           uint64_t block_cache_usage = 0;
           uint64_t index_and_filter_cache_usage = 0;
+          uint64_t pending_compaction_bytes = 0;
+          uint64_t running_flushes = 0;
+          uint64_t running_compactions = 0;
 
           DBValue->GetIntProperty("rocksdb.cur-size-all-mem-tables", &memtable_size);
           DBValue->GetIntProperty("rocksdb.block-cache-usage", &block_cache_usage);
           DBValue->GetIntProperty("rocksdb.estimate-table-readers-mem", &index_and_filter_cache_usage);
+          DBValue->GetIntProperty("rocksdb.estimate-pending-compaction-bytes", &pending_compaction_bytes);
+          DBValue->GetIntProperty("rocksdb.num-running-flushes", &running_flushes);
+          DBValue->GetIntProperty("rocksdb.num-running-compactions", &running_compactions);
 
           stats.memtable_size = memtable_size;
           stats.block_cache_usage = block_cache_usage;
           stats.index_and_filter_cache_usage = index_and_filter_cache_usage;
+          stats.pending_compaction_bytes = pending_compaction_bytes;
+          stats.running_flushes = running_flushes;
+          stats.running_compactions = running_compactions;
+          if (OptionsValue.statistics)
+          {
+               stats.write_stall_micros = OptionsValue.statistics->getTickerCount(rocksdb::STALL_MICROS);
+               stats.rocksdb_bytes_written = OptionsValue.statistics->getTickerCount(rocksdb::BYTES_WRITTEN);
+          }
 
           std::uint64_t total_size_bytes = 0;
           std::uint64_t sstable_count = 0;
@@ -1467,6 +1565,40 @@ std::string DBManager::GetDBPath() const
      }
 
      return DBPath;
+}
+
+uint64_t DBManager::GetLatestSequenceNumber() const
+{
+     std::lock_guard<std::mutex> lock(DBValueMutex);
+     return DBValue ? DBValue->GetLatestSequenceNumber() : 0;
+}
+
+std::string DBManager::GetWALSyncMode() const
+{
+     return WALSyncMode;
+}
+
+rocksdb::WriteOptions DBManager::GetEffectiveWriteOptions() const
+{
+     return GetWriteOptions();
+}
+
+rocksdb::Options DBManager::GetEffectiveOptions() const
+{
+     std::lock_guard<std::mutex> lock(DBValueMutex);
+     return OptionsValue;
+}
+
+std::string DBManager::GetLastSyncErrorCode() const
+{
+     std::lock_guard<std::mutex> lock(LastSyncErrorMutex);
+     return LastSyncErrorCode;
+}
+
+std::string DBManager::GetLastSyncErrorMessage() const
+{
+     std::lock_guard<std::mutex> lock(LastSyncErrorMutex);
+     return LastSyncErrorMessage;
 }
 
 /* Get actual number of background threads */

@@ -14,6 +14,8 @@
 #include <atomic>
 #include <cctype>
 #include <chrono>
+#include <cmath>
+#include <filesystem>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
@@ -210,12 +212,19 @@ void PrintProgressBar(int current, int total, const std::string &label, int /* b
 
      int last_percent = last_printed_percent.load();
 
-     if (percent / 5 == last_percent / 5 && current < total)
+     if ((current >= total && last_percent >= 100) ||
+         (percent / 5 == last_percent / 5 && current < total))
      {
           return;
      }
 
-     if (!progress_bar_mutex.try_lock())
+     const bool completed = current >= total || percent >= 100;
+
+     if (completed)
+     {
+          progress_bar_mutex.lock();
+     }
+     else if (!progress_bar_mutex.try_lock())
      {
           return;
      }
@@ -224,9 +233,11 @@ void PrintProgressBar(int current, int total, const std::string &label, int /* b
 
      int current_bucket = current_percent / 5;
 
-     int last_bucket = last_printed_percent.load() / 5;
+     const int latest_percent = last_printed_percent.load();
+     int last_bucket = latest_percent / 5;
 
-     if (current_bucket == last_bucket && current < total)
+     if ((current >= total && latest_percent >= 100) ||
+         (current_bucket == last_bucket && current < total))
      {
           progress_bar_mutex.unlock();
 
@@ -488,13 +499,70 @@ void WriteAdvancedJSON(const std::string &filename, const AdvancedMetrics &metri
                {"batch_sizes", metrics.BatchSizes},
                {"batch_collections", metrics.BatchCollections}};
 
+     if (!metrics.LatencySamples.empty())
+     {
+          std::vector<int64_t> latencies;
+          latencies.reserve(metrics.LatencySamples.size());
+          long double sum = 0.0L;
+          for (const auto &sample : metrics.LatencySamples)
+          {
+               latencies.push_back(sample.LatencyNS);
+               sum += static_cast<long double>(sample.LatencyNS);
+          }
+          std::sort(latencies.begin(), latencies.end());
+          const auto percentile = [&latencies](double value) -> int64_t
+          {
+               const size_t index = std::max<size_t>(1, static_cast<size_t>(std::ceil(value * latencies.size()))) - 1;
+               return latencies[std::min(index, latencies.size() - 1)];
+          };
+          const long double mean = sum / static_cast<long double>(latencies.size());
+          long double squared = 0.0L;
+          for (const int64_t value : latencies)
+          {
+               const long double delta = static_cast<long double>(value) - mean;
+               squared += delta * delta;
+          }
+          output["latency_summary_ns"] = {
+               {"samples", latencies.size()}, {"min", latencies.front()}, {"mean", static_cast<double>(mean)},
+               {"median", percentile(0.5)}, {"p90", percentile(0.90)}, {"p95", percentile(0.95)},
+               {"p99", percentile(0.99)}, {"p99_9", percentile(0.999)}, {"max", latencies.back()},
+               {"standard_deviation", std::sqrt(static_cast<double>(squared / latencies.size()))}
+          };
+     }
+
      output["durability"] =
           {
                {"config_path", metrics.DurabilityConfigPath},
                {"wal_sync_mode", metrics.WalSyncMode},
                {"wal_bytes_per_sync", metrics.WalBytesPerSync},
                {"manual_wal_flush", metrics.ManualWalFlush},
-               {"commit_status_code", metrics.CommitStatusCode}};
+               {"verified", metrics.DurabilityVerified},
+               {"filesystem", metrics.StorageFilesystem},
+               {"memory_filesystem", metrics.MemoryFilesystem},
+               {"commit_status_code", metrics.CommitStatusCode},
+               {"barrier_id", metrics.BarrierID},
+               {"barrier_sequence", metrics.BarrierSequence},
+               {"rocksdb_wal_sync_ms", metrics.BarrierWALSyncMS},
+               {"barrier_total_ms", metrics.BarrierTotalMS},
+               {"rocksdb_status", metrics.BarrierRocksDBStatus}};
+
+     output["integrity"] = {
+          {"verified", !metrics.IntegrityExpectedChecksum.empty()},
+          {"passed", !metrics.IntegrityExpectedChecksum.empty() &&
+                     metrics.IntegrityExpected == metrics.IntegrityObserved && metrics.IntegrityMissing == 0 &&
+                     metrics.IntegrityDuplicate == 0 && metrics.IntegrityUnexpected == 0 &&
+                     metrics.IntegrityCorrupted == 0 && metrics.IntegrityMalformed == 0 &&
+                     metrics.IntegrityExpectedLogicalBytes == metrics.IntegrityObservedLogicalBytes &&
+                     metrics.IntegrityExpectedChecksum == metrics.IntegrityObservedChecksum},
+          {"expected", metrics.IntegrityExpected}, {"observed", metrics.IntegrityObserved},
+          {"missing", metrics.IntegrityMissing}, {"duplicate", metrics.IntegrityDuplicate},
+          {"unexpected", metrics.IntegrityUnexpected}, {"corrupted", metrics.IntegrityCorrupted},
+          {"malformed", metrics.IntegrityMalformed}, {"duration_ms", metrics.IntegrityDurationMS},
+          {"expected_logical_bytes", metrics.IntegrityExpectedLogicalBytes},
+          {"observed_logical_bytes", metrics.IntegrityObservedLogicalBytes},
+          {"aggregate_expected_checksum", metrics.IntegrityExpectedChecksum},
+          {"aggregate_observed_checksum", metrics.IntegrityObservedChecksum}
+     };
 
      output["conditions"] =
           {
@@ -802,6 +870,33 @@ void WriteAdvancedJSON(const std::string &filename, const AdvancedMetrics &metri
           file.close();
 
           std::cout << "\nAdvanced metrics written to: " << filename << ".\n";
+
+          if (!metrics.LatencySamples.empty())
+          {
+               const std::filesystem::path latency_path = std::filesystem::path(filename).parent_path() / "latencies.csv";
+               std::ofstream latency_file(latency_path);
+               if (latency_file.is_open())
+               {
+                    latency_file << "timestamp_ns,worker_id,collection,batch_number,documents,logical_bytes,latency_ns,http_status,server_write_ns,error\n";
+                    for (const auto &sample : metrics.LatencySamples)
+                    {
+                         const auto quote = [](std::string value)
+                         {
+                              size_t offset = 0;
+                              while ((offset = value.find('"', offset)) != std::string::npos)
+                              {
+                                   value.insert(offset, 1, '"');
+                                   offset += 2;
+                              }
+                              return "\"" + value + "\"";
+                         };
+                         latency_file << sample.TimestampNS << ',' << sample.WorkerID << ',' << quote(sample.Collection) << ','
+                                      << sample.BatchNumber << ',' << sample.Documents << ',' << sample.LogicalBytes << ','
+                                      << sample.LatencyNS << ',' << sample.HTTPStatus << ',' << sample.ServerWriteNS << ','
+                                      << quote(sample.Error) << '\n';
+                    }
+               }
+          }
      }
      else
      {

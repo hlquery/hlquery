@@ -15,8 +15,6 @@
 #include <map>
 #include <string>
 
-namespace hlquery_cli
-{
 /* HTTPResponse struct represents a response from the server. */
 
 struct HTTPResponse
@@ -41,6 +39,7 @@ struct HTTPResponse
 
      HTTPResponse() : StatusCode(-1)
      {
+
      }
 };
 
@@ -49,6 +48,7 @@ struct HTTPResponse
 class HTTPClient
 {
    private:
+
      /* Base URL for requests, including scheme and host. */
 
      std::string BaseURL;
@@ -74,6 +74,7 @@ class HTTPClient
      void ParseURL(const std::string &url);
 
    public:
+
      /* Constructor for HTTPClient. */
 
      HTTPClient(const std::string &base_url, bool raw_mode = false, const std::string &auth_token = "");
@@ -96,4 +97,3 @@ class HTTPClient
           AuthToken = token;
      }
 };
-}

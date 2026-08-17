@@ -31,6 +31,7 @@
 #include <rocksdb/status.h>
 #include <rocksdb/table.h>
 #include <rocksdb/write_batch.h>
+#include <shared_mutex>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -63,6 +64,10 @@ class DBManager
      /* DBValueMutex serializes DB handle flush/sync operations with shutdown. */
 
      mutable std::mutex DBValueMutex;
+
+     /* Serializes a durability boundary against every logical mutation. */
+
+     mutable std::shared_mutex DurabilityBoundaryMutex;
 
      /* OptionsValue stores RocksDB options. */
 
@@ -135,6 +140,24 @@ class DBManager
      void ClearLastSyncError();
 
    public:
+     struct DurabilityInstanceResult
+     {
+          std::string Name;
+          std::string Operation;
+          std::string Status;
+          double ElapsedMS = 0.0;
+          bool Success = false;
+     };
+
+     struct DurabilityBarrierResult
+     {
+          bool Success = false;
+          uint64_t Sequence = 0;
+          double QueuedWritesWaitMS = 0.0;
+          double TotalMS = 0.0;
+          std::vector<DurabilityInstanceResult> Instances;
+     };
+
      /* Constructor. */
 
      DBManager();
@@ -227,6 +250,10 @@ class DBManager
 
      bool SyncWAL();
 
+     /* Establishes an atomic boundary against all writes and syncs every DB. */
+
+     DurabilityBarrierResult ExecuteDurabilityBarrier(bool sync_wal, bool flush_memtables);
+
      /* Compact runs RocksDB compaction. */
 
      void Compact();
@@ -277,6 +304,11 @@ class DBManager
           uint64_t total_db_size = 0;
           uint64_t memtable_size = 0;
           uint64_t num_sst_files = 0;
+          uint64_t pending_compaction_bytes = 0;
+          uint64_t running_flushes = 0;
+          uint64_t running_compactions = 0;
+          uint64_t write_stall_micros = 0;
+          uint64_t rocksdb_bytes_written = 0;
           bool segmented_storage_enabled = false;
           std::string active_segment_id;
           uint64_t sealed_segment_count = 0;
@@ -294,6 +326,27 @@ class DBManager
      /* GetDBPath returns the database path. */
 
      std::string GetDBPath() const;
+
+     /* GetLatestSequenceNumber returns RocksDB's latest committed sequence. */
+
+     uint64_t GetLatestSequenceNumber() const;
+
+     /* GetWALSyncMode returns the effective per-write WAL mode. */
+
+     std::string GetWALSyncMode() const;
+
+     /* GetEffectiveWriteOptions returns the options used by storage writes. */
+
+     rocksdb::WriteOptions GetEffectiveWriteOptions() const;
+
+     /* GetEffectiveOptions returns a snapshot of the opened RocksDB options. */
+
+     rocksdb::Options GetEffectiveOptions() const;
+
+     /* Returns the last structured flush or WAL synchronization error. */
+
+     std::string GetLastSyncErrorCode() const;
+     std::string GetLastSyncErrorMessage() const;
 
      /* GetBackgroundThreadCount returns background thread count. */
 

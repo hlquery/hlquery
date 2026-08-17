@@ -1229,8 +1229,8 @@ static std::string BuildSelectSQLResponse(const SQLTranslationResult &SQLResult,
      return BuildSQLRowsResponse(PagedRows,
                                  TotalRows,
                                  TotalRows,
-                                 SearchResult.Page,
-                                 SearchResult.PerPage,
+                                 Query.Page,
+                                 Query.PerPage,
                                  Query.Offset,
                                  SearchResult.SearchTimeMS,
                                  false,
@@ -1423,6 +1423,35 @@ static SQLParamApplyResult ApplySQLSearchParams(std::unordered_map<std::string, 
                                                 const std::string &PathCollection)
 {
      SQLParamApplyResult Result;
+     const bool HasRequestedPage = Params.count("page") > 0;
+     const bool HasRequestedPerPage = Params.count("per_page") > 0;
+     int RequestedPage = 1;
+     int RequestedPerPage = 0;
+
+     if (HasRequestedPage)
+     {
+          try
+          {
+               RequestedPage = std::max(1, std::stoi(Params.at("page")));
+          }
+          catch (...)
+          {
+               RequestedPage = 1;
+          }
+     }
+
+     if (HasRequestedPerPage)
+     {
+          try
+          {
+               RequestedPerPage = std::clamp(std::stoi(Params.at("per_page")), 1, 1000);
+          }
+          catch (...)
+          {
+               RequestedPerPage = 100;
+          }
+     }
+
      auto SQLIt = Params.find("sql");
      if (SQLIt == Params.end() || SQLIt->second.empty())
      {
@@ -1588,6 +1617,30 @@ static SQLParamApplyResult ApplySQLSearchParams(std::unordered_map<std::string, 
      {
           Params["offset"] = std::to_string((SQLResult.Query.Page - 1) * SQLResult.Query.PerPage);
           Result.DerivedParams["offset"] = std::to_string((SQLResult.Query.Page - 1) * SQLResult.Query.PerPage);
+     }
+
+     /* Explicit HTTP pagination overrides SQL LIMIT/OFFSET. This lets clients
+      * keep the SQL text stable while moving through the result pages. */
+
+     if (HasRequestedPage || HasRequestedPerPage)
+     {
+          const int EffectivePerPage = HasRequestedPerPage
+                                            ? RequestedPerPage
+                                            : std::clamp(SQLResult.Query.PerPage, 1, 1000);
+          const int EffectivePage = HasRequestedPage ? RequestedPage : 1;
+          const long long RequestedOffset = static_cast<long long>(EffectivePage - 1) * EffectivePerPage;
+          const int EffectiveOffset = RequestedOffset > std::numeric_limits<int>::max()
+                                           ? std::numeric_limits<int>::max()
+                                           : static_cast<int>(RequestedOffset);
+
+          Params["limit"] = std::to_string(EffectivePerPage);
+          Params["offset"] = std::to_string(EffectiveOffset);
+          Result.DerivedParams["limit"] = Params["limit"];
+          Result.DerivedParams["offset"] = Params["offset"];
+          Result.Translation.HasExplicitLimit = true;
+          Result.Translation.Query.PerPage = EffectivePerPage;
+          Result.Translation.Query.Page = EffectivePage;
+          Result.Translation.Query.Offset = EffectiveOffset;
      }
 
      return Result;

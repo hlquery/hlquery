@@ -8,15 +8,20 @@ benchmark document generator, naming, payload shape, and performance workload
 are unchanged by these public demo fixtures.
 
 People, organizations other than the named universities, artworks, companies,
-incidents, and market instruments in these fixtures are fictional. University
-names, cities, states, countries, and broad institution types are catalog
-references; their `search_topics` are synthetic query aids. The fixture contains
-no university ranking, score, enrollment count, or invented campus coordinate.
-Finance and stock scenarios contain no live data or recommendations.
+incidents, and market instruments in these fixtures are fictional. The
+`universities` fixture is a dated snapshot of the top 100 entries in the
+Webometrics January 2026 world ranking. Its names, locations, published
+ranking fields, edition, and source URL are factual references. Each document's
+content restates its institution, location, and four ranking positions;
+`search_topics` are synthetic query aids. City and metropolitan-area
+labels make nearby campuses discoverable by the city users normally search—for
+example, `Boston` matches MIT in Cambridge as well as Boston University. It
+contains no enrollment count or invented campus coordinate. Finance and stock
+scenarios contain no live data or recommendations.
 
 Every imported record includes:
 
-- `is_synthetic: true`
+- `is_synthetic: true` when any generated benchmark content is present
 - a human-readable `data_notice`
 - a deterministic four-dimensional `embedding`
 - a `location_name`; wholly synthetic collections also have a demo `location`
@@ -25,13 +30,38 @@ Collection metadata also includes `_demo_description` and `_demo_queries`, so
 public interfaces can explain what each dataset demonstrates and offer useful
 queries instead of exposing filler text. For example:
 
-- `people`: `science educator California`, `civil engineer sustainable materials`
-- `universities`: `science universities`, `public research universities in Texas`
+- `people`: `science educator California`, `senior public health analyst Texas`
+- `universities`: `Boston universities`, `universities in London`
 - `art`: `recycled steel sculpture`, `charcoal portrait`
+- `science`: `controlled battery discharge test`, `noisy sensor data limitations`
+
+## Credibility verification
+
+The ordinary 100,000-document command is a smoke test. It performs a checked
+multi-instance WAL barrier and complete deterministic SHA-256 read-back, but it
+must not be presented as sustained production throughput.
+
+```bash
+./scripts/benchmark/verify-credibility.sh \
+  --server ./run/bin/hlquery \
+  --benchmark ./run/bin/hlquery-benchmark \
+  --config ./run/conf/hlquery.conf \
+  --profile standard \
+  --output ./artifacts/benchmark
+```
+
+Profiles are `smoke`, `standard`, `sustained`, and `out-of-cache`. Standard
+automatically calibrates to at least 60 seconds and retains ten measured runs;
+sustained calibrates to at least ten minutes. `--matrix core` sweeps each local
+worker, batch, and collection axis; `--matrix full` runs their cross-product.
+The syscall, process-crash, and VM-power-loss tools under `scripts/benchmark/`
+produce separate claims; process-crash success is never labeled as a VM or
+physical power-loss guarantee.
 
 University IDs are derived from institution names, so collection listings show
 useful references such as `universities_harvard-university` instead of numeric
-placeholder IDs. `catalog_order` provides deterministic alphabetical sorting.
+placeholder IDs. `webometrics_world_rank` provides deterministic ranking order;
+`catalog_order` mirrors that rank for compatibility.
 
 Edit the source definitions in
 `tools/generate-benchmark-fixtures.py`, then regenerate the JSON:
@@ -44,8 +74,9 @@ The generator is deterministic, so running it without source changes should not
 change any fixture. It also validates every public document before writing:
 synthetic labels and notices are mandatory, fictional people and organizations
 must retain their explicit markers, contact details are forbidden, university
-IDs and catalog order must be meaningful, fabricated university rankings and
-enrollment counts are forbidden, and finance records retain their disclaimer.
+IDs and catalog order must be meaningful, sourced Webometrics fields must be
+complete, unsourced rankings and enrollment counts are forbidden, and finance
+records retain their disclaimer.
 
 `hlquery-benchmark --fake` loads every `.json` file in this directory in
 lexicographic order. Files whose name starts with `_` define global synonyms and

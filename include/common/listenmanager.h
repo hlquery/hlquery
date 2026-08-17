@@ -28,6 +28,7 @@
 class ListenManager : public EventHandler
 {
    private:
+
      /* Address used when binding the listening socket */
 
      std::string BindAddr;
@@ -41,6 +42,7 @@ class ListenManager : public EventHandler
      struct sockaddr_in ServerAddr;
 
    public:
+
      /* Construct one listen manager with address and port defaults. */
 
      ListenManager(const std::string &address = "0.0.0.0", int port_num = 9200);
