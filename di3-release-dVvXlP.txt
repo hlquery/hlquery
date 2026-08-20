@@ -1,0 +1,421 @@
+You are a senior release manager writing polished GitHub release notes from git history.
+
+Rules:
+- Use only the commits and metadata provided below.
+- Do not invent features, fixes, issue numbers, contributors, dates, or compatibility claims.
+- Merge duplicate or tiny internal commits into clear user-facing bullets.
+- Keep the tone professional and direct.
+- If there are no commits, say that no commits were found since the last release.
+- Return GitHub-flavored Markdown release notes only. Use ### level headings for the title and every section heading, a short summary, and grouped bullet sections.
+
+Repository context:
+Branch: unstable
+Previous release tag: none
+Commit range: root..unstable
+Change summary: 2557 files changed, 1318229 insertions(+)
+Commit count: 407
+
+Commits:
+- b6c9552 2025-08-08 Carlos Ferry: Initial commit
+  Files: LICENSE
+- 893590f 2025-08-23 Carlos: Update configuration to correct committer email mismatch in GPG signatures.
+  Files: include/hlquery.h
+- 9c8fc57 2025-08-23 Carlos: Base test.
+  Files: src/hlquery.cpp
+- 609ff6e 2025-08-27 Carlos: Add main entry point with server initialization, error handling, and shutdown logic in hlquery.cpp.
+  Files: src/hlquery.cpp
+- be97257 2025-12-22 Carlos: Initialize hlquery instance and bootstrap ServerConfig from CLI args
+  Files: .gitignore, LICENSE, include/core/hlquery.h, include/hlquery.h, src/core/hlquery.cpp, src/hlquery.cpp
+- fce2cc8 2026-01-10 Carlos: Add GetDatabase() accessor method to expose database engine pointer.
+  Files: src/core/hlquery.cpp
+- bb98444 2026-01-12 Carlos: Add ConsoleWriter utility with colored terminal output and async-signal-safe variants.
+  Files: src/utils/consolewriter.cpp
+- ecb1c9f 2026-01-13 Carlos: Add HTTPResponse struct to http_client.h for HTTP response handling.
+  Files: src/cli/http_client.h, src/utils/consolewriter.cpp
+- 2e8b732 2026-01-14 Carlos: Implement ListenManager destructor with fd caching to prevent use-after-free during cleanup.
+  Files: src/common/listenmanager.cpp
+- 39a652c 2026-01-14 Carlos: Add version.sh placeholder script for version management.
+  Files: version.sh
+- 3bb3f66 2026-01-16 Carlos: Improve C++ compiler detection with multiple fallback checks and version reporting.
+  Files: configure, version.sh
+- f08945b 2026-01-17 Carlos: Implement ExitManager for thread-safe application shutdown and cleanup.
+  Files: src/core/exitmanager.cpp
+- 7bedb60 2026-01-17 Carlos: Implement SocketEngine::HasPendingWork to detect pending tasks and I/O in poll engine.
+  Files: src/socketengines/poll.cpp
+- 12548f7 2026-01-18 Carlos: Add server management CLI and refine .gitignore configuration.
+  Files: .gitignore, make/hlquery
+- 145d239 2026-01-19 Carlos: Add unit tests for JSON processing and multi-threading concurrency.
+  Files: make/test/test_json.cpp, make/test/test_threading.cpp
+- 6255202 2026-01-20 Carlos: Implement IPFilter for IP, CIDR and and hostname-based access control with DNS caching.
+  Files: src/api/ip_filter.cpp
+- 941af4b 2026-01-20 Carlos: Refactor IPFilter member naming and simplify DNS cache eviction logic.
+  Files: src/api/ip_filter.cpp
+- 5ac3289 2026-01-22 Carlos: Implement optimized case-insensitive WildcardMatcher utility.
+  Files: src/api/x, src/utils/wildcard.cpp
+- 698c779 2026-01-22 Carlos: Remove redundant IPFilter implementation file src/api/x.
+  Files: src/api/x
+- 94e06a3 2026-01-23 Carlos: Refactor ConsoleWriter and Wildcard utilities to standardize naming and improve message formatting.
+  Files: src/utils/consolewriter.cpp, src/utils/wildcard.cpp
+- d57d2dd 2026-01-25 Carlos: Implement comprehensive Perl-based configuration system in configure script.
+  Files: configure
+- ee19ae8 2026-01-26 Carlos: Fix issues in mmap_index.cpp and mmap_index_optimized.cpp.
+  Files: src/rocksdb/mmap_index.cpp, src/rocksdb/mmap_index_optimized.cpp
+- 6c93712 2026-01-27 Carlos: Add 2 new function(s) or class(es) in hlquery_cli_main.cpp and http_client.h.
+  Files: src/cli/hlquery_cli_main.cpp, src/cli/http_client.h
+- 895635d 2026-01-28 Carlos: Update daemon.cpp and hlquery.cpp to implement full daemon lifecycle, PID control, and graceful shutdown logic.
+  Files: src/core/daemon.cpp, src/core/hlquery.cpp
+- eedaa80 2026-01-29 Carlos: Fix issues in inverted_index.cpp.
+  Files: src/rocksdb/inverted_index.cpp
+- 0259c58 2026-01-30 Carlos: Normalize main arg names and add SSL config preflight validation.
+  Files: src/core/hlquery.cpp
+- 835aa98 2026-01-30 Carlos: Refactor(startup): reduce unnecessary inline usage and add mutex-guarded startup state tracking with safe shutdown check. Personal note: I prefer treating inline as a linkage tool rather than a performance hint and keeping its use minimal, though we will still use it here and there when appropriate.
+  Files: include/core/hlquery.h, include/core/logmanager.h
+- 42d0154 2026-01-31 Carlos: Add extensive search-engine ranking configuration and tunable relevance settings.
+  Files: run/conf/search.conf
+- 865002f 2026-02-02 Carlos: Add epoll support and fix poll-based backend correctness.
+  Files: src/socketengines/epoll.cpp, src/socketengines/poll.cpp
+- 3f728cc 2026-02-02 Carlos: Refactor ExitManager cleanup registry: rename globals for clarity, add shutdown state atomic, and document RegisterCleanup with safer mutex-guarded push logic.
+  Files: include/core/exitmanager.h, src/core/exitmanager.cpp
+- 488d97b 2026-02-05 Carlos: Add a thread-safe TimerManager for delayed and repeating task scheduling without blocking the main loop.
+  Files: src/core/hlquery.cpp, src/core/rocksdb_options.cpp, src/core/timers.cpp
+- c322cde 2026-02-09 Carlos: Refine console output formatting and wildcard matching (optional period control, debug gating, wildcard normalization).
+  Files: src/utils/consolewriter.cpp, src/utils/db_utils.cpp, src/utils/tools.cpp, src/utils/wildcard.cpp
+- eecd3eb 2026-02-24 Carlos: Add HLQueryCLI collection and document admin commands with repair and flush support.
+  Files: src/cli/hlquery_cli.h, src/cli/hlquery_cli_collections.cpp
+- cba74cb 2026-03-03 Carlos: Add analytics manager to aggregate and post usage metrics.
+  Files: src/core/analytics_manager.cpp
+- 0cd7b10 2026-03-04 Carlos: Implement AdvancedRocksDBEngine wrapper with config-driven tuning and WAL size safeguards.
+  Files: src/rocksdb/database_wrapper.cpp
+- 97cd742 2026-03-04 Carlos: Implement allow/deny IP filtering with DNS cache controls and enforce checks in user_auth.
+  Files: src/api/ip_filter.cpp, src/api/user_auth.cpp
+- 9d2f5ca 2026-03-05 Carlos: Add ConsoleWriter interface for colorized status output and async-safe startup logging.
+  Files: include/utils/consolewriter.h
+- 02638b9 2026-03-05 Carlos: Add thread-safe deferred ActionList API with queue limits and metrics.
+  Files: include/common/action_list.h
+- 6102e8c 2026-03-06 Carlos: Implement ActionList queue processor with concurrency guards and capacity limits and and runtime statistics.
+  Files: src/common/action_list.cpp
+- 38ab52a 2026-03-08 Carlos: Implement robust non-blocking listen socket handling in ListenManager.
+  Files: src/common/listenmanager.cpp
+- 002dae2 2026-03-11 Carlos: Add thread-safe TimerManager API for one-shot and repeating task scheduling.
+  Files: include/core/timers.h
+- 150c457 2026-03-13 Carlos: Add improvements to epoll.cpp, kqueue.cpp, and poll.cpp. BSD support fully tested with kqueue.cpp.
+  Files: src/socketengines/epoll.cpp, src/socketengines/kqueue.cpp, src/socketengines/poll.cpp
+- b78dc9e 2026-03-18 Carlos: Add shared CLI utilities and refactor storage helpers to simplify console and database code.
+  Files: src/cli/cli_utils.cpp, src/cli/cli_utils.h, src/utils/consolewriter.cpp, src/utils/dbutils.cpp, src/utils/tools.cpp, src/utils/wildcard.cpp
+- 467f79f 2026-03-25 Carlos: Add HTTP server interface with route resolution and connection lifecycle.
+  Files: include/api/httpserver.h
+- 4345d00 2026-03-26 Carlos: Refactor hlquery shutdown flow to centralize cleanup and enforce PID locking.
+  Files: src/core/exitmanager.cpp, src/core/hlquery.cpp
+- 4b50a70 2026-04-10 Carlos: Add 12403 new function(s) or class(es) in ReadVersion.cmake, common.mk, and katex_render.html.
+  Files: .gitignore, Makefile, README.md, build/bin/hlquery, build/bin/hlquery-benchmark, build/bin/hlquery-cli, build/bin/talk, build/cache/configure.cache, ...
+- 14c1dce 2026-04-10 Carlos: Fix issues in linux-build.yml, macos-build.yml, and Makefile.
+  Files: .github/workflows/linux-build.yml, .github/workflows/macos-build.yml, Makefile, README.md, build/bin/hlquery, build/bin/hlquery-benchmark, build/bin/hlquery-cli, build/bin/talk, ...
+- 3a92ff1 2026-04-10 Carlos: Remove generated runtime data and ignore local storage, logs, and TLS assets.
+  Files: .gitignore, README.md, run/data/storage/002084.sst, run/data/storage/004601.log, run/data/storage/004603.sst, run/data/storage/CURRENT, run/data/storage/IDENTITY, run/data/storage/LOCK, ...
+- 2308c5e 2026-04-10 Carlos: Make release build flag handling portable in `make/makefile.tpl` to avoid.
+  Files: make/makefile.tpl, run/ssl/server.crt, run/ssl/server.key
+- 07a6eb3 2026-04-10 Carlos: Refine macOS OpenSSL detection and relocate m_analytics to extra modules.
+  Files: .github/workflows/macos-build.yml, configure, make/makefile.tpl, src/modules/extra/m_analytics/analyticsmanager.cpp, src/modules/extra/m_analytics/analyticsmanager.h, src/modules/extra/m_analytics/m_analytics.cpp
+- 1c69524 2026-04-10 Carlos: Modify README.md (+2/-22 lines).
+  Files: README.md
+- 594a2a5 2026-04-10 Carlos: Modify make/makefile.tpl (+7/-3 lines).
+  Files: make/makefile.tpl
+- dda2215 2026-04-10 Carlos: Fix issues in macos-build.yml.
+  Files: .github/workflows/macos-build.yml
+- 2c7d001 2026-04-10 Carlos: Add macOS TCP keepalive support and simplify installation docs.
+  Files: README.md, src/common/listenmanager.cpp
+- 926fd0e 2026-04-10 Carlos: Add collection integrity checks and index repair endpoints.
+  Files: include/search/cstore.h, include/utils/simdutils.h, src/api/health.cpp, src/search/collectionstore.cpp
+- a65e113 2026-04-10 Carlos: Enable configured extra modules at startup and correct analytics include paths.
+  Files: configure, src/modules/extra/m_analytics/analyticsmanager.cpp, src/modules/extra/m_analytics/m_analytics.cpp
+- ae29290 2026-04-10 Carlos: Add RocksDB library dependency to module shared object build rules.
+  Files: make/makefile.tpl
+- 9e0acee 2026-04-10 Carlos: Modify configure and makefile.tpl (+4/-4 lines).
+  Files: configure, make/makefile.tpl
+- 1cae20e 2026-04-10 Carlos: Add FreeBSD CI build and fix extra module shared linking.
+  Files: .github/workflows/freebsd-build.yml, configure
+- f085be5 2026-04-11 Carlos: Improve Linux monotonic timing and sanitize TLS pkg-config include flags.
+  Files: configure, include/api/apikeys.h, include/api/asyncio.h, include/api/common.h, include/api/connectionpool.h, include/api/httpserver.h, include/api/ipfilter.h, include/api/restserver.h, ...
+- 58dc7ba 2026-04-11 Carlos: Disable Homebrew auto-update in macOS CI dependency install.
+  Files: .github/workflows/macos-build.yml
+- ed33c9a 2026-04-11 Carlos: Add SAM document term indexing with local LLM configuration support.
+  Files: .gitignore, README.md, include/core/forwards.h, include/core/hlquery.h, include/search/sam.h, run/conf/hlquery.conf, src/api/documents.cpp, src/core/daemon.cpp, ...
+- 33dbfb5 2026-04-12 Carlos: Add LLM-backed document context API and make SAM optional.
+  Files: include/api/httpserver.h, include/api/searchapi.h, include/core/hlquery.h, include/core/llm.h, include/core/serverconfig.h, include/core/time.h, run/conf/hlquery.conf, src/api/documents.cpp, ...
+- 2b25619 2026-04-12 Carlos: Improve CLI phrase search, add /repair endpoint, and broaden clock support.
+  Files: include/core/clock.h, include/core/hlquery.h, src/api/httpserver.cpp, src/cli/documents.cpp, src/cli/main.cpp, src/talk/main.cpp
+- 7d73bbe 2026-04-12 Carlos: Remove obsolete README sections for LLM tooling and repository listings.
+  Files: README.md
+- f5885cb 2026-04-12 Carlos: Modify README.md and hlquery.cpp.
+  Files: README.md, src/core/hlquery.cpp
+- 1f867c9 2026-04-12 Carlos: Modify README.md, clock.h, and hlquery.cpp.
+  Files: README.md, include/core/clock.h, src/core/hlquery.cpp
+- 2b0038b 2026-04-13 Carlos: Modify README.md, listenmanager.cpp, and hlquery.cpp.
+  Files: README.md, src/common/listenmanager.cpp, src/core/hlquery.cpp
+- ddaedaa 2026-04-14 Carlos: Add 1 new function(s) or class(es) in searchpool.h, socketengine.h, and distributed.cpp.
+  Files: include/common/searchpool.h, include/core/socketengine.h, src/api/distributed.cpp, src/common/listenmanager.cpp, src/core/timers.cpp
+- 288fbd0 2026-04-16 Carlos: Add runtime module load/unload controls and harden HTTP and CLI portability.
+  Files: README.md, include/api/searchapi.h, include/common/listenmanager.h, include/core/daemon.h, include/core/modulemanager.h, include/core/modules.h, include/core/timers.h, include/core/typedefs.h, ...
+- 7142a8d 2026-04-16 Carlos: Modify README.md.
+  Files: README.md
+- 0dd78f0 2026-04-16 Carlos: Refactor configure helpers and correct FreeBSD/hlquery-talk packaging integration.
+  Files: README.md, configure, make/configure/Annotations.pm, make/configure/Extras.pm, make/configure/System.pm, make/makefile.tpl, run/conf/hlquery.conf, src/core/serverconfig.cpp
+- d771b91 2026-04-16 Carlos: Preserve structured query syntax across CLI and talk entrypoints; refresh README.
+  Files: README.md, src/cli/main.cpp, src/core/hlquery.cpp, src/talk/main.cpp
+- e30b995 2026-04-16 Carlos: Add loadmodule/unloadmodule aliases to HTTP, CLI, and talk interfaces.
+  Files: README.md, make/configure/Console.pm, src/api/httproutes.cpp, src/api/modules.cpp, src/cli/info.cpp, src/cli/main.cpp, src/talk/main.cpp
+- 91cbf44 2026-04-16 Carlos: Add module reporting to the CLI health endpoint and introduce filters to.
+  Files: src/cli/app.h, src/cli/info.cpp, src/cli/main.cpp, src/cli/modules.cpp, src/talk/main.cpp
+- 42aed07 2026-04-16 Carlos: Coordinate related updates across searchapi.h, distributed.cpp, and hlquery.cpp.
+  Files: include/api/searchapi.h, src/api/distributed.cpp, src/core/hlquery.cpp
+- 4e604e7 2026-04-17 Carlos: Add SAM management APIs and configurable SAM/LLM runtime settings.
+  Files: .gitignore, README.md, configure, include/api/httpserver.h, include/api/searchapi.h, include/core/serverconfig.h, include/search/sam.h, make/config.h.tpl, ...
+- 0e9d1ec 2026-04-18 Carlos: Refactor core helpers to use explicit internal linkage and simplify monitor types.
+  Files: src/core/daemon.cpp, src/core/exitmanager.cpp, src/core/initializer.cpp, src/core/llm.cpp, src/core/modules.cpp, src/core/performancemonitor.cpp
+- 3a5a13a 2026-04-18 Carlos: Refactor connection and search pool lifetime management to eliminate teardown races.
+  Files: README.md, include/api/connectionpool.h, include/common/searchpool.h, src/common/searchpool.cpp
+- 6a90b38 2026-04-18 Carlos: Refine documentation content in README.md.
+  Files: README.md
+- f49ffc8 2026-04-18 Carlos: Refactor runtime infrastructure into dedicated modules and auto-register module hooks.
+  Files: README.md, include/api/common.h, include/api/connectionpool.h, include/api/httpserver.h, include/common/listenmanager.h, include/core/hlquery.h, include/core/llm.h, include/core/metrics.h, ...
+- 24fdcec 2026-04-18 Carlos: Merging.
+  Files: include/modules/maisearch.h, run/conf/modules.conf, src/api/health.cpp, src/cli/main.cpp, src/cli/modules.cpp
+- 2038c21 2026-04-19 Carlos: Coordinate related updates across modules.h and listenmanager.cpp.
+  Files: include/core/modules.h, src/common/listenmanager.cpp
+- 9ba6be2 2026-04-20 Carlos: Refactor SAM indexing to use a background queue and report rebuild progress.
+  Files: AGENTS.md, CONTRIBUTING.md, README.md, include/core/modules.h, include/core/typedefs.h, include/search/sam.h, src/api/documents.cpp, src/api/ipfilter.cpp, ...
+- bbf65e2 2026-04-20 Carlos: Remove SAM heuristic term generation and rely on LLM-expanded search terms.
+  Files: include/search/sam.h, src/search/sam.cpp
+- 44acbe8 2026-04-21 Carlos: Fix issues in AGENTS.md, sam.h, and makefile.tpl.
+  Files: AGENTS.md, include/search/sam.h, make/makefile.tpl, src/api/documents.cpp, src/cli/documents.cpp, src/runtime/serverconfig.cpp, src/search/sam.cpp, src/talk/main.cpp, ...
+- bd70a02 2026-04-21 Carlos: Improve SAM LLM configurability, path resolution, and globally sorted document listing.
+  Files: include/api/searchapi.h, include/runtime/serverconfig.h, run/conf/hlquery.conf, src/api/documents.cpp, src/api/queryparser.cpp, src/cli/documents.cpp, src/cli/info.cpp, src/core/llm.cpp, ...
+- b070694 2026-04-21 Carlos: Extract contextual SAM term expansion and add configurable idea limits.
+  Files: .gitignore, include/runtime/serverconfig.h, run/conf/hlquery.conf, src/runtime/serverconfig.cpp, src/search/context.cpp, src/search/sam.cpp
+- d8f3ee6 2026-04-21 Carlos: Improve search context generation with fact-driven queries, reranking, and diversified term selection.
+  Files: src/search/context.cpp
+- 5d88144 2026-04-21 Carlos: Upgrade build workflows to actions/checkout v5.
+  Files: .github/workflows/freebsd-build.yml, .github/workflows/linux-build.yml, .github/workflows/macos-build.yml
+- ff4b813 2026-04-21 Carlos: Improve benchmark auto-tuning and bulk retries; gate async HTTP dispatch.
+  Files: configure, src/api/httpserver.cpp, src/cli/benchmarkclient.cpp, src/cli/benchmarkclient.h, src/cli/benchmarkmain.cpp
+- 9714d4e 2026-04-22 Carlos: Document demo limits and default build/thread settings to safer auto values.
+  Files: README.md, configure, run/conf/hlquery.conf
+- bf53b6a 2026-04-22 Carlos: Coordinate related updates across README.md, hlquery.conf, and benchmarkmain.cpp.
+  Files: README.md, run/conf/hlquery.conf, src/cli/benchmarkmain.cpp
+- 26d4f2e 2026-04-22 Carlos: Add 2 new function(s) or class(es) in README.md, searchapi.h, and wildcard.h.
+  Files: README.md, include/api/searchapi.h, include/utils/wildcard.h, run/conf/hlquery.conf, src/api/lexical.cpp, src/api/queryparser.cpp, src/cli/benchmarkclient.cpp, src/cli/benchmarkclient.h, ...
+- cff6185 2026-04-22 Carlos: Support  queries, default to HTTP, and harden benchmark response handling.
+  Files: README.md, run/conf/hlquery.conf, src/api/queryparser.cpp, src/cli/benchmarkclient.cpp, src/cli/benchmarkclient.h
+- 69d6932 2026-04-22 Carlos: Document SAM interface and reorganize declarations for indexing lifecycle clarity.
+  Files: include/search/sam.h
+- 43b3ff8 2026-04-22 Carlos: Expose `SAM::DebugEvent` in the public header and fix README demo source link.
+  Files: README.md, include/search/sam.h
+- 3aacdd3 2026-04-22 Carlos: Unify OpenSSL feature checks and improve HTTPS error reporting.
+  Files: src/cli/benchmarkclient.cpp, src/cli/benchmarkclient.h, src/cli/core.cpp
+- dde8727 2026-04-22 Carlos: Refine core.cpp implementation in src/cli/core.cpp.
+  Files: src/cli/core.cpp
+- 08deac0 2026-04-22 Carlos: Normalize include order in `src/cli/core.cpp`.
+  Files: src/cli/core.cpp
+- 1eaf20f 2026-04-22 Carlos: Generalize SAM query expansion with document-derived context hints.
+  Files: README.md, run/conf/hlquery.conf, src/core/llm.cpp, src/search/context.cpp
+- 1487bce 2026-04-22 Carlos: Document C++ client include and link requirements in README.
+  Files: README.md
+- 5e44ab1 2026-04-22 Carlos: Fix issues in README.md, searchapi.h, and lexical.cpp.
+  Files: README.md, include/api/searchapi.h, src/api/lexical.cpp, src/api/queryparser.cpp, src/api/search.cpp
+- 4518af6 2026-04-23 Carlos: Fix issues in README.md, searchapi.cpp, and utils.cpp.
+  Files: README.md, src/api/searchapi.cpp, src/api/utils.cpp, src/cli/main.cpp, src/modules/m_demo.cpp, src/search/context.cpp, src/search/sam.cpp
+- e86ec40 2026-04-23 Carlos: Tune runtime and benchmark defaults, and harden OpenSSL build guards.
+  Files: README.md, run/conf/hlquery.conf, src/api/distributed.cpp, src/cli/benchmarkclient.cpp, src/cli/benchmarkmain.cpp, src/cli/core.cpp, src/common/options.cpp, src/modules/extra/m_analytics/analyticsmanager.cpp, ...
+- c256158 2026-04-23 Carlos: Coordinate related updates across README.md, distributed.cpp, and daemon.cpp.
+  Files: README.md, src/api/distributed.cpp, src/runtime/daemon.cpp
+- 2a02e16 2026-04-24 Carlos: Coordinate related updates across README.md and initializer.cpp.
+  Files: README.md, src/core/initializer.cpp
+- efa2b94 2026-04-28 Carlos: Refactor benchmark query isolation and refresh API/search documentation.
+  Files: README.md, src/api/documents.cpp, src/api/ipfilter.cpp, src/api/search.cpp, src/cli/benchmarkmain.cpp, src/socketengines/epoll.cpp
+- a97052a 2026-04-28 Carlos: Enable SAM defaults and stabilize document sorting with natural-order fallbacks.
+  Files: run/conf/hlquery.conf, src/api/documents.cpp, src/runtime/serverconfig.cpp
+- 4f2278c 2026-04-28 Carlos: Improve SAM term generation with structured LLM output, timeouts, and context logging.
+  Files: README.md, include/runtime/serverconfig.h, include/search/sam/sam.h, make/makefile.tpl, run/conf/hlquery.conf, run/conf/modules.conf, src/api/documents.cpp, src/core/hlquery.cpp, ...
+- fc6edad 2026-04-28 Carlos: Clean up README Node client example formatting for readability.
+  Files: README.md
+- 1d62a97 2026-04-28 Carlos: Refine documentation content in README.md.
+  Files: README.md
+- ac2fb5e 2026-04-28 Carlos: Adjust README heading levels to preserve section hierarchy.
+  Files: README.md
+- 586707a 2026-04-29 Carlos: Add SAM auto-indexing and semantic profile scoring, and support disabling local LLMs.
+  Files: include/core/llm.h, include/core/modules.h, include/runtime/serverconfig.h, include/search/sam/sam.h, make/makefile.tpl, run/conf/hlquery.conf, run/hlquery, src/api/health.cpp, ...
+- 212e6cf 2026-04-29 Carlos: Rename module dispatch macro and update runner paths for workspace move.
+  Files: include/core/modulemanager.h, run/hlquery, src/api/aliases.cpp, src/api/analytics.cpp, src/api/collections.cpp, src/api/documents.cpp, src/api/health.cpp, src/api/httpserver.cpp, ...
+- d4088b6 2026-04-29 Carlos: Add SAM document language and label metadata to document APIs.
+  Files: include/search/sam/sam.h, run/hlquery, src/api/documents.cpp, src/search/sam/sam.cpp
+- 0eb76d6 2026-04-29 Carlos: Refactor SAM indexing to use internal term scoring and cancel work during destructive operations.
+  Files: include/search/sam/sam.h, run/conf/hlquery.conf, run/hlquery, src/api/documents.cpp, src/cli/documents.cpp, src/modules/core_sam.cpp, src/runtime/serverconfig.cpp, src/search/collectionstore.cpp, ...
+- 99d2391 2026-04-29 Carlos: Add SAM search-idea learning and fix install path defaults.
+  Files: README.md, include/api/connectionpool.h, include/runtime/serverconfig.h, include/search/sam/sam.h, make/configure/System.pm, make/makefile.tpl, run/conf/hlquery.conf, src/api/documents.cpp, ...
+- 6002cf3 2026-04-29 Carlos: Resolve `sam.data_dir` relative to HLQuery run config location.
+  Files: run/conf/hlquery.conf, src/runtime/serverconfig.cpp
+- 7b3b361 2026-04-30 Carlos: Add incremental SAM index sync for document writes and simplify module startup.
+  Files: CONTRIBUTING.md, README.md, include/core/modules.h, src/modules/core_sam.cpp, src/modules/m_dump.cpp, src/modules/m_lang.cpp, src/search/collectionstore.cpp
+- b961f2a 2026-04-30 Carlos: Fix issues in README.md, configure, and sam.h.
+  Files: README.md, configure, include/search/sam/sam.h, make/configure/annotations.pm, make/configure/console.pm, make/configure/extras.pm, make/configure/system.pm, src/api/searchapi.cpp, ...
+- 6944755 2026-04-30 Carlos: Remove redundant HTML line break from README section spacing.
+  Files: README.md
+- 40d3ff9 2026-04-30 Carlos: Fix issues in README.md, httpserver.h, and searchapi.h.
+  Files: README.md, include/api/httpserver.h, include/api/searchapi.h, include/core/llm.h, include/core/modules.h, include/search/sam/sam.h, src/api/documents.cpp, src/api/httproutes.cpp, ...
+- 382ca5a 2026-05-03 Carlos: Coordinate updates across README.md, annotations.pm, extras.pm, system.pm, and hlquery.conf and 2 additional files.
+  Files: README.md, make/configure/annotations.pm, make/configure/extras.pm, make/configure/system.pm, run/conf/hlquery.conf, src/api/ipfilter.cpp, src/utils/dbutils.cpp
+- 9205c4a 2026-05-05 Carlos: Standardize runtime clock usage and enable SAM/LLM integration by default.
+  Files: include/api/asyncio.h, include/api/connectionpool.h, include/sam/sam.h, make/makefile.tpl, run/conf/hlquery.conf, src/api/apikeymanager.cpp, src/api/distributed.cpp, src/api/documents.cpp, ...
+- 419d4ee 2026-05-05 Carlos: Disable LLM and SAM defaults and remove latest search from SAM status.
+  Files: run/conf/hlquery.conf, src/api/documents.cpp, src/cli/documents.cpp
+- 1d1b58f 2026-05-05 Carlos: Improve SAM alias lookup and make RocksDB access safe during concurrent search.
+  Files: include/sam/sam.h, src/cli/benchmarkmain.cpp, src/sam/sam.cpp, src/search/context.cpp, src/talk/main.cpp
+- 290846b 2026-05-05 Carlos: Refine CLI parsing and scope SAM/status handling across daemon and health paths.
+  Files: configure, make/makefile.tpl, src/api/health.cpp, src/cli/benchmarkmain.cpp, src/runtime/daemon.cpp, src/sam/sam.cpp
+- 8f59d4e 2026-05-05 Carlos: Merging.
+  Files: run/conf/hlquery.conf
+- 16e0363 2026-05-06 Carlos: Add distributed global SAM search and extract multilingual language detection.
+  Files: include/sam/lang.h, run/conf/hlquery.conf, src/api/documents.cpp, src/cli/app.h, src/cli/documents.cpp, src/cli/main.cpp, src/sam/lang.cpp, src/sam/sam.cpp, ...
+- 9a0049e 2026-05-06 Carlos: Add LLM-backed SAM anchor generation and numeric term variants to improve retrieval.
+  Files: README.md, include/core/llm.h, run/conf/hlquery.conf, src/core/llm.cpp, src/sam/sam.cpp
+- 269586c 2026-05-06 Carlos: Exclude context-search build target and unset incomplete LLM/SAM defaults.
+  Files: make/makefile.tpl, run/conf/hlquery.conf
+- 3883769 2026-05-06 Carlos: Remove redundant anonymous namespaces from collection and route helpers.
+  Files: src/api/collections.cpp, src/api/httproutes.cpp
+- ddb5b4a 2026-05-06 Carlos: Add  support to SAM search to bypass history recording.
+  Files: include/core/modulemanager.h, src/api/documents.cpp, src/cli/app.h, src/cli/documents.cpp, src/cli/info.cpp, src/cli/main.cpp, src/core/metrics.cpp
+- 755ad67 2026-05-06 Carlos: Improve SAM lookup variants and parallel indexing with profile hints.
+  Files: include/sam/sam.h, src/sam/sam.cpp, src/sam/sam_runtime.cpp
+- 7689934 2026-05-06 Carlos: Add readiness checks, request tracing, and SAM lexical sync diagnostics.
+  Files: README.md, include/api/httpserver.h, include/api/searchapi.h, include/core/hlquery.h, include/sam/sam.h, run/conf/hlquery.conf, src/api/documents.cpp, src/api/health.cpp, ...
+- 25475f1 2026-05-06 Carlos: Refine lexical resource synchronization and query input normalization.
+  Files: include/api/searchapi.h, run/conf/hlquery.conf, src/api/searchapi.cpp, src/api/stopwords.cpp, src/api/synonyms.cpp
+- a2d8c11 2026-05-07 Carlos: Improve SAM confidence filtering and add aggregate indexing status metrics.
+  Files: src/api/documents.cpp, src/sam/sam.cpp, src/talk/main.cpp
+- 70f0709 2026-05-07 Carlos: Improve SAM search history retry handling and avoid recursive collection writes.
+  Files: README.md, src/api/documents.cpp, src/sam/sam.cpp
+- 0b308f1 2026-05-07 Carlos: Coordinate related updates across parser.cpp and tokenizer.cpp.
+  Files: src/sql/parser.cpp, src/sql/tokenizer.cpp
+- f862379 2026-05-07 Carlos: Add adaptive SAM intent-graph retrieval and resilient rebuild/search idea handling.
+  Files: include/sam/sam.h, src/modules/core_sam.cpp, src/sam/sam.cpp, src/sam/sam_eval.cpp, src/sam/sam_graph.cpp, src/sam/sam_internal.h, src/sam/sam_runtime.cpp
+- 7d3de5f 2026-05-07 Carlos: Add event module to record daily search and collection activity.
+  Files: README.md, run/conf/modules.conf, src/modules/m_event.cpp
+- 2439122 2026-05-07 Carlos: Refactor event persistence and search logging; add delete-cleanup drift health metric.
+  Files: include/search/cstore.h, run/conf/modules.conf, src/api/documents.cpp, src/api/health.cpp, src/modules/m_event.cpp, src/search/collectionstore.cpp
+- 1a5f99f 2026-05-08 Carlos: Add BSD 3-Clause license and code of conduct for project governance.
+  Files: CODE_OF_CONDUCT.md, LICENSE
+- a1d1b3b 2026-05-08 Carlos: Merging.
+  Files: configure, make/configure/system.pm, make/makefile.tpl, run/hlquery
+- 51127ea 2026-05-08 Carlos: Resolve current collection doc refs and harden `hlquery` runner path handling.
+  Files: run/hlquery, src/talk/main.cpp
+- e6d4ef3 2026-05-08 Carlos: Unify benchmark timing on runtime clock helpers and monotonic IDs.
+  Files: include/runtime/clock.h, src/cli/benchmarkclient.cpp, src/cli/benchmarkmain.cpp, src/cli/benchmarkmodes.cpp, src/cli/benchmarksearch.cpp, src/cli/benchmarktasks.cpp
+- 8ae1dec 2026-05-08 Carlos: Fix issues in forwards.h, sam.h, and hlquery.conf.
+  Files: include/core/forwards.h, include/sam/sam.h, run/conf/hlquery.conf, run/conf/modules.conf, src/api/documents.cpp, src/cli/app.h, src/cli/documents.cpp, src/modules/core_sam.cpp, ...
+- 1ce2c6d 2026-05-09 Carlos: Refine documentation content in README.md.
+  Files: README.md
+- 911f926 2026-05-09 Carlos: Clarify hlquery branding and cleanup time-tracking variable naming.
+  Files: README.md, include/core/hlquery.h, include/runtime/daemon.h, src/common/searchpool.cpp, src/core/hlquery.cpp
+- eb29fee 2026-05-12 Carlos: Add prefix-filtered counters update and doctotal for benchmarks.
+  Files: configure, include/search/cstore.h, make/makefile.tpl, src/api/health.cpp, src/cli/benchmarkclient.cpp, src/cli/benchmarkclient.h, src/cli/benchmarkmain.cpp, src/cli/benchmarkmodes.cpp, ...
+- f94d558 2026-05-12 Carlos: Fix issues in sam.cpp and sam_runtime.cpp.
+  Files: src/sam/sam.cpp, src/sam/sam_runtime.cpp
+- 843ff0e 2026-05-12 Carlos: Fix issues in sam_runtime.cpp.
+  Files: src/sam/sam_runtime.cpp
+- 45e62f8 2026-05-12 Carlos: Purge pending index-queue keys in `run/hlquery`; fallback to `$PATH` for `hlquery`.
+  Files: run/hlquery, src/sam/sam_runtime.cpp
+- 8bd072c 2026-05-12 Carlos: Improve filesystem and SAM rebuild error handling with safer logging.
+  Files: run/hlquery, src/core/initializer.cpp, src/core/logmanager.cpp, src/core/modulemanager.cpp, src/sam/sam.cpp, src/sam/sam_runtime.cpp
+- 58d5064 2026-05-12 Carlos: Add SAM auto-index pause controls and harden shutdown cleanup.
+  Files: include/api/httpserver.h, include/api/searchapi.h, include/core/modules.h, include/sam/sam.h, make/hlquery.tpl, run/hlquery, src/api/documents.cpp, src/api/httproutes.cpp, ...
+- 57fc953 2026-05-12 Carlos: Ensure SAM pause cancels pending auto-index work.
+  Files: include/sam/sam.h, src/api/documents.cpp, src/cli/benchmarkmain.cpp, src/sam/sam_runtime.cpp
+- 7630b58 2026-05-13 Carlos: Stabilize SAM mutation indexing across API and search paths.
+  Files: include/sam/sam.h, src/api/httpserver.cpp, src/api/lexical.cpp, src/api/search.cpp, src/sam/sam_runtime.cpp, src/search/collectionstore.cpp
+- 9e8bd36 2026-05-13 Carlos: Split SAM lookup implementation into shards and install generated run wrapper.
+  Files: configure, make/makefile.tpl, src/runtime/daemon.cpp, src/sam/sam.cpp, src/sam/sam_runtime.cpp, src/sam/sam_semantic.cpp, src/sam/sam_terms_lookup.cpp
+- 8daa00b 2026-05-13 Carlos: Remove legacy Perl service wrapper from run/hlquery.
+  Files: run/hlquery
+- c40c06b 2026-05-13 Carlos: Coordinate related updates across README.md, searchpool.h, searchpool.cpp, and timers.cpp.
+  Files: README.md, include/common/searchpool.h, src/common/searchpool.cpp, src/runtime/timers.cpp
+- 30e349c 2026-05-13 Carlos: Document JSON command protocol and expose runtime version in status output.
+  Files: README.md, make/hlquery.tpl
+- c340c9e 2026-05-13 Carlos: Clarify README server usage examples and JSON stop command documentation.
+  Files: README.md
+- cf0f637 2026-05-13 Carlos: Add tooling for local LLM setup, inference, and collection administration.
+  Files: tools/download, tools/hlquery-llm-infer, tools/pro-delete/README.md, tools/pro-delete/delete-collections.js, tools/pro-delete/hlquery-ops.js, tools/pro-delete/http.js, tools/sslgen
+- 351d368 2026-05-13 Carlos: Guard SSL retry state with OpenSSL feature checks in core CLI.
+  Files: src/cli/core.cpp
+- 183e0c5 2026-05-13 Carlos: Add flush-safe SAM improvement workflow and semantic indexing.
+  Files: include/api/httpserver.h, include/api/searchapi.h, include/sam/sam.h, src/api/collections.cpp, src/api/documents.cpp, src/api/httproutes.cpp, src/api/httpserver.cpp, src/core/llm.cpp, ...
+- f3c3496 2026-05-14 Carlos: Add configurable SAM background improvements and prune obsolete AI module headers.
+  Files: include/modules/aiqueryanalyzer.h, include/modules/aisessioncli.h, include/modules/aisessionstore.h, include/modules/maisearch.h, include/runtime/serverconfig.h, include/sam/sam.h, run/conf/hlquery.conf, src/api/documents.cpp, ...
+- 19d60f2 2026-05-14 Carlos: Install hlqueryctl symlink in generated install wrapper.
+  Files: make/makefile.tpl
+- 1bb4100 2026-05-14 Carlos: Constrain dev-only log directory resolution in server config.
+  Files: src/runtime/serverconfig.cpp
+- ae85979 2026-05-14 Carlos: Tighten SAM semantic match filtering and empty low-confidence results.
+  Files: src/sam/sam.cpp, src/sam/sam_semantic.cpp
+- 4c833a5 2026-05-14 Carlos: Improve hlquery process control with stable startup detection and safe PID cleanup.
+  Files: make/hlquery.tpl
+- 24874c6 2026-05-14 Carlos: Support flexible stopword entries in API create and delete handlers.
+  Files: README.md, src/api/stopwords.cpp
+- 16be02f 2026-05-14 Carlos: Add CLD2-backed collection language detection and tighten SAM token coverage.
+  Files: include/sam/lang.h, make/makefile.tpl, src/api/searchapi.cpp, src/cli/collections.cpp, src/modules/m_lang.cpp, src/sam/lang.cpp, src/sam/sam.cpp, src/sam/sam_semantic.cpp, ...
+- f52d915 2026-05-14 Carlos: Remove lang runtime module and centralize 8MB socket buffers.
+  Files: README.md, include/core/modules.h, make/config.h.tpl, run/conf/modules.conf, src/api/httpserver.cpp, src/common/listenmanager.cpp, src/modules/m_lang.cpp
+- 7ec7d9b 2026-05-14 Carlos: Improve README clarity by surfacing development status and sorting clients.
+  Files: README.md
+- af267f5 2026-05-15 Carlos: Add release candidate detection to propagate configured hlquery version metadata.
+  Files: README.md, configure, make/config.h.tpl, src/version.sh
+- 7918178 2026-05-15 Carlos: Improve SAM semantic filtering with literal coverage and vector coherence checks.
+  Files: src/sam/sam.cpp, src/sam/sam_semantic.cpp, src/sam/sam_terms_lookup.cpp
+- b7aa5ff 2026-05-15 Carlos: Fix issues in README.md, configure, and logmanager.h.
+  Files: README.md, configure, include/core/logmanager.h, src/core/initializer.cpp, src/core/llm.cpp, src/core/logmanager.cpp, src/core/modulemanager.cpp, src/version.sh
+- d215045 2026-05-15 Carlos: Coordinate related updates across CODE_OF_CONDUCT.md, CONTRIBUTING.md, LICENSE, README.md, and configure.
+  Files: CODE_OF_CONDUCT.md, CONTRIBUTING.md, LICENSE, README.md, configure
+- 1d0faea 2026-05-15 Carlos: Coordinate related updates across CONTRIBUTING.md and LICENSE.md.
+  Files: CONTRIBUTING.md, LICENSE.md
+- 45788c9 2026-05-16 Carlos: Add  subcommands and stabilize benchmark seeding behavior.
+  Files: README.md, include/core/hlquery.h, include/runtime/serverconfig.h, make/hlquery.tpl, make/makefile.tpl, run/conf/links.conf, src/api/ipfilter.cpp, src/cli/benchmarkclient.cpp, ...
+- 891a47f 2026-05-16 Carlos: Improve analytics status output and clarify CLI timeout failures.
+  Files: .gitignore, run/conf/modules.conf, src/cli/core.cpp, src/modules/extra/m_analytics/analyticsmanager.h, src/modules/extra/m_analytics/m_analytics.cpp
+- 1bd3ca3 2026-05-16 Carlos: Add SAM module hooks and flush query analytics for SAM events.
+  Files: include/core/modules.h, src/api/documents.cpp, src/api/search.cpp, src/modules/extra/m_analytics/analyticsmanager.cpp, src/modules/extra/m_analytics/analyticsmanager.h, src/modules/extra/m_analytics/m_analytics.cpp, src/sam/sam_terms_lookup.cpp
+- d596885 2026-05-17 Carlos: Rename SAM interaction module hook and tighten legacy  config fallback.
+  Files: include/core/modules.h, src/api/documents.cpp, src/modules/extra/m_analytics/m_analytics.cpp, src/runtime/serverconfig.cpp
+- eb878d5 2026-05-17 Carlos: Harden encrypted key/user persistence with atomic writes and bounds checks.
+  Files: README.md, include/core/hlquery.h, src/api/apikeymanager.cpp, src/api/userauth.cpp, src/core/hlquery.cpp, src/core/initializer.cpp, src/runtime/daemon.cpp
+- 410ffd0 2026-05-17 Carlos: Clarify official API clients in README and improve PHP schema comment readability.
+  Files: README.md
+- 8a388ed 2026-05-17 Carlos: Simplify README client library table by removing official marker legend.
+  Files: README.md
+- fc88dc1 2026-05-17 Carlos: Normalizes indentation in the PHP schema snippet to improve readability and reduce diff noise without changing behavior.
+  Files: README.md
+- 7f8af17 2026-05-17 Carlos: Add GitHub Actions workflow to build/test Java API across JDKs 11/17/21.
+  Files: .github/workflows/java-api.yml, README.md
+- 4da8b4e 2026-05-17 Carlos: Update configuration details in .github/workflows/java-api.yml.
+  Files: .github/workflows/java-api.yml
+- 48eefc4 2026-05-17 Carlos: Refine documentation content in README.md.
+  Files: README.md
+- aab8a8c 2026-05-17 Carlos: Refine documentation content in README.md.
+  Files: README.md
+- d7ef048 2026-05-17 Carlos: Refine documentation content in README.md.
+  Files: README.md
+- 601f4de 2026-05-17 Carlos: Refine documentation content in README.md.
+  Files: README.md
+- e611f0b 2026-05-17 Carlos: Add README demo badge linking to demo.hlquery.com.
+  Files: README.md
+- bc8cde2 2026-05-17 Carlos: Add dirty index tracking for incremental flushes and merged search results.
+  Files: README.md, include/core/helpers.h, include/search/cstore.h, include/search/lindex.h, src/core/helpers.cpp, src/core/hlquery.cpp, src/core/initializer.cpp, src/search/collectionstore.cpp, ...
+- 7e7ccd1 2026-05-17 Carlos: Refactor CoreHelpers into a static utility class and add test harness and analytics module link.
+  Files: include/core/helpers.h, run/test/run_tests.sh, run/test/unit/sample_test.cpp, src/core/helpers.cpp, src/modules/m_analytics
+- fbb5c46 2026-05-17 Carlos: Respect SAM pause windows in tests and harden benchmark metric retries.
+  Files: run/test/run_tests.sh, run/test/unit/sample_test.cpp, src/cli/benchmarkclient.cpp, src/modules/m_analytics, src/search/collectionstore.cpp
+- c13a99e 2026-05-18 Carlos: Improve lexical search consistency while lazy indexes finish loading.
+  Files: src/api/lexical.cpp, src/search/collectionstore.cpp
+- 38dc82a 2026-05-18 Carlos: Configure SAM LLM runtime settings and add Java API CI.
+  Files: .github/workflows/java-api.yml, run/conf/hlquery.conf, src/runtime/serverconfig.cpp
+
+Only the first 200 commits are shown above.
+

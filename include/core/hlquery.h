@@ -138,6 +138,7 @@ class CoreExport hlquery
      static volatile sig_atomic_t PendingShutdownSignal;
 
    public:
+
      /* Constructor */
 
      hlquery(int argc, char **argv);
