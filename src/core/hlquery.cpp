@@ -368,6 +368,8 @@ void hlquery::Run()
           /* Dispatch network events via the socket engine */
 
           DaemonHandler::ProcessSocketEngineOptimization();
+
+
           SocketEngine::DispatchEvents();
 
           if (CoreHelpers::ShouldExitLoop())
