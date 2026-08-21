@@ -8,6 +8,7 @@
 
 **A modular, high-performance search engine built for modern applications.**
 
+[![Website](https://img.shields.io/badge/Website-hlquery.com-blue?logo=google-chrome&logoColor=white&labelColor=000000)](https://www.hlquery.com)
 [![Follow hlquery](https://img.shields.io/badge/Follow-%40hlquery-blue?logo=x&logoColor=white&labelColor=000000)](https://x.com/hlquery)
 [![GitHub](https://img.shields.io/badge/GitHub-hlquery-blue?logo=github&logoColor=white&labelColor=000000)](https://github.com/hlquery/hlquery/)
 [![Linux Build](https://img.shields.io/badge/Linux%20Build-passing-brightgreen?logo=linux&logoColor=white&labelColor=000000)](https://github.com/hlquery/hlquery/actions)
