@@ -688,7 +688,7 @@ $(OBJ_DIR)/vendor/md5/md5.o: $(VENDOR_DIR)/md5/md5.c | $(OBJ_DIR)
 
 -include $(DEPS)
 
-.PHONY: all build-products prepare rocksdb-check rocksdb-preflight rocksdb-smoke binary-compat-check prune-disabled-extra-modules test test-http-routes test-timer-concurrency test-core-stats-metrics test-performance-monitor test-segmented-storage test-search-response-cache test-backup-restore test-auth-fail-closed test-docker-production-mode clean install uninstall debug create_ssl help build-info synonyms-sync synonyms-check package package-all package-deb package-rpm
+.PHONY: all build-products prepare rocksdb-check rocksdb-preflight rocksdb-smoke binary-compat-check prune-disabled-extra-modules test test-http-routes test-timer-concurrency test-core-stats-metrics test-performance-monitor test-segmented-storage test-bm25-scoring test-search-response-cache test-ip-filter test-backup-restore test-auth-fail-closed test-docker-production-mode clean install uninstall debug create_ssl help build-info synonyms-sync synonyms-check package package-all package-deb package-rpm
 
 prune-disabled-extra-modules:
 	@mkdir -p $(RUN_DIR)/modules
@@ -981,8 +981,10 @@ CORE_STATS_METRICS_TEST_BIN := build/test/core_stats_metrics
 PERFORMANCE_MONITOR_TEST_BIN := build/test/performance_monitor
 SEGMENTED_STORAGE_TEST_BIN := build/test/segmented_storage
 LEGACY_HYBRID_RANKING_TEST_BIN := build/test/legacy_hybrid_ranking
+BM25_SCORING_TEST_BIN := build/test/bm25_scoring
 SEARCH_EXECUTION_TRACE_TEST_BIN := build/test/search_execution_trace
 SEARCH_RESPONSE_CACHE_TEST_BIN := build/test/search_response_cache
+IP_FILTER_TEST_BIN := build/test/ip_filter
 
 $(HTTP_ROUTES_TEST_BIN): tests/http_routes.cpp src/api/httproutes.cpp | $(USE_VENDOR_ROCKSDB)
 	@mkdir -p $(dir $@)
@@ -1026,6 +1028,13 @@ $(LEGACY_HYBRID_RANKING_TEST_BIN): tests/legacy_hybrid_ranking.cpp src/search/hy
 test-legacy-hybrid-ranking: $(LEGACY_HYBRID_RANKING_TEST_BIN)
 	@$(LEGACY_HYBRID_RANKING_TEST_BIN)
 
+$(BM25_SCORING_TEST_BIN): tests/bm25_scoring.cpp | $(USE_VENDOR_ROCKSDB)
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) $^ -o $@ $(LDFLAGS)
+
+test-bm25-scoring: $(BM25_SCORING_TEST_BIN)
+	@$(BM25_SCORING_TEST_BIN)
+
 $(SEARCH_EXECUTION_TRACE_TEST_BIN): tests/search_execution_trace.cpp src/search/adaptive/search_execution_trace.cpp | $(USE_VENDOR_ROCKSDB)
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) $^ -o $@ $(LDFLAGS)
@@ -1039,6 +1048,13 @@ $(SEARCH_RESPONSE_CACHE_TEST_BIN): tests/search_response_cache.cpp src/api/searc
 
 test-search-response-cache: $(SEARCH_RESPONSE_CACHE_TEST_BIN)
 	@$(SEARCH_RESPONSE_CACHE_TEST_BIN)
+
+$(IP_FILTER_TEST_BIN): tests/ip_filter.cpp src/api/ipfilter.cpp | $(CONFIG_HEADER) $(USE_VENDOR_ROCKSDB)
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) $^ -o $@ $(LDFLAGS)
+
+test-ip-filter: $(IP_FILTER_TEST_BIN)
+	@$(IP_FILTER_TEST_BIN)
 
 test-backup-restore:
 	@tests/backup_restore.sh
@@ -1055,7 +1071,7 @@ test-adaptive-search-trace: $(BIN_DIR)/hlquery
 # test-auth-fail-closed builds the server, whose prepare phase already runs the
 # RocksDB smoke test. Listing rocksdb-smoke here too races the recursive prepare
 # invocation under parallel make and can execute a binary while it is relinking.
-test: test-http-routes test-timer-concurrency test-core-stats-metrics test-performance-monitor test-segmented-storage test-legacy-hybrid-ranking test-search-execution-trace test-search-response-cache test-backup-restore test-auth-fail-closed test-docker-production-mode test-adaptive-search-trace
+test: test-http-routes test-timer-concurrency test-core-stats-metrics test-performance-monitor test-segmented-storage test-legacy-hybrid-ranking test-bm25-scoring test-search-execution-trace test-search-response-cache test-ip-filter test-backup-restore test-auth-fail-closed test-docker-production-mode test-adaptive-search-trace
 	@if [ -x "$(RUN_DIR)/test/run_tests.sh" ]; then \
 		"$(RUN_DIR)/test/run_tests.sh"; \
 	else \

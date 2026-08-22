@@ -21,6 +21,7 @@
 #include "core/config.h"
 #include "core/hlquery.h"
 #include "runtime/serverconfig.h"
+#include "search/bm25_scoring.h"
 #include "search/lexical_inverted_index.h"
 #include "search/mapped_posting_index.h"
 #include "utils/wildcard.h"
@@ -1103,35 +1104,9 @@ std::vector<Posting> InvertedIndex::Search(const std::string &Collection, const 
      {
           /* BM25 IDF is computed once per resolved query term and reused across candidates. */
 
-          if (!std::isfinite(DocFreq) || DocFreq <= 0.0 || CollectionSizeDouble <= 0.0 || DocFreq > CollectionSizeDouble)
-          {
-               return 0.0;
-          }
-
-          if (IdfMode == "smooth")
-          {
-               const double Denominator = DocFreq + 0.5 + IdfSmooth;
-               if (Denominator <= 0.0)
-               {
-                    return 0.0;
-               }
-
-               return std::log1p(std::max(0.0, (CollectionSizeDouble - DocFreq + 0.5) / Denominator));
-          }
-
-          const double Denominator = DocFreq + 0.5;
-          if (Denominator <= 0.0)
-          {
-               return 0.0;
-          }
-
-          double Idf = std::log((CollectionSizeDouble - DocFreq + 0.5) / Denominator);
-          if (IdfClampNegative && Idf < 0.0)
-          {
-               Idf = IdfFloorFactor * std::log1p(CollectionSizeDouble / DocFreq);
-          }
-
-          return std::isfinite(Idf) ? Idf : 0.0;
+          return BM25Scoring::CalculateIdf(DocFreq, CollectionSizeDouble, IdfMode,
+                                            IdfSmooth, IdfClampNegative,
+                                            IdfFloorFactor);
      };
 
      auto ComputeTFIDFIdf = [&](double DocFreq) -> double
