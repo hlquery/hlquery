@@ -27,7 +27,7 @@ jobs:
           echo "EXTRA_LDFLAGS=-L${OPENSSL_PREFIX}/lib ${EXTRA_LDFLAGS}" >> "$GITHUB_ENV"
 
       - name: Configure
-        run: ./configure --skip-tests
+        run: ./configure
 
       - name: Build
         run: gmake

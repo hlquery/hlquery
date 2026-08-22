@@ -348,6 +348,7 @@ void hlquery::Run()
           {
                LastMinuteRun = CurrentMinute;
                FOREACH_MOD(OnEveryOneMinute);
+
           }
 
           /* Handle signals received during loop execution */
@@ -368,7 +369,6 @@ void hlquery::Run()
           /* Dispatch network events via the socket engine */
 
           DaemonHandler::ProcessSocketEngineOptimization();
-
 
           SocketEngine::DispatchEvents();
 

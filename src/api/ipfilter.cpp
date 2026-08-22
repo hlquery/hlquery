@@ -27,7 +27,7 @@
 /* Implements IP allowlist and network identity checks for API requests. */
 
 IPFilter::IPFilter() : AllowAll(true),
-                       DenyAll(false), HasHostnames(false), HasWildcardHostnames(false), HasDenyEntries(false), HasDenyHostnames(false), HasDenyWildcardHostnames(false), DNSCacheMaxSize(DNS_CACHE_MAX_SIZE), LastCacheFlush(Instance->Now())
+                       DenyAll(false), HasHostnames(false), HasWildcardHostnames(false), HasDenyEntries(false), HasDenyHostnames(false), HasDenyWildcardHostnames(false), DNSCacheMaxSize(DNS_CACHE_MAX_SIZE), LastCacheFlush(::Now())
 {
 
 }
@@ -743,7 +743,7 @@ void IPFilter::FlushDNSCache()
           }
      }
 
-     LastCacheFlush = Instance->Now();
+     LastCacheFlush = ::Now();
 
      if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
      {
@@ -957,7 +957,7 @@ bool IPFilter::IsIPInCIDR(const std::string &IP, const std::string &CIDR) const
 
      uint32_t Network = ntohl(NetworkAddr.sin_addr.s_addr);
      uint32_t Address = ntohl(IPAddr.sin_addr.s_addr);
-     uint32_t Mask = (0xFFFFFFFF << (32 - MaskBits)) & 0xFFFFFFFF;
+     uint32_t Mask = MaskBits == 0 ? 0U : (0xFFFFFFFFU << (32 - MaskBits));
 
      return (Address & Mask) == (Network & Mask);
 }
@@ -1005,7 +1005,8 @@ std::string IPFilter::ReverseDNS(const std::string &IP) const
           }
      }
 
-     struct sockaddr_in SA;
+     struct sockaddr_in SA{};
+     SA.sin_family = AF_INET;
 
      if (inet_pton(AF_INET, IP.c_str(), &(SA.sin_addr)) != 1)
      {

@@ -24,6 +24,7 @@
 #include "core/config.h"
 #include "core/hlquery.h"
 #include "runtime/serverconfig.h"
+#include "search/bm25_scoring.h"
 #include "search/document_collection_store.h"
 #include "search/lexical_inverted_index.h"
 #include "search/mapped_posting_index.h"
@@ -2251,36 +2252,9 @@ double InvertedIndex::CalculateBM25PlusScore(double TermFreq, double DocFreq, do
 
      IdfFloorFactor = std::clamp(IdfFloorFactor, 0.0, 1.0);
 
-     double Idf = 0.0;
-
-     if (IdfMode == "smooth")
-     {
-          double Denominator = DocFreq + 0.5 + IdfSmoothValue;
-
-          if (Denominator <= 0.0)
-          {
-               return 0.0;
-          }
-
-          double Ratio = (CollectionSize - DocFreq + 0.5) / Denominator;
-          Idf = std::log1p(std::max(0.0, Ratio));
-     }
-     else
-     {
-          double Denominator = DocFreq + 0.5;
-
-          if (Denominator <= 0.0)
-          {
-               return 0.0;
-          }
-
-          Idf = std::log((CollectionSize - DocFreq + 0.5) / Denominator);
-
-          if (ClampNegative && Idf < 0.0)
-          {
-               Idf = IdfFloorFactor * std::log1p(CollectionSize / DocFreq);
-          }
-     }
+     const double Idf = BM25Scoring::CalculateIdf(DocFreq, CollectionSize, IdfMode,
+                                                   IdfSmoothValue, ClampNegative,
+                                                   IdfFloorFactor);
 
      const double NormalizedLengthValue = std::max(1e-9, DocLength / AvgDocLength);
      const double NumeratorValue = TermFreq * (K1 + 1.0);

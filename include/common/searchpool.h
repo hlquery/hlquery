@@ -508,6 +508,7 @@ class HighPerformanceTask
      }
 
    private:
+
      /* Wrapped task object */
 
      T TaskObj;
