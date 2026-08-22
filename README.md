@@ -1,5 +1,3 @@
-> **Development Status**: hlquery is currently in active development and should not be used in production environments. The software may contain bugs and incomplete features, and breaking changes may occur without notice.
-
 <div align="center">
   <img src="https://docs.hlquery.com/img/hlquery/2.png" alt="hlquery logo" width="200">
 </div>
