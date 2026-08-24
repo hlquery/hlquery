@@ -57,6 +57,7 @@ ${HLQUERY_SSL_DEFINES}
 #define HLQUERY_MAX_THREADS ${HLQUERY_MAX_THREADS}
 
 /* Connection limits and throttling */
+
 /* Maximum concurrent connections (increased for benchmarking) */
 
 #define MAX_CONNECTIONS 8192
@@ -66,6 +67,7 @@ ${HLQUERY_SSL_DEFINES}
 #define MAX_PENDING_CONNECTIONS 1024
 
 /* User timeout configuration */
+
 /* User timeout in seconds - more aggressive for dead connections */
 
 #define TIMEOUT_SECONDS 30
@@ -75,6 +77,7 @@ ${HLQUERY_SSL_DEFINES}
 #define HLQ_LSM_ENABLED ${HLQ_LSM_ENABLED}
 
 /* Performance and Processing Configuration */
+
 /* Maximum connections processed per tick (increased for benchmarking) */
 
 #define MAX_PROCESS_PER_TICK 256
@@ -84,6 +87,7 @@ ${HLQUERY_SSL_DEFINES}
 #define MAX_CONNECTIONS_PER_TICK 256
 
 /* Circuit Breaker and Error Handling Configuration */
+
 /* Maximum consecutive errors before circuit breaker triggers */
 
 #define MAX_CONSECUTIVE_ERRORS 100
@@ -119,11 +123,13 @@ ${HLQUERY_SSL_DEFINES}
 #define AL_START_TAIL 1
 
 /* Lock-Free Structures Configuration */
+
 /* Maximum level for skip lists and other hierarchical structures */
 
 #define MAX_LEVEL 16
 
 /* HTTP Server Configuration */
+
 /* Maximum requests per HTTP connection (keep-alive limit) */
 
 #define HTTP_MAX_REQUESTS_PER_CONNECTION 10000
@@ -153,6 +159,7 @@ ${HLQUERY_SSL_DEFINES}
 #define HTTP_MAX_ACCEPTS_PER_TICK 10
 
 /* Action List Configuration */
+
 /* Maximum number of actions that can be queued (prevents unbounded growth) */
 
 #define MAX_QUEUE_SIZE 10000
@@ -162,6 +169,7 @@ ${HLQUERY_SSL_DEFINES}
 #define INITIAL_CAPACITY 64
 
 /* Initializer Configuration Constants */
+
 /* DNS cache flush interval in seconds (1 hour) */
 
 #define DNS_CACHE_FLUSH_INTERVAL_SEC 3600
@@ -179,6 +187,7 @@ ${HLQUERY_SSL_DEFINES}
 #define METADATA_SCAN_SLEEP_MS 100
 
 /* Daemon Configuration Constants */
+
 /* Default shutdown timeout in seconds (small/empty database) */
 
 #define DAEMON_SHUTDOWN_TIMEOUT_SEC 10
@@ -188,6 +197,7 @@ ${HLQUERY_SSL_DEFINES}
 #define DAEMON_SHUTDOWN_TIMEOUT_EXTENDED_SEC 30
 
 /* LSM Engine Configuration Constants */
+
 /* Maximum WAL entry size in bytes (1MB) */
 
 #define MAX_WAL_ENTRY_SIZE (1024 * 1024)
@@ -212,7 +222,7 @@ ${HLQUERY_SSL_DEFINES}
 
 #define LSM_MAX_WAIT_COUNT 10
 
-/* 
+/*
  * Memtable flush threshold (entries)
  * Increased from 1000 to 10000 to reduce excessive small SSTables and compaction overhead.
  * This improves write throughput and reduces random reads by creating larger SSTables.
@@ -225,11 +235,13 @@ ${HLQUERY_SSL_DEFINES}
 #define LSM_SHARDED_MUTEXES 16
 
 /* Hybrid Storage Configuration Constants */
+
 /* Number of mutexes for collection locking */
 
 #define HYBRID_STORAGE_NUM_MUTEXES 16
 
 /* Flush threshold: number of documents before flush (only flush when memtable is full) */
+
 /* Flush occurs when memtable is full or after time interval */
 
 #define HYBRID_STORAGE_FLUSH_DOC_COUNT 10000 /* Increased from 100 to 10000; flush only when the memtable is full. */
@@ -255,6 +267,7 @@ ${HLQUERY_SSL_DEFINES}
 #define HYBRID_STORAGE_BATCH_SIZE 25
 
 /* Document Storage Configuration Constants */
+
 /* Maximum segment size in bytes (10MB per segment) */
 
 #define DOCUMENT_STORAGE_MAX_SEGMENT_SIZE (10 * 1024 * 1024)
@@ -264,6 +277,7 @@ ${HLQUERY_SSL_DEFINES}
 #define DOCUMENT_STORAGE_MAX_SEGMENTS 1000
 
 /* SSTable Configuration Constants */
+
 /* Block size in bytes (64KB blocks) */
 
 #define SSTABLE_BLOCK_SIZE (64 * 1024)
@@ -273,6 +287,7 @@ ${HLQUERY_SSL_DEFINES}
 #define MAX_SSTABLE_SIZE (10ULL * 1024 * 1024 * 1024)
 
 /* Inverted Index Configuration Constants */
+
 /* Maximum active postings in RAM before sealing */
 
 #define INVERTED_INDEX_MAX_ACTIVE_POSTINGS 100000
@@ -318,6 +333,7 @@ ${HLQUERY_SSL_DEFINES}
 #define INVERTED_INDEX_MEMORY_CHECK_INTERVAL 1000
 
 /* Config Reader Configuration Constants */
+
 /* Maximum config file size in bytes (10MB) */
 
 #define CONFIG_READER_MAX_CONFIG_SIZE (10 * 1024 * 1024)
@@ -342,26 +358,31 @@ ${HLQUERY_SSL_DEFINES}
 #define CONFIG_READER_MAX_INCLUDE_SIZE (5 * 1024 * 1024)
 
 /* Database Configuration Constants */
+
 /* Maximum key size in bytes (1MB max key size) */
 
 #define DATABASE_MAX_KEY_SIZE (1024 * 1024)
 
 /* Memory Safety Configuration Constants */
+
 /* Maximum string size in bytes (1MB max) */
 
 #define MEMORY_SAFETY_MAX_STRING_SIZE (1024 * 1024)
 
 /* Backup/Restore Configuration Constants */
+
 /* Chunk size for backup/restore operations in bytes (64KB chunks) */
 
 #define BACKUP_RESTORE_CHUNK_SIZE (64 * 1024)
 
 /* Memtable Configuration Constants */
+
 /* Maximum retries for memtable operations */
 
 #define MEMTABLE_MAX_RETRIES 10
 
 /* Search API Configuration Constants */
+
 /* Maximum errors before giving up */
 
 #define SEARCH_API_MAX_ERRORS 10
@@ -382,11 +403,13 @@ ${HLQUERY_SSL_DEFINES}
 #define SEARCH_API_EARTH_RADIUS_KM 6371.0
 
 /* Replication Protocol Configuration Constants */
+
 /* Batch size for replication operations */
 
 #define REPLICATION_PROTOCOL_BATCH_SIZE 1000
 
 /* Socket Engine Configuration Constants */
+
 /* Epoll batch size for high-speed writes */
 
 #define EPOLL_BATCH_SIZE 256
@@ -448,6 +471,7 @@ ${HLQUERY_SSL_DEFINES}
 #define SOCKET_ENGINE_LOW_MEDIUM_LOAD_TIMEOUT_MS 10
 
 /* HTTP Server Buffer Configuration Constants */
+
 /* HTTP read buffer size in bytes (increased from 4096) */
 
 #define HTTP_READ_BUFFER_SIZE (64 * 1024)
@@ -457,6 +481,7 @@ ${HLQUERY_SSL_DEFINES}
 #define HLQUERY_SOCKET_BUFFER_SIZE (8 * 1024 * 1024)
 
 /* RocksDB Default Configuration Constants */
+
 /* Create database if missing */
 
 #define ROCKSDB_DEFAULT_CREATE_IF_MISSING 1

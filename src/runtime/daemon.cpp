@@ -476,7 +476,7 @@ void hlquery::ParseArgs()
           auto PrintHelp = [&]()
           {
                std::cout << "Usage: " << ArgvList[0] << " [options]" << std::endl;
-               newline();
+               Newline();
                std::cout << "Options:" << std::endl;
                std::cout << "  -t, --test          Run in test mode" << std::endl;
                std::cout << "  -n, --nofork        Run in foreground (prevents daemonization)" << std::endl;
@@ -487,12 +487,12 @@ void hlquery::ParseArgs()
                std::cout << "  -s, --skip-auth     Skip password authentication (dev/testing only)" << std::endl;
                std::cout << "  -f, --forcestop     Force stop running daemon and remove PID file" << std::endl;
                std::cout << "  -h, --help          Show this help message" << std::endl;
-               newline();
+               Newline();
                std::cout << "Note: --debug and --verbose are separate options:" << std::endl;
                std::cout << "  --debug:   logs debug messages to log files only (no terminal output)" << std::endl;
                std::cout << "  --verbose: logs debug messages to files AND prints them to terminal (both)" << std::endl;
                std::cout << "  They can be used independently or together." << std::endl;
-               newline();
+               Newline();
           };
 
           optind = 1;
@@ -1537,7 +1537,7 @@ bool hlquery::Daemonize()
                close(DaemonSyncPipe[0]);
                DaemonSyncPipe[0] = -1;
                print_ok("Now detaching.");
-               newline();
+               Newline();
                fflush(stdout);
 
                ExitManager::EmergencyExit(0);

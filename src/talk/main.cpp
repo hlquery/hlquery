@@ -404,7 +404,7 @@ void TalkPrintLine(const std::string &message)
           std::cout << '.';
      }
 
-     newline();
+     Newline();
 }
 
 void TalkPrintError(const std::string &message)

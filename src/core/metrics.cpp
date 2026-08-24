@@ -24,6 +24,7 @@ HLQueryMetrics::MetricHistory::MetricHistory()
     : LastStorageTime(std::chrono::system_clock::time_point(std::chrono::milliseconds(NowMs()))),
       LastRetentionCheck(std::chrono::system_clock::time_point(std::chrono::milliseconds(NowMs())))
 {
+
 }
 
 /* Returns the current wall-clock time through the active server clock. */

@@ -64,7 +64,7 @@
                   })                                      \
            : ModulePreCheckResult())
 
-/* 
+/*
  * Manages the lifecycle of runtime modules.
  * This class loads modules, tracks hook subscribers,
  * dispatches events, and coordinates module shutdown.
@@ -74,7 +74,7 @@ class ModuleManager
 {
    private:
 
-     /* 
+     /*
       * Tracks serialized callback execution for one loaded module instance.
       * This prevents concurrent hook entry into the same module and lets unload
       * wait for in-flight callbacks to drain before Stop() runs.
@@ -84,13 +84,15 @@ class ModuleManager
      {
           std::mutex Mutex;
           std::condition_variable Condition;
+
           unsigned int ActiveCallbacks = 0;
           bool DispatchInProgress = false;
+
           bool Stopping = false;
           std::thread::id DispatchOwner;
      };
 
-     /* 
+     /*
       * Pairs one runtime module instance with its execution state.
       * Snapshots carry both so dispatch remains safe after registry updates.
       */
@@ -99,16 +101,29 @@ class ModuleManager
      {
           std::shared_ptr<RuntimeModule> Instance;
           RuntimeModule *Target = nullptr;
+
           std::shared_ptr<ModuleExecutionState> ExecutionState;
      };
 
      struct ModuleCallbackGuard
      {
+          /* Acquires callback ownership for one module reference. */
+
           explicit ModuleCallbackGuard(const ModuleReference &ModuleRef);
+
+          /* Releases callback ownership when the guard leaves scope. */
+
           ~ModuleCallbackGuard();
 
+          /* Prevents callback guards from being copied. */
+
           ModuleCallbackGuard(const ModuleCallbackGuard &) = delete;
+
+          /* Prevents callback guards from being assigned. */
+
           ModuleCallbackGuard &operator=(const ModuleCallbackGuard &) = delete;
+
+          /* Releases callback ownership once. */
 
           void Release();
 
@@ -116,21 +131,21 @@ class ModuleManager
           bool Active = true;
      };
 
-     /* 
+     /*
       * Snapshot of currently referenced runtime modules.
       * Snapshots are used to iterate safely without holding write access.
       */
 
      using ModuleSnapshot = std::vector<ModuleReference>;
 
-     /* 
+     /*
       * Maps each hook identifier to the modules subscribed to that hook.
       * The array index matches the ModuleHook enumeration value.
       */
 
      using HookSubscribers = std::array<ModuleSnapshot, static_cast<size_t>(ModuleHook::OnCount)>;
 
-     /* 
+     /*
       * Stores one loaded module entry.
       * This keeps the module name, library handle, and runtime instance.
       */
@@ -206,35 +221,35 @@ class ModuleManager
 
      std::string StagedDemoModeMessage;
 
-     /* 
+     /*
      * Releases retired modules whose handles can now be cleaned up.
      * This finalizes deferred unload work after the active lists are updated.
      */
 
      void ReapRetiredModules();
 
-     /* 
+     /*
      * Unloads a specific list of modules using the provided logger.
      * The supplied list is detached from the active registry before cleanup.
      */
 
      void UnloadModuleList(std::vector<LoadedModule> ModulesToUnload);
 
-     /* 
+     /*
       * Captures the subscribers registered for one specific hook.
       * The returned snapshot can be iterated without holding the write lock.
       */
 
      ModuleSnapshot GetHookSnapshot(ModuleHook Hook) const;
 
-     /* 
+     /*
       * Rebuilds all cached hook subscriber lists from the loaded modules.
       * This must be called after module load or unload state changes.
       */
 
      void RebuildHookRegistriesLocked();
 
-     /* 
+     /*
       * Dispatches an event callback to all currently loaded modules.
       * The manager resolves the current subscriber snapshot before dispatch.
       */
@@ -250,26 +265,26 @@ class ModuleManager
                                      const char *EventName,
                                      const std::function<void(RuntimeModule &)> &Invoke);
 
-     /* 
+     /*
       * Attempts to enter one module callback region.
       * Returns false when the module is stopping and should no longer accept work.
       */
 
      static bool BeginModuleCallback(const ModuleReference &Module);
 
-     /* 
+     /*
       * Leaves one module callback region and wakes unload waiters if needed.
       */
 
      static void EndModuleCallback(const ModuleReference &Module);
 
-     /* 
+     /*
       * Prevents new callbacks from starting and waits for in-flight work to finish.
       */
 
      static void QuiesceModuleCallbacks(const ModuleReference &Module);
 
-     /* 
+     /*
       * Finds one loaded module and returns both the instance and execution state.
      */
 
@@ -325,7 +340,7 @@ class ModuleManager
           return ModulePreCheckResult();
      }
 
-     /* 
+     /*
       * Resolves the filesystem path for a module entry from the server configuration.
       * This converts configuration data into the concrete path used for loading.
       */
@@ -341,14 +356,14 @@ class ModuleManager
 
      static bool IsValidModuleName(const std::string &Name);
 
-     /* 
+     /*
       * Destroys the module manager and releases any remaining resources.
       * Remaining modules are unloaded before process shutdown completes.
       */
 
      ~ModuleManager();
 
-     /* 
+     /*
       * Waits for storage readiness and then loads all configured runtime modules.
       * This is the top-level entry point used during server startup.
       */
@@ -362,21 +377,21 @@ class ModuleManager
                      std::string &ErrorMessage,
                      const std::string &ExplicitPath = "");
 
-     /* 
+     /*
       * Loads all configured modules and reports any failure details.
       * This performs the actual configuration-driven module load pass.
       */
 
      bool LoadConfiguredModules(const ServerConfig &Config, std::string &ErrorMessage);
 
-     /* 
+     /*
       * Unloads every currently loaded module.
       * Active registries are cleared before native handles are retired.
       */
 
      void UnloadAll();
 
-     /* 
+     /*
       * Finds a loaded module by name.
       * Returns a shared pointer to the live runtime instance when found.
       */
@@ -389,56 +404,56 @@ class ModuleManager
 
      std::vector<std::string> GetLoadedModuleNames() const;
 
-     /* 
+     /*
       * Returns the names of loaded core modules.
       * Only modules marked as core are included in the returned list.
       */
 
      std::vector<std::string> GetLoadedCoreModuleNames() const;
 
-     /* 
+     /*
       * Returns the names of loaded optional modules.
       * This excludes modules that are part of the required core set.
       */
 
      std::vector<std::string> GetLoadedOptionalModuleNames() const;
 
-     /* 
+     /*
       * Returns the API descriptions exposed by loaded modules.
       * Each description is gathered from modules that publish API metadata.
       */
 
      std::vector<ModuleAPIDescription> GetModuleAPIDescriptions() const;
 
-     /* 
+     /*
       * Retrieves the API description for a single module.
       * Returns false when the module is missing or exposes no API metadata.
       */
 
      bool GetModuleAPIDescription(const std::string &ModuleName, ModuleAPIDescription *Description) const;
 
-     /* 
+     /*
       * Retrieves the command specifications exposed by a module.
       * The output vector is filled only for modules that publish commands.
       */
 
      bool GetModuleCommandSpecs(const std::string &ModuleName, std::vector<ModuleCommandSpec> *Commands) const;
 
-     /* 
+     /*
       * Handles a module command request for the specified module.
       * The request is routed to the matching module implementation.
       */
 
      bool HandleModuleCommand(const std::string &ModuleName, const ModuleCommandRequest &Request, ModuleCommandResponse *Response) const;
 
-     /* 
+     /*
       * Routes an HTTP API request to the specified module.
       * The sub-path is forwarded so the target module can resolve routing.
       */
 
      HttpResponse HandleModuleAPIRequest(const std::string &ModuleName, const HttpRequest &Request, const std::string &SubPath) const;
 
-     /* 
+     /*
       * Notifies modules that they are about to be unloaded.
       * This gives modules a chance to release resources before final unload.
       */
@@ -449,7 +464,7 @@ class ModuleManager
 
      bool UnloadModule(const std::string &ModuleName, std::string &ErrorMessage);
 
-     /*  
+     /*
       * Computes a module-adjusted multiplier for a search hit score.
       * Loaded modules may raise or lower the base score contribution.
       */
@@ -460,35 +475,35 @@ class ModuleManager
                                          const SearchHit &Hit,
                                          float BaseScore) const;
 
-     /* 
+     /*
      * Returns whether demo mode is currently enabled.
      * This state is shared across module-managed demo restrictions.
      */
 
      bool IsDemoModeEnabled() const;
 
-     /* 
+     /*
       * Returns the current demo mode message.
       * The message explains why demo mode is active or what it affects.
       */
 
      std::string GetDemoModeMessage() const;
 
-     /* 
+     /*
       * Updates the current demo mode state and message.
       * Modules can use this to publish centralized demo mode restrictions.
       */
 
      void SetDemoModeState(bool Active, const std::string &Message);
 
-     /* 
+     /*
       * Runs a callback across the currently loaded modules.
       * The callback is dispatched to the subscribers for the requested hook.
       */
 
      void NotifyModules(ModuleHook Hook, const char *EventName, const std::function<void(RuntimeModule &)> &Invoke);
 
-     /* 
+     /*
       * Runs a pre-check callback across the subscribers registered for one hook.
       * The first module that denies the action stops the evaluation.
       */

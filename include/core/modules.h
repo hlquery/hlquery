@@ -627,6 +627,7 @@ class RuntimeModule
      }
 
    public:
+
      /* Public module interface begins here. */
 
      /* Constructs a runtime module with a fixed exported name. */
@@ -636,6 +637,7 @@ class RuntimeModule
            api_route_enabled(EnableAPIRoute),
            requirement_flags(RequirementFlags)
      {
+
      }
 
      /* Virtual destructor for safe unloading through base pointers. */
@@ -735,24 +737,28 @@ class RuntimeModule
 
      virtual void OnUnloadModule()
      {
+
      }
 
      /* Called once after initialization completes and before the main loop starts. */
 
      virtual void OnStartup()
      {
+
      }
 
      /* Called once shared thread pools are initialized and ready for use. */
 
      virtual void OnThreadPoolsReady()
      {
+
      }
 
      /* Called once per wall-clock minute from the main loop. */
 
      virtual void OnEveryOneMinute()
      {
+
      }
 
      /* Called every idle tick (main loop wakeup) with the current timestamp. */
@@ -775,6 +781,7 @@ class RuntimeModule
 
      virtual void OnRequestAnalytics(const HttpRequest &, const HttpResponse &, RouteAction)
      {
+
      }
 
      /* Called after an authenticated request has completed so modules can inspect auth usage. */
@@ -809,12 +816,14 @@ class RuntimeModule
 
      virtual void OnMetricsRequest(const HttpRequest &)
      {
+
      }
 
      /* Called after a cache-inspection request has been handled successfully. */
 
      virtual void OnCacheRequest(const HttpRequest &)
      {
+
      }
 
      /* Search observation hooks begin here. */
@@ -1458,6 +1467,7 @@ template <typename Derived>
 class AutoRuntimeModule : public RuntimeModule
 {
    protected:
+
      /* Constructs a module that automatically marks overridden hooks. */
 
      explicit AutoRuntimeModule(const std::string &Name, bool EnableAPIRoute = false, uint32_t RequirementFlags = ModuleRequirementNone)
@@ -1470,9 +1480,11 @@ class AutoRuntimeModule : public RuntimeModule
 class CompositeRuntimeModule : public RuntimeModule
 {
    private:
+
      std::vector<RuntimeModule *> Components;
 
    protected:
+
      /*
       * Registers an owned component for hook and lifecycle forwarding.
       * The composite does not take ownership; components should normally be
@@ -1482,15 +1494,29 @@ class CompositeRuntimeModule : public RuntimeModule
      void AddComponent(RuntimeModule &Component);
 
    public:
+
+     /* Constructs an empty composite runtime module. */
+
      explicit CompositeRuntimeModule(const std::string &Name, bool EnableAPIRoute = false, uint32_t RequirementFlags = ModuleRequirementNone)
          : RuntimeModule(Name, EnableAPIRoute, RequirementFlags)
      {
+
      }
+
+     /* Returns hook targets from registered components. */
 
      std::vector<RuntimeModule *> GetHookTargets(ModuleHook Hook) override;
 
+     /* Starts all registered components. */
+
      bool Start(const ServerConfig &Config, std::string &ErrorMessage) override;
+
+     /* Stops all registered components. */
+
      void Stop() override;
+
+     /* Delivers unload notifications to registered components. */
+
      void OnUnloadModule() override;
 };
 
@@ -1498,6 +1524,7 @@ template <typename Derived>
 class AutoCompositeRuntimeModule : public CompositeRuntimeModule
 {
    protected:
+
      /* Constructs a composite module that automatically marks overridden hooks. */
 
      explicit AutoCompositeRuntimeModule(const std::string &Name, bool EnableAPIRoute = false, uint32_t RequirementFlags = ModuleRequirementNone)
@@ -1522,8 +1549,10 @@ struct RuntimeModuleDescriptor
 {
      uint32_t DescriptorSize;
      uint32_t ABIVersion;
+
      size_t RuntimeModuleSize;
      CreateRuntimeModuleFn Create;
+
      DestroyRuntimeModuleFn Destroy;
 };
 

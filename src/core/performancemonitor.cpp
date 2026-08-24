@@ -32,12 +32,15 @@
 class PerformanceCounters
 {
    private:
+
      struct Counter
      {
           std::atomic<uint64_t> count{0};
           std::atomic<uint64_t> total_time_us{0};
+
           std::atomic<uint64_t> min_time_us{UINT64_MAX};
           std::atomic<uint64_t> max_time_us{0};
+
           std::atomic<uint64_t> last_time_us{0};
      };
 
@@ -46,6 +49,7 @@ class PerformanceCounters
      mutable std::mutex CountersMutex;
 
    public:
+
      /* Increments a specific performance counter by its name */
 
      void IncrementCounter(const std::string &Name)
@@ -73,6 +77,7 @@ class PerformanceCounters
                  !CounterRef.min_time_us.compare_exchange_weak(CurrentMin, TimeUS))
           {
                /* Retry until the atomic update succeeds */
+
           }
 
           uint64_t CurrentMax = CounterRef.max_time_us.load();
@@ -81,6 +86,7 @@ class PerformanceCounters
                  !CounterRef.max_time_us.compare_exchange_weak(CurrentMax, TimeUS))
           {
                /* Retry until the atomic update succeeds */
+
           }
      }
 
@@ -90,8 +96,10 @@ class PerformanceCounters
      {
           uint64_t count;
           uint64_t total_time_us;
+
           uint64_t min_time_us;
           uint64_t max_time_us;
+
           uint64_t last_time_us;
           double avg_time_us;
      };
@@ -164,6 +172,7 @@ class PerformanceCounters
 class SystemResourceMonitor
 {
    private:
+
      std::atomic<uint64_t> CPUUsagePercent{0};
 
      std::atomic<uint64_t> MemoryUsageBytes{0};
@@ -180,71 +189,6 @@ class SystemResourceMonitor
 
      std::mutex ShutdownMutex;
 
-   public:
-     /* Constructor that initiates the background resource monitoring thread */
-
-     SystemResourceMonitor()
-     {
-          bool RegisteredFlag = ThreadLimit::TryAcquireThreadSlot();
-
-          if (RegisteredFlag)
-          {
-               MonitorThread = std::thread([this]()
-                                           {
-                                                ThreadLimit::SetThreadName("hlquery:perfmon");
-                                                MonitorResources();
-                                           });
-          }
-     }
-
-     /* Destructor that handles graceful termination of the monitoring thread */
-
-     ~SystemResourceMonitor()
-     {
-          ShutdownValue.store(true);
-          ShutdownCondition.notify_all();
-
-          if (MonitorThread.joinable())
-          {
-               MonitorThread.join();
-
-               ThreadLimit::DecrementThreadCount();
-          }
-     }
-
-     /* The primary background monitoring loop that periodically samples resource state */
-
-     void MonitorResources()
-     {
-          while (!ShutdownValue.load())
-          {
-               try
-               {
-                    MonitorCPUUsage();
-
-                    MonitorMemoryUsage();
-
-                    MonitorDiskIO();
-
-                    MonitorNetworkIO();
-               }
-               catch (const std::exception &e)
-               {
-                    if (Instance && Instance->Logs)
-                    {
-                         Instance->Logs->Critical("performance_monitor", "Resource monitoring error: " + std::string(e.what()) + ".");
-                    }
-               }
-
-               std::unique_lock<std::mutex> ShutdownLock(ShutdownMutex);
-               ShutdownCondition.wait_for(ShutdownLock, std::chrono::seconds(1), [this]()
-                                          {
-                                               return ShutdownValue.load();
-                                          });
-          }
-     }
-
-   private:
      /* Samples CPU utilization by parsing the /proc/stat system file */
 
      void MonitorCPUUsage()
@@ -261,10 +205,13 @@ class SystemResourceMonitor
 
                uint64_t UserVal = 0;
                uint64_t NiceVal = 0;
+
                uint64_t SystemVal = 0;
                uint64_t IdleVal = 0;
+
                uint64_t IOWaitVal = 0;
                uint64_t IRQVal = 0;
+
                uint64_t SoftIRQVal = 0;
                uint64_t StealVal = 0;
 
@@ -473,12 +420,77 @@ class SystemResourceMonitor
      }
 
    public:
+
+     /* Constructor that initiates the background resource monitoring thread */
+
+     SystemResourceMonitor()
+     {
+          bool RegisteredFlag = ThreadLimit::TryAcquireThreadSlot();
+
+          if (RegisteredFlag)
+          {
+               MonitorThread = std::thread([this]()
+                                           {
+                                                ThreadLimit::SetThreadName("hlquery:perfmon");
+                                                MonitorResources();
+                                           });
+          }
+     }
+
+     /* Destructor that handles graceful termination of the monitoring thread */
+
+     ~SystemResourceMonitor()
+     {
+          ShutdownValue.store(true);
+          ShutdownCondition.notify_all();
+
+          if (MonitorThread.joinable())
+          {
+               MonitorThread.join();
+
+               ThreadLimit::DecrementThreadCount();
+          }
+     }
+
+     /* The primary background monitoring loop that periodically samples resource state */
+
+     void MonitorResources()
+     {
+          while (!ShutdownValue.load())
+          {
+               try
+               {
+                    MonitorCPUUsage();
+
+                    MonitorMemoryUsage();
+
+                    MonitorDiskIO();
+
+                    MonitorNetworkIO();
+               }
+               catch (const std::exception &e)
+               {
+                    if (Instance && Instance->Logs)
+                    {
+                         Instance->Logs->Normal("performance_monitor", "Resource monitoring error: " + std::string(e.what()) + ".");
+                    }
+               }
+
+               std::unique_lock<std::mutex> ShutdownLock(ShutdownMutex);
+               ShutdownCondition.wait_for(ShutdownLock, std::chrono::seconds(1), [this]()
+                                          {
+                                               return ShutdownValue.load();
+                                          });
+          }
+     }
+
      /* Aggregated resource statistics structure */
 
      struct ResourceStats
      {
           uint64_t cpu_usage_percent;
           uint64_t memory_usage_bytes;
+
           uint64_t disk_io_bytes;
           uint64_t network_io_bytes;
      };
@@ -507,19 +519,23 @@ struct PerformanceProfileEntry
 {
      std::string function_name;
      uint64_t total_time_us;
+
      uint64_t call_count;
      uint64_t min_time_us;
+
      uint64_t max_time_us;
 };
 
 class PerformanceProfiler
 {
    private:
+
      std::unordered_map<std::string, PerformanceProfileEntry> Profiles;
 
      mutable std::mutex ProfilesMutex;
 
    public:
+
      using ProfileEntry = PerformanceProfileEntry;
 
      /* Begins a profiling session for a named function */
@@ -527,6 +543,7 @@ class PerformanceProfiler
      void StartProfile(const std::string & /*FunctionName*/)
      {
           /* Placeholder for future profiling logic */
+
      }
 
      /* Ends a profiling session and records the measured duration */
@@ -534,6 +551,7 @@ class PerformanceProfiler
      void EndProfile(const std::string & /*FunctionName*/, uint64_t /*TimeUS*/)
      {
           /* Placeholder for future profiling logic */
+
      }
 
      /* Retrieves profiling data for a specific function */

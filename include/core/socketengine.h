@@ -41,10 +41,13 @@ struct epoll_event
 
 static constexpr int EPOLLIN = 0x001;
 static constexpr int EPOLLPRI = 0x002;
+
 static constexpr int EPOLLOUT = 0x004;
 static constexpr int EPOLLERR = 0x008;
+
 static constexpr int EPOLLHUP = 0x010;
 static constexpr int EPOLLRDHUP = 0x2000;
+
 static constexpr int EPOLLET = 0x80000000;
 static constexpr int EPOLL_CLOEXEC = 0x80000;
 

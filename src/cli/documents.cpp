@@ -495,7 +495,7 @@ void HLQueryCLI::OpenDocument(const std::string &collection_name, const std::str
                     std::cout << value.dump();
                }
 
-               newline();
+               Newline();
           }
      }
      else

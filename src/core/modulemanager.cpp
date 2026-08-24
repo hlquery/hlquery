@@ -35,11 +35,12 @@
 static void LogModuleDispatchFailure(const RuntimeModule *Module, const char *EventName, const std::string &ErrorMessage)
 {
      const std::string ModuleName = Module ? Module->GetName() : "unknown";
-     const std::string Message = "Module '" + ModuleName + "' threw during " + EventName + ": " + ErrorMessage;
+     const std::string MessageBase = "Module '" + ModuleName + "' threw during " + EventName + ": " + ErrorMessage;
+     const std::string Message = (!MessageBase.empty() && MessageBase.back() == '.') ? MessageBase : MessageBase + ".";
 
      if (Instance && Instance->Logs)
      {
-          Instance->Logs->Critical("modules", Message);
+          Instance->Logs->Normal("modules", Message);
           return;
      }
 
@@ -55,10 +56,14 @@ static void LogUnknownModuleDispatchFailure(const RuntimeModule *Module, const c
      LogModuleDispatchFailure(Module, EventName, "unknown exception");
 }
 
+/* Records one module dispatch failure through the manager interface. */
+
 void ModuleManager::LogDispatchFailure(const RuntimeModule *Module, const char *EventName, const std::string &ErrorMessage)
 {
      LogModuleDispatchFailure(Module, EventName, ErrorMessage);
 }
+
+/* Records one module dispatch failure without exception details. */
 
 void ModuleManager::LogUnknownDispatchFailure(const RuntimeModule *Module, const char *EventName)
 {
@@ -115,6 +120,8 @@ static std::filesystem::path ResolveRelativeToConfig(const ServerConfig &Config,
 
      return (ConfigDir / RelativePath).lexically_normal();
 }
+
+/* Returns whether a runtime module name matches a requested name. */
 
 static bool ModuleRuntimeNameMatchesRequest(const RuntimeModule &Module, const std::string &RequestedName)
 {
@@ -248,6 +255,8 @@ ModuleManager::~ModuleManager()
      UnloadAll();
 }
 
+/* Returns whether a module name contains only supported characters. */
+
 bool ModuleManager::IsValidModuleName(const std::string &Name)
 {
      if (Name.empty())
@@ -289,6 +298,8 @@ bool ModuleManager::LoadModules(const ServerConfig &Config, std::string &ErrorMe
 
      return LoadConfiguredModules(Config, ErrorMessage);
 }
+
+/* Loads one runtime module from its configured or explicit path. */
 
 bool ModuleManager::LoadModule(const ServerConfig &Config,
                                const std::string &ModuleName,
@@ -403,6 +414,7 @@ bool ModuleManager::LoadModule(const ServerConfig &Config,
           }
           catch (...)
           {
+
           }
 
           Module.reset();
@@ -433,6 +445,7 @@ bool ModuleManager::LoadModule(const ServerConfig &Config,
                }
                catch (...)
                {
+
                }
 
                Loaded.Instance.reset();
@@ -560,15 +573,22 @@ void ModuleManager::EndModuleCallback(const ModuleReference &Module)
      }
 }
 
+/* Acquires callback ownership for one module reference. */
+
 ModuleManager::ModuleCallbackGuard::ModuleCallbackGuard(const ModuleReference &ModuleRef)
     : Module(ModuleRef)
 {
+
 }
+
+/* Releases callback ownership when the guard leaves scope. */
 
 ModuleManager::ModuleCallbackGuard::~ModuleCallbackGuard()
 {
      Release();
 }
+
+/* Releases callback ownership once. */
 
 void ModuleManager::ModuleCallbackGuard::Release()
 {
@@ -774,6 +794,7 @@ bool ModuleManager::LoadConfiguredModules(const ServerConfig &Config, std::strin
                     }
                     catch (...)
                     {
+
                     }
 
                     It->Instance.reset();
@@ -896,7 +917,9 @@ bool ModuleManager::LoadConfiguredModules(const ServerConfig &Config, std::strin
                if (Instance && Instance->Logs)
                {
                     const std::string StartMessage = StartError.empty() ? "unknown failure" : StartError;
-                    Instance->Logs->Normal("modules", "Module '" + ModuleName + "' Start() failed: " + StartMessage);
+                    const std::string LogMessage = (!StartMessage.empty() && StartMessage.back() == '.') ? "Module '" + ModuleName + "' Start() failed: " + StartMessage : "Module '" + ModuleName + "' Start() failed: " + StartMessage + ".";
+
+                    Instance->Logs->Normal("modules", LogMessage);
                }
                try
                {
@@ -904,6 +927,7 @@ bool ModuleManager::LoadConfiguredModules(const ServerConfig &Config, std::strin
                }
                catch (...)
                {
+
                }
 
                Module.reset();
@@ -1064,6 +1088,8 @@ void ModuleManager::UnloadAll()
      UnloadModuleList(std::move(ModulesToUnload));
 }
 
+/* Unloads one named runtime module. */
+
 bool ModuleManager::UnloadModule(const std::string &ModuleName, std::string &ErrorMessage)
 {
      std::lock_guard<std::mutex> LifecycleLock(LifecycleMutex);
@@ -1137,14 +1163,14 @@ void ModuleManager::UnloadModuleList(std::vector<LoadedModule> ModulesToUnload)
                }
                catch (...)
                {
+
                }
 
                if (It->Instance.use_count() > 1)
                {
                     if (Instance && Instance->Logs)
                     {
-                         Instance->Logs->Normal("modules",
-                                                "Module '" + It->Name + "' still has external references during unload; deferring final destruction and dlclose() until those references are released.");
+                         Instance->Logs->Normal("modules", "Module '" + It->Name + "' still has external references during unload; deferring final destruction and dlclose() until those references are released.");
                     }
 
                     std::unique_lock<std::shared_mutex> Lock(ModulesMutex);

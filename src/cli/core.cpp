@@ -165,7 +165,7 @@ void HLQueryCLI::PrintSuccess(const std::string &message)
           std::cout << ".";
      }
 
-     newline();
+     Newline();
 }
 
 /* Prints an info message. */
@@ -179,7 +179,7 @@ void HLQueryCLI::PrintInfo(const std::string &message)
           std::cout << ".";
      }
 
-     newline();
+     Newline();
 }
 
 /* Helper to format bytes. */
@@ -1261,7 +1261,7 @@ void HLQueryCLI::PrintTable(const std::vector<std::string> &headers, const std::
           std::cout << std::string(width + 2, '-') << "+";
      }
 
-     newline();
+     Newline();
 
      std::cout << "|";
 
@@ -1270,7 +1270,7 @@ void HLQueryCLI::PrintTable(const std::vector<std::string> &headers, const std::
           std::cout << " " << std::left << std::setw(col_widths[i]) << headers[i] << " |";
      }
 
-     newline();
+     Newline();
 
      std::cout << "+";
 
@@ -1279,7 +1279,7 @@ void HLQueryCLI::PrintTable(const std::vector<std::string> &headers, const std::
           std::cout << std::string(width + 2, '-') << "+";
      }
 
-     newline();
+     Newline();
 
      for (const auto &row : rows)
      {
@@ -1313,7 +1313,7 @@ void HLQueryCLI::PrintTable(const std::vector<std::string> &headers, const std::
                     std::cout << " " << std::left << std::setw(col_widths[i]) << cell_content << " |";
                }
 
-               newline();
+               Newline();
           }
      }
 
@@ -1324,5 +1324,5 @@ void HLQueryCLI::PrintTable(const std::vector<std::string> &headers, const std::
           std::cout << std::string(width + 2, '-') << "+";
      }
 
-     newline();
+     Newline();
 }

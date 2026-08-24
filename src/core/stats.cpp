@@ -13,6 +13,8 @@
 #include "core/hlquery.h"
 #include "core/stats.h"
 
+/* Initializes server statistics to their empty startup state. */
+
 ServerStats::ServerStats()
 {
      RestartCount = 0;
@@ -96,6 +98,8 @@ bool ServerStats::IsHealthDegraded() const
 {
      return HealthDegraded.load(std::memory_order_acquire);
 }
+
+/* Returns a consistent health status snapshot. */
 
 ServerStats::HealthStatus ServerStats::GetHealthStatus() const
 {
