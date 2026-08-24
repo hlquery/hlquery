@@ -268,8 +268,9 @@ else
   RDYNAMIC ?= -rdynamic
 endif
 
-# Parallel compilation
-MAKEFLAGS += -j$(BUILD_JOBS)
+# Parallelism is controlled by the invoking make process (for example,
+# `gmake -j4`). GNU make propagates its jobserver to recursive $(MAKE) calls;
+# forcing -j here disables that jobserver and produces warnings in submakes.
 
 # FEATURE FLAGS
 

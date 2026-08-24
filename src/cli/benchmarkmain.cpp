@@ -10,6 +10,7 @@
  * For more details, please visit: https://docs.hlquery.com
  */
 
+#include <algorithm>
 #include <cctype>
 #include <chrono>
 #include <csignal>
@@ -71,6 +72,58 @@ void WriteAdvancedJSON(const std::string &filename, const AdvancedMetrics &metri
 void CleanupBenchmarkCollections(BenchmarkClient &client, bool verbose);
 
 void LogOutput(const std::string &message);
+
+static int CleanupInterruptedBenchmarkRun(const std::string &base_url,
+                                          const std::string &auth_token,
+                                          int num_collections,
+                                          bool reuse_collections)
+{
+     if (reuse_collections || g_collection_prefix.empty())
+     {
+          return 130;
+     }
+
+     std::cerr << "[INTERRUPT] Removing partial collections for this run...\n";
+
+     /* Normal requests abort while the signal flag is set. Workers have
+      * already joined at every call site, so briefly allow cleanup requests. */
+     g_benchmark_should_stop.store(false);
+     std::this_thread::sleep_for(std::chrono::milliseconds(500));
+
+     int removed = 0;
+     for (int sweep = 0; sweep < 3; ++sweep)
+     {
+          for (int i = 0; i < num_collections; ++i)
+          {
+               g_benchmark_should_stop.store(false);
+               BenchmarkClient cleanup_client(base_url, auth_token);
+               (void)cleanup_client.DeleteCollection(MakeBenchmarkCollectionName(i));
+          }
+
+          std::this_thread::sleep_for(std::chrono::milliseconds(250));
+          g_benchmark_should_stop.store(false);
+          BenchmarkClient verification_client(base_url, auth_token);
+          const std::vector<std::string> remaining = verification_client.ListCollections();
+          removed = 0;
+          for (int i = 0; i < num_collections; ++i)
+          {
+               const std::string name = MakeBenchmarkCollectionName(i);
+               if (std::find(remaining.begin(), remaining.end(), name) == remaining.end())
+               {
+                    ++removed;
+               }
+          }
+          if (removed == num_collections)
+          {
+               break;
+          }
+     }
+     g_benchmark_should_stop.store(true);
+
+     std::cerr << "[INTERRUPT] Removed " << removed << "/" << num_collections
+               << " partial collection(s).\n";
+     return 130;
+}
 
 struct DurabilityConfig
 {
@@ -3694,7 +3747,7 @@ int main(int argc, char *argv[])
                if (g_benchmark_should_stop.load())
                {
                     std::cerr << "\n[INTERRUPT] Benchmark interrupted during Phase 1.\n";
-                    return 130;
+                    return CleanupInterruptedBenchmarkRun(base_url, auth_token, num_collections, reuse_collections);
                }
           }
           catch (const std::exception &e)
@@ -3771,7 +3824,7 @@ int main(int argc, char *argv[])
           if (g_benchmark_should_stop.load())
           {
                std::cerr << "\n[INTERRUPT] Benchmark interrupted before Phase 2.\n";
-               return 130;
+               return CleanupInterruptedBenchmarkRun(base_url, auth_token, num_collections, reuse_collections);
           }
 
           ResetProgressBar();
@@ -3830,7 +3883,7 @@ int main(int argc, char *argv[])
                if (g_benchmark_should_stop.load())
                {
                     std::cerr << "\n[INTERRUPT] Benchmark interrupted during Phase 2.\n";
-                    return 130;
+                    return CleanupInterruptedBenchmarkRun(base_url, auth_token, num_collections, reuse_collections);
                }
           }
           catch (const std::exception &e)
@@ -3900,7 +3953,7 @@ int main(int argc, char *argv[])
           if (g_benchmark_should_stop.load())
           {
                std::cerr << "\n[INTERRUPT] Benchmark interrupted before Phase 2b.\n";
-               return 130;
+               return CleanupInterruptedBenchmarkRun(base_url, auth_token, num_collections, reuse_collections);
           }
 
           int additional_docs_per_collection_val = 0;
@@ -3942,7 +3995,7 @@ int main(int argc, char *argv[])
                     if (g_benchmark_should_stop.load())
                     {
                          std::cerr << "\n[INTERRUPT] Benchmark interrupted during Phase 2b.\n";
-                         return 130;
+                         return CleanupInterruptedBenchmarkRun(base_url, auth_token, num_collections, reuse_collections);
                     }
                }
                catch (const std::exception &e)
@@ -4068,7 +4121,7 @@ int main(int argc, char *argv[])
           if (g_benchmark_should_stop.load())
           {
                std::cerr << "\n[INTERRUPT] Benchmark interrupted during durability sync.\n";
-               return 130;
+               return CleanupInterruptedBenchmarkRun(base_url, auth_token, num_collections, reuse_collections);
           }
 
           if (flush_status_code != 200 && flush_status_code != 201)
@@ -4112,7 +4165,7 @@ int main(int argc, char *argv[])
                if (integrity.Interrupted || g_benchmark_should_stop.load())
                {
                     std::cerr << "\n[INTERRUPT] Benchmark interrupted during integrity verification.\n";
-                    return 130;
+                    return CleanupInterruptedBenchmarkRun(base_url, auth_token, num_collections, reuse_collections);
                }
 
                if (!verbose_mode)
@@ -4444,7 +4497,7 @@ int main(int argc, char *argv[])
                if (restart_integrity.Interrupted || g_benchmark_should_stop.load())
                {
                     std::cerr << "\n[INTERRUPT] Benchmark interrupted during restart integrity verification.\n";
-                    return 130;
+                    return CleanupInterruptedBenchmarkRun(base_url, auth_token, num_collections, reuse_collections);
                }
                std::cout << "  Full document integrity: " << (restart_integrity.Passed() ? "MATCH" : "FAILED")
                          << " (" << restart_integrity.Observed << "/" << restart_integrity.Expected << ").\n";
