@@ -259,7 +259,7 @@ class HLQueryCLI
 
      /* Flushes all data. */
 
-     void FlushAll(bool skip_confirmation = false);
+     void FlushAll();
 
      /* Adds a document. */
 

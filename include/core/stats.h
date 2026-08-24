@@ -29,6 +29,44 @@
 
 class ServerStats
 {
+   private:
+
+     /* Restart count */
+
+     uint64_t RestartCount;
+
+     /* Last restart timestamp */
+
+     time_t LastRestartTimestamp;
+
+     /* Mutex for restart statistics */
+
+     mutable std::mutex RestartStatsMutex;
+
+     /* Health degradation status */
+
+     std::atomic<bool> HealthDegraded;
+
+     /* Reason for health degradation */
+
+     std::string HealthDegradedReason;
+
+     /* Mutex for health status */
+
+     mutable std::mutex HealthDegradedMutex;
+
+     /* Flag for dirty shutdown detection */
+
+     bool DirtyShutdownDetected;
+
+     /* Mutex for dirty shutdown status */
+
+     mutable std::mutex DirtyShutdownMutex;
+
+     /* Server startup time */
+
+     std::atomic<time_t> StartupTime;
+
    public:
 
      struct HealthStatus
@@ -113,42 +151,4 @@ class ServerStats
      /* Mutex for startup state */
 
      mutable std::mutex StartupStateMutex;
-
-   private:
-
-     /* Restart count */
-
-     uint64_t RestartCount;
-
-     /* Last restart timestamp */
-
-     time_t LastRestartTimestamp;
-
-     /* Mutex for restart statistics */
-
-     mutable std::mutex RestartStatsMutex;
-
-     /* Health degradation status */
-
-     std::atomic<bool> HealthDegraded;
-
-     /* Reason for health degradation */
-
-     std::string HealthDegradedReason;
-
-     /* Mutex for health status */
-
-     mutable std::mutex HealthDegradedMutex;
-
-     /* Flag for dirty shutdown detection */
-
-     bool DirtyShutdownDetected;
-
-     /* Mutex for dirty shutdown status */
-
-     mutable std::mutex DirtyShutdownMutex;
-
-     /* Server startup time */
-
-     std::atomic<time_t> StartupTime;
 };

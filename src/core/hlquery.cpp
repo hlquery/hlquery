@@ -137,10 +137,12 @@ bool hlquery::Initialize()
      }
 
      InitializeNetworkListeners();
-     Logs->Normal("hlquery", "HTTP servers initialized; readiness will follow startup loading state.");
+     Instance->Logs->Normal("hlquery", "HTTP servers initialized; readiness will follow startup loading state.");
 
      return true;
 }
+
+/* Initializes optional services after required core subsystems are ready. */
 
 bool hlquery::InitializeOptionalServices()
 {
@@ -152,6 +154,8 @@ bool hlquery::InitializeOptionalServices()
 
      return true;
 }
+
+/* Validates the required subsystems created during initialization. */
 
 bool hlquery::ValidateInitializedSubsystems() const
 {
@@ -170,20 +174,24 @@ bool hlquery::ValidateInitializedSubsystems() const
      return true;
 }
 
+/* Creates and starts listeners for configured custom protocols. */
+
 void hlquery::InitializeNetworkListeners()
 {
      if (HasLogs())
      {
-          Logs->Debug("hlquery", "Initializing network listeners for custom protocols.");
+          Instance->Logs->Debug("hlquery", "Initializing network listeners for custom protocols.");
      }
 
      Listeners = ListenManager::CreateCustomProtocolListeners();
      RunListeners();
 }
 
+/* Prints the startup banner with the active module list. */
+
 void hlquery::StartupBanner()
 {
-     newline();
+     Newline();
      std::vector<std::string> loaded_modules;
 
      if (Modules)
@@ -205,8 +213,8 @@ void hlquery::RunListeners()
 
      if (Logs)
      {
-          Logs->Debug("hlquery", "Socket engine verified/initialized for listeners.");
-          Logs->Debug("hlquery", "Starting " + std::to_string(ConfiguredListenerCount) + " listeners.");
+          Instance->Logs->Debug("hlquery", "Socket engine verified/initialized for listeners.");
+          Instance->Logs->Debug("hlquery", "Starting " + std::to_string(ConfiguredListenerCount) + " listeners.");
      }
 
      bool AnyListenerStartedValue = false;
@@ -215,7 +223,7 @@ void hlquery::RunListeners()
      {
           if (Logs)
           {
-               Logs->Debug("hlquery", "Attempting to bind listener.");
+               Instance->Logs->Debug("hlquery", "Attempting to bind listener.");
           }
 
           if (Host->BindAndListen())
@@ -225,7 +233,7 @@ void hlquery::RunListeners()
 
                if (Logs)
                {
-                    Logs->Debug("hlquery", "Listener bound successfully.");
+                    Instance->Logs->Debug("hlquery", "Listener bound successfully.");
                }
           }
           else
@@ -235,7 +243,7 @@ void hlquery::RunListeners()
 
                if (Logs)
                {
-                    Logs->Debug("hlquery", "Listener skipped after bind/listen failure.");
+                    Instance->Logs->Debug("hlquery", "Listener skipped after bind/listen failure.");
                }
           }
      }
@@ -334,6 +342,7 @@ void hlquery::Run()
           catch (...)
           {
                /* Fallback to 0 if time retrieval fails */
+
           }
 
           /* Execute periodic maintenance tasks based on clock movement */
@@ -348,7 +357,6 @@ void hlquery::Run()
           {
                LastMinuteRun = CurrentMinute;
                FOREACH_MOD(OnEveryOneMinute);
-
           }
 
           /* Handle signals received during loop execution */
@@ -394,7 +402,7 @@ void hlquery::Run()
           {
                if (Logs)
                {
-                    Logs->Normal("main", "Exit loop requested - exiting main loop.");
+                    Instance->Logs->Normal("main", "Exit loop requested - exiting main loop.");
                }
 
                break;
@@ -406,7 +414,7 @@ void hlquery::Run()
           {
                if (Logs)
                {
-                    Logs->Normal("main", "Shutdown requested - exiting main loop.");
+                    Instance->Logs->Normal("main", "Shutdown requested - exiting main loop.");
                }
 
                break;

@@ -4083,6 +4083,11 @@ void SearchAPI::ReplicationMonitorLoop() const
           {
                for (const auto &Node : SlaveNodes)
                {
+                    if (ReplicationMonitorStop.load(std::memory_order_relaxed))
+                    {
+                         break;
+                    }
+
                     if (Node.IsLocal)
                     {
                          continue;
@@ -4124,9 +4129,12 @@ void SearchAPI::ReplicationMonitorLoop() const
                     if (!ResyncSlaveFromScratch(Node.Host, Node.Port, &ResyncError))
                     {
                          RecordReplicationFailure("Slave resync failed for " + Node.Endpoint + ": " + ResyncError);
-                         std::lock_guard<std::mutex> lock(ReplicationSlaveStateMutex);
-                         ReplicationResyncInProgress.erase(Node.Endpoint);
-                         ReplicationDirtySlaves.insert(Node.Endpoint);
+                         {
+                              std::lock_guard<std::mutex> lock(ReplicationSlaveStateMutex);
+                              ReplicationResyncInProgress.erase(Node.Endpoint);
+                              ReplicationDirtySlaves.insert(Node.Endpoint);
+                         }
+                         PersistReplicationSlaveState(Node.Endpoint);
                          continue;
                     }
 

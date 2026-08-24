@@ -404,7 +404,7 @@ void TalkPrintLine(const std::string &message)
           std::cout << '.';
      }
 
-     newline();
+     Newline();
 }
 
 void TalkPrintError(const std::string &message)
@@ -4035,7 +4035,7 @@ bool ExecuteTalkCommand(const std::string &line,
                return true;
           }
 
-          cli.FlushAll(true);
+          cli.FlushAll();
           state.LastListedCollections.clear();
           state.LastListedDocumentIds.clear();
           return true;

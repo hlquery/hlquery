@@ -53,6 +53,7 @@ RocksDBOptions RocksDBOptions::LoadFromConfigReader(const ConfigReader &ReaderIn
       */
 
      /* Accept the documented names and the legacy canonical names. */
+
      if (RocksDBSettingsTag->HasAttribute("write_buffer_size"))
      {
           OptionsResult.WriteBufferSize = RocksDBSettingsTag->GetSize("write_buffer_size", OptionsResult.WriteBufferSize);
@@ -191,6 +192,7 @@ RocksDBOptions RocksDBOptions::LoadFromConfigReader(const ConfigReader &ReaderIn
      OptionsResult.Level0StopWritesTrigger = RocksDBSettingsTag->GetInt("level0_stop_writes_trigger", OptionsResult.Level0StopWritesTrigger);
 
      /* Keep both spellings used by older configurations. */
+
      OptionsResult.EnableCompaction = RocksDBSettingsTag->GetBool(
           "enable_compaction",
           RocksDBSettingsTag->GetBool("compaction", OptionsResult.EnableCompaction));
@@ -203,6 +205,7 @@ RocksDBOptions RocksDBOptions::LoadFromConfigReader(const ConfigReader &ReaderIn
      if (CompressionTypeStr.empty() && RocksDBSettingsTag->HasAttribute("enable_compression"))
      {
           /* The historical boolean option maps to fast LZ4 compression. */
+
           CompressionTypeStr = RocksDBSettingsTag->GetBool("enable_compression", true) ? "lz4" : "none";
      }
      if (CompressionTypeStr.empty())

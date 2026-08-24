@@ -95,21 +95,21 @@ void hlquery::SaveCollectionsLoadSummary()
 
           if (Logs)
           {
-               Logs->Normal("hlquery", "Collections load summary saved to " + SummaryFilePath.string() + ".");
+               Instance->Logs->Normal("hlquery", "Collections load summary saved to " + SummaryFilePath.string() + ".");
           }
      }
      catch (const std::exception &e)
      {
           if (Logs)
           {
-               Logs->Normal("hlquery", "Failed to save collections load summary: " + std::string(e.what()) + ".");
+               Instance->Logs->Normal("hlquery", "Failed to save collections load summary: " + std::string(e.what()) + ".");
           }
      }
      catch (...)
      {
           if (Logs)
           {
-               Logs->Normal("hlquery", "Failed to save collections load summary: unknown error.");
+               Instance->Logs->Normal("hlquery", "Failed to save collections load summary: unknown error.");
           }
      }
 }

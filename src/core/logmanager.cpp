@@ -311,7 +311,7 @@ std::string LogStream::FormatLogLine(LogLevel Level, const std::string &Type, co
 
      /* Apply terminal colors only to diagnostic console output. */
 
-     if (UseColors && Level == LogLevel::LOG_DEBUG)
+     if (UseColors && Level == LogLevel::DEBUG_LEVEL)
      {
           Result += "\033[30m[\033[0m \033[96mDEBUG\033[0m \033[30m]\033[0m ";
      }
@@ -390,7 +390,7 @@ std::string LogStream::LogLevelToString(LogLevel Level)
                return "VERB";
           }
 
-          case LogLevel::LOG_DEBUG:
+          case LogLevel::DEBUG_LEVEL:
           {
                return "DEBG";
           }
@@ -571,6 +571,7 @@ void LogStream::CleanupOldRotatedFiles()
                          catch (...)
                          {
                               /* Ignore failures during background file cleanup. */
+
                          }
                     }
                }
@@ -599,6 +600,7 @@ void LogStream::CleanupOldRotatedFiles()
                     catch (...)
                     {
                          /* Ignore failures during background file cleanup. */
+
                     }
                }
           }
@@ -606,6 +608,7 @@ void LogStream::CleanupOldRotatedFiles()
      catch (const std::exception &e)
      {
           /* Log rotation cleanup is non-critical; suppress errors. */
+
      }
 }
 
@@ -681,6 +684,7 @@ size_t LogStream::GetCurrentFileSize()
      catch (const std::exception &)
      {
           /* Swallow file system inspection errors. */
+
      }
 
      return 0;
@@ -695,6 +699,7 @@ LogManager::LogManager()
       NoForkMode(false),
       VerboseMode(false)
 {
+
 }
 
 /* Destructor for LogManager ensuring all active streams are flushed. */
@@ -910,7 +915,7 @@ void LogManager::Log(LogLevel LevelValue, const std::string &Type, const std::st
                     break;
                }
 
-               case LogLevel::LOG_DEBUG:
+               case LogLevel::DEBUG_LEVEL:
                {
                     LevelStrValue = "DEBUG";
                     break;
@@ -939,7 +944,7 @@ void LogManager::Log(LogLevel LevelValue, const std::string &Type, const std::st
           }
      }
 
-     if (VerboseMode && !HasConsoleStreamFlag && (LevelValue == LogLevel::LOG_DEBUG || LevelValue == LogLevel::LOG_VERBOSE))
+     if (VerboseMode && !HasConsoleStreamFlag && (LevelValue == LogLevel::DEBUG_LEVEL || LevelValue == LogLevel::LOG_VERBOSE))
      {
           /* Mirror detailed foreground output when no console stream handled it. */
 
@@ -947,7 +952,7 @@ void LogManager::Log(LogLevel LevelValue, const std::string &Type, const std::st
 
           switch (LevelValue)
           {
-               case LogLevel::LOG_DEBUG:
+               case LogLevel::DEBUG_LEVEL:
                {
                     LevelStrFinal = "DEBUG";
                     break;
@@ -999,7 +1004,7 @@ void LogManager::Verbose(const std::string &Type, const std::string &Message)
 
 void LogManager::Debug(const std::string &Type, const std::string &Message)
 {
-     SafeLog(this, LogLevel::LOG_DEBUG, Type, Message);
+     SafeLog(this, LogLevel::DEBUG_LEVEL, Type, Message);
 }
 
 /* A robust logging utility that performs validation checks before attempting to log. */
@@ -1046,7 +1051,7 @@ void LogManager::SafeLog(LogManager *SelfPointer, LogLevel LevelVal, const std::
                     break;
                }
 
-               case LogLevel::LOG_DEBUG:
+               case LogLevel::DEBUG_LEVEL:
                {
                     LevelStrFallback = "DEBUG";
                     break;
@@ -1100,7 +1105,7 @@ void LogManager::SafeLog(LogManager *SelfPointer, LogLevel LevelVal, const std::
                     break;
                }
 
-               case LogLevel::LOG_DEBUG:
+               case LogLevel::DEBUG_LEVEL:
                {
                     LevelStrSentinel = "DEBUG";
                     break;
@@ -1165,7 +1170,7 @@ LogLevel LogManager::StringToLogLevel(const std::string &LevelStr)
 
      if (LowerLevelValue == "debug" || LowerLevelValue == "debg")
      {
-          return LogLevel::LOG_DEBUG;
+          return LogLevel::DEBUG_LEVEL;
      }
 
      return LogLevel::LOG_NORMAL;
@@ -1196,7 +1201,7 @@ bool LogManager::ShouldLog(const LogStream &StreamInstance, LogLevel LevelVal, c
                return false;
           }
 
-          if (this->DebugMode && LevelVal == LogLevel::LOG_DEBUG)
+          if (this->DebugMode && LevelVal == LogLevel::DEBUG_LEVEL)
           {
                return true;
           }
@@ -1209,7 +1214,7 @@ bool LogManager::ShouldLog(const LogStream &StreamInstance, LogLevel LevelVal, c
           return true;
      }
 
-     if (this->DebugMode && LevelVal == LogLevel::LOG_DEBUG)
+     if (this->DebugMode && LevelVal == LogLevel::DEBUG_LEVEL)
      {
           return true;
      }
@@ -1250,4 +1255,5 @@ bool LogManager::GetDebugMode() const
 void LogManager::ResetAfterFork()
 {
      /* Handle post-fork synchronization state resets here if needed. */
+
 }

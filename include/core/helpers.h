@@ -20,6 +20,8 @@ class CoreHelpers
 {
    public:
 
+     /* Prevents construction of the static helper class. */
+
      CoreHelpers() = delete;
 
      /* Helper function to check if the main processing loop should terminate. */
@@ -45,7 +47,7 @@ class CoreHelpers
 
 /* Writes one newline without forcing an output flush. */
 
-inline void newline(std::ostream &Out = std::cout)
+inline void Newline(std::ostream &Out = std::cout)
 {
      Out.put('\n');
 }

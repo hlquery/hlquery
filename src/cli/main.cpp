@@ -1455,18 +1455,7 @@ int main(int argc, char *argv[])
           }
           else if (command_str == "flush")
           {
-               bool force_flag = false;
-
-               for (size_t i = 1; i < args_vec.size(); i++)
-               {
-                    if (args_vec[i] == "--force" || args_vec[i] == "-f")
-                    {
-                         force_flag = true;
-                         break;
-                    }
-               }
-
-               cli_instance.FlushAll(force_flag);
+               cli_instance.FlushAll();
           }
           else if (command_str == "modules")
           {

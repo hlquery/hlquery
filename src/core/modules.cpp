@@ -41,6 +41,8 @@ static std::string StripModuleStoragePrefix(const std::string &FullKey, const st
      return FullKey.substr(Prefix.size());
 }
 
+/* Extracts an API credential from supported request headers. */
+
 static std::string ExtractAuthTokenFromHeaders(const std::map<std::string, std::string> &Headers)
 {
      auto AuthIt = Headers.find("Authorization");
@@ -161,6 +163,8 @@ static void ParseJSONBodyParameters(const std::string &Body, ModuleCommandReques
 
 RuntimeModule::~RuntimeModule() = default;
 
+/* Adds one unique component to the composite module. */
+
 void CompositeRuntimeModule::AddComponent(RuntimeModule &Component)
 {
      if (&Component == this)
@@ -173,6 +177,8 @@ void CompositeRuntimeModule::AddComponent(RuntimeModule &Component)
           Components.push_back(&Component);
      }
 }
+
+/* Returns the component targets subscribed to one module hook. */
 
 std::vector<RuntimeModule *> CompositeRuntimeModule::GetHookTargets(ModuleHook Hook)
 {
@@ -191,6 +197,8 @@ std::vector<RuntimeModule *> CompositeRuntimeModule::GetHookTargets(ModuleHook H
 
      return Targets;
 }
+
+/* Starts every component and rolls back components after a failure. */
 
 bool CompositeRuntimeModule::Start(const ServerConfig &Config, std::string &ErrorMessage)
 {
@@ -236,6 +244,7 @@ bool CompositeRuntimeModule::Start(const ServerConfig &Config, std::string &Erro
                }
                catch (...)
                {
+
                }
           }
 
@@ -253,6 +262,8 @@ bool CompositeRuntimeModule::Start(const ServerConfig &Config, std::string &Erro
      return true;
 }
 
+/* Stops every component in reverse registration order. */
+
 void CompositeRuntimeModule::Stop()
 {
      for (auto It = Components.rbegin(); It != Components.rend(); ++It)
@@ -268,9 +279,12 @@ void CompositeRuntimeModule::Stop()
           }
           catch (...)
           {
+
           }
      }
 }
+
+/* Delivers unload notifications in reverse registration order. */
 
 void CompositeRuntimeModule::OnUnloadModule()
 {
@@ -287,6 +301,7 @@ void CompositeRuntimeModule::OnUnloadModule()
           }
           catch (...)
           {
+
           }
      }
 }

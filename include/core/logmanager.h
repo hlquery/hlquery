@@ -53,7 +53,7 @@ enum class LogLevel
 
      /* Reports diagnostic events. */
 
-     LOG_DEBUG = 5
+     DEBUG_LEVEL = 5
 };
 
 /* Identifies the supported log output destinations. */
@@ -277,15 +277,23 @@ class CoreExport LogManager
 
      void Log(LogLevel level, const std::string &type, const std::string &message);
 
-     /* Convenience logging methods. */
+     /* Emits one critical operational message. */
 
      void Critical(const std::string &type, const std::string &message);
 
+     /* Emits one sparse operational message. */
+
      void Sparse(const std::string &type, const std::string &message);
+
+     /* Emits one normal operational message. */
 
      void Normal(const std::string &type, const std::string &message);
 
+     /* Emits one verbose operational message. */
+
      void Verbose(const std::string &type, const std::string &message);
+
+     /* Emits one diagnostic message. */
 
      void Debug(const std::string &type, const std::string &message);
 

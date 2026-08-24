@@ -11,7 +11,7 @@ if ($response === null) {
 }
 
 test_assert($response['status'] === 200, 'Status endpoint should return HTTP 200');
-$json = json_decode($response['body'], true);
+$json = test_assert_json_response($response, 'Status endpoint');
 test_assert(is_array($json), 'Status endpoint should return JSON');
 test_assert(($json['status'] ?? null) === 'ok', 'Daemon status should be ok');
 test_assert(isset($json['stats']) && is_array($json['stats']), 'Status response should include stats');

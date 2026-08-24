@@ -1464,16 +1464,8 @@ void HLQueryCLI::RebuildCounters(const std::string &collection_name, bool rebuil
 
 /* Flushes all data. */
 
-void HLQueryCLI::FlushAll(bool skip_confirmation)
+void HLQueryCLI::FlushAll()
 {
-     if (!skip_confirmation)
-     {
-          if (!ConfirmDestructiveAction("FLUSH ALL DATA", "the entire database"))
-          {
-               return;
-          }
-     }
-
      /*
       * A destructive flush has to durably clear the system database and every
       * document segment before the server can acknowledge it.  On a populated

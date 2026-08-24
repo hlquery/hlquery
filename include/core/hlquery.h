@@ -38,7 +38,7 @@
 
 CoreExport extern hlquery *Instance;
 
-/* 
+/*
  * hlquery's main class.
  * This object coordinates process startup, runtime services,
  * shutdown handling, and access to the major server subsystems.
@@ -134,6 +134,7 @@ class CoreExport hlquery
 
      static volatile sig_atomic_t ShuttingDown;
      static volatile sig_atomic_t ForceExit;
+
      static volatile sig_atomic_t InSignalHandler;
      static volatile sig_atomic_t PendingShutdownSignal;
 

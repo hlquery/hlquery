@@ -1104,7 +1104,18 @@ void SearchAPI::CleanupFinishedAsyncReplicationTasks() const
      {
           if (It->valid() && It->wait_for(std::chrono::seconds(0)) == std::future_status::ready)
           {
-               It->get();
+               try
+               {
+                    It->get();
+               }
+               catch (const std::exception &Error)
+               {
+                    RecordReplicationFailure("Async replication task failed: " + std::string(Error.what()));
+               }
+               catch (...)
+               {
+                    RecordReplicationFailure("Async replication task failed with an unknown exception.");
+               }
                It = AsyncReplicationTasks.erase(It);
                continue;
           }
@@ -1131,18 +1142,20 @@ void SearchAPI::Shutdown()
      DistributedLinkMonitorStop.store(true, std::memory_order_relaxed);
      DistributedLinkMonitorCV.notify_all();
 
+     ReplicationMonitorStop.store(true, std::memory_order_relaxed);
+     ReplicationMonitorCV.notify_all();
+
      if (DistributedLinkMonitorThread.joinable())
      {
           DistributedLinkMonitorThread.join();
      }
-
-     ReplicationMonitorStop.store(true, std::memory_order_relaxed);
-     ReplicationMonitorCV.notify_all();
+     DistributedLinkMonitorRunning.store(false, std::memory_order_release);
 
      if (ReplicationMonitorThread.joinable())
      {
           ReplicationMonitorThread.join();
      }
+     ReplicationMonitorRunning.store(false, std::memory_order_release);
 
      std::vector<std::future<void>> PendingTasks;
      {
@@ -1159,7 +1172,18 @@ void SearchAPI::Shutdown()
      {
           if (Task.valid())
           {
-               Task.get();
+               try
+               {
+                    Task.get();
+               }
+               catch (const std::exception &Error)
+               {
+                    RecordReplicationFailure("Async replication task failed during shutdown: " + std::string(Error.what()));
+               }
+               catch (...)
+               {
+                    RecordReplicationFailure("Async replication task failed during shutdown with an unknown exception.");
+               }
           }
      }
 }

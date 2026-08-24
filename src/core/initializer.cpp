@@ -182,6 +182,7 @@ bool hlquery::StartServer()
           catch (...)
           {
                /* Ignore errors during PID file inspection. */
+
           }
 
           ConsoleWriter::WriteError("[FATAL] Failed to acquire PID file lock - another instance may be running" + ExistingPIDInfo + ".", true);
@@ -241,6 +242,7 @@ bool hlquery::StartServer()
      catch (...)
      {
           /* Continue even if socket engine initialization fails; higher levels will retry */
+
      }
 
      /* Initialize the Hybrid Storage Manager and storage engine */
@@ -271,7 +273,7 @@ bool hlquery::StartServer()
      {
           if (Logs)
           {
-               Logs->Normal("modules", "Failed to allocate ModuleManager.");
+               Instance->Logs->Normal("modules", "Failed to allocate ModuleManager.");
           }
 
           ConsoleWriter::WriteError("[FATAL] Failed to create ModuleManager.", true);
@@ -285,7 +287,7 @@ bool hlquery::StartServer()
      {
           if (Logs)
           {
-               Logs->Normal("modules", "Module loading failed: " + ModuleError + ".");
+               Instance->Logs->Normal("modules", "Module loading failed: " + ModuleError + ".");
           }
 
           ConsoleWriter::WriteError("[FATAL] " + ModuleError, true);
@@ -305,7 +307,7 @@ bool hlquery::StartServer()
           {
                if (Logs)
                {
-                    Logs->Normal("hlquery", "Validation mode: Validating data directory.");
+                    Instance->Logs->Normal("hlquery", "Validation mode: Validating data directory.");
                }
 
                /* Execute data directory validation checks */
@@ -369,12 +371,12 @@ bool hlquery::StartServer()
                {
                     if (Logs)
                     {
-                         Logs->Normal("hlquery", "Validation mode: Data directory validation PASSED.");
+                         Instance->Logs->Normal("hlquery", "Validation mode: Data directory validation PASSED.");
                     }
 
                     if (Logs)
                     {
-                         Logs->Normal("hlquery", "Validation mode: Data directory is valid.");
+                         Instance->Logs->Normal("hlquery", "Validation mode: Data directory is valid.");
                     }
 
                     return true;
@@ -387,7 +389,7 @@ bool hlquery::StartServer()
 
                     if (Logs)
                     {
-                         Logs->Critical("hlquery", "Validation mode: Data directory validation FAILED:\n" + ValidationErrorsMsg + ".");
+                         Instance->Logs->Normal("hlquery", "Validation mode: Data directory validation FAILED: " + ValidationErrorsMsg + ".");
                     }
 
                     return false;
@@ -459,10 +461,10 @@ bool hlquery::InitializeCore()
 
      if (Logs)
      {
-          Logs->Debug("hlquery", "TimerManager created.");
-          Logs->Normal("startup", "TimerManager initialized.");
-          Logs->Debug("hlquery", "Metrics storage initialized.");
-          Logs->Normal("startup", "Metrics storage initialized.");
+          Instance->Logs->Debug("hlquery", "TimerManager created.");
+          Instance->Logs->Normal("startup", "TimerManager initialized.");
+          Instance->Logs->Debug("hlquery", "Metrics storage initialized.");
+          Instance->Logs->Normal("startup", "Metrics storage initialized.");
      }
 
      /* Initialize and configure the IP allow filter */
@@ -480,7 +482,7 @@ bool hlquery::InitializeCore()
           {
                if (Logs)
                {
-                    Logs->Normal("ip_allow", "Failed to initialize IP allow filter, defaulting to deny all.");
+                    Instance->Logs->Normal("ip_allow", "Failed to initialize IP allow filter, defaulting to deny all.");
                }
 
                IPFilter->Initialize("", "");
@@ -489,7 +491,7 @@ bool hlquery::InitializeCore()
           {
                if (Logs)
                {
-                    Logs->Normal("ip_allow", "IP allow filter initialized successfully.");
+                    Instance->Logs->Normal("ip_allow", "IP allow filter initialized successfully.");
                }
           }
      }
@@ -547,7 +549,7 @@ bool hlquery::InitializeCore()
 
                     if (Logs)
                     {
-                         Logs->Normal("startup", IPListStr + ".");
+                         Instance->Logs->Normal("startup", IPListStr + ".");
                     }
 
                     print_ok_nd("Allowing connections from:");
@@ -565,7 +567,7 @@ bool hlquery::InitializeCore()
 
                     if (Logs)
                     {
-                         Logs->Normal("startup", "Allowing connections from: (none - deny all).");
+                         Instance->Logs->Normal("startup", "Allowing connections from: (none - deny all).");
                     }
 
                     print_ok_nd("Allowing connections from:");
@@ -605,7 +607,7 @@ bool hlquery::InitializeCore()
 
                     if (Logs)
                     {
-                         Logs->Normal("startup", DenyListStr + ".");
+                         Instance->Logs->Normal("startup", DenyListStr + ".");
                     }
 
                     print_ok_nd("Denying connections from:");
@@ -623,7 +625,7 @@ bool hlquery::InitializeCore()
 
                if (Logs)
                {
-                    Logs->Normal("startup", "Allowing connections from: * (all IPs).");
+                    Instance->Logs->Normal("startup", "Allowing connections from: * (all IPs).");
                }
 
                print_ok_nd("Allowing connections from:");
@@ -739,7 +741,7 @@ bool hlquery::InitializeNoForkMode()
      {
           if (Logs)
           {
-               Logs->Critical("hlquery", "Failed to initialize thread pools.");
+               Instance->Logs->Normal("hlquery", "Failed to initialize thread pools.");
           }
 
           ConsoleWriter::WriteError("[FATAL] Failed to initialize thread pools.", true);
@@ -750,7 +752,7 @@ bool hlquery::InitializeNoForkMode()
 
      if (Logs)
      {
-          Logs->Normal("hlquery", "Thread pools initialized successfully.");
+          Instance->Logs->Normal("hlquery", "Thread pools initialized successfully.");
      }
 
      /* Locate the primary HTTP/HTTPS bind configurations */
@@ -761,7 +763,7 @@ bool hlquery::InitializeNoForkMode()
           {
                if (Logs)
                {
-                    Logs->Debug("hlquery", "HTTP/HTTPS server will start on " + BindConfigValueInstance.address + ":" + std::to_string(BindConfigValueInstance.port) + " (" + BindConfigValueInstance.type + ").");
+                    Instance->Logs->Debug("hlquery", "HTTP/HTTPS server will start on " + BindConfigValueInstance.address + ":" + std::to_string(BindConfigValueInstance.port) + " (" + BindConfigValueInstance.type + ").");
                }
 
                HttpServer *NewServer = nullptr;
@@ -785,7 +787,7 @@ bool hlquery::InitializeNoForkMode()
      {
           if (Logs)
           {
-               Logs->Critical("hlquery", "No HTTP/HTTPS bind configurations found.");
+               Instance->Logs->Normal("hlquery", "No HTTP/HTTPS bind configurations found.");
           }
 
           ConsoleWriter::WriteError("[FATAL] No HTTP/HTTPS bind configurations found! Check your configuration file.", true);
@@ -814,6 +816,7 @@ void hlquery::SetupPostFork()
           catch (...)
           {
                /* Continue anyway; core systems will retry if FD setup was incomplete */
+
           }
      }
 
@@ -824,6 +827,7 @@ void hlquery::SetupPostFork()
      catch (...)
      {
           /* Log failure but continue execution */
+
      }
 }
 
@@ -869,7 +873,7 @@ void hlquery::WaitForMetadataScan()
 
                          if (Logs)
                          {
-                              Logs->Normal("hlquery", "Strict startup mode enabled - server will not accept queries if startup fails.");
+                              Instance->Logs->Normal("hlquery", "Strict startup mode enabled - server will not accept queries if startup fails.");
                          }
 
                          break;
@@ -883,7 +887,7 @@ void hlquery::WaitForMetadataScan()
 
                          if (Logs)
                          {
-                              Logs->Normal("hlquery", "Readonly mode enabled - server will reject writes until integrity checks complete.");
+                              Instance->Logs->Normal("hlquery", "Readonly mode enabled - server will reject writes until integrity checks complete.");
                          }
                     }
                     else if (ArgumentStrVal == "--validate-startup")
@@ -896,7 +900,7 @@ void hlquery::WaitForMetadataScan()
 
                          if (Logs)
                          {
-                              Logs->Normal("hlquery", "Startup validation mode enabled - will validate data directory then exit.");
+                              Instance->Logs->Normal("hlquery", "Startup validation mode enabled - will validate data directory then exit.");
                          }
                     }
                }
@@ -916,7 +920,7 @@ void hlquery::WaitForMetadataScan()
 
           if (Logs)
           {
-               Logs->Normal("hlquery", "Metadata scan already complete - attempting to load collections.");
+               Instance->Logs->Normal("hlquery", "Metadata scan already complete - attempting to load collections.");
           }
 
           bool CollectionsLoadedFlagFinal = false;
@@ -933,7 +937,7 @@ void hlquery::WaitForMetadataScan()
 
                if (Logs)
                {
-                    Logs->Normal("hlquery", "Loading all collections from LSM (this may take a while).");
+                    Instance->Logs->Normal("hlquery", "Loading all collections from LSM (this may take a while).");
                }
 
                CollectionsLoadedFlagFinal = HybridStorageManagerInstance().LoadCollectionsFromRocksDB();
@@ -944,7 +948,7 @@ void hlquery::WaitForMetadataScan()
                {
                     if (Logs)
                     {
-                         Logs->Normal("hlquery", "LoadCollectionsFromRocksDB failed - forcing counter update to ensure accuracy.");
+                         Instance->Logs->Normal("hlquery", "LoadCollectionsFromRocksDB failed - forcing counter update to ensure accuracy.");
                     }
 
                     HybridStorageManagerInstance().UpdateCollectionCounters(true);
@@ -967,15 +971,15 @@ void hlquery::WaitForMetadataScan()
                {
                     if (CollectionsLoadedFlagFinal)
                     {
-                         Logs->Normal("hlquery", "Collections loaded successfully - HTTP server ready.");
+                         Instance->Logs->Normal("hlquery", "Collections loaded successfully - HTTP server ready.");
                     }
                     else
                     {
-                         Logs->Normal("hlquery", "Collection loading returned false - HTTP server enabled anyway.");
+                         Instance->Logs->Normal("hlquery", "Collection loading returned false - HTTP server enabled anyway.");
 
                          if (StrictStartupFlagValue)
                          {
-                              Logs->Critical("hlquery", "STRICT STARTUP: Collection loading failed - server will not accept queries.");
+                              Instance->Logs->Normal("hlquery", "STRICT STARTUP: Collection loading failed - server will not accept queries.");
 
                               Instance->StatsVal.SetHealthDegraded(true, "Collection loading failed in strict startup mode");
                          }
@@ -998,9 +1002,7 @@ void hlquery::WaitForMetadataScan()
 
                if (Logs)
                {
-                    Logs->Critical("hlquery",
-                                   "Exception loading collections: " + std::string(e.what()) +
-                                        " - HTTP server enabled but collections may not be fully loaded.");
+                    Instance->Logs->Normal("hlquery", "Exception loading collections: " + std::string(e.what()) + " - HTTP server enabled but collections may not be fully loaded.");
                }
 
                CollectionsLoadedFlagFinal = false;
@@ -1018,8 +1020,7 @@ void hlquery::WaitForMetadataScan()
 
                if (Logs)
                {
-                    Logs->Critical("hlquery",
-                                   "Unknown exception loading collections - HTTP server enabled but collections may not be fully loaded.");
+                    Instance->Logs->Normal("hlquery", "Unknown exception loading collections - HTTP server enabled but collections may not be fully loaded.");
                }
 
                CollectionsLoadedFlagFinal = false;
@@ -1032,7 +1033,7 @@ void hlquery::WaitForMetadataScan()
           {
                if (Logs)
                {
-                    Logs->Critical("hlquery", "STRICT STARTUP: Collection loading failed - server will not accept queries.");
+                    Instance->Logs->Normal("hlquery", "STRICT STARTUP: Collection loading failed - server will not accept queries.");
                }
 
                return;
@@ -1049,14 +1050,14 @@ void hlquery::WaitForMetadataScan()
 
                if (Logs)
                {
-                    Logs->Normal("hlquery", "Collections loaded successfully - queries enabled.");
+                    Instance->Logs->Normal("hlquery", "Collections loaded successfully - queries enabled.");
                }
           }
           else
           {
                if (Logs)
                {
-                    Logs->Normal("hlquery", "Collection loading failed - queries will remain blocked until collections load.");
+                    Instance->Logs->Normal("hlquery", "Collection loading failed - queries will remain blocked until collections load.");
                }
           }
 
@@ -1141,9 +1142,7 @@ void hlquery::WaitForMetadataScan()
                                               {
                                                    if (Instance && Instance->Logs)
                                                    {
-                                                        Instance->Logs->Critical("hlquery",
-                                                                                 "Metadata scan wait timeout after " + std::to_string(MaxWaitSecondsCount) +
-                                                                                      " seconds - server may have incomplete metadata.");
+                                                        Instance->Logs->Normal("hlquery", "Metadata scan wait timeout after " + std::to_string(MaxWaitSecondsCount) + " seconds - server may have incomplete metadata.");
 
                                                         Instance->StatsVal.SetHealthDegraded(true, "Metadata scan timeout after " + std::to_string(MaxWaitSecondsCount) + "s");
                                                    }
@@ -1186,7 +1185,7 @@ void hlquery::WaitForMetadataScan()
                                               {
                                                    if (Instance->Logs)
                                                    {
-                                                        Instance->Logs->Critical("hlquery", "Sync timeout after " + std::to_string(MaxSyncWaitMSTracker) + "ms - startup will remain degraded until the active sync completes.");
+                                                        Instance->Logs->Normal("hlquery", "Sync timeout after " + std::to_string(MaxSyncWaitMSTracker) + "ms - startup will remain degraded until the active sync completes.");
                                                    }
                                               }
 
@@ -1263,6 +1262,7 @@ void hlquery::WaitForMetadataScan()
                                                         catch (...)
                                                         {
                                                              /* Ignore errors during status check */
+
                                                         }
                                                    }
                                               }
@@ -1305,6 +1305,7 @@ void hlquery::WaitForMetadataScan()
                                                                                                       catch (...)
                                                                                                       {
                                                                                                            /* Ignore counting errors */
+
                                                                                                       }
                                                                                                  }
 
@@ -1406,9 +1407,7 @@ void hlquery::WaitForMetadataScan()
 
                                                                                                  if (Instance && Instance->Logs)
                                                                                                  {
-                                                                                                      Instance->Logs->Critical("hlquery",
-                                                                                                                               "Exception loading collections: " + std::string(e.what()) +
-                                                                                                                                    " - Queries enabled but collections may not be fully loaded.");
+                                                                                                      Instance->Logs->Normal("hlquery", "Exception loading collections: " + std::string(e.what()) + " - Queries enabled but collections may not be fully loaded.");
                                                                                                  }
 
                                                                                                  if (Instance)
@@ -1434,8 +1433,7 @@ void hlquery::WaitForMetadataScan()
 
                                                                                                  if (Instance && Instance->Logs)
                                                                                                  {
-                                                                                                      Instance->Logs->Critical("hlquery",
-                                                                                                                               "Unknown exception loading collections - Queries enabled but collections may not be fully loaded.");
+                                                                                                      Instance->Logs->Normal("hlquery", "Unknown exception loading collections - Queries enabled but collections may not be fully loaded.");
                                                                                                  }
 
                                                                                                  if (Instance)
@@ -1545,9 +1543,7 @@ void hlquery::WaitForMetadataScan()
                                                                   ReasonMsgFinalText += "database sync";
                                                              }
 
-                                                             Instance->Logs->Critical("hlquery",
-                                                                                      "Wait timeout - HTTP servers enabled (may have incomplete data: " + ReasonMsgFinalText +
-                                                                                           " not complete) - QUERIES MAY RETURN INCOMPLETE RESULTS.");
+                                                             Instance->Logs->Normal("hlquery", "Wait timeout - HTTP servers enabled (may have incomplete data: " + ReasonMsgFinalText + " not complete) - QUERIES MAY RETURN INCOMPLETE RESULTS.");
                                                         }
                                                    }
                                               }
@@ -1566,7 +1562,7 @@ void hlquery::WaitForMetadataScan()
      {
           if (Logs)
           {
-               Logs->Normal("hlquery", "Thread limit reached, skipping metadata wait thread - checking scan status.");
+               Instance->Logs->Normal("hlquery", "Thread limit reached, skipping metadata wait thread - checking scan status.");
           }
 
           if (HybridStorageManagerInstance().IsMetadataScanComplete())
@@ -1577,7 +1573,7 @@ void hlquery::WaitForMetadataScan()
                {
                     if (Logs)
                     {
-                         Logs->Normal("hlquery", "Thread limit reached - Loading collections from LSM (this may take a while).");
+                         Instance->Logs->Normal("hlquery", "Thread limit reached - Loading collections from LSM (this may take a while).");
                     }
 
                     CollectionsLoadedFlagFinalValue = HybridStorageManagerInstance().LoadCollectionsFromRocksDB();
@@ -1586,11 +1582,11 @@ void hlquery::WaitForMetadataScan()
                     {
                          if (CollectionsLoadedFlagFinalValue)
                          {
-                              Logs->Normal("hlquery", "Thread limit reached - Collections loaded, HTTP server enabled.");
+                              Instance->Logs->Normal("hlquery", "Thread limit reached - Collections loaded, HTTP server enabled.");
                          }
                          else
                          {
-                              Logs->Normal("hlquery", "Thread limit reached - Collection loading returned false, HTTP server enabled anyway.");
+                              Instance->Logs->Normal("hlquery", "Thread limit reached - Collection loading returned false, HTTP server enabled anyway.");
                          }
                     }
                }
@@ -1600,9 +1596,7 @@ void hlquery::WaitForMetadataScan()
 
                     if (Logs)
                     {
-                         Logs->Critical("hlquery",
-                                        "Thread limit reached - Exception loading collections: " + std::string(e.what()) +
-                                             " - Server enabled but collections may not be fully loaded.");
+                         Instance->Logs->Normal("hlquery", "Thread limit reached - Exception loading collections: " + std::string(e.what()) + " - Server enabled but collections may not be fully loaded.");
                     }
                }
                catch (...)
@@ -1611,8 +1605,7 @@ void hlquery::WaitForMetadataScan()
 
                     if (Logs)
                     {
-                         Logs->Critical("hlquery",
-                                        "Thread limit reached - Unknown exception loading collections - Server enabled but collections may not be fully loaded.");
+                         Instance->Logs->Normal("hlquery", "Thread limit reached - Unknown exception loading collections - Server enabled but collections may not be fully loaded.");
                     }
                }
 
@@ -1625,14 +1618,14 @@ void hlquery::WaitForMetadataScan()
 
                     if (Logs)
                     {
-                         Logs->Normal("hlquery", "Thread limit reached - Collections loaded, queries enabled.");
+                         Instance->Logs->Normal("hlquery", "Thread limit reached - Collections loaded, queries enabled.");
                     }
                }
                else
                {
                     if (Logs)
                     {
-                         Logs->Normal("hlquery", "Thread limit reached - Collections not loaded, queries remain blocked (collections will load on-demand).");
+                         Instance->Logs->Normal("hlquery", "Thread limit reached - Collections not loaded, queries remain blocked (collections will load on-demand).");
                     }
                }
 
@@ -1645,7 +1638,7 @@ void hlquery::WaitForMetadataScan()
           {
                if (Logs)
                {
-                    Logs->Normal("hlquery", "Thread limit reached - HTTP server enabled (metadata scan incomplete, collections not loaded, queries blocked).");
+                    Instance->Logs->Normal("hlquery", "Thread limit reached - HTTP server enabled (metadata scan incomplete, collections not loaded, queries blocked).");
                }
 
                for (auto *Server : HTTPServers)

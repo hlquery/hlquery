@@ -36,16 +36,19 @@ void LogPeriodicTaskFailure(const std::string &Message)
      }
 }
 
+/* Records a named periodic task failure. */
+
 void LogPeriodicTaskFailure(const std::string &TaskName, const std::exception &Error)
 {
      LogPeriodicTaskFailure(TaskName + " failed: " + Error.what() + ".");
 }
 
+/* Records a named periodic task failure with no exception details. */
+
 void LogUnknownPeriodicTaskFailure(const std::string &TaskName)
 {
      LogPeriodicTaskFailure(TaskName + " failed with unknown exception.");
 }
-
 
 /* Returns true when either process termination state has been requested. */
 

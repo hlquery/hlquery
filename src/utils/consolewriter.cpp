@@ -252,15 +252,15 @@ void ConsoleWriter::WriteHeader(const std::string &Title)
 
      if (SupportsColor())
      {
-          newline();
+          Newline();
           std::cout << ColorBold << ColorBrightCyan << Title << ColorReset;
-          newline();
+          Newline();
      }
      else
      {
-          newline();
+          Newline();
           std::cout << Title;
-          newline();
+          Newline();
      }
 }
 
@@ -301,7 +301,7 @@ void ConsoleWriter::WriteBlankLine()
 {
      /* Print blank lines in both nofork and background modes. */
 
-     newline();
+     Newline();
 }
 
 /*
