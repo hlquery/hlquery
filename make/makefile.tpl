@@ -504,7 +504,6 @@ $(ROCKSDB_LIB):
 			exit 1; \
 		fi; \
 		mkdir -p $(ROCKSDB_BUILD_DIR) && \
-		# Clean CMake cache if paths don't match (Docker volume mount issue) \
 			if [ -f "$(ROCKSDB_BUILD_DIR)/CMakeCache.txt" ]; then \
 				CACHED_SOURCE=$$(grep "^CMAKE_SOURCE_DIR:" "$(ROCKSDB_BUILD_DIR)/CMakeCache.txt" 2>/dev/null | cut -d'=' -f2 | tr -d '\r\n' || echo ""); \
 				CURRENT_SOURCE=$$(cd $(ROCKSDB_DIR) && pwd); \
@@ -544,7 +543,6 @@ $(ROCKSDB_LIB):
 		      -DWITH_LZ4=OFF \
 		      -DWITH_ZSTD=OFF \
 		      -DWITH_BZ2=OFF \
-			      -DWITH_BENCHMARK_TOOLS=OFF \
 			      -DCMAKE_CXX_FLAGS="-fPIC -Wno-error $$ROCKSDB_WARN_FLAGS" \
 			      || { echo "$(RED)Error: CMake configuration failed$(NC)" >&2; echo "$(YELLOW)Try: rm -rf $(ROCKSDB_BUILD_DIR) && make$(NC)" >&2; exit 1; }; \
 			MAKEFLAGS= cmake --build $(ROCKSDB_BUILD_DIR) --target rocksdb $(ROCKSDB_BUILD_PARALLEL) >/dev/null || { echo "$(RED)Error: RocksDB build failed$(NC)" >&2; echo "$(YELLOW)If this VPS ran out of memory, retry with: make ROCKSDB_JOBS=1 BUILD_JOBS=1$(NC)" >&2; exit 1; } && \
