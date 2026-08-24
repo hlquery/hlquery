@@ -301,7 +301,8 @@ bool LoadCollectionFixture(BenchmarkClient &client, const std::filesystem::path 
      const std::string title_template = fixture.value("title_template", "{collection} demo {index}: {tag}");
      const std::string content_template = fixture.value("content_template", "Synthetic {collection} demo record {index} covering {tag} with concrete searchable context.");
 
-     size_t inserted = 0;
+     std::vector<nlohmann::json> generated_documents;
+     generated_documents.reserve(count);
      for (size_t i = 0; i < count; ++i)
      {
           if (g_benchmark_should_stop.load())
@@ -353,11 +354,11 @@ bool LoadCollectionFixture(BenchmarkClient &client, const std::filesystem::path 
           if (!document.contains("location") && name != "universities") document["location"] = BuildFixtureLocation(name, i);
           if (!document.contains("location_name")) document["location_name"] = FixtureLocationName(name);
 
-          if (client.UpsertDocumentWithFieldsLocal(name, document))
-          {
-               ++inserted;
-          }
+          generated_documents.push_back(std::move(document));
      }
+
+     const size_t inserted = static_cast<size_t>(
+          client.InsertDocumentsWithFieldsBulkLocal(name, generated_documents));
 
      size_t synonym_index = 0;
      for (const auto &entry : fixture.value("synonyms", nlohmann::json::array()))

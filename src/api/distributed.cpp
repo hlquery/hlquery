@@ -1752,6 +1752,16 @@ static std::string SerializeCollectionConfigForReplication(const CollectionConfi
           Body["fields"].push_back(Entry);
      }
 
+     /* Older data directories may contain schema-less, empty collections that
+      * current validation no longer permits. Do not let one legacy collection
+      * abort the authoritative bootstrap of every collection after it. */
+     if (Body["fields"].empty())
+     {
+          Body["fields"].push_back({{"name", "document_id"}, {"type", "string"}});
+          Body["fields"].push_back({{"name", "title"}, {"type", "string"}});
+          Body["fields"].push_back({{"name", "content"}, {"type", "string"}});
+     }
+
      for (const auto &Meta : Config.Metadata)
      {
           Body[Meta.first] = Meta.second;
@@ -3037,7 +3047,13 @@ void SearchAPI::EnsureReplicationMonitorStarted() const
      {
           for (const auto &Endpoint : Instance->Config->GetSlaveNodes())
           {
-               (void)RestoreReplicationSlaveState(Endpoint);
+               /* A configured replica with no durable state has never completed
+                * an authoritative sync. Mark it dirty so the monitor performs a
+                * full bootstrap as soon as the peer becomes reachable. */
+               if (!RestoreReplicationSlaveState(Endpoint))
+               {
+                    MarkSlaveDirty(Endpoint, false);
+               }
           }
 
           /* Durable pending writes must wake the monitor even if the process
@@ -3399,6 +3415,30 @@ std::vector<PendingReplicationRecord> SearchAPI::TakePendingReplications(const s
           PendingReplicationRequests.erase(It);
      }
      return Pending;
+}
+
+void SearchAPI::DiscardPendingReplicationsAfterResync(const std::string &Endpoint) const
+{
+     const auto Pending = TakePendingReplications(Endpoint);
+     for (const auto &Record : Pending)
+     {
+          if (!Record.StorageKey.empty() && Instance && Instance->Database)
+          {
+               Instance->Database->Del(Record.StorageKey);
+          }
+
+          const std::string OperationID =
+               TrimCopy(GetHeaderValueInsensitive(Record.Request.Headers, "X-HLQ-Replication-Op"));
+          if (!OperationID.empty())
+          {
+               ClearReplicationOutboxRecord(OperationID);
+          }
+     }
+
+     if (Instance && Instance->Database)
+     {
+          (void)Instance->Database->SyncWAL();
+     }
 }
 
 bool SearchAPI::ReplayPendingReplications(const std::string &Endpoint, const std::string &Host, int Port) const
@@ -4058,8 +4098,8 @@ void SearchAPI::ReplicationMonitorLoop() const
                     MarkSlaveReachable(Node.Endpoint);
 
                     bool ShouldResync = false;
+                    std::unique_lock<std::mutex> ResyncFence(ReplicationResyncFenceMutex);
                     {
-                         std::lock_guard<std::mutex> FenceLock(ReplicationResyncFenceMutex);
                          std::lock_guard<std::mutex> lock(ReplicationSlaveStateMutex);
                          if (ReplicationDirtySlaves.find(Node.Endpoint) != ReplicationDirtySlaves.end() &&
                              ReplicationResyncInProgress.find(Node.Endpoint) == ReplicationResyncInProgress.end())
@@ -4076,6 +4116,7 @@ void SearchAPI::ReplicationMonitorLoop() const
 
                     if (!ShouldResync)
                     {
+                         ResyncFence.unlock();
                          continue;
                     }
 
@@ -4089,17 +4130,10 @@ void SearchAPI::ReplicationMonitorLoop() const
                          continue;
                     }
 
-                    if (!ReplayPendingReplications(Node.Endpoint, Node.Host, Node.Port))
-                    {
-                         RecordReplicationFailure("Slave replay backlog still pending for " + Node.Endpoint + " after full resync; leaving replica dirty for retry.");
-                         {
-                              std::lock_guard<std::mutex> lock(ReplicationSlaveStateMutex);
-                              ReplicationResyncInProgress.erase(Node.Endpoint);
-                              ReplicationDirtySlaves.insert(Node.Endpoint);
-                         }
-                         PersistReplicationSlaveState(Node.Endpoint);
-                         continue;
-                    }
+                    /* The fence prevents new writes from entering the pending queue.
+                     * Everything already queued is represented by the authoritative
+                     * snapshot and must not be replayed (stale deletes can return 404). */
+                    DiscardPendingReplicationsAfterResync(Node.Endpoint);
 
                     MarkSlaveResynced(Node.Endpoint);
                }

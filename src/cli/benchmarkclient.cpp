@@ -1570,7 +1570,7 @@ std::string BenchmarkClient::TestConnection()
 
 bool BenchmarkClient::DeleteCollection(const std::string &name)
 {
-     HTTPResponse response = MakeRequest("DELETE", "/collections/" + name);
+     HTTPResponse response = MakeWriteRequestWithRetry("DELETE", "/collections/" + name, "", 8, false, 10000);
 
      return (response.StatusCode == 200 || response.StatusCode == 404);
 }
@@ -1622,6 +1622,15 @@ static std::string LowercaseCopy(std::string value)
 
 bool BenchmarkClient::IsRetryableWriteResponse(const HTTPResponse &response) const
 {
+     const std::string body = LowercaseCopy(response.Body);
+
+     /* This response is emitted by the pre-dispatch write gate, so the server
+      * guarantees that the request was not applied despite using POST. */
+     if (response.StatusCode == 503 && body.find("database sync in progress") != std::string::npos)
+     {
+          return true;
+     }
+
      if (IsAmbiguousNonIdempotentResponse(response))
      {
           return false;
@@ -1633,8 +1642,6 @@ bool BenchmarkClient::IsRetryableWriteResponse(const HTTPResponse &response) con
      {
           return true;
      }
-
-     const std::string body = LowercaseCopy(response.Body);
 
      return body.find("sync in progress") != std::string::npos ||
             body.find("temporarily unavailable") != std::string::npos ||
@@ -1768,7 +1775,7 @@ bool BenchmarkClient::CreateCollectionLocal(const std::string &name, int timeout
 
      std::string json_str = schema.dump();
 
-     HTTPResponse response = MakeRequest("POST", AppendLocalOnlyQuery("/collections", true), json_str, 3, true, timeout_ms);
+     HTTPResponse response = MakeWriteRequestWithRetry("POST", AppendLocalOnlyQuery("/collections", true), json_str, 8, true, timeout_ms);
 
      if (response.StatusCode == 409)
      {
@@ -1780,12 +1787,12 @@ bool BenchmarkClient::CreateCollectionLocal(const std::string &name, int timeout
           }
 
           DeleteCollection(name);
-          response = MakeRequest("POST", AppendLocalOnlyQuery("/collections", true), json_str, 3, true, timeout_ms);
+          response = MakeWriteRequestWithRetry("POST", AppendLocalOnlyQuery("/collections", true), json_str, 8, true, timeout_ms);
 
           if (response.StatusCode == 409)
           {
                DeleteCollection(name);
-               response = MakeRequest("POST", AppendLocalOnlyQuery("/collections", true), json_str, 3, true, timeout_ms);
+               response = MakeWriteRequestWithRetry("POST", AppendLocalOnlyQuery("/collections", true), json_str, 8, true, timeout_ms);
           }
 
           if (response.StatusCode == 409)
@@ -1953,7 +1960,7 @@ bool BenchmarkClient::CreateCollectionWithSchemaLocal(const std::string &name, c
 
      std::string json_str = schema.dump();
 
-     HTTPResponse response = MakeRequest("POST", AppendLocalOnlyQuery("/collections", true), json_str, 3);
+     HTTPResponse response = MakeWriteRequestWithRetry("POST", AppendLocalOnlyQuery("/collections", true), json_str, 8, false, 10000);
 
      if (response.StatusCode == 409)
      {
@@ -1963,12 +1970,12 @@ bool BenchmarkClient::CreateCollectionWithSchemaLocal(const std::string &name, c
           }
 
           DeleteCollection(name);
-          response = MakeRequest("POST", AppendLocalOnlyQuery("/collections", true), json_str, 3);
+          response = MakeWriteRequestWithRetry("POST", AppendLocalOnlyQuery("/collections", true), json_str, 8, false, 10000);
 
           if (response.StatusCode == 409)
           {
                DeleteCollection(name);
-               response = MakeRequest("POST", AppendLocalOnlyQuery("/collections", true), json_str, 3);
+               response = MakeWriteRequestWithRetry("POST", AppendLocalOnlyQuery("/collections", true), json_str, 8, false, 10000);
           }
      }
 
@@ -2490,6 +2497,14 @@ bool BenchmarkClient::AddGlobalSynonym(const std::string &synonym_id, const std:
 
      HTTPResponse response = MakeWriteRequestWithRetry("POST", "/synonyms/global/" + encoded_id, json_str, 8, false, 10000);
 
+     if (response.StatusCode != 200 && response.StatusCode != 201)
+     {
+          LogError("  [ERROR] Failed to upsert global synonym '" + synonym_id +
+                   "': HTTP " + std::to_string(response.StatusCode) +
+                   (response.ErrorMessage.empty() ? "" : " - " + response.ErrorMessage) +
+                   (response.Body.empty() ? "" : " - " + response.Body.substr(0, 300)) + "\n");
+     }
+
      return response.StatusCode == 200 || response.StatusCode == 201;
 }
 
@@ -2539,6 +2554,14 @@ bool BenchmarkClient::AddGlobalStopword(const std::string &word)
      std::string json_str = stopword_data.dump();
 
      HTTPResponse response = MakeWriteRequestWithRetry("POST", "/stopwords/global", json_str, 8, false, 10000);
+
+     if (response.StatusCode != 200 && response.StatusCode != 201)
+     {
+          LogError("  [ERROR] Failed to add global stopword '" + word +
+                   "': HTTP " + std::to_string(response.StatusCode) +
+                   (response.ErrorMessage.empty() ? "" : " - " + response.ErrorMessage) +
+                   (response.Body.empty() ? "" : " - " + response.Body.substr(0, 300)) + "\n");
+     }
 
      return response.StatusCode == 200 || response.StatusCode == 201;
 }
@@ -3020,6 +3043,61 @@ int BenchmarkClient::InsertDocumentsBulkLocal(const std::string &collection, con
      }
 
      return 0;
+}
+
+int BenchmarkClient::InsertDocumentsWithFieldsBulkLocal(const std::string &collection,
+                                                         const std::vector<nlohmann::json> &docs)
+{
+     if (docs.empty())
+     {
+          return 0;
+     }
+
+     nlohmann::json payload;
+     payload["documents"] = nlohmann::json::array();
+     for (auto document : docs)
+     {
+          AddBenchmarkDocumentIdValue(document);
+          payload["documents"].push_back(std::move(document));
+     }
+
+     const std::string encoded_collection = UrlEncode(collection);
+     const int timeout_ms = std::clamp(static_cast<int>(docs.size()) * 100, 5000, 60000);
+     HTTPResponse response = MakeWriteRequestWithRetry(
+          "POST",
+          AppendLocalOnlyQuery("/collections/" + encoded_collection +
+                                    "/documents/import?assume_new=true&batch_size=" + std::to_string(docs.size()),
+                               true),
+          payload.dump(), 8, false, timeout_ms);
+
+     if (response.StatusCode != 200 && response.StatusCode != 201 && response.StatusCode != 207 &&
+         !IsLocalWriteCommittedDespiteReplicationError(response))
+     {
+          LogError("  [ERROR] Fixture bulk import failed for collection '" + collection +
+                   "': HTTP " + std::to_string(response.StatusCode) +
+                   (response.ErrorMessage.empty() ? "" : " - " + response.ErrorMessage) +
+                   (response.Body.empty() ? "" : " - " + response.Body.substr(0, 300)) + "\n");
+          return 0;
+     }
+
+     if (IsLocalWriteCommittedDespiteReplicationError(response))
+     {
+          return static_cast<int>(docs.size());
+     }
+
+     try
+     {
+          const nlohmann::json result = nlohmann::json::parse(response.Body);
+          if (result.value("failed", 0) != 0)
+          {
+               return 0;
+          }
+          return std::min(result.value("imported", 0), static_cast<int>(docs.size()));
+     }
+     catch (...)
+     {
+          return 0;
+     }
 }
 
 /* Performs a search in a collection. */

@@ -664,6 +664,7 @@ class SearchAPI
                                   bool AllowOverflow,
                                   std::string *OutError = nullptr) const;
      std::vector<PendingReplicationRecord> TakePendingReplications(const std::string &Endpoint) const;
+     void DiscardPendingReplicationsAfterResync(const std::string &Endpoint) const;
      bool ReplayPendingReplications(const std::string &Endpoint, const std::string &Host, int Port) const;
 
      void EnsureReplicationMonitorStarted() const;

@@ -203,6 +203,8 @@ class BenchmarkClient
 
      int InsertDocumentsBulkLocal(const std::string &collection, const std::vector<std::tuple<std::string, std::string, std::string>> &docs);
 
+     int InsertDocumentsWithFieldsBulkLocal(const std::string &collection, const std::vector<nlohmann::json> &docs);
+
      /* Searches in a collection. */
 
      HTTPResponse Search(const std::string &collection, const std::string &query, const std::map<std::string, std::string> &params = {});
