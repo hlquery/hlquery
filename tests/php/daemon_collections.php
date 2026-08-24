@@ -15,7 +15,7 @@ if ($response['status'] === 401 && getenv('HLQUERY_API_KEY') === false) {
 }
 
 test_assert($response['status'] === 200, 'Collections endpoint should return HTTP 200');
-$json = json_decode($response['body'], true);
+$json = test_assert_json_response($response, 'Collections endpoint');
 test_assert(is_array($json), 'Collections endpoint should return a JSON array or object');
 
 echo "daemon_collections: ok\n";

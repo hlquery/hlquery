@@ -730,7 +730,7 @@ void HLQueryCLI::ShowHelp()
      std::cout << "    create <name> [fields]  Create a new collection.\n";
      std::cout << "    delete <collection> [id] [--filter=q]  Delete a collection, a document, or by filter.\n";
      std::cout << "    delete <collection>/<id>              Delete a document using path-style syntax.\n";
-     std::cout << "    flush [--force]         Delete ALL collections and data from the system.\n";
+     std::cout << "    flush                   Delete ALL collections and data from the system.\n";
      std::cout << "    add <col> <id> <title> <content> [field=value...]  Add document.\n\n";
 
      std::cout << "API KEYS:.\n";

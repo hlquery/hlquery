@@ -4035,7 +4035,7 @@ bool ExecuteTalkCommand(const std::string &line,
                return true;
           }
 
-          cli.FlushAll(true);
+          cli.FlushAll();
           state.LastListedCollections.clear();
           state.LastListedDocumentIds.clear();
           return true;

@@ -12,7 +12,7 @@ if ($response === null) {
 
 test_assert(in_array($response['status'], [200, 503], true), 'Health endpoint should return HTTP 200 or 503');
 
-$json = json_decode($response['body'], true);
+$json = test_assert_json_response($response, 'Health endpoint');
 test_assert(is_array($json), 'Health endpoint should return JSON');
 test_assert(array_key_exists('status', $json) || array_key_exists('health', $json), 'Health response should expose a status field');
 
