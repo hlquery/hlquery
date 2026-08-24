@@ -232,11 +232,11 @@ ${HLQUERY_SSL_DEFINES}
 /* Flush threshold: number of documents before flush (only flush when memtable is full) */
 /* Flush occurs when memtable is full or after time interval */
 
-#define HYBRID_STORAGE_FLUSH_DOC_COUNT 10000  // Increased from 100 to 10000 - only flush when memtable is full
+#define HYBRID_STORAGE_FLUSH_DOC_COUNT 10000 /* Increased from 100 to 10000; flush only when the memtable is full. */
 
 /* Flush threshold: time interval in seconds before flush (30s default) */
 
-#define HYBRID_STORAGE_FLUSH_INTERVAL_SEC 30  // Increased from 5 to 30 seconds
+#define HYBRID_STORAGE_FLUSH_INTERVAL_SEC 30 /* Increased from 5 to 30 seconds. */
 
 /* Maximum segments per collection */
 

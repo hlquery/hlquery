@@ -348,7 +348,6 @@ void hlquery::Run()
           {
                LastMinuteRun = CurrentMinute;
                FOREACH_MOD(OnEveryOneMinute);
-
           }
 
           /* Handle signals received during loop execution */

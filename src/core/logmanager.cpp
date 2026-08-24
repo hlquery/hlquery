@@ -1250,4 +1250,5 @@ bool LogManager::GetDebugMode() const
 void LogManager::ResetAfterFork()
 {
      /* Handle post-fork synchronization state resets here if needed. */
+
 }

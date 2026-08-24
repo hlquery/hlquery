@@ -57,13 +57,23 @@ static constexpr int EPOLL_CLOEXEC = 0x80000;
 
 class EventHandler
 {
+   private:
+
+     /* File descriptor */
+
+     std::atomic<int> FD{-1};
+
+     /* Event mask */
+
+     std::atomic<int> EventMask{0};
+
    public:
-    
+
      /* Destructor */
 
      virtual ~EventHandler()
      {
-    
+
      }
 
      /* Called when there is a read event */
@@ -74,7 +84,7 @@ class EventHandler
 
      virtual void OnEventHandlerWrite()
      {
-    
+
      }
 
      /* Called when there is an error event */
@@ -120,23 +130,40 @@ class EventHandler
      {
           EventMask.store(mask, std::memory_order_release);
      }
-
-   private:
-     /* File descriptor */
-
-     std::atomic<int> FD{-1};
-
-     /* Event mask */
-
-     std::atomic<int> EventMask{0};
 };
 
 /* hlquery socket engine - epoll-based event dispatcher */
 
 class SocketEngine
 {
+   private:
+
+     /* Engine file descriptor */
+
+     static int EpollFD;
+
+     /* Validity flag for EpollFD */
+
+     static std::atomic<bool> EpollFDValid;
+
+     /* Events */
+
+     static std::vector<epoll_event> Events;
+
+     /* Pending writes queue */
+
+     static std::vector<EventHandler *> PendingWrites;
+
+     /* Thread-safe count for HasPendingWork() */
+
+     static std::atomic<size_t> PendingWritesCount;
+
+     /* Pending message count */
+
+     static std::atomic<int> PendingMessageCount;
+
    public:
-    
+
      /* Increased from 1024 to handle high-throughput scenarios */
 
      /* Shared event capacity for epoll, poll, and kqueue backends. */
@@ -291,32 +318,4 @@ class SocketEngine
      {
           return EpollFD;
      }
-
-   private:
-    
-     /* Static members for engine state. */
-
-     /* Engine file descriptor */
-
-     static int EpollFD;
-
-     /* Validity flag for EpollFD */
-
-     static std::atomic<bool> EpollFDValid;
-
-     /* Events */
-
-     static std::vector<epoll_event> Events;
-
-     /* Pending writes queue */
-
-     static std::vector<EventHandler *> PendingWrites;
-
-     /* Thread-safe count for HasPendingWork() */
-
-     static std::atomic<size_t> PendingWritesCount;
-
-     /* Pending message count */
-
-     static std::atomic<int> PendingMessageCount;
 };

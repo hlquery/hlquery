@@ -18,11 +18,15 @@
 #include "core/hlquery.h"
 #include "core/metrics.h"
 
+/* Initializes metric history retention timestamps. */
+
 HLQueryMetrics::MetricHistory::MetricHistory()
     : LastStorageTime(std::chrono::system_clock::time_point(std::chrono::milliseconds(NowMs()))),
       LastRetentionCheck(std::chrono::system_clock::time_point(std::chrono::milliseconds(NowMs())))
 {
 }
+
+/* Returns the current wall-clock time through the active server clock. */
 
 std::chrono::system_clock::time_point HLQueryMetrics::MetricHistory::GetCurrentTime() const
 {
@@ -33,6 +37,8 @@ std::chrono::system_clock::time_point HLQueryMetrics::MetricHistory::GetCurrentT
 
      return std::chrono::system_clock::time_point(std::chrono::milliseconds(NowMs()));
 }
+
+/* Adds one finite metric sample when the storage interval allows it. */
 
 void HLQueryMetrics::MetricHistory::AddPoint(double Value)
 {
@@ -64,12 +70,16 @@ void HLQueryMetrics::MetricHistory::AddPoint(double Value)
      }
 }
 
+/* Returns a consistent snapshot of all retained metric points. */
+
 std::vector<HLQueryMetrics::MetricPoint> HLQueryMetrics::MetricHistory::GetPoints() const
 {
      std::lock_guard<std::mutex> Lock(PointsMutex);
 
      return Points;
 }
+
+/* Returns retained metric points within an inclusive time range. */
 
 std::vector<HLQueryMetrics::MetricPoint> HLQueryMetrics::MetricHistory::GetPointsInRange(
      std::chrono::system_clock::time_point StartTime,
@@ -101,6 +111,8 @@ std::vector<HLQueryMetrics::MetricPoint> HLQueryMetrics::MetricHistory::GetPoint
      return ResultList;
 }
 
+/* Returns the most recently retained metric point. */
+
 HLQueryMetrics::MetricPoint HLQueryMetrics::MetricHistory::GetLatest() const
 {
      std::lock_guard<std::mutex> Lock(PointsMutex);
@@ -113,10 +125,14 @@ HLQueryMetrics::MetricPoint HLQueryMetrics::MetricHistory::GetLatest() const
      return Points.back();
 }
 
+/* Returns the value of the most recently retained metric point. */
+
 double HLQueryMetrics::MetricHistory::GetLatestValue() const
 {
      return GetLatest().Value;
 }
+
+/* Returns the number of retained metric points. */
 
 std::size_t HLQueryMetrics::MetricHistory::GetCount() const
 {
@@ -124,6 +140,8 @@ std::size_t HLQueryMetrics::MetricHistory::GetCount() const
 
      return Points.size();
 }
+
+/* Returns the minimum retained metric value. */
 
 double HLQueryMetrics::MetricHistory::GetMin() const
 {
@@ -144,6 +162,8 @@ double HLQueryMetrics::MetricHistory::GetMin() const
      return MinValue;
 }
 
+/* Returns the maximum retained metric value. */
+
 double HLQueryMetrics::MetricHistory::GetMax() const
 {
      std::lock_guard<std::mutex> Lock(PointsMutex);
@@ -163,6 +183,8 @@ double HLQueryMetrics::MetricHistory::GetMax() const
      return MaxValue;
 }
 
+/* Returns the average retained metric value. */
+
 double HLQueryMetrics::MetricHistory::GetAverage() const
 {
      std::lock_guard<std::mutex> Lock(PointsMutex);
@@ -181,6 +203,8 @@ double HLQueryMetrics::MetricHistory::GetAverage() const
 
      return TotalValue / static_cast<double>(Points.size());
 }
+
+/* Summarizes retained metric values within an inclusive time range. */
 
 HLQueryMetrics::MetricWindowSummary HLQueryMetrics::MetricHistory::GetWindowSummary(
      std::chrono::system_clock::time_point StartTime,
@@ -250,12 +274,16 @@ HLQueryMetrics::MetricWindowSummary HLQueryMetrics::MetricHistory::GetWindowSumm
      return Summary;
 }
 
+/* Returns statistics from the most recent retention pass. */
+
 HLQueryMetrics::RetentionStats HLQueryMetrics::MetricHistory::GetLastRetentionStats() const
 {
      std::lock_guard<std::mutex> Lock(PointsMutex);
 
      return LastRetentionStats;
 }
+
+/* Clears all retained metric points and resets retention timestamps. */
 
 void HLQueryMetrics::MetricHistory::Clear()
 {
@@ -270,6 +298,8 @@ void HLQueryMetrics::MetricHistory::Clear()
      LastRetentionStats = RetentionStats();
 }
 
+/* Runs retention while holding the metric history lock. */
+
 void HLQueryMetrics::MetricHistory::PerformRetention()
 {
      std::lock_guard<std::mutex> Lock(PointsMutex);
@@ -278,6 +308,8 @@ void HLQueryMetrics::MetricHistory::PerformRetention()
      PerformRetentionUnlocked(NowTime);
      LastRetentionCheck = NowTime;
 }
+
+/* Selects and applies the appropriate unlocked retention strategy. */
 
 void HLQueryMetrics::MetricHistory::PerformRetentionUnlocked(std::chrono::system_clock::time_point NowTime)
 {
@@ -314,6 +346,8 @@ void HLQueryMetrics::MetricHistory::PerformRetentionUnlocked(std::chrono::system
      LastRetentionStats.ExecutedAt = NowTime;
 }
 
+/* Returns whether enough time has elapsed to retain another sample. */
+
 bool HLQueryMetrics::MetricHistory::ShouldStore(std::chrono::system_clock::time_point NowTime) const
 {
      if (Points.empty())
@@ -326,6 +360,8 @@ bool HLQueryMetrics::MetricHistory::ShouldStore(std::chrono::system_clock::time_
 
      return ElapsedTime.count() >= STORAGE_INTERVAL_MINUTES;
 }
+
+/* Returns whether the history is due for another retention pass. */
 
 bool HLQueryMetrics::MetricHistory::ShouldPerformRetention(std::chrono::system_clock::time_point NowTime) const
 {
@@ -342,6 +378,8 @@ bool HLQueryMetrics::MetricHistory::ShouldPerformRetention(std::chrono::system_c
 
      return false;
 }
+
+/* Compacts older metric points into daily samples. */
 
 void HLQueryMetrics::MetricHistory::PerformDailyRetention()
 {
@@ -408,6 +446,8 @@ void HLQueryMetrics::MetricHistory::PerformDailyRetention()
      Points.insert(Points.end(), ReducedOlderList.begin(), ReducedOlderList.end());
      Points.insert(Points.end(), TodayPointsList.begin(), TodayPointsList.end());
 }
+
+/* Compacts older metric points into monthly samples. */
 
 void HLQueryMetrics::MetricHistory::PerformMonthlyRetention()
 {
@@ -490,6 +530,8 @@ void HLQueryMetrics::MetricHistory::PerformMonthlyRetention()
      Points = std::move(RetainedPointsList);
 }
 
+/* Converts a timestamp into a stable local calendar day number. */
+
 int64_t HLQueryMetrics::MetricHistory::GetDayNumber(std::chrono::system_clock::time_point TimestampPoint) const
 {
      auto TimeValue = std::chrono::system_clock::to_time_t(TimestampPoint);
@@ -505,6 +547,8 @@ int64_t HLQueryMetrics::MetricHistory::GetDayNumber(std::chrono::system_clock::t
 
      return static_cast<int64_t>(TmPtr->tm_year) * 366 + TmPtr->tm_yday;
 }
+
+/* Returns whether two timestamps fall on the same local calendar day. */
 
 bool HLQueryMetrics::MetricHistory::IsSameDay(
      std::chrono::system_clock::time_point FirstTimestamp,

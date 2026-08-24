@@ -70,42 +70,8 @@ class HLQueryMetrics
 
      class MetricHistory
      {
-        public:
-          MetricHistory();
-
-          ~MetricHistory() = default;
-
-          void AddPoint(double value);
-
-          std::vector<MetricPoint> GetPoints() const;
-
-          std::vector<MetricPoint> GetPointsInRange(
-               std::chrono::system_clock::time_point start,
-               std::chrono::system_clock::time_point end) const;
-
-          MetricPoint GetLatest() const;
-
-          double GetLatestValue() const;
-
-          std::size_t GetCount() const;
-
-          double GetMin() const;
-
-          double GetMax() const;
-
-          double GetAverage() const;
-
-          MetricWindowSummary GetWindowSummary(
-               std::chrono::system_clock::time_point start,
-               std::chrono::system_clock::time_point end) const;
-
-          RetentionStats GetLastRetentionStats() const;
-
-          void Clear();
-
-          void PerformRetention();
-
         private:
+
           mutable std::mutex PointsMutex;
 
           std::vector<MetricPoint> Points;
@@ -139,6 +105,42 @@ class HLQueryMetrics
           bool IsSameDay(
                std::chrono::system_clock::time_point tp1,
                std::chrono::system_clock::time_point tp2) const;
+
+        public:
+
+          MetricHistory();
+
+          ~MetricHistory() = default;
+
+          void AddPoint(double value);
+
+          std::vector<MetricPoint> GetPoints() const;
+
+          std::vector<MetricPoint> GetPointsInRange(
+               std::chrono::system_clock::time_point start,
+               std::chrono::system_clock::time_point end) const;
+
+          MetricPoint GetLatest() const;
+
+          double GetLatestValue() const;
+
+          std::size_t GetCount() const;
+
+          double GetMin() const;
+
+          double GetMax() const;
+
+          double GetAverage() const;
+
+          MetricWindowSummary GetWindowSummary(
+               std::chrono::system_clock::time_point start,
+               std::chrono::system_clock::time_point end) const;
+
+          RetentionStats GetLastRetentionStats() const;
+
+          void Clear();
+
+          void PerformRetention();
      };
 
      MetricHistory CPUMetrics;

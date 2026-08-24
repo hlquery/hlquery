@@ -131,7 +131,6 @@ bool hlquery::StartServer()
                }
                catch (...)
                {
-
                }
           }
 
