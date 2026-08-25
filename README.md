@@ -52,7 +52,7 @@ xychart-beta
 | Sustained-duration run | Not completed |
 | Abrupt VM power loss | Not tested |
 
-See the [benchmark credibility report](docs/benchmark/credibility-report.md), [write-path audit](docs/benchmark/write-path-audit.md), and [power-loss procedure](docs/benchmark/power-loss-testing.md) for the workload definition, durability limits, and reproduction details. Benchmark searches explicitly stay on the target node, so enabling distributed search does not distort single-node results. Replication is reported separately because enabling it adds crash-safe journal and replica-acknowledgement work to ingest throughput.
+See the [benchmark credibility report](docs/benchmark/credibility-report.md), [write-path audit](docs/benchmark/write-path-audit.md), and [power-loss procedure](docs/benchmark/power-loss-testing.md) for the workload definition, durability limits, and reproduction details. The default benchmark measures local ingest and searches on the target node even when cluster features are enabled. Use `hlquery-benchmark --replicated` to include crash-safe replication journaling and replica acknowledgements; that mode also populates configured replicas.
 
 ### Data organization
 

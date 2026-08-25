@@ -113,6 +113,8 @@ class BenchmarkClient
      void SleepBeforeWriteRetry(int attempt) const;
 
    public:
+     static void SetGlobalReplicatedMode(bool enabled);
+
      BenchmarkClient(const std::string &base_url, const std::string &token = "", bool reuse_collections = false);
 
      ~BenchmarkClient();

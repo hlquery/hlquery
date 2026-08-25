@@ -2736,6 +2736,7 @@ static void PrintBenchmarkHelp(const char *program_name)
                << "  --reuse-collections Reuse existing collections instead of deleting/recreating them\n"
                << "  --skip-auth-check  Skip authentication requirement check (useful when auth is disabled)\n"
                << "  --allow-memory-filesystem  Permit durable-rate output on tmpfs/ramfs (clearly labeled)\n"
+               << "  --replicated       Include configured replication in ingest measurements\n"
                << "  --unorganized      Create an 'unorganized' collection with non-standard schema for testing\n"
                << "  --log-file FILE    Structured log file (JSON lines format)\n"
                << "  --verbose, -v      Show detailed progress information\n"
@@ -2808,6 +2809,7 @@ int main(int argc, char *argv[])
           bool allow_memory_filesystem = false;
           bool create_unorganized_val = false;
           bool ssl_auth_mode = false;
+          bool replicated_benchmark = false;
 
           std::string custom_prefix_val = "";
 
@@ -2966,6 +2968,10 @@ int main(int argc, char *argv[])
                {
                     allow_memory_filesystem = true;
                }
+               else if (arg == "--replicated")
+               {
+                    replicated_benchmark = true;
+               }
                else if (arg == "--unorganized")
                {
                     create_unorganized_val = true;
@@ -2993,6 +2999,8 @@ int main(int argc, char *argv[])
           {
                num_documents = num_collections * default_docs_per_collection;
           }
+
+          BenchmarkClient::SetGlobalReplicatedMode(replicated_benchmark);
 
           num_threads = std::max(1, num_threads);
           batch_size = std::max(1, batch_size);
@@ -3289,7 +3297,9 @@ int main(int argc, char *argv[])
           {
                PrintBenchmarkStatus("Replication",
                                     replication_enabled
-                                         ? "enabled (" + replication_mode + ", " + std::to_string(replication_slave_count) + " replica(s))."
+                                         ? (replicated_benchmark
+                                                 ? "enabled (" + replication_mode + ", " + std::to_string(replication_slave_count) + " replica(s)); included."
+                                                 : "enabled (" + replication_mode + ", " + std::to_string(replication_slave_count) + " replica(s)); bypassed for local measurement.")
                                          : "disabled; measuring local ingest.");
           }
           else
@@ -3297,7 +3307,7 @@ int main(int argc, char *argv[])
                PrintBenchmarkStatus("Replication", "unknown; /status did not expose topology.");
           }
 
-          if (replication_enabled)
+          if (replication_enabled && replicated_benchmark)
           {
                std::cout << "  ! Replication is active: throughput includes outbox WAL synchronization and replica acknowledgement work.\n";
           }
@@ -3531,7 +3541,7 @@ int main(int argc, char *argv[])
           PrintBenchmarkValue("Documents", std::to_string(num_documents));
           PrintBenchmarkValue("Workers", std::to_string(num_threads) + " requested, " + std::to_string(active_document_threads) + " ingest, " + std::to_string(active_collection_threads) + " collection");
           PrintBenchmarkValue("Batch size", std::to_string(batch_size));
-          PrintBenchmarkValue("Measurement", replication_enabled ? "replicated ingest" : "local ingest");
+          PrintBenchmarkValue("Measurement", replication_enabled && replicated_benchmark ? "replicated ingest" : "local ingest");
           PrintBenchmarkValue("Collection prefix", g_collection_prefix);
 
           if (advanced_mode)
@@ -4411,7 +4421,9 @@ int main(int argc, char *argv[])
           PrintBenchmarkValue("Version", std::string(HLQUERY_VERSION) + " client, " + server_version + " server");
           PrintBenchmarkValue("Replication", replication_state_known
                                                    ? (replication_enabled
-                                                          ? "enabled (" + replication_mode + ", " + std::to_string(replication_slave_count) + " replica(s))"
+                                                          ? (replicated_benchmark
+                                                                  ? "enabled and included (" + replication_mode + ", " + std::to_string(replication_slave_count) + " replica(s))"
+                                                                  : "enabled; bypassed for local measurement")
                                                           : "disabled")
                                                    : "unknown");
           if (baseline_documents_val >= 0 && baseline_collections_val >= 0)
@@ -4455,7 +4467,7 @@ int main(int argc, char *argv[])
           PrintBenchmarkValue("Physical power guarantee", "no");
 
           PrintBenchmarkSection("Qualification");
-          PrintBenchmarkValue("Result classification", replication_enabled
+          PrintBenchmarkValue("Result classification", replication_enabled && replicated_benchmark
                                                                ? "replicated smoke-test throughput"
                                                                : "local smoke-test throughput");
           PrintBenchmarkValue("Application integrity", verify_documents
