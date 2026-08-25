@@ -33,27 +33,6 @@ hlquery is built for teams that want strong search without the operational weigh
 
 You can use hlquery for full-text search, hybrid retrieval, vector similarity, and AI-assisted workflows while keeping deployment straightforward. It ships with client libraries, command-line tools, and modular runtime extensions for local development and production services.
 
-### Benchmarks
-
-The latest retained ingest measurement reached a median **25,000 documents/second**. This is a single measured run, not a cross-system comparison, and it is classified as partially verified because the sustained-duration and abrupt power-loss requirements were not met.
-
-```mermaid
-xychart-beta
-    title "Measured ingest throughput"
-    x-axis ["Median ingest"]
-    y-axis "Documents/second" 0 --> 30000
-    bar [25000]
-```
-
-| Evidence | Result |
-| --- | --- |
-| Deterministic read-back | Passed |
-| Process-crash recovery | Passed |
-| Sustained-duration run | Not completed |
-| Abrupt VM power loss | Not tested |
-
-See the [benchmark credibility report](docs/benchmark/credibility-report.md), [write-path audit](docs/benchmark/write-path-audit.md), and [power-loss procedure](docs/benchmark/power-loss-testing.md) for the workload definition, durability limits, and reproduction details. The default benchmark measures local ingest and searches on the target node even when cluster features are enabled. Use `hlquery-benchmark --replicated` to include crash-safe replication journaling and replica acknowledgements; that mode also populates configured replicas.
-
 ### Data organization
 
 hlquery organizes data into **collections**. A collection is a logical group of related records, such as products, articles, users, or events, and its schema defines the fields that can be indexed, searched, filtered, sorted, or used for faceting.
