@@ -3597,26 +3597,32 @@ bool SearchAPI::ReplicateWriteRequest(const HttpRequest &Request,
 
                if (IsDirty || ResyncInProgress)
                {
-                    std::string QueueError;
-                    if (!QueuePendingReplication(Node.Endpoint, ReplicationRequest, false, &QueueError))
+                    /*
+                     * Dirty replicas are repaired from an authoritative snapshot,
+                     * not by replaying their request backlog.  Persisting every
+                     * request here duplicated large bulk-import bodies and made the
+                     * queue-size check repeatedly parse the whole backlog.  Besides
+                     * being quadratic, that work was thrown away by
+                     * DiscardPendingReplicationsAfterResync().
+                     *
+                     * ReplicationResyncFenceMutex orders this write against the
+                     * snapshot, while the durable dirty-slave state makes a restart
+                     * schedule the same full resync.  The crash-safe operation
+                     * outbox remains in force until this replication attempt
+                     * returns, so skipping the obsolete replay record does not
+                     * bypass the distributed-write safety protocol.
+                     */
+                    if (ResyncInProgress)
                     {
-                         QueueDurabilityFailure = true;
-                         Errors.push_back(Node.Endpoint + ": " + QueueError);
+                         Errors.push_back(Node.Endpoint + ": deferred while full resync is in progress");
+                    }
+                    else if (LastReachableMS > 0)
+                    {
+                         Errors.push_back(Node.Endpoint + ": deferred while replica is marked dirty/offline until monitor reconnects and resyncs it");
                     }
                     else
                     {
-                         if (ResyncInProgress)
-                         {
-                              Errors.push_back(Node.Endpoint + ": deferred while full resync is in progress");
-                         }
-                         else if (LastReachableMS > 0)
-                         {
-                              Errors.push_back(Node.Endpoint + ": deferred while replica is marked dirty/offline until monitor reconnects and resyncs it");
-                         }
-                         else
-                         {
-                              Errors.push_back(Node.Endpoint + ": deferred while replica is marked unavailable and awaiting first successful monitor probe");
-                         }
+                         Errors.push_back(Node.Endpoint + ": deferred while replica is marked unavailable and awaiting first successful monitor probe");
                     }
                     ReplicationMonitorCV.notify_one();
                     continue;

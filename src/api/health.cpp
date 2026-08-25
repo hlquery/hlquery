@@ -1460,6 +1460,7 @@ HttpResponse SearchAPI::HandlePing(const HttpRequest &Request)
 
      bool AuthEnabled = false;
      bool DemoMode = false;
+     bool ReplicaReadOnly = false;
      std::string DemoMessage;
      if (Instance && Instance->Users)
      {
@@ -1472,11 +1473,16 @@ HttpResponse SearchAPI::HandlePing(const HttpRequest &Request)
           DemoMode = Modules->IsDemoModeEnabled();
           DemoMessage = Modules->GetDemoModeMessage();
      }
+     if (Instance && Instance->Config)
+     {
+          ReplicaReadOnly = Instance->Config->GetReplicaModeEnabled() &&
+                            !Instance->Config->GetReplicaAllowWrites();
+     }
 
      PingJSON["auth_enabled"] = AuthEnabled;
      PingJSON["auth_required"] = AuthEnabled;
      PingJSON["demo_mode"] = DemoMode;
-     PingJSON["readonly_mode"] = DemoMode;
+     PingJSON["readonly_mode"] = DemoMode || ReplicaReadOnly;
      if (!DemoMessage.empty())
      {
           PingJSON["demo_message"] = DemoMessage;
@@ -1529,6 +1535,7 @@ HttpResponse SearchAPI::HandleHealth(const HttpRequest &Request)
      std::string HealthReason;
      bool AuthEnabled = false;
      bool DemoMode = false;
+     bool ReplicaReadOnly = false;
      std::string DemoMessage;
 
      ModuleManager *Modules = GetModuleManager();
@@ -1549,6 +1556,11 @@ HttpResponse SearchAPI::HandleHealth(const HttpRequest &Request)
           DemoMode = Modules->IsDemoModeEnabled();
           DemoMessage = Modules->GetDemoModeMessage();
      }
+     if (Instance && Instance->Config)
+     {
+          ReplicaReadOnly = Instance->Config->GetReplicaModeEnabled() &&
+                            !Instance->Config->GetReplicaAllowWrites();
+     }
 
      HealthJSON["status"] = HealthDegraded ? "degraded" : "ok";
      HealthJSON["engine"] = SOCKETENGINE_NAME;
@@ -1559,7 +1571,7 @@ HttpResponse SearchAPI::HandleHealth(const HttpRequest &Request)
      HealthJSON["auth_enabled"] = AuthEnabled;
      HealthJSON["auth_required"] = AuthEnabled;
      HealthJSON["demo_mode"] = DemoMode;
-     HealthJSON["readonly_mode"] = DemoMode;
+     HealthJSON["readonly_mode"] = DemoMode || ReplicaReadOnly;
      {
           const auto DaemonStats = DaemonHandler::GetOptimizationStats();
           HealthJSON["daemon"] = {
@@ -1915,6 +1927,7 @@ HttpResponse SearchAPI::HandleStats(const HttpRequest &Request)
           time_t UptimeVal = time(nullptr) - Instance->StatsVal.GetStartupTime();
           bool AuthEnabled = false;
           bool DemoMode = false;
+          bool ReplicaReadOnly = false;
           std::string DemoMessage;
 
           if (Instance->Users)
@@ -1927,6 +1940,11 @@ HttpResponse SearchAPI::HandleStats(const HttpRequest &Request)
                DemoMode = Instance->Modules->IsDemoModeEnabled();
                DemoMessage = Instance->Modules->GetDemoModeMessage();
           }
+          if (Instance->Config)
+          {
+               ReplicaReadOnly = Instance->Config->GetReplicaModeEnabled() &&
+                                 !Instance->Config->GetReplicaAllowWrites();
+          }
 
           auto &storage = HybridStorageManager::GetInstance();
           std::vector<std::string> collections = storage.ListCollections();
@@ -1937,7 +1955,7 @@ HttpResponse SearchAPI::HandleStats(const HttpRequest &Request)
           StatsJSON["auth_enabled"] = AuthEnabled;
           StatsJSON["auth_required"] = AuthEnabled;
           StatsJSON["demo_mode"] = DemoMode;
-          StatsJSON["readonly_mode"] = DemoMode;
+          StatsJSON["readonly_mode"] = DemoMode || ReplicaReadOnly;
           StatsJSON["io"] = BuildSocketIOStatsJSON();
           {
                const auto DaemonStats = DaemonHandler::GetOptimizationStats();

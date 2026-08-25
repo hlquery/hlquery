@@ -2903,6 +2903,21 @@ int BenchmarkClient::InsertVerifiedDocumentsBulk(const std::string &collection, 
      if (response.StatusCode != 200 && response.StatusCode != 201 &&
          !IsLocalWriteCommittedDespiteReplicationError(response))
      {
+          if (verbose_mode)
+          {
+               static std::atomic<int> error_count(0);
+               if (error_count.fetch_add(1) < 10)
+               {
+                    std::lock_guard<std::mutex> lock(console_mutex);
+                    std::cerr << "  [ERROR] Bulk import for '" << collection << "' failed with HTTP "
+                              << response.StatusCode;
+                    if (!response.ErrorMessage.empty())
+                    {
+                         std::cerr << ": " << response.ErrorMessage;
+                    }
+                    std::cerr << ".\n";
+               }
+          }
           return 0;
      }
 
@@ -2918,6 +2933,21 @@ int BenchmarkClient::InsertVerifiedDocumentsBulk(const std::string &collection, 
           const int failed = result.value("failed", 0);
           if (failed != 0 || imported < 0)
           {
+               if (verbose_mode)
+               {
+                    static std::atomic<int> error_count(0);
+                    if (error_count.fetch_add(1) < 10)
+                    {
+                         std::lock_guard<std::mutex> lock(console_mutex);
+                         std::cerr << "  [ERROR] Bulk import for '" << collection << "' returned imported="
+                                   << imported << ", failed=" << failed;
+                         if (result.contains("errors") && result["errors"].is_array() && !result["errors"].empty())
+                         {
+                              std::cerr << ": " << result["errors"].front().get<std::string>();
+                         }
+                         std::cerr << ".\n";
+                    }
+               }
                return 0;
           }
           return std::min(imported, static_cast<int>(docs.size()));
@@ -3105,7 +3135,8 @@ int BenchmarkClient::InsertDocumentsWithFieldsBulkLocal(const std::string &colle
 HTTPResponse BenchmarkClient::Search(const std::string &collection, const std::string &query, const std::map<std::string, std::string> &params)
 {
      std::string path = "/collections/" + collection + "/documents/search";
-     std::string query_string = "q=" + UrlEncode(query) + "&query_by=title,content,document_id";
+     /* Benchmark a single server even when distributed search is enabled. */
+     std::string query_string = "q=" + UrlEncode(query) + "&query_by=title,content,document_id&distributed=off";
 
      for (const auto &param : params)
      {

@@ -830,9 +830,11 @@ void HttpConnection::OnEventHandlerRead()
           BytesRead = recv(GetFD(), Buffer, sizeof(Buffer) - 1, MSG_DONTWAIT);
      }
 
+     int ReadErrno = BytesRead < 0 ? errno : 0;
+
      if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
      {
-          Instance->Logs->Debug("http_server", "OnEventHandlerRead: read returned " + std::to_string(BytesRead) + " bytes (errno=" + (BytesRead < 0 ? std::string(strerror(errno)) : "0") + ", fd=" + std::to_string(GetFD()) + ").");
+          Instance->Logs->Debug("http_server", "OnEventHandlerRead: read returned " + std::to_string(BytesRead) + " bytes (errno=" + (BytesRead < 0 ? std::string(strerror(ReadErrno)) : "0") + ", fd=" + std::to_string(GetFD()) + ").");
      }
 
      while (true)
@@ -870,7 +872,7 @@ void HttpConnection::OnEventHandlerRead()
 #endif
 
                {
-                    if (BytesRead == 0 || errno == ECONNRESET)
+                    if (BytesRead == 0 || ReadErrno == ECONNRESET)
                     {
                          if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
                          {
@@ -890,7 +892,11 @@ void HttpConnection::OnEventHandlerRead()
                          return;
                     }
 
-                    if (errno == EAGAIN)
+#if EAGAIN == EWOULDBLOCK
+                    if (ReadErrno == EAGAIN)
+#else
+                    if (ReadErrno == EAGAIN || ReadErrno == EWOULDBLOCK)
+#endif
                     {
                          if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
                          {
@@ -905,7 +911,7 @@ void HttpConnection::OnEventHandlerRead()
                     Instance->Logs->Debug("http_server", "OnEventHandlerRead: read error, calling OnEventHandlerError (fd=" + std::to_string(GetFD()) + ").");
                }
 
-               OnEventHandlerError(errno);
+               OnEventHandlerError(ReadErrno);
 
                return;
           }
@@ -963,6 +969,8 @@ void HttpConnection::OnEventHandlerRead()
           {
                BytesRead = recv(GetFD(), Buffer, sizeof(Buffer) - 1, MSG_DONTWAIT);
           }
+
+          ReadErrno = BytesRead < 0 ? errno : 0;
      }
 
      if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
@@ -4494,22 +4502,27 @@ void HttpServer::AcceptConnection()
      {
           ClientLen = sizeof(ClientAddr);
           int ClientFD = accept(GetFD(), reinterpret_cast<struct sockaddr *>(&ClientAddr), &ClientLen);
+          const int AcceptErrno = ClientFD < 0 ? errno : 0;
 
           if (Instance && Instance->Logs && Instance->Logs->GetDebugMode())
           {
-               Instance->Logs->Debug("http_server", "[AcceptConnection] accept() returned fd=" + std::to_string(ClientFD) + ", errno=" + (ClientFD < 0 ? std::string(strerror(errno)) : "0") + ".");
+               Instance->Logs->Debug("http_server", "[AcceptConnection] accept() returned fd=" + std::to_string(ClientFD) + ", errno=" + (ClientFD < 0 ? std::string(strerror(AcceptErrno)) : "0") + ".");
           }
 
           if (ClientFD < 0)
           {
-               if (errno == EAGAIN)
+#if EAGAIN == EWOULDBLOCK
+               if (AcceptErrno == EAGAIN)
+#else
+               if (AcceptErrno == EAGAIN || AcceptErrno == EWOULDBLOCK)
+#endif
                {
                     break; /* No more pending connections. */
                }
 
                /* Handle specific errors gracefully. */
 
-               if (errno == EMFILE || errno == ENFILE)
+               if (AcceptErrno == EMFILE || AcceptErrno == ENFILE)
                {
                     /* Too many open files - log once and continue. */
 
@@ -4527,7 +4540,7 @@ void HttpServer::AcceptConnection()
 
                     break;
                }
-               else if (errno == ECONNABORTED || errno == EINTR)
+               else if (AcceptErrno == ECONNABORTED || AcceptErrno == EINTR)
                {
                     /* Connection aborted or interrupted - continue normally. */
 
@@ -4536,7 +4549,7 @@ void HttpServer::AcceptConnection()
 
                if (Instance && Instance->Logs)
                {
-                    Instance->Logs->Critical("httpserver", "Accept failed: " + std::string(strerror(errno)) + ".");
+                    Instance->Logs->Critical("httpserver", "Accept failed: " + std::string(strerror(AcceptErrno)) + ".");
                }
 
                break;

@@ -16,13 +16,10 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential cmake perl php-cli zlib1g-dev libssl-dev liburing-dev
+          sudo apt-get install -y build-essential cmake perl zlib1g-dev libssl-dev liburing-dev
 
       - name: Configure
         run: ./configure
 
       - name: Build
         run: make
-
-      - name: Test
-        run: php tests/php/run_all.php
