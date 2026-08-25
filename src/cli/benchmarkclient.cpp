@@ -71,10 +71,16 @@ extern std::atomic<int> documents_skipped;
 
 extern std::atomic<bool> g_benchmark_should_stop;
 static std::atomic<bool> g_benchmark_ssl_auth_mode{false};
+static std::atomic<bool> g_benchmark_replicated_mode{false};
 
 void BenchmarkClient::SetGlobalSSLAuthMode(bool enabled)
 {
      g_benchmark_ssl_auth_mode.store(enabled);
+}
+
+void BenchmarkClient::SetGlobalReplicatedMode(bool enabled)
+{
+     g_benchmark_replicated_mode.store(enabled);
 }
 
 /* Waits in short intervals so Ctrl+C cancels retry backoff promptly. */
@@ -570,6 +576,7 @@ HTTPResponse BenchmarkClient::MakeRequest(const std::string &method, const std::
 {
      HTTPResponse response;
      const bool request_is_idempotent = IsIdempotentHTTPMethod(method);
+     const bool request_is_write = method == "POST" || method == "PUT" || method == "DELETE" || method == "PATCH";
 
      if (g_benchmark_should_stop.load())
      {
@@ -804,6 +811,11 @@ HTTPResponse BenchmarkClient::MakeRequest(const std::string &method, const std::
           request << "User-Agent: hlquery-benchmark/1.0\r\n";
           request << "Accept: application/json\r\n";
           request << "Connection: " << (use_keep_alive ? "keep-alive" : "close") << "\r\n";
+
+          if (request_is_write && !g_benchmark_replicated_mode.load())
+          {
+               request << "X-HLQ-Benchmark-Local: 1\r\n";
+          }
 
           if (!AuthToken.empty())
           {
@@ -3292,7 +3304,7 @@ HTTPResponse BenchmarkClient::FlushSync(const std::string &prefix)
           {"flush_memtables", false},
           {"wait_for_compaction", false}
      };
-     return MakeRequest("POST", "/_admin/storage/durability-barrier", RequestBody.dump(), 1, true, 30000);
+     return MakeWriteRequestWithRetry("POST", "/_admin/storage/durability-barrier", RequestBody.dump(), 8, true, 30000);
 }
 
 /* Encodes a string for use in a URL. */

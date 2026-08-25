@@ -1,2 +1,2 @@
 #!/bin/sh
-echo "hlquery-1.1.9"
+echo "hlquery-1.2.4"

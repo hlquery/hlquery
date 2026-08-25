@@ -2942,6 +2942,15 @@ bool SearchAPI::ShouldAttemptReplication(const HttpRequest &Request) const
           return false;
      }
 
+     const std::string BenchmarkLocal = ToLowerCopy(GetHeaderValueInsensitive(Request.Headers, "X-HLQ-Benchmark-Local"));
+     const bool LoopbackRequest = Request.RemoteAddress == "127.0.0.1" ||
+                                  Request.RemoteAddress == "::1" ||
+                                  Request.RemoteAddress == "localhost";
+     if (LoopbackRequest && (BenchmarkLocal == "1" || BenchmarkLocal == "true"))
+     {
+          return false;
+     }
+
      const std::string HopHeader = ToLowerCopy(GetHeaderValueInsensitive(Request.Headers, "X-HLQ-Replication-Hop"));
      if (HopHeader == "1" || HopHeader == "true")
      {
