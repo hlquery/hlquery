@@ -3029,6 +3029,11 @@ int main(int argc, char *argv[])
           PrintBenchmarkTitle("hlquery Benchmark");
           PrintBenchmarkSection("Preflight");
 
+          bool replication_state_known = false;
+          bool replication_enabled = false;
+          std::string replication_mode = "unknown";
+          int replication_slave_count = 0;
+
           if (!skip_auth_check)
           {
                PrintBenchmarkStatus("Status/auth", "checking.");
@@ -3109,6 +3114,7 @@ int main(int argc, char *argv[])
 
           BenchmarkClient health_client(base_url, auth_token);
           std::string server_version = "unknown";
+          bool target_read_only = false;
 
           HTTPResponse health_response = health_client.MakeRequest("GET", "/health", "", 1, true, 5000);
 
@@ -3124,6 +3130,7 @@ int main(int argc, char *argv[])
                {
                     const nlohmann::json health_json = nlohmann::json::parse(health_response.Body);
                     server_version = health_json.value("version", "unknown");
+                    target_read_only = health_json.value("readonly_mode", false);
                }
                catch (...)
                {
@@ -3188,6 +3195,13 @@ int main(int argc, char *argv[])
                PrintBenchmarkStatus("Health", "ready.");
           }
 
+          if (target_read_only)
+          {
+               std::cerr << "\nERROR: Benchmark target is read-only.\n";
+               std::cerr << "   Direct benchmark writes are disabled on this replica. Run the benchmark against a writable node.\n";
+               return 1;
+          }
+
           health_client.Reset();
 
           PrintBenchmarkStatus("Stability recheck", "running.");
@@ -3249,6 +3263,44 @@ int main(int argc, char *argv[])
           }
 
           PrintBenchmarkStatus("Stability recheck", "ready.");
+
+          HTTPResponse topology_response = health_client.MakeRequest("GET", "/status", "", 1, true, 5000);
+          if (topology_response.StatusCode == 200 && !topology_response.Body.empty())
+          {
+               try
+               {
+                    const nlohmann::json status_json = nlohmann::json::parse(topology_response.Body);
+                    if (status_json.contains("replication") && status_json["replication"].is_object())
+                    {
+                         const nlohmann::json &replication_json = status_json["replication"];
+                         replication_enabled = replication_json.value("enabled", false);
+                         replication_mode = replication_json.value("mode", "unknown");
+                         replication_slave_count = replication_json.value("slave_count", 0);
+                         replication_state_known = true;
+                    }
+               }
+               catch (...)
+               {
+                    /* Topology reporting is informational and must not fail preflight. */
+               }
+          }
+
+          if (replication_state_known)
+          {
+               PrintBenchmarkStatus("Replication",
+                                    replication_enabled
+                                         ? "enabled (" + replication_mode + ", " + std::to_string(replication_slave_count) + " replica(s))."
+                                         : "disabled; measuring local ingest.");
+          }
+          else
+          {
+               PrintBenchmarkStatus("Replication", "unknown; /status did not expose topology.");
+          }
+
+          if (replication_enabled)
+          {
+               std::cout << "  ! Replication is active: throughput includes outbox WAL synchronization and replica acknowledgement work.\n";
+          }
 
           health_client.Reset();
 
@@ -3479,6 +3531,7 @@ int main(int argc, char *argv[])
           PrintBenchmarkValue("Documents", std::to_string(num_documents));
           PrintBenchmarkValue("Workers", std::to_string(num_threads) + " requested, " + std::to_string(active_document_threads) + " ingest, " + std::to_string(active_collection_threads) + " collection");
           PrintBenchmarkValue("Batch size", std::to_string(batch_size));
+          PrintBenchmarkValue("Measurement", replication_enabled ? "replicated ingest" : "local ingest");
           PrintBenchmarkValue("Collection prefix", g_collection_prefix);
 
           if (advanced_mode)
@@ -3827,6 +3880,14 @@ int main(int argc, char *argv[])
                return CleanupInterruptedBenchmarkRun(base_url, auth_token, num_collections, reuse_collections);
           }
 
+          if (collections_created.load() != num_collections || collections_skipped.load() != 0)
+          {
+               std::cerr << "\nERROR: Collection setup incomplete: created " << collections_created.load()
+                         << "/" << num_collections << ", skipped " << collections_skipped.load() << ".\n";
+               std::cerr << "   Benchmark aborted before document insertion.\n";
+               return 1;
+          }
+
           ResetProgressBar();
 
           int docs_per_collection_val = num_documents / num_collections;
@@ -3954,6 +4015,14 @@ int main(int argc, char *argv[])
           {
                std::cerr << "\n[INTERRUPT] Benchmark interrupted before Phase 2b.\n";
                return CleanupInterruptedBenchmarkRun(base_url, auth_token, num_collections, reuse_collections);
+          }
+
+          if (documents_inserted.load() != num_documents || documents_skipped.load() != 0)
+          {
+               std::cerr << "\nERROR: Document ingest incomplete: inserted " << documents_inserted.load()
+                         << "/" << num_documents << ", skipped " << documents_skipped.load() << ".\n";
+               std::cerr << "   Partial throughput is not reported as a completed benchmark.\n";
+               return 1;
           }
 
           int additional_docs_per_collection_val = 0;
@@ -4340,6 +4409,11 @@ int main(int argc, char *argv[])
 
           PrintBenchmarkSection("Conditions");
           PrintBenchmarkValue("Version", std::string(HLQUERY_VERSION) + " client, " + server_version + " server");
+          PrintBenchmarkValue("Replication", replication_state_known
+                                                   ? (replication_enabled
+                                                          ? "enabled (" + replication_mode + ", " + std::to_string(replication_slave_count) + " replica(s))"
+                                                          : "disabled")
+                                                   : "unknown");
           if (baseline_documents_val >= 0 && baseline_collections_val >= 0)
           {
                PrintBenchmarkValue("Server baseline", std::to_string(baseline_documents_val) + " docs in " + std::to_string(baseline_collections_val) + " collection(s)");
@@ -4381,7 +4455,9 @@ int main(int argc, char *argv[])
           PrintBenchmarkValue("Physical power guarantee", "no");
 
           PrintBenchmarkSection("Qualification");
-          PrintBenchmarkValue("Result classification", "smoke-test throughput");
+          PrintBenchmarkValue("Result classification", replication_enabled
+                                                               ? "replicated smoke-test throughput"
+                                                               : "local smoke-test throughput");
           PrintBenchmarkValue("Application integrity", verify_documents
                                                        ? "verified (full read-back + SHA-256)"
                                                        : "not verified (use --verify)");
