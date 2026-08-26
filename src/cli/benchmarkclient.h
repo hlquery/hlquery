@@ -290,11 +290,11 @@ struct OperationMetrics
 
      std::string OperationSubtype;
 
-     int64_t DurationMS;
+     int64_t DurationMS = 0;
 
-     bool Success;
+     bool Success = false;
 
-     int ResultCount;
+     int ResultCount = 0;
 
      std::string CollectionName;
 

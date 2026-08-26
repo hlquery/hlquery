@@ -129,7 +129,7 @@ void FloodSignalHandler(int /* signal */)
 
 /* Runs a detailed benchmark. */
 
-void RunDetailedBenchmark(const std::string &base_url, const std::string &auth_token, int num_collections, int num_documents, int num_threads, int batch_size, bool reuse_collections)
+bool RunDetailedBenchmark(const std::string &base_url, const std::string &auth_token, int num_collections, int num_documents, int num_threads, int batch_size, bool reuse_collections)
 {
      BenchmarkClient client(base_url, auth_token, reuse_collections);
 
@@ -137,7 +137,7 @@ void RunDetailedBenchmark(const std::string &base_url, const std::string &auth_t
                << std::string(70, '=') << "\n";
      std::cout << "COMPREHENSIVE DETAILED BENCHMARK.\n";
      std::cout << std::string(70, '=') << "\n";
-     std::cout << "Testing ALL routes and functionalities...\n";
+     std::cout << "Testing broad route and functionality coverage...\n";
      std::cout << "Target: 1,000+ document inserts, 1,000+ searches.\n\n";
 
      auto overall_start = Now();
@@ -170,9 +170,18 @@ void RunDetailedBenchmark(const std::string &base_url, const std::string &auth_t
           advanced_metrics.DocumentSizeTimings.clear();
           advanced_metrics.BatchSizeTimings.clear();
           advanced_metrics.ThreadCountThroughput.clear();
+          advanced_metrics.ConfigURL = base_url;
+          advanced_metrics.ConfigCollections = num_collections;
+          advanced_metrics.ConfigDocuments = std::max(num_documents, 1000);
+          advanced_metrics.ConfigThreads = num_threads;
+          advanced_metrics.ConfigBatchSize = batch_size;
+          advanced_metrics.FinalTotalOperations = 0;
+          advanced_metrics.FinalSuccessfulOperations = 0;
+          advanced_metrics.FinalSuccessRate = 0.0;
+          advanced_metrics.FinalAvgOperationTime = 0.0;
      }
 
-     std::cout << "[1/15] Testing connection...\n";
+     std::cout << "[1/10] Testing connection...\n";
 
      auto start = Now();
 
@@ -183,6 +192,11 @@ void RunDetailedBenchmark(const std::string &base_url, const std::string &auth_t
      auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
 
      OperationMetrics op;
+     const auto record_operation = [](OperationMetrics &operation)
+     {
+          advanced_metrics.DetailedOperations.push_back(operation);
+          operation = OperationMetrics{};
+     };
 
      op.OperationType = "connection_test";
      op.OperationSubtype = "basic";
@@ -190,17 +204,17 @@ void RunDetailedBenchmark(const std::string &base_url, const std::string &auth_t
      op.Success = conn_error.empty();
      op.Metadata["error"] = conn_error;
 
-     advanced_metrics.DetailedOperations.push_back(op);
+     record_operation(op);
 
      if (!conn_error.empty())
      {
           std::cerr << "Connection issue: " << conn_error << ".\n";
-          return;
+          return false;
      }
 
      std::cout << "  ✓ Connected (" << duration.count() << " ms).\n\n";
 
-     std::cout << "[2/15] Testing collection operations...\n";
+     std::cout << "[2/10] Testing collection operations...\n";
 
      start = Now();
 
@@ -218,7 +232,7 @@ void RunDetailedBenchmark(const std::string &base_url, const std::string &auth_t
      op.Success = true;
      op.ResultCount = existing_collections.size();
 
-     advanced_metrics.DetailedOperations.push_back(op);
+     record_operation(op);
 
      std::cout << "  ✓ Listed " << existing_collections.size() << " collections (" << duration.count() << " ms).\n";
 
@@ -236,19 +250,18 @@ void RunDetailedBenchmark(const std::string &base_url, const std::string &auth_t
 
           duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
 
+          op.OperationType = "collection_create";
+          op.OperationSubtype = "standard";
+          op.DurationMS = duration.count();
+          op.Success = created;
+          op.CollectionName = col_name;
+          record_operation(op);
+
           if (created)
           {
                test_collections.push_back(col_name);
 
                advanced_metrics.CollectionTimings.push_back(duration.count());
-
-               op.OperationType = "collection_create";
-               op.OperationSubtype = "standard";
-               op.DurationMS = duration.count();
-               op.Success = true;
-               op.CollectionName = col_name;
-
-               advanced_metrics.DetailedOperations.push_back(op);
           }
      }
 
@@ -272,19 +285,19 @@ void RunDetailedBenchmark(const std::string &base_url, const std::string &auth_t
           op.Success = col_response.StatusCode == 200;
           op.CollectionName = test_collections[0];
 
-          advanced_metrics.DetailedOperations.push_back(op);
+          record_operation(op);
 
           std::cout << "  ✓ Retrieved collection info (" << duration.count() << " ms).\n";
      }
 
      std::cout << "\n";
 
-     std::cout << "[3/15] Inserting " << min_documents << " documents (minimum requirement)...\n";
+     std::cout << "[3/10] Inserting " << min_documents << " documents (minimum requirement)...\n";
 
      if (test_collections.empty())
      {
           std::cerr << "Note: No collections available for document insertion.\n";
-          return;
+          return false;
      }
 
      std::string main_collection = test_collections[0];
@@ -366,6 +379,16 @@ void RunDetailedBenchmark(const std::string &base_url, const std::string &auth_t
 
           duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
 
+          op.OperationType = "document_insert";
+          op.OperationSubtype = "bulk";
+          op.DurationMS = duration.count();
+          op.Success = inserted == docs_in_batch;
+          op.ResultCount = inserted;
+          op.CollectionName = main_collection;
+          op.Metadata["batch_size"] = std::to_string(docs_per_batch);
+          op.Metadata["batch_number"] = std::to_string(batch_idx);
+          record_operation(op);
+
           if (inserted > 0)
           {
                total_inserted_val += inserted;
@@ -374,17 +397,6 @@ void RunDetailedBenchmark(const std::string &base_url, const std::string &auth_t
                advanced_metrics.BatchTimings.push_back(duration.count());
                advanced_metrics.BatchSizes.push_back(inserted);
                advanced_metrics.BatchCollections.push_back(main_collection);
-
-               op.OperationType = "document_insert";
-               op.OperationSubtype = "bulk";
-               op.DurationMS = duration.count();
-               op.Success = true;
-               op.ResultCount = inserted;
-               op.CollectionName = main_collection;
-               op.Metadata["batch_size"] = std::to_string(docs_per_batch);
-               op.Metadata["batch_number"] = std::to_string(batch_idx);
-
-               advanced_metrics.DetailedOperations.push_back(op);
 
                if (batch_idx % 10 == 0 || batch_idx == num_batches - 1)
                {
@@ -433,18 +445,18 @@ void RunDetailedBenchmark(const std::string &base_url, const std::string &auth_t
 
           duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
 
+          op.OperationType = "document_insert";
+          op.OperationSubtype = "single_size_test";
+          op.DurationMS = duration.count();
+          op.Success = inserted;
+          op.ResultCount = inserted ? 1 : 0;
+          op.CollectionName = main_collection;
+          op.Metadata["doc_size_bytes"] = std::to_string(doc_size);
+          record_operation(op);
+
           if (inserted)
           {
                advanced_metrics.DocumentSizeTimings[doc_size].push_back(duration.count());
-
-               op.OperationType = "document_insert";
-               op.OperationSubtype = "single_size_test";
-               op.DurationMS = duration.count();
-               op.Success = true;
-               op.CollectionName = main_collection;
-               op.Metadata["doc_size_bytes"] = std::to_string(doc_size);
-
-               advanced_metrics.DetailedOperations.push_back(op);
           }
      }
 
@@ -468,7 +480,7 @@ void RunDetailedBenchmark(const std::string &base_url, const std::string &auth_t
           op.Success = doc_response.StatusCode == 200;
           op.CollectionName = test_collections[0];
 
-          advanced_metrics.DetailedOperations.push_back(op);
+          record_operation(op);
 
           std::cout << "  ✓ Retrieved document (" << duration.count() << " ms).\n";
      }
@@ -497,19 +509,19 @@ void RunDetailedBenchmark(const std::string &base_url, const std::string &auth_t
           op.Success = update_response.StatusCode == 200;
           op.CollectionName = test_collections[0];
 
-          advanced_metrics.DetailedOperations.push_back(op);
+          record_operation(op);
 
           std::cout << "  ✓ Updated document (" << duration.count() << " ms).\n";
      }
 
      std::cout << "\n";
 
-     std::cout << "[4/15] Running " << min_searches_val << " searches of multiple types...\n";
+     std::cout << "[4/10] Running " << min_searches_val << " searches of multiple types...\n";
 
      if (test_collections.empty())
      {
           std::cerr << "Note: No collections available for search testing.\n";
-          return;
+          return false;
      }
 
      std::string test_collection = test_collections[0];
@@ -578,7 +590,7 @@ void RunDetailedBenchmark(const std::string &base_url, const std::string &auth_t
                }
           }
 
-          advanced_metrics.DetailedOperations.push_back(op);
+          record_operation(op);
 
           if (search_resp.StatusCode == 200)
           {
@@ -622,7 +634,7 @@ void RunDetailedBenchmark(const std::string &base_url, const std::string &auth_t
           op.Metadata["query"] = query;
           op.Metadata["has_filter"] = "true";
 
-          advanced_metrics.DetailedOperations.push_back(op);
+          record_operation(op);
 
           if (search_resp.StatusCode == 200)
           {
@@ -666,7 +678,7 @@ void RunDetailedBenchmark(const std::string &base_url, const std::string &auth_t
           op.Metadata["query"] = query;
           op.Metadata["sort_by"] = params["sort_by"];
 
-          advanced_metrics.DetailedOperations.push_back(op);
+          record_operation(op);
 
           if (search_resp.StatusCode == 200)
           {
@@ -712,7 +724,7 @@ void RunDetailedBenchmark(const std::string &base_url, const std::string &auth_t
           op.Metadata["method"] = "POST";
           op.Metadata["query"] = search_params_json["q"];
 
-          advanced_metrics.DetailedOperations.push_back(op);
+          record_operation(op);
 
           if (post_search.StatusCode == 200)
           {
@@ -728,7 +740,7 @@ void RunDetailedBenchmark(const std::string &base_url, const std::string &auth_t
      std::cout << "  ✓ Completed " << search_count_val << " searches total.\n";
      std::cout << "\n";
 
-     std::cout << "[5/15] Testing multi-search operations...\n";
+     std::cout << "[5/10] Testing multi-search operations...\n";
 
      if (test_collections.size() >= 2)
      {
@@ -763,14 +775,14 @@ void RunDetailedBenchmark(const std::string &base_url, const std::string &auth_t
           op.Success = multi_resp.StatusCode == 200;
           op.ResultCount = std::min(test_collections.size(), size_t(3));
 
-          advanced_metrics.DetailedOperations.push_back(op);
+          record_operation(op);
 
           std::cout << "  ✓ Tested multi-search across " << std::min(test_collections.size(), size_t(3)) << " collections (" << duration.count() << " ms).\n";
      }
 
      std::cout << "\n";
 
-     std::cout << "[6/15] Testing synonyms, stopwords, and overrides...\n";
+     std::cout << "[6/10] Testing synonyms, stopwords, and overrides...\n";
 
      if (!test_collections.empty())
      {
@@ -778,7 +790,8 @@ void RunDetailedBenchmark(const std::string &base_url, const std::string &auth_t
 
           nlohmann::json synonym_json;
 
-          synonym_json["synonyms"] = {"car", "automobile", "vehicle"};
+          synonym_json["root"] = "car";
+          synonym_json["synonyms"] = {"automobile", "vehicle"};
 
           start = Now();
 
@@ -788,18 +801,18 @@ void RunDetailedBenchmark(const std::string &base_url, const std::string &auth_t
 
           duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
 
-          if (syn_resp.StatusCode == 200 || syn_resp.StatusCode == 201)
+          const bool synonym_created = syn_resp.StatusCode == 200 || syn_resp.StatusCode == 201;
+          op.OperationType = "synonym";
+          op.OperationSubtype = "create";
+          op.DurationMS = duration.count();
+          op.Success = synonym_created;
+          op.CollectionName = test_collection;
+          op.Metadata["http_status"] = std::to_string(syn_resp.StatusCode);
+          record_operation(op);
+
+          if (synonym_created)
           {
                advanced_metrics.SynonymOperationTimings.push_back(duration.count());
-
-               op.OperationType = "synonym";
-               op.OperationSubtype = "create";
-               op.DurationMS = duration.count();
-               op.Success = true;
-               op.CollectionName = test_collection;
-
-               advanced_metrics.DetailedOperations.push_back(op);
-
                std::cout << "  ✓ Created synonym (" << duration.count() << " ms).\n";
           }
 
@@ -815,18 +828,18 @@ void RunDetailedBenchmark(const std::string &base_url, const std::string &auth_t
 
           duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
 
-          if (stop_resp.StatusCode == 200 || stop_resp.StatusCode == 201)
+          const bool stopwords_created = stop_resp.StatusCode == 200 || stop_resp.StatusCode == 201;
+          op.OperationType = "stopword";
+          op.OperationSubtype = "create";
+          op.DurationMS = duration.count();
+          op.Success = stopwords_created;
+          op.CollectionName = test_collection;
+          op.Metadata["http_status"] = std::to_string(stop_resp.StatusCode);
+          record_operation(op);
+
+          if (stopwords_created)
           {
                advanced_metrics.StopwordOperationTimings.push_back(duration.count());
-
-               op.OperationType = "stopword";
-               op.OperationSubtype = "create";
-               op.DurationMS = duration.count();
-               op.Success = true;
-               op.CollectionName = test_collection;
-
-               advanced_metrics.DetailedOperations.push_back(op);
-
                std::cout << "  ✓ Created stopwords (" << duration.count() << " ms).\n";
           }
 
@@ -845,25 +858,25 @@ void RunDetailedBenchmark(const std::string &base_url, const std::string &auth_t
 
           duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
 
-          if (over_resp.StatusCode == 200 || over_resp.StatusCode == 201)
+          const bool override_created = over_resp.StatusCode == 200 || over_resp.StatusCode == 201;
+          op.OperationType = "override";
+          op.OperationSubtype = "create";
+          op.DurationMS = duration.count();
+          op.Success = override_created;
+          op.CollectionName = test_collection;
+          op.Metadata["http_status"] = std::to_string(over_resp.StatusCode);
+          record_operation(op);
+
+          if (override_created)
           {
                advanced_metrics.OverrideOperationTimings.push_back(duration.count());
-
-               op.OperationType = "override";
-               op.OperationSubtype = "create";
-               op.DurationMS = duration.count();
-               op.Success = true;
-               op.CollectionName = test_collection;
-
-               advanced_metrics.DetailedOperations.push_back(op);
-
                std::cout << "  ✓ Created override (" << duration.count() << " ms).\n";
           }
      }
 
      std::cout << "\n";
 
-     std::cout << "[7/15] Testing additional API endpoints...\n";
+     std::cout << "[7/10] Testing additional API endpoints...\n";
 
      start = Now();
 
@@ -878,7 +891,7 @@ void RunDetailedBenchmark(const std::string &base_url, const std::string &auth_t
      op.DurationMS = duration.count();
      op.Success = health_resp.StatusCode == 200;
 
-     advanced_metrics.DetailedOperations.push_back(op);
+     record_operation(op);
 
      std::cout << "  ✓ Health check (" << duration.count() << " ms).\n";
 
@@ -895,7 +908,7 @@ void RunDetailedBenchmark(const std::string &base_url, const std::string &auth_t
      op.DurationMS = duration.count();
      op.Success = status_resp.StatusCode == 200;
 
-     advanced_metrics.DetailedOperations.push_back(op);
+     record_operation(op);
 
      std::cout << "  ✓ Status check (" << duration.count() << " ms).\n";
 
@@ -912,15 +925,21 @@ void RunDetailedBenchmark(const std::string &base_url, const std::string &auth_t
      op.DurationMS = duration.count();
      op.Success = stats_resp.StatusCode == 200;
 
-     advanced_metrics.DetailedOperations.push_back(op);
+     record_operation(op);
 
      std::cout << "  ✓ Stats check (" << duration.count() << " ms).\n";
      std::cout << "\n";
 
-     std::cout << "[8/15] Testing performance with different thread counts...\n";
-     std::cout << "  ✓ Thread performance testing (simplified).\n\n";
+     std::cout << "[8/10] Recording configured concurrency...\n";
+     op.OperationType = "concurrency_configuration";
+     op.OperationSubtype = "requested_threads";
+     op.Success = num_threads > 0;
+     op.ResultCount = num_threads;
+     op.Metadata["threads"] = std::to_string(num_threads);
+     record_operation(op);
+     std::cout << "  ✓ Recorded " << num_threads << " configured thread(s).\n\n";
 
-     std::cout << "[9/15] Testing update and delete operations comprehensively...\n";
+     std::cout << "[9/10] Testing update and delete operations comprehensively...\n";
 
      if (!sample_docs.empty() && !test_collections.empty())
      {
@@ -955,7 +974,7 @@ void RunDetailedBenchmark(const std::string &base_url, const std::string &auth_t
                op.CollectionName = test_collection;
                op.Metadata["update_number"] = std::to_string(i);
 
-               advanced_metrics.DetailedOperations.push_back(op);
+               record_operation(op);
 
                update_count_val++;
           }
@@ -984,7 +1003,7 @@ void RunDetailedBenchmark(const std::string &base_url, const std::string &auth_t
                op.Success = doc_resp.StatusCode == 200;
                op.CollectionName = test_collection;
 
-               advanced_metrics.DetailedOperations.push_back(op);
+               record_operation(op);
 
                get_count_val++;
           }
@@ -1015,7 +1034,7 @@ void RunDetailedBenchmark(const std::string &base_url, const std::string &auth_t
                op.Success = del_resp.StatusCode == 200 || del_resp.StatusCode == 204;
                op.CollectionName = test_collection;
 
-               advanced_metrics.DetailedOperations.push_back(op);
+               record_operation(op);
 
                delete_count_val++;
           }
@@ -1039,14 +1058,14 @@ void RunDetailedBenchmark(const std::string &base_url, const std::string &auth_t
           op.CollectionName = test_collection;
           op.Metadata["method"] = "filter";
 
-          advanced_metrics.DetailedOperations.push_back(op);
+          record_operation(op);
 
           std::cout << "    ✓ Tested delete by filter (" << duration.count() << " ms).\n";
      }
 
      std::cout << "\n";
 
-     std::cout << "[10/15] Testing collection management operations...\n";
+     std::cout << "[10/10] Testing collection management operations...\n";
 
      if (!test_collections.empty())
      {
@@ -1067,11 +1086,45 @@ void RunDetailedBenchmark(const std::string &base_url, const std::string &auth_t
                op.DurationMS = duration.count();
                op.Success = true;
 
-               advanced_metrics.DetailedOperations.push_back(op);
+               record_operation(op);
           }
 
           std::cout << "    ✓ Tested repeat collection listings.\n";
      }
+
+     const bool operations_passed = std::all_of(advanced_metrics.DetailedOperations.begin(),
+                                                advanced_metrics.DetailedOperations.end(),
+                                                [](const OperationMetrics &operation)
+                                                {
+                                                     return operation.Success;
+                                                });
+     const size_t expected_collections = static_cast<size_t>(std::min(num_collections, 20));
+     const bool completed = test_collections.size() == expected_collections &&
+                            total_inserted_val == min_documents &&
+                            search_count_val == min_searches_val;
+     const bool passed = operations_passed && completed;
+     int64_t total_operation_time = 0;
+     int64_t successful_operations = 0;
+     for (const auto &operation : advanced_metrics.DetailedOperations)
+     {
+          total_operation_time += operation.DurationMS;
+          if (operation.Success)
+          {
+               successful_operations++;
+          }
+     }
+     advanced_metrics.FinalTotalOperations = static_cast<int64_t>(advanced_metrics.DetailedOperations.size());
+     advanced_metrics.FinalSuccessfulOperations = successful_operations;
+     advanced_metrics.FinalSuccessRate = advanced_metrics.FinalTotalOperations > 0
+                                              ? successful_operations * 100.0 / advanced_metrics.FinalTotalOperations
+                                              : 0.0;
+     advanced_metrics.FinalAvgOperationTime = advanced_metrics.FinalTotalOperations > 0
+                                                   ? total_operation_time / static_cast<double>(advanced_metrics.FinalTotalOperations)
+                                                   : 0.0;
+     std::cout << "\nDetailed benchmark " << (passed ? "passed" : "failed") << ": "
+               << advanced_metrics.DetailedOperations.size() << " operation(s), "
+               << total_inserted_val << " document(s), " << search_count_val << " search(es).\n";
+     return passed;
 }
 
 /* Runs the flood benchmark. */
@@ -1391,7 +1444,7 @@ void RunFloodBenchmark(const std::string &base_url, const std::string &auth_toke
 
                     thread_client.ResetConnection();
 
-                    HTTPResponse response = thread_client.MakeRequest("GET", "/collections/" + col_name + "/documents/Search?q=" + query, "", 1);
+                    HTTPResponse response = thread_client.MakeRequest("GET", "/collections/" + col_name + "/documents/search?q=" + query, "", 1);
 
                     if (response.StatusCode == 200)
                     {
@@ -1402,6 +1455,11 @@ void RunFloodBenchmark(const std::string &base_url, const std::string &auth_toke
                     {
                          flood_errors_encountered++;
                          circuit_breaker.RecordFailure();
+                         if (verbose)
+                         {
+                              std::cerr << "[Thread " << thread_id << "] Search failed for " << col_name
+                                        << " with HTTP " << response.StatusCode << ".\n";
+                         }
                     }
                }
 
