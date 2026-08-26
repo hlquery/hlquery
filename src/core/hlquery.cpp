@@ -269,6 +269,15 @@ void hlquery::Run()
           ExitManager::Exit(1);
      }
 
+     /* Test mode validates configuration and TLS inputs without opening storage,
+      * acquiring a PID file, or binding listeners. */
+
+     if (Config && Config->GetTestMode())
+     {
+          print_ok("Configuration is valid: {}", Config->GetConfigFile());
+          return;
+     }
+
      if (Config && !Config->GetNoForkMode() && !Config->GetTestMode())
      {
           if (!Daemonize())

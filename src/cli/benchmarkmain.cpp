@@ -47,7 +47,7 @@ void PrintSpinner(const std::string &label, int attempt, int total_attempts, boo
 
 void RunSearches(const std::string &base_url, const std::string &auth_token);
 
-void RunDetailedBenchmark(const std::string &base_url, const std::string &auth_token, int num_collections, int num_documents, int num_threads, int batch_size, bool reuse_collections);
+bool RunDetailedBenchmark(const std::string &base_url, const std::string &auth_token, int num_collections, int num_documents, int num_threads, int batch_size, bool reuse_collections);
 
 void RunFloodBenchmark(const std::string &base_url, const std::string &auth_token, int num_threads, bool verbose, bool reuse_collections);
 
@@ -2716,8 +2716,8 @@ static void PrintBenchmarkHelp(const char *program_name)
                << "  --threads N        Number of threads (default: 8)\n"
                << "  --batch-size N     Documents per bulk insert batch (default: 500)\n"
                << "  --advanced [FILE]  Output detailed JSON metrics (default: adv.json)\n"
-               << "  --detailed [FILE] Run comprehensive benchmark testing ALL routes\n"
-               << "                    and functionalities (includes --advanced)\n"
+               << "  --detailed [FILE] Run broad route and functionality coverage\n"
+               << "                    (includes --advanced)\n"
                << "  --search           Run search benchmark on previously inserted data\n"
                << "  --dump             Dump all collections and their documents\n"
                << "  --fake             Load sample collections from run/benchmark/*.json\n"
@@ -3464,10 +3464,10 @@ int main(int argc, char *argv[])
 
           if (detailed_mode)
           {
-               RunDetailedBenchmark(base_url, auth_token, num_collections, num_documents, num_threads, batch_size, reuse_collections);
+               const bool detailed_passed = RunDetailedBenchmark(base_url, auth_token, num_collections, num_documents, num_threads, batch_size, reuse_collections);
                WriteAdvancedJSON(advanced_output_file, advanced_metrics);
 
-               return 0;
+               return detailed_passed ? 0 : 1;
           }
 
           if (search_mode_val)

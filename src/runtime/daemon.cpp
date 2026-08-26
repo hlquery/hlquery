@@ -478,7 +478,7 @@ void hlquery::ParseArgs()
                std::cout << "Usage: " << ArgvList[0] << " [options]" << std::endl;
                Newline();
                std::cout << "Options:" << std::endl;
-               std::cout << "  -t, --test          Run in test mode" << std::endl;
+               std::cout << "  -t, --test          Validate configuration and exit" << std::endl;
                std::cout << "  -n, --nofork        Run in foreground (prevents daemonization)" << std::endl;
                std::cout << "  -p, --nopid         Do not create or remove a PID file" << std::endl;
                std::cout << "  -d, --debug         Enable debug logging to log files only (not terminal)" << std::endl;
