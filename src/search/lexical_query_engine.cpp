@@ -1430,7 +1430,11 @@ std::vector<Posting> InvertedIndex::SearchPrefix(const std::string &Collection, 
 
      std::sort(Results.begin(), Results.end(), [](const Posting &PostingA, const Posting &PostingB)
                {
-                    return PostingA.Score > PostingB.Score;
+                    if (PostingA.Score != PostingB.Score)
+                    {
+                         return PostingA.Score > PostingB.Score;
+                    }
+                    return PostingA.DocumentID < PostingB.DocumentID;
                });
 
      if (Limit > 0)

@@ -1318,7 +1318,7 @@ HttpResponse SearchAPI::CheckReadOnlyMode(const HttpRequest &Request, const std:
           return HttpResponse(0, "", "");
      }
 
-     HttpResponse Response(Status::SERVICE_UNAVAILABLE, StatusText(Status::SERVICE_UNAVAILABLE), "application/json");
+     HttpResponse Response(Status::FORBIDDEN, StatusText(Status::FORBIDDEN), "application/json");
      Response.Body = "{\"error\":\"Read-only replica\",\"message\":\"Writes are disabled on this replica. Replication traffic is still allowed.\",\"operation\":\"" + EscapeJSONString(Operation) + "\"}";
      return Response;
 }

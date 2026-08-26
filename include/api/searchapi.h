@@ -292,6 +292,9 @@ struct SearchHit
      int GroupCount = 0;
 };
 
+/* Provides the deterministic final ordering for otherwise equal-ranked hits. */
+bool CompareRankTieBreak(const SearchHit &A, const SearchHit &B);
+
 struct FacetCount
 {
      std::string Value;

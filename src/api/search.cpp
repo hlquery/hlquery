@@ -2773,7 +2773,13 @@ HttpResponse SearchAPI::HandleGlobalSearch(const HttpRequest &Request)
           std::stable_sort(AllHits.begin(), AllHits.end(),
                            [](const SearchHit &A, const SearchHit &B)
                            {
-                                return ScoreForMergedHit(A) > ScoreForMergedHit(B);
+                                const float AScore = ScoreForMergedHit(A);
+                                const float BScore = ScoreForMergedHit(B);
+                                if (AScore != BScore)
+                                {
+                                     return AScore > BScore;
+                                }
+                                return CompareRankTieBreak(A, B);
                            });
      }
 
@@ -3289,7 +3295,13 @@ ComprehensiveSearchResult SearchAPI::PerformComprehensiveSearch(const std::strin
           {
                std::stable_sort(Hits.begin(), Hits.end(), [this](const SearchHit &A, const SearchHit &B)
                                 {
-                                     return GetEffectiveScore(A) > GetEffectiveScore(B);
+                                     const float AScore = GetEffectiveScore(A);
+                                     const float BScore = GetEffectiveScore(B);
+                                     if (AScore != BScore)
+                                     {
+                                          return AScore > BScore;
+                                     }
+                                     return CompareRankTieBreak(A, B);
                                 });
                if (Trace.Enabled)
                {
