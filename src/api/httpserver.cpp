@@ -468,7 +468,31 @@ static void RecordAnalyticsForResponse(const HttpRequest &Request, const HttpRes
 
 static bool IsMutatingRequestMethod(const HttpRequest &Request)
 {
-     return Request.Method == "POST" || Request.Method == "PUT" || Request.Method == "DELETE" || Request.Method == "PATCH";
+     if (Request.Method != "POST" && Request.Method != "PUT" && Request.Method != "DELETE" && Request.Method != "PATCH")
+     {
+          return false;
+     }
+
+     /* Several query endpoints accept POST bodies without changing state.
+      * Read-only replicas must continue serving those requests. */
+     if (Request.Method == "POST")
+     {
+          switch (ResolveRouteWithFallback(Request))
+          {
+               case RouteAction::DocumentSearch:
+               case RouteAction::VectorSearch:
+               case RouteAction::MultiSearch:
+               case RouteAction::GlobalSearch:
+               case RouteAction::FacetCounts:
+               case RouteAction::ExportDocuments:
+               case RouteAction::MaybeSuggest:
+                    return false;
+               default:
+                    break;
+          }
+     }
+
+     return true;
 }
 
 static std::atomic<uint64_t> BackpressureConnectionRejects{0};

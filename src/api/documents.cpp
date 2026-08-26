@@ -782,6 +782,14 @@ HttpResponse SearchAPI::HandleAddDocument(const HttpRequest &Request)
           }
      }
 
+     /* Server-generated metadata is part of the logical document. Materialize
+      * it before proxying, journaling, or replication so every node stores the
+      * same ID and creation timestamp. */
+     if (DocumentObj.Timestamp == 0)
+     {
+          DocumentObj.Timestamp = Instance ? Instance->NowMs() : NowMs();
+     }
+
      if (ShouldAttemptDistributedIngest(Request))
      {
           std::string TargetHost;
@@ -901,9 +909,13 @@ HttpResponse SearchAPI::HandleAddDocument(const HttpRequest &Request)
           }
      }
 
+     HttpRequest ReplicationRequest = Request;
+     ReplicationRequest.Body = BuildDocumentJSON(DocumentObj).dump();
+     ReplicationRequest.Headers["Content-Type"] = "application/json";
+
      std::string ReplicationOutboxID;
      std::string ReplicationJournalError;
-     if (!PrepareReplicationOutboxRecord(Request, "add_document", &ReplicationOutboxID, &ReplicationJournalError))
+     if (!PrepareReplicationOutboxRecord(ReplicationRequest, "add_document", &ReplicationOutboxID, &ReplicationJournalError))
      {
           return BuildErrorResponse(Status::SERVICE_UNAVAILABLE,
                                     Code::SEARCH_INVALID_PARAMETER,
@@ -924,21 +936,7 @@ HttpResponse SearchAPI::HandleAddDocument(const HttpRequest &Request)
           StorageDoc.Fields = DocumentObj.Fields;
           StorageDoc.Score = DocumentObj.Score;
 
-          if (DocumentObj.Timestamp == 0)
-          {
-               if (Instance)
-               {
-                    StorageDoc.Timestamp = Instance->NowMs();
-               }
-               else
-               {
-                    StorageDoc.Timestamp = NowMs();
-               }
-          }
-          else
-          {
-               StorageDoc.Timestamp = DocumentObj.Timestamp;
-          }
+          StorageDoc.Timestamp = DocumentObj.Timestamp;
 
           SuccessVal = StorageManagerRef.AddDocument(CollectionName, StorageDoc);
      }
@@ -982,7 +980,7 @@ HttpResponse SearchAPI::HandleAddDocument(const HttpRequest &Request)
 
      MaybeTriggerCrashInjection("replication_after_local_write");
 
-     if (!MarkReplicationOutboxCommitted(ReplicationOutboxID, Request, "add_document", &ReplicationJournalError))
+     if (!MarkReplicationOutboxCommitted(ReplicationOutboxID, ReplicationRequest, "add_document", &ReplicationJournalError))
      {
           HttpResponse JournalResponse(Status::SERVICE_UNAVAILABLE, StatusText(Status::SERVICE_UNAVAILABLE), "application/json");
           JournalResponse.Body = "{\"error\":\"Replication journal incomplete\",\"message\":\"Document was written locally but replication state was not committed durably\",\"details\":\"" + EscapeJSONString(ReplicationJournalError) + "\",\"id\":\"" + EscapeJSONString(DocumentObj.ID) + "\"}";
@@ -993,7 +991,7 @@ HttpResponse SearchAPI::HandleAddDocument(const HttpRequest &Request)
      BumpCollectionMutationVersion(CollectionName);
 
      std::string ReplicationError;
-     if (!ReplicateWriteRequest(Request, "add_document", &ReplicationError, ReplicationOutboxID))
+     if (!ReplicateWriteRequest(ReplicationRequest, "add_document", &ReplicationError, ReplicationOutboxID))
      {
           HttpResponse Response(Status::SERVICE_UNAVAILABLE, StatusText(Status::SERVICE_UNAVAILABLE), "application/json");
           Response.Body = "{\"error\":\"Replication incomplete\",\"message\":\"Document was written locally but replica acknowledgement failed\",\"details\":\"" + EscapeJSONString(ReplicationError) + "\",\"id\":\"" + EscapeJSONString(DocumentObj.ID) + "\"}";
@@ -1230,7 +1228,7 @@ HttpResponse SearchAPI::HandleUpdateDocument(const HttpRequest &Request)
 
      for (const auto &[Key, Value] : UpdateJSON.items())
      {
-          if (Key == "id" || Key == "title" || Key == "content")
+          if (Key == "id" || Key == "title" || Key == "content" || Key == "timestamp")
           {
                continue;
           }
@@ -1274,6 +1272,19 @@ HttpResponse SearchAPI::HandleUpdateDocument(const HttpRequest &Request)
      StorageDoc.Score = DocumentObj.Score;
      StorageDoc.Timestamp = Instance ? Instance->NowMs() : static_cast<uint64_t>(time(nullptr) * 1000);
 
+     if (UpdateJSON.contains("timestamp"))
+     {
+          if (!UpdateJSON["timestamp"].is_number_integer() && !UpdateJSON["timestamp"].is_number_unsigned())
+          {
+               return BuildErrorResponse(Status::BAD_REQUEST,
+                                         Code::SEARCH_INVALID_PARAMETER,
+                                         "Invalid timestamp",
+                                         "Field 'timestamp' must be an integer.");
+          }
+          StorageDoc.Timestamp = UpdateJSON["timestamp"].get<uint64_t>();
+     }
+     DocumentObj.Timestamp = StorageDoc.Timestamp;
+
      if (Instance && Instance->Modules)
      {
           ModulePreCheckResult PreCheck = RUN_MODULE_PRECHECK(OnPreUpdateDocument, CollectionName, DocumentObj, Request.RemoteAddress, Request.APIKeyID, !Request.APIKeyID.empty());
@@ -1284,9 +1295,13 @@ HttpResponse SearchAPI::HandleUpdateDocument(const HttpRequest &Request)
           }
      }
 
+     HttpRequest ReplicationRequest = Request;
+     ReplicationRequest.Body = BuildDocumentJSON(StorageDoc).dump();
+     ReplicationRequest.Headers["Content-Type"] = "application/json";
+
      std::string ReplicationOutboxID;
      std::string ReplicationJournalError;
-     if (!PrepareReplicationOutboxRecord(Request, "update_document", &ReplicationOutboxID, &ReplicationJournalError))
+     if (!PrepareReplicationOutboxRecord(ReplicationRequest, "update_document", &ReplicationOutboxID, &ReplicationJournalError))
      {
           return BuildErrorResponse(Status::SERVICE_UNAVAILABLE,
                                     Code::SEARCH_INVALID_PARAMETER,
@@ -1308,7 +1323,7 @@ HttpResponse SearchAPI::HandleUpdateDocument(const HttpRequest &Request)
 
      MaybeTriggerCrashInjection("replication_after_local_write");
 
-     if (!MarkReplicationOutboxCommitted(ReplicationOutboxID, Request, "update_document", &ReplicationJournalError))
+     if (!MarkReplicationOutboxCommitted(ReplicationOutboxID, ReplicationRequest, "update_document", &ReplicationJournalError))
      {
           HttpResponse JournalResponse(Status::SERVICE_UNAVAILABLE, StatusText(Status::SERVICE_UNAVAILABLE), "application/json");
           JournalResponse.Body = "{\"error\":\"Replication journal incomplete\",\"message\":\"Document was updated locally but replication state was not committed durably\",\"details\":\"" + EscapeJSONString(ReplicationJournalError) + "\",\"id\":\"" + EscapeJSONString(DocumentID) + "\"}";
@@ -1322,7 +1337,7 @@ HttpResponse SearchAPI::HandleUpdateDocument(const HttpRequest &Request)
      BumpCollectionMutationVersion(CollectionName);
 
      std::string ReplicationError;
-     if (!ReplicateWriteRequest(Request, "update_document", &ReplicationError, ReplicationOutboxID))
+     if (!ReplicateWriteRequest(ReplicationRequest, "update_document", &ReplicationError, ReplicationOutboxID))
      {
           HttpResponse ReplicationResponse(Status::SERVICE_UNAVAILABLE, StatusText(Status::SERVICE_UNAVAILABLE), "application/json");
           ReplicationResponse.Body = "{\"error\":\"Replication incomplete\",\"message\":\"Document was updated locally but replica acknowledgement failed\",\"details\":\"" + EscapeJSONString(ReplicationError) + "\",\"id\":\"" + EscapeJSONString(DocumentID) + "\"}";
@@ -1977,6 +1992,16 @@ HttpResponse SearchAPI::HandleBulkImportDocuments(const HttpRequest &Request)
           UniqueDocuments.push_back(DocObj);
      }
 
+     /* Freeze generated creation metadata before the batch can be split,
+      * journaled, or replayed on another node. */
+     for (auto &DocObj : UniqueDocuments)
+     {
+          if (DocObj.Timestamp == 0)
+          {
+               DocObj.Timestamp = Instance ? Instance->NowMs() : NowMs();
+          }
+     }
+
      size_t RemoteImportedCount = 0;
 
      if (ShouldAttemptDistributedIngest(Request))
@@ -2114,8 +2139,18 @@ HttpResponse SearchAPI::HandleBulkImportDocuments(const HttpRequest &Request)
           }
      }
 
+     HttpRequest ReplicationRequest = Request;
+     nlohmann::json ReplicationPayload;
+     ReplicationPayload["documents"] = nlohmann::json::array();
+     for (const auto &DocObj : UniqueDocuments)
+     {
+          ReplicationPayload["documents"].push_back(BuildDocumentJSON(DocObj));
+     }
+     ReplicationRequest.Body = ReplicationPayload.dump();
+     ReplicationRequest.Headers["Content-Type"] = "application/json";
+
      if (!UniqueDocuments.empty() &&
-         !PrepareReplicationOutboxRecord(Request, "bulk_import", &ReplicationOutboxID, &ReplicationJournalError))
+         !PrepareReplicationOutboxRecord(ReplicationRequest, "bulk_import", &ReplicationOutboxID, &ReplicationJournalError))
      {
           return BuildErrorResponse(Status::SERVICE_UNAVAILABLE,
                                     Code::SEARCH_INVALID_PARAMETER,
@@ -2247,7 +2282,7 @@ HttpResponse SearchAPI::HandleBulkImportDocuments(const HttpRequest &Request)
           MaybeTriggerCrashInjection("replication_after_local_write");
 
           if (!ReplicationOutboxID.empty() &&
-              !MarkReplicationOutboxCommitted(ReplicationOutboxID, Request, "bulk_import", &ReplicationJournalError))
+              !MarkReplicationOutboxCommitted(ReplicationOutboxID, ReplicationRequest, "bulk_import", &ReplicationJournalError))
           {
                HttpResponse JournalResponse(Status::SERVICE_UNAVAILABLE, StatusText(Status::SERVICE_UNAVAILABLE), "application/json");
                JournalResponse.Body = "{\"error\":\"Replication journal incomplete\",\"message\":\"Bulk import completed locally but replication state was not committed durably\",\"details\":\"" + EscapeJSONString(ReplicationJournalError) + "\"}";
@@ -2258,7 +2293,7 @@ HttpResponse SearchAPI::HandleBulkImportDocuments(const HttpRequest &Request)
           BumpCollectionMutationVersion(CollectionName);
 
           std::string ReplicationError;
-     if (!ReplicateWriteRequest(Request, "bulk_import", &ReplicationError, ReplicationOutboxID))
+     if (!ReplicateWriteRequest(ReplicationRequest, "bulk_import", &ReplicationError, ReplicationOutboxID))
           {
                HttpResponse ReplicationResponse(Status::SERVICE_UNAVAILABLE, StatusText(Status::SERVICE_UNAVAILABLE), "application/json");
                ReplicationResponse.Body = "{\"error\":\"Replication incomplete\",\"message\":\"Bulk import completed locally but replica acknowledgement failed\",\"details\":\"" + EscapeJSONString(ReplicationError) + "\"}";

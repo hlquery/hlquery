@@ -2619,7 +2619,13 @@ bool SearchAPI::TryDistributedSearch(const HttpRequest &Request,
           std::stable_sort(AggregatedHits.begin(), AggregatedHits.end(),
                            [](const SearchHit &A, const SearchHit &B)
                            {
-                                return ScoreForHit(A) > ScoreForHit(B);
+                                const float AScore = ScoreForHit(A);
+                                const float BScore = ScoreForHit(B);
+                                if (AScore != BScore)
+                                {
+                                     return AScore > BScore;
+                                }
+                                return CompareRankTieBreak(A, B);
                            });
      }
 
