@@ -33,7 +33,14 @@
 
 namespace
 {
-/* Serializes durable database syncs and exposes their lifecycle to readiness checks. */
+/* Serializes durable RocksDB flushes.
+ *
+ * A routine Flush()/SyncWAL() is not an exclusive database migration: RocksDB
+ * remains safe for concurrent readers and writers while it runs. In particular,
+ * do not toggle Server::SyncInProgress here. That flag gates nearly every HTTP
+ * request and previously caused periodic, user-visible 503 responses whenever
+ * maintenance persisted counters or indexes.
+ */
 
 class DatabaseSyncGuard
 {
@@ -46,17 +53,10 @@ class DatabaseSyncGuard
           if (Instance)
           {
                SyncLock = std::unique_lock<std::mutex>(Instance->GetSyncMutex());
-               Instance->SetSyncInProgress(true);
           }
      }
 
-     ~DatabaseSyncGuard()
-     {
-          if (Instance)
-          {
-               Instance->SetSyncInProgress(false);
-          }
-     }
+     ~DatabaseSyncGuard() = default;
 
      DatabaseSyncGuard(const DatabaseSyncGuard &) = delete;
      DatabaseSyncGuard &operator=(const DatabaseSyncGuard &) = delete;

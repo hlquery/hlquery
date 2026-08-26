@@ -852,6 +852,107 @@ sub show_status {
     }
 }
 
+sub test_configuration {
+    my (@extra_args) = @_;
+    my @cmd = ($binary_path, '--test', '--config', $config_path, @extra_args);
+    my $pid = fork();
+
+    unless (defined $pid) {
+        print_error("Could not fork configuration test: $!");
+        return {
+            action => 'test',
+            success => '__JSON_FALSE__',
+            error => 'fork failed',
+            exit_code => 1,
+        };
+    }
+
+    if ($pid == 0) {
+        if ($json_output) {
+            open(STDOUT, '>', '/dev/null');
+            open(STDERR, '>', '/dev/null');
+        }
+        exec { $cmd[0] } @cmd;
+        exit 127;
+    }
+
+    waitpid($pid, 0);
+    my $exit_code = ($? & 127) == 0 ? ($? >> 8) : 1;
+    return {
+        action => 'test',
+        success => $exit_code == 0 ? '__JSON_TRUE__' : '__JSON_FALSE__',
+        config => $config_path,
+        ($exit_code != 0 ? (error => 'configuration validation failed') : ()),
+        exit_code => $exit_code,
+    };
+}
+
+sub reload_server {
+    my $pid = is_running();
+    unless ($pid) {
+        print_error("hlquery is not running.");
+        return {
+            action => 'reload',
+            success => '__JSON_FALSE__',
+            error => 'hlquery is not running',
+            exit_code => 1,
+        };
+    }
+
+    unless (kill('HUP', $pid)) {
+        print_error("Failed to signal hlquery PID $pid: $!");
+        return {
+            action => 'reload',
+            success => '__JSON_FALSE__',
+            pid => $pid,
+            error => "failed to send SIGHUP: $!",
+            exit_code => 1,
+        };
+    }
+
+    print_success("Reload signal sent to hlquery (PID: $pid).");
+    return {
+        action => 'reload',
+        success => '__JSON_TRUE__',
+        pid => $pid,
+        exit_code => 0,
+    };
+}
+
+sub exec_sslgen {
+    my (@args) = @_;
+    my $sslgen = File::Spec->rel2abs(File::Spec->catfile($working_dir, '..', 'tools', 'sslgen'));
+    unless (-x $sslgen) {
+        print_error("SSL generator not found: $sslgen");
+        exit 1;
+    }
+    exec { $sslgen } ($sslgen, @args) or do {
+        print_error("Failed to exec $sslgen: $!");
+        exit 1;
+    };
+}
+
+sub exec_valdebug {
+    my (@args) = @_;
+    if (my $pid = is_running()) {
+        print_error("hlquery is already running (PID: $pid); stop it before valdebug.");
+        exit 1;
+    }
+
+    my $valgrind = '/usr/bin/valgrind';
+    unless (-x $valgrind) {
+        print_error("valgrind is not installed.");
+        exit 1;
+    }
+
+    exec { $valgrind } ($valgrind, '--leak-check=full', '--show-leak-kinds=all',
+                        '--track-origins=yes', $binary_path, '--nofork', '--nopid',
+                        '--config', $config_path, @args) or do {
+        print_error("Failed to exec valgrind: $!");
+        exit 1;
+    };
+}
+
 sub main {
     my $nofork = 0;
     my $debug = 0;
@@ -930,6 +1031,14 @@ sub main {
         $result = restart_server(@ARGV);
     } elsif ($command eq 'status') {
         $result = show_status();
+    } elsif ($command eq 'test') {
+        $result = test_configuration(@ARGV);
+    } elsif ($command eq 'reload') {
+        $result = reload_server();
+    } elsif ($command eq 'sslgen') {
+        exec_sslgen(@ARGV);
+    } elsif ($command eq 'valdebug') {
+        exec_valdebug(@ARGV);
     } else {
         if ($json_output) {
             emit_json(

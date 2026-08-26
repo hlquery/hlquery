@@ -687,7 +687,7 @@ $(OBJ_DIR)/vendor/md5/md5.o: $(VENDOR_DIR)/md5/md5.c | $(OBJ_DIR)
 
 -include $(DEPS)
 
-.PHONY: all build-products prepare rocksdb-check rocksdb-preflight rocksdb-smoke binary-compat-check prune-disabled-extra-modules test test-http-routes test-timer-concurrency test-core-stats-metrics test-performance-monitor test-segmented-storage test-bm25-scoring test-search-response-cache test-ip-filter test-backup-restore test-auth-fail-closed test-docker-production-mode clean install uninstall debug create_ssl help build-info synonyms-sync synonyms-check package package-all package-deb package-rpm
+.PHONY: all build-products prepare rocksdb-check rocksdb-preflight rocksdb-smoke binary-compat-check prune-disabled-extra-modules test clean install uninstall debug create_ssl help build-info synonyms-sync synonyms-check package package-all package-deb package-rpm
 
 prune-disabled-extra-modules:
 	@mkdir -p $(RUN_DIR)/modules
@@ -702,6 +702,7 @@ prune-disabled-extra-modules:
 
 clean:
 	@echo "$(YELLOW)Cleaning build artifacts...$(NC)"
+	@if [ -x "$(RUN_DIR)/hlquery" ]; then "$(RUN_DIR)/hlquery" stop; fi
 	@rm -rf $(OBJ_DIR) $(BIN_DIR) 2>/dev/null || true
 	@rm -rf build/ backup/ collections/ 2>/dev/null || true
 	@rm -rf run/bin/* 2>/dev/null || true
@@ -974,103 +975,8 @@ build-products: $(BIN_DIR)/hlquery $(BIN_DIR)/hlquery-cli $(BIN_DIR)/hlquery-ben
 
 # UTILITY TARGETS
 
-HTTP_ROUTES_TEST_BIN := build/test/http_routes
-TIMER_CONCURRENCY_TEST_BIN := build/test/timer_concurrency
-CORE_STATS_METRICS_TEST_BIN := build/test/core_stats_metrics
-PERFORMANCE_MONITOR_TEST_BIN := build/test/performance_monitor
-SEGMENTED_STORAGE_TEST_BIN := build/test/segmented_storage
-LEGACY_HYBRID_RANKING_TEST_BIN := build/test/legacy_hybrid_ranking
-BM25_SCORING_TEST_BIN := build/test/bm25_scoring
-SEARCH_EXECUTION_TRACE_TEST_BIN := build/test/search_execution_trace
-SEARCH_RESPONSE_CACHE_TEST_BIN := build/test/search_response_cache
-IP_FILTER_TEST_BIN := build/test/ip_filter
-
-$(HTTP_ROUTES_TEST_BIN): tests/http_routes.cpp src/api/httproutes.cpp | $(USE_VENDOR_ROCKSDB)
-	@mkdir -p $(dir $@)
-	$(CXX) $(CXXFLAGS) $^ -o $@ $(LDFLAGS)
-
-test-http-routes: $(HTTP_ROUTES_TEST_BIN)
-	@$(HTTP_ROUTES_TEST_BIN)
-
-$(TIMER_CONCURRENCY_TEST_BIN): tests/timer_concurrency.cpp src/runtime/timers.cpp | $(USE_VENDOR_ROCKSDB)
-	@mkdir -p $(dir $@)
-	$(CXX) $(CXXFLAGS) $^ -o $@ $(LDFLAGS)
-
-test-timer-concurrency: $(TIMER_CONCURRENCY_TEST_BIN)
-	@$(TIMER_CONCURRENCY_TEST_BIN)
-
-$(CORE_STATS_METRICS_TEST_BIN): tests/core_stats_metrics.cpp src/core/metrics.cpp src/core/stats.cpp | $(USE_VENDOR_ROCKSDB)
-	@mkdir -p $(dir $@)
-	$(CXX) $(CXXFLAGS) $^ -o $@ $(LDFLAGS)
-
-test-core-stats-metrics: $(CORE_STATS_METRICS_TEST_BIN)
-	@$(CORE_STATS_METRICS_TEST_BIN)
-
-$(PERFORMANCE_MONITOR_TEST_BIN): tests/performance_monitor.cpp src/utils/dbutils.cpp | $(USE_VENDOR_ROCKSDB)
-	@mkdir -p $(dir $@)
-	$(CXX) $(CXXFLAGS) $^ -o $@ $(LDFLAGS)
-
-test-performance-monitor: $(PERFORMANCE_MONITOR_TEST_BIN)
-	@$(PERFORMANCE_MONITOR_TEST_BIN)
-
-$(SEGMENTED_STORAGE_TEST_BIN): tests/segmented_storage.cpp src/search/segment_catalog.cpp src/search/segmented_document_router.cpp src/utils/wildcard.cpp $(USE_VENDOR_ROCKSDB)
-	@mkdir -p $(dir $@)
-	$(CXX) $(CXXFLAGS) $(filter %.cpp,$^) -o $@ $(LDFLAGS)
-
-test-segmented-storage: $(SEGMENTED_STORAGE_TEST_BIN)
-	@$(SEGMENTED_STORAGE_TEST_BIN)
-
-$(LEGACY_HYBRID_RANKING_TEST_BIN): tests/legacy_hybrid_ranking.cpp src/search/hybrid_rank_fusion.cpp | $(USE_VENDOR_ROCKSDB)
-	@mkdir -p $(dir $@)
-	$(CXX) $(CXXFLAGS) $^ -o $@ $(LDFLAGS)
-
-test-legacy-hybrid-ranking: $(LEGACY_HYBRID_RANKING_TEST_BIN)
-	@$(LEGACY_HYBRID_RANKING_TEST_BIN)
-
-$(BM25_SCORING_TEST_BIN): tests/bm25_scoring.cpp | $(USE_VENDOR_ROCKSDB)
-	@mkdir -p $(dir $@)
-	$(CXX) $(CXXFLAGS) $^ -o $@ $(LDFLAGS)
-
-test-bm25-scoring: $(BM25_SCORING_TEST_BIN)
-	@$(BM25_SCORING_TEST_BIN)
-
-$(SEARCH_EXECUTION_TRACE_TEST_BIN): tests/search_execution_trace.cpp src/search/adaptive/search_execution_trace.cpp | $(USE_VENDOR_ROCKSDB)
-	@mkdir -p $(dir $@)
-	$(CXX) $(CXXFLAGS) $^ -o $@ $(LDFLAGS)
-
-test-search-execution-trace: $(SEARCH_EXECUTION_TRACE_TEST_BIN)
-	@$(SEARCH_EXECUTION_TRACE_TEST_BIN)
-
-$(SEARCH_RESPONSE_CACHE_TEST_BIN): tests/search_response_cache.cpp src/api/searchcache.cpp | $(CONFIG_HEADER) $(USE_VENDOR_ROCKSDB)
-	@mkdir -p $(dir $@)
-	$(CXX) $(CXXFLAGS) $^ -o $@ $(LDFLAGS)
-
-test-search-response-cache: $(SEARCH_RESPONSE_CACHE_TEST_BIN)
-	@$(SEARCH_RESPONSE_CACHE_TEST_BIN)
-
-$(IP_FILTER_TEST_BIN): tests/ip_filter.cpp src/api/ipfilter.cpp | $(CONFIG_HEADER) $(USE_VENDOR_ROCKSDB)
-	@mkdir -p $(dir $@)
-	$(CXX) $(CXXFLAGS) $^ -o $@ $(LDFLAGS)
-
-test-ip-filter: $(IP_FILTER_TEST_BIN)
-	@$(IP_FILTER_TEST_BIN)
-
-test-backup-restore:
-	@tests/backup_restore.sh
-
-test-auth-fail-closed: $(BIN_DIR)/hlquery
-	@tests/auth_fail_closed.sh
-
-test-docker-production-mode:
-	@tests/docker_production_mode.sh
-
-test-adaptive-search-trace: $(BIN_DIR)/hlquery
-	@tests/adaptive_search_trace.sh
-
-# test-auth-fail-closed builds the server, whose prepare phase already runs the
-# RocksDB smoke test. Listing rocksdb-smoke here too races the recursive prepare
-# invocation under parallel make and can execute a binary while it is relinking.
-test: test-http-routes test-timer-concurrency test-core-stats-metrics test-performance-monitor test-segmented-storage test-legacy-hybrid-ranking test-bm25-scoring test-search-execution-trace test-search-response-cache test-ip-filter test-backup-restore test-auth-fail-closed test-docker-production-mode test-adaptive-search-trace
+test: build-products
+	@HLQUERY_URL="$${HLQUERY_URL:-http://127.0.0.1:9200}" php tests/php/run_all.php
 	@if [ -x "$(RUN_DIR)/test/run_tests.sh" ]; then \
 		"$(RUN_DIR)/test/run_tests.sh"; \
 	else \
