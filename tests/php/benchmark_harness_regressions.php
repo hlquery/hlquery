@@ -17,6 +17,11 @@ test_assert_contains(
     $crashSource,
     'Crash-recovery verification should normalize integer scalar fields'
 );
+test_assert_contains(
+    'could not isolate temporary cluster links',
+    $crashSource,
+    'Crash-recovery verifier should disable copied cluster links before starting its temporary server'
+);
 
 $modesPath = test_root('src/cli/benchmarkmodes.cpp');
 $modesSource = file_get_contents($modesPath);
@@ -65,6 +70,19 @@ test_assert_contains(
     'return detailed_passed ? 0 : 1;',
     $mainSource,
     'Detailed benchmark failures should propagate through the process exit status'
+);
+
+$makefileTemplate = file_get_contents(test_root('make/makefile.tpl'));
+test_assert(is_string($makefileTemplate) && $makefileTemplate !== '', 'Makefile template should be readable');
+test_assert_contains(
+    '[ -x "$(RUN_DIR)/bin/hlquery" ]',
+    $makefileTemplate,
+    'Clean should not invoke the wrapper before the server binary has been installed'
+);
+test_assert_contains(
+    '"$(RUN_DIR)/hlquery" stop || true;',
+    $makefileTemplate,
+    'Clean should remain usable when stopping a stale or incomplete installation fails'
 );
 
 echo "benchmark_harness_regressions: ok\n";

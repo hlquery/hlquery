@@ -157,6 +157,7 @@ ifeq ($(IS_CLANG),1)
 endif
 
 # Build mode specific flags
+ROCKSDB_INSTRUMENT_FLAGS =
 ifeq ($(BUILD_MODE),debug)
   # Debug build: no optimization, debug symbols, assertions enabled
   OPT_FLAGS = -O0 -g3 -DDEBUG -UNDEBUG
@@ -173,12 +174,14 @@ else ifeq ($(BUILD_MODE),sanitize)
   LTO_FLAGS =
   STRIP_FLAGS =
   LDFLAGS += -fsanitize=address,undefined
+  ROCKSDB_INSTRUMENT_FLAGS = -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer
 else ifeq ($(BUILD_MODE),thread-sanitize)
   # ThreadSanitizer is incompatible with AddressSanitizer and must be separate.
   OPT_FLAGS = -O1 -g -fsanitize=thread -fno-omit-frame-pointer -DDEBUG
   LTO_FLAGS =
   STRIP_FLAGS =
   LDFLAGS += -fsanitize=thread
+  ROCKSDB_INSTRUMENT_FLAGS = -O1 -g -fsanitize=thread -fno-omit-frame-pointer
 else ifeq ($(BUILD_MODE),coverage)
   # Coverage build: for code coverage analysis
   OPT_FLAGS = -O0 -g --coverage -DDEBUG
@@ -526,7 +529,7 @@ $(ROCKSDB_LIB):
 			fi; \
 			echo "$(CYAN)RocksDB build jobs: $(ROCKSDB_JOBS) (detected $(MEMORY_MB) MB RAM, $(CPU_COUNT) CPU; override with ROCKSDB_JOBS=N)$(NC)"; \
 			echo "$(CYAN)Configuring RocksDB with CMake (log level: $(ROCKSDB_CMAKE_LOG_LEVEL))$(NC)"; \
-			echo "+ cmake --log-level=$(ROCKSDB_CMAKE_LOG_LEVEL) -S $(ROCKSDB_DIR) -B $(ROCKSDB_BUILD_DIR) -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=\"$(CXX)\" -DWITH_TESTS=OFF -DWITH_TOOLS=OFF -DWITH_BENCHMARK_TOOLS=OFF -DROCKSDB_BUILD_SHARED=OFF -DPORTABLE=ON -DUSE_RTTI=ON -DFAIL_ON_WARNINGS=OFF -DWITH_GFLAGS=OFF -DWITH_JEMALLOC=OFF -DWITH_LIBURING=OFF -DWITH_TBB=OFF -DWITH_SNAPPY=OFF -DWITH_LZ4=OFF -DWITH_ZSTD=OFF -DWITH_BZ2=OFF -DCMAKE_CXX_FLAGS=\"-fPIC -Wno-error $$ROCKSDB_WARN_FLAGS\""; \
+			echo "+ cmake --log-level=$(ROCKSDB_CMAKE_LOG_LEVEL) -S $(ROCKSDB_DIR) -B $(ROCKSDB_BUILD_DIR) -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=\"$(CXX)\" -DWITH_TESTS=OFF -DWITH_TOOLS=OFF -DWITH_BENCHMARK_TOOLS=OFF -DROCKSDB_BUILD_SHARED=OFF -DPORTABLE=ON -DUSE_RTTI=ON -DFAIL_ON_WARNINGS=OFF -DWITH_GFLAGS=OFF -DWITH_JEMALLOC=OFF -DWITH_LIBURING=OFF -DWITH_TBB=OFF -DWITH_SNAPPY=OFF -DWITH_LZ4=OFF -DWITH_ZSTD=OFF -DWITH_BZ2=OFF -DCMAKE_CXX_FLAGS=\"-fPIC -Wno-error $$ROCKSDB_WARN_FLAGS $(ROCKSDB_INSTRUMENT_FLAGS)\""; \
 			cmake --log-level=$(ROCKSDB_CMAKE_LOG_LEVEL) -S $(ROCKSDB_DIR) -B $(ROCKSDB_BUILD_DIR) -DCMAKE_BUILD_TYPE=Release \
 				      -DCMAKE_CXX_COMPILER="$(CXX)" \
 				      -DWITH_TESTS=OFF \
@@ -544,7 +547,7 @@ $(ROCKSDB_LIB):
 		      -DWITH_LZ4=OFF \
 		      -DWITH_ZSTD=OFF \
 		      -DWITH_BZ2=OFF \
-			      -DCMAKE_CXX_FLAGS="-fPIC -Wno-error $$ROCKSDB_WARN_FLAGS" \
+			      -DCMAKE_CXX_FLAGS="-fPIC -Wno-error $$ROCKSDB_WARN_FLAGS $(ROCKSDB_INSTRUMENT_FLAGS)" \
 			      || { echo "$(RED)Error: CMake configuration failed$(NC)" >&2; echo "$(YELLOW)Try: rm -rf $(ROCKSDB_BUILD_DIR) && make$(NC)" >&2; exit 1; }; \
 			MAKEFLAGS= cmake --build $(ROCKSDB_BUILD_DIR) --target rocksdb $(ROCKSDB_BUILD_PARALLEL) >/dev/null || { echo "$(RED)Error: RocksDB build failed$(NC)" >&2; echo "$(YELLOW)If this VPS ran out of memory, retry with: make ROCKSDB_JOBS=1 BUILD_JOBS=1$(NC)" >&2; exit 1; } && \
 		([ "$$(id -u)" != "0" ] && chown -R $$(id -u):$$(id -g) $(ROCKSDB_BUILD_DIR) 2>/dev/null || true) && \
@@ -597,7 +600,7 @@ rocksdb-smoke: $(ROCKSDB_LIB) | $(BIN_DIR)
 		'  rocksdb::DestroyDB(path, options);' \
 		'  return status.ok() && value == "rocksdb" ? 0 : 3;' \
 		'}' > build/rocksdb-smoke.cpp
-	@$(CXX) $(BASE_CXXFLAGS) build/rocksdb-smoke.cpp -o build/rocksdb-smoke $(ROCKSDB_LIB) $(CONFIGURE_LDFLAGS) $(BASE_LDFLAGS)
+	@$(CXX) $(BASE_CXXFLAGS) $(ROCKSDB_INSTRUMENT_FLAGS) build/rocksdb-smoke.cpp -o build/rocksdb-smoke $(ROCKSDB_LIB) $(CONFIGURE_LDFLAGS) $(BASE_LDFLAGS) $(LDFLAGS)
 	@./build/rocksdb-smoke
 	@rm -rf build/rocksdb-smoke build/rocksdb-smoke.cpp build/rocksdb-smoke-db
 	@echo "$(GREEN)[OK] RocksDB smoke test passed$(NC)"
@@ -702,7 +705,9 @@ prune-disabled-extra-modules:
 
 clean:
 	@echo "$(YELLOW)Cleaning build artifacts...$(NC)"
-	@if [ -x "$(RUN_DIR)/hlquery" ]; then "$(RUN_DIR)/hlquery" stop; fi
+	@if [ -x "$(RUN_DIR)/hlquery" ] && [ -x "$(RUN_DIR)/bin/hlquery" ]; then \
+		"$(RUN_DIR)/hlquery" stop || true; \
+	fi
 	@rm -rf $(OBJ_DIR) $(BIN_DIR) 2>/dev/null || true
 	@rm -rf build/ backup/ collections/ 2>/dev/null || true
 	@rm -rf run/bin/* 2>/dev/null || true
