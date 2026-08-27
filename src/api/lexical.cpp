@@ -518,7 +518,7 @@ static std::vector<std::string> BuildRelaxedQueryVariants(const std::string &que
      variants.push_back(query_text);
 
      std::vector<std::string> terms = ExtractTermsSimple(query_text, case_sensitive);
-     if (drop_tokens_threshold < 0 || static_cast<int>(terms.size()) <= drop_tokens_threshold || terms.size() <= 1)
+     if (drop_tokens_threshold <= 0 || static_cast<int>(terms.size()) <= drop_tokens_threshold || terms.size() <= 1)
      {
           return variants;
      }
