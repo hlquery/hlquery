@@ -3122,6 +3122,9 @@ void SearchAPI::MarkSlaveDirty(const std::string &Endpoint, bool NotifyMonitor) 
      {
           std::lock_guard<std::mutex> lock(ReplicationSlaveStateMutex);
           ReplicationDirtySlaves.insert(Endpoint);
+     }
+     {
+          std::lock_guard<std::mutex> lock(ReplicationStatusMutex);
           LastReplicationErrorTimestampMS = NowMS;
      }
      PersistReplicationSlaveState(Endpoint);
