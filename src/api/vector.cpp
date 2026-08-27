@@ -808,6 +808,28 @@ static ParsedVectorRequest ParseVectorRequest(const nlohmann::json &Root, int De
 
 static bool ValidateParsedVectorRequest(const nlohmann::json &Root, int DefaultTopK, std::string *Error)
 {
+     if (Root.is_object())
+     {
+          static const std::array<const char *, 6> LimitKeys = {
+              "topk", "topK", "top_k", "k", "limit", "per_page"};
+          for (const char *Key : LimitKeys)
+          {
+               if (!Root.contains(Key))
+               {
+                    continue;
+               }
+
+               if (!Root[Key].is_number_integer() || Root[Key].get<long long>() <= 0)
+               {
+                    if (Error)
+                    {
+                         *Error = std::string(Key) + " must be a positive integer.";
+                    }
+                    return false;
+               }
+          }
+     }
+
      std::string ParseError;
      ParsedVectorRequest Parsed = ParseVectorRequest(Root, DefaultTopK, &ParseError);
      if (Parsed.Queries.empty())

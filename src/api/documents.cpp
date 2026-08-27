@@ -56,6 +56,126 @@
 
 /* Provides document API handlers for ingestion, retrieval, updates, and deletion. */
 
+static bool IsReplicationDocumentRequest(const HttpRequest &Request)
+{
+     for (const auto &[HeaderName, HeaderValue] : Request.Headers)
+     {
+          std::string Name = HeaderName;
+          std::string Value = HeaderValue;
+          std::transform(Name.begin(), Name.end(), Name.begin(), [](unsigned char C)
+                         { return static_cast<char>(std::tolower(C)); });
+          std::transform(Value.begin(), Value.end(), Value.begin(), [](unsigned char C)
+                         { return static_cast<char>(std::tolower(C)); });
+
+          if (Name == "x-hlq-replication-hop" && (Value == "1" || Value == "true"))
+          {
+               return true;
+          }
+     }
+
+     return false;
+}
+
+static bool ValidateDocumentSchemaTypes(const std::string &CollectionName,
+                                        const nlohmann::json &DocumentJSON,
+                                        std::string *ErrorMessage)
+{
+     CollectionConfig Config;
+     if (!HybridStorageManagerInstance().GetCollectionConfig(CollectionName, Config))
+     {
+          return true;
+     }
+
+     const nlohmann::json *NestedFields = nullptr;
+     if (DocumentJSON.contains("fields") && DocumentJSON["fields"].is_object())
+     {
+          NestedFields = &DocumentJSON["fields"];
+     }
+
+     for (const auto &[FieldName, DeclaredType] : Config.Fields)
+     {
+          const nlohmann::json *Value = nullptr;
+          if (DocumentJSON.contains(FieldName))
+          {
+               Value = &DocumentJSON[FieldName];
+          }
+          else if (NestedFields && NestedFields->contains(FieldName))
+          {
+               Value = &(*NestedFields)[FieldName];
+          }
+
+          if (!Value || Value->is_null())
+          {
+               continue;
+          }
+
+          std::string Type = DeclaredType;
+          std::transform(Type.begin(), Type.end(), Type.begin(), [](unsigned char C)
+                         { return static_cast<char>(std::tolower(C)); });
+
+          bool Valid = false;
+          if (Type == "string" || Type == "keyword")
+          {
+               Valid = Value->is_string();
+          }
+          else if (Type == "string[]")
+          {
+               Valid = Value->is_array() &&
+                       std::all_of(Value->begin(), Value->end(), [](const nlohmann::json &Entry)
+                                   { return Entry.is_string(); });
+          }
+          else if (Type == "int" || Type == "int32" || Type == "int64")
+          {
+               Valid = Value->is_number_integer() || Value->is_number_unsigned();
+          }
+          else if (Type == "float" || Type == "double")
+          {
+               Valid = Value->is_number() && std::isfinite(Value->get<double>());
+          }
+          else if (Type == "bool" || Type == "boolean")
+          {
+               Valid = Value->is_boolean();
+          }
+          else if (Type == "float[]" || Type == "vector")
+          {
+               Valid = Value->is_array() && !Value->empty() &&
+                       std::all_of(Value->begin(), Value->end(), [](const nlohmann::json &Entry)
+                                   {
+                                        return Entry.is_number() && std::isfinite(Entry.get<double>());
+                                   });
+          }
+          else if (Type == "geo" || Type == "geopoint" || Type == "geo_point" || Type == "latlon")
+          {
+               Valid = Value->is_string() ||
+                       (Value->is_array() && Value->size() == 2 &&
+                        std::all_of(Value->begin(), Value->end(), [](const nlohmann::json &Entry)
+                                    {
+                                         return Entry.is_number() && std::isfinite(Entry.get<double>());
+                                    }));
+          }
+          else if (Type == "object")
+          {
+               Valid = Value->is_object();
+          }
+          else if (Type == "json")
+          {
+               Valid = Value->is_object() || Value->is_array();
+          }
+
+          if (!Valid)
+          {
+               if (ErrorMessage)
+               {
+                    *ErrorMessage = "Field '" + FieldName + "' must match declared type '" + DeclaredType + "'";
+               }
+
+               return false;
+          }
+     }
+
+     return true;
+}
+
 static nlohmann::json BuildDocumentJSON(const Document &Doc)
 {
      nlohmann::json J;
@@ -698,6 +818,19 @@ HttpResponse SearchAPI::HandleAddDocument(const HttpRequest &Request)
           return Response;
      }
 
+     if (!IsReplicationDocumentRequest(Request))
+     {
+          nlohmann::json RawDocument = nlohmann::json::parse(Request.Body);
+          std::string SchemaError;
+          if (!ValidateDocumentSchemaTypes(CollectionName, RawDocument, &SchemaError))
+          {
+               return BuildErrorResponse(Status::BAD_REQUEST,
+                                         Code::SEARCH_INVALID_PARAMETER,
+                                         "Document does not match collection schema.",
+                                         SchemaError);
+          }
+     }
+
      bool HasMeaningfulContent = false;
 
      if (!DocumentObj.Title.empty() || !DocumentObj.Content.empty())
@@ -1138,6 +1271,18 @@ HttpResponse SearchAPI::HandleUpdateDocument(const HttpRequest &Request)
           Response.Body = "{\"error\":\"Invalid JSON\",\"message\":\"Failed to parse JSON: " + EscapeJSONString(E.what()) + "\"}";
 
           return Response;
+     }
+
+     if (!IsReplicationDocumentRequest(Request))
+     {
+          std::string SchemaError;
+          if (!ValidateDocumentSchemaTypes(CollectionName, UpdateJSON, &SchemaError))
+          {
+               return BuildErrorResponse(Status::BAD_REQUEST,
+                                         Code::SEARCH_INVALID_PARAMETER,
+                                         "Document does not match collection schema.",
+                                         SchemaError);
+          }
      }
 
      Document DocumentObj = ExistingDoc;
@@ -1949,6 +2094,16 @@ HttpResponse SearchAPI::HandleBulkImportDocuments(const HttpRequest &Request)
                ParseErrors.push_back("Document entry is not a JSON object");
 
                continue;
+          }
+
+          if (!IsReplicationDocumentRequest(Request))
+          {
+               std::string SchemaError;
+               if (!ValidateDocumentSchemaTypes(CollectionName, DocJSON, &SchemaError))
+               {
+                    ParseErrors.push_back("Schema error: " + SchemaError);
+                    continue;
+               }
           }
 
           Document DocumentObj;
