@@ -177,7 +177,14 @@ void CreateCollectionsThread(const std::string &base_url, const std::string &aut
 
           if (success)
           {
-               collections_created.fetch_add(1);
+               if (client.WasLastCollectionReused())
+               {
+                    collections_skipped.fetch_add(1);
+               }
+               else
+               {
+                    collections_created.fetch_add(1);
+               }
           }
           else
           {
@@ -211,11 +218,11 @@ void CreateCollectionsThread(const std::string &base_url, const std::string &aut
           {
                std::lock_guard<std::mutex> lock(console_mutex);
 
-               std::cout << "  Created collection " << i << " (" << total_created << "/" << total_collections << ").\n";
+               std::cout << "  Prepared collection " << i << " (" << (total_created + total_skipped_collections) << "/" << total_collections << ").\n";
                std::cout << "Collections: " << total_created << " created, " << total_skipped_collections << " skipped | " << "Documents: " << total_inserted_docs << " inserted, " << total_skipped_docs << " skipped.\n";
           }
 
-          PrintProgressBar(total_created, total_collections, "Creating collections");
+          PrintProgressBar(total_created + total_skipped_collections, total_collections, "Preparing collections");
      }
 }
 

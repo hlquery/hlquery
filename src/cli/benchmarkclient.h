@@ -80,6 +80,7 @@ class BenchmarkClient
      std::atomic<int> RequestCount;
 
      bool ReuseCollections;
+     bool LastCollectionReused = false;
      bool SSLAuthMode = false;
 
      static const int MAX_REQUESTS_PER_CONNECTION = 100;
@@ -147,6 +148,8 @@ class BenchmarkClient
 
      bool CreateCollection(const std::string &name);
      bool CreateCollection(const std::string &name, int timeout_ms);
+
+     bool WasLastCollectionReused() const { return LastCollectionReused; }
 
      bool CreateCollectionLocal(const std::string &name);
      bool CreateCollectionLocal(const std::string &name, int timeout_ms);
