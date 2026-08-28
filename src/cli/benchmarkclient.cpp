@@ -1755,6 +1755,8 @@ bool BenchmarkClient::CreateCollectionLocal(const std::string &name)
 
 bool BenchmarkClient::CreateCollectionLocal(const std::string &name, int timeout_ms)
 {
+     LastCollectionReused = false;
+
      nlohmann::json schema;
 
      schema["name"] = name;
@@ -1793,7 +1795,7 @@ bool BenchmarkClient::CreateCollectionLocal(const std::string &name, int timeout
      {
           if (ReuseCollections)
           {
-               collections_skipped.fetch_add(1);
+               LastCollectionReused = true;
 
                return true;
           }

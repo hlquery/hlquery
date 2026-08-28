@@ -71,6 +71,33 @@ test_assert_contains(
     $mainSource,
     'Detailed benchmark failures should propagate through the process exit status'
 );
+test_assert(
+    !str_contains($mainSource, '{{"name", "score"}, {"type", "float"}}'),
+    'Unorganized benchmark schema should not use the reserved score field'
+);
+test_assert_contains(
+    '{{"name", "quality_score"}, {"type", "float"}}',
+    $mainSource,
+    'Unorganized benchmark schema should use a valid score-like field'
+);
+test_assert_contains(
+    'if (response.StatusCode == 207 || imported != 100 || failed != 0)',
+    $mainSource,
+    'Partial unorganized imports should fail the requested benchmark mode'
+);
+test_assert_contains(
+    '(!reuse_collections && collections_skipped.load() != 0)',
+    $mainSource,
+    'Collection completeness checks should permit explicitly reused collections'
+);
+
+$tasksSource = file_get_contents(test_root('src/cli/benchmarktasks.cpp'));
+test_assert(is_string($tasksSource) && $tasksSource !== '', 'Benchmark task source should be readable');
+test_assert_contains(
+    'client.WasLastCollectionReused()',
+    $tasksSource,
+    'Collection setup should distinguish reused collections from newly created collections'
+);
 
 $makefileTemplate = file_get_contents(test_root('make/makefile.tpl'));
 test_assert(is_string($makefileTemplate) && $makefileTemplate !== '', 'Makefile template should be readable');

@@ -3327,7 +3327,7 @@ int main(int argc, char *argv[])
                if (!conn_error_val.empty())
                {
                     std::cerr << "✗ Cannot connect to server for unorganized collection: " << conn_error_val << ".\n";
-                    create_unorganized_val = false;
+                    return 1;
                }
 
                if (create_unorganized_val)
@@ -3338,7 +3338,7 @@ int main(int argc, char *argv[])
                     unorganized_fields.push_back({{"name", "identifier"}, {"type", "string"}});
                     unorganized_fields.push_back({{"name", "info"}, {"type", "string"}});
                     unorganized_fields.push_back({{"name", "extra"}, {"type", "string"}});
-                    unorganized_fields.push_back({{"name", "score"}, {"type", "float"}});
+                    unorganized_fields.push_back({{"name", "quality_score"}, {"type", "float"}});
                     unorganized_fields.push_back({{"name", "group"}, {"type", "string"}});
                     unorganized_fields.push_back({{"name", "tags"}, {"type", "string"}});
 
@@ -3364,7 +3364,7 @@ int main(int argc, char *argv[])
                               doc["identifier"] = "item_" + std::to_string(i);
                               doc["info"] = "Unorganized info entry " + std::to_string(i) + ". This document tests Hanalyzer ability to adapt to non-standard schemas where title and content are missing. It should still display meaningful information from other fields.";
                               doc["extra"] = "Extra metadata for item " + std::to_string(i) + " providing additional context for Search testing.";
-                              doc["score"] = static_cast<float>(rand() % 1000) / 10.0f;
+                              doc["quality_score"] = static_cast<float>(rand() % 1000) / 10.0f;
                               doc["group"] = (i % 5 == 0) ? "Alpha" : ((i % 5 == 1) ? "Beta" : ((i % 5 == 2) ? "Gamma" : "Delta"));
                               doc["tags"] = "tag" + std::to_string(i % 10) + " test unorganized";
 
@@ -3386,28 +3386,34 @@ int main(int argc, char *argv[])
                               {
                                    nlohmann::json result = nlohmann::json::parse(response.Body);
 
-                                   int imported = result.contains("imported") ? result["imported"].get<int>() : 100;
+                                   int imported = result.value("imported", 0);
+                                   int failed = result.value("failed", 0);
 
                                    LogOutput("✓ Inserted " + std::to_string(imported) + " test documents into unorganized collection.\n");
 
-                                   if (response.StatusCode == 207)
+                                   if (response.StatusCode == 207 || imported != 100 || failed != 0)
                                    {
-                                        LogOutput("  (Some documents may have failed to insert, status 207 Multi-Status).\n");
+                                        std::cerr << "✗ Unorganized import was incomplete: imported " << imported
+                                                  << "/100, failed " << failed << ".\n";
+                                        return 1;
                                    }
                               }
-                              catch (...)
+                              catch (const std::exception &error)
                               {
-                                   LogOutput("✓ Inserted 100 test documents into unorganized collection.\n");
+                                   std::cerr << "✗ Invalid unorganized import response: " << error.what() << ".\n";
+                                   return 1;
                               }
                          }
                          else
                          {
                               std::cerr << "✗ Failed to insert documents into unorganized collection (HTTP " << response.StatusCode << "): " << response.Body << ".\n";
+                              return 1;
                          }
                     }
                     else
                     {
                          std::cerr << "✗ Failed to create unorganized collection.\n";
+                         return 1;
                     }
                }
 
@@ -3890,10 +3896,12 @@ int main(int argc, char *argv[])
                return CleanupInterruptedBenchmarkRun(base_url, auth_token, num_collections, reuse_collections);
           }
 
-          if (collections_created.load() != num_collections || collections_skipped.load() != 0)
+          const int prepared_collections = collections_created.load() + collections_skipped.load();
+          if (prepared_collections != num_collections || (!reuse_collections && collections_skipped.load() != 0))
           {
-               std::cerr << "\nERROR: Collection setup incomplete: created " << collections_created.load()
-                         << "/" << num_collections << ", skipped " << collections_skipped.load() << ".\n";
+               std::cerr << "\nERROR: Collection setup incomplete: prepared " << prepared_collections
+                         << "/" << num_collections << " (created " << collections_created.load()
+                         << ", reused " << collections_skipped.load() << ").\n";
                std::cerr << "   Benchmark aborted before document insertion.\n";
                return 1;
           }
